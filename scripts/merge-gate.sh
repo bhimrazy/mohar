@@ -3,51 +3,62 @@
 # merged into origin/develop. For when Actions is unavailable (private repository, minutes used up).
 # Runs on macOS (bash 3.2, BSD tools) and Linux.
 #
-#   scripts/merge-gate.sh <pr-number>
+#   scripts/merge-gate.sh <pr-number> [<head-sha>]
 #
-# What it does:
-#   1. A throwaway worktree at origin/develop in $GATE_ROOT/gate-<pr>, with the PR head merged in (no edits; stops
-#      on a conflict). Removed on exit, pass or fail. A PR already in develop gates develop itself.
-#   2. Dependencies from the main checkout when composer.lock / package-lock.json equal its billing/ ones (and its
-#      vendor/composer/installed.json matches the lock): vendor/ is copied (links break Pest and the arch tests) and
-#      its autoloader regenerated; node_modules/ is a directory of symlinks to the main checkout's packages.
-#      Otherwise composer install / npm ci. .env from .env.example, key:generate, wayfinder:generate.
-#   3. CI's steps in CI's order, each through scripts/heavy.sh with XDEBUG_MODE=off, stopping at the first failure.
+# What it does, in ci.yml's order:
+#   1. Reads the PR head once (or takes <head-sha>, the commit whose diff you read, and refuses if the PR head differs),
+#      fetches exactly that commit and merges it into origin/develop in a throwaway worktree at $GATE_ROOT/gate-<pr>
+#      (no edits; stops on a conflict). Removed on exit, pass or fail. A PR already in develop gates develop itself.
 #      CI's change detection decides which steps run: a docs-only change takes the fast path (vp check, image sizes),
-#      the audits run only when a manifest, lockfile, .npmrc or workflow file changed. PHP runs at most
-#      $GATE_PROCESSES processes. Pest on PostgreSQL uses scripts/pg.sh gate-<pr>; the gate drops only its own
-#      databases (never pg.sh --prune). On macOS the Linux-only tests (simulators, deploy script probes) are left out
-#      of the native runs and run once in the production base image through scripts/linux.sh (SQLite).
-#   4. A one-screen summary (step, PASS/FAIL/SKIP, tests, time), also written to $GATE_ROOT/gate-<pr>.log; the full
-#      output of each step stays in $GATE_ROOT/gate-<pr>.d/. Exits non-zero on failure.
+#      the audits run only when a manifest, lockfile, .npmrc or workflow file changed.
+#   2. The policy checks before any dependency is installed or any PR code runs, as in CI: postgres pin, lockfiles
+#      in sync, audits, dependency cooldown and pinning. The cooldown checker is develop's copy, run against the PR's
+#      lockfiles, so a PR cannot weaken the check that judges it.
+#   3. Dependencies: from the main checkout when composer.lock / package-lock.json equal its billing/ ones and its
+#      installed trees match those locks (vendor/ is copied, since links break Pest and the arch tests; node_modules/
+#      is a directory of symlinks), otherwise composer install / npm ci. Then .env, key:generate, wayfinder:generate.
+#   4. The remaining steps, each through scripts/heavy.sh with XDEBUG_MODE=off, stopping at the first failure. PHP
+#      runs at most $GATE_PROCESSES processes. Pest on PostgreSQL uses scripts/pg.sh gate-<pr>; the gate drops only
+#      its own databases (never pg.sh --prune). On macOS the Linux-only tests (simulators, tests that run deploy/ or
+#      loadtest/ scripts) are left out of the native runs and run once through scripts/linux.sh (SQLite).
+#   5. A one-screen summary (step, PASS/FAIL/SKIP, tests, time, gated head), also written to $GATE_ROOT/gate-<pr>.log;
+#      the full output of each step stays in $GATE_ROOT/gate-<pr>.d/. FAIL if the PR head moved during the run.
+#      Exits non-zero on failure. One run per PR at a time ($GATE_ROOT/gate-<pr>.lock).
 #
-# The gate executes the PR's code (tests, composer and npm scripts) with your user's environment: run it only on a
-# PR whose diff you have read. PRs from forks are refused unless GATE_ALLOW_FORK=1.
+# After the policy checks the gate executes the PR's code (tests, composer and npm scripts) as you, with your
+# environment, gh token and SSH agent: run it only on a PR whose diff you have read, and pass that diff's <head-sha>.
+# PRs from forks are refused unless GATE_ALLOW_FORK=1.
 #
 # Merge flow:
-#   1. scripts/merge-gate.sh <pr>                     # must end with "RESULT: PASS"
+#   1. scripts/merge-gate.sh <pr> <head-sha>          # must end with "RESULT: PASS"
 #   2. gh pr comment <pr> --body-file $GATE_ROOT/gate-<pr>.log
 #   3. gh pr ready <pr> && gh pr merge <pr> --merge --match-head-commit <head sha from the summary>
 #      (--match-head-commit refuses the merge if anything was pushed after the gated head)
 #
-# Settings: GATE_ROOT (default <main checkout>/.worktrees/.merge-gate), GATE_PROCESSES (default 2), MAIN_CHECKOUT
+# Settings: GATE_REPO (owner/repo for gh; default from the origin remote), GATE_ROOT (default <main checkout>/.worktrees/.merge-gate), GATE_PROCESSES (default 2), MAIN_CHECKOUT
 # (default: the repository's main worktree), GATE_SCRIPTS (directory holding heavy.sh, pg.sh and linux.sh; default
 # this script's directory), GATE_CONTINUE=1 (run every step after a failure; the result is still FAIL).
 set -uo pipefail
 
 pr="${1:?usage: scripts/merge-gate.sh <pr-number>}"
 [[ "$pr" =~ ^[0-9]+$ ]] || { echo "merge-gate: <pr-number> must be a number" >&2; exit 2; }
+expected_head="${2:-}"
+[ -z "$expected_head" ] || [[ "$expected_head" =~ ^[0-9a-f]{40}$ ]] || { echo "merge-gate: <head-sha> must be a full 40-character sha" >&2; exit 2; }
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 scripts="${GATE_SCRIPTS:-$(cd "$(dirname "$0")" && pwd)}"
 common="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)" || exit 1
 main="${MAIN_CHECKOUT:-$(dirname "$common")}"
+# gh resolves the repository from the current directory unless told: always pass this one.
+gh_repo="${GATE_REPO:-$(git -C "$repo" remote get-url origin | sed -E 's#^(git@[^:]+:|ssh://git@[^/]+/|https?://[^/]+/)##; s#\.git$##')}"
 heavy="$scripts/heavy.sh"
 processes="${GATE_PROCESSES:-2}"
 root="${GATE_ROOT:-$main/.worktrees/.merge-gate}"
 dir="$root/gate-$pr"
 logs="$root/gate-$pr.d"
 summary="$root/gate-$pr.log"
+lock="$root/gate-$pr.lock"
+lock_taken=0
 pg_slug="gate-$pr"
 pg_db="billing_test_$(echo "$pg_slug" | tr -c 'a-zA-Z0-9\n' '_')"
 pg_used=0
@@ -64,20 +75,22 @@ export XDEBUG_MODE=off
 # Preconditions, before anything is created.
 fail_early() { echo "merge-gate: $*" >&2; exit 1; }
 [ -x "$heavy" ] || fail_early "$heavy not found (set GATE_SCRIPTS)"
-if ! command -v flock > /dev/null 2>&1 && ! grep -q mkdir "$heavy"; then
-    fail_early "$heavy needs flock, which this machine lacks; point GATE_SCRIPTS at a scripts/ with the mkdir-lock heavy.sh (#271)"
-fi
 if [ "$os" = Darwin ] && [ ! -x "$scripts/linux.sh" ]; then
-    fail_early "$scripts/linux.sh not found; it runs the Linux-only simulator suite on macOS (set GATE_SCRIPTS, #271)"
+    fail_early "$scripts/linux.sh not found; it runs the Linux-only tests on macOS (set GATE_SCRIPTS)"
 fi
+[[ "$gh_repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || fail_early "cannot tell the GitHub repository from origin ('$gh_repo'); set GATE_REPO=owner/repo"
 php_version="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2> /dev/null)"
 [ "$php_version" = 8.4 ] || fail_early "PHP 8.4 required on PATH (CI's version), found '${php_version:-none}'"
 command -v composer > /dev/null 2>&1 || fail_early "composer not on PATH"
 command -v docker > /dev/null 2>&1 || fail_early "docker not on PATH (PostgreSQL runs in mohar-pg)"
-[ "$(gh pr view "$pr" --json isCrossRepository --jq .isCrossRepository 2> /dev/null)" = false ] || [ "${GATE_ALLOW_FORK:-0}" = 1 ] \
+[ "$(gh pr view "$pr" -R "$gh_repo" --json isCrossRepository --jq .isCrossRepository 2> /dev/null)" = false ] || [ "${GATE_ALLOW_FORK:-0}" = 1 ] \
     || fail_early "PR #$pr is from a fork (or gh pr view failed); read its diff, then rerun with GATE_ALLOW_FORK=1"
 
 mkdir -p "$root"
+# One run per PR: a second run must not delete the first one's logs or overwrite its summary.
+mkdir "$lock" 2> /dev/null || fail_early "another gate run for #$pr holds $lock (remove it if that run is gone)"
+lock_taken=1
+trap '[ "$lock_taken" = 1 ] && rmdir "$lock"' EXIT
 rm -rf "${logs:?}"
 mkdir -p "$logs"
 
@@ -86,13 +99,17 @@ cleanup() {
         # This gate's database and the copies parallel tests made (<db>_test_<n>, <db>_test_<n>_<name>); nothing else.
         docker exec mohar-pg psql -U billing -d billing -tAc \
             "SELECT datname FROM pg_database WHERE datname = '$pg_db' OR datname ~ '^${pg_db}_test_[0-9]+(_.*)?$'" 2> /dev/null |
-            while read -r db; do [ -n "$db" ] && docker exec mohar-pg dropdb -U billing --if-exists "$db"; done
+            while read -r db; do [ -n "$db" ] && docker exec mohar-pg dropdb -U billing --if-exists --force "$db"; done
     fi
     if [ "$worktree_added" = 1 ]; then
-        git -C "$repo" worktree remove --force "${dir:?}" > /dev/null 2>&1 || true
-        [ -d "${dir:?}" ] && rm -rf "${dir:?}"
-        git -C "$repo" worktree prune
+        if ! git -C "$repo" worktree remove --force "${dir:?}" > /dev/null 2>&1; then
+            # Only when remove failed: delete the tree, then prune its now-dangling entry (prune touches only
+            # entries whose directory is gone).
+            rm -rf "${dir:?}"
+            git -C "$repo" worktree prune
+        fi
     fi
+    [ "$lock_taken" = 1 ] && rmdir "$lock" 2> /dev/null
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
@@ -144,12 +161,20 @@ when() {
 }
 
 finish() {
-    local total; total=$(seconds $(( $(date +%s) - started )))
+    local total now; total=$(seconds $(( $(date +%s) - started )))
+    if [ -n "$head" ]; then
+        now="$(gh pr view "$pr" -R "$gh_repo" --json headRefOid --jq .headRefOid 2> /dev/null)"
+        if [ "$now" != "$head" ]; then
+            printf '%-44s ' "PR head unchanged during the run"
+            row "PR head unchanged during the run" FAIL - "now ${now:-unknown}"
+            result=FAIL
+        fi
+    fi
     {
-        echo "Merge gate: PR #$pr (head ${head:0:8}) merged into origin/develop (${base:0:8}) on $os, $(date -u '+%Y-%m-%d %H:%M UTC')"
+        echo "Merge gate: PR #$pr (head $head) merged into origin/develop (${base:0:8}) on $os, $(date -u '+%Y-%m-%d %H:%M UTC')"
         printf '%s\n' ${rows[@]+"${rows[@]}"}
         echo "RESULT: $result (total $total)"
-        echo "Head: $head"
+        echo "Merge with: gh pr merge $pr -R $gh_repo --merge --match-head-commit $head"
         echo "Step output: $logs/"
     } > "$summary"
     echo
@@ -158,11 +183,19 @@ finish() {
 }
 
 # ---------------------------------------------------------------- setup
-printf '%-44s ' "setup: worktree, merge, dependencies"
+setup_name="setup: worktree, merge"
+printf '%-44s ' "$setup_name"
 setup_started=$(date +%s)
-setup_fail() { row "setup: worktree, merge, dependencies" FAIL - "$1"; result=FAIL; [ -f "$logs/00-setup.log" ] && tail -20 "$logs/00-setup.log"; finish; }
-head="$(gh pr view "$pr" --json headRefOid --jq .headRefOid)" || setup_fail "gh pr view $pr failed"
-git -C "$repo" fetch -q origin develop "pull/$pr/head" || setup_fail "fetch failed"
+setup_fail() { row "$setup_name" FAIL - "$1"; result=FAIL; [ -f "$logs/00-setup.log" ] && tail -20 "$logs/00-setup.log"; finish; }
+# The head is read once; everything below uses this sha, never the PR's ref.
+head="$(gh pr view "$pr" -R "$gh_repo" --json headRefOid --jq .headRefOid)" && [[ "$head" =~ ^[0-9a-f]{40}$ ]] \
+    || { head=""; setup_fail "gh pr view $pr failed"; }
+if [ -n "$expected_head" ] && [ "$head" != "$expected_head" ]; then
+    setup_fail "PR head is $head, not the $expected_head you reviewed"
+fi
+git -C "$repo" fetch -q origin develop || setup_fail "fetch of develop failed"
+git -C "$repo" fetch -q origin "pull/$pr/head" || setup_fail "fetch of pull/$pr/head failed"
+[ "$(git -C "$repo" rev-parse FETCH_HEAD)" = "$head" ] || setup_fail "pull/$pr/head moved after it was read ($head)"
 base="$(git -C "$repo" rev-parse origin/develop)"
 git -C "$repo" worktree add -q --detach "$dir" "$base" > "$logs/00-setup.log" 2>&1 || setup_fail "worktree add failed ($dir exists?)"
 worktree_added=1
@@ -192,9 +225,47 @@ if [ -n "$files" ]; then
     if grep -qE "$audit_re" <<< "$files"; then audit=true; else audit=false; fi
 fi
 policy=false; { [ "$code" = true ] || [ "$deps" = true ]; } && policy=true
-
 app="$dir/billing"
 mainapp="$main/billing"
+setup_note="${head:0:8} into ${base:0:8}"
+[ "$merged_already" = 1 ] && setup_note="$setup_note, already in develop"
+[ "$code" = false ] && setup_note="$setup_note, docs-only fast path"
+row "$setup_name" PASS "$(seconds $(( $(date +%s) - setup_started )))" "$setup_note"
+
+# Security exceptions as CI reads them: the label, then the "Security-Exception:" lines of the PR body.
+if gh pr view "$pr" -R "$gh_repo" --json labels --jq '.labels[].name' | grep -qx security-exception; then
+    DEPENDENCY_AGE_EXCEPTIONS="$(gh pr view "$pr" -R "$gh_repo" --json body --jq .body | grep -iE '^[[:space:]]*Security-Exception:' || true)"
+    export DEPENDENCY_AGE_EXCEPTIONS
+fi
+
+# ---------------------------------------------------------------- policy, before install (CI's order)
+# No dependency is installed yet and these run no PR code: grep, composer validate/audit on the lock (no vendor/, so
+# no plugins or scripts), npm audit on the lockfile, and develop's dependency checker (Node built-ins only). It is
+# placed inside the PR's billing/ so its app root (its parent directory) is the PR tree, and removed afterwards.
+policy_dir="$app/.merge-gate-policy"
+when "$code" "postgres pin matches compose.yaml" bash -c '
+    pattern="postgres:[0-9.]+-alpine[0-9.]*@sha256:[0-9a-f]{64}"
+    a=$(grep -Eo "$pattern" compose.yaml | sort -u); b=$(grep -Eo "$pattern" ../.github/workflows/ci.yml | sort -u)
+    c=$(grep -Eo "$pattern" ../deploy/compose.prod.yaml 2>/dev/null | sort -u)
+    echo "compose.yaml: ${a:-<none>}"; echo "ci.yml: ${b:-<none>}"; echo "compose.prod.yaml: ${c:-<none>}"
+    [ -n "$a" ] && [ "$(wc -l <<< "$a")" -eq 1 ] && [ "$a" = "$b" ] && [ "$a" = "$c" ]'
+when "$policy" "lockfiles in sync" composer validate --no-check-publish
+when "$audit" "security audits" bash -c '
+    composer audit --locked && npm audit --audit-level=high --package-lock-only \
+        && (cd ../docs-site && npm audit --audit-level=high --package-lock-only)'
+if [ "$policy" = true ]; then
+    mkdir -p "$policy_dir" && git -C "$dir" archive "$base" billing/scripts | tar -x -C "$policy_dir" -f - \
+        && mv "$policy_dir"/billing/scripts/*.mjs "$policy_dir"/ && rm -rf "${policy_dir:?}/billing"
+fi
+when "$policy" "dependency cooldown and pinning (develop's checker)" node "$policy_dir/check-dependency-age.mjs" \
+    "$([ "$dep_base" = --all ] && echo --all || echo "--base=$dep_base")"
+rm -rf "${policy_dir:?}"
+
+# ---------------------------------------------------------------- dependencies (PR code may run from here on)
+setup_name="setup: dependencies, .env"
+printf '%-44s ' "$setup_name"
+setup_started=$(date +%s)
+
 deps_note=""
 # The main checkout's vendor/ is reused only when it is installed from the same lock: same composer.lock, and its
 # vendor/composer/installed.json lists exactly the lock's packages and versions.
@@ -222,7 +293,17 @@ else
     (cd "$app" && "$heavy" composer install -q --no-interaction --no-progress) >> "$logs/00-setup.log" 2>&1 || setup_fail "composer install failed"
     deps_note="composer install"
 fi
-if cmp -s "$app/package-lock.json" "$mainapp/package-lock.json" && [ -d "$mainapp/node_modules" ]; then
+# The main checkout's node_modules/ is reused only when its hidden lockfile (what npm installed) agrees with the lock:
+# every installed package at the locked version, every non-optional locked package installed.
+node_modules_match_lock() {
+    node -e 'const fs = require("fs");
+        const lock = JSON.parse(fs.readFileSync(process.argv[1], "utf8")).packages ?? {};
+        let have; try { have = JSON.parse(fs.readFileSync(process.argv[2], "utf8")).packages ?? {}; } catch { process.exit(1); }
+        const bad = Object.entries(have).some(([k, v]) => lock[k]?.version !== v.version)
+            || Object.entries(lock).some(([k, v]) => k !== "" && !v.optional && !(k in have));
+        process.exit(bad ? 1 : 0);' "$app/package-lock.json" "$mainapp/node_modules/.package-lock.json"
+}
+if cmp -s "$app/package-lock.json" "$mainapp/package-lock.json" && [ -d "$mainapp/node_modules" ] && node_modules_match_lock; then
     mkdir -p "$app/node_modules"
     for entry in "$mainapp"/node_modules/* "$mainapp"/node_modules/.bin "$mainapp"/node_modules/.package-lock.json; do
         [ -e "$entry" ] || continue
@@ -240,18 +321,13 @@ fi
 node_have="$(node --version 2> /dev/null | sed 's/^v//')"
 node_want="$(tr -d '[:space:]v' < "$app/.nvmrc")"
 [ "$node_have" = "$node_want" ] || deps_note="$deps_note, node $node_have (CI: $node_want)"
-[ "$merged_already" = 1 ] && deps_note="$deps_note, already in develop"
-[ "$code" = false ] && deps_note="$deps_note, docs-only fast path"
-row "setup: worktree, merge, dependencies" PASS "$(seconds $(( $(date +%s) - setup_started )))" "$deps_note"
+composer_have="$(composer --version --no-ansi 2> /dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+composer_want="$(grep -Eo 'composer:[0-9.]+' "$dir/.github/workflows/ci.yml" | head -1 | cut -d: -f2)"
+[ "$composer_have" = "$composer_want" ] || deps_note="$deps_note, composer ${composer_have:-?} (CI: ${composer_want:-?})"
+row "$setup_name" PASS "$(seconds $(( $(date +%s) - setup_started )))" "$deps_note"
 
 # PHPStan has no CLI option for its worker count: a local config caps it.
 printf 'includes:\n    - phpstan.neon\nparameters:\n    parallel:\n        maximumNumberOfProcesses: %s\n' "$processes" > "$app/phpstan.gate.neon"
-
-# Security exceptions as CI reads them: the label, then the "Security-Exception:" lines of the PR body.
-if gh pr view "$pr" --json labels --jq '.labels[].name' | grep -qx security-exception; then
-    DEPENDENCY_AGE_EXCEPTIONS="$(gh pr view "$pr" --json body --jq .body | grep -iE '^[[:space:]]*Security-Exception:' || true)"
-    export DEPENDENCY_AGE_EXCEPTIONS
-fi
 
 # On macOS some tests need Linux: the simulators (setsid, /proc) and the deploy script probes (GNU realpath -m;
 # production runs deploy/bin/deploy on Linux). A gate-only phpunit config moves them into a "Linux only" suite that the
@@ -290,18 +366,7 @@ if [ "$os" = Darwin ]; then
     pgsql_args=(--parallel --processes="$processes" --configuration=phpunit.gate.xml --exclude-testsuite="Unit,Arch,$linux_only_suite")
 fi
 
-# ---------------------------------------------------------------- CI's steps, in CI's order
-when "$code" "postgres pin matches compose.yaml" bash -c '
-    pattern="postgres:[0-9.]+-alpine[0-9.]*@sha256:[0-9a-f]{64}"
-    a=$(grep -Eo "$pattern" compose.yaml | sort -u); b=$(grep -Eo "$pattern" ../.github/workflows/ci.yml | sort -u)
-    c=$(grep -Eo "$pattern" ../deploy/compose.prod.yaml 2>/dev/null | sort -u)
-    echo "compose.yaml: ${a:-<none>}"; echo "ci.yml: ${b:-<none>}"; echo "compose.prod.yaml: ${c:-<none>}"
-    [ -n "$a" ] && [ "$(wc -l <<< "$a")" -eq 1 ] && [ "$a" = "$b" ] && [ "$a" = "$c" ]'
-when "$policy" "lockfiles in sync" composer validate --no-check-publish
-when "$audit" "security audits" bash -c '
-    composer audit --locked && npm audit --audit-level=high --package-lock-only \
-        && (cd ../docs-site && npm audit --audit-level=high --package-lock-only)'
-when "$policy" "dependency cooldown and pinning" node scripts/check-dependency-age.mjs "$([ "$dep_base" = --all ] && echo --all || echo "--base=$dep_base")"
+# ---------------------------------------------------------------- CI's steps after install, in CI's order
 step "vp check (format + lint)" npx vp check
 step "image sizes" npm run images:check
 when "$code" "Pint" vendor/bin/pint --parallel --max-processes="$processes" --test
