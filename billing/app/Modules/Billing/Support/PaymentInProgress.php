@@ -111,7 +111,9 @@ class PaymentInProgress
             'check_url' => route('billing.gateways.return', [$attempt->gateway, 'ref' => $attempt->reference]),
             'can_pay_another_way' => ! self::blocks($attempt),
             // Only a pending attempt the provider may still take: one in staff review might already be paid.
-            'can_resume' => ! $staff && $known && self::closable($attempt) && $this->gateways->driver($attempt->gateway) instanceof ResumesHostedPayment,
+            // Only while the invoice still has something to pay (ResumeHostedPayment checks again on the click).
+            'can_resume' => ! $staff && $known && self::closable($attempt) && $invoice->status->isPayable() && $invoice->balance > 0
+                && $this->gateways->driver($attempt->gateway) instanceof ResumesHostedPayment,
             // Only drivers that can close the provider session (Stripe), never eSewa or Khalti (CTO decision on #266).
             'can_close' => ! $staff && $known && self::closable($attempt) && $this->gateways->driver($attempt->gateway) instanceof CancelsHostedPayment,
             'review_reason' => $staff ? $attempt->review_reason : null,

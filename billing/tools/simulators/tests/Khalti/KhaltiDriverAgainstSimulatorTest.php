@@ -207,3 +207,69 @@ test('Test connection accepts the simulator key and names a rejected one', funct
         ->and($driver->testConnection(khaltiConfig('test_secret_key_wrong'))->ok)->toBeFalse()
         ->and($driver->testConnection(khaltiConfig('test_secret_key_wrong'))->message)->toContain('rejected the secret key');
 });
+
+test('Continue payment reopens the same payment page while Khalti says Initiated (#251)', function () {
+    [$invoice, $attempt, $page] = khaltiStart();
+
+    $this->get(route('client.invoices.attempts.resume', [$invoice->id, $attempt->reference]))->assertRedirect($page);
+    expect(khaltiBrowser()->get($page)->body())->toContain('Rs 1,130.55')
+        ->and($attempt->fresh()->status)->toBe(AttemptStatus::Pending);
+
+    // The reopened page still pays, once.
+    $this->get(khaltiChoose($attempt, 'pay'));
+    expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)->and(Transaction::query()->count())->toBe(1);
+});
+
+test('a session Khalti no longer serves is never resumed, and the invoice shows where it stands (#251)', function (string $action, AttemptStatus $settled) {
+    [$invoice, $attempt] = khaltiStart();
+    $this->scenario->simulator()->actions()[$action](['pidx' => $attempt->provider_ref], $this->scenario);
+
+    expect(app(KhaltiDriver::class)->resumeUrl(khaltiConfig(), $attempt->fresh()->toRef(interactive: true, withResumeUrl: true)))->toBeNull();
+
+    $this->get(route('client.invoices.attempts.resume', [$invoice->id, $attempt->reference]))->assertRedirect(route('client.invoices.show', $invoice->id));
+    expect($attempt->fresh()->status)->toBe($settled);
+})->with([
+    'expired' => ['expire', AttemptStatus::Expired],
+    'cancelled' => ['cancel', AttemptStatus::Failed],
+    'completed' => ['pay', AttemptStatus::Succeeded],
+]);
+
+test('a Pending session (paid, bank confirming) is not resumed: the client is told it is being confirmed (#251)', function () {
+    [$invoice, $attempt] = khaltiStart();
+    $this->scenario->simulator()->actions()['pending'](['pidx' => $attempt->provider_ref], $this->scenario);
+    $lookups = $this->scenario->log()->count('lookup');
+
+    expect(app(KhaltiDriver::class)->resumeUrl(khaltiConfig(), $attempt->fresh()->toRef(interactive: true, withResumeUrl: true)))->toBeNull();
+    $this->get(route('client.invoices.attempts.resume', [$invoice->id, $attempt->reference]))
+        ->assertSessionHasErrors(['billing' => 'Your payment is being confirmed. This invoice updates once it is, so you don\'t need to pay again.']);
+    // One lookup for the driver call above, and one for the click: the refused resume settles from its own answer.
+    expect($this->scenario->log()->count('lookup'))->toBe($lookups + 2)
+        ->and($attempt->fresh()->status)->toBe(AttemptStatus::Pending);
+});
+
+test('a kept payment_url for another pidx is refused without asking Khalti (#251)', function () {
+    [, $attempt] = khaltiStart();
+    $attempt->forceFill(['resume_url' => $this->scenario->apiUrl().'/?pidx=SomeoneElsesPidx'])->save();
+    $lookups = $this->scenario->log()->count('lookup');
+
+    expect(app(KhaltiDriver::class)->resumeUrl(khaltiConfig(), $attempt->fresh()->toRef(interactive: true, withResumeUrl: true)))->toBeNull()
+        ->and($this->scenario->log()->count('lookup'))->toBe($lookups);
+});
+
+test('a tampered stored payment_url is refused without asking Khalti (#251)', function (string $url) {
+    [$invoice, $attempt] = khaltiStart();
+    $attempt->forceFill(['resume_url' => $url])->save();
+    $lookups = $this->scenario->log()->count('lookup');
+
+    expect(app(KhaltiDriver::class)->resumeUrl(khaltiConfig(), $attempt->fresh()->toRef(interactive: true, withResumeUrl: true)))->toBeNull()
+        ->and($this->scenario->log()->count('lookup'))->toBe($lookups);
+
+    $response = $this->get(route('client.invoices.attempts.resume', [$invoice->id, $attempt->reference]));
+    expect((string) $response->headers->get('Location'))->not->toContain('evil')
+        ->and($attempt->fresh()->status)->toBe(AttemptStatus::Pending);
+})->with([
+    'another host' => ['https://evil.example/?pidx=x'],
+    'look-alike host' => ['https://khalti.com.evil.example/?pidx=x'],
+    'plain http' => ['http://khalti.com/?pidx=x'],
+    'userinfo' => ['https://khalti.com@evil.example/'],
+]);

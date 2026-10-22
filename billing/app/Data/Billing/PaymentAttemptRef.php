@@ -18,5 +18,6 @@ final readonly class PaymentAttemptRef
         public ?string $providerTxnId = null,
         public ?CarbonImmutable $expiresAt = null,
         public bool $interactive = false,
+        #[\SensitiveParameter] public ?string $resumeUrl = null,
     ) {}
 }

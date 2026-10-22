@@ -329,7 +329,7 @@ conformance tests. That is a data file, not running code, but it still goes thro
     - the Khalti refund `amount` unit (paisa; the driver keeps partial refunds off until a sandbox proves it, spec §8.2);
     - eSewa's answer for an expired booking (`NOT_FOUND`, like a cancelled one), and where a PENDING customer is sent (the failure URL).
     - The Khalti return parameters are those the docs list; nothing in them is trusted.
-- **Not covered.** Khalti's `ResumesHostedPayment` (#251) is a separate PR. The simulator keeps `payment_url` stable per pidx and serves the page while the session is `Initiated`, which is what it needs.
+- **Khalti's `ResumesHostedPayment`** (#251) came in a later PR and is tested against this simulator, which keeps `payment_url` stable per pidx and serves the page while the session is `Initiated`.
 
 ## Limits: what simulators cannot prove
 

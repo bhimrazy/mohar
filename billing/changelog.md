@@ -33,6 +33,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   and unavailable names, an unavailable registry, insufficient funds, a transfer waiting for its auth code, the
   allow-list refusal, a daily-reset style wipe, and the framework's timeout-after-commit and rate-limit faults.
   Development and tests only; no product, schema, permission or setting change.
+- **Continue payment for Khalti (#251).** A client whose Khalti payment is still open (for example after closing the Khalti tab) sees **Continue payment** on the invoice, as with Stripe, and goes back to the same Khalti payment page. The hint beside it no longer mentions "use another method" when the gateway offers no such button (Khalti). It is offered only while the invoice still has a balance and Khalti's lookup says the session is `Initiated`. An expired, cancelled, completed or bank-pending session is never reopened: the attempt is settled from that one lookup, and the client is told the next step (for a bank-pending payment, that it is being confirmed). The page URL from Khalti is kept on the payment attempt, encrypted with `APP_KEY` (covered by `security:reencrypt`), dropped once the attempt is no longer pending, and never logged or sent to the browser before the click. For every gateway, Continue payment now refuses an invoice that no longer has anything to pay, and when the provider can't be reached it suggests another method only where that button exists. eSewa stays without Continue payment. Schema: new nullable column `payment_attempts.resume_url` (expand only). No permission or setting change.
 
 - **Khalti and eSewa simulators (#208, ADR 0016 S5).** Developers and CI can run Khalti KPG-2 checkout (initiate, the hosted page, the return and the lookup, and refunds) and eSewa ePay v2 (the signed form, the payment page, the signed return and the status check) as local TLS simulators: `php artisan simulate:start khalti` or `esewa`. Control actions cover success, cancel, pending then completed or expired, amount mismatch, forged or badly signed returns, duplicate returns, lookup timeouts, and refunded or partly refunded payments. The drivers are tested against them in NPR with paisa. `simulate:e2e` and the opt-in `E2E simulators` CI job now also run the hosting lifecycle in NPR through eSewa and through Khalti. The Khalti and eSewa drivers take their endpoints from `INTEGRATION_ENDPOINTS` in `local` and `testing` only, like Stripe; with no override nothing changes. eSewa's Test connection now succeeds only on a redirect to `esewa.com.np` or one of its subdomains; a look-alike host such as `esewa.com.np.evil.example` used to pass. No schema, permission or setting change.
 
@@ -40,6 +41,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **Nepal-first demo data (#39).** The demo is now a Nepal install: NPR is the default currency, the company time zone is
+  Asia/Kathmandu, dates read "22 Oct 2026" and Bikram Sambat dates show beside invoice dates. The showcase client is a
+  Lalitpur company (Sujata Shrestha, Himal Labs Pvt. Ltd.) with a buyer PAN, NPR invoices at 13% VAT at the catalogue
+  prices, eSewa and Khalti payments (when PaymentsNepal is installed) and a client-registered himallabs.com.np with no
+  fee; no seeded invoice bills a `.np` domain. Eleven more generated Nepali clients follow, and one US client (USD, NY
+  sales tax) stays last so multi-currency still shows. Catalog and domain list prices are converted from US dollars, so
+  they are right under any default currency. Seeded invoices are always issued on or before their due date, including
+  the 90-day history. The quote PDF prints "valid until" in the Date format setting, the invoice PDF prints the buyer's
+  country name and one "PAN/VAT No." line when the seller's PAN is the VAT number, the client invoice shows "eSewa"
+  as staff named it, and the client dashboard no longer ends with ".." after a company name ending in "Ltd.". Demo
+  invoice numbers now pad to five digits (INV-01957), the Nepal install default. Demo data only: re-run `php artisan migrate:fresh --seed`; `db:seed` in production is unchanged; no schema, permission or
+  setting change.
+- **Simulator scenarios pick ports below the ephemeral range, per test worker (#209).** The simulators (dev-only) chose
+  ports with `:0`, which the kernel takes from the range outgoing connections use, so a port could vanish before the
+  simulator bound it and `PortRetryTest` failed under parallel runs. Ports now come from 20000 up to the kernel's
+  ephemeral range, each probed by binding, in a slice per parallel worker. No schema or setting change.
 - **Registrar submission refuses `.np` domains (#280).** A pending domain under a TLD marked "Registered by the client
   at the registry" (on by default for `.np` and its second levels), or a `.np` name outside the registry's second
   levels such as `asha.np`, is never sent to a registrar, even when staff created it with a registrar key. It stays
