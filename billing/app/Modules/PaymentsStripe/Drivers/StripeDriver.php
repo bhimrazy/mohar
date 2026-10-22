@@ -629,7 +629,8 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
      * escalates sends `charge.dispute.funds_withdrawn`, which books the chargeback then. A close with funds withdrawn
      * is passed on: `won` as the win, `lost` as the chargeback (the backstop for an install not subscribed to
      * funds_withdrawn; one chargeback per dispute id). Any other close (an inquiry closed as `warning_closed`) is
-     * acknowledged and changes nothing.
+     * acknowledged and changes nothing. A won close whose balance transactions show the withdrawal and the
+     * reinstatement is flagged `fundsReinstated`, so Billing acknowledges it when no chargeback was booked (#232).
      */
     private function disputeEvent(GatewayConfig $gateway, WebhookContext $context, bool $closed = false): CallbackEvent|CallbackRejection
     {
@@ -659,6 +660,15 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
             return $context->ignored($status === 'warning_closed' ? 'inquiry closed' : 'dispute closed with no funds withdrawn');
         }
 
+        $reinstated = $status === 'won' && $withdrawn && self::fundsReinstated($dispute);
+
+        // A created or funds_withdrawn delivered after the dispute was won (a retry, or an escalated inquiry whose
+        // withdrawal was never subscribed to): the money already came back, so booking a chargeback now would leave
+        // one nothing reverses (#232).
+        if (! $closed && $reinstated) {
+            return $context->ignored('dispute already won; funds withdrawn and reinstated');
+        }
+
         return new CallbackEvent(
             type: match (true) {
                 // A lost dispute is passed on as its chargeback: booked here when `charge.dispute.funds_withdrawn`
@@ -676,7 +686,27 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
             reason: is_string($dispute['reason'] ?? null) ? 'dispute: '.$dispute['reason'] : 'dispute',
             raw: [...$context->raw(), 'dispute' => $dispute['id'], 'payment_intent' => $intent, 'amount' => $dispute['amount'], 'currency' => $currency, 'status' => $dispute['status'] ?? null],
             sentAt: $context->sentAt,
+            fundsReinstated: $closed && $reinstated,
         );
+    }
+
+    /**
+     * Whether one of the dispute's balance transactions put money back into the Stripe balance (a positive amount):
+     * the reinstatement of a won dispute.
+     *
+     * @param  array<string, mixed>  $dispute
+     */
+    private static function fundsReinstated(array $dispute): bool
+    {
+        $transactions = is_array($dispute['balance_transactions'] ?? null) ? $dispute['balance_transactions'] : [];
+
+        foreach ($transactions as $transaction) {
+            if (is_array($transaction) && is_int($transaction['amount'] ?? null) && $transaction['amount'] > 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

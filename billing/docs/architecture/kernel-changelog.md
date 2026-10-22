@@ -6,6 +6,23 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Payment follow-ups (#232, #221)
+
+- New event `App\Events\Billing\PaymentReinstated(invoiceId, clientId, transactionId, chargebackTransactionId,
+  amount, currency, reviewAmount = 0)` (compatible addition, #221): a won dispute undid a chargeback. The counterpart
+  of `PaymentReversed`, one to one: Billing's `RecordDisputeWon` dispatches, after commit, one per chargeback row that
+  fired `PaymentReversed`, with the same invoice and amount (one per invoice of a combined charge; none for a dispute
+  that took back only credit), whether or not the invoice is settled again. `transactionId` is the win's
+  `chargeback_reversal` row, `chargebackTransactionId` the chargeback row, `reviewAmount` the part held for staff
+  review. Implements `DomainEvent` and
+  `ShouldDispatchAfterCommit`. Notifications publishes it as the `payment.reinstated` webhook, and `PaymentReversed`
+  as `payment.reversed`; with Notifications absent nothing listens.
+- `App\Data\Billing\CallbackEvent` gains a trailing `bool $fundsReinstated = false` (compatible, #232): on
+  `DISPUTE_WON`, the provider's record shows the disputed money withdrawn and reinstated, so a win with no booked
+  chargeback is acknowledged (200, a zero-amount `chargeback_reversal` row as the won marker, no money moved) instead of
+  refused with 409. Set by the Stripe driver from the
+  dispute's balance transactions; other drivers keep the 409-and-retry behaviour.
+
 ### Resume or cancel a hosted payment (#123)
 
 - New opt-in capability `App\Contracts\Billing\ResumesHostedPayment::resumeUrl(GatewayConfig, PaymentAttemptRef):
