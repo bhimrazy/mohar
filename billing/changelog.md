@@ -362,6 +362,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   emails the client (new editable template "Identity document decision"), with the reason for a decline and one
   button to the verification page. Each opening, image view, approval and decline is in the activity log, without
   the number or the image.
+- Staff review: when the 15-minute window ends, the page hides the numbers and images at once and reloads, and the
+  browser history of the review page is cleared on the first page after the window ends, so Back or a restored tab no
+  longer brings the numbers back (#240). Logging out while documents are shown clears it too, and so does every visit
+  to the login or two-factor challenge page, where a session that ended on the server (idle expiry, deactivated
+  account) leads. A new **Hide documents** button ends the window early for that client; it needs no password and is
+  recorded in the activity log ("Identity documents hidden again", event `kyc.documents.closed`). New route `POST
+  admin/kyc/clients/{client}/lock` (permission `kyc.documents.view` or `kyc.documents.review`); no schema change.
 
 ### Client import
 
