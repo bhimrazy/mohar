@@ -20,6 +20,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   stack (`down -v` needs both colours' profiles), asks you to keep the `APP_KEY` of every backup, and has a checklist
   and the drill's timings. `deploy/bin/deploy` no longer needs GNU `realpath` (it stopped on macOS). No schema,
   permission or setting change.
+- **Two time-boundary tests no longer fail on a second tick (#310, #322).** The auth throttle test and the KYC unlock-seconds test now freeze time, so Retry-After and the seconds left are measured from one instant. Tests only; no product, schema or permission change.
 
 ### Upgrade notes
 
