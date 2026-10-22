@@ -109,14 +109,24 @@ class InvoicePdf
 
     public function renderQuote(Quote $quote): string
     {
+        return Pdf::loadView('billing::pdf.quote', $this->quoteViewData($quote))->setPaper(strtolower($this->settings->string('pdf.paper', 'A4')))->output();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function quoteViewData(Quote $quote): array
+    {
         $quote->loadMissing(['items', 'client']);
         $seller = $this->seller->snapshot();
+        $dateFormat = DateFormats::current();
 
-        return Pdf::loadView('billing::pdf.quote', [
+        return [
             'quote' => $quote,
             'company' => ['name' => (string) $seller['legal_name'], 'email' => (string) ($seller['email'] ?? '')],
             'money' => fn (int $amount): string => $this->money->format($amount, $quote->currency),
-        ])->setPaper(strtolower($this->settings->string('pdf.paper', 'A4')))->output();
+            'date' => fn (?CarbonInterface $date): string => $date?->format($dateFormat) ?? '—',
+        ];
     }
 
     public function filename(Invoice $invoice): string

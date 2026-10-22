@@ -78,13 +78,13 @@ class DomainsSeeder extends DemoSeeder
 
         $today = CarbonImmutable::today();
         $demoDomains = [
-            ['demolabs', '.com', DomainStatus::Active, $today->addDays(21)],
-            ['demolabs', '.io', DomainStatus::Active, $today->addMonths(9)],
+            ['himallabs', '.com', DomainStatus::Active, $today->addDays(21)],
+            ['himallabs', '.io', DomainStatus::Active, $today->addMonths(9)],
             ['demo-shop', '.co.uk', DomainStatus::Active, $today->addYears(2)->addMonths(3)],
-            ['demolabs', '.net', DomainStatus::Grace, $today->subDays(6)],
+            ['himallabs', '.net', DomainStatus::Grace, $today->subDays(6)],
             ['demo-archive', '.org', DomainStatus::Redemption, $today->subDays(40)],
             ['demo-old', '.com', DomainStatus::Expired, $today->subMonths(5)],
-            ['demolabs', '.org', DomainStatus::Pending, null],
+            ['himallabs', '.org', DomainStatus::Pending, null],
             ['demo-move', '.com', DomainStatus::PendingTransfer, null],
         ];
 
@@ -143,7 +143,7 @@ class DomainsSeeder extends DemoSeeder
             'recurring_amount' => (int) $renew,
             'currency' => $client->currency,
             'auto_renew' => $status !== DomainStatus::Expired,
-            'id_protection' => $sld === 'demolabs',
+            'id_protection' => $sld === 'himallabs',
             'dns_management' => true,
             'registrar_lock' => $pending ? null : true,
             'nameservers' => ['ns1.example-host.com', 'ns2.example-host.com'],

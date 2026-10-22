@@ -12,6 +12,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **Nepal-first demo data (#39).** The demo's showcase client is now a Lalitpur company paying in NPR with 13% VAT, a buyer PAN
+  and eSewa or Khalti payments (when the PaymentsNepal module is installed); 11 more generated Nepali clients follow, and one
+  US client (USD, NY sales tax) stays last so multi-currency still shows. Seeded invoices are always issued on or before their
+  due date, including the 90-day history, and the quote PDF prints "valid until" in the Date format setting. Demo data only:
+  re-run `php artisan migrate:fresh --seed` to get it; no schema, permission or setting change.
 - **Sizing and restore docs (CEO review 2026-10-22).** Every doc now gives 2 vCPU and 4 GB as the minimum for the
   production stack (it said 8 GB in `production.md` and the docs site), with the measured memory and when to grow
   (`sizing.md`). The backup and restore steps were run end to end once; the restore section now says how to remove a

@@ -53,9 +53,18 @@ class CoreSeeder extends DemoSeeder
         ]);
 
         if ($demoUser->clients()->doesntExist()) {
-            Client::factory()->create(['first_name' => 'Demo', 'last_name' => 'Customer', 'email' => 'demo@example.com', 'company_name' => 'Demo Labs'])
-                ->users()->attach($demoUser, ['is_owner' => true]);
-            Client::factory()->count(12)->create();
+            // The showcase client is a Lalitpur company paying in NPR with 13% VAT; the one US client comes last, so
+            // multi-currency shows without leading the demo.
+            Client::factory()->nepal()->create([
+                'first_name' => 'Demo', 'last_name' => 'Customer', 'email' => 'demo@example.com', 'company_name' => 'Himal Labs Pvt. Ltd.',
+                'phone' => '+977 9812345678', 'address_1' => 'Pulchowk Road 14', 'city' => 'Lalitpur', 'state' => 'Bagmati', 'postcode' => '44700',
+                'tax_id' => '305412876',
+            ])->users()->attach($demoUser, ['is_owner' => true]);
+            Client::factory()->nepal()->count(11)->create();
+            Client::factory()->create([
+                'first_name' => 'Olivia', 'last_name' => 'Bennett', 'company_name' => 'Northwind Labs', 'email' => 'olivia.bennett@example.com',
+                'address_1' => '100 Market Street', 'city' => 'New York', 'state' => 'NY', 'postcode' => '10001',
+            ]);
         }
     }
 }

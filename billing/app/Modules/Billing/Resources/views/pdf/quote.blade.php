@@ -9,7 +9,7 @@
         <td>
             <h1>{{ __('Quote') }} {{ $quote->displayNumber() }}</h1>
             <div class="muted">{{ $quote->subject }}</div>
-            <div class="muted">{{ __('Valid until') }}: {{ $quote->valid_until?->toDateString() ?? '—' }}</div>
+            <div class="muted">{{ __('Valid until') }}: {{ $date($quote->valid_until) }}</div>
         </td>
         <td class="right"><strong>{{ $company['name'] }}</strong><br><span class="muted">{{ $company['email'] }}</span></td>
     </tr>

@@ -1,6 +1,7 @@
 <?php
 
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Billing\Services\InvoicePdf;
 use App\Modules\Core\Models\Client;
@@ -77,4 +78,13 @@ test('invoice dates follow the date format setting and ignore values off the lis
 
     app(Settings::class)->set('core.date_format', 'YYYY-MM-DD');
     expect(renderInvoiceHtml($invoice->fresh()))->toContain($due->format('M j, Y'))->not->toContain('YYYY');
+});
+
+test('the quote PDF prints its valid-until date in the date format setting', function () {
+    $quote = Quote::factory()->create(['client_id' => Client::factory()->create(['currency' => 'NPR'])->id, 'currency' => 'NPR', 'valid_until' => '2026-11-05', 'tax1_amount' => 0, 'tax2_amount' => 0]);
+
+    app(Settings::class)->set('core.date_format', 'j M Y');
+    $html = view('billing::pdf.quote', app(InvoicePdf::class)->quoteViewData($quote))->render();
+
+    expect($html)->toContain('5 Nov 2026')->not->toContain('2026-11-05');
 });

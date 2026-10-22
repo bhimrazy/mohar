@@ -65,16 +65,16 @@ class PlatformSeeder extends DemoSeeder
 
         if ($demo !== null && $demo->contacts()->doesntExist()) {
             $demo->forceFill(['client_group_id' => $resellers->id])->save();
-            Contact::factory()->for($demo)->create(['first_name' => 'Ada', 'last_name' => 'Accounts', 'email' => 'accounts@demolabs.test', 'email_preferences' => ['general' => false, 'invoice' => true, 'support' => false, 'product' => false, 'domain' => false]]);
-            Contact::factory()->for($demo)->create(['first_name' => 'Tom', 'last_name' => 'Tech', 'email' => 'tech@demolabs.test']);
+            Contact::factory()->for($demo)->create(['first_name' => 'Ada', 'last_name' => 'Accounts', 'email' => 'accounts@himallabs.test', 'email_preferences' => ['general' => false, 'invoice' => true, 'support' => false, 'product' => false, 'domain' => false]]);
+            Contact::factory()->for($demo)->create(['first_name' => 'Tom', 'last_name' => 'Tech', 'email' => 'tech@himallabs.test']);
 
-            $helper = User::query()->firstOrCreate(['email' => 'helper@demolabs.test'], ['name' => 'Helen Helper', 'password' => 'password', 'email_verified_at' => now()]);
+            $helper = User::query()->firstOrCreate(['email' => 'helper@himallabs.test'], ['name' => 'Helen Helper', 'password' => 'password', 'email_verified_at' => now()]);
             $demo->users()->syncWithoutDetaching([$helper->id => ['is_owner' => false, 'permissions' => json_encode(['billing', 'support'])]]);
 
             $admin = User::query()->where('email', 'admin@example.com')->first();
             $activity->log('Client created', $demo, $demo->id, event: 'client.created', actor: $admin);
-            $activity->log('Contact accounts@demolabs.test added', $demo, $demo->id, event: 'contact.created', actor: $admin);
-            $activity->log('Login helper@demolabs.test added to the account', $helper, $demo->id, ['permissions' => ['billing', 'support']], 'client.user_added', $admin);
+            $activity->log('Contact accounts@himallabs.test added', $demo, $demo->id, event: 'contact.created', actor: $admin);
+            $activity->log('Login helper@himallabs.test added to the account', $helper, $demo->id, ['permissions' => ['billing', 'support']], 'client.user_added', $admin);
             $activity->log('Client group Resellers updated', $resellers, properties: ['discount_percent' => '10.00'], event: 'client_group.updated', actor: $admin);
         }
     }
