@@ -52,8 +52,7 @@ class ReviewUnlocks
     {
         return DB::transaction(function () use ($userId, $clientId, $until, $generation, $binding): bool {
             // Make sure the row exists (a no-op when it does), then take it: the lock is what orders Show and Hide.
-            // Rows of sessions long gone (they were never signed out) are dropped here; bounded by the user's own rows.
-            KycReviewUnlock::query()->where('user_id', $userId)->where('updated_at', '<', now()->subDay())->delete();
+            $this->dropAbandoned($userId);
             KycReviewUnlock::query()->insertOrIgnore(['user_id' => $userId, 'client_id' => $clientId, 'session_hash' => $binding, 'generation' => 0, 'created_at' => now(), 'updated_at' => now()]);
             $row = KycReviewUnlock::query()->where('user_id', $userId)->where('client_id', $clientId)->where('session_hash', $binding)->lockForUpdate()->firstOrFail();
 
@@ -76,6 +75,9 @@ class ReviewUnlocks
     public function close(int $userId, int $clientId, string $binding = ''): bool
     {
         return DB::transaction(function () use ($userId, $clientId, $binding): bool {
+            // Every row this touches, locked in one query in id order (ADR 0021 §3): two sessions ending each other's
+            // rows cannot take them in opposite orders.
+            KycReviewUnlock::query()->where('user_id', $userId)->where('client_id', $clientId)->orderBy('id')->lockForUpdate()->pluck('id');
             $own = KycReviewUnlock::query()->where('user_id', $userId)->where('client_id', $clientId)->where('session_hash', $binding)->whereNotNull('expires_at')
                 ->update(['expires_at' => null, 'generation' => DB::raw('generation + 1'), 'updated_at' => now()]);
             $others = KycReviewUnlock::query()->where('user_id', $userId)->where('client_id', $clientId)->where('session_hash', '!=', $binding)->where('expires_at', '>', now())
@@ -92,11 +94,27 @@ class ReviewUnlocks
     public function closeAll(int $userId, string $binding = ''): void
     {
         DB::transaction(function () use ($userId, $binding): void {
+            KycReviewUnlock::query()->where('user_id', $userId)->orderBy('id')->lockForUpdate()->pluck('id');
             KycReviewUnlock::query()->where('user_id', $userId)->where('session_hash', $binding)->whereNotNull('expires_at')
                 ->update(['expires_at' => null, 'generation' => DB::raw('generation + 1'), 'updated_at' => now()]);
             KycReviewUnlock::query()->where('user_id', $userId)->where('session_hash', '!=', $binding)->where('expires_at', '>', now())
                 ->update(['expires_at' => now(), 'generation' => DB::raw('generation + 1'), 'updated_at' => now()]);
         });
+    }
+
+    /**
+     * Drop this user's rows that no live session can still use: untouched for longer than a session lasts (plus an
+     * hour), so they were never signed out. A row that is open (at most 15 minutes) or ended and still to be noticed
+     * is far younger. Locked in id order, skipping rows another request holds.
+     */
+    private function dropAbandoned(int $userId): void
+    {
+        $cutoff = now()->subMinutes((int) config('session.lifetime') + 60);
+        $ids = KycReviewUnlock::query()->where('user_id', $userId)->where('updated_at', '<', $cutoff)->orderBy('id')->lock('for update skip locked')->pluck('id');
+
+        if ($ids->isNotEmpty()) {
+            KycReviewUnlock::query()->whereKey($ids->all())->delete();
+        }
     }
 
     public function until(int $userId, int $clientId, string $binding = ''): ?CarbonImmutable
