@@ -35,8 +35,9 @@ well, so they keep working until they expire.
 
 **Keyed hashes.** The import's email hashes (duplicate checks and the email-keyed id map) use an install secret
 (`install_secrets`), not `APP_KEY`, so a rotation does not change them. On an install upgraded from an earlier
-version, the secret is created on the first import check, from the key the old hashes were made with: if you rotate
-before that, put the old key first in `APP_PREVIOUS_KEYS`. Passkeys: Fortify derives the passkey user handle from
+version, `php artisan migrate` pins the secret from the current key, the one the stored hashes were made with, and
+`security:reencrypt` pins it at its start if it is still missing, after checking which configured key matches a
+stored hash. Key order in `APP_PREVIOUS_KEYS` does not matter for this, and neither does the number of rotations. Passkeys: Fortify derives the passkey user handle from
 `APP_KEY` unless `PASSKEYS_USER_HANDLE_SECRET` is set. Existing passkeys keep working after a rotation, but set that
 variable to a fixed random value before rotating, so new registrations keep the same handle.
 
@@ -97,7 +98,8 @@ key encrypts everything written from the restart on, the old key stays in `APP_P
    php artisan security:reencrypt`. A server: `php artisan security:reencrypt`. The command reads each table in chunks
    (`--chunk`, 500 by default) and saves a checkpoint after each one. If it is interrupted, run it again and it
    continues; `--restart` starts over. `--limit=<n>` stops after n values, which splits a large install into several
-   runs. Lower `--chunk` for large `longText` tables (`server_account_imports.accounts`, `migration_records.raw`):
+   runs. `--only` re-encrypts just the named targets; it ends with exit 0 but says that the other targets were not
+   checked, and its audit entry is not marked complete. Lower `--chunk` for large `longText` tables (`server_account_imports.accounts`, `migration_records.raw`):
    one chunk is held in memory. A value the app writes during the run is left as the app wrote it. An identity image
    is written under a new name, recorded in the checkpoint, and the old file is deleted once the row points at the new
    one; a run killed in between finishes that on the next run. A real run needs every module loaded, so no module's

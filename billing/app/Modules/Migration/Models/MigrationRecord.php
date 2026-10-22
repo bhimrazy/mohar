@@ -39,6 +39,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['migration_run_id', 'row_number', 'raw'])]
 class MigrationRecord extends Model
 {
+    public const EMAIL_HASH_SECRET = 'migration_email_hash';
+
     public $timestamps = false;
 
     protected function casts(): array
@@ -57,14 +59,38 @@ class MigrationRecord extends Model
 
     /**
      * The keyed hash of an email, for duplicate checks, exact search and the email-keyed id map, without decrypting
-     * rows. The key is an install secret (InstallSecrets), so the hash means nothing outside this install and stays the
-     * same when APP_KEY is rotated. It starts as the value earlier versions derived from APP_KEY (from the key just
-     * rotated away, when there is one), so hashes stored before keep matching.
+     * rows. The key is an install secret (InstallSecrets, defined by emailHashKey()), so the hash means nothing outside
+     * this install and stays the same when APP_KEY is rotated.
      */
     public static function emailHash(string $email): string
     {
-        $key = app(InstallSecrets::class)->get('migration_email_hash', fn (): string => hash_hmac('sha256', 'migration.email_hash', (string) (config('app.previous_keys')[0] ?? config('app.key'))));
+        return self::hashWith(app(InstallSecrets::class)->get(self::EMAIL_HASH_SECRET), $email);
+    }
 
+    /**
+     * The initial value of the email-hash secret: the key earlier versions derived from APP_KEY, from whichever
+     * configured key the stored hashes were made with (checked against a stored record), so they keep matching; the
+     * current key's when nothing is stored yet.
+     *
+     * @param  list<string>  $keys  the configured keys, current first
+     */
+    public static function emailHashKey(array $keys): string
+    {
+        $derive = fn (string $key): string => hash_hmac('sha256', 'migration.email_hash', $key);
+        $record = self::query()->whereNotNull('email_hash')->orderBy('id')->first();
+        $email = $record?->normalized['client']['email'] ?? null;
+
+        foreach (is_string($email) ? $keys : [] as $key) {
+            if (hash_equals((string) $record?->email_hash, self::hashWith($derive($key), $email))) {
+                return $derive($key);
+            }
+        }
+
+        return $derive($keys[0] ?? '');
+    }
+
+    private static function hashWith(string $key, string $email): string
+    {
         return hash_hmac('sha256', mb_strtolower(trim($email)), $key);
     }
 

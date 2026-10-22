@@ -6,6 +6,7 @@ use App\Modules\Core\Models\ReencryptionCheckpoint;
 use App\Modules\Core\Security\EncryptedTargets;
 use App\Modules\Core\Security\Reencryptor;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\InstallSecrets;
 use App\Modules\Core\Support\Settings;
 use App\Providers\ModulesServiceProvider;
 use App\Support\Security\EncryptedColumn;
@@ -38,8 +39,6 @@ class ReencryptCommand extends Command
     public const INCOMPLETE = 3;
 
     public const LOCKED = 4;
-
-    private const LOCK = 'security:reencrypt';
 
     public function handle(EncryptedTargets $discovery, ActivityLogger $logger, Settings $settings): int
     {
@@ -87,7 +86,7 @@ class ReencryptCommand extends Command
             $targets = array_intersect_key($targets, array_flip($only));
         }
 
-        $lock = Cache::lock(self::LOCK, 6 * 3600);
+        $lock = Cache::lock(Reencryptor::RUN_LOCK, 6 * 3600);
 
         if (! $dryRun && ! $lock->get()) {
             $this->components->error('Another security:reencrypt run is in progress.');
@@ -96,7 +95,14 @@ class ReencryptCommand extends Command
         }
 
         try {
-            return $this->reencrypt($targets, $dryRun, $chunk, $limit, $skipped, $logger, $settings);
+            if (! $dryRun) {
+                // Keyed-hash secrets are pinned before anything moves, while the keys that made the hashes are configured.
+                app(InstallSecrets::class)->seedMissing();
+            }
+
+            $reencryptor = app(Reencryptor::class)->forRun($dryRun ? null : $lock->owner());
+
+            return $this->reencrypt($reencryptor, $targets, $only, $dryRun, $chunk, $limit, $skipped, $logger, $settings);
         } finally {
             $dryRun || $lock->release();
         }
@@ -104,11 +110,11 @@ class ReencryptCommand extends Command
 
     /**
      * @param  array<string, EncryptedColumn|EncryptedFiles>  $targets
+     * @param  list<string>  $only  the targets asked for with --only (empty: all)
      * @param  list<string>  $skipped  modules not loaded
      */
-    private function reencrypt(array $targets, bool $dryRun, int $chunk, ?int $budget, array $skipped, ActivityLogger $logger, Settings $settings): int
+    private function reencrypt(Reencryptor $reencryptor, array $targets, array $only, bool $dryRun, int $chunk, ?int $budget, array $skipped, ActivityLogger $logger, Settings $settings): int
     {
-        $reencryptor = app(Reencryptor::class);
         $results = [];
         $rows = [];
         $complete = true;
@@ -150,7 +156,8 @@ class ReencryptCommand extends Command
 
             $settings->forgetCached();
             $logger->log('Stored secrets were re-encrypted with the current application key.', properties: [
-                'complete' => $complete,
+                'complete' => $complete && $skipped === [] && $only === [],
+                'only' => $only,
                 'skipped_modules' => $skipped,
                 'totals' => $totals,
                 'targets' => array_map(fn (array $counts): array => array_filter($counts), $results),
@@ -161,13 +168,14 @@ class ReencryptCommand extends Command
             $this->components->warn('Modules not loaded, so their storage was not covered: '.implode(', ', $skipped).'.');
         }
 
-        return $this->conclude($dryRun, $complete && $skipped === [], $totals);
+        return $this->conclude($dryRun, $complete && $skipped === [], $totals, $only);
     }
 
     /**
      * @param  array<string, int>  $totals
+     * @param  list<string>  $only
      */
-    private function conclude(bool $dryRun, bool $complete, array $totals): int
+    private function conclude(bool $dryRun, bool $complete, array $totals, array $only): int
     {
         if ($totals['undecryptable'] > 0 || $totals['failed'] > 0) {
             $this->components->error("{$totals['undecryptable']} value(s) no configured key decrypts and {$totals['failed']} failed write check(s); they are unchanged. Add the key they were written with to APP_PREVIOUS_KEYS, or clear those values.");
@@ -191,6 +199,12 @@ class ReencryptCommand extends Command
             $this->components->warn("{$totals['old_key']} value(s) are on an old key. Run without --dry-run to re-encrypt them.");
 
             return self::INCOMPLETE;
+        }
+
+        if ($only !== []) {
+            $this->components->info('The selected targets are on the current key ('.implode(', ', $only).'). Other targets were not checked: run without --only (or --dry-run) to confirm the rest.');
+
+            return self::SUCCESS;
         }
 
         $this->components->info($dryRun ? 'Every stored value is on the current key.' : "Done: {$totals['reencrypted']} value(s) re-encrypted; every stored value is on the current key.");

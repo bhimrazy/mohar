@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string|null $last_key
  * @property bool $completed
  * @property array<string, int> $counts
- * @property array{key: int|string, column: string, old: string, new: string}|null $pending
+ * @property array{key: int|string, column: string, old: string, new: string, run?: string|null}|null $pending
  */
 #[Fillable(['target', 'key_fingerprint', 'last_key', 'completed', 'counts', 'pending'])]
 class ReencryptionCheckpoint extends Model

@@ -3,6 +3,7 @@
 namespace App\Modules\Migration;
 
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\InstallSecrets;
 use App\Modules\Migration\Models\MigrationRecord;
 use App\Modules\Migration\Models\MigrationRun;
 use App\Support\Automation\Automation;
@@ -35,6 +36,7 @@ class MigrationServiceProvider extends ModuleServiceProvider
         $encrypted = $this->app->make(EncryptedStorage::class);
         $encrypted->register('migration_runs', new EncryptedModel(MigrationRun::class));
         $encrypted->register('migration_records', new EncryptedModel(MigrationRecord::class));
+        $this->app->make(InstallSecrets::class)->define(MigrationRecord::EMAIL_HASH_SECRET, MigrationRecord::emailHashKey(...));
 
         // Step-up is Platform's middleware; without Platform, fall back to the framework's password confirmation.
         $router = $this->app->make(Router::class);

@@ -13,10 +13,12 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Kyc\Models\KycDocument;
 use App\Modules\Services\Models\Server;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Encryption\Encrypter;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Storage;
 
@@ -225,4 +227,28 @@ test('a run killed after switching an identity image but before deleting the old
 
     expect(Storage::disk(KycDocument::DISK)->allFiles())->toBe([$newPath])
         ->and(onlyKey($this->new)->decrypt(Storage::disk(KycDocument::DISK)->get($newPath), false))->toBe('scan');
+});
+
+test('when an overlapping run that cannot see the lock removes the new file, the row is not switched to it', function () {
+    $document = KycDocument::factory()->create(['back_path' => null]);
+    $oldPath = $document->front_path;
+    Storage::disk(KycDocument::DISK)->put($oldPath, onlyKey($this->old)->encrypt('scan', false));
+    useKeys($this->new, [$this->old]);
+
+    // Right before the switch, another run (no shared lock store) settles the pending record and deletes the new file.
+    $removed = false;
+    Event::listen(TransactionBeginning::class, function () use (&$removed): void {
+        $pending = ReencryptionCheckpoint::query()->where('target', 'kyc_documents.files')->value('pending');
+
+        if (! $removed && $pending !== null) {
+            $removed = true;
+            Storage::disk(KycDocument::DISK)->delete((is_array($pending) ? $pending : json_decode((string) $pending, true))['new']);
+        }
+    });
+
+    $this->artisan('security:reencrypt', ['--only' => ['kyc_documents.files']])->assertExitCode(3);
+
+    expect($removed)->toBeTrue()
+        ->and($document->fresh()->front_path)->toBe($oldPath)
+        ->and(Storage::disk(KycDocument::DISK)->allFiles())->toBe([$oldPath]);
 });

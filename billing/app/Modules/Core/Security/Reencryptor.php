@@ -6,12 +6,14 @@ use App\Modules\Core\Models\ReencryptionCheckpoint;
 use App\Support\Security\EncryptedColumn;
 use App\Support\Security\EncryptedFiles;
 use Closure;
+use Illuminate\Cache\Lock;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Contracts\Encryption\Encrypter as EncrypterContract;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Encryption\Encrypter;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -38,6 +40,12 @@ class Reencryptor
 
     private readonly string $fingerprint;
 
+    /** The cache lock a real run holds; its owner token marks the run's pending files. */
+    public const RUN_LOCK = 'security:reencrypt';
+
+    /** The owner token of this run's lock (null for a dry run). */
+    private ?string $run = null;
+
     /** Whether the row being processed had a value that no key decrypts. */
     private bool $undecryptableRow = false;
 
@@ -48,6 +56,13 @@ class Reencryptor
 
         $this->current = new Encrypter($raw, (string) config('app.cipher'));
         $this->fingerprint = hash_hmac('sha256', 'mohar.reencryption-checkpoint', $raw);
+    }
+
+    public function forRun(?string $owner): static
+    {
+        $this->run = $owner;
+
+        return $this;
     }
 
     /**
@@ -186,7 +201,7 @@ class Reencryptor
             }
 
             $newPath = (dirname($path) === '.' ? '' : dirname($path).'/').Str::uuid()->toString();
-            $this->pending($name, ['key' => $row->k, 'column' => $column, 'old' => $path, 'new' => $newPath]);
+            $this->pending($name, ['key' => $row->k, 'column' => $column, 'old' => $path, 'new' => $newPath, 'run' => $this->run]);
             $disk->put($newPath, $this->current->encrypt($plaintext, false));
 
             if (! $this->decryptsTo((string) $disk->get($newPath), $plaintext)) {
@@ -197,9 +212,10 @@ class Reencryptor
                 continue;
             }
 
-            $switched = $this->underLock($target, $row->k, function (Builder $locked) use ($target, $row, $column, $path, $newPath): bool {
-                if ($locked->value($column) !== $path) {
-                    return false; // deleted, or given another file meanwhile
+            $switched = $this->underLock($target, $row->k, function (Builder $locked) use ($target, $row, $column, $path, $newPath, $disk): bool {
+                // Deleted, given another file meanwhile, or the new file was removed by an overlapping run's settle().
+                if ($locked->value($column) !== $path || ! $disk->exists($newPath)) {
+                    return false;
                 }
 
                 $this->connection($target->connection)->table($target->table)->where($target->keyColumn, $row->k)->update([$column => $newPath]);
@@ -216,17 +232,38 @@ class Reencryptor
     }
 
     /**
-     * Finish what a killed run left: keep whichever file the row points at and delete the other.
+     * Finish what a killed run left: under the row's lock, delete whichever of the two files the row does not point at
+     * (both when the row is gone). A pending file of a run that still holds the lock is left alone: that run is alive
+     * (the lock expired for us, or the lock store is not shared) and finishes it. Returns whether it settled.
      *
-     * @param  array{key: int|string, column: string, old: string, new: string}  $pending
+     * @param  array{key: int|string, column: string, old: string, new: string, run?: string|null}  $pending
      */
-    private function settle(EncryptedFiles $target, array $pending): void
+    private function settle(EncryptedFiles $target, array $pending): bool
     {
+        $run = $pending['run'] ?? null;
+
+        if (is_string($run) && $run !== $this->run) {
+            $lock = Cache::restoreLock(self::RUN_LOCK, $run);
+
+            // Every lock-capable store's lock can say whether that owner still holds it; treat anything else as live.
+            if (! $lock instanceof Lock || $lock->isOwnedByCurrentProcess()) {
+                return false;
+            }
+        }
+
         $disk = Storage::disk($target->disk);
 
         $this->underLock($target, $pending['key'], function (Builder $locked) use ($pending, $disk): void {
-            $disk->delete($locked->value($pending['column']) === $pending['new'] ? $pending['old'] : $pending['new']);
+            $current = $locked->value($pending['column']);
+
+            foreach ([$pending['old'], $pending['new']] as $path) {
+                if ($path !== $current) {
+                    $disk->delete($path);
+                }
+            }
         });
+
+        return true;
     }
 
     /**
@@ -259,7 +296,7 @@ class Reencryptor
      * Record (or clear) the file being re-encrypted. Counts and position stay as the last finished chunk left them;
      * a target without a checkpoint yet resumes from its start.
      *
-     * @param  array{key: int|string, column: string, old: string, new: string}|null  $pending
+     * @param  array{key: int|string, column: string, old: string, new: string, run: string|null}|null  $pending
      */
     private function pending(string $name, ?array $pending): void
     {
@@ -352,8 +389,7 @@ class Reencryptor
     {
         $checkpoint = ReencryptionCheckpoint::query()->where('target', $name)->first();
 
-        if ($checkpoint?->pending !== null && $target instanceof EncryptedFiles) {
-            $this->settle($target, $checkpoint->pending);
+        if ($checkpoint?->pending !== null && $target instanceof EncryptedFiles && $this->settle($target, $checkpoint->pending)) {
             $checkpoint->update(['pending' => null]);
         }
 

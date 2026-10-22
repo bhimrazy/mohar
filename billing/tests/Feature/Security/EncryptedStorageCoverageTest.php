@@ -77,7 +77,7 @@ test('nothing else derives stored values from APP_KEY', function () {
         'Modules/Core/Support/AccountLinks.php' => 'signed links, which the previous keys still verify',
         'Modules/Kyc/Actions/DecideDocument.php' => 'a confirm-then-apply digest, valid for one decision',
         'Modules/Billing/Drivers/Gateways/SandboxCardDriver.php' => 'the sandbox gateway, development only',
-        'Modules/Migration/Models/MigrationRecord.php' => 'only the initial value of the install secret',
+        'Modules/Core/Support/InstallSecrets.php' => 'passes the configured keys to a secret\'s initial value, once',
     ];
     $found = [];
 
