@@ -14,6 +14,7 @@ use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Core\Models\Client;
 use App\Support\Money;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -30,15 +31,19 @@ use Illuminate\Support\Facades\DB;
  * balance is kept, nothing is posted, and the row says "Existing credit kept; post the opening balance manually if it
  * is still owed." History is never edited.
  *
- * Each entry carries the reference `import` / `run:<run>:client:<client>` (unique), so a run posts at most once per
- * client. revert() (undo, §5.7) takes back exactly what one run posted while the balance still covers it.
+ * Each entry carries the idempotency key `import:run:<run>:client:<client>` (unique), so a run posts at most once per
+ * client; its undo carries `import:undo:run:<run>:client:<client>`. revert() (undo, §5.7) takes back exactly what one
+ * run posted while the balance still covers it. Entries posted before #263 carry the same reference as gateway
+ * `import` and external_ref `run:…` (copied to the key by migration 300630); they are still matched that way until a
+ * later release clears that pair, since the previous release may write them while both run during a deploy.
  *
  * Both writes open their own transaction and lock the client before reading its ledger (ADR 0021 §3, import: run,
  * migration record, then client).
  */
 class OpeningBalanceImporter implements RevertsImport
 {
-    private const GATEWAY = 'import';
+    /** The gateway value of entries posted before #263 (reserved in GatewayManager). */
+    private const LEGACY_GATEWAY = 'import';
 
     public function __construct(private CreditLedgerService $ledger) {}
 
@@ -75,7 +80,7 @@ class OpeningBalanceImporter implements RevertsImport
             $difference = (int) $record->attributes['amount'] - $imported;
             $reference = $this->reference($context->runId, $client->id);
 
-            if ($difference === 0 || (clone $imports)->where('gateway', self::GATEWAY)->where('external_ref', $reference)->exists()) {
+            if ($difference === 0 || $this->posted(clone $imports, $reference)->exists()) {
                 return new ImportOutcome($client->id, ImportAction::Unchanged);
             }
 
@@ -91,7 +96,7 @@ class OpeningBalanceImporter implements RevertsImport
                 $source = (string) ($context->options['source_name'] ?? '');
                 $this->ledger->post($client->id, Money::of($difference, $client->currency), CreditReason::Import,
                     description: $created ? __('Opening balance from :source', ['source' => $source]) : __('Opening balance from :source, changed by a later import', ['source' => $source]),
-                    staffId: $context->actorId, gateway: self::GATEWAY, externalRef: $reference);
+                    staffId: $context->actorId, idempotencyKey: 'import:'.$reference);
             }
 
             return new ImportOutcome($client->id, $created ? ImportAction::Created : ImportAction::Updated, changes: ['credit_balance'], before: ['credit_balance' => $imported]);
@@ -106,9 +111,9 @@ class OpeningBalanceImporter implements RevertsImport
         return DB::transaction(function () use ($applied, $context): ImportOutcome {
             $client = $applied->targetId === null ? null : $this->client($applied->targetId, $context);
             $reference = $client === null ? '' : $this->reference($context->runId, $client->id);
-            $posted = $client === null ? null : CreditLedgerEntry::query()->where('client_id', $client->id)->where('gateway', self::GATEWAY)->where('external_ref', $reference)->first();
+            $posted = $client === null ? null : $this->posted(CreditLedgerEntry::query()->where('client_id', $client->id), $reference)->first();
 
-            if ($client === null || $posted === null || CreditLedgerEntry::query()->where('gateway', self::GATEWAY)->where('external_ref', 'undo:'.$reference)->exists()) {
+            if ($client === null || $posted === null || $this->posted(CreditLedgerEntry::query(), 'undo:'.$reference)->exists()) {
                 return new ImportOutcome($client?->id, ImportAction::Unchanged);
             }
 
@@ -120,7 +125,7 @@ class OpeningBalanceImporter implements RevertsImport
 
             if (! $context->dryRun) {
                 $this->ledger->post($client->id, $back, CreditReason::Import, description: __('Opening balance reversed: the import was undone'),
-                    staffId: $context->actorId, gateway: self::GATEWAY, externalRef: 'undo:'.$reference);
+                    staffId: $context->actorId, idempotencyKey: 'import:undo:'.$reference);
             }
 
             return new ImportOutcome($client->id, ImportAction::Reverted, changes: ['credit_balance']);
@@ -143,6 +148,18 @@ class OpeningBalanceImporter implements RevertsImport
     private function client(int $clientId, ImportContext $context): ?Client
     {
         return $context->dryRun ? Client::query()->find($clientId) : Client::query()->whereKey($clientId)->lockForUpdate()->first();
+    }
+
+    /**
+     * The entries carrying $reference: by idempotency key, or by the pre-#263 pair (both served by a unique index).
+     *
+     * @param  Builder<CreditLedgerEntry>  $query
+     * @return Builder<CreditLedgerEntry>
+     */
+    private function posted(Builder $query, string $reference): Builder
+    {
+        return $query->where(fn (Builder $entry) => $entry->where('idempotency_key', 'import:'.$reference)
+            ->orWhere(fn (Builder $legacy) => $legacy->where('gateway', self::LEGACY_GATEWAY)->where('external_ref', $reference)));
     }
 
     private function reference(int $runId, int $clientId): string

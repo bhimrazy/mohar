@@ -11,17 +11,28 @@ use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
 use App\Support\Billing\SandboxPolicy;
 use Illuminate\Database\Eloquent\Collection;
+use LogicException;
 
 /**
  * Registry of gateway drivers (Billing's own and those registered by extension modules) and their configuration.
  */
 class GatewayManager implements GatewayRegistry
 {
+    /**
+     * Keys no driver may take: `import` marks opening-balance credit entries posted before #263 (credit_ledger.gateway),
+     * so a driver's provider references must never share that value.
+     */
+    public const RESERVED_KEYS = ['import'];
+
     /** @var array<string, GatewayDriver> */
     private array $drivers = [];
 
     public function register(GatewayDriver $driver): void
     {
+        if (in_array($driver->key(), self::RESERVED_KEYS, true)) {
+            throw new LogicException("The gateway key [{$driver->key()}] is reserved; give the driver another key.");
+        }
+
         $this->drivers[$driver->key()] = $driver;
     }
 
