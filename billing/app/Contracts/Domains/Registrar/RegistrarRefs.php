@@ -18,7 +18,9 @@ interface RegistrarRefs
 
     /**
      * Record a remote object after the registrar created it. Recording the same local record and payload again
-     * replaces the remote id (and secret).
+     * replaces the remote id and the secret: a ref with `secret: null` erases a stored secret, so a driver that
+     * re-records a ref passes the secret it holds. Behaviour when two workers record the same object at once
+     * (first or last writer wins, and the lock rule for drivers) is pending #267.
      */
     public function remember(RegistrarRef $ref): void;
 }
