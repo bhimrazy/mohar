@@ -99,6 +99,10 @@ function redactorParityVariants(): array
         }
     }
 
+    foreach (['key=PARKEY1', 'api-key=PARKEY2', 'x&key=PARKEY3&y=1', "password:\nhunter2:", "password:\nHunter2:", "secret:\nPARCOLON1:\r\nHost: a.test"] as $literal) {
+        $variants[] = $literal;
+    }
+
     return $variants;
 }
 
@@ -110,17 +114,17 @@ function redactorParityCorpus(): array
 
 /**
  * Whether develop masked $token by over-redaction this PR undoes on purpose (changelog, RedactorShapesTest), so it is
- * not a secret: every occurrence is a name (an element name, a `key`/`name` attribute value, a capitalised header
- * label at a line start), or it is a documented reference value (ResellerClub `auth-userid=…`, a Stripe-style id
- * after a `Session:` or `hash:` label).
+ * not a secret: every occurrence is a name (an element name, the quoted value of a `key`/`name` attribute inside a
+ * tag, or a capitalised header label at a line start with a value after `: `), or it is a documented reference value
+ * (ResellerClub `auth-userid=…`, a Stripe-style id after a `Session:` or `hash:` label).
  */
 function redactorParityReadableOnPurpose(string $input, string $token): bool
 {
     $quoted = preg_quote($token, '/');
     $occurrences = preg_match_all('/(?<![A-Za-z0-9_])'.$quoted.'(?![A-Za-z0-9_])/', $input);
     $names = preg_match_all('/<\/?(?:[\w.-]+:)?\K'.$quoted.'(?![\w.:-])/', $input)
-        + preg_match_all('/\b(?:key|name)[ \t]*=[ \t]*["\']?\K'.$quoted.'(?![A-Za-z0-9_])/i', $input)
-        + preg_match_all('/(?:^|[\r\n])(?=[A-Z])[\w-]*?(?<![A-Za-z0-9_])\K'.$quoted.'(?=[\w-]*[ \t]*:)(?![A-Za-z0-9_])/', $input);
+        + preg_match_all('/<[\w.:-]+(?:[ \t\r\n]+[\w.:-]+[ \t]*=[ \t]*(?:"[^"<>]*"|\'[^\'<>]*\'))*?[ \t\r\n]+(?:key|name)[ \t]*=[ \t]*(["\'])\K'.$quoted.'(?=\1)/i', $input)
+        + preg_match_all('/(?:^|[\r\n])(?=[A-Z])[\w-]*?(?<![A-Za-z0-9_])\K'.$quoted.'(?=[\w-]*[ \t]*:[ \t]+[^ \t\r\n])(?![A-Za-z0-9_])/', $input);
 
     if ($names >= $occurrences) {
         return true;
@@ -149,7 +153,7 @@ test('the parity corpus is deterministic and covers the probe files and the gene
     expect($corpus)->toBe(redactorParityCorpus())
         ->and(count(redactorParityLiterals()))->toBeGreaterThan(150)
         ->and(count($corpus))->toBeGreaterThan(5000)
-        ->and($corpus)->toContain("token:\nQWxhZGRpbjpvcGVuc2VzYW1l==", '<param name="password"><value>VOIDNEST1</value></param>');
+        ->and($corpus)->toContain("token:\nQWxhZGRpbjpvcGVuc2VzYW1l==", '<param name="password"><value>VOIDNEST1</value></param>', "password:\nhunter2:", 'api-key=PARKEY2');
 });
 
 test('everything develop masks stays masked', function () {
