@@ -80,9 +80,9 @@ It runs in chunks and is tested on PostgreSQL.
 - `numbered_at` is backfilled from the first instant at which the number can be shown to exist:
     - **Numbered at publish** (`proforma_number` is null). A draft carries no adjustments, so every value adjustment
       on such an invoice was written after numbering, and the snapshot is the invoice's own totals. `numbered_at` is
-      the company start of `issue_date`. Publishing sets `issue_date` to the publish day, so that instant is no later
-      than the real numbering moment. For these invoices the backfill does not apply the "same-transaction rows
-      count as before" rule: no adjustment is folded into the snapshot.
+      the invoice's `created_at`. That is never later than publishing, while a staff-chosen `issue_date`
+      (`PublishInvoice.php:69`) can be. Every adjustment on these invoices counts as after numbering, so none is
+      folded into the snapshot.
     - **Numbered on payment** (`proforma_number` is set). `numbered_at` is the `occurred_at` of the earliest
       succeeded payment that brought the balance to zero. When no single payment can be identified (several
       payments, credit applied in between, a later collections cycle), the invoice goes on the review list below.
