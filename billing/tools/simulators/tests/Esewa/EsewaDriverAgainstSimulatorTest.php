@@ -140,6 +140,8 @@ test('a session left PENDING is booked by the poller once eSewa completes it', f
     expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)->and(Transaction::query()->count())->toBe(1);
 });
 
+// Assumption, not UAT-captured: an expired booking answers NOT_FOUND, like a cancelled one (a PENDING answer would also
+// end the attempt, at attemptTtl()).
 test('a session left PENDING that expires at eSewa closes the attempt without paying', function () {
     [$invoice, $attempt, , $booked] = esewaStart();
 
@@ -153,14 +155,23 @@ test('a session left PENDING that expires at eSewa closes the attempt without pa
         ->and(Transaction::query()->count())->toBe(0);
 });
 
-test('eSewa reporting another amount is refused and goes to staff review', function () {
+test('a payment settled for another amount is not found under ours: the attempt is abandoned, nothing booked', function () {
     [$invoice, $attempt] = esewaStart();
+    $status = fn (string $amount): array => esewaBrowser()->get($this->scenario->apiUrl().'/api/epay/transaction/status/', ['product_code' => 'EPAYTEST', 'total_amount' => $amount, 'transaction_uuid' => $attempt->reference])->json();
 
+    // eSewa matches the status check on the amount, so a check for ours answers NOT_FOUND; only the settled one is COMPLETE.
     $this->get($this->scenario->simulator()->actions()['pay'](['transaction_uuid' => $attempt->reference, 'settled_amount' => '1,000.00'], $this->scenario)['redirect']);
+    expect($status('1130.55')['status'])->toBe('NOT_FOUND')
+        ->and($status('1000')['status'])->toBe('COMPLETE')
+        ->and($attempt->fresh()->status)->toBe(AttemptStatus::Pending);
 
+    // What Billing does today: NOT_FOUND past 5 minutes abandons the attempt, with no staff review, although the return
+    // was a validly signed COMPLETE (follow-up issue on whether that should go to review instead).
+    $this->travel(6)->minutes();
+    $this->artisan('billing:reconcile-payments', ['--only' => 'open'])->assertSuccessful();
     expect($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid)
         ->and(Transaction::query()->count())->toBe(0)
-        ->and($attempt->fresh())->status->toBe(AttemptStatus::Ambiguous)->review_reason->toContain('Amount mismatch');
+        ->and($attempt->fresh())->status->toBe(AttemptStatus::Expired)->review_reason->toBe('Abandoned: the provider has no payable session');
 });
 
 test('a forged return is not trusted: the status check of our own amount decides', function (string $variant) {

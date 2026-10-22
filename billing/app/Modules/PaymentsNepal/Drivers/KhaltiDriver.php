@@ -21,6 +21,7 @@ use App\Modules\PaymentsNepal\Support\ProviderException;
 use App\Modules\PaymentsNepal\Support\ProviderHttp;
 use App\Support\Billing\AbstractGatewayDriver;
 use App\Support\Integrations\Endpoints;
+use App\Support\Integrations\OutboundAddressRefused;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterval;
 use Illuminate\Http\Client\ConnectionException;
@@ -335,7 +336,12 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
 
         $host = strtolower((string) ($parts['host'] ?? ''));
         $domain = strtolower((string) config('payments_nepal.khalti.payment_domain', 'khalti.com'));
-        $page = parse_url(Endpoints::for('khalti.pay', 'https://'.$domain)->baseUrl);
+        // An override the outbound policy refuses matches nothing; the khalti.com rule below still applies.
+        try {
+            $page = parse_url(Endpoints::for('khalti.pay', 'https://'.$domain)->baseUrl);
+        } catch (OutboundAddressRefused) {
+            $page = false;
+        }
 
         if (is_array($page) && $host === strtolower((string) ($page['host'] ?? '')) && ($parts['port'] ?? null) === ($page['port'] ?? null)) {
             return true;

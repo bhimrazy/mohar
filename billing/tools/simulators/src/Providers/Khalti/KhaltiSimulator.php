@@ -111,7 +111,7 @@ final class KhaltiSimulator implements HasControlActions, RedactsPayments, Simul
                     throw new \InvalidArgumentException("Session {$input['pidx']} has no refundable payment.");
                 }
 
-                $api->refunded($payment, (int) ($input['amount'] ?? ((int) $payment['amount'] - (int) $payment['refunded_amount'])));
+                $api->refunded($payment, (int) ($input['amount'] ?? (KhaltiApi::paid($payment) - (int) $payment['refunded_amount'])));
 
                 return ['status' => $api->payment((string) $input['pidx'])['status'] ?? null];
             },

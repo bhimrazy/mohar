@@ -266,13 +266,13 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
         }
 
         // eSewa's login page: on its domain, or on the form endpoint's host (ADR 0016 §3).
-        $location = (string) parse_url((string) $response->header('Location'), PHP_URL_HOST);
+        $location = strtolower((string) parse_url((string) $response->header('Location'), PHP_URL_HOST));
         $body = $response->json();
 
         // ES104 is eSewa's signature refusal; other 400s (e.g. {"error_message":"Duplicate transaction UUID.","code":0})
         // say nothing about the credentials.
         return match (true) {
-            $response->redirect() && ($location === parse_url($form->baseUrl, PHP_URL_HOST) || str_contains($location, 'esewa.com.np')) => new ConnectionCheck(true, __('eSewa accepted the product code and secret key (:mode mode).', ['mode' => $mode])),
+            $response->redirect() && ($location === parse_url($form->baseUrl, PHP_URL_HOST) || $location === 'esewa.com.np' || str_ends_with($location, '.esewa.com.np')) => new ConnectionCheck(true, __('eSewa accepted the product code and secret key (:mode mode).', ['mode' => $mode])),
             $response->status() === 400 && is_array($body) && ($body['code'] ?? null) === 'ES104' => new ConnectionCheck(false, __('eSewa rejected the product code or secret key (:mode mode): :reason', ['mode' => $mode, 'reason' => ProviderHttp::summary($body)])),
             $response->status() === 400 => new ConnectionCheck(false, __('eSewa refused the test booking (:mode mode): :reason', ['mode' => $mode, 'reason' => ProviderHttp::summary($body) ?: 'HTTP 400'])),
             default => new ConnectionCheck(false, __('eSewa answered with HTTP :status. Try again later.', ['status' => $response->status()])),

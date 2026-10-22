@@ -84,8 +84,10 @@ final class EsewaApi
     }
 
     /**
-     * GET /api/epay/transaction/status/: matched on product code, uuid and amount; anything else is NOT_FOUND, echoing
-     * what was asked. total_amount is a JSON number, as captured.
+     * GET /api/epay/transaction/status/: matched on product code, uuid and amount (the settled amount once paid);
+     * anything else is NOT_FOUND, echoing what was asked. So a payment settled for another amount answers NOT_FOUND to
+     * a check for the booked amount, and COMPLETE only to one for the settled amount. total_amount is a JSON number,
+     * as captured.
      *
      * @param  array<array-key, mixed>  $query
      */
@@ -100,13 +102,13 @@ final class EsewaApi
         }
 
         $booking = $this->booking($productCode.':'.$uuid);
-        $found = $booking !== null && (int) $booking['total'] === $asked && ! in_array($booking['status'], ['CANCELED', 'EXPIRED'], true);
+        $found = $booking !== null && (int) ($booking['settled'] ?? $booking['total']) === $asked && ! in_array($booking['status'], ['CANCELED', 'EXPIRED'], true);
 
         // A JSON number that keeps its ".0", as eSewa's answers do (100.0).
         return new Response(200, ['Content-Type' => 'application/json'], (string) json_encode([
             'product_code' => $productCode,
             'transaction_uuid' => $uuid,
-            'total_amount' => (float) (($found ? (int) ($booking['settled'] ?? $booking['total']) : $asked) / 100),
+            'total_amount' => (float) ($asked / 100),
             'status' => $found ? $booking['status'] : 'NOT_FOUND',
             'ref_id' => $found ? $booking['ref_id'] : null,
         ], JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION));
@@ -135,7 +137,7 @@ final class EsewaApi
      * `leave` returns to the failure URL with the booking still PENDING (payable until it expires); `cancel` ends it
      * and returns to the failure URL, unchanged, as UAT does. A second `pay` returns the same success URL.
      *
-     * Options for `pay`: `settled_amount` (rupees: eSewa reports another amount), `variant` (`wrong_secret`, `tampered`
+     * Options for `pay`: `settled_amount` (rupees: the payment settles for another amount, which the status check then matches instead of the booked one), `variant` (`wrong_secret`, `tampered`
      * after signing, `unsigned`) for a forged return.
      *
      * @param  array<string, mixed>  $options

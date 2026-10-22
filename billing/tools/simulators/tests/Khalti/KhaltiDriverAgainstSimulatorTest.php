@@ -91,7 +91,7 @@ test('a payment on the hosted page settles from the lookup, in paisa, with the f
     $session = $this->scenario->state()->get('payments', $attempt->provider_ref);
     expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
         ->and($payment->amount_in)->toBe(113_055)
-        ->and($payment->fee)->toBe(3_391)
+        ->and($payment->fee)->toBe($session['fee'])->toBeGreaterThan(0)
         ->and($payment->gateway_txn_id)->toBe($session['transaction_id'])
         ->and($this->scenario->log()->count('initiate'))->toBe(1)
         ->and($this->scenario->log()->entries('initiate')[0]['input']['amount'])->toBe(113_055);

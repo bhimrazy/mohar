@@ -125,7 +125,7 @@ final class KhaltiApi
                 return Response::json(['detail' => 'No transaction with this id.'], 404);
             }
 
-            $remaining = (int) $payment['amount'] - (int) $payment['refunded_amount'];
+            $remaining = self::paid($payment) - (int) $payment['refunded_amount'];
             $amount = array_key_exists('amount', $input) ? $input['amount'] : $remaining;
 
             if (! in_array($payment['status'], ['Completed', 'Partially Refunded'], true) || $remaining <= 0) {
@@ -150,7 +150,17 @@ final class KhaltiApi
     public function refunded(array $payment, int $amount): void
     {
         $total = (int) $payment['refunded_amount'] + $amount;
-        $this->save([...$payment, 'refunded_amount' => $total, 'status' => $total >= (int) $payment['amount'] ? 'Refunded' : 'Partially Refunded']);
+        $this->save([...$payment, 'refunded_amount' => $total, 'status' => $total >= self::paid($payment) ? 'Refunded' : 'Partially Refunded']);
+    }
+
+    /**
+     * What the payer paid, in paisa: the requested amount unless the payment completed for another one.
+     *
+     * @param  array<string, mixed>  $payment
+     */
+    public static function paid(array $payment): int
+    {
+        return (int) ($payment['total_amount'] ?? $payment['amount']);
     }
 
     /** GET /?pidx=: the hosted page, with the payer's three outcomes. */

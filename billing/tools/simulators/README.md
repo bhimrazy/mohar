@@ -124,7 +124,7 @@ The control plane answers only requests that carry `X-Sim-Token`:
     - A booking redirects (302) to the payment page and stays payable for 50 minutes, as in the UAT captures.
 - **Payment page.** `GET /epay/booking/{id}` with Pay, "Go back without paying" (the booking stays `PENDING`) and Cancel. Pay redirects to `success_url?data=` with base64 JSON signed over `transaction_code,status,total_amount,transaction_uuid,product_code,signed_field_names`, `total_amount` written as eSewa writes it (`"1,130.5"`). The other two go to `failure_url`, unchanged.
 - **Status check.** `GET /api/epay/transaction/status/?product_code&total_amount&transaction_uuid`, matched on all three. It answers `PENDING` for a booked session, `COMPLETE` with a `ref_id` once paid, and `NOT_FOUND` for a cancelled or expired booking, an unknown uuid or another amount. `total_amount` is a JSON number (`100.0`).
-- **Control actions.** `pay` (optional `settled_amount` in rupees for an amount mismatch, and `variant` `wrong_secret`, `tampered` or `unsigned` for a forged return), `leave` and `cancel` return the `redirect`. `settle` sets what eSewa later reports: `COMPLETE`, `EXPIRED`, `AMBIGUOUS`, `FULL_REFUND` or `PARTIAL_REFUND`. eSewa has no refund API, so refunds are only an action.
+- **Control actions.** `pay` (optional `settled_amount` in rupees: the payment settles for another amount, so the status check finds it only under that amount and answers `NOT_FOUND` for ours, and `variant` `wrong_secret`, `tampered` or `unsigned` for a forged return), `leave` and `cancel` return the `redirect`. `settle` sets what eSewa later reports: `COMPLETE`, `EXPIRED`, `AMBIGUOUS`, `FULL_REFUND` or `PARTIAL_REFUND`. eSewa has no refund API, so refunds are only an action.
 - **Using it from the app.** Set the printed `INTEGRATION_ENDPOINTS` (`esewa.form`, `esewa.status`), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`. Use the eSewa gateway in sandbox mode with product code `EPAYTEST` and `EsewaSimulator::SECRET_KEY`.
 - **Shapes.** The UAT captures of 2026-10-21 (`tests/Fixtures/Esewa`) are the expected shapes; `tests/Esewa/EsewaDriverAgainstSimulatorTest.php` checks the status answers against them.
 
@@ -132,17 +132,17 @@ The control plane answers only requests that carry `X-Sim-Token`:
 
 `tests/Khalti/KhaltiDriverAgainstSimulatorTest.php` and `tests/Esewa/EsewaDriverAgainstSimulatorTest.php` run the unchanged drivers through the app's routes:
 
-| Scenario                | Khalti                                                 | eSewa                                                           |
-| ----------------------- | ------------------------------------------------------ | --------------------------------------------------------------- |
-| Success, in paisa       | Pay on the page, 1,130.55 booked with the fee          | Form post, Pay, 1,130.55 booked with the `ref_id`               |
-| User cancel             | `User canceled`: the attempt fails                     | `NOT_FOUND` after the cancel return: the attempt ends           |
-| Pending, then completed | `pending`, then `complete`, booked by the poller       | `leave`, then `settle COMPLETE`, booked by the poller           |
-| Pending, then expired   | `pending`, then `expire`: the attempt expires          | `leave`, then `settle EXPIRED`: the attempt expires             |
-| Amount mismatch         | `pay` with another `total_amount`: staff review        | `pay` with another `settled_amount`: staff review               |
-| Bad signature or forged | A forged return query pays nothing                     | Forged, wrong-secret, tampered and unsigned returns; ES104 form |
-| Duplicate callback      | Return twice plus a second Pay: one payment, no credit | The same                                                        |
-| Lookup timeout          | `commit_then_hang` on `lookup`: left to the poller     | `commit_then_hang` on `transaction_status`: left to the poller  |
-| Refunded or partial     | A full refund through the API, a partial in the portal | `FULL_REFUND` and `PARTIAL_REFUND` look up as such              |
+| Scenario                | Khalti                                                 | eSewa                                                                                                                               |
+| ----------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Success, in paisa       | Pay on the page, 1,130.55 booked with the fee          | Form post, Pay, 1,130.55 booked with the `ref_id`                                                                                   |
+| User cancel             | `User canceled`: the attempt fails                     | `NOT_FOUND` after the cancel return: the attempt ends                                                                               |
+| Pending, then completed | `pending`, then `complete`, booked by the poller       | `leave`, then `settle COMPLETE`, booked by the poller                                                                               |
+| Pending, then expired   | `pending`, then `expire`: the attempt expires          | `leave`, then `settle EXPIRED`: the attempt expires                                                                                 |
+| Amount mismatch         | `pay` with another `total_amount`: staff review        | `pay` with another `settled_amount`: `NOT_FOUND` for our amount, so the attempt is abandoned after 5 minutes, nothing booked (#323) |
+| Bad signature or forged | A forged return query pays nothing                     | Forged, wrong-secret, tampered and unsigned returns; ES104 form                                                                     |
+| Duplicate callback      | Return twice plus a second Pay: one payment, no credit | The same                                                                                                                            |
+| Lookup timeout          | `commit_then_hang` on `lookup`: left to the poller     | `commit_then_hang` on `transaction_status`: left to the poller                                                                      |
+| Refunded or partial     | A full refund through the API, a partial in the portal | `FULL_REFUND` and `PARTIAL_REFUND` look up as such                                                                                  |
 
 ## The end-to-end scenario
 
