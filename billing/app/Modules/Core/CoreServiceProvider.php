@@ -48,6 +48,8 @@ use App\Modules\Core\Support\NullSystemMailer;
 use App\Modules\Core\Support\Settings;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Install\ReferenceDataRegistry;
+use App\Support\Security\EncryptedColumn;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Migration\ImportRegistry;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
@@ -114,6 +116,13 @@ class CoreServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        // Encrypted values without an encrypted cast, for `security:reencrypt`: secret settings (a JSON string with the
+        // "enc:v1:" prefix) and Fortify's two-factor secret and recovery codes (encrypted by Fortify itself).
+        $encrypted = $this->app->make(EncryptedStorage::class);
+        $encrypted->register('settings.value', new EncryptedColumn('settings', 'value', 'key', intKey: false, prefix: Settings::ENCRYPTED_PREFIX, json: true));
+        $encrypted->register('users.two_factor_secret', new EncryptedColumn('users', 'two_factor_secret'));
+        $encrypted->register('users.two_factor_recovery_codes', new EncryptedColumn('users', 'two_factor_recovery_codes'));
+
         // One dev worker (composer dev) for every queue, in priority order, from the Queues constants (ADR 0014). The
         // automation connection keeps its own worker in Platform.
         DevCommands::artisan('queue:listen --queue='.implode(',', [Queues::PAYMENTS, Queues::PROVISIONING, Queues::REGISTRAR, Queues::NOTIFICATIONS, Queues::WEBHOOKS, Queues::DEFAULT, Queues::IMPORTS]).' --tries=1 --timeout=0', 'queue');

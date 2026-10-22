@@ -97,11 +97,13 @@ return [
 
     'cipher' => 'AES-256-CBC',
 
-    'key' => env('APP_KEY'),
+    // APP_KEY, or the file APP_KEY_FILE names (a Docker secret, a systemd credential); the same for the previous keys
+    // (comma-separated). See docs/devops/key-rotation.md.
+    'key' => App\Support\Security\SecretEnv::get('APP_KEY'),
 
     'previous_keys' => [
         ...array_filter(
-            explode(',', (string) env('APP_PREVIOUS_KEYS', '')),
+            array_map('trim', explode(',', (string) App\Support\Security\SecretEnv::get('APP_PREVIOUS_KEYS'))),
         ),
     ],
 

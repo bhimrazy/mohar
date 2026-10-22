@@ -21,6 +21,8 @@ use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Security\EncryptedFiles;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
@@ -46,6 +48,9 @@ class KycServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        // Identity images are encrypted with APP_KEY on the objects disk; `security:reencrypt` moves them to a new key.
+        $this->app->make(EncryptedStorage::class)->register('kyc_documents.files', new EncryptedFiles('kyc_documents', ['front_path', 'back_path'], KycDocument::DISK));
+
         $this->app->make(Kernel::class)->appendMiddlewareToGroup('web', ShareKycBanner::class);
 
         // A document number never reaches the session, also when an action (not the form request) refuses the upload.

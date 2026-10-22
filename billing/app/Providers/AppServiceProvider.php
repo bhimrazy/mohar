@@ -11,6 +11,7 @@ use App\Support\Currencies\ExchangeRateSources;
 use App\Support\Currencies\PriceConverters;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Install\ReferenceDataRegistry;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Integrations\Endpoints;
 use App\Support\Migration\ImportRegistry;
 use App\Support\Navigation\Navigation;
@@ -55,6 +56,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(ClientCurrencyUsage::class);
         $this->app->singleton(ImportRegistry::class);
         $this->app->singleton(ReferenceDataRegistry::class);
+        $this->app->singleton(EncryptedStorage::class);
         $this->app->singleton(ExchangeRateSources::class);
         $this->app->singleton(PriceConverters::class);
         $this->app->singleton(ProvisioningDriverRegistry::class);
