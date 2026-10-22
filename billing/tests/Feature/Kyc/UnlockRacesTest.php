@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia;
 
+require_once __DIR__.'/Support/race.php';
+
 /*
  * Issue #257: the client learns how long the unlock still lasts from the server, not an absolute time to compare with
  * its own clock. Issue #258: unlocks live in the database, so no request that started before Hide documents can write
@@ -73,13 +75,17 @@ describe('Show and Hide in real concurrent transactions (PostgreSQL)', function 
             $this->markTestSkipped('Needs separate committed sessions on one server database (PostgreSQL).');
         }
 
-        $this->useSeededDatabase('kyc_unlock_race', function (): void {
-            $client = Client::factory()->create(['email' => 'kyc-unlock@example.test']);
-            $staff = User::factory()->staff(['*'])->create(['email' => 'kyc-unlock-staff@example.test']);
-            app(ReviewUnlocks::class)->open($staff->id, $client->id, now()->addMinutes(10));
-        });
-        $this->raceClient = Client::query()->where('email', 'kyc-unlock@example.test')->sole();
-        $this->raceStaff = User::query()->where('email', 'kyc-unlock-staff@example.test')->sole();
+        // One seeded database per test (committed, outside the test's transaction), with the documents open.
+        $this->raceSeed = function (string $name): void {
+            $this->useSeededDatabase($name, function (): void {
+                $client = Client::factory()->create(['email' => 'kyc-unlock@example.test']);
+                $staff = User::factory()->staff(['*'])->create(['email' => 'kyc-unlock-staff@example.test']);
+                app(ReviewUnlocks::class)->open($staff->id, $client->id, now()->addMinutes(10));
+            });
+            $this->raceClient = Client::query()->where('email', 'kyc-unlock@example.test')->sole();
+            $this->raceStaff = User::query()->where('email', 'kyc-unlock-staff@example.test')->sole();
+            $this->raceGeneration = (string) app(ReviewUnlocks::class)->generation($this->raceStaff->id, $this->raceClient->id);
+        };
         $this->raceRun = fn (array $workers): array => kycRaceWorkers(array_map(
             fn (array $w): array => [DB::connection()->getDatabaseName(), $w[0] === 'open' ? 'open' : 'close', (string) $this->raceStaff->id, (string) $this->raceClient->id, $w[1], $w[2], $w[3]],
             $workers,
@@ -88,9 +94,10 @@ describe('Show and Hide in real concurrent transactions (PostgreSQL)', function 
     });
 
     test('Hide documents wins over a Show request that is still holding the row', function () {
-        // The page showed generation 1 (the seed). "open" takes the row and holds it 1.5 s; "close" arrives 0.5 s later.
+        ($this->raceSeed)('kyc_unlock_hide_wins');
+        // The page showed the current generation. "open" takes the row and holds it 1.5 s; "close" arrives 0.5 s later.
         $results = ($this->raceRun)([
-            'open' => ['open', '1', '0', '1500'],
+            'open' => ['open', $this->raceGeneration, '0', '1500'],
             'close' => ['close', '-', '500', '0'],
         ]);
 
@@ -101,10 +108,11 @@ describe('Show and Hide in real concurrent transactions (PostgreSQL)', function 
     });
 
     test('a Show request that read the page before Hide documents cannot restore the unlock', function () {
-        // "close" holds the row 1.5 s. "open" comes from the page that showed generation 1, 0.5 s later, and waits.
+        ($this->raceSeed)('kyc_unlock_stale_show');
+        // "close" holds the row 1.5 s. "open" comes from the page that showed the generation before Hide, 0.5 s later, and waits.
         $results = ($this->raceRun)([
             'close' => ['close', '-', '0', '1500'],
-            'open' => ['open', '1', '500', '0'],
+            'open' => ['open', $this->raceGeneration, '500', '0'],
         ]);
 
         expect($results['close']['outcome'])->toBe('applied')

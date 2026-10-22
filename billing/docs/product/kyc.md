@@ -146,3 +146,7 @@ replaced), skips current documents whose client is no longer closed, and is idem
 15. MUST: approve and decline are refused until the documents were shown for that client; showing one client never
     reveals another.
 16. MUST: a decision and a re-upload of the same document never deadlock (two-process PostgreSQL test).
+17. MUST: after Hide documents no request, in flight or later, brings the unlock back: unlocks are rows changed under a
+    lock, and a Show from a page loaded before Hide is refused (two-process PostgreSQL test, issue #258).
+18. MUST: the review page learns how long the unlock lasts as seconds counted by the server; a browser clock that is
+    ahead or behind changes neither when it hides nor when it reloads (issue #257).

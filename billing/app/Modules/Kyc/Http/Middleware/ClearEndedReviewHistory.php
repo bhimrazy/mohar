@@ -45,11 +45,11 @@ class ClearEndedReviewHistory
             return $next($request);
         }
 
-        if ($this->unlocks->forgetEnded($request)) {
+        if ($this->unlocks->forgetEnded((int) $holder)) {
             Inertia::clearHistory();
         }
 
-        $held = $this->unlocks->any($request);
+        $held = $this->unlocks->any((int) $holder);
         $response = $next($request);
 
         // Logout flushes the session, so the flag goes into the new one and reaches the next page.

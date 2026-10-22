@@ -445,6 +445,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Security
 
+- **KYC review: Hide documents holds, and the page times the end from the server (#257, #258).** Which clients' documents a
+  staff member has open is now a database row (new table `kyc_review_unlocks`) changed under a row lock, not part of the
+  session. A request that began before Hide documents can no longer write the old unlock back when it saves its
+  session, and a Show request from a page loaded before Hide is refused (a generation number travels with the page).
+  The review page now gets the seconds left from the server and counts them on its own clock, so a browser clock that
+  runs ahead no longer makes the reload at the end arrive early and re-encrypt the numbers in the browser history; if
+  the server still says the unlock is open, the page waits again. **Operators:** run `php artisan migrate` (adds
+  `kyc_review_unlocks`, expand only). Documents open at upgrade time are hidden again; staff press Show documents once.
 - **Integration logs mask more secret shapes (#190).** The module, registrar and gateway logs, transaction and refund
   provider answers, and error text shown to staff now also mask: a JSON value quoted after a label
   (`HTTP 500: {"api-key":"…"}`, nested, arrays, escaped quotes), XML element values (`<password>`, EPP
