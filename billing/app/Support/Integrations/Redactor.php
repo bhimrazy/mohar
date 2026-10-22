@@ -396,11 +396,8 @@ final class Redactor
             }
 
             $closed = $match[1][0] === '/' || str_ends_with(rtrim((string) $match[4][0]), '/');
-            // Content follows when the next non-blank text is not an end tag. Only the blanks before that text are read,
-            // and the next token starts after them, so the scan stays linear.
-            $contentStart = $end + strspn($value, " \t\r\n", $end);
-            $hasContent = ! $closed && $contentStart < $length && substr_compare($value, '</', $contentStart, 2) !== 0;
-            [$attributes, $labelledSecret] = $this->maskAttributes((string) $match[4][0], $sensitiveKeys, $hasContent);
+            $hasText = ! $closed && $this->textFollows($value, $end);
+            [$attributes, $labelledSecret] = $this->maskAttributes((string) $match[4][0], $sensitiveKeys, $hasText);
             $output .= '<'.$match[1][0].$match[2][0].$attributes.'>';
 
             if ($closed) {
@@ -669,31 +666,60 @@ final class Redactor
     }
 
     /**
+     * Whether non-blank text follows a start tag ending at $at: after any blanks, a character other than `<`, or a CDATA
+     * section with a non-blank character. Child elements, comments, end tags and blank CDATA are not text. Only the
+     * blanks after the tag and at the start of a CDATA section are read, and the next token starts after them, so the
+     * scan stays linear.
+     */
+    private function textFollows(string $value, int $at): bool
+    {
+        $length = strlen($value);
+        $at += strspn($value, " \t\r\n", $at);
+
+        if ($at >= $length) {
+            return false;
+        }
+
+        if ($value[$at] !== '<') {
+            return true;
+        }
+
+        if (substr_compare($value, '<![CDATA[', $at, 9) !== 0) {
+            return false;
+        }
+
+        $at += 9 + strspn($value, " \t\r\n", $at + 9);
+
+        return $at < $length && substr_compare($value, ']]>', $at, 3) !== 0;
+    }
+
+    /**
      * Mask the secret attributes of one tag, and scan the others' values for pairs (a URL with `?token=`). A `key` or
-     * `name` attribute is a label only when the element carries its value elsewhere (a `value` attribute or content):
-     * it then stays readable, and when it names a secret the element's content and any `value` attribute are masked.
-     * Otherwise it is the element's only value (`<license key="…"/>`) and is treated like any other attribute.
+     * `name` attribute stays readable as a label only when the element carries its value elsewhere: a non-blank `value`
+     * attribute, or text right after the start tag (see textFollows). Otherwise it may be the element's only value
+     * (`<license key="…"/>`, `<license key="…"><child/></license>`, `<x key="…" value=""/>`) and is treated like any
+     * other attribute. Either way, when it names a secret the element's content and any `value` attribute are masked.
      *
      * @param  list<string>  $sensitiveKeys
-     * @return array{string, bool} the attributes and whether a label names a secret
+     * @return array{string, bool} the attributes and whether a key/name attribute names a secret
      */
-    private function maskAttributes(string $attributes, array $sensitiveKeys, bool $hasContent): array
+    private function maskAttributes(string $attributes, array $sensitiveKeys, bool $hasText): array
     {
         if ($attributes === '' || ! str_contains($attributes, '=')) {
             return [$attributes, false];
         }
 
         preg_match_all(self::ATTRIBUTE_PATTERN, $attributes, $found, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
-        $labels = $hasContent;
+        $labels = $hasText;
 
         foreach ($found as $attribute) {
-            $labels = $labels || strtolower($attribute[1][0]) === 'value';
+            $labels = $labels || (strtolower($attribute[1][0]) === 'value' && trim($attribute[3][0], "\"' \t\r\n") !== '');
         }
 
         $labelledSecret = false;
 
         foreach ($found as $attribute) {
-            if ($labels && in_array(strtolower($attribute[1][0]), self::LABEL_ATTRIBUTES, true) && $this->isSensitiveKey(trim($attribute[3][0], '"\''), $sensitiveKeys)) {
+            if (in_array(strtolower($attribute[1][0]), self::LABEL_ATTRIBUTES, true) && $this->isSensitiveKey(trim($attribute[3][0], '"\''), $sensitiveKeys)) {
                 $labelledSecret = true;
             }
         }

@@ -390,7 +390,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Integration logs mask more secret shapes (#190).** The module, registrar and gateway logs, transaction and refund
   provider answers, and error text shown to staff now also mask: a JSON value quoted after a label
   (`HTTP 500: {"api-key":"…"}`, nested, arrays, escaped quotes), XML element values (`<password>`, EPP
-  `<domain:authInfo>`, CDATA), OpenSRS `<item key="reg_password">` items and secret XML attributes (a `key` attribute that is the element's only value, as in `<license key="…"/>`, stays masked; it reads as a label only when the element has content or a `value` attribute), the rest of a value
+  `<domain:authInfo>`, CDATA), OpenSRS `<item key="reg_password">` items and secret XML attributes (a `key` attribute that is the element's only value, as in `<license key="…"/>`, stays masked; it reads as a label only when the element has text, a non-blank CDATA section or a non-blank `value` attribute; child elements, comments, blanks or an empty `value` alone do not make it one), the rest of a value
   after `;` or `,` (`passwd=ab;cd`), URL userinfo (`https://user:pass@host`), percent-encoded `api_key=` pairs, Stripe
   secret keys, webhook secrets and client secrets, Khalti secret keys, and the `Key`, `whm` and `cpanel` authorization
   schemes. A secret pair behind any number of labels or long values is found (before, past two labels or 4 KB the

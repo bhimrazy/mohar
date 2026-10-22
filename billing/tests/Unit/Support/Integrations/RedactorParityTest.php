@@ -109,6 +109,20 @@ function redactorParityVariants(): array
             $variants[] = "<{$tag} user={$q}u{$q} key={$q}PARKEYATTR6{$q}/>";
             $variants[] = "<{$tag} key={$q}PARKEYATTR7{$q} name={$q}main{$q}/>";
             $variants[] = "<response>\n<{$tag} id={$q}7{$q} key={$q}PARKEYATTR8{$q}/>\n</response>";
+            $variants[] = "<{$tag} key={$q}PARKEYATTR11{$q}><child/></{$tag}>";
+            $variants[] = "<{$tag} key={$q}PARKEYATTR12{$q}>\n  <child>x</child>\n</{$tag}>";
+            $variants[] = "<{$tag} key={$q}PARKEYATTR13{$q}><!-- note --></{$tag}>";
+            $variants[] = "<{$tag} key={$q}PARKEYATTR14{$q}> \t\r\n </{$tag}>";
+            $variants[] = "<{$tag} key={$q}PARKEYATTR15{$q}><![CDATA[]]></{$tag}>";
+            $variants[] = "<{$tag} key={$q}PARKEYATTR16{$q}><![CDATA[ \n ]]></{$tag}>";
+            $variants[] = "<{$tag} key={$q}PARKEYATTR17{$q} value={$q}{$q}/>";
+            $variants[] = "<{$tag} key={$q}PARKEYATTR18{$q} value={$q} {$q}/>";
+            $variants[] = "<{$tag} value={$q}\t{$q} name={$q}PARKEYATTR19{$q}></{$tag}>";
+            $variants[] = "<{$tag} name={$q}PARKEYATTR20{$q}><child/></{$tag}>";
+        }
+
+        foreach (['', '/'] as $close) {
+            $variants[] = "<{$tag} key=PARKEYATTR21 value=\"\"{$close}>";
         }
 
         $variants[] = "<{$tag} key=PARKEYATTR9/>";
@@ -130,8 +144,8 @@ function redactorParityCorpus(): array
 
 /**
  * Whether develop masked $token by over-redaction this PR undoes on purpose (changelog, RedactorShapesTest), so it is
- * not a secret: every occurrence is a name (an element name, the quoted value of a `key`/`name` attribute on an
- * element that carries its value elsewhere, or a capitalised header label at a line start with a value after `: `), or it is a documented reference value
+ * not a secret: every occurrence is a name (an element name, the `CDATA` of a CDATA section, the quoted value of a `key`/`name` attribute on an
+ * element that carries its value elsewhere (see redactorParityLabelCount), or a capitalised header label at a line start with a value after `: `), or it is a documented reference value
  * (ResellerClub `auth-userid=…`, a Stripe-style id after a `Session:` or `hash:` label).
  */
 function redactorParityReadableOnPurpose(string $input, string $token): bool
@@ -139,6 +153,7 @@ function redactorParityReadableOnPurpose(string $input, string $token): bool
     $quoted = preg_quote($token, '/');
     $occurrences = preg_match_all('/(?<![A-Za-z0-9_])'.$quoted.'(?![A-Za-z0-9_])/', $input);
     $names = preg_match_all('/<\/?(?:[\w.-]+:)?\K'.$quoted.'(?![\w.:-])/', $input)
+        + preg_match_all('/<!\[\K'.$quoted.'(?=\[)/', $input)
         + redactorParityLabelCount($input, $quoted)
         + preg_match_all('/(?:^|[\r\n])(?=[A-Z])[\w-]*?(?<![A-Za-z0-9_])\K'.$quoted.'(?=[\w-]*[ \t]*:[ \t]+[^ \t\r\n])(?![A-Za-z0-9_])/', $input);
 
@@ -153,8 +168,9 @@ function redactorParityReadableOnPurpose(string $input, string $token): bool
 
 /**
  * Quoted `key`/`name` attribute values equal to the token that label the element: the element carries its value
- * elsewhere, in a `value` attribute or in content (not self-closing, and the next non-blank text is not an end tag).
- * A label that is the element's only value (`<license key="…"/>`) is not counted, so parity checks it.
+ * elsewhere, in a non-blank `value` attribute or in text right after the start tag (after blanks, a character other
+ * than `<`, or a CDATA section with a non-blank character). A label whose element is self-closing, empty, or holds only
+ * child elements, comments, blanks or blank CDATA is not counted, so parity checks it.
  */
 function redactorParityLabelCount(string $input, string $quoted): int
 {
@@ -164,9 +180,10 @@ function redactorParityLabelCount(string $input, string $quoted): int
     foreach ($tags as $tag) {
         $end = $tag[0][1] + strlen($tag[0][0]);
         $after = substr($input, $end + strspn($input, " \t\r\n", $end));
-        $hasValue = preg_match('/(?<![\w.:-])value[ \t]*=/i', $tag[1][0].' '.$tag[3][0]) === 1;
-        $hasContent = ! str_ends_with(rtrim($tag[3][0]), '/') && $after !== '' && ! str_starts_with($after, '</');
-        $count += (int) ($hasValue || $hasContent);
+        $hasValue = preg_match('/(?<![\w.:-])value[ \t]*=[ \t]*(?:"[ \t\r\n]*[^"\s]|\'[ \t\r\n]*[^\'\s]|[^\s"\'>])/i', $tag[1][0].' '.$tag[3][0]) === 1;
+        $hasText = ! str_ends_with(rtrim($tag[3][0]), '/')
+            && preg_match('/^(?:[^<\s]|<!\[CDATA\[\s*(?!\]\]>)\S)/', $after) === 1;
+        $count += (int) ($hasValue || $hasText);
     }
 
     return $count;
