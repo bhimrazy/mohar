@@ -87,6 +87,9 @@ export type Transaction = {
     refundable_remaining: number;
     refundable: boolean;
     to_review?: number | null;
+    awaiting_confirmation?: boolean;
+    can_resolve?: boolean;
+    stuck_at_lookup?: boolean;
     description: string | null;
     parent_transaction_id: number | null;
     invoice_id: number | null;
@@ -211,6 +214,7 @@ export type PaymentOptions = {
 export type GatewayOption = {
     value: string;
     partial_refund?: boolean;
+    refund_lookup?: boolean;
     sandbox?: boolean;
     label: string;
     capture?: boolean;

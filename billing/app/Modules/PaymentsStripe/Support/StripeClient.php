@@ -77,12 +77,13 @@ final class StripeClient
      * GET an object, e.g. get($gateway, 'checkout/sessions/cs_…', ['payment_intent']).
      *
      * @param  list<string>  $expand
+     * @param  array<string, string>  $query  extra query parameters (list filters)
      * @param  bool  $background  safe to repeat: retried on connection errors and 5xx (poller, webhooks)
      * @param  bool  $interactive  a customer's browser is waiting: one quick try
      */
-    public function get(GatewayConfig $gateway, string $path, array $expand = [], bool $background = false, bool $interactive = false): Response
+    public function get(GatewayConfig $gateway, string $path, array $expand = [], bool $background = false, bool $interactive = false, array $query = []): Response
     {
-        $query = implode('&', array_map(fn (string $field): string => 'expand[]='.rawurlencode($field), $expand));
+        $query = implode('&', [...array_map(fn (string $field): string => 'expand[]='.rawurlencode($field), $expand), ...array_map(fn (string $key, string $value): string => rawurlencode($key).'='.rawurlencode($value), array_keys($query), $query)]);
         $request = match (true) {
             $interactive => $this->interactive($gateway),
             $background => $this->retrying($gateway),

@@ -250,9 +250,8 @@ class GatewayCallbackHandler
             return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $event->invoiceId);
         }
 
-        // A refund started from our admin names its refund row. Only a row that really recorded it ends here: one
-        // still in flight is retried later, and one marked failed (no answer from the provider, yet the refund
-        // happened) is booked now.
+        // A refund started from our admin names its refund row. A row that recorded it ends here, a pending one is
+        // settled below, and one marked failed (declined or released, yet the refund happened) is booked now.
         $own = $event->reference !== null && ctype_digit($event->reference)
             ? Transaction::query()->whereKey((int) $event->reference)->where('gateway', $gatewayKey)->where('type', TransactionType::Refund)->first()
             : null;
@@ -261,11 +260,32 @@ class GatewayCallbackHandler
             return $this->outcome($gatewayKey, 200, 'refund already recorded', $event->raw, $own->invoice_id);
         }
 
+        // A refund we sent and have not booked (its answer never came, or its request is still running) holds its
+        // amount: the callback is the provider's word that it happened, so it settles that same row (never a second
+        // one). It must be the refund we sent: same payment, same amount in what the provider charged.
+        if ($own?->status === TransactionStatus::Pending && $event->txnId !== '') {
+            $parent = Transaction::query()->find($own->parent_transaction_id);
+            $sent = $parent !== null ? $this->amounts->toGateway($parent, $own->amount_out) : null;
+            $samePayment = $parent !== null && ($event->parentTxnId === null || $event->parentTxnId === $this->amounts->charge($parent)['txnId']);
+
+            if ($sent === null || ! $samePayment || $sent->amount !== $event->amount || $sent->currency !== strtoupper($event->currency)) {
+                return $this->outcome($gatewayKey, 200, 'refund differs from the pending refund; staff review', $event->raw, $own->invoice_id);
+            }
+
+            $this->refund->settle($own, $event->txnId, $event->raw);
+
+            return $this->outcome($gatewayKey, 200, 'refund recorded', $event->raw, $own->invoice_id);
+        }
+
         if ($own?->status === TransactionStatus::Pending) {
             return $this->outcome($gatewayKey, 409, 'refund still being recorded; retry expected', $event->raw, $own->invoice_id);
         }
 
         $parents = $this->parents($gatewayKey, $event);
+
+        // The refund we marked failed (declined, or released by staff) was made at the provider after all: it is
+        // booked below, once by its provider refund id, and left on staff's to-do list.
+        $lateAfterFailure = $own?->status === TransactionStatus::Failed;
 
         if ($parents === []) {
             // Out of order (refund before payment): reject so the provider retries later.
@@ -275,7 +295,7 @@ class GatewayCallbackHandler
         // The refund rows and any credit taken back commit together (all record-only, no provider call), so a crash
         // can't leave the credit in place while the provider's retry is answered "duplicate".
         try {
-            return DB::transaction(function () use ($gatewayKey, $event, $parents): array {
+            return DB::transaction(function () use ($gatewayKey, $event, $parents, $lateAfterFailure): array {
                 $parents = $this->lockParents($parents);
 
                 // The dispute is already won at the provider (#232): a chargeback built from a dispute retrieved before
@@ -285,6 +305,7 @@ class GatewayCallbackHandler
                 }
 
                 $remaining = $this->amounts->toDocument($parents[0], $event->amount, $event->currency);
+                $refundedTotal = $remaining;
 
                 // Credit first, then the invoice: the reverse of how the money arrived, since only the surplus went to
                 // account credit (#194). The credit is what those payments placed: an overpayment, a payment of a
@@ -309,6 +330,10 @@ class GatewayCallbackHandler
                 }
 
                 if ($taken === 0 && $remaining === 0) {
+                    if ($lateAfterFailure && $first !== null) {
+                        $this->flagLate($first, $refundedTotal);
+                    }
+
                     return $this->outcome($gatewayKey, 200, 'refund recorded', $event->raw, $parents[0]->invoice_id);
                 }
 
@@ -320,6 +345,9 @@ class GatewayCallbackHandler
                 // which also carries the refund id for replays.
                 $first ??= $this->reversalRow($parents[0], TransactionType::Refund, $event, __('Refunded at the gateway'));
                 $this->finishReversal($first, $taken, $left, review: $flagged === null);
+                if ($lateAfterFailure) {
+                    $this->flagLate($first, $refundedTotal);
+                }
 
                 $payment = $flagged !== null ? (collect($parents)->firstWhere('id', $flagged->transaction_id) ?? $parents[0]) : $parents[0];
 
@@ -632,7 +660,20 @@ class GatewayCallbackHandler
     {
         $row->update([
             'amount_out' => $row->amount_out + $taken + $left,
-            'review_amount' => $review && $left > 0 ? $left : $row->review_amount,
+            'review_amount' => max($row->review_amount ?? 0, $review && $left > 0 ? $left : 0) ?: null,
+        ]);
+    }
+
+    /**
+     * A refund we had marked failed was made at the provider after all. It is booked once, and staff review it
+     * whatever absorbed it: the review amount is never lowered, and a reviewed flag is reopened.
+     */
+    private function flagLate(Transaction $row, int $amount): void
+    {
+        $row->update([
+            'review_amount' => max($row->review_amount ?? 0, $amount),
+            'reviewed_at' => null,
+            'description' => __('Refunded at the gateway after we recorded it as failed'),
         ]);
     }
 

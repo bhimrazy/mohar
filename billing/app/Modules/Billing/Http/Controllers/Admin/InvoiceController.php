@@ -3,6 +3,7 @@
 namespace App\Modules\Billing\Http\Controllers\Admin;
 
 use App\Contracts\Billing\GatewayDriver;
+use App\Contracts\Billing\LooksUpRefunds;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\SaveDraftInvoice;
 use App\Modules\Billing\Actions\UpdateInvoiceDetails;
@@ -187,7 +188,7 @@ class InvoiceController extends Controller
     }
 
     /**
-     * @return list<array{value: string, label: string, capture: bool, refund: bool}>
+     * @return list<array{value: string, label: string, capture: bool, refund: bool, partial_refund: bool, refund_lookup: bool, sandbox: bool}>
      */
     private function gatewayOptions(): array
     {
@@ -200,6 +201,7 @@ class InvoiceController extends Controller
                 'capture' => $driver->supports(GatewayDriver::CAPTURE),
                 'refund' => $driver->supports(GatewayDriver::REFUND),
                 'partial_refund' => $driver->supports(GatewayDriver::PARTIAL_REFUND),
+                'refund_lookup' => $driver instanceof LooksUpRefunds,
                 'sandbox' => $this->gateways->isSandbox($model),
             ];
         }, $this->gateways->drivers()));

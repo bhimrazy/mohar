@@ -11,10 +11,13 @@ import { Money } from '@/components/app/money';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { Pagination } from '@/components/app/pagination';
-import { StatusBadge } from '@/components/app/status-badge';
 import { useQueryParams } from '@/components/app/use-query-params';
 import { ClientPickerField } from '@/components/billing/client-picker';
 import { FormDialog } from '@/components/billing/form-dialog';
+import {
+    TransactionStatusBadge,
+    releasedClass,
+} from '@/components/billing/pending-refund';
 import { SelectField } from '@/components/billing/select-field';
 import type {
     ClientOption,
@@ -112,22 +115,16 @@ export default function TransactionsIndex({
         {
             key: 'status',
             header: 'Status',
-            hideOnMobile: true,
-            cell: (txn) => (
-                <StatusBadge
-                    status={
-                        txn.status === 'succeeded' ? 'completed' : txn.status
-                    }
-                    label={humanize(txn.status)}
-                />
-            ),
+            cell: (txn) => <TransactionStatusBadge txn={txn} />,
         },
         {
             key: 'amount',
             header: 'Amount',
             align: 'right',
             cell: (txn) => (
-                <span className="inline-flex flex-col items-start gap-1.5 md:items-end">
+                <span
+                    className={`inline-flex flex-col items-start gap-1.5 md:items-end ${releasedClass(txn) ?? ''}`}
+                >
                     <Money
                         amount={
                             txn.amount_out > 0 ? -txn.amount_out : txn.amount_in
@@ -442,7 +439,7 @@ export default function TransactionsIndex({
 
                 <FilterBar
                     searchPlaceholder="Search reference or description…"
-                    filterKeys={['type', 'gateway']}
+                    filterKeys={['type', 'gateway', 'waiting']}
                     filters={
                         <>
                             <FilterSelect
@@ -454,6 +451,16 @@ export default function TransactionsIndex({
                                 name="gateway"
                                 label="Gateways"
                                 options={gateways}
+                            />
+                            <FilterSelect
+                                name="waiting"
+                                label="Status"
+                                options={[
+                                    {
+                                        value: '1',
+                                        label: 'Waiting for provider',
+                                    },
+                                ]}
                             />
                         </>
                     }
