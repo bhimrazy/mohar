@@ -35,13 +35,13 @@ class ReviewUnlocks
     }
 
     /**
-     * What ties an unlock to one session: a keyed hash of the session id, never the id. Laravel makes a new id at
+     * What ties an unlock to one session: a hash of the session id, never the id (not keyed with APP_KEY, so a key rotation leaves it valid). Laravel makes a new id at
      * sign-in, so signing out and in again, or another browser of the same login, has a different one. A session id
      * that is regenerated while the session lives (a fixation guard) ends the unlock too: it fails closed.
      */
     public function binding(Request $request): string
     {
-        return hash_hmac('sha256', (string) $request->session()->getId(), (string) config('app.key'));
+        return hash('sha256', (string) $request->session()->getId());
     }
 
     /**

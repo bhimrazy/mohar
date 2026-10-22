@@ -463,7 +463,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `kyc_review_unlocks`, expand only). Documents open at upgrade time are hidden again on the new release (staff press Show documents once); for one release the
   old session entry is still read so its browser history is cleared when it ends, and Hide also removes it (a
   compatibility shim, removed in the release after next).
-  An unlock now belongs to the session that opened it (a keyed hash of the session id is stored, never the id): another
+  An unlock now belongs to the session that opened it (a hash of the session id is stored, never the id): another
   browser or a copied session cookie of the same login sees nothing, signing in again does not bring it back, a changed
   session id ends it, and signing out ends every unlock of that staff member. Show documents now requires the
   `generation` the page sends.
