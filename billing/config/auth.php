@@ -117,9 +117,19 @@ return [
     /*
     | Step-up window: seconds a password confirmation unlocks sensitive mutations behind the "password.recent"
     | middleware (App\Http\Middleware\RequireRecentPasswordConfirmation, ADR 0018 §4). Kept apart from
-    | password_timeout, which governs the "password.confirm" pages.
+    | password_timeout, which governs the "password.confirm" pages. AUTH_STEP_UP_SECONDS must be a whole number
+    | from 60 to 3600: a shorter window makes confirmations useless, and a longer one turns step-up into a formality.
+    | An out-of-range value stops the application at boot instead of being clamped silently.
     */
 
-    'step_up_seconds' => 900,
+    'step_up_seconds' => (static function (): int {
+        $seconds = filter_var(env('AUTH_STEP_UP_SECONDS', 900), FILTER_VALIDATE_INT);
+
+        if ($seconds === false || $seconds < 60 || $seconds > 3600) {
+            throw new InvalidArgumentException('AUTH_STEP_UP_SECONDS must be a whole number of seconds from 60 to 3600.');
+        }
+
+        return $seconds;
+    })(),
 
 ];
