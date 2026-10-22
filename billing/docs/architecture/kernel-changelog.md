@@ -36,9 +36,11 @@ Additive; Domains moves onto these in PR C2, which removes its module SPI.
   (C2, `findSubmission(config, domain, command, submittedAt): SubmissionLookup`) and `TestsRegistrarConnection`
   (`testConnection(RegistrarConfig): ConnectionCheck`).
 - `App\Contracts\Domains\Registrar\RegistrarRefs` (consumer contract, C4): `find(registrarKey, refType, localType,
-  localId, payloadHash = '')` and `remember(RegistrarRef)`. Implemented by Domains in PR C2.
-- `App\Data\Domains\Registrar`: `RegistrarConfig(key, settings, testMode, secretKeys)` with `setting()` and
-  `secrets()`; `DomainRef` (the ADR 0009 §2 fields plus a trailing `periodYears`); `RegistrarRef`; and the result DTOs
+  localId, payloadHash = '')` and `remember(RegistrarRef)`. Implemented by Domains in PR C3 (#265).
+- `App\Data\Domains\Registrar`: `RegistrarConfig(key, settings, testMode, secretSettingKeys)` with `setting()` and
+  `secrets()` (the name matches `ServerConnection::$secretSettingKeys`); `RegistrationRequest::secrets()` (the transfer
+  code), which the host adds to its redaction set for the call; `ContactSet::ROLES` and `ContactSet::FIELDS`, the
+  kernel contact shape (Domains' `DomainContact` constants now point at them; formats in the `ContactSet` docblock); `DomainRef` (the ADR 0009 §2 fields plus a trailing `periodYears`); `RegistrarRef`; and the result DTOs
   from the Domains module, unchanged apart from `RegistrationRequest::$domain` being a `DomainRef`, `eppCode` and
   `EppCodeResult::$code` marked `#[\SensitiveParameter]`, and `RegistrarResult::withMessage()` /
   `SubmissionLookup::withMessage()` (a copy with a new message, for host-side masking).

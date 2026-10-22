@@ -20,6 +20,17 @@ final readonly class RegistrationRequest
     ) {}
 
     /**
+     * Secret values this request carries (the transfer code), which the host adds to its redaction set for the
+     * call, so a driver that echoes them is masked like the account's credentials.
+     *
+     * @return list<string>
+     */
+    public function secrets(): array
+    {
+        return $this->eppCode === null || $this->eppCode === '' ? [] : [$this->eppCode];
+    }
+
+    /**
      * Loggable representation (EPP code redacted by the gateway).
      *
      * @return array<string, mixed>
