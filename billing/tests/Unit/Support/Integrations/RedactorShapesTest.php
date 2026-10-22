@@ -225,6 +225,11 @@ test('an unclosed void-named container masks its child content to the end of the
     'end tag of html is not a marker' => ['</html><input name="password"><value>S06SECRET', 'S06SECRET'],
     'soap body is not a marker' => ['<Envelope xmlns="urn:x"><Body><input name="password"><string>S20SECRET', 'S20SECRET'],
     'xml body element' => ['<?xml version="1.0"?><message><body>hi</body><param name="password"><value><string>S21SECRET', 'S21SECRET'],
+    'marker in a processing instruction with >' => ['<?pi a > <html ?><input name="password"><value>S07SECRET', 'S07SECRET'],
+    'marker in an unterminated processing instruction' => ['<?pi <html><input name="password"><value>S08SECRET', 'S08SECRET'],
+    'marker in a declaration' => ['<!ENTITY x "<html>"><input name="password"><value>S09SECRET', 'S09SECRET'],
+    'unterminated cdata' => ['<![CDATA[ <html> <input name="password"><value>S10SECRET', 'S10SECRET'],
+    'prefixed and near-miss names' => ['<h:html/><htmlx/><html-x/><head><body><input name="password"><value>S11SECRET', 'S11SECRET'],
     'upper-case input' => ['<INPUT name="password"><value>INP2SECRET', 'INP2SECRET'],
     'header is not an html marker' => ['<header/><input name="password"><b>INP3SECRET', 'INP3SECRET'],
     'html marker only after the element' => ['<input name="password"><b>INP4SECRET</b><html>', 'INP4SECRET'],
@@ -243,4 +248,21 @@ test('a void-named element that is not a container keeps what follows it (#278)'
     'stray end tag then text' => ['<param name="password"></x>KEEP6<value>', 'KEEP6'],
     'empty at the end of the input' => ['<param name="password">', '<param name="password">'],
     'closed by its parent' => ['<a><param name="password"></a>KEEP5', 'KEEP5'],
+]);
+
+test('masking a body with one void-named secret element uses bounded memory (#278)', function (string $unit) {
+    // The leading comment holds marker text, so the marker walk runs over the whole body.
+    $raw = '<!-- <html> -->'.str_repeat($unit, intdiv(1024 * 1024, strlen($unit))).'<input name="password"><b>x</b>';
+    memory_reset_peak_usage();
+    $before = memory_get_usage();
+
+    (new Redactor)->maskValues($raw, []);
+
+    expect(memory_get_peak_usage() - $before)->toBeLessThan(16 * 1024 * 1024);
+})->with([
+    'tags' => ['<b>'],
+    'comments' => ['<!-- c -->'],
+    'cdata' => ['<![CDATA[x]]>'],
+    'quoted attributes' => ['<a t="<html>">'],
+    'processing instructions' => ['<?p >?>'],
 ]);

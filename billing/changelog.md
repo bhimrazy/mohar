@@ -447,6 +447,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   attribute value or masked secret) these elements keep the next-tag bound, so `<meta name="csrf-token">` and
   `<input name="password"><p>…` on an HTML page stay readable. Without that marker a void-named secret element
   followed by an end tag and then a child element (`<object><param name="password"></object><p>…`) masks the rest.
+  The marker is found by a forward walk with constant extra memory; a raw `<html>` inside a non-secret JSON string still
+  counts as a marker, which only allows the next-tag bound and never exposes a secret value.
 - **Integration logs mask more secret shapes (#190).** The module, registrar and gateway logs, transaction and refund
   provider answers, and error text shown to staff now also mask: a JSON value quoted after a label
   (`HTTP 500: {"api-key":"…"}`, nested, arrays, escaped quotes), XML element values (`<password>`, EPP
