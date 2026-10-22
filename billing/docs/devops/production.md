@@ -172,6 +172,13 @@ RustFS in `compose.prod.yaml` are bumped by hand: GitHub does not document wheth
 named `compose.prod.yaml`. Every pin must be a digest at least 7 days old (`composer deps:check`), and the postgres
 image must equal the one in `billing/compose.yaml` (CI checks it).
 
+**PHP security floor.** The image runs PHP 8.4.27 (FrankenPHP 1.13.2), which fixes CVE-2026-109618 and
+CVE-2026-109619 (unauthenticated remote code execution in every web SAPI); images built from an older checkout run
+PHP 8.4.26 or older and are vulnerable. Update with the steps above: `deploy/bin/deploy` rebuilds the image and replaces
+the web container and every worker, so no PHP process keeps the old binary. Check with
+`docker compose -f deploy/compose.prod.yaml exec web-<colour> php -v`. The prod build stops if its PHP is older than the
+floor, and the admin dashboard shows "PHP runtime" in red while it is (see [install.md](install.md#php-security-floor)).
+
 ## Rolling back
 
 ```bash

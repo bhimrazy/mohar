@@ -11,15 +11,46 @@ The install is a CLI step, `php artisan app:install`. A web installer is not par
 
 ## What you need
 
-| Component      | Version / notes                                                                                                                                                                                                       |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PHP            | 8.4 with `pdo_pgsql`, `pgsql`, `intl`, `gd`, `bcmath`, `pcntl`, `zip`, `mbstring`, `openssl`, `curl`, `dom`, `zlib` and OPcache (the image's list, `deploy/Dockerfile`); php-fpm behind nginx (or another web server) |
-| Composer       | 2.10.x                                                                                                                                                                                                                |
-| Node / npm     | the version in `billing/.nvmrc` (24.21.0), only to build the front-end assets                                                                                                                                         |
-| PostgreSQL     | 18 (CI runs on `postgres:18.6-alpine`). SQLite is for development only                                                                                                                                                |
-| Object storage | any S3-compatible bucket for the `objects` disk (RustFS, AWS S3, MinIO)                                                                                                                                               |
-| Mail           | an SMTP account or a supported mail API. Security notices, invoices and password resets depend on it                                                                                                                  |
-| Processes      | cron for the scheduler, and systemd or Supervisor to keep the queue workers running                                                                                                                                   |
+| Component      | Version / notes                                                                                                                                                                                                                                                                                           |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PHP            | 8.4.27 or newer (8.5.12 or newer on 8.5; see [PHP security floor](#php-security-floor)) with `pdo_pgsql`, `pgsql`, `intl`, `gd`, `bcmath`, `pcntl`, `zip`, `mbstring`, `openssl`, `curl`, `dom`, `zlib` and OPcache (the image's list, `deploy/Dockerfile`); php-fpm behind nginx (or another web server) |
+| Composer       | 2.10.x                                                                                                                                                                                                                                                                                                    |
+| Node / npm     | the version in `billing/.nvmrc` (24.21.0), only to build the front-end assets                                                                                                                                                                                                                             |
+| PostgreSQL     | 18 (CI runs on `postgres:18.6-alpine`). SQLite is for development only                                                                                                                                                                                                                                    |
+| Object storage | any S3-compatible bucket for the `objects` disk (RustFS, AWS S3, MinIO)                                                                                                                                                                                                                                   |
+| Mail           | an SMTP account or a supported mail API. Security notices, invoices and password resets depend on it                                                                                                                                                                                                      |
+| Processes      | cron for the scheduler, and systemd or Supervisor to keep the queue workers running                                                                                                                                                                                                                       |
+
+## PHP security floor
+
+PHP 8.4.26 and older, and 8.5.11 and older, are open to **CVE-2026-109618** and **CVE-2026-109619** ("PHP2Shell",
+CVSS 4.0 9.2): unauthenticated remote code execution through every web SAPI (php-fpm, Apache `mod_php`, LiteSpeed,
+FrankenPHP). There is no workaround besides upgrading
+([php.net, 2026-10-21](https://www.php.net/archive/2026.php)). Run **PHP 8.4.27 or newer** (8.5.12 or newer on 8.5).
+
+Check the version each PHP binary on the host reports. The web server's PHP and the CLI can be different packages,
+so check both (the php-fpm binary name depends on the distribution, e.g. `php-fpm8.4` on Debian and Ubuntu):
+
+```bash
+php -v                                     # CLI: cron, queue workers, artisan
+php-fpm8.4 -v                              # the PHP that serves web requests
+```
+
+`php artisan app:install` reports the same check ("PHP"): a warning on an existing installation, and it stops a first
+install in production. The admin dashboard's System health card shows "PHP runtime" in red while the PHP that serves
+the dashboard is vulnerable.
+
+After upgrading the PHP packages, restart **every** long-running PHP process, or it keeps running the old binary:
+
+```bash
+sudo systemctl restart php8.4-fpm          # or your web server's PHP service (unit names vary by distribution)
+php artisan queue:restart                  # each worker exits after its current job; systemd or Supervisor starts it again
+```
+
+Restart anything else that runs PHP for a long time as well (a `schedule:work` process, a custom daemon). The
+`schedule:run` cron entry starts a new process every minute and needs nothing. Then check `php -v` again and open
+the dashboard. In the Docker stack, pull or rebuild the image instead ([production.md](production.md)); the image
+ships PHP 8.4.27 from FrankenPHP 1.13.2 and refuses to build with an older PHP.
 
 ## 1. Infrastructure
 
@@ -307,6 +338,9 @@ php artisan optimize
 php artisan queue:restart                  # workers pick up the new code after their current job
 php artisan up
 ```
+
+Upgrading PHP itself (for a security release) is not a release deploy: follow [PHP security floor](#php-security-floor),
+which restarts php-fpm and the workers.
 
 Re-running `app:install` is safe: on an unchanged database it changes nothing and reports every row as unchanged.
 It adds reference data a new release introduces and resets the permissions of the four system roles, so a permission

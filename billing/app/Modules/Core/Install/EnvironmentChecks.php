@@ -15,14 +15,15 @@ use Throwable;
 
 /**
  * The install pre-flight. APP_KEY, the database and migrations block the install; the queue, scheduler, object
- * storage, debug mode and mail are reported as warnings, because the install itself does not need them.
+ * storage, debug mode and mail are reported as warnings, because the install itself does not need them. A vulnerable
+ * PHP build blocks only a first production install.
  */
 final class EnvironmentChecks
 {
     /** A scheduler heartbeat older than this is reported as stale. */
     private const HEARTBEAT_STALE_MINUTES = 5;
 
-    public function __construct(private Migrator $migrator, private AutomationStatus $automation, private Settings $settings) {}
+    public function __construct(private Migrator $migrator, private AutomationStatus $automation, private Settings $settings, private PhpSecurityRelease $php) {}
 
     /**
      * @return list<EnvironmentCheck>
@@ -35,6 +36,7 @@ final class EnvironmentChecks
             : $this->migrations();
 
         return [
+            $this->phpRuntime(),
             $this->appKey(),
             $database,
             $migrations,
@@ -47,6 +49,28 @@ final class EnvironmentChecks
             ...$this->integrationOverrides(),
             ...$this->production(databaseReady: $migrations->status === CheckStatus::Ok),
         ];
+    }
+
+    /**
+     * A PHP build with a known critical vulnerability (PhpSecurityRelease). A first production install stops, so a
+     * vulnerable runtime never starts serving; everywhere else it warns: the re-run after an upgrade must not block a
+     * deploy while the host's PHP package catches up, and development machines and CI do not serve public requests.
+     */
+    private function phpRuntime(): EnvironmentCheck
+    {
+        $problem = $this->php->problem();
+
+        if ($problem === null) {
+            return new EnvironmentCheck('PHP', CheckStatus::Ok, 'PHP '.$this->php->version().'.');
+        }
+
+        return new EnvironmentCheck('PHP', app()->isProduction() && $this->firstInstall() ? CheckStatus::Failed : CheckStatus::Warning, $problem);
+    }
+
+    /** No currencies yet: `app:install` has never completed here. */
+    private function firstInstall(): bool
+    {
+        return ! rescue(fn (): bool => Currency::query()->exists(), false, report: false);
     }
 
     private function appKey(): EnvironmentCheck
@@ -121,9 +145,7 @@ final class EnvironmentChecks
         if ($problems !== []) {
             // A first install stops, so the value is fixed before any job runs. `app:install` is also the re-run after
             // an upgrade, where a stop would block a deploy over a value the operator already lives with: warn there.
-            $firstInstall = ! rescue(fn (): bool => Currency::query()->exists(), false, report: false);
-
-            return new EnvironmentCheck('Queue timeouts', $firstInstall ? CheckStatus::Failed : CheckStatus::Warning, implode(' ', $problems));
+            return new EnvironmentCheck('Queue timeouts', $this->firstInstall() ? CheckStatus::Failed : CheckStatus::Warning, implode(' ', $problems));
         }
 
         $connection = (string) config('queue.default');
