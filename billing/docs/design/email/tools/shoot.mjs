@@ -11,7 +11,12 @@
 //        invoice-issued-long 320-light and desktop-light (stress sample).
 // "dark" = our prefers-color-scheme styles. "inverted" = forced inversion approximating Gmail apps and
 // Outlook desktop: invert(1) hue-rotate(180deg) on the page, images re-inverted (those clients leave images alone).
-import { chromium } from '/workspaces/whmcs/.worktrees/_review/pw/node_modules/playwright/index.mjs';
+import { createRequire } from 'node:module';
+import { execSync } from 'node:child_process';
+// Playwright is installed globally at a pinned version (billing/docs/devops/local-setup.md).
+const { chromium } = createRequire(import.meta.url)(
+    `${execSync('npm root -g').toString().trim()}/playwright`,
+);
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';

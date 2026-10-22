@@ -23,6 +23,17 @@ services:
             timeout: 5s
             retries: 5
 
+    mailpit:
+        # Catches all outgoing mail locally: SMTP on 1025, web inbox on http://localhost:8025. Point the app at it with
+        # MAIL_MAILER=smtp, MAIL_HOST=127.0.0.1, MAIL_PORT=1025 (docs/devops/local-setup.md).
+        # Pinned by digest (multi-arch index of axllent/mailpit:v1.31.6, released 2026-10-15).
+        image: axllent/mailpit:v1.31.6@sha256:23fe39e81bde596a918000b3135c0f85dc8bb4c9ea6be274b051143f3e300387
+        ports:
+            - '127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025'
+            - '127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025'
+        environment:
+            MP_MAX_MESSAGES: '2000'
+
     postgres:
         # Production-parity database. The app defaults to SQLite; switch with the DB_* block in .env.example.
         # Credentials come from .env (DB_DATABASE / DB_USERNAME / DB_PASSWORD / DB_PORT), defaulting to billing.

@@ -11,7 +11,7 @@ description: Resume the Mohar build after a Claude Code restart, a context reset
 2. **Check the machine.**
 
    ```bash
-   nproc; free -h; df -h /; uptime
+   nproc 2>/dev/null || sysctl -n hw.ncpu; free -h 2>/dev/null || vm_stat | head -5; df -h /; uptime
    ```
 
    Start the resource monitor in the background:
@@ -44,7 +44,8 @@ description: Resume the Mohar build after a Claude Code restart, a context reset
    visibility (`gh repo view --json visibility`): the CI rules differ (`operating-model.md`, "Repository
    visibility and CI").
 
-4. **New device only.** Install prerequisites from `billing/docs/devops/local-setup.md` (PHP 8.4 with
+4. **New device only.** Set `MOHAR_ROOT` to the main checkout in `.claude/settings.local.json`
+   (`{"env": {"MOHAR_ROOT": "/path/to/mohar"}}`; the codespace uses `/workspaces/whmcs`), then install prerequisites from `billing/docs/devops/local-setup.md` (PHP 8.4 with
    pdo_pgsql, Composer, Node with npm, Docker, `gh auth login`). Then in `billing/`:
    `composer install`, `npm ci`, `cp .env.example .env`, `php artisan key:generate`,
    `touch database/database.sqlite`, `php artisan migrate --seed`, `php artisan wayfinder:generate --with-form`. For each in-progress branch run
@@ -73,9 +74,14 @@ description: Resume the Mohar build after a Claude Code restart, a context reset
      on port 8000, detached so it survives a Claude Code restart (not a codespace reboot):
 
      ```bash
+     # Codespace
      cd billing && XDEBUG_MODE=off DB_DATABASE=$PWD/database/preview.sqlite \
        APP_URL=https://$CODESPACE_NAME-8000.app.github.dev setsid nohup php artisan serve --host=0.0.0.0 \
-       --port=8000 --no-reload > /workspaces/whmcs/.worktrees/_review/preview-8000.log 2>&1 < /dev/null &
+       --port=8000 --no-reload > $MOHAR_ROOT/.worktrees/_review/preview-8000.log 2>&1 < /dev/null &
+     # macOS (no setsid; localhost only)
+     cd billing && (XDEBUG_MODE=off DB_DATABASE=$PWD/database/preview.sqlite APP_URL=http://localhost:8000 \
+       nohup php artisan serve --host=127.0.0.1 --port=8000 --no-reload \
+       > $MOHAR_ROOT/.worktrees/_review/preview-8000.log 2>&1 < /dev/null &)
      ```
 
      Long-running watchers (such as `.worktrees/_review/merge-when-green.sh`) live in `.worktrees/_review/`, not

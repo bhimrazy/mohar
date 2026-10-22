@@ -37,10 +37,12 @@ Skills: `resume-session` after a restart or on a new device; `run-workstream` to
 - Work on feature branches in worktrees under `.worktrees/<slug>` (`scripts/new-worktree.sh <slug>`);
   PRs go into `develop`. Shared-kernel changes (`app/Contracts`, `app/Data`, `app/Events`, `app/Support`)
   are made centrally by the CTO session, not inside a module branch, unless the PR body calls them out.
-- Subagents never run commands in the main checkout (`/workspaces/whmcs/billing`) and never touch port 8000,
+- `$MOHAR_ROOT` is the main checkout: `/workspaces/whmcs` on a codespace; on other machines it is set in the
+  git-ignored `.claude/settings.local.json` (`env`).
+- Subagents never run commands in the main checkout (`$MOHAR_ROOT/billing`) and never touch port 8000,
   the owner's preview. Chain every `cd` with `&&`. Stop servers by port PID, never `pkill -f`.
 - Run CPU-heavy commands through `scripts/heavy.sh` (full test suite, phpstan, builds, `npm ci`,
-  browsers). The codespace has 4 vCPUs and is shared by several agents.
+  browsers). The machine is shared by several agents (operating model, "Machine limits").
 - Hard-pinned dependencies with a 7-day release cooldown (ADR 0007). Do not add packages without approval,
   and never run `npx <package>` for a tool that is not in the lockfile: it executes unvetted code. Format
   with `npx vp check --fix`, not standalone prettier.

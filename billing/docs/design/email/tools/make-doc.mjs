@@ -1,5 +1,10 @@
 // Renders the small document thumbnail used in direction A (our own drawing): ../assets/doc-{light,dark}.png
-import { chromium } from '/workspaces/whmcs/.worktrees/_review/pw/node_modules/playwright/index.mjs';
+import { createRequire } from 'node:module';
+import { execSync } from 'node:child_process';
+// Playwright is installed globally at a pinned version (billing/docs/devops/local-setup.md).
+const { chromium } = createRequire(import.meta.url)(
+    `${execSync('npm root -g').toString().trim()}/playwright`,
+);
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const out = path.join(

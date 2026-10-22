@@ -19,7 +19,7 @@ npm run build      # writes dist/
 npm run preview    # serves dist/ on http://localhost:8141/ (search works only in a build)
 ```
 
-Use `/workspaces/whmcs/scripts/heavy.sh npm run build` in the shared codespace.
+Use `$MOHAR_ROOT/scripts/heavy.sh npm run build` on a machine shared with agents.
 
 ## Write a page
 
