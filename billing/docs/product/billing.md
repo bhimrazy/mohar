@@ -165,6 +165,25 @@ Order within the global daily pipeline: _(Services/Domains renewal generation)_ 
 - Server-side rendering (HTML template → PDF), cached by `(invoice_id, version, locale)`; regenerated after any change. Contains company details, client snapshot, number (or proforma number), dates, lines with periods, tax breakdown, adjustments, payments table, balance, "PAID"/"REVERSE CHARGE" stamps. **MUST**
 - Attach PDF to invoice emails `billing.pdf.attach_to_emails: true`; paper size `billing.pdf.paper: A4`. **SHOULD**
 
+### 9.1 Bikram Sambat dates beside AD dates (#207)
+
+- Invoices use Gregorian (AD) dates. `billing.show_bs_dates` (Admin → Settings → Billing, "Show the Bikram Sambat date
+  beside the AD date on invoices", default off) adds the BS date in brackets after the issue and due dates: "12 Jan 2026
+  (28 Poush 2082 BS)". The AD part follows the date format setting; BS month names are English transliterations
+  (Baisakh … Chaitra). **SHOULD**
+- Shown on the admin and client invoice pages (`issue_date_bs` / `due_date_bs` in the invoice resource, null when
+  off), the invoice PDF, and the key-facts rows (Issued, Due, Was due, Charge date) of the invoice emails and the
+  service suspension email (merge fields `invoice.issue_date_bs`, `invoice.due_date_bs`). Subjects, preheaders and
+  sentences keep the AD date only.
+- Conversion: `App\Modules\Billing\Support\BikramSambat`, a month-length table for 2000–2100 BS (14 Apr 1943 to
+  12 Apr 2044 AD) with its sources in the class comment. Dates outside the table are refused (`OutOfRangeException`);
+  the invoice then shows the AD date alone. Rows after the current panchang are projections and are corrected when
+  Nepal's official calendar for that year is published.
+- A PDF rendered with BS dates is cached under its own path (`…-<locale>-bs.pdf`), so switching the setting never
+  serves the other version.
+- Not in scope: BS fiscal-year invoice numbering (waits for an accountant's answer on IRD/CBMS rules) and Devanagari
+  numerals or month names (the app has no Nepali locale yet).
+
 ## 10. Admin capabilities
 
 Invoice list (filters: status, overdue, client, gateway, date ranges, number), view-only by default; actions: publish draft, add payment,

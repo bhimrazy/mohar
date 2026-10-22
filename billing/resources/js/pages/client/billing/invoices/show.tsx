@@ -181,9 +181,9 @@ export default function ClientInvoiceShow({
                                     <span>
                                         Due{' '}
                                         <InvoiceDate
-                                        value={invoice.due_date}
-                                        bs={invoice.due_date_bs}
-                                    />
+                                            value={invoice.due_date}
+                                            bs={invoice.due_date_bs}
+                                        />
                                     </span>
                                 </>
                             )}
