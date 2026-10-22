@@ -462,6 +462,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   are now masked too. A webhook receiver's answer is cut to its stored 2 KB before it is masked, so a large answer
   costs nothing to mask; a JSON answer with nothing secret is stored as received, and one with a secret is stored
   re-encoded (whitespace can differ).
+
 ### Architecture tests check every target (#275)
 
 - The architecture rules in `tests/Arch` with several targets (kernel → module imports, Eloquent models in DTOs and
