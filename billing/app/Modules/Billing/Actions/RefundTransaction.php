@@ -69,6 +69,7 @@ class RefundTransaction
             }
 
             if ($mode === RefundMode::Gateway) {
+                $this->assertNoRefundInFlight($payment);
                 $this->assertGatewayCanRefund($payment, $amount);
             }
 
@@ -101,20 +102,167 @@ class RefundTransaction
             $result = $this->refundAtGateway($payment->fresh() ?? $payment, $amount, $refund);
 
             if (! $result->succeeded()) {
-                DB::transaction(function () use ($refund, $payment, $amount): void {
-                    $refund->update(['status' => TransactionStatus::Failed, 'refundable_remaining' => 0]);
-                    Transaction::query()->whereKey($payment->id)->lockForUpdate()->first()?->increment('refundable_remaining', $amount);
-                });
+                return $this->unsettled($refund, $result, $reverseEffects);
+            }
+        }
 
+        return $this->finalise($refund, $payment, $amount, $mode, $reverseEffects, $userId, $result ?? null);
+    }
+
+    /**
+     * Settle a refund that was left pending (the provider's answer never came): the provider's refund callback, a
+     * status check, or staff have confirmed it. Same row, same reference, so the provider's idempotency key never
+     * changes. Acts only while the row is still pending, under its lock. A provider refund id already booked on
+     * another row is the same refund: this row is released instead, so one provider refund is booked once.
+     *
+     * @param  array<string, mixed>  $raw
+     */
+    public function settle(Transaction $refund, ?string $providerRefundId, array $raw = []): Transaction
+    {
+        if ($providerRefundId !== null && $providerRefundId !== '' && ($other = $this->existing($refund->gateway, $providerRefundId)) !== null && $other->id !== $refund->id) {
+            $this->release($refund);
+
+            return $other;
+        }
+
+        $payment = Transaction::query()->findOrFail($refund->parent_transaction_id);
+        $result = new ChargeResult(ChargeResult::SUCCESS, $providerRefundId, raw: $raw);
+        $reverse = (bool) ($refund->raw['confirmation']['reverse_effects'] ?? false);
+
+        return $this->finalise($refund, $payment, $refund->amount_out, RefundMode::Gateway, $reverse, $refund->created_by, $result);
+    }
+
+    /**
+     * Re-ask the provider about a pending refund (same reference). Only the provider's word moves the row: SUCCESS
+     * settles it, a definite "no such refund" releases the amount, anything else leaves it pending.
+     */
+    public function check(Transaction $refund): Transaction
+    {
+        $payment = $this->pendingParent($refund);
+        $driver = $this->gateways->driver($refund->gateway);
+
+        if (! $driver->supports(GatewayDriver::REFUND_LOOKUP)) {
+            throw new BillingException(__(':gateway can\'t report on a refund. Confirm or reject it by hand once you have checked with the provider.', ['gateway' => $driver->name()]));
+        }
+
+        $result = $driver->lookupRefund($this->gateways->config($refund->gateway), $this->providerRequest($payment, $refund->amount_out, $refund));
+        $this->log->log($refund->gateway, 'response', 'refund lookup '.$result->status, $result->raw, $refund->invoice_id);
+
+        if ($result->status === ChargeResult::SUCCESS) {
+            return $this->settle($refund, $result->txnId, $result->raw);
+        }
+
+        if ($result->status === ChargeResult::DECLINED) {
+            $this->release($refund);
+        }
+
+        return $refund->fresh() ?? $refund;
+    }
+
+    /**
+     * Staff resolve a pending refund by hand, for a provider with no status check: it was made at the provider
+     * (booked now, deduped later by the provider's refund id when the callback names it) or it was not (released).
+     */
+    public function resolve(Transaction $refund, bool $confirmed): Transaction
+    {
+        $this->pendingParent($refund);
+
+        if ($confirmed) {
+            return $this->settle($refund, null, ['resolved_by_staff' => true]);
+        }
+
+        $this->release($refund);
+
+        return $refund->fresh() ?? $refund;
+    }
+
+    private function pendingParent(Transaction $refund): Transaction
+    {
+        $fresh = $refund->fresh();
+
+        if ($fresh === null || ! $fresh->awaitsProviderConfirmation()) {
+            throw new BillingException(__('This refund is not waiting for the provider any more.'));
+        }
+
+        return Transaction::query()->findOrFail($fresh->parent_transaction_id);
+    }
+
+    /**
+     * Release a pending refund the provider definitely did not make: the row fails and its amount is refundable again.
+     * Acts only while the row is still pending, under its lock; returns false when something settled it first.
+     */
+    public function release(Transaction $refund): bool
+    {
+        return DB::transaction(function () use ($refund): bool {
+            $locked = Transaction::query()->lockForUpdate()->find($refund->id);
+
+            if ($locked === null || $locked->status !== TransactionStatus::Pending) {
+                return false;
+            }
+
+            $locked->update(['status' => TransactionStatus::Failed, 'refundable_remaining' => 0]);
+            Transaction::query()->whereKey($locked->parent_transaction_id)->lockForUpdate()->first()?->increment('refundable_remaining', $locked->amount_out);
+
+            return true;
+        });
+    }
+
+    /**
+     * The provider did not confirm the refund. Only a definite decline releases the amount. Any other answer (a
+     * timeout, an error, a pending state) may mean the refund happened, so the row stays pending with the amount
+     * reserved, and the provider's callback or a staff check settles it later. A retry would be a new refund.
+     */
+    private function unsettled(Transaction $refund, ChargeResult $result, bool $reverseEffects): Transaction
+    {
+        if ($result->status === ChargeResult::DECLINED) {
+            if ($this->release($refund)) {
                 throw new BillingException(__('The gateway rejected the refund (:reason).', ['reason' => $result->declineReason ?? $result->status]));
             }
 
-            $refund->forceFill(['gateway_txn_id' => $result->txnId, 'raw' => GatewayLogger::redact($result->raw)]);
+            return $refund->fresh() ?? $refund;
         }
 
-        // 3. Finalise the books. Locks in the module's order: invoice, then client (the credit post), as payments,
-        // credit and chargebacks take them, so a refund to credit never deadlocks with a dispute of the same invoice.
-        return DB::transaction(function () use ($refund, $payment, $amount, $mode, $reverseEffects, $userId): Transaction {
+        return DB::transaction(function () use ($refund, $result, $reverseEffects): Transaction {
+            $locked = Transaction::query()->lockForUpdate()->findOrFail($refund->id);
+
+            if ($locked->status === TransactionStatus::Pending) {
+                $locked->forceFill([
+                    'gateway_txn_id' => $locked->gateway_txn_id ?? $result->txnId,
+                    'raw' => [...GatewayLogger::redact($result->raw), 'confirmation' => [
+                        'status' => $result->status,
+                        'reason' => $result->declineReason,
+                        'reverse_effects' => $reverseEffects,
+                        'since' => now()->toIso8601String(),
+                    ]],
+                ])->save();
+            }
+
+            return $locked;
+        });
+    }
+
+    /**
+     * Finalise the books. Locks in the module's order: invoice, then client (the credit post), as payments,
+     * credit and chargebacks take them, so a refund to credit never deadlocks with a dispute of the same invoice.
+     * A gateway refund is booked only while its row is still pending (taken under lock first), so a late answer
+     * never books a refund the callback already settled.
+     */
+    private function finalise(Transaction $refund, Transaction $payment, int $amount, RefundMode $mode, bool $reverseEffects, ?int $userId, ?ChargeResult $result): Transaction
+    {
+        return DB::transaction(function () use ($refund, $payment, $amount, $mode, $reverseEffects, $userId, $result): Transaction {
+            if ($mode === RefundMode::Gateway) {
+                $refund = Transaction::query()->lockForUpdate()->findOrFail($refund->id);
+
+                if ($refund->status !== TransactionStatus::Pending) {
+                    return $refund;
+                }
+
+                $refund->forceFill([
+                    'gateway_txn_id' => $result->txnId ?? $refund->gateway_txn_id,
+                    'raw' => GatewayLogger::redact([...($refund->raw ?? []), ...$result->raw]),
+                ]);
+            }
+
             $invoice = $payment->invoice_id !== null ? Invoice::query()->lockForUpdate()->find($payment->invoice_id) : null;
 
             $refund->status = TransactionStatus::Succeeded;
@@ -135,6 +283,22 @@ class RefundTransaction
     public function existing(string $gateway, string $gatewayTxnId): ?Transaction
     {
         return Transaction::query()->where('gateway', $gateway)->where('gateway_txn_id', $gatewayTxnId)->where('type', TransactionType::Refund)->first();
+    }
+
+    /**
+     * One provider refund per payment at a time: while one is pending (in flight, or unconfirmed after a timeout) a
+     * second call could refund the same money again. Called with the payment locked.
+     */
+    private function assertNoRefundInFlight(Transaction $payment): void
+    {
+        $pending = Transaction::query()->where('parent_transaction_id', $payment->id)->where('type', TransactionType::Refund)
+            ->where('status', TransactionStatus::Pending)->first();
+
+        if ($pending !== null) {
+            throw new BillingException(__('A refund of :amount is being confirmed with the provider. Wait for it to settle before refunding this payment again.', [
+                'amount' => app(MoneyFormatter::class)->format(Money::of($pending->amount_out, $pending->currency)),
+            ]));
+        }
     }
 
     private function assertGatewayCanRefund(Transaction $payment, int $amount): void
@@ -165,17 +329,27 @@ class RefundTransaction
      */
     private function refundAtGateway(Transaction $payment, int $amount, Transaction $refund): ChargeResult
     {
+        $result = $this->gateways->driver($payment->gateway)->refund($this->gateways->config($payment->gateway), $this->providerRequest($payment, $amount, $refund));
+        $this->log->log($payment->gateway, 'response', 'refund '.$result->status, $result->raw, $payment->invoice_id);
+
+        return $result;
+    }
+
+    /**
+     * The request a refund row is sent as, always built the same way: a status check or a retry of the same row asks
+     * the provider about the same reference.
+     */
+    private function providerRequest(Transaction $payment, int $amount, Transaction $refund): RefundRequest
+    {
         $charge = $this->amounts->charge($payment);
-        $result = $this->gateways->driver($payment->gateway)->refund($this->gateways->config($payment->gateway), new RefundRequest(
+
+        return new RefundRequest(
             providerTxnId: (string) $charge['txnId'],
             amount: $this->amounts->toGateway($payment, $amount),
             originalAmount: Money::of($charge['gatewayAmount'], $charge['gatewayCurrency']),
             paymentRaw: $payment->raw ?? [],
             reference: (string) $refund->id,
-        ));
-        $this->log->log($payment->gateway, 'response', 'refund '.$result->status, $result->raw, $payment->invoice_id);
-
-        return $result;
+        );
     }
 
     private function applyToInvoice(Invoice $invoice, Transaction $refund, int $amount, bool $reverseEffects, ?int $userId): void

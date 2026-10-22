@@ -68,7 +68,11 @@ import {
     updateDetails,
 } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/InvoiceController';
 import { check as checkAttempt } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/PaymentAttemptController';
-import { refund } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/TransactionController';
+import {
+    checkRefund,
+    refund,
+    resolveRefund,
+} from '@/actions/App/Modules/Billing/Http/Controllers/Admin/TransactionController';
 import { show as showClient } from '@/actions/App/Modules/Core/Http/Controllers/Admin/ClientController';
 import { labelWithCurrency } from '@/lib/money';
 
@@ -85,6 +89,64 @@ type Props = {
 const PAYABLE = ['unpaid', 'payment_pending', 'collections'];
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+/** A gateway refund the provider hasn't confirmed: ask the provider, or settle it by hand when it can't be asked. */
+function PendingRefundActions({
+    transaction,
+    gateways,
+}: {
+    transaction: Transaction;
+    gateways: GatewayOption[];
+}) {
+    const canAsk =
+        gateways.find((gateway) => gateway.value === transaction.gateway)
+            ?.refund_lookup ?? false;
+
+    return (
+        <div className="flex flex-wrap justify-end gap-1">
+            {canAsk && (
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                        router.post(
+                            checkRefund.url(transaction.id),
+                            {},
+                            { preserveScroll: true },
+                        )
+                    }
+                >
+                    Check refund
+                </Button>
+            )}
+            <ConfirmDialog
+                trigger={
+                    <Button variant="ghost" size="sm">
+                        Confirmed at the provider
+                    </Button>
+                }
+                title="Record this refund as made at the provider?"
+                description="Only do this after you saw the refund in the provider's portal. The refund is booked and can't be undone."
+                confirmLabel="Confirmed at the provider"
+                destructive={false}
+                action={resolveRefund(transaction.id)}
+                data={{ outcome: 'confirmed' }}
+            />
+            <ConfirmDialog
+                trigger={
+                    <Button variant="ghost" size="sm">
+                        Not refunded
+                    </Button>
+                }
+                title="The provider did not refund this?"
+                description="The amount becomes refundable again. If the provider refunded it anyway, its callback is booked and flagged for review."
+                confirmLabel="Not refunded"
+                action={resolveRefund(transaction.id)}
+                data={{ outcome: 'not_refunded' }}
+            />
+        </div>
+    );
+}
 
 function RefundDialog({
     transaction,
@@ -340,7 +402,12 @@ export default function InvoiceShow({
             align: 'right',
             hideOnMobile: true,
             cell: (txn) =>
-                can.refunds && txn.refundable ? (
+                can.refunds && txn.awaiting_confirmation ? (
+                    <PendingRefundActions
+                        transaction={txn}
+                        gateways={gateways}
+                    />
+                ) : can.refunds && txn.refundable ? (
                     <RefundDialog transaction={txn} gateways={gateways} />
                 ) : null,
         },

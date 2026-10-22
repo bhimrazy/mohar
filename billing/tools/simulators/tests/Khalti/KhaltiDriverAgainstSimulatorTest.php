@@ -6,11 +6,14 @@ use App\Modules\Billing\Actions\RefundTransaction;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\RefundMode;
+use App\Modules\Billing\Enums\TransactionStatus;
+use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\Settings;
 use App\Modules\PaymentsNepal\Drivers\KhaltiDriver;
 use App\Support\Integrations\Endpoints;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -198,6 +201,26 @@ test('a full refund goes to Khalti once; refunded and partially refunded session
     $this->get(khaltiChoose($second, 'pay'));
     $this->scenario->simulator()->actions()['refund'](['pidx' => $second->provider_ref, 'amount' => 10_000], $this->scenario);
     expect($driver->lookup(khaltiConfig(), $second->fresh()->toRef())->status)->toBe(LookupResult::PARTIALLY_REFUNDED);
+});
+
+test('a refund whose answer times out after Khalti made it stays pending and a second refund never reaches Khalti (#334)', function () {
+    config(['payments_nepal.khalti.partial_refunds' => true]);
+    app(Settings::class)->setMany(['billing.gateways.http_timeout_seconds' => 3]);
+    [, $attempt] = khaltiStart();
+    $this->get(khaltiChoose($attempt, 'pay'));
+    $payment = Transaction::query()->where('gateway', KhaltiDriver::KEY)->sole();
+    $this->scenario->faults()->add('refund', Fault::commitThenHang(5), nth: 1);
+
+    $pending = app(RefundTransaction::class)->handle($payment, 50_000, RefundMode::Gateway);
+
+    expect($pending->status)->toBe(TransactionStatus::Pending)
+        ->and($payment->fresh()->refundable_remaining)->toBe(63_055)
+        ->and($this->scenario->log()->count('refund'))->toBe(1)
+        ->and(app(KhaltiDriver::class)->lookup(khaltiConfig(), $attempt->fresh()->toRef())->status)->toBe(LookupResult::PARTIALLY_REFUNDED);
+
+    expect(fn () => app(RefundTransaction::class)->handle($payment->fresh(), 50_000, RefundMode::Gateway))->toThrow(BillingException::class, 'being confirmed with the provider')
+        ->and($this->scenario->log()->count('refund'))->toBe(1)
+        ->and(Transaction::query()->where('type', 'refund')->count())->toBe(1);
 });
 
 test('Test connection accepts the simulator key and names a rejected one', function () {

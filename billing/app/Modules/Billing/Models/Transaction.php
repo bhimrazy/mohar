@@ -133,4 +133,13 @@ class Transaction extends Model
     {
         return $this->type->isIncome() && $this->status === TransactionStatus::Succeeded && $this->refundable_remaining > 0;
     }
+
+    /**
+     * A gateway refund the provider never confirmed (timeout, error or pending answer): the amount stays reserved
+     * until the provider's callback or a staff check settles it.
+     */
+    public function awaitsProviderConfirmation(): bool
+    {
+        return $this->type === TransactionType::Refund && $this->status === TransactionStatus::Pending && isset($this->raw['confirmation']);
+    }
 }

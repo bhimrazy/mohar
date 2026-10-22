@@ -4,16 +4,20 @@ use App\Modules\Billing\Actions\RefundTransaction;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\RefundMode;
+use App\Modules\Billing\Enums\TransactionStatus;
 use App\Modules\Billing\Enums\TransactionType;
+use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\GatewayCallbackHandler;
+use App\Modules\Core\Support\Settings;
 use App\Modules\PaymentsStripe\Drivers\StripeDriver;
 use App\Support\Integrations\Endpoints;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
+use Mohar\Simulators\Kernel\Fault;
 use Mohar\Simulators\Kernel\Processes;
 use Mohar\Simulators\Providers\Stripe\StripeSimulator;
 use Tests\TestCase;
@@ -142,6 +146,54 @@ test('a staff refund goes to Stripe once, and its webhook books nothing more', f
         ->and(Transaction::query()->where('type', TransactionType::Refund)->count())->toBe(1)
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
         ->and($this->scenario->log()->count('create_refund'))->toBe(1);
+});
+
+test('a staff refund whose answer times out after Stripe made it stays pending, blocks a second refund, and its webhook settles the same row (#334)', function () {
+    app(Settings::class)->setMany(['billing.gateways.http_timeout_seconds' => 3]);
+    [, $invoice] = usdInvoice([2_500]);
+    browser()->post(checkoutFor($invoice).'/pay');
+    deliverWebhooks();
+    $payment = Transaction::query()->where('gateway', StripeDriver::KEY)->sole();
+    $this->scenario->faults()->add('create_refund', Fault::commitThenHang(5), nth: 1);
+
+    $pending = app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
+
+    // Stripe refunded; our call timed out. The refund waits, the amount stays reserved.
+    expect($pending->status)->toBe(TransactionStatus::Pending)->and($pending->awaitsProviderConfirmation())->toBeTrue()
+        ->and($payment->fresh()->refundable_remaining)->toBe(1_500)
+        ->and($this->scenario->log()->count('create_refund'))->toBe(1);
+
+    // A retry would be a new refund with a new idempotency key: it never reaches Stripe.
+    expect(fn () => app(RefundTransaction::class)->handle($payment->fresh(), 1_000, RefundMode::Gateway))->toThrow(BillingException::class, 'being confirmed with the provider')
+        ->and($this->scenario->log()->count('create_refund'))->toBe(1);
+
+    expect(array_column(deliverWebhooks(), 1))->toContain('refund recorded');
+    expect(Transaction::query()->where('type', TransactionType::Refund)->sole())->id->toBe($pending->id)->status->toBe(TransactionStatus::Succeeded)->amount_out->toBe(1_000)
+        ->and($payment->fresh()->refundable_remaining)->toBe(1_500)
+        ->and($invoice->fresh()->amount_paid)->toBe(1_500);
+});
+
+test('Check refund settles a refund Stripe made behind a timeout, and releases one Stripe never received (#334)', function () {
+    app(Settings::class)->setMany(['billing.gateways.http_timeout_seconds' => 3]);
+    [, $invoice] = usdInvoice([2_500]);
+    browser()->post(checkoutFor($invoice).'/pay');
+    deliverWebhooks();
+    $payment = Transaction::query()->where('gateway', StripeDriver::KEY)->sole();
+    $this->scenario->faults()->add('create_refund', Fault::commitThenHang(5), nth: 1);
+    $this->scenario->faults()->add('create_refund', Fault::resetBeforeCommit(), nth: 2);
+
+    $made = app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
+    expect($made->status)->toBe(TransactionStatus::Pending);
+
+    $settled = app(RefundTransaction::class)->check($made);
+    expect($settled->status)->toBe(TransactionStatus::Succeeded)->and($settled->gateway_txn_id)->toStartWith('re_')
+        ->and($payment->fresh()->refundable_remaining)->toBe(1_500);
+
+    // The connection dropped before Stripe stored anything: the check finds no such refund and frees the amount.
+    $lost = app(RefundTransaction::class)->handle($payment->fresh(), 500, RefundMode::Gateway);
+    expect($lost->status)->toBe(TransactionStatus::Pending)->and($payment->fresh()->refundable_remaining)->toBe(1_000);
+    expect(app(RefundTransaction::class)->check($lost)->status)->toBe(TransactionStatus::Failed)
+        ->and($payment->fresh()->refundable_remaining)->toBe(1_500);
 });
 
 test('a dispute raised at Stripe is recorded as a chargeback, once', function () {

@@ -267,11 +267,16 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
         try {
             $response = $this->client($gateway, $endpoint)->post($endpoint->url(rawurlencode($request->providerTxnId).'/refund/'), $request->isPartial() ? ['amount' => $request->amount->amount] : []);
         } catch (ConnectionException) {
-            // The refund may still have gone through: staff must check the portal before retrying.
-            return new ChargeResult(ChargeResult::ERROR, declineReason: 'no answer from Khalti; check the Khalti portal before retrying', raw: ['transaction_id' => $request->providerTxnId]);
+            // The refund may still have gone through: it stays pending until confirmed.
+            return new ChargeResult(ChargeResult::ERROR, declineReason: 'no answer from Khalti; the refund stays pending until it is confirmed', raw: ['transaction_id' => $request->providerTxnId]);
         }
 
         $raw = ['transaction_id' => $request->providerTxnId, 'amount' => $request->amount->amount, 'partial' => $request->isPartial(), 'http_status' => $response->status(), 'detail' => ProviderHttp::summary($response->json())];
+
+        // A server error or request timeout says nothing about whether the refund was made: indeterminate.
+        if ($response->serverError() || $response->status() === 408) {
+            return new ChargeResult(ChargeResult::ERROR, declineReason: 'Khalti answered HTTP '.$response->status().'; the refund stays pending until it is confirmed', raw: $raw);
+        }
 
         if (! $response->successful()) {
             return new ChargeResult(ChargeResult::DECLINED, declineReason: mb_substr(ProviderHttp::summary($response->json()) ?: 'HTTP '.$response->status(), 0, 150), raw: $raw);

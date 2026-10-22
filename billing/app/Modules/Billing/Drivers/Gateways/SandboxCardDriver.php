@@ -198,6 +198,7 @@ class SandboxCardDriver extends AbstractGatewayDriver implements CancelsHostedPa
             currency: strtoupper($data['currency']),
             parentTxnId: is_string($data['parent_txn_id'] ?? null) ? $data['parent_txn_id'] : null,
             reason: is_string($data['reason'] ?? null) ? $data['reason'] : null,
+            reference: is_string($data['reference'] ?? null) ? $data['reference'] : null,
             raw: $data,
             sentAt: CarbonImmutable::createFromTimestamp((int) $timestamp),
         );

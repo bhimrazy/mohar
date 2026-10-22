@@ -261,11 +261,29 @@ class GatewayCallbackHandler
             return $this->outcome($gatewayKey, 200, 'refund already recorded', $event->raw, $own->invoice_id);
         }
 
+        // A refund whose answer never came (timeout) stays pending with its amount reserved: the callback is the
+        // provider's word that it happened, so it settles that same row (never a second one).
+        if ($own?->awaitsProviderConfirmation() && $event->txnId !== '') {
+            $parent = Transaction::query()->find($own->parent_transaction_id);
+
+            if ($parent === null || $this->amounts->toDocument($parent, $event->amount, $event->currency) !== $own->amount_out) {
+                return $this->outcome($gatewayKey, 200, 'refund differs from the pending refund; staff review', $event->raw, $own->invoice_id);
+            }
+
+            $this->refund->settle($own, $event->txnId, $event->raw);
+
+            return $this->outcome($gatewayKey, 200, 'refund recorded', $event->raw, $own->invoice_id);
+        }
+
         if ($own?->status === TransactionStatus::Pending) {
             return $this->outcome($gatewayKey, 409, 'refund still being recorded; retry expected', $event->raw, $own->invoice_id);
         }
 
         $parents = $this->parents($gatewayKey, $event);
+
+        // The refund we marked failed (declined, or released by staff) was made at the provider after all: it is
+        // booked below, once by its provider refund id, and left on staff's to-do list.
+        $lateAfterFailure = $own?->status === TransactionStatus::Failed;
 
         if ($parents === []) {
             // Out of order (refund before payment): reject so the provider retries later.
@@ -275,7 +293,7 @@ class GatewayCallbackHandler
         // The refund rows and any credit taken back commit together (all record-only, no provider call), so a crash
         // can't leave the credit in place while the provider's retry is answered "duplicate".
         try {
-            return DB::transaction(function () use ($gatewayKey, $event, $parents): array {
+            return DB::transaction(function () use ($gatewayKey, $event, $parents, $lateAfterFailure): array {
                 $parents = $this->lockParents($parents);
 
                 // The dispute is already won at the provider (#232): a chargeback built from a dispute retrieved before
@@ -306,6 +324,10 @@ class GatewayCallbackHandler
                     $first ??= $this->refund->handle($parent, $portion, RefundMode::RecordOnly, gatewayTxnId: $txnId, reason: __('Refunded at the gateway'));
                     $remaining -= $portion;
                     $txnId = null;
+                }
+
+                if ($lateAfterFailure && $first !== null) {
+                    $first->update(['review_amount' => $first->amount_out, 'description' => __('Refunded at the gateway after we recorded it as failed')]);
                 }
 
                 if ($taken === 0 && $remaining === 0) {

@@ -29,6 +29,8 @@ interface GatewayDriver extends IntegrationDriver
 
     public const PARTIAL_REFUND = 'partial_refund';
 
+    public const REFUND_LOOKUP = 'refund_lookup';
+
     public const WEBHOOK = 'webhook';
 
     public const PENDING_SETTLEMENT = 'pending_settlement';
@@ -79,6 +81,14 @@ interface GatewayDriver extends IntegrationDriver
 
     /** Requires REFUND (and PARTIAL_REFUND for partial amounts). */
     public function refund(GatewayConfig $gateway, RefundRequest $request): ChargeResult;
+
+    /**
+     * Requires REFUND_LOOKUP: ask the provider about a refund we sent but never saw answered, by the same
+     * reference (RefundRequest::$reference). SUCCESS = the refund exists (txnId is the provider's refund id),
+     * DECLINED = the provider says no such refund exists or it failed (releases the amount), PENDING = still
+     * processing, ERROR = unknown or unreachable (the refund stays pending). Never creates a refund.
+     */
+    public function lookupRefund(GatewayConfig $gateway, RefundRequest $request): ChargeResult;
 
     /** Requires TOKENIZE: resolve a token from the gateway's remote input into display details (null if invalid). */
     public function tokenDetails(GatewayConfig $gateway, string $token): ?CardToken;

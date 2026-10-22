@@ -187,7 +187,7 @@ class InvoiceController extends Controller
     }
 
     /**
-     * @return list<array{value: string, label: string, capture: bool, refund: bool}>
+     * @return list<array{value: string, label: string, capture: bool, refund: bool, partial_refund: bool, refund_lookup: bool, sandbox: bool}>
      */
     private function gatewayOptions(): array
     {
@@ -200,6 +200,7 @@ class InvoiceController extends Controller
                 'capture' => $driver->supports(GatewayDriver::CAPTURE),
                 'refund' => $driver->supports(GatewayDriver::REFUND),
                 'partial_refund' => $driver->supports(GatewayDriver::PARTIAL_REFUND),
+                'refund_lookup' => $driver->supports(GatewayDriver::REFUND_LOOKUP),
                 'sandbox' => $this->gateways->isSandbox($model),
             ];
         }, $this->gateways->drivers()));

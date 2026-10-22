@@ -61,6 +61,7 @@ final class StripeSimulator implements HasControlActions, RecordsLive, RedactsPa
             new Route('GET', '/v1/payment_intents/{id}', 'retrieve_payment_intent', $api(fn (StripeApi $stripe, array $input, array $parameters) => $stripe->retrieve('payment_intent', $parameters['id'], $input))),
             new Route('GET', '/v1/charges/{id}', 'retrieve_charge', $api(fn (StripeApi $stripe, array $input, array $parameters) => $stripe->retrieve('charge', $parameters['id'], $input))),
             new Route('POST', '/v1/refunds', 'create_refund', $api(fn (StripeApi $stripe, array $input) => $stripe->createRefund($input))),
+            new Route('GET', '/v1/refunds', 'list_refunds', $api(fn (StripeApi $stripe, array $input) => $stripe->listRefunds($input))),
             new Route('GET', '/v1/refunds/{id}', 'retrieve_refund', $api(fn (StripeApi $stripe, array $input, array $parameters) => $stripe->retrieve('refund', $parameters['id'], $input))),
             new Route('GET', '/v1/disputes/{id}', 'retrieve_dispute', $api(fn (StripeApi $stripe, array $input, array $parameters) => $stripe->retrieve('dispute', $parameters['id'], $input))),
             new Route('GET', '/c/pay/{id}', 'checkout_page', fn (Request $request, Scenario $scenario, array $parameters): Response => (new HostedCheckout($scenario))->page($parameters['id'])),
