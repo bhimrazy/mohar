@@ -16,6 +16,9 @@ beforeEach(function () {
     $this->registrar = FakeRegistrar::install();
 });
 
+/**
+ * @param  array<string, mixed>  $attributes
+ */
 function npDomain(Tld $tld, string $name, array $attributes = []): Domain
 {
     [$sld] = explode('.', $name, 2);
