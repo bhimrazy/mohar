@@ -372,6 +372,8 @@ final class Redactor
         /** @var list<int>|null $endTags offsets of every `</`, found once when the first secret element needs them */
         $endTags = null;
         $endTagCursor = 0;
+        /** @var array<string, int> $lastEndTag offset of the last `</name` per void element name, found once per name */
+        $lastEndTag = [];
 
         while ($position < $length && preg_match(self::TOKEN_PATTERN, $value, $match, PREG_OFFSET_CAPTURE | PREG_UNMATCHED_AS_NULL, $position) === 1) {
             $start = $match[0][1];
@@ -404,7 +406,12 @@ final class Redactor
                 continue;
             }
 
-            if ((string) $match[2][0] === (string) $match[3][0] && in_array(strtolower((string) $match[3][0]), self::VOID_ELEMENTS, true)) {
+            // A void-named element (`<param name="password">`) used as a container, with a `</param` later in the text,
+            // takes the end-tag path below so child elements, comments and CDATA inside it are masked too.
+            $voidName = strtolower((string) $match[3][0]);
+
+            if ((string) $match[2][0] === (string) $match[3][0] && in_array($voidName, self::VOID_ELEMENTS, true)
+                && ($lastEndTag[$voidName] ??= (int) strripos($value, '</'.$voidName)) < $end) {
                 $contentEnd = $this->voidContentEnd($value, $end);
                 $content = substr($value, $end, $contentEnd - $end);
                 $output .= trim($content) === '' ? $content : self::MASK;
@@ -447,7 +454,8 @@ final class Redactor
      *   reference id (REFERENCE_ID_PATTERN), such as a Stripe Checkout Session id, optionally ending a sentence with
      *   `.`; anything joined to the id (`cs_live_x:…`, `%3A…`, `,…`) makes the value secret.
      * - An unquoted name whose separator runs past a line end takes the next line as its value unless that line is
-     *   itself a pair, so an empty `Cookie:` keeps the `Host:` line after it while `password:\nvalue` is masked.
+     *   header-shaped (a name, `:`, then a blank or the line end), so an empty `Cookie:` keeps the `Host:` line after
+     *   it while `password:\nvalue`, `token:\nQWx…==` and `secret:\na:b` are masked.
      *
      * @param  list<string>  $sensitiveKeys
      */
@@ -463,7 +471,7 @@ final class Redactor
         $lineBreak = strrpos($separator, "\n");
 
         if (! $quoted && $lineBreak !== false) {
-            if (preg_match('/\G[A-Za-z][A-Za-z0-9_.\-]*+[ \t]*+[:=]/', $value, $pair, 0, $valueStart) === 1) {
+            if (preg_match('/\G[A-Za-z][A-Za-z0-9_.\-]*+[ \t]*+:(?![^ \t\r\n])/', $value, $pair, 0, $valueStart) === 1) {
                 return false;
             }
         }
