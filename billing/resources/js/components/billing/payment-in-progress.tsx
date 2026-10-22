@@ -36,6 +36,10 @@ function clientMessage(attempt: PaymentInProgressData): string {
         return `The ${name} session has ended. If you didn't finish paying there, you can pay another way.`;
     }
 
+    if (attempt.can_resume && !attempt.can_close) {
+        return `If you left the ${name} page before paying, continue where you left off. If you already paid, this invoice updates once ${name} confirms it.`;
+    }
+
     return attempt.can_resume
         ? `If your payment didn't go through (for example, a declined card), continue it or use another method.`
         : `If you completed the payment at ${name}, you don't need to do anything: this invoice updates once ${name} confirms it.`;
