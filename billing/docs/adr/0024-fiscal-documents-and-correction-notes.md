@@ -1,7 +1,16 @@
 # ADR 0024 — Fiscal documents and correction notes
 
-- Status: Proposed · 2026-10-22 · Owner: Principal architect. Revised after the review-board round on #329, with
-  CTO decisions 1–7 of 2026-10-22, which also bind `vat-register.md`.
+- Status: Proposed · 2026-10-22 · Owner: Principal architect. Revised after the review-board rounds on #327 and
+  #329, with the CTO decisions of 2026-10-22.
+- **Single source of truth.** This ADR is the only statement of these rules:
+    - the snapshot and backfill (§2);
+    - the lock order (§4);
+    - the refund state machine (§5, §5a);
+    - the start of the mode (§8);
+    - the build order (§10).
+
+    `vat-register.md` refers to these sections and keeps only acceptance criteria for them.
+
 - Related: `billing/docs/product/vat-register.md` (PR #327) and its reviews; ADR 0002 (money), ADR 0010 (contract
   evolution), ADR 0011 (events), ADR 0013 Amendment 1 (company clock), ADR 0021 (confirm-then-apply, lock order),
   ADR 0025 (report registry).
@@ -83,9 +92,11 @@ It runs in chunks and is tested on PostgreSQL.
       the invoice's `created_at`. That is never later than publishing, while a staff-chosen `issue_date`
       (`PublishInvoice.php:69`) can be. Every adjustment on these invoices counts as after numbering, so none is
       folded into the snapshot.
-    - **Numbered on payment** (`proforma_number` is set). `numbered_at` is the `occurred_at` of the earliest
-      succeeded payment that brought the balance to zero. When no single payment can be identified (several
-      payments, credit applied in between, a later collections cycle), the invoice goes on the review list below.
+    - **Numbered on payment** (`proforma_number` is set). `numbered_at` is the `created_at` of the numbering payment
+      row: the one succeeded payment whose application brought the balance to zero. It is never that row's
+      `occurred_at`, which staff can backdate (`ApplyPayment.php:109`). When no single numbering payment can be
+      identified (several payments, credit applied in between, a later collections cycle), the invoice goes on the
+      review list below.
 - The value is computed by the rule above. `credited_total` and `debited_total` are filled in the same pass, from the
   value adjustments after `numbered_at`.
 - Rows the migration cannot classify as taxable or exempt go on a **staff-review list**, and Nepal VAT mode cannot be
@@ -125,36 +136,99 @@ It runs in chunks and is tested on PostgreSQL.
   `billing_sequences` row is shared by every document of its sequence across the install, so it is taken last, just
   before the insert. A sibling module that calls `Invoicer::cancel` (§7) holds its own row lock in front of this
   chain. The order is added to ADR 0021 §3.
-- The provider refund callback follows the same order. Today `reverseCredit` locks the client
-  (`GatewayCallbackHandler.php:654`) before the invoice. PR 4 changes the callback to lock the invoice first.
+- Reservation rows (`tax_note_reservations`, §5) are locked after the invoice and before the client:
+  payments → invoice → reservation → client → sequence.
+- The provider refund callback already follows this order. `lockParents` (`GatewayCallbackHandler.php:453-460`)
+  locks the payments, then their invoices, both in id order, before `reverseCredit` locks the client (`:654`). PR 4
+  adds the reservation lock in its place and keeps the order. The deadlock race test below guards against a
+  regression.
 - Race tests (ADR 0021 §4, two processes, PostgreSQL):
     - two notes on one invoice (the cap);
     - a note against a payment;
     - a note against a refund;
     - two refund reservations on two payments of one invoice;
+    - a provider callback `SUCCESS` against the request's late `ERROR` for the same reservation (one note, one refund,
+      `refundable_remaining` unchanged afterwards);
     - a provider refund callback against a staff note settled to account credit (deadlock);
     - two notes on different invoices (no gap in the numbers);
     - enabling the mode against an old-path adjustment (§8).
 
-### 5. Refunds and notes
+### 5. Refunds and notes: the reservation state machine
 
-1. **Reserve.** Lock the payments, then the invoice (§4). Check the reservation against the line and invoice caps,
-   counting the reservations already pending. Store the full allocation with the pending refund row: each line, its
-   tax per level, the reason code and the reason text. No note is created yet.
-2. **Call the provider** with no locks held. If the provider refuses, release the reservation; nothing is issued.
-3. **Finalise** in one transaction, under the same lock order:
-    - issue exactly the reserved allocation as a note;
-    - set the refund row's `tax_note_id`, reduce `amount_paid` and set the status;
-    - re-read the balance. The refund amount is fixed, so any excess that would make the balance negative (for example
-      a payment that arrived during step 2) goes to account credit through `credit_note_to_credit`.
+A refund that changes the supply is reserved first, sent to the provider, and becomes a note only when the provider
+has paid. This section follows the fix for #334 (live on develop: `RefundTransaction.php:103-109` treats every
+non-success as a failure). The two must stay consistent, and if the #334 PR changes a name used here, this section
+follows it.
 
-    Finalising never refuses after the provider has paid, and it is idempotent, keyed by the reservation. A retry
-    after a crash, or the provider's callback for its own refund, finalises the pending reservation instead of
-    answering 409.
+**Tables.**
 
-Refunds that start at the provider (`GatewayCallbackHandler::refunded`) reserve and finalise in one transaction,
-with an automatic note: actor "gateway", reason `refunded_at_provider`. Staff refunds use the callback's rule
-"credit first, then the invoice" to decide which part changes the supply.
+- `tax_note_reservations`: id, invoice_id, `transaction_id` (the pending refund row, whose id is the provider
+  reference), reason_code, reason_text, digest, created_by, `status` (`pending` | `finalised` | `released`),
+  `tax_note_id` (set at finalise), timestamps.
+- `tax_note_reservation_lines`: reservation_id, invoice_item_id, quantity, unit_amount, amount, taxable,
+  tax1_amount, tax2_amount, sort_order.
+
+A pending reservation's lines count in both the line caps and the invoice cap (§3).
+
+**Reserve.** Lock payments → invoice → client (§4). Check the digest and both caps. Write the pending refund row and
+the reservation with its full allocation. No number is taken.
+
+**Actors.**
+
+- **request:** the staff action's own provider call.
+- **callback:** the provider's refund webhook for that reference.
+- **Check refund:** a staff action on a pending row. It asks the provider about the **same reference**; how it asks
+  is defined by the #334 fix.
+
+Every actor applies a result in one transaction under the §4 lock order, with the reservation locked, and acts only
+on the state it reads under that lock.
+
+**Results.** `ChargeResult` statuses: `SUCCESS`, `DECLINED`, `ERROR` (including timeouts) and `PENDING`.
+
+| State under lock | Result                               | Any actor does                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pending`        | `SUCCESS`                            | **Finalise.** Issue exactly the reserved allocation as a note (sequence row last), mark the refund row succeeded with `tax_note_id`, reduce `amount_paid`, set status `finalised`. Re-read the balance: the refund amount is fixed, so an excess that would make the balance negative (a payment that arrived meanwhile) goes to account credit through `credit_note_to_credit`. Never refuses. |
+| `pending`        | `DECLINED`                           | **Release.** Mark the refund row failed, return `refundable_remaining` to the payment, set status `released`. No note and no number. Only this result releases.                                                                                                                                                                                                                                 |
+| `pending`        | `ERROR`, `PENDING`                   | **Stay pending.** Nothing changes. Staff see "Refund outcome not known yet" and only **Check refund**, never Retry. No new refund row or reference is created.                                                                                                                                                                                                                                  |
+| `finalised`      | any                                  | **No-op** (idempotent). A late `ERROR`, `PENDING` or `DECLINED` from the request, after the callback has finalised, changes nothing. A `DECLINED` after `SUCCESS` also opens a staff to-do, "Provider reports conflicting outcome".                                                                                                                                                             |
+| `released`       | `DECLINED`, `ERROR`, `PENDING`       | **No-op.**                                                                                                                                                                                                                                                                                                                                                                                      |
+| `released`       | `SUCCESS` (the provider paid anyway) | The reservation stays released, because its cap may have been reused. The refund is booked as a **provider-initiated refund** (below): an automatic note if the caps allow it, otherwise "Gateway payments to review".                                                                                                                                                                          |
+
+Ordering cases, all covered by the table:
+
+- **Callback before the request returns.** The callback's `SUCCESS` finalises, and the request's later answer is a
+  no-op.
+- **Crash after the provider has paid.** The reservation stays `pending` until the callback or Check refund brings
+  `SUCCESS`. The callback finalises instead of answering 409 (today `GatewayCallbackHandler.php:264-266` answers 409).
+- **Retry** exists only from `released`. It creates a new reservation with a new reference.
+
+**Provider-initiated refunds** (`GatewayCallbackHandler::refunded`, with no reservation of ours) reserve and
+finalise in one callback transaction, so the reservation goes straight to `finalised`. The note is automatic, with
+actor "gateway" and reason `refunded_at_provider`. The callback's rule "credit first, then the invoice" decides which
+part changes the supply. Staff refunds use the same rule.
+
+### 5a. Refund account credit through the gateway
+
+Paying out account credit is not a supply, so it issues no note and changes no invoice. The gateway variant still
+moves money through a provider, so it gets its own action, `RefundAccountCredit`. It does not reuse
+`RefundTransaction`, which always applies a refund to the payment's invoice (`RefundTransaction.php:127-129`).
+
+- **Permissions:** `billing.credit.refund` and `billing.refunds.manage`, with step-up (ADR 0018). The recorded
+  variant (a refund made outside) needs only `billing.credit.refund`.
+- **Reserve** (lock the chosen payment, then the client; no invoice):
+    - check the client's balance and the payment's `refundable_remaining`;
+    - write a hold, a `credit_ledger` row of −amount with reason `credit_refund_hold`;
+    - write a pending refund row with `invoice_id` null and the payment as its parent;
+    - reduce `refundable_remaining`.
+
+    The hold stops `ApplyCredit` from spending the credit during the provider call.
+
+- **Results** follow the §5 table, with the refund row's status as the reservation state:
+    - `SUCCESS`: the row is marked succeeded and the hold stays as the final debit;
+    - `DECLINED`: the row is marked failed, a +amount `credit_refund_released` row reverses the hold, and
+      `refundable_remaining` is restored;
+    - `ERROR` or `PENDING`: the row stays pending, and only Check refund is offered;
+    - a row already settled is a no-op.
 
 ### 6. Events (ADR 0011)
 
@@ -210,19 +284,29 @@ final class CreditNoteIssued implements DomainEvent, ShouldDispatchAfterCommit
 
 ### 8. Mode switch and locked settings
 
-- `billing.nepal_vat.enabled` is an explicit opt-in, never derived from the seller's country or VAT number. Staff set
-  `enabled_from`, a company date of today or later, and the change is written to the activity log. Notes replace the
-  old paths from `enabled_from`: the mode is in effect when the setting is on and `CompanyClock::today()` ≥
-  `enabled_from`.
+- `billing.nepal_vat.enabled` is an explicit opt-in, never derived from the seller's country or VAT number. The change
+  is written to the activity log.
+- **`enabled_from` is the first day of a BS month** on the company calendar: the current BS month or a later one,
+  never an earlier one and never a mid-month day. A VAT period is therefore always wholly old-style or wholly in the
+  mode.
+- **The mode takes effect on `enabled_from`.** From 00:00 company time that day, notes replace the old paths; before
+  it, the old paths run and the issuer refuses notes. No note is ever dated before `enabled_from`, so every note sits
+  in a register period.
+- **One instant per transaction.** Every Billing transaction that can write a value adjustment or a note captures
+  `$at = CompanyClock::now()` once, after taking its locks. It decides "in effect" as
+  `localDate($at) ≥ enabled_from` with the setting on, and writes `$at` as the `created_at` of every row it creates.
+  It never lets Eloquent take a second `now()`. A transaction that decides "not in effect" therefore always writes
+  rows dated before `enabled_from`, even across midnight.
 - **The enable-time refusal.** Enabling locks the mode's settings row `FOR UPDATE`. Under that lock it refuses while
   any old-style value adjustment (`cancellation`, `item_cancellation`, `refund`, `late_fee`) on a numbered invoice was
   written after that invoice's `numbered_at` and is dated, by the company date of its `created_at`, on or after
-  `enabled_from`. Pre-numbering rows are already in the snapshot.
+  `enabled_from`. Pre-numbering rows are already in the snapshot. Such a row can exist only when `enabled_from` is
+  the current month's first day; staff then pick the next BS month.
 - Old paths read the mode with `FOR SHARE` on the same row, after their invoice lock. A transaction that read "mode
   off" therefore commits before the enabling check runs, and the register never holds an old-style row. This is the
   CTO decision on B6, also in `vat-register.md` §3 and §12. Enabling is also refused while the staff-review list from
   §2 has not been seen.
-- **While the mode is on:**
+- **From enabling (before `enabled_from` too):**
     - the increment of every fiscal sequence is 1;
     - `number_format`, `number_reset`, `number_padding`, `number_increment`, the note formats,
       `sequential_paid_numbering` and `set_issue_date_on_payment` are locked, and the settings page says why.
@@ -235,25 +319,24 @@ on SQLite CI, and it would have to allow proforma numbering, so it needs its own
 
 ### 10. Build order
 
-Each PR is at most 2,000 lines. The mode stays hidden until PR 4 merges. Acceptance-criteria numbers refer to
-`vat-register.md` §13 at `8d27be29`; the spec's §18 follows this table.
+This table is the build order; `vat-register.md` §18 points here. Each PR is at most 2,000 lines, and the mode stays
+hidden until PR 4 merges. The AC numbers are those of `vat-register.md` §13 as revised in the same round as this
+section.
 
-| PR       | Content                                                                                                                                                        | AC                    |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| 0a (CTO) | `CompanyClock` contract, Core implementation, Billing fiscal call sites, boundary tests at 18:14:59 and 18:15:00 UTC, widened arch scan (ADR 0013 Amendment 1) | 14                    |
-| 0b (CTO) | `CreditNoteIssued` and `DebitNoteIssued`, the `MAP` entries                                                                                                    | —                     |
-| 1a       | Schema, `numbered_at`, snapshot at numbering, PR 1a backfill with the review list, `FROZEN`, per-sequence `DocumentNumbers`, `rateDecimal()`                   | 13, 20, 21            |
-| 1b       | Note issuer (allocation, caps, remainder, digest), lock order, race tests                                                                                      | 1–6, 40               |
-| 2        | Manual issue UI, settlement, step-up, permissions, notes panel, reversing note                                                                                 | 7, 22, 32, 33, 35, 38 |
-| 3        | Old paths, every `Invoicer::cancel` caller, automation, enabling the mode with the locked refusal and locked settings                                          | 15–19, 29, 37         |
-| 4        | Refunds: reservation with allocation, idempotent finalise, provider callback lock order (combined review)                                                      | 8–12                  |
-| 5        | Note PDF, email, merge fields, client area, `print_count`                                                                                                      | 34, 36, 41, 42        |
-| 0c (CTO) | Report registry, DTOs, `SafeCsv` with `ErrorsCsv` moved, synchronous CSV and PDF (ADR 0025). Lands just before PR 6                                            | —                     |
-| 6        | `VatRegisterReport`, `TaxNoteRegisterReport`, screens                                                                                                          | 23–28                 |
-| 7        | `detail` and `ird` layouts, PDF, export permissions                                                                                                            | 30, 31, 39            |
-| later    | Trigger (§9); `{BS_FY}` after D2; queued export with the Reports module (ADR 0025)                                                                             | 43                    |
-
-AC 40 (the event fires and the webhook is queued on issue) moves from PR 0 to PR 1b, the first PR that issues a note.
+| PR       | Content                                                                                                                                                                                           | AC                      |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| 0a (CTO) | `CompanyClock` contract, Core implementation, Billing fiscal call sites, boundary tests at 18:14:59 and 18:15:00 UTC, widened arch scan (ADR 0013 Amendment 1)                                    | 48 (invoices)           |
+| 0b (CTO) | `CreditNoteIssued` and `DebitNoteIssued`, the `MAP` entries                                                                                                                                       | —                       |
+| 1a       | Schema incl. `numbered_at`, snapshot, `tax_note_reservations` and `tax_note_reservation_lines`; the backfill with the review list (§2); `FROZEN`; per-sequence `DocumentNumbers`; `rateDecimal()` | 7–10                    |
+| 1b       | Note issuer (allocation, caps with reservations, remainder, digest), lock order, race tests for notes                                                                                             | 1–6, 11, 12, 48 (notes) |
+| 2        | Manual issue UI, settlement, step-up, permissions, notes panel, reversing note, recorded "Refund account credit", webhook delivery                                                                | 13–20                   |
+| 3        | Old paths, the six `Invoicer::cancel` callers, automation, enabling the mode (§8: BS-month start, one instant per transaction, locked refusal, locked settings)                                   | 21–27, 52               |
+| 4        | Refund state machine (§5), provider-initiated refunds, overpayment split, `RefundAccountCredit` (§5a), race tests (combined review, money)                                                        | 28–34, 49–51, 53, 56    |
+| 5        | Note PDF, email, merge fields, client area, `print_count`                                                                                                                                         | 35, 36, 54, 55          |
+| 0c (CTO) | Report registry, DTOs, `SafeCsv` with `ErrorsCsv` moved, synchronous CSV and PDF (ADR 0025). Lands just before PR 6                                                                               | 45                      |
+| 6        | `VatRegisterReport`, `TaxNoteRegisterReport`, screens                                                                                                                                             | 37–43                   |
+| 7        | `detail` and `ird` layouts, PDF, export permissions                                                                                                                                               | 44, 46, 47              |
+| later    | Trigger (§9); `{BS_FY}` after D2; queued export with the Reports module (ADR 0025)                                                                                                                | 57                      |
 
 ## Open questions (accountant)
 

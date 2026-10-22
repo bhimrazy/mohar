@@ -116,7 +116,8 @@ numbers fiscal documents on the UTC calendar.
       "company time". The exchange-rate schedule (`PlatformServiceProvider.php:137`) does the same.
     - new fiscal reads from ADR 0024. They take the company date from the clock, never from an instant:
         - a note's `issue_date` and BS fields;
-        - the check that `enabled_from` is today or later;
+        - the check that `enabled_from` is the first day of the current or a later BS month;
+        - the "in effect" decision, which uses the one instant per transaction of ADR 0024 §8;
         - the company date of `created_at` in the enable-time refusal;
         - the register's default period ("last closed BS month");
         - the "printed at" time on PDFs.
