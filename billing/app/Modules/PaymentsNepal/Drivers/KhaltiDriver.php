@@ -15,10 +15,13 @@ use App\Data\Billing\RedirectInstruction;
 use App\Data\Billing\RefundRequest;
 use App\Data\Billing\ReturnHint;
 use App\Data\Integrations\ConnectionCheck;
+use App\Data\Integrations\Endpoint;
 use App\Data\Integrations\IntegrationLogo;
 use App\Modules\PaymentsNepal\Support\ProviderException;
 use App\Modules\PaymentsNepal\Support\ProviderHttp;
 use App\Support\Billing\AbstractGatewayDriver;
+use App\Support\Integrations\Endpoints;
+use App\Support\Integrations\OutboundAddressRefused;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterval;
 use Illuminate\Http\Client\ConnectionException;
@@ -101,7 +104,8 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
             'phone' => $intent->customerPhone,
         ], fn (?string $value): bool => $value !== null && $value !== '');
 
-        $response = $this->client($gateway)->post(ProviderHttp::endpoint($gateway, 'khalti.api').'epayment/initiate/', array_filter([
+        $api = ProviderHttp::endpoint($gateway, 'khalti.api');
+        $response = $this->client($gateway, $api)->post($api->url('epayment/initiate/'), array_filter([
             'return_url' => $intent->returnUrl,
             'website_url' => (string) config('app.url'),
             'amount' => $intent->amount->amount,
@@ -175,10 +179,12 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
         }
 
         try {
+            $api = ProviderHttp::endpoint($gateway, 'khalti.api');
             $response = $this->http->lookup($attempt->interactive)
+                ->withOptions($api->options)
                 ->withHeaders(['Authorization' => 'Key '.self::secret($gateway)])
                 ->asJson()
-                ->post(ProviderHttp::endpoint($gateway, 'khalti.api').'epayment/lookup/', ['pidx' => $attempt->providerRef]);
+                ->post($api->url('epayment/lookup/'), ['pidx' => $attempt->providerRef]);
         } catch (ConnectionException) {
             return new LookupResult(LookupResult::PENDING, raw: ['error' => 'Khalti unreachable'], retryable: true);
         } catch (ProviderException $exception) {
@@ -205,10 +211,10 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
             return new ChargeResult(ChargeResult::ERROR, declineReason: 'partial refunds through Khalti are turned off');
         }
 
-        $url = ProviderHttp::endpoint($gateway, 'khalti.refund').rawurlencode($request->providerTxnId).'/refund/';
+        $endpoint = ProviderHttp::endpoint($gateway, 'khalti.refund');
 
         try {
-            $response = $this->client($gateway)->post($url, $request->isPartial() ? ['amount' => $request->amount->amount] : []);
+            $response = $this->client($gateway, $endpoint)->post($endpoint->url(rawurlencode($request->providerTxnId).'/refund/'), $request->isPartial() ? ['amount' => $request->amount->amount] : []);
         } catch (ConnectionException) {
             // The refund may still have gone through: staff must check the portal before retrying.
             return new ChargeResult(ChargeResult::ERROR, declineReason: 'no answer from Khalti; check the Khalti portal before retrying', raw: ['transaction_id' => $request->providerTxnId]);
@@ -239,7 +245,8 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
         }
 
         try {
-            $response = $this->client($gateway)->post(ProviderHttp::endpoint($gateway, 'khalti.api').'epayment/lookup/', ['pidx' => 'MoharConnectionTest']);
+            $api = ProviderHttp::endpoint($gateway, 'khalti.api');
+            $response = $this->client($gateway, $api)->post($api->url('epayment/lookup/'), ['pidx' => 'MoharConnectionTest']);
         } catch (ConnectionException) {
             return new ConnectionCheck(false, __('Couldn\'t reach Khalti (:mode). Check the server\'s outbound connection.', ['mode' => $mode]));
         }
@@ -304,15 +311,16 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
         );
     }
 
-    private function client(GatewayConfig $gateway): PendingRequest
+    private function client(GatewayConfig $gateway, Endpoint $endpoint): PendingRequest
     {
-        return $this->http->request()->asJson()->withHeaders(['Authorization' => 'Key '.self::secret($gateway)]);
+        return $this->http->request()->withOptions($endpoint->options)->asJson()->withHeaders(['Authorization' => 'Key '.self::secret($gateway)]);
     }
 
     /**
-     * The redirect target must be https on khalti.com or a subdomain. Anything PHP and browsers might parse
-     * differently is refused outright: backslashes (browsers read them as "/"), whitespace and control characters,
-     * userinfo, explicit ports, and hosts that aren't plain DNS names (compared in lowercase).
+     * The redirect target must be https on khalti.com or a subdomain, or exactly the host and port of the `khalti.pay`
+     * endpoint (khalti.com itself unless overridden, ADR 0016 §3). Anything PHP and browsers might parse differently is
+     * refused outright: backslashes (browsers read them as "/"), whitespace and control characters, userinfo, other
+     * explicit ports, and hosts that aren't plain DNS names (compared in lowercase).
      */
     private function isKhaltiUrl(string $url): bool
     {
@@ -322,14 +330,24 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
 
         $parts = parse_url($url);
 
-        if ($parts === false || ($parts['scheme'] ?? null) !== 'https' || isset($parts['user']) || isset($parts['pass']) || isset($parts['port'])) {
+        if ($parts === false || ($parts['scheme'] ?? null) !== 'https' || isset($parts['user']) || isset($parts['pass'])) {
             return false;
         }
 
         $host = strtolower((string) ($parts['host'] ?? ''));
         $domain = strtolower((string) config('payments_nepal.khalti.payment_domain', 'khalti.com'));
+        // An override the outbound policy refuses matches nothing; the khalti.com rule below still applies.
+        try {
+            $page = parse_url(Endpoints::for('khalti.pay', 'https://'.$domain)->baseUrl);
+        } catch (OutboundAddressRefused) {
+            $page = false;
+        }
 
-        if (preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/', $host) !== 1) {
+        if (is_array($page) && $host === strtolower((string) ($page['host'] ?? '')) && ($parts['port'] ?? null) === ($page['port'] ?? null)) {
+            return true;
+        }
+
+        if (isset($parts['port']) || preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/', $host) !== 1) {
             return false;
         }
 
