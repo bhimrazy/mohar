@@ -42,6 +42,7 @@ test('every direct use of the encrypter is covered by a target or known to be sh
     $known = [
         'Modules/Core/Support/Settings.php' => 'settings.value',
         'Modules/Kyc/Services/DocumentVault.php' => 'kyc_documents.files',
+        'Modules/Kyc/Services/StoredImageReencoder.php' => 'kyc_documents.files',
         'Modules/Migration/Jobs/StageCsvRun.php' => 'migration_records.raw',
         'Modules/Migration/Jobs/CheckRun.php' => 'migration_records.normalized',
         'Modules/Orders/Data/CartItem.php' => 'short-lived: carts expire, and an unreadable EPP code is asked for again',

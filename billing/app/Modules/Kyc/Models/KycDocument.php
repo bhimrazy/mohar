@@ -34,12 +34,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property CarbonImmutable|null $decided_at
  * @property CarbonImmutable|null $superseded_at
  * @property CarbonImmutable|null $delete_after
+ * @property CarbonImmutable|null $sanitised_at the images were re-encoded (ImageSanitiser), at upload or by kyc:reencode-images
+ * @property string|null $sanitise_issue why kyc:reencode-images left the images as stored (self::ISSUES)
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  * @property-read Client $client
  */
 #[UseFactory(KycDocumentFactory::class)]
-#[Fillable(['client_id', 'type', 'number', 'front_path', 'front_mime', 'back_path', 'back_mime', 'status', 'uploaded_by', 'delete_after'])]
+#[Fillable(['client_id', 'type', 'number', 'front_path', 'front_mime', 'back_path', 'back_mime', 'status', 'uploaded_by', 'delete_after', 'sanitised_at'])]
 #[Hidden(['number', 'front_path', 'back_path'])]
 class KycDocument extends Model
 {
@@ -47,6 +49,9 @@ class KycDocument extends Model
     use HasFactory;
 
     public const DISK = 'objects';
+
+    /** Why kyc:reencode-images left a document's images as stored: unreadable (missing or no key decrypts it), refused (GD cannot decode it, or over the limits). */
+    public const ISSUES = ['unreadable', 'refused'];
 
     protected function casts(): array
     {
@@ -57,6 +62,7 @@ class KycDocument extends Model
             'decided_at' => 'immutable_datetime',
             'superseded_at' => 'immutable_datetime',
             'delete_after' => 'immutable_date',
+            'sanitised_at' => 'immutable_datetime',
         ];
     }
 

@@ -62,6 +62,8 @@ class StoreDocument
                     'back_mime' => $stored[1]['mime'] ?? null,
                     'status' => DocumentStatus::Pending,
                     'uploaded_by' => $userId,
+                    // DocumentVault::put() re-encoded both images, so kyc:reencode-images skips this document.
+                    'sanitised_at' => now(),
                     // An account closed while this upload was on its way: the retention listener has already run.
                     'delete_after' => $client->status === 'closed' ? $this->retention->deleteAfter($client) : null,
                 ]);

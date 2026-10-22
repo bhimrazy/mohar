@@ -104,6 +104,8 @@ class ReviewController extends Controller
                 'uploadedAt' => $document->created_at?->toIso8601String(),
                 'decidedAt' => $document->decided_at?->toIso8601String(),
                 'version' => DecideDocument::version($document),
+                // kyc:reencode-images could not re-encode these images, so they may still carry EXIF (GPS, device).
+                'metadataKept' => $document->sanitise_issue !== null && $document->sanitised_at === null,
                 // The number and images only for an unlocked client; images only through short-lived signed links.
                 'number' => $until !== null ? $document->number : null,
                 'images' => $until !== null ? $this->images($request, $document, $until) : [],

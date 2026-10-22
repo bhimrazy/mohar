@@ -2,6 +2,7 @@
 
 namespace App\Modules\Kyc\Services;
 
+use App\Modules\Kyc\Exceptions\ImageDecodeBusy;
 use GdImage;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
@@ -33,8 +34,8 @@ class ImageSanitiser
     /**
      * @return array{bytes: string, mime: string}
      *
-     * @throws ValidationException when the bytes are not a JPEG, PNG or WebP image GD can decode, are too large, or the
-     *                             decode lock stays taken
+     * @throws ImageDecodeBusy when the decode lock stays taken for kyc.image_decode_wait_seconds
+     * @throws ValidationException when the bytes are not a JPEG, PNG or WebP image GD can decode, or are too large
      */
     public function clean(string $bytes, string $field): array
     {
@@ -59,7 +60,7 @@ class ImageSanitiser
             return Cache::lock(self::LOCK, self::LOCK_TTL_SECONDS)
                 ->block((int) config('kyc.image_decode_wait_seconds', 5), fn (): array => $this->reencode($bytes, $type, $field));
         } catch (LockTimeoutException) {
-            throw $this->refuse($field, __('Other photos are being processed. Try again in a moment.'));
+            throw ImageDecodeBusy::withMessages([$field => __('Other photos are being processed. Try again in a moment.')]);
         }
     }
 
