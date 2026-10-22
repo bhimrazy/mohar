@@ -67,7 +67,9 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 | PR             | Workstream                                                                              | Status (2026-10-22 evening)                                                  |
 | -------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | #321           | eSewa and Khalti simulators, NPR lifecycle end to end (#208)                            | Draft, in re-review.                                                         |
-| not yet opened | Flaky-test fix (#310 `AuthThrottleTest` freeze time, #209 `PortRetryTest` serialise)    | In flight. Fixed the same day, filed as issues and re-run (operating model). |
+| not yet opened | Flaky-test fix 1: time boundaries (#310 `AuthThrottleTest`, #322)                       | In flight. Fixed the same day, filed as issues and re-run (operating model). |
+| not yet opened | Flaky-test fix 2: #209 `PortRetryTest`, simulator ports                                 | In flight, separate PR.                                                      |
+| not yet opened | Nepal-first demo seed, and the #39 fix                                                  | In flight.                                                                   |
 | not yet opened | Registrar prep for #280 (follow-ups before the first API driver, ADR 0009 PR C reviews) | In flight. The ResellerClub driver comes after #280.                         |
 | not yet opened | VAT register and credit-note spec                                                       | In flight (spec only).                                                       |
 | #128           | Gateway expansion spec                                                                  | Draft. Owner questions in the PR.                                            |

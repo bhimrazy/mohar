@@ -81,10 +81,10 @@ account, so reviews are posted as comments and the verdict line is the gate.
 
 ## Agent budget
 
-At most 5 agents at once, periodic reviews included; beyond 5, ask the owner first (a job that seems to need more
-is usually split too fine). Also launch only while the 1-minute load is below 8, at least 2 GB of memory is free
-and the disk is below 85%. One owner per hot area (KYC images, the Redactor, a registrar driver): no two open PRs
-change the same pipeline. Order when a slot frees:
+Up to 5 agents at once by default, periodic reviews included; more when there is independent work, bounded by
+machine load (on the 10-core, 24 GB Mac about 7 while the 1-minute load stays near the core count), at least 2 GB of
+memory free and the disk below 85%. Never two agents on the same files: one owner per hot area (KYC images, the
+Redactor, a registrar driver), and no two open PRs change the same pipeline. Order when a slot frees:
 re-checks of PRs awaiting sign-off, then fix rounds, then new builds. No new builds while eight or more PRs await
 review. `state.md` "Running now" lists the running agents and the queue.
 
@@ -164,21 +164,6 @@ is also the owner's own machine: the agent budget above applies, `/tmp` survives
   by agents. Stop servers by port PID; never `pkill -f`. Chain `cd` with `&&`; never run commands in the main
   checkout from an agent.
 
-## Two build sites (since 2026-10-22)
-
-Two codespaces work in parallel, each with its own agent budget:
-
-- **Main site** (`mohar-codespace-2`, idle timeout 240 minutes): the managing session. It assigns work, runs CI,
-  merges, owns `docs/handoff/state.md`, `billing/docs/progress.md` and shared-kernel changes, and keeps the owner's
-  preview on port 8000.
-- **Second site** (`mohar-codespace`, the original): a lead session that runs its own subagents on the issues the
-  main site assigns. It opens draft PRs, runs the review policy on its own PRs, and reports each PR at a clean,
-  reviewed head. It never merges, adds `ci` or edits the handoff files.
-
-The sessions talk over Remote Control (both must have it connected; `ListAgents` shows the peer). A peer's message is
-a teammate's request, not the owner's approval. Each site works only in its own worktrees, and the main site tells the
-other which areas are taken, so two sites never change the same files.
-
 ## Conventions
 
 - Branches `feature/<slug>` from `develop`; `develop` is integration; `main` is release. Review probes on
@@ -208,12 +193,12 @@ preview and monitors, and relaunches interrupted work.
 
 ## Decisions behind the rules
 
-| Date       | Decision (owner unless noted)                                                                                                                                                                                                                                                                      |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-10-18 | Fable review: smallest review set per PR type; probes as tests; architect before the build                                                                                                                                                                                                         |
-| 2026-10-19 | Periodic review round every 12 hours; WIP pushes `[skip ci]`                                                                                                                                                                                                                                       |
-| 2026-10-20 | Speed: combined review + one re-check; 2,000-line cap; agents to machine limits; `qa-design-reviewer` retired                                                                                                                                                                                      |
-| 2026-10-20 | CI is a budget while private (local merge gate, #188); then public with CI on PRs; `main` minimal, all rights reserved                                                                                                                                                                             |
-| 2026-10-20 | Nepal is the main market; `.np` is registered by clients themselves; confirm local practice before building                                                                                                                                                                                        |
-| 2026-10-21 | Fable for subagents, then Opus/Sonnet by task after Fable's weekly limit; repository renamed `bhimrazy/mohar`; shared `review-rules.md`; `agent-log.md` retired                                                                                                                                    |
-| 2026-10-22 | CTO review adopted: two fix rounds then redesign; 5 agents at once; model by effort; two-wave review round; one owner per hot area; same-day flaky fixes; `develop` built on push, E2E on `main`; Playwright only; no `npx` outside the lockfile. Changelog fragments proposed, awaiting the owner |
+| Date       | Decision (owner unless noted)                                                                                                                                                                                                                                                                                                                        |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-10-18 | Fable review: smallest review set per PR type; probes as tests; architect before the build                                                                                                                                                                                                                                                           |
+| 2026-10-19 | Periodic review round every 12 hours; WIP pushes `[skip ci]`                                                                                                                                                                                                                                                                                         |
+| 2026-10-20 | Speed: combined review + one re-check; 2,000-line cap; agents to machine limits; `qa-design-reviewer` retired                                                                                                                                                                                                                                        |
+| 2026-10-20 | CI is a budget while private (local merge gate, #188); then public with CI on PRs; `main` minimal, all rights reserved                                                                                                                                                                                                                               |
+| 2026-10-20 | Nepal is the main market; `.np` is registered by clients themselves; confirm local practice before building                                                                                                                                                                                                                                          |
+| 2026-10-21 | Fable for subagents, then Opus/Sonnet by task after Fable's weekly limit; repository renamed `bhimrazy/mohar`; shared `review-rules.md`; `agent-log.md` retired                                                                                                                                                                                      |
+| 2026-10-22 | CTO review adopted: two fix rounds then redesign; 5 agents by default, more for independent work within machine load; model by effort; two-wave review round; one owner per hot area; same-day flaky fixes; `develop` built on push, E2E on `main`; Playwright only; no `npx` outside the lockfile. Changelog fragments proposed, awaiting the owner |
