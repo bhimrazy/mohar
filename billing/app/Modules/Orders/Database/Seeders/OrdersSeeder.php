@@ -159,12 +159,12 @@ class OrdersSeeder extends DemoSeeder
         $backups = array_column(app(PriceBook::class)->addonsFor($pro, $demo->currency), 'id')[0] ?? null;
 
         $orders = [
-            [$demo, [$this->product('pro', 'annually', 'demolabs-store.com', 'register', $backups === null ? [] : [$backups])], 'SAVE10', 'accept', 20],
+            [$demo, [$this->product('pro', 'annually', 'himallabs-store.com', 'register', $backups === null ? [] : [$backups])], 'SAVE10', 'accept', 20],
             [$demo, [$this->product('vps-s', 'monthly')], null, null, 2],
-            [$others[0] ?? $demo, [$this->product('starter', 'monthly', 'northwind.test', 'existing')], 'WELCOME25', null, 0],
+            [$others[0] ?? $demo, [$this->product('starter', 'monthly', 'kathmandu-bakery.com', 'existing')], 'WELCOME25', null, 0],
             [$others[1] ?? $demo, [$this->product('vps-s', 'monthly')], 'FREESETUP', 'accept', 6],
             [$others[2] ?? $demo, [$this->product('starter', 'monthly', 'cheap-pills.test', 'existing')], null, 'fraud', 1],
-            [$others[3] ?? $demo, [$this->product('business', 'monthly', 'globex.test', 'existing')], null, 'cancel', 12],
+            [$others[3] ?? $demo, [$this->product('business', 'monthly', 'pokhara-crafts.com', 'existing')], null, 'cancel', 12],
         ];
 
         foreach ($orders as [$client, $items, $promotion, $then, $daysAgo]) {

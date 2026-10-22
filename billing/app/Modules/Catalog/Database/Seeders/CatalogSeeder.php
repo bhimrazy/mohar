@@ -30,6 +30,8 @@ class CatalogSeeder extends DemoSeeder
     /** @var list<Currency> */
     private array $currencies = [];
 
+    private ?Currency $usd = null;
+
     /** Cycle => [months, discount factor]. */
     private const CYCLES = [
         'monthly' => [1, 1.0],
@@ -210,14 +212,14 @@ class CatalogSeeder extends DemoSeeder
         foreach ($this->currencies as $currency) {
             foreach ($cycles as $cycle) {
                 [$months, $discount] = $cycle === 'onetime' ? [1, 1.0] : self::CYCLES[$cycle];
-                $amount = $currency->fromDefault((int) round($usdMonthly * $months * $discount));
+                $amount = $this->fromUsd((int) round($usdMonthly * $months * $discount), $currency);
 
                 $priceable->prices()->create([
                     'currency' => $currency->code,
                     'cycle' => BillingCycle::from($cycle),
                     'enabled' => true,
                     'amount' => $charm ? $this->pricePoint($amount) : $amount,
-                    'setup_fee' => $currency->fromDefault($setupFee),
+                    'setup_fee' => $this->fromUsd($setupFee, $currency),
                 ]);
             }
         }
@@ -226,6 +228,16 @@ class CatalogSeeder extends DemoSeeder
     /**
      * 3.83 → 3.99; 331.17 → 339.00 (whole units ending in 9 from 100 upwards).
      */
+    /**
+     * The base prices are US dollars; the install's default currency may be another one (NPR on the Nepal demo).
+     */
+    private function fromUsd(int $amount, Currency $currency): int
+    {
+        $usd = $this->usd ??= Currency::query()->where('code', 'USD')->first();
+
+        return $usd === null || $usd->code === $currency->code ? $amount : $usd->convertTo($amount, $currency);
+    }
+
     private function pricePoint(int $amount): int
     {
         if ($amount < 100) {

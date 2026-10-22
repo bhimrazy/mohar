@@ -325,7 +325,7 @@ test('in production db:seed installs the reference data and no demo data', funct
 });
 
 test('the demo seed installs exactly the reference data an install creates, through the same registry', function () {
-    app(RegionalDefaults::class)->keepBuiltInDefaults();
+    app(RegionalDefaults::class)->choose('NP', 'NPR', 'Asia/Kathmandu');
     app(ReferenceDataInstaller::class)->install();
     $installed = referenceSnapshot();
     Role::query()->delete();
