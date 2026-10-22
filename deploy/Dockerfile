@@ -7,9 +7,11 @@
 # (`composer deps:check`) scans the FROM and COPY --from lines of this file.
 
 # ------------------------------------------------------------------ php: FrankenPHP with the app's extensions
-# FrankenPHP 1.13.0 (Caddy 2.11.7, PHP 8.4.26 ZTS) on Debian trixie, multi-arch index pushed 2026-10-09.
+# FrankenPHP 1.13.2 (Caddy 2.11.7, PHP 8.4.27 ZTS) on Debian trixie, multi-arch index pushed 2026-10-21.
+# Adopted inside the 7-day cooldown as a security exception (dependency-policy.md): PHP 8.4.27 fixes
+# CVE-2026-109618 and CVE-2026-109619 (unauthenticated RCE in every web SAPI); 8.4.26 and older are vulnerable.
 # Builder for every other stage; it keeps the compiler toolchain of the official PHP images (about 840 MB).
-FROM dunglas/frankenphp:1.13.0-php8.4-trixie@sha256:e9a56d27e7f0c30bb1ad122dfee024a014081c4501782be65424b57016f3104a AS php
+FROM dunglas/frankenphp:1.13.2-php8.4-trixie@sha256:0de5a32944f72c13b45d183e8e6c53546b8172cec21cc8599e24b12e0661506d AS php
 
 # Core PHP extensions only (no PECL downloads); install-php-extensions ships with the image and removes its
 # build dependencies afterwards. OPcache is already built in. Port 8080 needs no capability, and a file
@@ -159,6 +161,9 @@ RUN mkdir -p storage/app/private storage/app/public storage/framework/cache/data
     && php -r 'foreach (["bcmath","ctype","curl","dom","fileinfo","gd","intl","mbstring","openssl","pcntl","pdo_pgsql", \
         "pgsql","sodium","zip","Zend OPcache"] as $e) { if (! extension_loaded($e)) { fwrite(STDERR, "missing $e\n"); exit(1); } } \
         if (! is_readable((string) ini_get("openssl.cafile"))) { fwrite(STDERR, "no CA bundle\n"); exit(1); }' \
+    # Never ship a PHP build with CVE-2026-109618 / CVE-2026-109619 (same floor as the app's system check).
+    && php -r 'if (version_compare(PHP_VERSION, "8.4.27", "<")) { fwrite(STDERR, "PHP ".PHP_VERSION." is vulnerable, need 8.4.27+\n"); exit(1); }' \
+    && php -v \
     && frankenphp version
 
 # Compiled views stay per container (bootstrap/cache is a tmpfs): two versions running side by side during a

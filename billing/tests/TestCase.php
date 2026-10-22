@@ -2,6 +2,7 @@
 
 namespace Tests;
 
+use App\Modules\Core\Install\PhpSecurityRelease;
 use Closure;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Events\TransactionCommitted;
@@ -73,6 +74,16 @@ abstract class TestCase extends BaseTestCase
         $this->releaseCommittedSavepoints();
         $this->refuseDatabaseInDatabaseFreeSuites();
         $this->forgetTrustedHostsAndProxies();
+        $this->assumePatchedPhp();
+    }
+
+    /**
+     * The install check and the dashboard report a vulnerable PHP build (PhpSecurityRelease); development machines and
+     * CI run older 8.4 builds, so outcomes would depend on the runner. Tests of that check bind their own version.
+     */
+    private function assumePatchedPhp(): void
+    {
+        $this->app->instance(PhpSecurityRelease::class, new PhpSecurityRelease(PhpSecurityRelease::PATCHED['8.4']));
     }
 
     /**
