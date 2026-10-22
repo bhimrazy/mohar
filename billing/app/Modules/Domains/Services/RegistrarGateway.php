@@ -2,18 +2,18 @@
 
 namespace App\Modules\Domains\Services;
 
-use App\Modules\Domains\Drivers\Registrars\Registrar;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
-use App\Modules\Domains\Exceptions\CapabilityNotSupported;
-use App\Modules\Domains\Exceptions\RegistrarException;
-use App\Modules\Domains\Exceptions\RegistrarTimeout;
+use App\Data\Domains\Registrar\RegistrarConfig;
 use App\Modules\Domains\Models\Domain;
-use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\RegistrarCommandLog;
+use App\Support\Domains\CapabilityNotSupported;
+use App\Support\Domains\RegistrarDriverRegistry;
+use App\Support\Domains\RegistrarException;
+use App\Support\Domains\RegistrarTimeout;
 use App\Support\Integrations\Redactor;
 use Closure;
 use Illuminate\Support\Facades\Auth;
 use JsonSerializable;
+use LogicException;
 use Throwable;
 
 /**
@@ -35,38 +35,46 @@ class RegistrarGateway
     /** Commands that change state at the registry and must never be blindly repeated. */
     public const MUTATING = ['register', 'transfer', 'renew', 'restore'];
 
-    public function __construct(private RegistrarManager $registrars, private Redactor $redactor) {}
+    public function __construct(private RegistrarDriverRegistry $drivers, private RegistrarManager $accounts, private Redactor $redactor) {}
 
     /**
-     * Run $call against the driver of $registrarKey after checking $capability.
+     * Run $call against the driver of $registrarKey and its account after checking $capability, whose interface
+     * (its entry in RegistrarDriverRegistry::capabilities()) the closure receives the driver as.
      *
+     * @template TDriver of object
      * @template T
      *
-     * @param  Closure(Registrar): T  $call
+     * @param  class-string<TDriver>  $interface
+     * @param  Closure(TDriver, RegistrarConfig): T  $call
      * @param  array<string, mixed>  $request
      * @param  bool  $logSuccess  false for high-volume read calls (public lookups): only failures are logged
      * @return T
      *
      * @throws RegistrarException
      */
-    public function call(string $registrarKey, string $capability, Closure $call, ?Domain $domain = null, array $request = [], ?int $staffId = null, bool $logSuccess = true): mixed
+    public function call(string $registrarKey, string $capability, string $interface, Closure $call, ?Domain $domain = null, array $request = [], ?int $staffId = null, bool $logSuccess = true): mixed
     {
-        $driver = $this->registrars->driver($registrarKey);
+        $driver = $this->drivers->get($registrarKey);
 
-        if (! $this->registrars->isActive($registrarKey)) {
+        if (! $this->accounts->isActive($registrarKey)) {
             throw new RegistrarException("The {$driver->name()} registrar is disabled; enable it under Registrars first.");
         }
 
-        if (! in_array($capability, $driver->capabilities(), true)) {
+        if (($this->drivers->capabilities()[$capability] ?? null) !== $interface) {
+            throw new LogicException("The registrar capability [{$capability}] is not implemented through {$interface}.");
+        }
+
+        if (! $driver instanceof $interface) {
             throw new CapabilityNotSupported($capability, $driver->name());
         }
 
         $started = hrtime(true);
         $staffId ??= $this->currentStaffId();
-        $secrets = $this->secretValues($registrarKey);
+        $config = $this->accounts->config($registrarKey);
+        $secrets = $config->secrets();
 
         try {
-            $result = $call($driver);
+            $result = $call($driver, $config);
 
             if ($logSuccess) {
                 $this->record($registrarKey, $capability, $domain, $request, $this->normalise($result), true, null, $started, $staffId, $secrets);
@@ -97,19 +105,21 @@ class RegistrarGateway
     /**
      * Run $call against the domain's own registrar.
      *
+     * @template TDriver of object
      * @template T
      *
-     * @param  Closure(Registrar): T  $call
+     * @param  class-string<TDriver>  $interface
+     * @param  Closure(TDriver, RegistrarConfig): T  $call
      * @param  array<string, mixed>  $request
      * @return T
      */
-    public function forDomain(Domain $domain, string $capability, Closure $call, array $request = [], ?int $staffId = null): mixed
+    public function forDomain(Domain $domain, string $capability, string $interface, Closure $call, array $request = [], ?int $staffId = null): mixed
     {
         if ($domain->registrar_key === null) {
             throw new CapabilityNotSupported($capability, 'manual');
         }
 
-        return $this->call($domain->registrar_key, $capability, $call, $domain, ['domain' => $domain->name, ...$request], $staffId);
+        return $this->call($domain->registrar_key, $capability, $interface, $call, $domain, ['domain' => $domain->name, ...$request], $staffId);
     }
 
     /**
@@ -117,26 +127,7 @@ class RegistrarGateway
      */
     public function supports(Domain $domain, string $capability): bool
     {
-        return in_array($capability, $this->registrars->capabilitiesOf($domain->registrar_key), true);
-    }
-
-    /**
-     * The registrar account's configured credentials (its secret settings), masked by value wherever they appear.
-     *
-     * @return list<string>
-     */
-    private function secretValues(string $registrarKey): array
-    {
-        $settings = RegistrarAccount::query()->where('key', $registrarKey)->first()->settings ?? [];
-        $secrets = [];
-
-        foreach ($this->registrars->fields($registrarKey) as $field) {
-            if ($field->isSecret() && is_string($settings[$field->key] ?? null) && $settings[$field->key] !== '') {
-                $secrets[] = $settings[$field->key];
-            }
-        }
-
-        return $secrets;
+        return $domain->registrar_key !== null && $this->drivers->supports($domain->registrar_key, $capability);
     }
 
     /**

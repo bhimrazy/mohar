@@ -2,20 +2,20 @@
 
 use App\Contracts\Domains\DomainRegistry;
 use App\Data\Domains\DomainDraft;
+use App\Data\Domains\Registrar\DomainInfo;
+use App\Data\Domains\Registrar\RegistrarResult;
 use App\Events\Domains\DomainRegistered;
 use App\Events\Domains\DomainStatusChanged;
 use App\Events\Domains\DomainTransferInitiated;
 use App\Events\Domains\RegistrarActionFailed;
 use App\Modules\Core\Models\Client;
 use App\Modules\Domains\Actions\SubmitToRegistrar;
-use App\Modules\Domains\Drivers\Registrars\Data\DomainInfo;
-use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
 use App\Modules\Domains\Enums\DomainStatus;
-use App\Modules\Domains\Exceptions\RegistrarException;
-use App\Modules\Domains\Exceptions\RegistrarTimeout;
 use App\Modules\Domains\Jobs\RegisterDomain;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarCommandLog;
+use App\Support\Domains\RegistrarException;
+use App\Support\Domains\RegistrarTimeout;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Validation\ValidationException;

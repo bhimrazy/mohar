@@ -1,12 +1,13 @@
 <?php
 
+use App\Contracts\Domains\Registrar\RegistrarDriver;
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Domains\Database\Seeders\DomainsSeeder;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Models\TldPrice;
+use App\Support\Domains\RegistrarDriverRegistry;
 use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Domains\DomainFixtures;
@@ -177,7 +178,7 @@ test('the seeder prices every TLD in every configured currency', function () {
 test('registrar names come from driver metadata without loading accounts', function () {
     DB::enableQueryLog();
 
-    $names = app(RegistrarManager::class)->names();
+    $names = array_map(fn (RegistrarDriver $driver): string => $driver->name(), app(RegistrarDriverRegistry::class)->all());
 
     expect($names)->toMatchArray(['log' => 'Log (demo)'])
         ->and(collect(DB::getQueryLog())->pluck('query')->filter(fn (string $sql) => str_contains($sql, 'registrar_accounts')))->toBeEmpty();

@@ -725,6 +725,13 @@ a time: medians of three runs before and three after, on the same database, on a
 
 ### Domains
 
+- Registrar drivers run on the kernel registrar contracts (ADR 0009, PR C2), so a package can ship a registrar
+  driver without the Domains module's code. Admin → Domains → Registrars and the domain pages list the same
+  capabilities as before, plus "Test connection" for drivers that offer one; "Test connection" on a driver without
+  it now says "The … registrar has no connection test." No schema or permission change. Upgrade note for driver
+  authors: the module interface `App\Modules\Domains\Drivers\Registrars\Registrar`, its `Data` DTOs and
+  `RegistrarManager::extend()` are removed; implement `App\Contracts\Domains\Registrar\RegistrarDriver` and register
+  it with `RegistrarDriverRegistry::register()` (see the kernel changelog).
 - `.np` self-registration flow (registrars.md §9). TLDs can be marked "registered by the client at the registry" (on
   by default for `.np` and its second levels). Domain search explains that the client registers these names at the
   registry, links to "How to register", and offers "I already have it", which opens the store with "Use a domain I own"

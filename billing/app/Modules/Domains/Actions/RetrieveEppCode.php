@@ -2,11 +2,12 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Contracts\Domains\Registrar\ProvidesEppCode;
+use App\Data\Domains\Registrar\EppCodeResult;
+use App\Data\Domains\Registrar\RegistrarConfig;
 use App\Events\Domains\DomainEppCodeRetrieved;
 use App\Models\User;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Domains\Drivers\Registrars\Data\EppCodeResult;
-use App\Modules\Domains\Drivers\Registrars\Registrar;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\RegistrarGateway;
@@ -24,7 +25,7 @@ class RetrieveEppCode
      */
     public function handle(Domain $domain, string $actor, ?User $user): EppCodeResult
     {
-        $result = $this->gateway->forDomain($domain, 'epp', fn (Registrar $registrar): EppCodeResult => $registrar->getEppCode($domain));
+        $result = $this->gateway->forDomain($domain, 'epp', ProvidesEppCode::class, fn (ProvidesEppCode $registrar, RegistrarConfig $config): EppCodeResult => $registrar->getEppCode($config, $domain->toRef()));
 
         $this->activity->log("EPP code retrieved by {$actor}", $domain, $domain->client_id, [
             'actor' => $actor,

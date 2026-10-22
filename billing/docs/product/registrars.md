@@ -1,7 +1,7 @@
 # Registrar Drivers — Research & Driver Specs (v1)
 
 Status: research for engineering · Owner: Domains workstream · Refines domains.md §5 and the
-`App\Modules\Domains\Drivers\Registrars\Registrar` contract. Researched 2026-10-17 from official docs only
+registrar driver contract (now the kernel `App\Contracts\Domains\Registrar\RegistrarDriver`, ADR 0009 PR C). Researched 2026-10-17 from official docs only
 (see §9). This is a clean-room summary in our own words. Field names are quoted only where a driver has to
 send or parse them. Anything marked **verify** was not stated clearly in the docs and must be checked in the
 sandbox before we rely on it.

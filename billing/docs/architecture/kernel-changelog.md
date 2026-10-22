@@ -6,6 +6,23 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Domains on the kernel registrar contracts, ADR 0009 PR C2
+
+Breaking, under the pre-1.0 window (ADR 0010): every in-repo implementer is updated in the same PR, and no package
+used the module SPI.
+
+- Removed: `App\Modules\Domains\Drivers\Registrars\Registrar` (with its `CAPABILITIES`, `configure()`,
+  `capabilities()` and array `settingsSchema()`), the `Registrars\Data` DTOs, `App\Modules\Domains\Exceptions\
+  {RegistrarException,RegistrarTimeout,CapabilityNotSupported}` and `RegistrarManager::extend()/has()/keys()/names()/
+  fields()/driver()/capabilitiesOf()`. Use the kernel types from PR C1 and `RegistrarDriverRegistry`.
+- `RegistrarManager` moves to `App\Modules\Domains\Services` and keeps only account handling: `config(key):
+  RegistrarConfig` and `isActive(key)`.
+- `RegistrarGateway::call()` and `forDomain()` take the capability interface after the capability name, and the
+  closure receives `(driver, RegistrarConfig)`. Domains renders `RegistrarException` through a renderer it registers.
+- `info` is core: the host no longer checks for it before using it to verify a lost submission.
+- `tests/Support/Contracts/RegistrarDriverContract::verifyHost()` adds the Domains host redaction check; the
+  temporary `ModuleRegistrarDriverContract` is removed.
+
 ### Registrar driver contracts, ADR 0009 PR C1
 
 Additive; Domains moves onto these in PR C2, which removes its module SPI.

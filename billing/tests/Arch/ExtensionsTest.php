@@ -20,6 +20,21 @@ arch('nothing uses the removed module-internal provisioning SPI (ADR 0009)')
         'App\Modules\Services\Support\Redactor',
     ]);
 
+arch('nothing uses the removed module-internal registrar SPI (ADR 0009)')
+    ->expect('App')
+    ->not->toUse([
+        'App\Modules\Domains\Drivers\Registrars\Registrar',
+        'App\Modules\Domains\Drivers\Registrars\Data',
+        'App\Modules\Domains\Drivers\Registrars\RegistrarManager',
+        'App\Modules\Domains\Exceptions\RegistrarException',
+        'App\Modules\Domains\Exceptions\RegistrarTimeout',
+        'App\Modules\Domains\Exceptions\CapabilityNotSupported',
+    ]);
+
+arch('registrar drivers see snapshots only: no models, no database')
+    ->expect('App\Modules\Domains\Drivers\Registrars')
+    ->not->toUse(['Illuminate\Database\Eloquent\Model', 'Illuminate\Support\Facades\DB', 'App\Modules\Domains\Models', 'App\Models']);
+
 arch('registrar contracts and DTOs use no model and no module (ADR 0009 "Verification")')
     ->expect(['App\Contracts\Domains\Registrar', 'App\Data\Domains\Registrar'])
     ->not->toUse(['Illuminate\Database\Eloquent\Model', 'App\Models', 'App\Modules']);

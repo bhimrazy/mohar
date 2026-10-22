@@ -28,13 +28,23 @@ use App\Data\Domains\Registrar\SyncResult;
 use App\Data\Domains\Registrar\TransferSyncResult;
 use App\Data\Integrations\ConnectionCheck;
 use App\Data\Integrations\SettingField;
+use App\Events\Domains\RegistrarActionFailed;
+use App\Modules\Core\Models\ActivityLog;
+use App\Modules\Domains\Actions\SubmitToRegistrar;
+use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\RegistrarAccount;
+use App\Modules\Domains\Models\RegistrarCommandLog;
+use App\Modules\Domains\Models\Tld;
 use App\Support\Domains\CapabilityNotSupported;
 use App\Support\Domains\RegistrarDriverRegistry;
 use App\Support\Domains\RegistrarException;
 use App\Support\Integrations\Redactor;
 use Carbon\CarbonImmutable;
 use Closure;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use RuntimeException;
+use Tests\Fakes\Domains\FakeRegistrar;
 use Throwable;
 
 /**
@@ -52,8 +62,8 @@ use Throwable;
  *   pending; nothing touches the database (one entry per capability interface in calls());
  * - whatever a driver echoes into results and error text is fully masked by the host's redaction set
  *   (RegistrarConfig::secrets()).
- * Response-mapping scenarios of API drivers (availability and status matrices, timeouts, refused connections,
- * fixtures) belong in the driver's own tests.
+ * verifyHost() adds the Domains host path and needs the Domains module. Response-mapping scenarios of API drivers
+ * (availability and status matrices, timeouts, refused connections, fixtures) belong in the driver's own tests.
  */
 final class RegistrarDriverContract
 {
@@ -144,6 +154,58 @@ final class RegistrarDriverContract
 
             foreach ($secrets as $secret) {
                 expect((string) json_encode($logged))->not->toContain($secret);
+            }
+        });
+    }
+
+    /**
+     * The Domains host path (needs the Domains module): with the account configured with known credentials, neither
+     * they nor credential-named pairs reach registrar_command_log, the domain's last_error, the activity log or
+     * RegistrarActionFailed (C5), on the real driver's submit path and on a rejected and a lost register whose error
+     * text echoes them. `failing` makes the real driver fail that way (an API driver fakes its provider's error body);
+     * by default a scriptable driver takes its place for the failure.
+     *
+     * @param  (Closure(): void)|null  $arrange
+     * @param  (Closure(string, Throwable): void)|null  $failing
+     */
+    public static function verifyHost(string $key, ?Closure $arrange = null, string $extension = '.com', ?Closure $failing = null): void
+    {
+        test("{$key} registrar: configured credentials never reach the command log, the domain, the activity log or events", function () use ($key, $arrange, $extension, $failing) {
+            Http::preventStrayRequests();
+
+            if ($arrange !== null) {
+                $arrange();
+            }
+
+            $tld = Tld::query()->where('extension', $extension)->first() ?? Tld::factory()->extension($extension)->priced()->create(['registrar_key' => $key]);
+            $domain = Domain::factory()->pending()->create(['tld_id' => $tld->id, 'registrar_key' => $key]);
+            Event::fake([RegistrarActionFailed::class]);
+            $configured = RegistrarDriverContract::config(app(RegistrarDriverRegistry::class)->get($key));
+            RegistrarAccount::query()->updateOrCreate(['key' => $key], ['is_active' => true, 'test_mode' => true, 'settings' => $configured->settings]);
+            $echo = 'Rejected: '.http_build_query(RegistrarDriverContract::SECRETS).' with '.implode(' ', $configured->secrets());
+            $fail = $failing ?? fn (string $key, Throwable $error) => FakeRegistrar::install($key)->will('register', $error);
+
+            app(SubmitToRegistrar::class)->handle($domain);
+            $rejected = Domain::factory()->pending()->create(['tld_id' => $domain->tld_id, 'registrar_key' => $key]);
+            $fail($key, new RegistrarException($echo));
+            app(SubmitToRegistrar::class)->handle($rejected);
+            $lost = Domain::factory()->pending()->create(['tld_id' => $domain->tld_id, 'registrar_key' => $key]);
+            $fail($key, new RuntimeException($echo));
+            app(SubmitToRegistrar::class)->handle($lost);
+
+            $ids = [$domain->id, $rejected->id, $lost->id];
+            $seen = (string) json_encode([
+                RegistrarCommandLog::query()->whereIn('domain_id', $ids)->get(['request', 'response', 'error']),
+                Domain::query()->whereIn('id', $ids)->pluck('last_error'),
+                ActivityLog::query()->where('subject_type', (new Domain)->getMorphClass())->whereIn('subject_id', $ids)->get(['description', 'properties']),
+                Event::dispatched(RegistrarActionFailed::class)->map(fn (array $event): array => get_object_vars($event[0])),
+            ]);
+
+            expect(Event::dispatched(RegistrarActionFailed::class))->not->toBeEmpty()
+                ->and($lost->fresh()->needs_review)->toBeTrue();
+
+            foreach ([...array_values(RegistrarDriverContract::SECRETS), ...$configured->secrets()] as $secret) {
+                expect($seen)->not->toContain($secret);
             }
         });
     }
