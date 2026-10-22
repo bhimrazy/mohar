@@ -181,7 +181,9 @@ final class StripeSimulator implements HasControlActions, RecordsLive, RedactsPa
                     throw new \InvalidArgumentException("A {$dispute['status']} dispute can't escalate.");
                 }
 
-                $withdrawal = self::disputeBalanceTransaction($stripe, -$dispute['amount'], $dispute['currency'], self::DISPUTE_FEE);
+                // State is stored as decoded JSON; the dispute action wrote the amount as an int.
+                $amount = (int) $dispute['amount'];
+                $withdrawal = self::disputeBalanceTransaction($stripe, -$amount, $dispute['currency'], self::DISPUTE_FEE);
                 $dispute = [...$dispute, 'status' => 'needs_response', 'is_charge_refundable' => false, 'balance_transactions' => [...$dispute['balance_transactions'], $withdrawal]];
                 $scenario->state()->put('balance', $withdrawal['id'], $withdrawal);
                 $scenario->state()->put('disputes', $dispute['id'], $dispute);
