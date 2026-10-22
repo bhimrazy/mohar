@@ -1,5 +1,6 @@
 <?php
 
+use App\Modules\Core\Support\LockTimeout;
 use App\Modules\Core\Support\OnlineIndex;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
@@ -20,13 +21,18 @@ return new class extends Migration
 
     public function up(): void
     {
-        // Outside a transaction (the concurrent index), so each step can be repeated after a failed run.
-        if (! Schema::hasColumn('kyc_documents', 'sanitised_at')) {
+        // Outside a transaction (the concurrent index), so each step can be repeated after a failed run. The guard is
+        // inside the closure: LockTimeout runs it again on each attempt (architecture rule 5).
+        LockTimeout::run('kyc_documents', function (): void {
+            if (Schema::hasColumn('kyc_documents', 'sanitised_at')) {
+                return;
+            }
+
             Schema::table('kyc_documents', function (Blueprint $table): void {
                 $table->timestamp('sanitised_at')->nullable();
                 $table->string('sanitise_issue', 20)->nullable();
             });
-        }
+        });
 
         OnlineIndex::create('kyc_documents', ['id'], 'kyc_documents_unsanitised_index', where: 'sanitised_at is null');
 
@@ -50,8 +56,14 @@ return new class extends Migration
 
         OnlineIndex::drop('kyc_documents', 'kyc_documents_unsanitised_index');
 
-        Schema::table('kyc_documents', function (Blueprint $table): void {
-            $table->dropColumn(['sanitised_at', 'sanitise_issue']);
+        LockTimeout::run('kyc_documents', function (): void {
+            if (! Schema::hasColumn('kyc_documents', 'sanitised_at')) {
+                return;
+            }
+
+            Schema::table('kyc_documents', function (Blueprint $table): void {
+                $table->dropColumn(['sanitised_at', 'sanitise_issue']);
+            });
         });
     }
 };

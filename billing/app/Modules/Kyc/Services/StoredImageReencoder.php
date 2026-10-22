@@ -25,7 +25,8 @@ use Throwable;
  * as StoreDocument, DecideDocument and DocumentVault::delete), the row is re-read and switched to the new files only
  * when it still points at the files that were read; a document replaced, deleted or moved meanwhile keeps what it has
  * and the new files are deleted. The old files are deleted after the commit. A run killed in between is finished by
- * settle() at the start of the next run, which keeps the file the row points at and deletes the other.
+ * settle() at the start of the next run, which keeps the file the row points at and deletes the other under the row
+ * lock.
  *
  * A storage or database error on one document or record is logged with the document id and the exception class only
  * (storage messages carry the path, spec §5), counted as failed, and retried on the next run; the run carries on.
@@ -66,10 +67,12 @@ class StoredImageReencoder
     }
 
     /**
-     * Finish the rewrites a killed run left: under the document's lock, find whichever of the two files the row does not
-     * point at (both when the row is gone), then delete them after the commit and the record last. Call it only while
-     * holding RUN_LOCK: only this command switches a row to those names, so neither can become the row's again. A record
-     * that fails (a storage error) is logged by document id, kept for the next run, and skipped.
+     * Finish the rewrites a killed run left: under the document's lock, delete whichever of the two files the row does
+     * not point at (both when the row is gone), then the record after the commit. The deletes stay inside the lock: a
+     * run still alive after RUN_LOCK expired (6 h) may switch the row to its new file, and switch() checks that file
+     * exists under the same lock, so it either switches before this reads the row (the file is kept) or finds it gone
+     * (it keeps the old one). A record that fails (a storage error) is logged by document id, kept for the next run, and
+     * skipped.
      *
      * @return array{settled: int, failed: int}
      */
@@ -79,12 +82,10 @@ class StoredImageReencoder
 
         foreach (DB::table(self::REWRITES)->orderBy('id')->get() as $rewrite) {
             try {
-                $unused = DB::transaction(fn (): array => array_values(array_diff(
+                DB::transaction(fn () => $this->delete(array_values(array_diff(
                     [(string) $rewrite->old_path, (string) $rewrite->new_path],
                     $this->lockDocument((int) $rewrite->document_id)?->paths() ?? [],
-                )));
-
-                $this->delete($unused);
+                ))));
 
                 DB::table(self::REWRITES)->where('id', $rewrite->id)->delete();
                 $counts['settled']++;
@@ -131,6 +132,8 @@ class StoredImageReencoder
         $disk = Storage::disk(KycDocument::DISK);
         /** @var array<string, array{old: string, new: string, mime_column: string, mime: string}> $written */
         $written = [];
+        /** @var list<int> $records the kyc_image_rewrites rows this call inserted */
+        $records = [];
         $read = [];
         $issue = null;
 
@@ -152,13 +155,13 @@ class StoredImageReencoder
                 }
 
                 $new = (dirname($old) === '.' ? '' : dirname($old).'/').Str::uuid()->toString();
-                DB::table(self::REWRITES)->insert(['document_id' => $document->id, 'old_path' => $old, 'new_path' => $new, 'created_at' => now(), 'updated_at' => now()]);
+                $records[] = (int) DB::table(self::REWRITES)->insertGetId(['document_id' => $document->id, 'old_path' => $old, 'new_path' => $new, 'created_at' => now(), 'updated_at' => now()]);
                 $disk->put($new, Crypt::encryptString($image['bytes']));
                 $written[$pathColumn] = ['old' => $old, 'new' => $new, 'mime_column' => $mimeColumn, 'mime' => $image['mime']];
                 unset($image);
             }
         } catch (ImageDecodeBusy) {
-            $this->finish($document->id, array_column($written, 'new'));
+            $this->finish($records, array_column($written, 'new'));
 
             return ['outcome' => 'busy', 'images' => 0];
         }
@@ -166,7 +169,7 @@ class StoredImageReencoder
         $switched = $this->switch($document->id, $read, $written, $issue);
 
         // After the commit: a crash before this line is settled from kyc_image_rewrites on the next run.
-        $this->finish($document->id, $switched === null ? array_column($written, 'new') : array_column($written, 'old'));
+        $this->finish($records, $switched === null ? array_column($written, 'new') : array_column($written, 'old'));
 
         if ($switched === null) {
             return ['outcome' => 'changed', 'images' => 0];
@@ -255,14 +258,19 @@ class StoredImageReencoder
     }
 
     /**
-     * Delete the files no row needs any more, then the document's rewrite records.
+     * Delete the files no row needs any more, then the rewrite records this call inserted. Only those: an older record
+     * of the same document (one settle() could not finish this run) is kept, so its file is still deleted next run.
      *
+     * @param  list<int>  $records
      * @param  list<string>  $paths
      */
-    private function finish(int $documentId, array $paths): void
+    private function finish(array $records, array $paths): void
     {
         $this->delete($paths);
-        DB::table(self::REWRITES)->where('document_id', $documentId)->delete();
+
+        if ($records !== []) {
+            DB::table(self::REWRITES)->whereIn('id', $records)->delete();
+        }
     }
 
     /**
