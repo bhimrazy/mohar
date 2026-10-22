@@ -1,6 +1,6 @@
 # ADR 0018 — Sign-in methods and step-up
 
-- Status: Proposed · 2026-10-19 · Owner: Principal architect
+- Status: Accepted · 2026-10-22 (proposed 2026-10-19) · Owner: Principal architect
 - Related: ADR 0001 (modular monolith), ADR 0009 and 0012 (kernel extension contracts, registries), ADR 0011 (events
   after commit), `docs/security/standards.md` §2 (step-up), `billing/docs/product/social-sign-in.md`, PR #102
   (architect check), issue #81, PR #89 (structural tests for secrets and step-up).

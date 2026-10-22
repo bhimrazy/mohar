@@ -1,5 +1,5 @@
 import { Form, Link, router } from '@inertiajs/react';
-import { Eye, LockKeyhole } from 'lucide-react';
+import { Eye, EyeOff, LockKeyhole } from 'lucide-react';
 import { useState } from 'react';
 import ReviewController from '@/actions/App/Modules/Kyc/Http/Controllers/Admin/ReviewController';
 import ClientController from '@/actions/App/Modules/Core/Http/Controllers/Admin/ClientController';
@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { KYC_TONE } from '@/components/kyc/kyc-tone';
+import { useUnlockWindow } from '@/components/kyc/unlock-window';
 
 type Document = {
     id: number;
@@ -149,7 +150,9 @@ export default function KycReview({
     documents,
 }: Props) {
     const [opening, setOpening] = useState(false);
-    const unlocked = unlockedUntil !== null;
+    const [hiding, setHiding] = useState(false);
+    // False from the moment the window ends, also on a page restored from history; the page then reloads.
+    const unlocked = useUnlockWindow(unlockedUntil);
 
     return (
         <>
@@ -246,6 +249,30 @@ export default function KycReview({
                                     )}
                                 </p>
                             </div>
+                            {unlocked && (
+                                <Button
+                                    variant="outline"
+                                    className="w-full sm:w-auto"
+                                    disabled={hiding}
+                                    onClick={() =>
+                                        router.post(
+                                            ReviewController.lock.url(
+                                                client.id,
+                                            ),
+                                            {},
+                                            {
+                                                preserveScroll: true,
+                                                onStart: () => setHiding(true),
+                                                onFinish: () =>
+                                                    setHiding(false),
+                                            },
+                                        )
+                                    }
+                                >
+                                    {hiding ? <Spinner /> : <EyeOff />}
+                                    Hide documents
+                                </Button>
+                            )}
                             {!unlocked && (
                                 <Button
                                     className="w-full sm:w-auto"
@@ -315,7 +342,7 @@ export default function KycReview({
                             }
                         >
                             <div className="grid gap-4">
-                                {document.number && (
+                                {unlocked && document.number && (
                                     <p className="text-sm">
                                         Number{' '}
                                         <span className="font-mono">
@@ -323,7 +350,7 @@ export default function KycReview({
                                         </span>
                                     </p>
                                 )}
-                                {document.images.length > 0 && (
+                                {unlocked && document.images.length > 0 && (
                                     <div className="grid gap-4 sm:grid-cols-2">
                                         {document.images.map((image) => (
                                             <figure

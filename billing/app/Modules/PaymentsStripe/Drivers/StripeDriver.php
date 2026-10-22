@@ -2,8 +2,10 @@
 
 namespace App\Modules\PaymentsStripe\Drivers;
 
+use App\Contracts\Billing\CancelsHostedPayment;
 use App\Contracts\Billing\ConnectionTester;
 use App\Contracts\Billing\HostedPaymentDriver;
+use App\Contracts\Billing\ResumesHostedPayment;
 use App\Contracts\Integrations\ProvidesLogo;
 use App\Data\Billing\AmountLimits;
 use App\Data\Billing\CallbackEvent;
@@ -18,6 +20,7 @@ use App\Data\Billing\RefundRequest;
 use App\Data\Billing\ReturnHint;
 use App\Data\Integrations\ConnectionCheck;
 use App\Data\Integrations\IntegrationLogo;
+use App\Enums\HostedSessionCancel;
 use App\Modules\PaymentsStripe\Support\StripeAmount;
 use App\Modules\PaymentsStripe\Support\StripeClient;
 use App\Modules\PaymentsStripe\Support\StripeException;
@@ -41,9 +44,10 @@ use Throwable;
  * lookup() retrieves the session stored on the attempt (with its PaymentIntent) and Billing settles from that.
  * Webhooks are verified, then the object they name is retrieved from Stripe; the posted body is never trusted.
  * Payment events name our attempt, which Billing settles by lookup against the attempt's stored amount and rate.
- * Refunds (full and partial) go through the Refunds API.
+ * Refunds (full and partial) go through the Refunds API. A session left open after a declined card can be opened
+ * again (resumeUrl) or expired (cancelSession) from the invoice (#123).
  */
-final class StripeDriver extends AbstractGatewayDriver implements ConnectionTester, HostedPaymentDriver, ProvidesLogo
+final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedPayment, ConnectionTester, HostedPaymentDriver, ProvidesLogo, ResumesHostedPayment
 {
     public const KEY = 'stripe';
 
@@ -194,6 +198,69 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
         }
 
         return $this->sessionResult($response, $attempt, $live);
+    }
+
+    /**
+     * The stored session's own url, only while Stripe still reports it open for this attempt and the url is on the
+     * checkout host. One quick try: the customer is waiting.
+     */
+    public function resumeUrl(GatewayConfig $gateway, PaymentAttemptRef $attempt): ?string
+    {
+        if ($attempt->providerRef === null || preg_match('/^cs_(test|live)_[A-Za-z0-9]{8,250}$/', $attempt->providerRef) !== 1) {
+            return null;
+        }
+
+        try {
+            $live = StripeClient::mode($gateway) === StripeClient::LIVE;
+            $response = $this->client->get($gateway, 'checkout/sessions/'.$attempt->providerRef, interactive: true);
+        } catch (ConnectionException|StripeException) {
+            return null;
+        }
+
+        $session = $response->successful() ? $response->json() : null;
+
+        if (! is_array($session) || ($session['id'] ?? null) !== $attempt->providerRef
+            || ($session['client_reference_id'] ?? null) !== $attempt->reference
+            || ($session['metadata']['mohar_reference'] ?? null) !== $attempt->reference
+            || ($session['livemode'] ?? null) !== $live || ($session['status'] ?? null) !== 'open'
+            || ! is_int($session['expires_at'] ?? null) || $session['expires_at'] <= now()->getTimestamp()) {
+            return null;
+        }
+
+        $url = $session['url'] ?? null;
+
+        return is_string($url) && $this->isCheckoutUrl($url) ? $url : null;
+    }
+
+    /**
+     * Expires the stored session (POST /v1/checkout/sessions/{id}/expire). Stripe expires only an open session and
+     * refuses for one already complete or expired, so a paid session is never touched.
+     *
+     * Each close sends its own Idempotency-Key. Stripe saves the first answer to a key for 24 hours, a 500 included,
+     * so a key shared between clicks (or with the cancel-return expire) would replay one transient error and keep the
+     * invoice locked until the session times out. Expire needs no key to be safe: a second call for a session that
+     * is no longer open is refused with a 400.
+     */
+    public function cancelSession(GatewayConfig $gateway, PaymentAttemptRef $attempt): HostedSessionCancel
+    {
+        if ($attempt->providerRef === null || preg_match('/^cs_(test|live)_[A-Za-z0-9]{8,250}$/', $attempt->providerRef) !== 1) {
+            return HostedSessionCancel::AlreadyFinal;
+        }
+
+        try {
+            $response = $this->client->post($gateway, 'checkout/sessions/'.$attempt->providerRef.'/expire', [], 'mohar-close-'.$attempt->reference.'-'.Str::lower(Str::random(16)), interactive: true);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return HostedSessionCancel::Unreachable;
+        }
+
+        return match (true) {
+            $response->successful() && $response->json('status') === 'expired' => HostedSessionCancel::Closed,
+            // Stripe answers 400 for a session that is no longer open (complete or already expired).
+            $response->status() === 400 => HostedSessionCancel::AlreadyFinal,
+            default => HostedSessionCancel::Unreachable,
+        };
     }
 
     /**
@@ -562,7 +629,8 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
      * escalates sends `charge.dispute.funds_withdrawn`, which books the chargeback then. A close with funds withdrawn
      * is passed on: `won` as the win, `lost` as the chargeback (the backstop for an install not subscribed to
      * funds_withdrawn; one chargeback per dispute id). Any other close (an inquiry closed as `warning_closed`) is
-     * acknowledged and changes nothing.
+     * acknowledged and changes nothing. A won close whose balance transactions show the withdrawal and the
+     * reinstatement is flagged `fundsReinstated`, so Billing acknowledges it when no chargeback was booked (#232).
      */
     private function disputeEvent(GatewayConfig $gateway, WebhookContext $context, bool $closed = false): CallbackEvent|CallbackRejection
     {
@@ -592,6 +660,15 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             return $context->ignored($status === 'warning_closed' ? 'inquiry closed' : 'dispute closed with no funds withdrawn');
         }
 
+        $reinstated = $status === 'won' && $withdrawn && self::fundsReinstated($dispute);
+
+        // A created or funds_withdrawn delivered after the dispute was won (a retry, or an escalated inquiry whose
+        // withdrawal was never subscribed to): the money already came back, so booking a chargeback now would leave
+        // one nothing reverses (#232).
+        if (! $closed && $reinstated) {
+            return $context->ignored('dispute already won; funds withdrawn and reinstated');
+        }
+
         return new CallbackEvent(
             type: match (true) {
                 // A lost dispute is passed on as its chargeback: booked here when `charge.dispute.funds_withdrawn`
@@ -609,7 +686,27 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             reason: is_string($dispute['reason'] ?? null) ? 'dispute: '.$dispute['reason'] : 'dispute',
             raw: [...$context->raw(), 'dispute' => $dispute['id'], 'payment_intent' => $intent, 'amount' => $dispute['amount'], 'currency' => $currency, 'status' => $dispute['status'] ?? null],
             sentAt: $context->sentAt,
+            fundsReinstated: $closed && $reinstated,
         );
+    }
+
+    /**
+     * Whether one of the dispute's balance transactions put money back into the Stripe balance (a positive amount):
+     * the reinstatement of a won dispute.
+     *
+     * @param  array<string, mixed>  $dispute
+     */
+    private static function fundsReinstated(array $dispute): bool
+    {
+        $transactions = is_array($dispute['balance_transactions'] ?? null) ? $dispute['balance_transactions'] : [];
+
+        foreach ($transactions as $transaction) {
+            if (is_array($transaction) && is_int($transaction['amount'] ?? null) && $transaction['amount'] > 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

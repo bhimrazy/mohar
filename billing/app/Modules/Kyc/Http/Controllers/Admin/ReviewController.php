@@ -79,6 +79,7 @@ class ReviewController extends Controller
     public function show(Request $request, Client $client): Response
     {
         $this->authorizeView($request);
+        // Encrypted, and cleared when the unlock ends (ClearEndedReviewHistory) or is locked again (lock()).
         Inertia::encryptHistory();
         $documents = $this->kyc->documents($client);
         $until = $this->unlocks->until($request, $client->id);
@@ -118,6 +119,22 @@ class ReviewController extends Controller
         $this->authorizeView($request);
         $this->unlocks->unlock($request, $client->id);
         $activity->log('Identity documents opened for review', $client, $client->id, event: 'kyc.documents.opened');
+
+        return to_route('admin.kyc.show', $client);
+    }
+
+    /**
+     * Hide this client's numbers and images before the window ends, and clear the browser history that holds them.
+     * No step-up: it only takes access away.
+     */
+    public function lock(Request $request, Client $client, ActivityLogger $activity): RedirectResponse
+    {
+        $this->authorizeView($request);
+
+        if ($this->unlocks->lock($request, $client->id)) {
+            Inertia::clearHistory();
+            $activity->log('Identity documents hidden again', $client, $client->id, event: 'kyc.documents.closed');
+        }
 
         return to_route('admin.kyc.show', $client);
     }

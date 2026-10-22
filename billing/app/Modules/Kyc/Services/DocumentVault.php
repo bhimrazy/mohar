@@ -2,9 +2,11 @@
 
 namespace App\Modules\Kyc\Services;
 
+use App\Modules\Core\Models\Client;
 use App\Modules\Kyc\Models\KycDocument;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -47,16 +49,23 @@ class DocumentVault
 
     /**
      * Delete a document's files, then its row. Returns false (and keeps the row, so the retention task retries) when
-     * the storage fails; one document's failure never stops the caller's loop.
+     * the storage fails; one document's failure never stops the caller's loop. The row is re-read under lock (client,
+     * then document, ADR 0021 §3), because `security:reencrypt` may have moved it to new files since $document was
+     * loaded.
      */
     public function delete(KycDocument $document): bool
     {
         try {
-            foreach ($document->paths() as $path) {
-                Storage::disk(KycDocument::DISK)->delete($path);
-            }
+            DB::transaction(function () use ($document): void {
+                Client::query()->whereKey($document->client_id)->lockForUpdate()->first(['id']);
+                $locked = KycDocument::query()->whereKey($document->id)->lockForUpdate()->first();
 
-            $document->delete();
+                foreach ($locked?->paths() ?? [] as $path) {
+                    Storage::disk(KycDocument::DISK)->delete($path);
+                }
+
+                $locked?->delete();
+            });
 
             return true;
         } catch (Throwable $exception) {

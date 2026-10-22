@@ -46,6 +46,7 @@ final class SecretTemplatePolicy
         'staff.password_reset' => 'auth.reset_url',
         'auth.email_verification' => 'auth.verify_url',
         'auth.user_invitation' => 'auth.invite_url',
+        'client.migration_invitation' => 'auth.invite_url',
         'staff.invitation' => 'auth.invite_url',
     ];
 

@@ -58,6 +58,8 @@ type Props = {
     changes?: RateChangeRow[];
     review?: RateReview | null;
     canManageRates?: boolean;
+    /** Why an existing currency's code is read-only (edit only). */
+    codeLockedReason?: string;
 };
 
 type RateChangeRow = {
@@ -89,6 +91,7 @@ export default function CurrencyForm({
     changes = [],
     review = null,
     canManageRates = false,
+    codeLockedReason,
 }: Props) {
     const action = currency
         ? CurrencyController.update.form(currency.id)
@@ -210,21 +213,45 @@ export default function CurrencyForm({
                                 }
                             >
                                 <div className="grid gap-6 sm:grid-cols-2">
-                                    <Field
-                                        htmlFor="code"
-                                        label="ISO code"
-                                        error={errors.code}
-                                        hint="Three letters, e.g. EUR."
-                                    >
-                                        <Input
-                                            id="code"
-                                            name="code"
-                                            maxLength={3}
-                                            className="font-mono uppercase"
-                                            defaultValue={currency?.code ?? ''}
-                                            aria-invalid={Boolean(errors.code)}
-                                        />
-                                    </Field>
+                                    {currency ? (
+                                        <Field
+                                            htmlFor="code"
+                                            label="ISO code"
+                                            error={errors.code}
+                                            hint={codeLockedReason}
+                                        >
+                                            {/* No name: the code is never submitted on update. */}
+                                            <Input
+                                                id="code"
+                                                value={currency.code}
+                                                readOnly
+                                                aria-readonly
+                                                aria-describedby="code-description"
+                                                aria-invalid={Boolean(
+                                                    errors.code,
+                                                )}
+                                                className="cursor-not-allowed bg-muted font-mono uppercase"
+                                            />
+                                        </Field>
+                                    ) : (
+                                        <Field
+                                            htmlFor="code"
+                                            label="ISO code"
+                                            error={errors.code}
+                                            hint="Three letters, e.g. EUR. It can't be changed after the currency is created."
+                                        >
+                                            <Input
+                                                id="code"
+                                                name="code"
+                                                maxLength={3}
+                                                className="font-mono uppercase"
+                                                aria-describedby="code-description"
+                                                aria-invalid={Boolean(
+                                                    errors.code,
+                                                )}
+                                            />
+                                        </Field>
+                                    )}
                                     <Field
                                         htmlFor="name"
                                         label="Name"

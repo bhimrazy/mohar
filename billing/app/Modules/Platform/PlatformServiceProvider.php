@@ -2,6 +2,7 @@
 
 namespace App\Modules\Platform;
 
+use App\Contracts\Auth\ClientLoginInvitations;
 use App\Events\Core\ExchangeRatesUpdated;
 use App\Models\User;
 use App\Modules\Core\Models\Contact;
@@ -14,7 +15,6 @@ use App\Modules\Platform\Http\Middleware\EnforceLoginLockout;
 use App\Modules\Platform\Http\Middleware\EnforceStaffSecurity;
 use App\Modules\Platform\Http\Middleware\EnsureActiveUser;
 use App\Modules\Platform\Http\Middleware\HandleImpersonation;
-use App\Modules\Platform\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Platform\Jobs\ConvertPricesAfterRateChange;
 use App\Modules\Platform\Listeners\RecordAuthenticationActivity;
 use App\Modules\Platform\Models\ExchangeRateReview;
@@ -24,6 +24,7 @@ use App\Modules\Platform\Services\Impersonation;
 use App\Modules\Platform\Services\PermissionGuard;
 use App\Modules\Platform\Services\SettingsCatalog;
 use App\Modules\Platform\Support\ExchangeRateTask;
+use App\Modules\Platform\Support\PlatformClientLoginInvitations;
 use App\Modules\Platform\Support\PlatformDashboard;
 use App\Support\Automation\Automation;
 use App\Support\Clients\ClientMergeRegistry;
@@ -44,7 +45,6 @@ use Illuminate\Auth\Events\Logout;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Foundation\DevCommands;
-use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 
@@ -60,12 +60,11 @@ class PlatformServiceProvider extends ModuleServiceProvider
         $this->app->singleton(PermissionGuard::class);
         $this->app->singleton(SettingsCatalog::class);
         $this->app->scoped(Impersonation::class);
+        $this->app->bind(ClientLoginInvitations::class, PlatformClientLoginInvitations::class);
     }
 
     protected function bootModule(): void
     {
-        $this->app->make(Router::class)->aliasMiddleware('password.recent', RequireRecentPasswordConfirmation::class);
-
         $kernel = $this->app->make(Kernel::class);
         $kernel->appendMiddlewareToGroup('web', EnsureActiveUser::class);
         $kernel->appendMiddlewareToGroup('web', EnforceLoginLockout::class);

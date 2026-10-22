@@ -13,8 +13,15 @@ arch('controllers do not query other modules or the DB facade directly')
     ->expect('App\Modules\*\Http\Controllers')
     ->not->toUse(['Illuminate\Support\Facades\DB']);
 
-arch('nothing under app/ or tests/ uses eval')
-    ->expect(['App', 'Tests'])
-    ->not->toUse(['eval']);
+// One target per rule (issue #275).
+foreach (['App', 'Tests'] as $codeRoot) {
+    arch("{$codeRoot} uses no eval")
+        ->expect($codeRoot)
+        ->not->toUse(['eval']);
+}
+
+test('every arch target in this file matches at least one class', function () {
+    expect(archTargetsWithoutClasses(['App\Modules\*\Http\Controllers', 'App', 'Tests']))->toBe([]);
+});
 
 afterAll(fn () => releaseArchCache());

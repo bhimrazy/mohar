@@ -26,6 +26,8 @@ it('is registered as a reference-data installer', function () {
 
 it('installs the default templates with app:install in production', function () {
     app()->detectEnvironment(fn (): string => 'production');
+    // A first production install needs a shared lock store (#64); the test default `array` is refused.
+    config(['cache.default' => 'database']);
 
     try {
         $status = Artisan::call('app:install', ['--no-interaction' => true, '--admin-email' => 'owner@example.test']);

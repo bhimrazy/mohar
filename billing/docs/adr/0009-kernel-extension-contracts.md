@@ -250,8 +250,8 @@ store (#265). The architect accepted these differences from §2–§5 and `regis
    `SubmissionLookup::withMessage()`. The contract dataset still fails a driver that echoes any of them.
 3. **`restore()`**: `RestoresDomains::restore(config, domain, years)` replaces `renew(..., restore: true)`.
 4. **`test_connection` is a capability** (`TestsRegistrarConnection`), not core, as in provisioning. The host runs it
-   through `RegistrarGateway` (command log, masking) and disables "Test connection", with the reason, for drivers
-   without it.
+   through `RegistrarGateway` (command log, masking), also while the account is disabled so staff can test before
+   enabling it, and disables "Test connection", with the reason, for drivers without it.
 5. **`reconcile`** is the capability name of `ReconcilesSubmissions` (C2), matching `ProvisioningDriverRegistry::RECONCILE`.
 6. **No `.np` driver**: since #199 clients register `.np` names at the registry themselves, so §3's `.np` line is void.
 
@@ -269,5 +269,5 @@ Kernel shapes decided now:
 - **Result statuses** (`RegistrarResult::$status`, `DomainInfo::$status`, `AvailabilityResult::$status`) stay strings
   by design: their values are documented on each DTO; `SubmissionLookup` uses the shared `ReconcileStatus`.
 - **`RegistrarRefs`** is bound by Domains only, so a driver that injects it resolves only while Domains is loaded. Its
-  `remember()` is last-writer-wins for now; first-writer-wins with a lock per local record is a follow-up issue,
+  `remember()` is last-writer-wins for now; first-writer-wins with a lock per local record is a follow-up (#267),
   before the first driver that writes refs.

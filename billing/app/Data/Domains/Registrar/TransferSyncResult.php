@@ -20,7 +20,7 @@ final readonly class TransferSyncResult
     /**
      * A copy with another failure reason, so the host can replace driver text (for example with a masked version).
      */
-    public function withReason(?string $reason): static
+    public function withReason(?string $reason): self
     {
         return new self($this->completed, $this->failed, $reason, $this->expiryDate, $this->remote);
     }

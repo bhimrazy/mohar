@@ -183,11 +183,16 @@ export type PaymentInProgressData = {
     logo: GatewayLogoData | null;
     amount: number;
     currency: string;
-    status: 'pending' | 'ambiguous';
+    /** failed / expired: ended by the customer while the provider could still take it (shown with a warning). */
+    status: 'pending' | 'ambiguous' | 'failed' | 'expired';
     started_at: string | null;
     expires_at: string | null;
     check_url: string;
     can_pay_another_way: boolean;
+    /** Client only: the provider page can be opened again ("Continue payment"). */
+    can_resume: boolean;
+    /** Client only: the attempt can be closed to pay another way ("Use another method"). */
+    can_close: boolean;
     review_reason: string | null;
 };
 
