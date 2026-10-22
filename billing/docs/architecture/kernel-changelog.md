@@ -21,6 +21,24 @@ the same PR updates every in-repo implementer and gets the principal-architect g
   with `Taken`; callers that compare with `Refused` or `Unavailable` are unchanged. `ManageClientLogins` puts back an
   invitation whose mail was suppressed.
 
+### Key rotation (#25, ADR 0022)
+
+- New registry `App\Support\Security\EncryptedStorage` (`final`, `@api`, singleton, ADR 0012 shape):
+  `register(string $key, EncryptedModel|EncryptedColumn|EncryptedFiles $target, bool $replace = false)`, `has()`,
+  `keys()` and `all()`. Keys match `[a-z0-9_]{1,50}` (`<module>` or `<module>_<part>`); a duplicate key throws unless
+  `$replace`, and two keys naming the same storage throw `LogicException`. Modules declare there all data encrypted
+  with `APP_KEY` that outlives a rotation, so `security:reencrypt` (Core) covers it without reading other modules'
+  classes.
+- New value objects (`@api`): `EncryptedModel(class-string<Model>)` (a model whose encrypted casts are read when the
+  command runs), `EncryptedColumn` (table, column, key column, prefix, JSON string) and `EncryptedFiles` (path columns
+  of a table, a disk, and `lockFirst` naming the parent row to lock before the row). Additive. Every module with an
+  encrypted cast registers its models; Core also registers `core_settings`, the two Fortify columns and
+  `core_install_secrets`; Kyc registers `kyc_documents_files`. With a module absent, its registrations are absent
+  and a real run asks for `--partial`.
+- Outside the kernel: `App\Providers\ModulesServiceProvider::availableModules()` (every module on disk) and
+  `App\Modules\Core\Support\InstallSecrets` (per-install secrets that survive a rotation; Migration's email hash
+  uses it).
+
 ### Step-up in the kernel (#81, ADR 0018 §4)
 
 - `App\Http\Middleware\RequireRecentPasswordConfirmation` (moved from `App\Modules\Platform\Http\Middleware`): the

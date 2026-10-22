@@ -3,6 +3,7 @@
 namespace App\Modules\Migration;
 
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\InstallSecrets;
 use App\Modules\Migration\Models\MigrationRecord;
 use App\Modules\Migration\Models\MigrationRun;
 use App\Support\Automation\Automation;
@@ -10,6 +11,8 @@ use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Security\EncryptedModel;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
@@ -27,6 +30,12 @@ class MigrationServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        // Encrypted casts, for `security:reencrypt` (ADR 0022).
+        $encrypted = $this->app->make(EncryptedStorage::class);
+        $encrypted->register('migration_runs', new EncryptedModel(MigrationRun::class));
+        $encrypted->register('migration_records', new EncryptedModel(MigrationRecord::class));
+        $this->app->make(InstallSecrets::class)->define(MigrationRecord::EMAIL_HASH_SECRET, MigrationRecord::emailHashKey(...));
+
         $this->app->make(PermissionRegistry::class)->register('Migration', [
             'migration.runs.view' => 'See client imports and their checks',
             'migration.runs.execute' => 'Upload client files, map, check and apply them, and send invitations to imported logins (reads client data)',
