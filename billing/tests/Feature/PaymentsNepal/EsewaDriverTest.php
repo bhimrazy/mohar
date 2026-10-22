@@ -264,7 +264,13 @@ test('a customer who cancels on eSewa can pay again at once, under a new transac
     expect($attempt->fresh())->status->toBe(AttemptStatus::Failed)->lookups_closed_at->toBeNull()->review_reason->toBe('Cancelled by the customer: the provider has no payable session')
         ->and(Transaction::query()->count())->toBe(0)
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
-    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page->where('payment_in_progress', null));
+    // The invoice offers "Pay a different way" at once, with the "don't pay again" warning, while the old form could
+    // still be posted (#123).
+    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
+        ->where('payment_in_progress.status', 'failed')
+        ->where('payment_in_progress.can_pay_another_way', true)
+        ->where('payment_in_progress.can_close', false)
+        ->whereNot('payment', null));
 
     // eSewa answers "Duplicate transaction UUID." to a reused uuid (UAT), so the retry must carry a new one.
     $retry = startEsewaAgain($invoice);
@@ -297,6 +303,24 @@ test('a booked eSewa session keeps the invoice locked for eSewa\'s whole booking
 
     $this->travel(7)->minutes();
     $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page->where('payment_in_progress.can_pay_another_way', true));
+});
+
+test('use another method is neither offered nor carried out for eSewa, whose NOT_FOUND does not close the form', function () {
+    [$invoice, $attempt] = startEsewa(10_000);
+    Http::fake([ESEWA_STATUS => Http::response(esewaFixture('status_not_found_cancelled', ['transaction_uuid' => $attempt->reference]))]);
+
+    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
+        ->where('payment_in_progress.status', 'pending')
+        ->where('payment_in_progress.can_close', false));
+
+    // A direct POST is refused before any lookup: no settle, no state change, the invoice stays locked.
+    $this->from(route('client.invoices.show', $invoice->id))->post(route('client.invoices.attempts.close', [$invoice->id, $attempt->reference]))
+        ->assertRedirect(route('client.invoices.show', $invoice->id))
+        ->assertSessionHasErrors(['billing' => 'This payment can\'t be closed from here. Check its status, or wait until the payment page times out.']);
+
+    Http::assertNothingSent();
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Pending)->lookup_count->toBe(0)
+        ->and(Transaction::query()->count())->toBe(0);
 });
 
 test('an attempt in staff review is not ended by a later NOT_FOUND', function () {

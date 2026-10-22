@@ -293,6 +293,23 @@ test('cancelling on the sandbox hosted page closes the attempt at once', functio
     expect(PaymentAttempt::query()->where('invoice_id', $invoice->id)->count())->toBe(2);
 });
 
+test('the sandbox hosted page can be continued or closed from the invoice', function () {
+    hostedSandbox();
+    [, $client] = actingAsClient();
+    $invoice = issueInvoice($client, [5_000]);
+    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => 'sandbox_card'])->assertRedirect();
+    $attempt = PaymentAttempt::query()->sole();
+
+    $this->get(route('client.invoices.attempts.resume', [$invoice->id, $attempt->reference]))
+        ->assertRedirect(route('billing.sandbox.checkout', $attempt->reference));
+
+    $this->post(route('client.invoices.attempts.close', [$invoice->id, $attempt->reference]))->assertSessionHasNoErrors();
+
+    expect($attempt->fresh()->status)->toBe(AttemptStatus::Failed)
+        ->and(SandboxCardDriver::providerState($attempt->reference)['status'])->toBe('cancelled');
+    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page->where('payment_in_progress', null));
+});
+
 test('a return claiming success is not trusted when the provider says otherwise', function () {
     hostedSandbox();
     [, $client] = actingAsClient();

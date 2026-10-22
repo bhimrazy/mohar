@@ -98,12 +98,13 @@ final class StripeClient
      * Single-shot POST (never retried, so nothing is sent twice) with form-encoded nested parameters.
      *
      * @param  array<string, mixed>  $parameters
+     * @param  bool  $interactive  a customer's browser is waiting: the short interactive timeouts
      */
-    public function post(GatewayConfig $gateway, string $path, array $parameters, string $idempotencyKey): Response
+    public function post(GatewayConfig $gateway, string $path, array $parameters, string $idempotencyKey, bool $interactive = false): Response
     {
         $endpoint = $this->endpoint();
 
-        return $this->request($gateway)
+        return ($interactive ? $this->interactive($gateway) : $this->request($gateway))
             ->withOptions($endpoint->options)
             ->asForm()
             ->withHeaders(['Idempotency-Key' => mb_substr($idempotencyKey, 0, 255)])

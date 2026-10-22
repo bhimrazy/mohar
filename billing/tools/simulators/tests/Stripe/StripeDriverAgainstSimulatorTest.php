@@ -284,3 +284,32 @@ test('a payment completed at Stripe after we closed the attempt is booked once f
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
         ->and($attempt->fresh())->status->toBe(AttemptStatus::Succeeded)->late_payment_at->not->toBeNull();
 });
+
+test('after a declined card the client continues the open session, then uses another method, which expires it first (#123)', function () {
+    [, $invoice] = usdInvoice([2_500]);
+    $checkout = checkoutFor($invoice);
+    expect(browser()->post($checkout.'/decline')->status())->toBe(402);
+    $attempt = PaymentAttempt::query()->where('invoice_id', $invoice->id)->sole();
+
+    // Continue payment: back to the same open session, with Stripe's own URL read from the session now.
+    $resume = $this->get(route('client.invoices.attempts.resume', [$invoice->id, $attempt->reference]))->assertRedirect();
+    expect(strstr((string) $resume->headers->get('Location'), '#', true))->toBe($checkout)
+        ->and(browser()->get($checkout)->status())->toBe(200);
+
+    // Use another method: the session is expired at Stripe, then the lookup frees the invoice.
+    $this->post(route('client.invoices.attempts.close', [$invoice->id, $attempt->reference]))
+        ->assertRedirect(route('client.invoices.show', $invoice->id))->assertSessionHasNoErrors();
+
+    expect($this->scenario->state()->get('sessions', $attempt->provider_ref)['status'])->toBe('expired')
+        ->and($attempt->fresh()->status)->toBe(AttemptStatus::Expired)
+        ->and(browser()->get($checkout)->status())->toBe(410)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
+
+    // A second click changes nothing; the expired-session webhook books nothing.
+    $this->post(route('client.invoices.attempts.close', [$invoice->id, $attempt->reference]))->assertSessionHasNoErrors();
+    expect(array_column(deliverWebhooks(), 0))->each->toBe(200)
+        ->and(Transaction::query()->count())->toBe(0);
+
+    // A new payment can start at once.
+    expect(checkoutFor($invoice))->not->toBe($checkout);
+});

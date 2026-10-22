@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Cache lock store check.** `php artisan app:install` reports a new "Cache lock store" check. `CACHE_STORE=array`
+  or `null` (or a `failover` list containing one) stops a first production install and warns on an existing installation; `file`, `apc` and `octane` warn that they are safe on a
+  single host only; `database` and `redis` pass. In production the admin dashboard's System health card shows the same
+  finding. Operators with more than one server or container: use `database` or `redis` (`docs/devops/install.md`).
+
 - **A currency's code can no longer be changed after it is created (#238).** Clients, invoices, quotes,
   transactions, prices and rate history store the code, so renaming it left them pointing at a currency that no
   longer existed. Admin → Currencies → Edit shows the code read-only with the reason; an update request that sends a
@@ -375,6 +380,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   (`platform.invitation_expiry_days`, default 7), now shared by staff and client-login invitations. Invitations sent
   before the upgrade were password-reset links and expire as before; those logins have no open invitation, so staff
   use the new "Send a password reset" action for them instead of "Send a new invitation".
+
+### Hosted payments: continue or pay another way (#123)
+
+- After a declined card on Stripe Checkout, the client invoice now offers **Continue payment**, which reopens the same
+  Stripe page (its address is read from Stripe at the click, only for the client's own open payment, and only on
+  Stripe's checkout host), and **Use another method**. The second asks for confirmation, expires the session at Stripe
+  first and frees the invoice only when Stripe's status confirms it can no longer be paid. If Stripe reports it paid,
+  the payment is recorded instead. A double click closes it once.
+- **Use another method** is offered only by methods that can close their payment page at the provider (Stripe
+  today). eSewa and Khalti don't offer it, and a direct request to close one of their payments is refused without a
+  status check or any change: their "not found" or "initiated" answer doesn't mean the customer's other tab can no
+  longer pay. If Stripe still holds the session or can't be reached, the client sees why, for example "The payment
+  page is still open, so the payment could still be made there". Each close sends Stripe a new idempotency key, so a
+  transient Stripe error is not replayed on the next click.
+- After a cancel on eSewa, the invoice now keeps a "Payment not completed" card with **Pay a different way** and
+  the "Don't pay again" warning until the eSewa session time is over. A late success is still booked as before.
+- Operators: no migration, no setting and no permission change. Two new client routes,
+  `invoices/{invoice}/payments/{reference}/continue` and `…/close`, are throttled like Pay. Closing uses
+  `Cache::lock` and so needs the shared lock store (#64). Kernel: `ResumesHostedPayment`, `CancelsHostedPayment`,
+  `HostedSessionCancel`.
 
 ### Identity verification (KYC)
 
