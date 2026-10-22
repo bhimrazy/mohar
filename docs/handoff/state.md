@@ -22,6 +22,9 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
   sandbox (#213), deployment D4 (#167), ADR 0021 row locks (#227), billing go-live fixes (#229), the e2e fix (#234), the load-test harness and sizing guide (#108), the npm advisory fix (#206), audits only on
   dependency changes (#210, #214), and the process review (#204). Details: `billing/docs/progress.md`.
 - Owner decisions in force:
+  - 2026-10-22: invitations default 100/hour, staff-initiated; missing PAN warns only; optional BS date beside AD
+    (#207); payments and importer verified against simulators only for now (no bank, WHMCS or cPanel accounts);
+    KYC photos resized in the browser (#288). Details: `requirements.md`, Features.
   - **Nepal is the main market.** Clients register `.np` themselves; Mohar shows the host's nameservers.
   - The repository is **public** and named **`bhimrazy/mohar`**; `main` is a readme-and-licence page, all rights
     reserved.

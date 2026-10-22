@@ -16,6 +16,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   their `external_ref`, so a previous-release worker running beside the new one during a deploy still finds them (a
   later release stops writing that pair, #284). A gateway driver can no longer register the key `import`, or a key
   outside `[a-z0-9_]{1,50}`: it fails at boot with a LogicException. No permission or user-facing change.
+- **Importer invitation rate.** The default of `migration.invite_per_hour` drops from 500 to 100, because cPanel/Exim and Google Workspace sending caps make 500 risky for deliverability. Installs that never changed the setting now send 100 an hour; raise it in Admin → Settings (1–10,000) if your mail provider allows more. No schema or permission change.
 - **Integration log masking (#190).** No schema or permission change. New log rows mask more secret shapes (see
   Security below); rows written before the upgrade are not rewritten. Payment payload text values (`error`,
   `message`) now get the same text rules as module logs, so a `name=value` secret inside them is masked.

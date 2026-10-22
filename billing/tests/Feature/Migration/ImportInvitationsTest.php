@@ -74,7 +74,7 @@ test('the page counts the imported logins without a password, by state and filte
         ->where('counts', ['total' => 2, 'not_invited' => 2, 'open' => 0, 'expired' => 0, 'queued' => 0])
         ->where('logins.data.0.email', 'asha@example.com')->where('logins.data.0.state', 'not_invited')
         ->missing('logins.data.0.user_id')->missing('logins.data.0.client_id')
-        ->where('perHour', 500)->where('blocked', null));
+        ->where('perHour', config('migration.invite_per_hour'))->where('blocked', null));
     $this->get(route('admin.migration.imports.invitations', [$run, 'group' => (string) $gold->id]))->assertInertia(fn (Assert $page) => $page->where('counts.total', 1));
     $this->get(route('admin.migration.imports.invitations', [$run, 'status' => 'inactive']))->assertInertia(fn (Assert $page) => $page->where('counts.total', 1)->where('logins.data.0.email', 'bina@example.com'));
 
