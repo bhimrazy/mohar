@@ -164,6 +164,9 @@ is also the owner's own machine: the agent budget above applies, `/tmp` survives
 - Browser checks use Playwright only (CPU-heavy runs go through `scripts/heavy.sh`), never the owner's Chrome (no Chrome DevTools MCP for agents). Scratch files
   get a unique name per agent (`$SCRATCH/<agent-slug>/`), so agents never overwrite each other.
 - No `npx` for a tool outside the lockfile (`vp`, `tsc` and `playwright` are in it): it runs unvetted code.
+- Never stop, kill or remove a Docker container you didn't start (`docker kill`, `stop`, `rm`, `compose down`):
+  the shared test database `mohar-pg` and Mailpit serve every agent, and other projects share Docker. Restarting
+  `mohar-pg` is the CTO's call.
 - Dev servers: each agent gets its own port range (8100–8299); port 8000 is the owner's preview and is never touched
   by agents. Stop servers by port PID; never `pkill -f`. Chain `cd` with `&&`; never run commands in the main
   checkout from an agent.

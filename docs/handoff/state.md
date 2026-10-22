@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-22 18:00 UTC by the CTO session, on the owner's Mac (the codespace hit its usage limit). Update this file whenever a PR merges, a workstream starts or
+Last updated: 2026-10-22 20:30 UTC by the CTO session, on the owner's Mac (the codespace hit its usage limit). Update this file whenever a PR merges, a workstream starts or
 stops, or the owner makes a decision. Keep it short: merges older than the current day move to `billing/docs/progress.md`, and history goes in `history.md` and `docs/reviews/`.
 
 ## Summary
@@ -9,6 +9,10 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
   `docs/reviews/2026-10-22-ceo.md`; rubric in `docs/reviews/readme.md`; the round-3 score on 10-20 was 53). Merges
   after that review are not scored yet; the next CEO round scores them. CTO engineering score: 63/100
   (`docs/reviews/2026-10-22-cto.md`).
+- Merged on 2026-10-22 after 18:00 UTC: the ResellerClub simulator (#332) and driver (#335), a timed-out gateway
+  refund kept pending (#336, closes #334), Khalti "Continue payment" (#328, #251), the Nepal-first demo seed (#330,
+  #39), flaky-test fixes (#326, #331), the VAT register and credit-note spec (#327), ADR 0024/0025 and ADR 0013
+  Amendment 1 (#329), registrar prep (#325), module-engineer on Sonnet (#333).
 - Merged on 2026-10-22, later (after the 10:30 UTC update): registrar contracts and drivers on the kernel (#262, #264,
   #265; ADR 0009 PR C1 to C3), Laravel 13.36 (#242), the local merge gate (#188), macOS tooling (#271), deploy smoke
   runs the full seed (#282), credit ledger idempotency key (#283), KYC image re-encode (#286), its backfill (#314),
@@ -33,6 +37,11 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
   sandbox (#213), deployment D4 (#167), ADR 0021 row locks (#227), billing go-live fixes (#229), the e2e fix (#234), the load-test harness and sizing guide (#108), the npm advisory fix (#206), audits only on
   dependency changes (#210, #214), and the process review (#204). Details: `billing/docs/progress.md`.
 - Owner decisions in force:
+    - 2026-10-22, VAT: an invoice is a proforma until paid and becomes a tax invoice on payment; a credit note
+      defaults to account credit; register exports are CSV and PDF (XLSX later); no CBMS integration for now.
+      Single source: ADR 0024.
+    - 2026-10-22, agents: more than 5 at once is fine on Mohar when the work needs it, bounded by machine load (about
+      7 on the Mac); `module-engineer` runs on Sonnet (#333), reviewers stay on Opus.
     - 2026-10-22: invitations default 100/hour, staff-initiated; missing PAN warns only; optional BS date beside AD
       (#207); payments and importer verified against simulators only for now (no bank, WHMCS or cPanel accounts);
       KYC photos resized in the browser (#288). Details: `requirements.md`, Features.
@@ -67,24 +76,21 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
 
 ## Open pull requests and running work
 
-| PR             | Workstream                                                                                 | Status (2026-10-22 18:00 UTC)                                                |
-| -------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| #325           | Registrar prep for #280 (follow-ups before the first API driver, ADR 0009 PR C reviews)    | Draft. The ResellerClub driver comes after #280.                             |
-| #324           | This handoff docs update                                                                   | Open, fix round on the slop review.                                          |
-| #128           | Gateway expansion spec                                                                     | Draft. Owner questions in the PR.                                            |
-| not yet opened | Flaky-test fix 1: time boundaries (issues #310 `AuthThrottleTest`, #322 `UnlockRacesTest`) | In flight. Flaky tests are fixed the same day, filed as an issue and re-run. |
-| not yet opened | Flaky-test fix 2: issue #209 `PortRetryTest`, simulator ports                              | In flight, separate PR.                                                      |
-| not yet opened | Nepal-first demo seed, and the fix for issue #39                                           | In flight.                                                                   |
-| not yet opened | Khalti "Continue payment" (issue #251)                                                     | In flight.                                                                   |
-| not yet opened | VAT register and credit-note spec                                                          | In flight (spec only).                                                       |
+| PR             | Workstream                                                | Status (2026-10-22 20:30 UTC)                                    |
+| -------------- | --------------------------------------------------------- | ---------------------------------------------------------------- |
+| #337           | Company clock (VAT PR 0a, ADR 0013 Amendment 1)           | Fix round 1 done; architect and re-reviewer re-checking.         |
+| not yet opened | TLD attributes (ADR 0009 Amendment 2), ResellerClub first | Building. Kernel change called out in the PR; architect reviews. |
+| not yet opened | Shared overlap guard for domain jobs (#14)                | Building. A blocked job is released, never dropped.              |
+| #128           | Gateway expansion spec                                    | Draft. Owner questions in the PR.                                |
+| this PR        | Handoff docs update                                       | Open.                                                            |
 
-Follow-up issues from #321: #323 (a signed eSewa COMPLETE followed by NOT_FOUND is abandoned, not reviewed) and #322
-(flaky `UnlockRacesTest`).
+Follow-up issues from #321: #323 (a signed eSewa COMPLETE followed by NOT_FOUND is abandoned, not reviewed); #322 (flaky `UnlockRacesTest`) is fixed (#326).
 
 After each merge close the issue by hand (`develop` ignores closing keywords). When resolving Markdown conflicts, run
 `npx vp check --fix` before pushing (a hand-merged changelog failed CI on #252).
 
-- Queue, in order: #280 registrar follow-ups, then the ResellerClub driver; issue triage (close stale follow-ups);
+- Queue, in order: VAT PRs 0b, 0c, 1a… after #337; #338 (link an existing ResellerClub order); an ADR for
+  indeterminate provider outcomes (refunds, registrations) and ADR 0013 Amendment 2; issue triage (close stale follow-ups);
   #241 vite-plus 1.3.0 (from 10-23 06:00 UTC); #254 Redactor follow-ups and ADR 0023 (the CTO review's redesign
   after two fix rounds); #267, #216, #225, #273, #274; #244 Node and Debian images (after 10-28); tail latency
   (#205). Done today and off the queue: #233, #126, #278, #279, #277, #263, #250, #257, #258, #269, #272, #208.
