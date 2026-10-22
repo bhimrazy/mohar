@@ -22,7 +22,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `kyc_documents.sanitised_at` and `sanitise_issue` with the partial index `kyc_documents_unsanitised_index` (`id` where
   `sanitised_at` is null, built concurrently on PostgreSQL), and table
   `kyc_image_rewrites` (paths of files being switched). On PostgreSQL the column step waits at most
-  `DB_MIGRATION_LOCK_TIMEOUT` (3s) per attempt for its lock on `kyc_documents`, 4 attempts, then stops naming the
+  `DB_MIGRATION_LOCK_TIMEOUT` (3s) per attempt for its lock on `kyc_documents`, 4 attempts, then stops and names the
   session in the way; run the migration again once it has finished. New setting `kyc.reencode_decode_wait_seconds` (30). No
   permission change.
 - **Bikram Sambat dates on invoices (#207).** New billing setting `billing.show_bs_dates`, off by default; no schema or
