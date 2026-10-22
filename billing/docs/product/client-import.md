@@ -245,6 +245,10 @@ A crashed chunk is retried; rows already applied are recorded and skipped, so a 
   (`migration.invite_per_hour`, default 500, as in `migration.md` §9). It goes through a kernel contract to Platform's
   invitation flow (§16, C3), with the editable template `client.migration_invitation` ("We have moved to a new client
   area. Set your password to sign in."). Logins of closed clients are never invited.
+  **As built (importer B2a):** the contract is `App\Contracts\Auth\ClientLoginInvitations` (there is no
+  `App\Contracts\Core`); the throttle is install-wide and counts invitations sent in the last hour; an open
+  invitation is not replaced in bulk (staff send a new link from the client's logins); the 2FA line in the mail
+  (§6.10) waits for a source of the flag, which only the gap reader (Q1) would provide.
 - **Undo (within `migration.undo_days`, default 7):** a queued run that reverses what is still safe to reverse:
     - a created client is deleted only when nothing else refers to it: the client-merge participants (`ClientMergeRegistry`)
       report no rows apart from the import's own, no login signed in or accepted an invitation, and the client was not
