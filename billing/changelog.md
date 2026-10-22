@@ -17,6 +17,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   its setting moved from `platform.password_confirmation_seconds` to `auth.step_up_seconds` in `config/auth.php`.
   Anyone who edited the old key in `app/Modules/Platform/Config/platform.php` sets the new one instead. No schema or
   permission change.
+- **Cache lock store check.** `php artisan app:install` reports a new "Cache lock store" check. `CACHE_STORE=array`
+  or `null` (or a `failover` list containing one) stops a first production install and warns on an existing installation; `file`, `apc` and `octane` warn that they are safe on a
+  single host only; `database` and `redis` pass. In production the admin dashboard's System health card shows the same
+  finding. Operators with more than one server or container: use `database` or `redis` (`docs/devops/install.md`).
+
 - **A currency's code can no longer be changed after it is created (#238).** Clients, invoices, quotes,
   transactions, prices and rate history store the code, so renaming it left them pointing at a currency that no
   longer existed. Admin → Currencies → Edit shows the code read-only with the reason; an update request that sends a
