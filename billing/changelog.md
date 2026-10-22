@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Dependency security bump (#11).** `laravel/framework` 13.34.0 → 13.36.0 and `laravel/wayfinder` 0.1.21 → 0.1.22.
+  13.35 hardens SQL in cursor pagination and `whereRowValues` (laravel/framework#61837); 13.36 makes Mail Markdown
+  escape inline markdown in user input (#61755). Run `composer install` and `php artisan view:clear`; no config or
+  schema change. Pest, PHPUnit and the other transitive packages stay at their cooldown-compliant versions.
 - **Importer invitation rate.** The default of `migration.invite_per_hour` drops from 500 to 100, because cPanel/Exim and Google Workspace sending caps make 500 risky for deliverability. Installs that never changed the setting now send 100 an hour; raise it in Admin → Settings (1–10,000) if your mail provider allows more. No schema or permission change.
 - **Integration log masking (#190).** No schema or permission change. New log rows mask more secret shapes (see
   Security below); rows written before the upgrade are not rewritten. Payment payload text values (`error`,
@@ -477,6 +481,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Operators:** no schema or permission change. A deploy can now stop at a migration that cannot get its lock:
   let the named transaction finish or end it, then deploy again. `DB_MIGRATION_LOCK_TIMEOUT` and
   `DB_MIGRATION_CONCURRENT_LOCK_TIMEOUT` (PostgreSQL durations such as `5s`) change the waits.
+
+### Step-up window from the environment (#273)
+
+- `AUTH_STEP_UP_SECONDS` sets how long a password confirmation unlocks sensitive changes. It is optional and defaults
+  to 900, the same as before, and an empty value counts as unset. It must be a whole number from 60 to 3600; any
+  other value stops the application at boot with a message naming the value received. Documented in `.env.example`, `docs/devops/install.md` and ADR 0018 §4.
 
 ### Architecture tests check every target (#275)
 
