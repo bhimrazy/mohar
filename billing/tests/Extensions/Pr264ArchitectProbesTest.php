@@ -23,7 +23,7 @@ $fresh = function (): void {
 };
 beforeAll(function () use ($fresh): void {
     $fresh();
-    TestCase::$onlyModules = 'Domains,Platform';
+    TestCase::$onlyModules = 'Domains';
 });
 afterAll(function () use ($fresh): void {
     $fresh();
