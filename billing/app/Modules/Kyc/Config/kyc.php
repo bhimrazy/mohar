@@ -10,6 +10,18 @@ return [
     /** Largest image a client may upload, in kilobytes. */
     'max_upload_kb' => 5120,
 
+    /**
+     * Largest image, in pixels (width × height), that is decoded for re-encoding; checked from the header first. 25
+     * megapixels takes a 24 MP phone photo (5712 × 4284). GD holds about 4 bytes a pixel.
+     */
+    'max_image_pixels' => 25_000_000,
+
+    /**
+     * A larger image is scaled down to this many pixels before it is turned and stored, so decoding, scaling and
+     * rotating stay near 170 MB, under the 256 MB PHP memory limit. 16 MP keeps an identity document readable.
+     */
+    'stored_image_pixels' => 16_000_000,
+
     /** Days documents are kept after the client account is closed (owner, 2026-10-21). */
     'retention_days' => 90,
 

@@ -66,8 +66,11 @@ admin review routes stay available, so staff can finish the queue after the feat
   path. The document number is encrypted at rest too. Neither the bytes, the number nor the path ever appear in an
   Inertia prop, a log line or an audit entry; clients see the last 4 characters of the number only.
 - A failed upload never flashes the document number to the session (excluded from old input).
-- Metadata (EXIF) is not stripped yet: re-encoding needs PHP's GD extension, which the production image has but the
-  development and CI PHP do not; tracked in #233.
+- Every image is decoded and encoded again in its own format with GD before it is encrypted (#233): only pixels are
+  kept, so EXIF (GPS, device, thumbnails), colour profiles and appended bytes are dropped. The EXIF orientation is
+  applied to the pixels first. Refused: files GD cannot decode, and images above 25 megapixels (read from the header,
+  before decoding). Images above 16 megapixels are scaled down to 16 megapixels, which keeps decoding and turning a
+  24 MP phone photo under about 170 MB.
 - A document can be replaced while it waits for staff or after it was declined; an approved one cannot. The replaced
   row is marked superseded in the same transaction and its files are deleted after the commit; if that fails, the
   retention job deletes them later.

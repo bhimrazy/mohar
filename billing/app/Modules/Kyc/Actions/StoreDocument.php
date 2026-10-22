@@ -29,13 +29,16 @@ class StoreDocument
      */
     public function handle(int $clientId, DocumentType $type, string $number, UploadedFile $front, ?UploadedFile $back, ?int $userId): KycDocument
     {
-        $stored = [$this->vault->put($clientId, $front)];
-
-        if ($back !== null) {
-            $stored[] = $this->vault->put($clientId, $back);
-        }
+        $stored = [];
 
         try {
+            // A back image that is refused must not leave the front's file behind.
+            $stored[] = $this->vault->put($clientId, $front, 'front');
+
+            if ($back !== null) {
+                $stored[] = $this->vault->put($clientId, $back, 'back');
+            }
+
             [$document, $replaced] = DB::transaction(function () use ($clientId, $type, $number, $stored, $userId): array {
                 $client = Client::query()->lockForUpdate()->findOrFail($clientId);
                 // Lock order (ADR 0021): the client, then its documents. DecideDocument takes the same order.
