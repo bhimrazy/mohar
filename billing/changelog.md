@@ -9,7 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Upgrade notes
 
 - **Cache lock store check.** `php artisan app:install` reports a new "Cache lock store" check. `CACHE_STORE=array`
-  or `null` stops a first production install and warns on an existing installation; `file` warns that it is safe on a
+  or `null` (or a `failover` list containing one) stops a first production install and warns on an existing installation; `file`, `apc` and `octane` warn that they are safe on a
   single host only; `database` and `redis` pass. In production the admin dashboard's System health card shows the same
   finding. Operators with more than one server or container: use `database` or `redis` (`docs/devops/install.md`).
 
