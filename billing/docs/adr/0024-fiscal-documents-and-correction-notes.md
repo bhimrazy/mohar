@@ -156,9 +156,21 @@ It runs in chunks and is tested on PostgreSQL.
 ### 5. Refunds and notes: the reservation state machine
 
 A refund that changes the supply is reserved first, sent to the provider, and becomes a note only when the provider
-has paid. This section follows the fix for #334 (live on develop: `RefundTransaction.php:103-109` treats every
-non-success as a failure). The two must stay consistent, and if the #334 PR changes a name used here, this section
-follows it.
+has paid.
+
+**What this section needs from the #334 fix.** The bug is live on develop: `RefundTransaction.php:103-109` treats
+every non-success as a failure. The fix PR for #334 is not open yet, and its engineer is implementing these four
+points. If that PR changes a name used here, this section follows it.
+
+1. A status lookup on the same reference maps "no such refund at the provider" to `DECLINED`. Otherwise a request
+   that never reached the provider would stay pending for ever and hold the cap. Any answer it cannot interpret maps
+   to `ERROR`.
+2. A driver without a lookup gets a **staff resolution** on the pending row: "confirmed refunded" counts as `SUCCESS`
+   and "confirmed not refunded" counts as `DECLINED`. It needs step-up (ADR 0018) and writes an activity entry with
+   the staff member and the provider reference they checked.
+3. Every booking of a provider refund stores the provider's refund id, and every actor dedupes on it, extending
+   today's `existing(gateway, gatewayTxnId)`.
+4. Only `DECLINED` releases; `ERROR` and `PENDING` stay pending (the table below).
 
 **Tables.**
 
@@ -170,29 +182,30 @@ follows it.
 
 A pending reservation's lines count in both the line caps and the invoice cap (§3).
 
-**Reserve.** Lock payments → invoice → client (§4). Check the digest and both caps. Write the pending refund row and
-the reservation with its full allocation. No number is taken.
+**Reserve.** From the moment the mode is **enabled**, which is before `enabled_from` too, every gateway refund of a
+payment on a numbered invoice reserves. Lock payments → invoice → client (§4). Check the digest and both caps. Write
+the pending refund row and the reservation with its full allocation. No number is taken.
 
 **Actors.**
 
 - **request:** the staff action's own provider call.
 - **callback:** the provider's refund webhook for that reference.
-- **Check refund:** a staff action on a pending row. It asks the provider about the **same reference**; how it asks
-  is defined by the #334 fix.
+- **Check refund:** a staff action on a pending row. It asks the provider about the **same reference** (the lookup in
+  point 1), or offers the staff resolution in point 2.
 
 Every actor applies a result in one transaction under the §4 lock order, with the reservation locked, and acts only
 on the state it reads under that lock.
 
 **Results.** `ChargeResult` statuses: `SUCCESS`, `DECLINED`, `ERROR` (including timeouts) and `PENDING`.
 
-| State under lock | Result                               | Any actor does                                                                                                                                                                                                                                                                                                                                                                                  |
-| ---------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pending`        | `SUCCESS`                            | **Finalise.** Issue exactly the reserved allocation as a note (sequence row last), mark the refund row succeeded with `tax_note_id`, reduce `amount_paid`, set status `finalised`. Re-read the balance: the refund amount is fixed, so an excess that would make the balance negative (a payment that arrived meanwhile) goes to account credit through `credit_note_to_credit`. Never refuses. |
-| `pending`        | `DECLINED`                           | **Release.** Mark the refund row failed, return `refundable_remaining` to the payment, set status `released`. No note and no number. Only this result releases.                                                                                                                                                                                                                                 |
-| `pending`        | `ERROR`, `PENDING`                   | **Stay pending.** Nothing changes. Staff see "Refund outcome not known yet" and only **Check refund**, never Retry. No new refund row or reference is created.                                                                                                                                                                                                                                  |
-| `finalised`      | any                                  | **No-op** (idempotent). A late `ERROR`, `PENDING` or `DECLINED` from the request, after the callback has finalised, changes nothing. A `DECLINED` after `SUCCESS` also opens a staff to-do, "Provider reports conflicting outcome".                                                                                                                                                             |
-| `released`       | `DECLINED`, `ERROR`, `PENDING`       | **No-op.**                                                                                                                                                                                                                                                                                                                                                                                      |
-| `released`       | `SUCCESS` (the provider paid anyway) | The reservation stays released, because its cap may have been reused. The refund is booked as a **provider-initiated refund** (below): an automatic note if the caps allow it, otherwise "Gateway payments to review".                                                                                                                                                                          |
+| State under lock | Result                               | Any actor does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ---------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pending`        | `SUCCESS`                            | **Finalise** with the transaction's own instant `$at` (§8). If `localDate($at) ≥ enabled_from`: issue exactly the reserved allocation as a note (sequence row last) and mark the refund row succeeded with `tax_note_id`. If it is before: write the old-style `refund` adjustment for the reserved amount, dated `$at` (before `enabled_from`, so outside every register period). Either way, reduce `amount_paid`, set status `finalised`, and re-read the balance: the refund amount is fixed, so an excess that would make the balance negative (a payment that arrived meanwhile) goes to account credit through `credit_note_to_credit`. Never refuses; the §8 rule that the issuer refuses notes before `enabled_from` does not apply here, because finalise chooses the row by its own instant. |
+| `pending`        | `DECLINED`                           | **Release.** Mark the refund row failed, return `refundable_remaining` to the payment, set status `released`. No note and no number. Only this result releases.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `pending`        | `ERROR`, `PENDING`                   | **Stay pending.** Nothing changes. Staff see "Refund outcome not known yet" and only **Check refund**, never Retry. No new refund row or reference is created.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `finalised`      | any                                  | **No-op** (idempotent). A late `ERROR`, `PENDING` or `DECLINED` from the request, after the callback has finalised, changes nothing. A `DECLINED` after `SUCCESS` also opens a staff to-do, "Provider reports conflicting outcome".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `released`       | `DECLINED`, `ERROR`, `PENDING`       | **No-op.**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `released`       | `SUCCESS` (the provider paid anyway) | The reservation stays released, because its cap may have been reused. The refund is booked once, as a **provider-initiated refund** (below), deduped on the provider's refund id.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 Ordering cases, all covered by the table:
 
@@ -202,10 +215,19 @@ Ordering cases, all covered by the table:
   `SUCCESS`. The callback finalises instead of answering 409 (today `GatewayCallbackHandler.php:264-266` answers 409).
 - **Retry** exists only from `released`. It creates a new reservation with a new reference.
 
-**Provider-initiated refunds** (`GatewayCallbackHandler::refunded`, with no reservation of ours) reserve and
-finalise in one callback transaction, so the reservation goes straight to `finalised`. The note is automatic, with
-actor "gateway" and reason `refunded_at_provider`. The callback's rule "credit first, then the invoice" decides which
-part changes the supply. Staff refunds use the same rule.
+**Provider-initiated refunds.** These are `GatewayCallbackHandler::refunded` with no reservation of ours, and the
+"released, then the provider paid anyway" case above. Each is booked in one transaction under the §4 order and stores
+the provider's refund id; a second report of the same id is a no-op. The steps, in order:
+
+1. **Credit first.** The callback's existing rule decides which part only returns overpayment credit.
+2. **Invoice part.** It reserves and finalises at once, by the finalise row above: an automatic note when it falls on
+   or after `enabled_from`, with actor "gateway" and reason `refunded_at_provider`.
+3. **Cap used up.** If the note would exceed the cap (usually because staff credited the sale to the account after a
+   release), take back the account credit that notes placed on that invoice (`credit_ledger` −amount with
+   `tax_note_id`, negative balance allowed, as other reversals).
+4. **Anything left** goes to "Gateway payments to review".
+
+Staff refunds use the same credit-first rule.
 
 ### 5a. Refund account credit through the gateway
 
@@ -217,18 +239,30 @@ moves money through a provider, so it gets its own action, `RefundAccountCredit`
   variant (a refund made outside) needs only `billing.credit.refund`.
 - **Reserve** (lock the chosen payment, then the client; no invoice):
     - check the client's balance and the payment's `refundable_remaining`;
-    - write a hold, a `credit_ledger` row of −amount with reason `credit_refund_hold`;
+    - write the payout row, a `credit_ledger` row of −amount with reason `credit_refunded`. The recorded variant
+      uses the same reason; while the refund row is pending this row acts as the hold;
     - write a pending refund row with `invoice_id` null and the payment as its parent;
     - reduce `refundable_remaining`.
 
-    The hold stops `ApplyCredit` from spending the credit during the provider call.
+    Because the row is posted before the provider call, `ApplyCredit` cannot spend the credit meanwhile.
 
 - **Results** follow the §5 table, with the refund row's status as the reservation state:
-    - `SUCCESS`: the row is marked succeeded and the hold stays as the final debit;
-    - `DECLINED`: the row is marked failed, a +amount `credit_refund_released` row reverses the hold, and
-      `refundable_remaining` is restored;
+    - `SUCCESS` on a pending row: the row is marked succeeded; the `credit_refunded` row stands as the payout;
+    - `DECLINED` on a pending row: the row is marked failed, a +amount `credit_refund_released` row reverses the
+      payout, and `refundable_remaining` is restored;
     - `ERROR` or `PENDING`: the row stays pending, and only Check refund is offered;
-    - a row already settled is a no-op.
+    - `SUCCESS` on a **failed** row (the provider declined, then paid):
+        - post `credit_refunded` −amount again (negative balance allowed);
+        - take `refundable_remaining` back;
+        - mark the row succeeded;
+        - open a staff to-do, "Credit refund paid after a decline".
+
+        This is booked once, deduped on the provider's refund id;
+
+    - any other result on a settled row is a no-op.
+- **Routing.** A refund row with `invoice_id` null and a parent payment is a cash-out. Every actor sends it here,
+  never down the invoice path. Today a callback for an own reference whose row is failed falls through to the
+  parents path (`GatewayCallbackHandler.php:268` onward); PR 4 adds this branch before that path.
 
 ### 6. Events (ADR 0011)
 
@@ -290,8 +324,10 @@ final class CreditNoteIssued implements DomainEvent, ShouldDispatchAfterCommit
   never an earlier one and never a mid-month day. A VAT period is therefore always wholly old-style or wholly in the
   mode.
 - **The mode takes effect on `enabled_from`.** From 00:00 company time that day, notes replace the old paths; before
-  it, the old paths run and the issuer refuses notes. No note is ever dated before `enabled_from`, so every note sits
+  it, the old paths run and staff cannot issue notes. No note is ever dated before `enabled_from`, so every note sits
   in a register period.
+- **Refunds that cross the start.** Gateway refunds reserve from enabling (§5), and finalise picks a note or the
+  old-style row by its own instant, so a refund pending across midnight into `enabled_from` becomes a note.
 - **One instant per transaction.** Every Billing transaction that can write a value adjustment or a note captures
   `$at = CompanyClock::now()` once, after taking its locks. It decides "in effect" as
   `localDate($at) ≥ enabled_from` with the setting on, and writes `$at` as the `created_at` of every row it creates.
@@ -305,7 +341,8 @@ final class CreditNoteIssued implements DomainEvent, ShouldDispatchAfterCommit
 - Old paths read the mode with `FOR SHARE` on the same row, after their invoice lock. A transaction that read "mode
   off" therefore commits before the enabling check runs, and the register never holds an old-style row. This is the
   CTO decision on B6, also in `vat-register.md` §3 and §12. Enabling is also refused while the staff-review list from
-  §2 has not been seen.
+  §2 has not been seen, and while any refund row written by the old path (without a reservation) on a numbered
+  invoice is still pending.
 - **From enabling (before `enabled_from` too):**
     - the increment of every fiscal sequence is 1;
     - `number_format`, `number_reset`, `number_padding`, `number_increment`, the note formats,
@@ -323,20 +360,20 @@ This table is the build order; `vat-register.md` §18 points here. Each PR is at
 hidden until PR 4 merges. The AC numbers are those of `vat-register.md` §13 as revised in the same round as this
 section.
 
-| PR       | Content                                                                                                                                                                                           | AC                      |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| 0a (CTO) | `CompanyClock` contract, Core implementation, Billing fiscal call sites, boundary tests at 18:14:59 and 18:15:00 UTC, widened arch scan (ADR 0013 Amendment 1)                                    | 48 (invoices)           |
-| 0b (CTO) | `CreditNoteIssued` and `DebitNoteIssued`, the `MAP` entries                                                                                                                                       | —                       |
-| 1a       | Schema incl. `numbered_at`, snapshot, `tax_note_reservations` and `tax_note_reservation_lines`; the backfill with the review list (§2); `FROZEN`; per-sequence `DocumentNumbers`; `rateDecimal()` | 7–10                    |
-| 1b       | Note issuer (allocation, caps with reservations, remainder, digest), lock order, race tests for notes                                                                                             | 1–6, 11, 12, 48 (notes) |
-| 2        | Manual issue UI, settlement, step-up, permissions, notes panel, reversing note, recorded "Refund account credit", webhook delivery                                                                | 13–20                   |
-| 3        | Old paths, the six `Invoicer::cancel` callers, automation, enabling the mode (§8: BS-month start, one instant per transaction, locked refusal, locked settings)                                   | 21–27, 52               |
-| 4        | Refund state machine (§5), provider-initiated refunds, overpayment split, `RefundAccountCredit` (§5a), race tests (combined review, money)                                                        | 28–34, 49–51, 53, 56    |
-| 5        | Note PDF, email, merge fields, client area, `print_count`                                                                                                                                         | 35, 36, 54, 55          |
-| 0c (CTO) | Report registry, DTOs, `SafeCsv` with `ErrorsCsv` moved, synchronous CSV and PDF (ADR 0025). Lands just before PR 6                                                                               | 45                      |
-| 6        | `VatRegisterReport`, `TaxNoteRegisterReport`, screens                                                                                                                                             | 37–43                   |
-| 7        | `detail` and `ird` layouts, PDF, export permissions                                                                                                                                               | 44, 46, 47              |
-| later    | Trigger (§9); `{BS_FY}` after D2; queued export with the Reports module (ADR 0025)                                                                                                                | 57                      |
+| PR       | Content                                                                                                                                                                                           | AC                       |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| 0a (CTO) | `CompanyClock` contract, Core implementation, Billing fiscal call sites, boundary tests at 18:14:59 and 18:15:00 UTC, widened arch scan (ADR 0013 Amendment 1)                                    | 48 (invoices)            |
+| 0b (CTO) | `CreditNoteIssued` and `DebitNoteIssued`, the `MAP` entries                                                                                                                                       | —                        |
+| 1a       | Schema incl. `numbered_at`, snapshot, `tax_note_reservations` and `tax_note_reservation_lines`; the backfill with the review list (§2); `FROZEN`; per-sequence `DocumentNumbers`; `rateDecimal()` | 7–10                     |
+| 1b       | Note issuer (allocation, caps with reservations, remainder, digest), lock order, race tests for notes                                                                                             | 1–6, 11, 12, 48 (notes)  |
+| 2        | Manual issue UI, settlement, step-up, permissions, notes panel, reversing note, recorded "Refund account credit", webhook delivery                                                                | 13–20                    |
+| 3        | Old paths, the six `Invoicer::cancel` callers, automation, enabling the mode (§8: BS-month start, one instant per transaction, locked refusal, locked settings)                                   | 21–27, 52                |
+| 4        | Refund state machine (§5) incl. refunds crossing `enabled_from`, provider-initiated refunds, overpayment split, `RefundAccountCredit` (§5a), race tests (combined review, money)                  | 28–34, 49–51, 53, 54, 57 |
+| 5        | Note PDF, email, merge fields, client area, `print_count`                                                                                                                                         | 35, 36, 55, 56           |
+| 0c (CTO) | Report registry, DTOs, `SafeCsv` with `ErrorsCsv` moved, synchronous CSV and PDF (ADR 0025). Lands just before PR 6                                                                               | 45                       |
+| 6        | `VatRegisterReport`, `TaxNoteRegisterReport`, screens                                                                                                                                             | 37–43                    |
+| 7        | `detail` and `ird` layouts, PDF, export permissions                                                                                                                                               | 44, 46, 47               |
+| later    | Trigger (§9); `{BS_FY}` after D2; queued export with the Reports module (ADR 0025)                                                                                                                | 58                       |
 
 ## Open questions (accountant)
 
