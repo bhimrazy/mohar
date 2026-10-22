@@ -6,6 +6,19 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Redactor gaps (#190, CTO-sanctioned kernel change)
+
+- `App\Support\Integrations\Redactor` (`@api`): public method signatures unchanged. The string rules behind
+  `redact()`, `maskValues()` and `excerpt()` now run as one linear left-to-right scan instead of the bounded
+  `maskPairs()` recursion (the `NESTED_PAIR_*` limits are gone): secret `name=value`, `name: value`, `"name":"value"`
+  and `'name' => 'value'` pairs (quoted values with escapes, JSON arrays and objects, unquoted values through `;` and
+  `,` that continue the value), XML elements named like a secret or labelled by a secret `key`/`name` attribute (CDATA
+  included), secret XML attributes, URL userinfo, percent-encoded pairs, and Stripe and Khalti key shapes. Masks
+  only widen; keys that read as references (`auth-userid`) are no longer secret.
+- `redactPayment()` also applies the string rules to text leaves (before Luhn scrubbing). Key rules unchanged.
+- Behaviour change for callers comparing exact output: a quoted secret keeps its quotes (`"password":"[redacted]"`,
+  `password="[redacted]"`); an unquoted one is replaced whole as before.
+
 ### Client identity verification (#231)
 
 - New event `App\Events\Kyc\DocumentDecided(clientId, documentId)` (compatible addition): staff approved or

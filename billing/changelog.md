@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Integration log masking (#190).** No schema or permission change. New log rows mask more secret shapes (see
+  Security below); rows written before the upgrade are not rewritten. Payment payload text values (`error`,
+  `message`) now get the same text rules as module logs, so a `name=value` secret inside them is masked.
 - **Security: upgrade PHP to 8.4.27 or newer (CVE-2026-109618, CVE-2026-109619).** PHP 8.4.26 and older (8.5.11
   and older) allow unauthenticated remote code execution through every web SAPI, FrankenPHP included, with no
   workaround besides upgrading. **Operators: upgrade PHP to 8.4.27+ (8.5.12+ on 8.5) and rebuild or pull the image.**
@@ -319,6 +322,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   (`platform.invitation_expiry_days`, default 7), now shared by staff and client-login invitations. Invitations sent
   before the upgrade were password-reset links and expire as before; those logins have no open invitation, so staff
   use the new "Send a password reset" action for them instead of "Send a new invitation".
+
+### Security
+
+- **Integration logs mask more secret shapes (#190).** The module, registrar and gateway logs, transaction and refund
+  provider answers, and error text shown to staff now also mask: a JSON value quoted after a label
+  (`HTTP 500: {"api-key":"…"}`, nested, arrays, escaped quotes), XML element values (`<password>`, EPP
+  `<domain:authInfo>`, CDATA), OpenSRS `<item key="reg_password">` items and secret XML attributes, the rest of a value
+  after `;` or `,` (`passwd=ab;cd`), URL userinfo (`https://user:pass@host`), percent-encoded `api_key=` pairs, Stripe
+  secret keys, webhook secrets and client secrets, Khalti secret keys, and the `Key`, `whm` and `cpanel` authorization
+  schemes. A secret pair behind any number of labels or long values is found (before, past two labels or 4 KB the
+  value was kept). Ids, amounts and references stay readable (Stripe ids, Khalti `pidx`, eSewa `transaction_uuid`,
+  ResellerClub `auth-userid`, OpenSRS `order_id`, Namecheap `DomainID`). Text is read in one pass: a 1 MB adversarial
+  string is masked in well under a second.
+- Registrar errors re-thrown by the gateway keep their exception class, retry flag and `previous` chain; the message
+  of every exception in the chain is masked. Webhook delivery errors and receiver answers, failed automation run
+  summaries, usage-sync errors reported to the log, and the provider answer stored on a card capture's transaction
+  are now masked too.
 
 ### Identity verification (KYC)
 
