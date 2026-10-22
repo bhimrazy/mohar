@@ -6,6 +6,18 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Redactor void containers (#278)
+
+- `App\Support\Integrations\Redactor` (`@api`): public method signatures unchanged; only private methods were
+  added. A secret-named void element (`<param name="password">`, `<input name="password">`) with no matching end tag
+  now keeps the next-tag bound only when an HTML document marker (`<!doctype html` or an unprefixed `<html` start
+  tag, outside comments, CDATA, processing instructions and quoted attribute values) comes earlier in the text.
+  Otherwise a child element after it, a stray end tag then a child, or a `<!`/`<?` construct fails closed and masks to
+  the end of the text. The marker search is a forward walk with constant extra memory, and the scan stays linear.
+- Narrowing callers can see: a bare HTML fragment with no marker, such as `<input name="password"><p>Forgot…`, now masks
+  everything after the input. Gateway, registrar and panel error pages that start with a doctype or `<html>` keep
+  their text. A raw `<html>` inside a non-secret JSON string counts as a marker.
+
 ### Registrar refs store, ADR 0009 PR C3
 
 - Domains binds `App\Contracts\Domains\Registrar\RegistrarRefs` to `EloquentRegistrarRefs` (table `registrar_refs`,
@@ -162,7 +174,7 @@ Additive; Domains moves onto these in PR C2, which removes its module SPI.
   offsets read by a forward-only cursor, so the scan stays linear with many unclosed elements (#252 B1). A secret
   element with no end tag masks the rest of the text (fail closed); an element named like an HTML void element
   (`<input name="password">`, XML `<param>`) with no matching end tag later in the text masks the text up to the next
-  tag or its CDATA section, so an HTML input masks nothing after it; with an end tag later it is masked to that end
+  tag or its CDATA section, so an HTML input masks nothing after it (narrowed by #278, see "Redactor void containers" above); with an end tag later it is masked to that end
   tag like any element, child elements and comments included. An unquoted name whose value would start on the next
   line takes that line unless it is header-shaped (a name, `:`, then a blank or the line end), so an empty `Cookie:`
   keeps the next header while `password:\nvalue` and `token:\nQWx…==` are masked. The word

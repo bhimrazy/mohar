@@ -118,6 +118,8 @@ final class Redactor
      * HTML void elements: no end tag, so a secret `name` on one (`<input name="password">`) masks only the text before
      * the next tag (and a CDATA section), which in HTML is usually nothing. XML uses the same names with content
      * (`<param name="password">…</param>`), and that content is masked by the same rule. A prefixed name is never HTML.
+     * An element with no end tag keeps that next-tag bound only in an HTML document (nextHtmlMarker finds a
+     * `<!doctype html` or `<html` start tag at markup level before it); anywhere else it is an XML container and a child element after it fails closed (voidContainerEnd).
      */
     private const VOID_ELEMENTS = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'];
 
@@ -374,6 +376,27 @@ final class Redactor
         $endTagCursor = 0;
         /** @var array<string, int> $lastEndTag offset of the last `</name` per void element name, found once per name */
         $lastEndTag = [];
+        /** @var int|null $markerFrom where the HTML marker walk resumes (null: no marker text in the text, or the walk is done) */
+        $markerFrom = stripos($value, '<html') === false && stripos($value, '<!doctype') === false ? null : 0;
+        $htmlSeen = false;
+        // Walks the text for an HTML marker that starts before $limit; a marker inside a masked span is never reached,
+        // because the walk jumps over each span as it is masked.
+        $findMarker = function (int $limit) use ($value, &$markerFrom, &$htmlSeen): ?int {
+            $htmlSeen = $htmlSeen || ($markerFrom !== null && $this->nextHtmlMarker($value, $markerFrom, $limit) !== null);
+
+            return $markerFrom;
+        };
+        $skipMasked = function (int $from, int $to) use ($findMarker, &$markerFrom, &$htmlSeen): void {
+            if ($markerFrom === null || $htmlSeen) {
+                return;
+            }
+
+            $resume = $findMarker($from);
+
+            if ($resume !== null && $resume < $to) {
+                $markerFrom = $to;
+            }
+        };
 
         while ($position < $length && preg_match(self::TOKEN_PATTERN, $value, $match, PREG_OFFSET_CAPTURE | PREG_UNMATCHED_AS_NULL, $position) === 1) {
             $start = $match[0][1];
@@ -389,6 +412,8 @@ final class Redactor
                         ? $end + strcspn($value, "\r\n", $end)
                         : $this->valueEnd($value, $end);
                     $output .= $this->maskSpan(substr($value, $end, $valueEnd - $end));
+                    $skipMasked($end, $valueEnd);
+
                     $position = $valueEnd;
                 }
 
@@ -414,9 +439,16 @@ final class Redactor
 
             if ((string) $match[2][0] === (string) $match[3][0] && in_array($voidName, self::VOID_ELEMENTS, true)
                 && ($lastEndTag[$voidName] ??= (int) strripos($value, '</'.$voidName)) < $end) {
-                $contentEnd = $this->voidContentEnd($value, $end);
+                // A marker counts when it lies before this element and outside every span masked so far.
+                $findMarker($start);
+
+                $contentEnd = $htmlSeen
+                    ? $this->voidContentEnd($value, $end)
+                    : $this->voidContainerEnd($value, $end);
                 $content = substr($value, $end, $contentEnd - $end);
                 $output .= trim($content) === '' ? $content : self::MASK;
+                $skipMasked($end, $contentEnd);
+
                 $position = $contentEnd;
 
                 continue;
@@ -444,6 +476,8 @@ final class Redactor
 
             $content = substr($value, $end, $contentEnd - $end);
             $output .= trim($content) === '' ? $content : self::MASK;
+            $skipMasked($end, $contentEnd);
+
             $position = $contentEnd;
         }
 
@@ -492,8 +526,8 @@ final class Redactor
     }
 
     /**
-     * Where the content of a secret void-named element starting at $start ends: past a CDATA section after optional
-     * blanks (an unterminated one runs to the end, failing closed), otherwise at the next `<`.
+     * Where the content of a secret void-named element in an HTML document starts at $start ends: past a CDATA section
+     * after optional blanks (an unterminated one runs to the end, failing closed), otherwise at the next `<`.
      */
     private function voidContentEnd(string $value, int $start): int
     {
@@ -509,6 +543,172 @@ final class Redactor
         $next = strpos($value, '<', $start);
 
         return $next === false ? $length : $next;
+    }
+
+    /**
+     * Where the content of a secret void-named element outside an HTML document ends. Such an element is an XML
+     * container (`<param name="password"><value><string>…`) that no end tag bounds, so after only blanks, comments,
+     * empty CDATA sections and stray end tags, a child start tag (a name starting with a letter, `_`, `:` or a
+     * non-ASCII byte), `<!` or `<?` masks the rest of the text (fail closed). Text, a non-empty CDATA section or an end
+     * tag followed by neither ends the content there. Every step moves forward, so the cost is linear.
+     */
+    private function voidContainerEnd(string $value, int $start): int
+    {
+        $length = strlen($value);
+        $position = $start;
+        $bound = null;
+
+        while (true) {
+            $position += strspn($value, " \t\r\n", $position);
+
+            if ($position >= $length) {
+                return $bound ?? $length;
+            }
+
+            if ($value[$position] !== '<') {
+                return $bound ?? ($position + strcspn($value, '<', $position));
+            }
+
+            $after = $value[$position + 1] ?? '';
+
+            if (substr_compare($value, '<!--', $position, 4) === 0) {
+                $close = strpos($value, '-->', $position + 4);
+
+                if ($close === false) {
+                    return $length;
+                }
+
+                $position = $close + 3;
+            } elseif (substr_compare($value, '<![CDATA[', $position, 9) === 0) {
+                $close = strpos($value, ']]>', $position + 9);
+
+                if ($close === false) {
+                    return $length;
+                }
+
+                if (trim(substr($value, $position + 9, $close - $position - 9)) !== '') {
+                    return $bound ?? $close + 3;
+                }
+
+                $position = $close + 3;
+            } elseif ($after === '/') {
+                $bound ??= $position;
+                $close = $position + 1 + strcspn($value, '<>', $position + 1);
+
+                // The end tag's `>` must come before the next `<`; otherwise stop here, so a later pass never walks this span again.
+                if ($close >= $length || $value[$close] !== '>') {
+                    return $bound;
+                }
+
+                $position = $close + 1;
+            } elseif ($after === '!' || $after === '?' || ctype_alpha($after) || $after === '_' || $after === ':' || ($after !== '' && ord($after) >= 0x80)) {
+                return $length;
+            } else {
+                return $bound ?? $position;
+            }
+        }
+    }
+
+    /**
+     * The first HTML document marker at or after $from: a `<!doctype html` or an unprefixed `<html` start tag, any case.
+     * One forward walk with strpos and strcspn, constant extra memory: comments, CDATA sections, processing
+     * instructions and other declarations are skipped whole, and a tag's attributes are skipped with quoted values
+     * honoured, so a marker inside them is not found. An unterminated construct runs to the end of the text. `<head`
+     * and `<body` are not markers (SOAP has a `<Body>`). Only a marker that starts before $before is looked for. $from becomes
+     * where the search resumes (it is the `<` where the walk stopped at $before, so a later call does not rescan), or null when the text has no more.
+     */
+    private function nextHtmlMarker(string $value, ?int &$from, int $before): ?int
+    {
+        $length = strlen($value);
+        $position = $from;
+
+        while (($open = strpos($value, '<', $position)) !== false) {
+            if ($open >= $before) {
+                $from = $open;
+
+                return null;
+            }
+
+            $next = $value[$open + 1] ?? '';
+
+            if ($next === '!' || $next === '?') {
+                if (substr_compare($value, '<!--', $open, 4) === 0) {
+                    $close = strpos($value, '-->', $open + 4);
+                    $position = $close === false ? $length : $close + 3;
+                } elseif (substr_compare($value, '<![CDATA[', $open, 9) === 0) {
+                    $close = strpos($value, ']]>', $open + 9);
+                    $position = $close === false ? $length : $close + 3;
+                } elseif ($next === '?') {
+                    $close = strpos($value, '?>', $open + 2);
+                    $position = $close === false ? $length : $close + 2;
+                } else {
+                    $spaces = strspn($value, " \t\r\n\f", $open + 9);
+
+                    if (substr_compare($value, '<!doctype', $open, 9, true) === 0 && $spaces > 0
+                        && substr_compare($value, 'html', $open + 9 + $spaces, 4, true) === 0
+                        && ! $this->isNameByte($value[$open + 13 + $spaces] ?? '')) {
+                        $from = $this->skipTag($value, $open + 2);
+
+                        return $open;
+                    }
+
+                    $position = $this->skipTag($value, $open + 2);
+                }
+
+                continue;
+            }
+
+            $nameLength = ctype_alpha($next) || $next === '_' ? strspn($value, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.:-', $open + 1) : 0;
+
+            if ($nameLength === 0 && $next !== '/') {
+                $position = $open + 1; // a `<` that starts no tag is text
+
+                continue;
+            }
+
+            $position = $this->skipTag($value, $open + 1 + $nameLength);
+
+            if ($nameLength === 4 && strcasecmp(substr($value, $open + 1, 4), 'html') === 0) {
+                $from = $position;
+
+                return $open;
+            }
+        }
+
+        $from = null;
+
+        return null;
+    }
+
+    private function isNameByte(string $byte): bool
+    {
+        return $byte !== '' && (ctype_alnum($byte) || $byte === '_' || $byte === '.' || $byte === ':' || $byte === '-');
+    }
+
+    /** The offset after the `>` that ends the tag whose attributes start at $position; quoted values may hold `>`. An unterminated tag or quote runs to the end. */
+    private function skipTag(string $value, int $position): int
+    {
+        $length = strlen($value);
+
+        while (true) {
+            $at = $position + strcspn($value, '>"\'', $position);
+
+            if ($at >= $length) {
+                return $length;
+            }
+
+            if ($value[$at] === '>') {
+                return $at + 1;
+            }
+
+            $close = strpos($value, $value[$at], $at + 1);
+
+            if ($close === false) {
+                return $length;
+            }
+
+            $position = $close + 1;
+        }
     }
 
     /**
