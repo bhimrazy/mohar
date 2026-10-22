@@ -85,7 +85,7 @@ class PlatformDashboard
         $dashboard->health('admin', 'platform.cache_lock_store', fn (): array => [
             'label' => 'Cache lock store',
             'detail' => $result['detail'],
-            'value' => $result['status'] === CheckStatus::Failed ? 'Use a shared store' : 'Single host only',
+            'value' => $result['status'] === CheckStatus::Failed ? 'Fix the task lock store' : 'One server only',
             'tone' => $result['status'] === CheckStatus::Failed ? 'danger' : 'warning',
             'icon' => 'ShieldAlert',
         ], 'core.settings.view', 14);

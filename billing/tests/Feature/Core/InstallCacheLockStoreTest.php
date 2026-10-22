@@ -42,7 +42,7 @@ test('the array store only warns outside production', function () {
 
     expect($status)->toBe(0)
         ->and($output)->toMatch('/Cache lock store \.+ WARNING/')
-        ->and($output)->toContain('CACHE_STORE=database or redis');
+        ->and($output)->toContain('may run the same task twice', 'CACHE_STORE');
 });
 
 test('in production the array store stops a first install but only warns on an existing installation', function () {
@@ -61,7 +61,7 @@ test('the file store warns, saying it is safe on a single host only, even on a f
 
     expect($status)->toBe(0)
         ->and($output)->toMatch('/Cache lock store \.+ WARNING/')
-        ->and($output)->toContain('single host only');
+        ->and($output)->toContain('shared only inside one server');
 });
 
 test('the database store passes the install check', function () {
@@ -81,8 +81,22 @@ test('shared stores pass and a lock connection that is not configured fails', fu
     $result = (new CacheLockStore)->assess();
 
     expect($result['status'])->toBe(CheckStatus::Failed)
-        ->and($result['detail'])->toContain('lock connection "missing"')
+        ->and($result['detail'])->toContain('lock connection "missing"', 'database connection')
         ->and($result['detail'])->not->toContain(config('app.name'));
+});
+
+test('a redis lock connection may be a redis cluster, and apc and octane are single-server warnings', function () {
+    config(['cache.default' => 'redis', 'database.redis.clusters.shared' => [['host' => 'x']], 'cache.stores.redis.lock_connection' => 'shared']);
+    expect((new CacheLockStore)->assess()['status'])->toBe(CheckStatus::Ok);
+
+    foreach (['apc', 'octane'] as $driver) {
+        config(['cache.default' => $driver, "cache.stores.{$driver}" => ['driver' => $driver]]);
+        $result = (new CacheLockStore)->assess();
+        expect($result['status'])->toBe(CheckStatus::Warning)->and($result['detail'])->toContain('shared only inside one server');
+    }
+
+    config(['cache.default' => 'session', 'cache.stores.session' => ['driver' => 'session']]);
+    expect((new CacheLockStore)->assess()['status'])->toBe(CheckStatus::Failed);
 });
 
 test('a failover store is judged by the weakest store it lists', function () {
@@ -90,7 +104,7 @@ test('a failover store is judged by the weakest store it lists', function () {
     config(['cache.default' => 'failover']);
     $result = (new CacheLockStore)->assess();
 
-    expect($result['status'])->toBe(CheckStatus::Failed)->and($result['detail'])->toContain('"array"');
+    expect($result['status'])->toBe(CheckStatus::Failed)->and($result['detail'])->toContain('failover list', '"array"', 'database or redis');
 });
 
 test('the dashboard shows the lock store check only in production and only while it is unsafe', function () {
@@ -108,8 +122,8 @@ test('the dashboard shows the lock store check only in production and only while
 
     try {
         expect($check('database'))->toBeNull()
-            ->and($check('array'))->toMatchArray(['tone' => 'danger', 'value' => 'Use a shared store'])
-            ->and($check('file'))->toMatchArray(['tone' => 'warning', 'value' => 'Single host only']);
+            ->and($check('array'))->toMatchArray(['tone' => 'danger', 'value' => 'Fix the task lock store'])
+            ->and($check('file'))->toMatchArray(['tone' => 'warning', 'value' => 'One server only']);
     } finally {
         app()->detectEnvironment(fn (): string => 'testing');
     }

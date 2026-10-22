@@ -7,16 +7,18 @@ namespace App\Modules\Core\Install;
  * exclude each other when every web and queue process reads and writes one lock store. Resolved the way Laravel does for
  * locks: `cache.default`, its driver, and for a `failover` store each store it lists (the weakest one counts).
  *
- * - `database`, `redis`, `memcached`, `dynamodb`: shared by all hosts (a database store whose `lock_connection` is
- *   named must name a configured connection).
- * - `file`: shared only by processes on one host and one `storage/` directory.
- * - `array`, `null`: per process, so no lock excludes another process. Not safe anywhere.
+ * - `database`, `redis`, `memcached`, `dynamodb`: shared by all hosts. A `lock_connection` must exist in the family the
+ *   driver reads: `database.connections` for `database`, `database.redis` (or one of its clusters) for `redis`.
+ * - `file`, `apc`, `octane`: shared only on one host (one `storage/` directory, one server or process group).
+ * - `array`, `null`, `session` and anything unknown: per process, so no lock excludes another process.
  */
 final class CacheLockStore
 {
     private const SHARED = ['database', 'redis', 'memcached', 'dynamodb'];
 
-    private const SINGLE_HOST = ['file'];
+    private const SINGLE_HOST = ['file', 'apc', 'octane'];
+
+    private const RISK = 'Background jobs and web requests may run the same task twice (a second provisioning or a double payment attempt).';
 
     /**
      * @return array{status: CheckStatus, detail: string}
@@ -24,35 +26,48 @@ final class CacheLockStore
     public function assess(): array
     {
         $name = (string) config('cache.default');
+        $isFailover = config("cache.stores.{$name}.driver") === 'failover';
         $problems = [];
         $worst = CheckStatus::Ok;
 
         foreach ($this->stores($name) as $store) {
             $driver = (string) config("cache.stores.{$store}.driver", $store);
-            $label = "CACHE_STORE \"{$store}\" ({$driver})";
-            $lockConnection = config("cache.stores.{$store}.lock_connection");
-
-            if (in_array($driver, self::SHARED, true) && ($lockConnection === null || $lockConnection === '' || is_array(config("database.connections.{$lockConnection}")) || is_array(config("database.redis.{$lockConnection}")))) {
-                continue;
-            }
+            $source = $isFailover ? "The failover list of CACHE_STORE \"{$name}\" includes \"{$store}\" ({$driver}), which" : "CACHE_STORE \"{$store}\" ({$driver})";
+            $fix = $isFailover ? 'Remove it from the list or use database or redis.' : 'Use database or redis (CACHE_STORE).';
 
             if (in_array($driver, self::SHARED, true)) {
-                $problems[] = "{$label} uses lock connection \"{$lockConnection}\", which is not configured. Fix the lock connection setting or remove it.";
+                $lock = config("cache.stores.{$store}.lock_connection");
+
+                if ($lock === null || $lock === '' || $this->lockConnectionExists($driver, (string) $lock)) {
+                    continue;
+                }
+
+                $problems[] = "The lock connection \"{$lock}\" of the {$store} cache is not a {$driver} connection that exists, so the first lock would fail. Correct or remove it.";
                 $worst = CheckStatus::Failed;
             } elseif (in_array($driver, self::SINGLE_HOST, true)) {
-                $problems[] = "{$label} is shared only by processes on one host: locks do not exclude web or queue processes on another server. Safe on a single host only; use database or redis when you run more than one server or container.";
+                $problems[] = ($isFailover ? "{$source} is" : "{$source} is").' shared only inside one server. With a second server or container, '.lcfirst(self::RISK).' Fine for a single server; otherwise use database or redis.';
                 $worst = $worst === CheckStatus::Failed ? $worst : CheckStatus::Warning;
             } else {
-                $problems[] = "{$label} keeps locks inside one process, so provisioning and payment locks do not stop a second web or queue process. Set CACHE_STORE=database or redis.";
+                $problems[] = ($isFailover ? "{$source} is" : "{$source} is").' not shared between processes. '.self::RISK.' '.$fix;
                 $worst = CheckStatus::Failed;
             }
         }
 
         if ($problems === []) {
-            return ['status' => CheckStatus::Ok, 'detail' => 'Locks use "'.$name.'", shared by all web and queue processes.'];
+            return ['status' => CheckStatus::Ok, 'detail' => 'Task locks use "'.$name.'", shared by all web and queue processes.'];
         }
 
         return ['status' => $worst, 'detail' => implode(' ', $problems)];
+    }
+
+    private function lockConnectionExists(string $driver, string $lock): bool
+    {
+        return match ($driver) {
+            'database' => is_array(config("database.connections.{$lock}")),
+            'redis' => is_array(config("database.redis.{$lock}")) && ! in_array($lock, ['client', 'options', 'clusters'], true)
+                || is_array(config("database.redis.clusters.{$lock}")),
+            default => true,
+        };
     }
 
     /**
