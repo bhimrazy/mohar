@@ -100,7 +100,9 @@ replaced), skips current documents whose client is no longer closed, and is idem
   document. Numbers and images are hidden until the staff member clicks Show documents for **that client**: a
   password step-up, one audit entry per client, and a window that ends at the earlier of 15 minutes and the end of
   the step-up. The page shows when the window ends. Other clients stay hidden. The page history is encrypted
-  (Inertia `encryptHistory`).
+  (Inertia `encryptHistory`) and cleared (`clearHistory`) on the first response after the window ends, whatever
+  page it is, and on logout while documents are shown; the open page hides them when the window ends and reloads.
+  **Hide documents** ends the window early for that client (no step-up, one audit entry, history cleared).
 - Images open only through signed links bound to the staff member and the document side, valid until the window
   ends, and only while that client is unlocked; streamed with `Cache-Control: private, no-store` and
   `X-Content-Type-Options: nosniff`, under a filename made of the type and side. A missing or unreadable file answers
