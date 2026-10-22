@@ -130,9 +130,9 @@ The same sequence, with generated secrets and Caddy's internal certificate, is w
 GitHub runner (Actions → Deploy smoke, or the `deploy-smoke` label on a pull request).
 
 The smoke also runs the full demo seeder, `php artisan db:seed --force`, once at the end in a one-off container with
-`APP_ENV=local` (the stack itself stays `production`, where `DatabaseSeeder` skips demo data). That exercises every
+`APP_ENV=local` on the stack's backend network (the stack itself stays `production`, where `DatabaseSeeder` skips demo data). The seeders need Faker, which the production image does not contain, so the step builds the smoke-only `smoke-seed` target of `deploy/Dockerfile` (dev dependencies; never deployed or published). That exercises every
 module's seeder on PostgreSQL with real commits; any seeder error fails the smoke, and the step refuses to run under
-`APP_ENV=production`. Never seed demo data on a real installation: the demo accounts have a known password.
+`APP_ENV=production` or for a `SMOKE_PROJECT` that is not `mohar-smoke*`. Never seed demo data on a real installation: the demo accounts have a known password.
 
 ## Changing settings
 

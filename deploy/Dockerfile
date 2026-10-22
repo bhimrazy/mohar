@@ -132,6 +132,24 @@ ENV SERVER_NAME=:8080
 ENTRYPOINT []
 CMD ["frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile", "--adapter", "caddyfile"]
 
+# ------------------------------------------------------------------ smoke-seed: the app with dev dependencies
+# Used only by deploy/bin/smoke to run the demo seeders (they need Faker and the model factories, which the prod image
+# never contains). Never deployed or published.
+FROM php AS smoke-seed
+
+COPY --from=composer:2.10.3@sha256:af98f42dfff7c68ba8d53c2164fd9fde1087b7d449514baa38c418b1f6bc4bac /usr/bin/composer /usr/bin/composer
+
+ENV COMPOSER_NO_INTERACTION=1 COMPOSER_NO_AUDIT=1
+
+# The dev dependency mohar/simulators is a path repository (symlinked), so it must exist before the install.
+COPY billing/tools/simulators tools/simulators
+COPY billing/composer.json billing/composer.lock ./
+RUN --mount=type=cache,target=/root/.cache/composer \
+    composer install --no-scripts --no-autoloader --prefer-dist --no-progress
+
+COPY billing/ .
+RUN composer dump-autoload --optimize
+
 # ------------------------------------------------------------------ release: the app tree for hosts without Docker
 # The source with production vendor/ and the built public/build, nothing else: the release tarball for the
 # non-Docker install (install.md) and cPanel cron mode (cpanel.md). Export it with
