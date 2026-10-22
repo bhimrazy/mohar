@@ -3,7 +3,7 @@
 namespace App\Modules\Domains\Http\Requests;
 
 use App\Enums\FieldType;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
+use App\Support\Domains\RegistrarDriverRegistry;
 use App\Support\Integrations\KeepsSecretsOutOfOldInput;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -34,7 +34,7 @@ class RegistrarAccountRequest extends FormRequest
             'settings.*' => ['nullable', 'max:1000'],
         ];
 
-        foreach (app(RegistrarManager::class)->fields((string) $this->route('registrar')) as $field) {
+        foreach (app(RegistrarDriverRegistry::class)->fields((string) $this->route('registrar')) as $field) {
             $rules["settings.{$field->key}"] = match ($field->type) {
                 FieldType::Number => ['nullable', 'integer', 'min:0', 'max:1000000'],
                 FieldType::Select => ['nullable', Rule::in(array_map('strval', array_keys($field->options)))],
@@ -53,7 +53,7 @@ class RegistrarAccountRequest extends FormRequest
      */
     protected function secretInputPaths(): array
     {
-        $fields = app(RegistrarManager::class)->fields((string) $this->route('registrar'));
+        $fields = app(RegistrarDriverRegistry::class)->fields((string) $this->route('registrar'));
         $public = array_values(array_map(fn ($field): string => $field->key, array_filter($fields, fn ($field): bool => ! $field->isSecret())));
         $submitted = array_map('strval', array_keys((array) $this->input('settings', [])));
 

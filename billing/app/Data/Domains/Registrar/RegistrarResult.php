@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Domains\Drivers\Registrars\Data;
+namespace App\Data\Domains\Registrar;
 
 use Carbon\CarbonImmutable;
 
@@ -31,5 +31,13 @@ final readonly class RegistrarResult
     public function toArray(): array
     {
         return ['status' => $this->status, 'expiry_date' => $this->expiryDate?->toDateString(), 'message' => $this->message, 'meta' => $this->meta, 'remote' => $this->remote];
+    }
+
+    /**
+     * A copy with another message, so the host can replace driver text (for example with a masked version).
+     */
+    public function withMessage(string $message): static
+    {
+        return new self($this->status, $this->expiryDate, $message, $this->meta, $this->remote);
     }
 }

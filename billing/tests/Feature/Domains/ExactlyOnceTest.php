@@ -2,19 +2,19 @@
 
 use App\Contracts\Domains\DomainRegistry;
 use App\Data\Billing\InvoiceLineData;
+use App\Data\Domains\Registrar\DomainInfo;
+use App\Data\Domains\Registrar\RegistrarResult;
 use App\Enums\BillableType;
 use App\Events\Billing\InvoicePaid;
 use App\Events\Billing\PaymentReceived;
 use App\Modules\Domains\Actions\PerformRenewal;
 use App\Modules\Domains\Actions\SubmitToRegistrar;
-use App\Modules\Domains\Drivers\Registrars\Data\DomainInfo;
-use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
 use App\Modules\Domains\Enums\DomainStatus;
-use App\Modules\Domains\Exceptions\RegistrarException;
 use App\Modules\Domains\Jobs\RegisterDomain;
 use App\Modules\Domains\Jobs\RenewDomain;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarAccount;
+use App\Support\Domains\RegistrarException;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Queue;
 use Tests\Fakes\Domains\DomainFixtures;
@@ -59,7 +59,7 @@ test('an unexpected registrar error on register is an unknown outcome, never ret
     'transfer' => ['transfer', DomainStatus::PendingTransfer],
 ]);
 
-test('a lost claim without info support is flagged for review instead of re-registering', function () {
+test('a lost claim the registrar does not show as ours is flagged for review instead of re-registering', function () {
     $this->registrar->capabilities = ['register', 'sync'];
     $domain = Domain::factory()->pending()->create([
         'tld_id' => $this->com->id,
@@ -70,7 +70,7 @@ test('a lost claim without info support is flagged for review instead of re-regi
     app(SubmitToRegistrar::class)->handle($domain);
 
     expect($domain->fresh())->status->toBe(DomainStatus::PendingRegistration)->needs_review->toBeTrue()
-        ->and($this->registrar->commands())->toBe([]);
+        ->and($this->registrar->commands())->toBe(['info']);
 });
 
 test('a retryable error releases the claim so the queue retry may submit again', function () {
@@ -106,7 +106,7 @@ test('an unknown renewal outcome is never re-sent; a later attempt only verifies
 
     expect($first->success)->toBeFalse()
         ->and($second->success)->toBeFalse()
-        ->and($this->registrar->commands())->toBe(['renew'])
+        ->and($this->registrar->commands())->toBe(['renew', 'info'])
         ->and($domain->fresh())->needs_review->toBeTrue()->expiry_date->toDateString()->toBe('2027-01-31');
 });
 

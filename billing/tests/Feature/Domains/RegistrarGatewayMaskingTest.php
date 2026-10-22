@@ -5,10 +5,11 @@
  * messages are masked, along the whole chain.
  */
 
-use App\Modules\Domains\Exceptions\RegistrarException;
-use App\Modules\Domains\Exceptions\RegistrarTimeout;
+use App\Contracts\Domains\Registrar\RegistrarDriver;
 use App\Modules\Domains\Models\RegistrarCommandLog;
 use App\Modules\Domains\Services\RegistrarGateway;
+use App\Support\Domains\RegistrarException;
+use App\Support\Domains\RegistrarTimeout;
 use Tests\Fakes\Domains\FakeRegistrar;
 
 beforeEach(function () {
@@ -18,7 +19,7 @@ beforeEach(function () {
 function failingCall(string $capability, Throwable $exception): Throwable
 {
     try {
-        app(RegistrarGateway::class)->call('fake', $capability, fn () => throw $exception);
+        app(RegistrarGateway::class)->call('fake', $capability, RegistrarDriver::class, fn () => throw $exception);
     } catch (Throwable $thrown) {
         return $thrown;
     }

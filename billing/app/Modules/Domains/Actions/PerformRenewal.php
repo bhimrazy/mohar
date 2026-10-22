@@ -2,25 +2,28 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Contracts\Domains\Registrar\ReconcilesSubmissions;
+use App\Contracts\Domains\Registrar\RegistrarDriver;
+use App\Contracts\Domains\Registrar\RestoresDomains;
+use App\Data\Domains\Registrar\DomainInfo;
+use App\Data\Domains\Registrar\RegistrarConfig;
+use App\Data\Domains\Registrar\RegistrarResult;
+use App\Data\Domains\Registrar\SubmissionLookup;
 use App\Data\Services\ProvisionResult;
 use App\Enums\BillingCycle;
 use App\Enums\ReconcileStatus;
 use App\Events\Domains\DomainRenewed;
 use App\Events\Domains\RegistrarActionFailed;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Domains\Drivers\Registrars\Data\DomainInfo;
-use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
-use App\Modules\Domains\Drivers\Registrars\Data\SubmissionLookup;
-use App\Modules\Domains\Drivers\Registrars\Registrar;
 use App\Modules\Domains\Enums\DomainStatus;
-use App\Modules\Domains\Exceptions\RegistrarException;
-use App\Modules\Domains\Exceptions\RegistrarTimeout;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainDates;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\DomainStateMachine;
 use App\Modules\Domains\Services\RegistrarGateway;
 use App\Modules\Domains\Support\RemoteIds;
+use App\Support\Domains\RegistrarException;
+use App\Support\Domains\RegistrarTimeout;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -86,13 +89,10 @@ class PerformRenewal
         $restore = $domain->status === DomainStatus::Redemption && $this->gateway->supports($domain, 'restore');
 
         try {
-            $result = $this->gateway->forDomain(
-                $domain,
-                $restore ? 'restore' : 'renew',
-                fn (Registrar $registrar): RegistrarResult => $registrar->renew($domain, $years, $restore),
-                ['years' => $years, 'restore' => $restore],
-                $staffId,
-            );
+            $request = ['years' => $years, 'restore' => $restore];
+            $result = $restore
+                ? $this->gateway->forDomain($domain, 'restore', RestoresDomains::class, fn (RestoresDomains $registrar, RegistrarConfig $config): RegistrarResult => $registrar->restore($config, $domain->toRef(), $years), $request, $staffId)
+                : $this->gateway->forDomain($domain, 'renew', RegistrarDriver::class, fn (RegistrarDriver $registrar, RegistrarConfig $config): RegistrarResult => $registrar->renew($config, $domain->toRef(), $years), $request, $staffId);
         } catch (RegistrarTimeout $timeout) {
             return $this->unverified($domain, $timeout->getMessage());
         } catch (RegistrarException $exception) {
@@ -164,9 +164,9 @@ class PerformRenewal
             });
         }
 
-        if ($target !== null && $this->gateway->supports($domain, 'info')) {
+        if ($target !== null) {
             try {
-                $info = $this->gateway->forDomain($domain, 'info', fn (Registrar $registrar): DomainInfo => $registrar->info($domain), staffId: $staffId);
+                $info = $this->gateway->forDomain($domain, 'info', RegistrarDriver::class, fn (RegistrarDriver $registrar, RegistrarConfig $config): DomainInfo => $registrar->info($config, $domain->toRef()), staffId: $staffId);
 
                 if ($info->expiryDate !== null && $info->expiryDate->gte($target)) {
                     return $this->applied($domain, $years, $info->expiryDate, 'Renewal found at the registrar; not repeated.', $info->remote);
@@ -187,7 +187,8 @@ class PerformRenewal
             return $this->gateway->forDomain(
                 $domain,
                 'reconcile',
-                fn (Registrar $registrar): SubmissionLookup => $registrar->findSubmission($domain, 'renew', $sentAt),
+                ReconcilesSubmissions::class,
+                fn (ReconcilesSubmissions $registrar, RegistrarConfig $config): SubmissionLookup => $registrar->findSubmission($config, $domain->toRef(), 'renew', $sentAt),
                 ['command' => 'renew', 'submitted_at' => $sentAt->toIso8601String()],
                 $staffId,
             );

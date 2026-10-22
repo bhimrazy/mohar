@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Domains\Drivers\Registrars\Data;
+namespace App\Data\Domains\Registrar;
 
 use Carbon\CarbonImmutable;
 

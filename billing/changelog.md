@@ -16,6 +16,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   (8 000 000), `step_down_pixels` (12 000 000, 8 000 000) and `image_decode_wait_seconds` (5). Image decoding takes
   the cache lock `kyc:image-decode`, so it needs the shared lock store the install already checks. The document
   upload route has a new rate limiter `kyc-upload` (20 a minute per IP address) on top of 10 a minute per user.
+- **Importer invitation rate.** The default of `migration.invite_per_hour` drops from 500 to 100, because cPanel/Exim and Google Workspace sending caps make 500 risky for deliverability. Installs that never changed the setting now send 100 an hour; raise it in Admin → Settings (1–10,000) if your mail provider allows more. No schema or permission change.
 - **Integration log masking (#190).** No schema or permission change. New log rows mask more secret shapes (see
   Security below); rows written before the upgrade are not rewritten. Payment payload text values (`error`,
   `message`) now get the same text rules as module logs, so a `name=value` secret inside them is masked.
@@ -953,6 +954,23 @@ a time: medians of three runs before and three after, on the same database, on a
 
 ### Domains
 
+- Registrar refs store (registrars.md C4, ADR 0009 PR C3): a new `registrar_refs` table (migration `500600`, expand
+  only) behind the kernel `RegistrarRefs` contract, where registrar drivers keep the remote customers, contacts and
+  profiles they create for local records; a profile credential is encrypted at rest. Nothing uses it until the first
+  API registrar driver; no permission change. Upgrade note for driver authors: the unused module registrar interface
+  and its DTOs and exceptions are deleted (see the kernel changelog).
+- Registrar drivers run on the kernel registrar contracts (ADR 0009, PR C2), so a package can ship a registrar
+  driver without the Domains module's code. Admin → Domains → Registrars and the domain pages list the same
+  capabilities as before, plus "Connection test" for drivers that offer one; for a driver without it the "Test
+  connection" button is disabled with "This registrar has no connection test." The connection test is now written to
+  the registrar command log and still runs while the registrar is disabled, so new credentials can be checked before
+  enabling it; the account's credentials are masked in what staff see. Every message a registrar driver returns (and
+  a transfer's EPP code, if a driver echoes it) is masked before it is stored or shown: command log, last error,
+  activity log, the "registrar action failed" event and mail. No schema or permission change. Upgrade note for driver
+  authors: `RegistrarManager::extend()` is removed, and the module interface
+  `App\Modules\Domains\Drivers\Registrars\Registrar` and its `Data` DTOs are no longer used (deleted in #265);
+  implement `App\Contracts\Domains\Registrar\RegistrarDriver` and register it with
+  `RegistrarDriverRegistry::register()` (see the kernel changelog).
 - `.np` self-registration flow (registrars.md §9). TLDs can be marked "registered by the client at the registry" (on
   by default for `.np` and its second levels). Domain search explains that the client registers these names at the
   registry, links to "How to register", and offers "I already have it", which opens the store with "Use a domain I own"
@@ -1246,6 +1264,15 @@ a time: medians of three runs before and three after, on the same database, on a
   `ReconcileStatus` enums, `UsernamePolicy` and per-driver command timeouts, and the final
   `ProvisioningDriverRegistry`. A package registers a driver from its own service provider without the Services
   module being loaded. Every driver passes a shared contract dataset.
+- Registrar driver contracts (ADR 0009, PR C1): `RegistrarDriver` (`settingsFields`, `register`, `renew`, `info`)
+  plus capability interfaces (`ChecksAvailability`, `SuggestsNames`, `TransfersDomains`, `RestoresDomains`,
+  `ManagesNameservers`, `ManagesLock`, `ManagesContacts`, `ProvidesEppCode`, `ManagesIdProtection`, `SyncsDomains`,
+  `ReconcilesSubmissions`, `TestsRegistrarConnection`), the stateless `RegistrarConfig` every call receives, the
+  `DomainRef` snapshot instead of the domain model, the result DTOs with remote ids (C1), `RegistrarResult` and
+  `SubmissionLookup` gaining `withMessage()`, the `RegistrarRefs` contract for remote customers and contacts (C4), and
+  the final `RegistrarDriverRegistry`. A package registers a registrar driver from its own service provider without
+  the Domains module being loaded, and every registrar driver passes a shared contract dataset. Domains still runs on
+  its own driver interface until PR C2; nothing changes for users.
 - `PriceBook::moduleInputs()` (options and custom fields by module key, hidden, admin-only and retired included) and
   `PriceBook::productsForDriver()`; provisioning snapshots carry options by module key. `ProvisioningDrivers::all()`
   gains `fields` in the shared `SettingField` shape (`config_fields` deprecated). Module keys of custom fields are unique per product (#65).

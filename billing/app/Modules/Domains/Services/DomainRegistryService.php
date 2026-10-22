@@ -8,8 +8,8 @@ use App\Data\Services\ProvisionResult;
 use App\Modules\Domains\Actions\CreatePendingDomain;
 use App\Modules\Domains\Actions\SubmitToRegistrar;
 use App\Modules\Domains\Enums\DomainStatus;
-use App\Modules\Domains\Exceptions\RegistrarException;
 use App\Modules\Domains\Models\Domain;
+use App\Support\Domains\RegistrarException;
 use InvalidArgumentException;
 
 /**

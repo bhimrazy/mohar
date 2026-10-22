@@ -2,10 +2,10 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Data\Domains\Registrar\ContactSet;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\SettingList;
 use App\Modules\Core\Support\Settings;
-use App\Modules\Domains\Drivers\Registrars\Data\ContactSet;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainContact;
 

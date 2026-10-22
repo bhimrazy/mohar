@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Domains\Exceptions;
+namespace App\Support\Domains;
 
 /**
  * The domain's registrar driver does not implement the requested command.

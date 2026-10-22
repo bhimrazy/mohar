@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Domains\Drivers\Registrars\Data;
+namespace App\Data\Domains\Registrar;
 
 /**
  * Either the code itself or `emailed` when the registrar sends it to the registrant.
@@ -8,7 +8,7 @@ namespace App\Modules\Domains\Drivers\Registrars\Data;
 final readonly class EppCodeResult
 {
     public function __construct(
-        public ?string $code = null,
+        #[\SensitiveParameter] public ?string $code = null,
         public bool $emailed = false,
     ) {}
 }

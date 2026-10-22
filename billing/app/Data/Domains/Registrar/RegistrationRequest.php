@@ -1,8 +1,6 @@
 <?php
 
-namespace App\Modules\Domains\Drivers\Registrars\Data;
-
-use App\Modules\Domains\Models\Domain;
+namespace App\Data\Domains\Registrar;
 
 /**
  * Everything a driver needs to register or transfer a domain.
@@ -13,13 +11,24 @@ final readonly class RegistrationRequest
      * @param  list<string>  $nameservers
      */
     public function __construct(
-        public Domain $domain,
+        public DomainRef $domain,
         public int $years,
         public array $nameservers,
         public ContactSet $contacts,
         public bool $idProtection = false,
-        public ?string $eppCode = null,
+        #[\SensitiveParameter] public ?string $eppCode = null,
     ) {}
+
+    /**
+     * Secret values this request carries (the transfer code), which the host adds to its redaction set for the
+     * call, so a driver that echoes them is masked like the account's credentials.
+     *
+     * @return list<string>
+     */
+    public function secrets(): array
+    {
+        return $this->eppCode === null || $this->eppCode === '' ? [] : [$this->eppCode];
+    }
 
     /**
      * Loggable representation (EPP code redacted by the gateway).

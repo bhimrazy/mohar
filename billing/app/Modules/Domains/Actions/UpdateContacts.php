@@ -2,11 +2,12 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Contracts\Domains\Registrar\ManagesContacts;
+use App\Data\Domains\Registrar\ContactSet;
+use App\Data\Domains\Registrar\RegistrarConfig;
+use App\Data\Domains\Registrar\RegistrarResult;
 use App\Events\Domains\DomainContactsUpdated;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Domains\Drivers\Registrars\Data\ContactSet;
-use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
-use App\Modules\Domains\Drivers\Registrars\Registrar;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainContact;
 use App\Modules\Domains\Services\DomainEvents;
@@ -31,7 +32,7 @@ class UpdateContacts
         $meta = [];
 
         if ($domain->registrar_key !== null) {
-            $result = $this->gateway->forDomain($domain, 'contacts', fn (Registrar $registrar): RegistrarResult => $registrar->setContacts($domain, $set), ['contacts' => $set->toArray()]);
+            $result = $this->gateway->forDomain($domain, 'contacts', ManagesContacts::class, fn (ManagesContacts $registrar, RegistrarConfig $config): RegistrarResult => $registrar->setContacts($config, $domain->toRef(), $set), ['contacts' => $set->toArray()]);
             $meta = array_intersect_key($result->meta, array_flip(['contact_change_pending', 'transfer_lock_until']));
         } else {
             $this->activity->log("Staff task: update contacts of {$domain->name} at the registrar", $domain, $domain->client_id);

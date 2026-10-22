@@ -2,21 +2,37 @@
 
 namespace App\Modules\Domains\Drivers\Registrars;
 
+use App\Contracts\Domains\Registrar\ChecksAvailability;
+use App\Contracts\Domains\Registrar\ManagesContacts;
+use App\Contracts\Domains\Registrar\ManagesIdProtection;
+use App\Contracts\Domains\Registrar\ManagesLock;
+use App\Contracts\Domains\Registrar\ManagesNameservers;
+use App\Contracts\Domains\Registrar\ProvidesEppCode;
+use App\Contracts\Domains\Registrar\ReconcilesSubmissions;
+use App\Contracts\Domains\Registrar\RegistrarDriver;
+use App\Contracts\Domains\Registrar\RestoresDomains;
+use App\Contracts\Domains\Registrar\SuggestsNames;
+use App\Contracts\Domains\Registrar\SyncsDomains;
+use App\Contracts\Domains\Registrar\TestsRegistrarConnection;
+use App\Contracts\Domains\Registrar\TransfersDomains;
+use App\Data\Domains\Registrar\AvailabilityResult;
+use App\Data\Domains\Registrar\ContactSet;
+use App\Data\Domains\Registrar\DomainInfo;
+use App\Data\Domains\Registrar\DomainRef;
+use App\Data\Domains\Registrar\EppCodeResult;
+use App\Data\Domains\Registrar\RegistrarConfig;
+use App\Data\Domains\Registrar\RegistrarResult;
+use App\Data\Domains\Registrar\RegistrationRequest;
+use App\Data\Domains\Registrar\SubmissionLookup;
+use App\Data\Domains\Registrar\SyncResult;
+use App\Data\Domains\Registrar\TransferSyncResult;
+use App\Data\Integrations\ConnectionCheck;
+use App\Data\Integrations\SettingField;
+use App\Enums\FieldType;
 use App\Enums\ReconcileStatus;
-use App\Modules\Domains\Drivers\Registrars\Data\AvailabilityResult;
-use App\Modules\Domains\Drivers\Registrars\Data\ContactSet;
-use App\Modules\Domains\Drivers\Registrars\Data\DomainInfo;
-use App\Modules\Domains\Drivers\Registrars\Data\EppCodeResult;
-use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
-use App\Modules\Domains\Drivers\Registrars\Data\RegistrationRequest;
-use App\Modules\Domains\Drivers\Registrars\Data\SubmissionLookup;
-use App\Modules\Domains\Drivers\Registrars\Data\SyncResult;
-use App\Modules\Domains\Drivers\Registrars\Data\TransferSyncResult;
-use App\Modules\Domains\Enums\DomainStatus;
-use App\Modules\Domains\Exceptions\RegistrarException;
-use App\Modules\Domains\Exceptions\RegistrarTimeout;
-use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Support\DomainName;
+use App\Support\Domains\RegistrarException;
+use App\Support\Domains\RegistrarTimeout;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
@@ -35,45 +51,37 @@ use InvalidArgumentException;
  * "slow" one as in progress, a "taken" name as a conflict (registered elsewhere), a renewal as executed and anything
  * else as not executed.
  * The "simulate" setting forces every write command to fail ("error") or time out ("timeout").
+ *
+ * The reference implementation: it implements every capability, so the contract dataset covers each of them.
  */
-class LogRegistrar implements Registrar
+class LogRegistrar implements ChecksAvailability, ManagesContacts, ManagesIdProtection, ManagesLock, ManagesNameservers, ProvidesEppCode, ReconcilesSubmissions, RegistrarDriver, RestoresDomains, SuggestsNames, SyncsDomains, TestsRegistrarConnection, TransfersDomains
 {
-    private string $simulate = 'none';
-
-    private ?string $apiKey = null;
+    public function key(): string
+    {
+        return 'log';
+    }
 
     public function name(): string
     {
         return 'Log (demo)';
     }
 
-    public function capabilities(): array
-    {
-        return ['availability', 'suggestions', 'register', 'transfer', 'renew', 'restore', 'info', 'nameservers', 'lock', 'epp', 'contacts', 'id_protection', 'sync', 'transfer_sync', 'reconcile'];
-    }
-
-    public function settingsSchema(): array
+    public function settingsFields(): array
     {
         return [
-            ['key' => 'api_key', 'label' => 'API key', 'type' => 'password', 'help' => 'Any value works; "invalid" fails the connection test.'],
-            ['key' => 'simulate', 'label' => 'Simulate failures', 'type' => 'select', 'options' => ['none' => 'Never fail', 'error' => 'Reject every command', 'timeout' => 'Time out every command']],
+            new SettingField('api_key', 'API key', FieldType::Secret, help: 'Any value works; "invalid" fails the connection test.'),
+            new SettingField('simulate', 'Simulate failures', FieldType::Select, options: ['none' => 'Never fail', 'error' => 'Reject every command', 'timeout' => 'Time out every command']),
         ];
     }
 
-    public function configure(array $settings, bool $testMode): void
-    {
-        $this->simulate = is_string($settings['simulate'] ?? null) ? $settings['simulate'] : 'none';
-        $this->apiKey = is_string($settings['api_key'] ?? null) ? $settings['api_key'] : null;
-    }
-
-    public function checkAvailability(string $sld, array $tlds): array
+    public function checkAvailability(RegistrarConfig $config, string $sld, array $tlds): array
     {
         $this->log('availability', ['sld' => $sld, 'tlds' => $tlds]);
 
         return array_map(fn (string $tld): AvailabilityResult => $this->availabilityOf($sld, $tld), $tlds);
     }
 
-    public function suggest(string $term, array $tlds, int $limit): array
+    public function suggest(RegistrarConfig $config, string $term, array $tlds, int $limit): array
     {
         $this->log('suggest', ['term' => $term, 'tlds' => $tlds]);
         $suggestions = [];
@@ -102,9 +110,9 @@ class LogRegistrar implements Registrar
         return $suggestions;
     }
 
-    public function register(RegistrationRequest $request): RegistrarResult
+    public function register(RegistrarConfig $config, RegistrationRequest $request): RegistrarResult
     {
-        $this->guardWrite('register', $request->domain);
+        $this->guardWrite($config, 'register', $request->domain);
 
         if (str_contains($request->domain->sld, 'slow')) {
             return new RegistrarResult('pending', message: 'Registration accepted; awaiting registry confirmation.');
@@ -113,86 +121,90 @@ class LogRegistrar implements Registrar
         return new RegistrarResult('completed', CarbonImmutable::today()->addYearsNoOverflow($request->years), 'Domain registered.');
     }
 
-    public function transfer(RegistrationRequest $request): RegistrarResult
+    public function transfer(RegistrarConfig $config, RegistrationRequest $request): RegistrarResult
     {
-        $this->guardWrite('transfer', $request->domain);
+        $this->guardWrite($config, 'transfer', $request->domain);
 
         return new RegistrarResult('pending', message: 'Transfer requested; awaiting approval by the losing registrar.');
     }
 
-    public function renew(Domain $domain, int $years, bool $restore = false): RegistrarResult
+    public function renew(RegistrarConfig $config, DomainRef $domain, int $years): RegistrarResult
     {
-        $this->guardWrite($restore ? 'restore' : 'renew', $domain, timeouts: false);
-        $base = $domain->expiry_date ?? CarbonImmutable::today();
+        $this->guardWrite($config, 'renew', $domain, timeouts: false);
 
-        return new RegistrarResult('completed', $base->addYearsNoOverflow($years), $restore ? 'Domain restored and renewed.' : 'Domain renewed.');
+        return new RegistrarResult('completed', ($domain->expiryDate ?? CarbonImmutable::today())->addYearsNoOverflow($years), 'Domain renewed.');
     }
 
-    public function info(Domain $domain): DomainInfo
+    public function restore(RegistrarConfig $config, DomainRef $domain, int $years): RegistrarResult
+    {
+        $this->guardWrite($config, 'restore', $domain, timeouts: false);
+
+        return new RegistrarResult('completed', ($domain->expiryDate ?? CarbonImmutable::today())->addYearsNoOverflow($years), 'Domain restored and renewed.');
+    }
+
+    public function info(RegistrarConfig $config, DomainRef $domain): DomainInfo
     {
         $this->log('info', ['domain' => $domain->name]);
 
         $status = match ($domain->status) {
-            DomainStatus::Pending => str_contains($domain->sld, 'timeout') ? 'active' : 'not_found',
-            DomainStatus::PendingRegistration, DomainStatus::Active, DomainStatus::Grace, DomainStatus::Redemption => 'active',
-            DomainStatus::PendingTransfer => 'pending',
-            DomainStatus::Expired => 'expired',
-            DomainStatus::TransferredAway => 'transferred_away',
-            DomainStatus::Cancelled, DomainStatus::Fraud => 'cancelled',
+            'pending' => str_contains($domain->sld, 'timeout') ? 'active' : 'not_found',
+            'pending_transfer' => 'pending',
+            'expired' => 'expired',
+            'transferred_away' => 'transferred_away',
+            'cancelled', 'fraud' => 'cancelled',
+            default => 'active',
         };
 
-        $expiry = $domain->expiry_date ?? ($status === 'active' ? CarbonImmutable::today()->addYearsNoOverflow($domain->period_years) : null);
+        $expiry = $domain->expiryDate ?? ($status === 'active' ? CarbonImmutable::today()->addYearsNoOverflow($domain->periodYears) : null);
 
         return new DomainInfo(
             status: $status,
-            nameservers: $domain->nameservers ?? [],
-            locked: $domain->registrar_lock ?? false,
+            nameservers: $domain->nameservers,
+            locked: $domain->locked ?? false,
             expiryDate: $expiry,
-            idProtection: $domain->id_protection,
+            idProtection: $domain->idProtection,
         );
     }
 
-    public function setNameservers(Domain $domain, array $nameservers): RegistrarResult
+    public function setNameservers(RegistrarConfig $config, DomainRef $domain, array $nameservers): RegistrarResult
     {
-        $this->guardWrite('nameservers', $domain, timeouts: false);
+        $this->guardWrite($config, 'nameservers', $domain, timeouts: false);
 
         return new RegistrarResult(message: 'Nameservers updated.');
     }
 
-    public function setLock(Domain $domain, bool $locked): RegistrarResult
+    public function setLock(RegistrarConfig $config, DomainRef $domain, bool $locked): RegistrarResult
     {
-        $this->guardWrite('lock', $domain, timeouts: false);
+        $this->guardWrite($config, 'lock', $domain, timeouts: false);
 
         return new RegistrarResult(message: $locked ? 'Domain locked.' : 'Domain unlocked.');
     }
 
-    public function setIdProtection(Domain $domain, bool $enabled): RegistrarResult
+    public function setIdProtection(RegistrarConfig $config, DomainRef $domain, bool $enabled): RegistrarResult
     {
-        $this->guardWrite('id_protection', $domain, timeouts: false);
+        $this->guardWrite($config, 'id_protection', $domain, timeouts: false);
 
         return new RegistrarResult(message: $enabled ? 'ID protection enabled.' : 'ID protection disabled.');
     }
 
-    public function getContacts(Domain $domain): ContactSet
+    /**
+     * The demo registrar keeps no contacts of its own; the host's copy is the only one.
+     */
+    public function getContacts(RegistrarConfig $config, DomainRef $domain): ContactSet
     {
         $this->log('contacts', ['domain' => $domain->name]);
-        $contacts = [];
 
-        foreach ($domain->contacts as $contact) {
-            $contacts[$contact->role] = $contact->only(['first_name', 'last_name', 'company', 'email', 'phone', 'address_1', 'address_2', 'city', 'state', 'postcode', 'country']);
-        }
-
-        return new ContactSet($contacts);
+        return new ContactSet;
     }
 
-    public function setContacts(Domain $domain, ContactSet $contacts): RegistrarResult
+    public function setContacts(RegistrarConfig $config, DomainRef $domain, ContactSet $contacts): RegistrarResult
     {
-        $this->guardWrite('contacts', $domain, timeouts: false);
+        $this->guardWrite($config, 'contacts', $domain, timeouts: false);
 
         return new RegistrarResult(message: 'Contacts updated.');
     }
 
-    public function getEppCode(Domain $domain): EppCodeResult
+    public function getEppCode(RegistrarConfig $config, DomainRef $domain): EppCodeResult
     {
         $this->log('epp', ['domain' => $domain->name]);
 
@@ -203,18 +215,18 @@ class LogRegistrar implements Registrar
         return new EppCodeResult(code: strtoupper(substr(hash('sha256', 'epp:'.$domain->name), 0, 4)).'-'.substr(hash('sha256', $domain->name), 0, 8));
     }
 
-    public function sync(Domain $domain): SyncResult
+    public function sync(RegistrarConfig $config, DomainRef $domain): SyncResult
     {
         $this->log('sync', ['domain' => $domain->name]);
 
         if (str_contains($domain->sld, 'gone')) {
-            return new SyncResult(active: false, transferredAway: true, expiryDate: $domain->expiry_date);
+            return new SyncResult(active: false, transferredAway: true, expiryDate: $domain->expiryDate);
         }
 
-        return new SyncResult(active: true, expiryDate: $domain->expiry_date ?? CarbonImmutable::today()->addYearsNoOverflow($domain->period_years));
+        return new SyncResult(active: true, expiryDate: $domain->expiryDate ?? CarbonImmutable::today()->addYearsNoOverflow($domain->periodYears));
     }
 
-    public function transferSync(Domain $domain): TransferSyncResult
+    public function transferSync(RegistrarConfig $config, DomainRef $domain): TransferSyncResult
     {
         $this->log('transfer_sync', ['domain' => $domain->name]);
 
@@ -222,29 +234,29 @@ class LogRegistrar implements Registrar
             return new TransferSyncResult(completed: false, failed: true, reason: 'The losing registrar rejected the transfer: invalid EPP code.');
         }
 
-        $base = $domain->expiry_date ?? CarbonImmutable::today();
+        $base = $domain->expiryDate ?? CarbonImmutable::today();
 
         return new TransferSyncResult(completed: true, expiryDate: $base->addYearsNoOverflow(1));
     }
 
-    public function findSubmission(Domain $domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup
+    public function findSubmission(RegistrarConfig $config, DomainRef $domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup
     {
         $this->log('reconcile', ['domain' => $domain->name, 'command' => $command]);
 
         return match (true) {
             $command === 'renew' => new SubmissionLookup(ReconcileStatus::Executed),
             str_contains($domain->sld, 'taken') => new SubmissionLookup(ReconcileStatus::Conflict, message: 'The name is registered in another account.'),
-            $command === 'register' && str_contains($domain->sld, 'timeout') => new SubmissionLookup(ReconcileStatus::Executed, CarbonImmutable::today()->addYearsNoOverflow($domain->period_years)),
+            $command === 'register' && str_contains($domain->sld, 'timeout') => new SubmissionLookup(ReconcileStatus::Executed, CarbonImmutable::today()->addYearsNoOverflow($domain->periodYears)),
             str_contains($domain->sld, 'timeout') || str_contains($domain->sld, 'slow') => new SubmissionLookup(ReconcileStatus::InProgress),
             default => new SubmissionLookup(ReconcileStatus::NotExecuted),
         };
     }
 
-    public function testConnection(): array
+    public function testConnection(RegistrarConfig $config): ConnectionCheck
     {
-        return $this->apiKey === 'invalid'
-            ? ['ok' => false, 'message' => 'Authentication failed: invalid API key.']
-            : ['ok' => true, 'message' => 'Connected to the log registrar.'];
+        return $config->setting('api_key') === 'invalid'
+            ? new ConnectionCheck(false, 'Authentication failed: invalid API key.')
+            : new ConnectionCheck(true, 'Connected to the log registrar.');
     }
 
     private function availabilityOf(string $sld, string $tld): AvailabilityResult
@@ -262,15 +274,16 @@ class LogRegistrar implements Registrar
     /**
      * @throws RegistrarException
      */
-    private function guardWrite(string $command, Domain $domain, bool $timeouts = true): void
+    private function guardWrite(RegistrarConfig $config, string $command, DomainRef $domain, bool $timeouts = true): void
     {
         $this->log($command, ['domain' => $domain->name]);
+        $simulate = $config->setting('simulate', 'none');
 
-        if ($this->simulate === 'error' || str_contains($domain->sld, 'fail') && ! str_contains($domain->sld, 'transferfail')) {
+        if ($simulate === 'error' || str_contains($domain->sld, 'fail') && ! str_contains($domain->sld, 'transferfail')) {
             throw new RegistrarException("The registrar rejected the {$command} request for {$domain->name}.");
         }
 
-        if ($this->simulate === 'timeout' || ($timeouts && str_contains($domain->sld, 'timeout'))) {
+        if ($simulate === 'timeout' || ($timeouts && str_contains($domain->sld, 'timeout'))) {
             throw new RegistrarTimeout;
         }
     }

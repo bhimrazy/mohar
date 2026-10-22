@@ -2,6 +2,7 @@
 
 namespace App\Modules\Domains\Models;
 
+use App\Data\Domains\Registrar\ContactSet;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
@@ -29,9 +30,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['domain_id', 'role', 'first_name', 'last_name', 'company', 'email', 'phone', 'address_1', 'address_2', 'city', 'state', 'postcode', 'country', 'synced_at'])]
 class DomainContact extends Model
 {
-    public const ROLES = ['registrant', 'admin', 'tech', 'billing'];
+    /** The kernel contact shape drivers receive (ContactSet). */
+    public const ROLES = ContactSet::ROLES;
 
-    public const FIELDS = ['first_name', 'last_name', 'company', 'email', 'phone', 'address_1', 'address_2', 'city', 'state', 'postcode', 'country'];
+    public const FIELDS = ContactSet::FIELDS;
 
     protected function casts(): array
     {

@@ -33,7 +33,7 @@ test('every encrypted cast in the code is a re-encryption target', function () {
         }
     }
 
-    expect($declared)->toHaveCount(23)
+    expect($declared)->toHaveCount(24)
         ->and(array_values(array_diff($declared, $targets)))->toBe([], 'Encrypted casts security:reencrypt does not cover: register the model in EncryptedStorage (new EncryptedModel(...))');
 });
 

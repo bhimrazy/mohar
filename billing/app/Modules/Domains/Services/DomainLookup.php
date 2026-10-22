@@ -2,15 +2,17 @@
 
 namespace App\Modules\Domains\Services;
 
+use App\Contracts\Domains\Registrar\ChecksAvailability;
+use App\Contracts\Domains\Registrar\SuggestsNames;
+use App\Data\Domains\Registrar\AvailabilityResult;
+use App\Data\Domains\Registrar\RegistrarConfig;
 use App\Modules\Core\Support\SettingList;
 use App\Modules\Core\Support\Settings;
-use App\Modules\Domains\Drivers\Registrars\Data\AvailabilityResult;
-use App\Modules\Domains\Drivers\Registrars\Registrar;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
-use App\Modules\Domains\Exceptions\RegistrarException;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Support\DomainName;
+use App\Support\Domains\RegistrarDriverRegistry;
+use App\Support\Domains\RegistrarException;
 use Closure;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
@@ -25,7 +27,7 @@ class DomainLookup
 
     public function __construct(
         private DomainPricingService $pricing,
-        private RegistrarManager $registrars,
+        private RegistrarDriverRegistry $registrars,
         private RegistrarGateway $gateway,
         private Settings $settings,
     ) {}
@@ -105,7 +107,7 @@ class DomainLookup
 
         $registrar = (string) $this->settings->get('domains.lookup_registrar', 'log');
 
-        if (! $this->registrars->has($registrar) || ! in_array('availability', $this->registrars->capabilitiesOf($registrar), true)) {
+        if (! $this->registrars->supports($registrar, 'availability')) {
             return array_map(fn (string $tld): AvailabilityResult => new AvailabilityResult($sld.$tld, 'unknown'), $tlds);
         }
 
@@ -116,7 +118,8 @@ class DomainLookup
             $results = $this->cachedResults($key, $ttl, fn (): array => $this->gateway->call(
                 $registrar,
                 'availability',
-                fn (Registrar $driver): array => $driver->checkAvailability($sld, $tlds),
+                ChecksAvailability::class,
+                fn (ChecksAvailability $driver, RegistrarConfig $config): array => $driver->checkAvailability($config, $sld, $tlds),
                 request: ['sld' => $sld, 'tlds' => $tlds],
                 logSuccess: false,
             ));
@@ -152,7 +155,8 @@ class DomainLookup
                 $results = $this->cachedResults('domains.suggest.'.$registrar.'.'.$sld.'.'.md5(implode(',', $tlds)), (int) $this->settings->get('domains.lookup_cache_seconds', 300), fn (): array => $this->gateway->call(
                     $registrar,
                     'suggestions',
-                    fn (Registrar $driver): array => $driver->suggest($sld, $tlds, $limit + count($checked)),
+                    SuggestsNames::class,
+                    fn (SuggestsNames $driver, RegistrarConfig $config): array => $driver->suggest($config, $sld, $tlds, $limit + count($checked)),
                     request: ['term' => $sld, 'tlds' => $tlds],
                     logSuccess: false,
                 ));

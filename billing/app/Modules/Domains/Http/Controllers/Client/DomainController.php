@@ -12,7 +12,6 @@ use App\Modules\Domains\Actions\SetAutoRenew;
 use App\Modules\Domains\Actions\SetRegistrarLock;
 use App\Modules\Domains\Actions\UpdateContacts;
 use App\Modules\Domains\Actions\UpdateNameservers;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Exceptions\DomainActionNotAllowed;
 use App\Modules\Domains\Http\Requests\ContactsRequest;
@@ -24,6 +23,7 @@ use App\Modules\Domains\Http\Resources\DomainResource;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainContact;
 use App\Modules\Domains\Services\DomainPricingService;
+use App\Support\Domains\RegistrarDriverRegistry;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -58,7 +58,7 @@ class DomainController extends Controller
         ]);
     }
 
-    public function show(int $domain, RegistrarManager $registrars, DomainPricingService $pricing): Response
+    public function show(int $domain, RegistrarDriverRegistry $registrars, DomainPricingService $pricing): Response
     {
         $model = $this->domain($domain)->load('contacts');
         $client = $this->context->client();
@@ -72,7 +72,11 @@ class DomainController extends Controller
         return Inertia::render('client/domains/show', [
             'domain' => new DomainResource($model),
             'contacts' => $contacts,
-            'capabilities' => $model->registrar_key === null ? ['nameservers', 'contacts'] : $registrars->capabilitiesOf($model->registrar_key),
+            'capabilities' => match (true) {
+                $model->registrar_key === null => ['nameservers', 'contacts'],
+                $registrars->has($model->registrar_key) => $registrars->capabilitiesOf($model->registrar_key),
+                default => [],
+            },
             'canManage' => $model->status->allowsClientActions(),
             'canResubmitTransfer' => $model->type === 'transfer' && $model->status === DomainStatus::Pending && $model->provision_invoice_id !== null,
             'renewalTerms' => $pricing->renewalTerms($model, $model->currency, $client->client_group_id),

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Domains\Drivers\Registrars\Data;
+namespace App\Data\Domains\Registrar;
 
 use App\Enums\ReconcileStatus;
 use Carbon\CarbonImmutable;
@@ -32,5 +32,13 @@ final readonly class SubmissionLookup
     public function toArray(): array
     {
         return ['status' => $this->status->value, 'expiry_date' => $this->expiryDate?->toDateString(), 'remote' => $this->remote, 'message' => $this->message];
+    }
+
+    /**
+     * A copy with another message, so the host can replace driver text (for example with a masked version).
+     */
+    public function withMessage(string $message): static
+    {
+        return new self($this->status, $this->expiryDate, $this->remote, $message);
     }
 }

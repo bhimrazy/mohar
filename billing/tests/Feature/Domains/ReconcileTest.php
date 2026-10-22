@@ -1,5 +1,8 @@
 <?php
 
+use App\Data\Domains\Registrar\RegistrarResult;
+use App\Data\Domains\Registrar\SubmissionLookup;
+use App\Data\Domains\Registrar\SyncResult;
 use App\Enums\ReconcileStatus;
 use App\Events\Domains\DomainSyncReport;
 use App\Modules\Core\Models\ActivityLog;
@@ -7,9 +10,6 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Actions\PerformRenewal;
 use App\Modules\Domains\Actions\SubmitToRegistrar;
 use App\Modules\Domains\Actions\SyncDomains;
-use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
-use App\Modules\Domains\Drivers\Registrars\Data\SubmissionLookup;
-use App\Modules\Domains\Drivers\Registrars\Data\SyncResult;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use Carbon\CarbonImmutable;
