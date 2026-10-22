@@ -12,15 +12,20 @@ return [
 
     /**
      * Largest image, in pixels (width × height), that is decoded for re-encoding; checked from the header first. 25
-     * megapixels takes a 24 MP phone photo (5712 × 4284). GD holds about 4 bytes a pixel.
+     * megapixels takes a 24 MP phone photo (5712 × 4284). Measured in the production image (memory_limit 256M), one
+     * request decoding a 25 MP image peaks at 221 MB for an RGBA PNG and 188–198 MB for JPEG and WebP, boot included.
+     * That bound is per request, not per container, so decodes are serialised by a cache lock (ImageSanitiser::LOCK).
      */
     'max_image_pixels' => 25_000_000,
 
     /**
-     * A larger image is scaled down to this many pixels before it is turned and stored, so decoding, scaling and
-     * rotating stay near 170 MB, under the 256 MB PHP memory limit. 16 MP keeps an identity document readable.
+     * A larger image is scaled down to this many pixels before it is turned and stored. 16 MP keeps an identity
+     * document readable (300 dpi or more over an ID card).
      */
     'stored_image_pixels' => 16_000_000,
+
+    /** Seconds an upload waits for another upload's image decode to finish before it is refused ("try again"). */
+    'image_decode_wait_seconds' => 15,
 
     /** Days documents are kept after the client account is closed (owner, 2026-10-21). */
     'retention_days' => 90,

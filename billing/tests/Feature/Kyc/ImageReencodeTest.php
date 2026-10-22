@@ -3,7 +3,9 @@
 use App\Modules\Core\Support\Settings;
 use App\Modules\Kyc\Enums\DocumentType;
 use App\Modules\Kyc\Models\KycDocument;
+use App\Modules\Kyc\Services\ImageSanitiser;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
@@ -190,4 +192,36 @@ test('an image above the stored size is scaled down, keeping its aspect ratio, b
     // 40 × 20 scaled to 20 × 10 (200 pixels), then turned.
     expect([imagesx($image), imagesy($image)])->toBe([10, 20])
         ->and(reencodeRgb($image, 2, 7)[0])->toBeGreaterThan(200);
+});
+
+test('decoding waits for the decode lock; while another upload holds it the upload is refused and nothing is stored', function () {
+    config(['kyc.image_decode_wait_seconds' => 0]);
+    $held = Cache::lock(ImageSanitiser::LOCK, 60);
+    expect($held->get())->toBeTrue();
+
+    reencodeSubmit(reencodeImage('jpeg'))->assertSessionHasErrors(['front' => 'Other photos are being processed. Try again in a moment.']);
+    expect(KycDocument::query()->count())->toBe(0)
+        ->and(Storage::disk(KycDocument::DISK)->allFiles())->toBe([]);
+
+    $held->release();
+    reencodeSubmit(reencodeImage('jpeg'))->assertSessionHasNoErrors();
+
+    // Released after each decode, so the next upload does not wait.
+    expect(Cache::lock(ImageSanitiser::LOCK, 1)->get())->toBeTrue();
+});
+
+test('a re-encoded image larger than the upload limit is refused', function () {
+    // Noise saved at JPEG quality 10 is small; encoded again at quality 90 it is several times larger.
+    $noise = imagecreatetruecolor(800, 800);
+    for ($i = 0; $i < 800 * 800; $i++) {
+        imagesetpixel($noise, $i % 800, intdiv($i, 800), mt_rand(0, 0xFFFFFF));
+    }
+    ob_start();
+    imagejpeg($noise, null, 10);
+    $small = (string) ob_get_clean();
+    config(['kyc.max_upload_kb' => 120]);
+    expect(strlen($small))->toBeLessThan(120 * 1024);
+
+    reencodeSubmit($small)->assertSessionHasErrors(['front' => 'The image must be 120 KB or smaller.']);
+    expect(Storage::disk(KycDocument::DISK)->allFiles())->toBe([]);
 });

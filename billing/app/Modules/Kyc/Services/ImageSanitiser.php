@@ -3,20 +3,31 @@
 namespace App\Modules\Kyc\Services;
 
 use GdImage;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
 /**
  * Decodes an identity image with GD and encodes it again in the same format, so only pixels are kept: EXIF (GPS
- * position, device, embedded thumbnails), ICC and text chunks, and anything appended to the file (a polyglot) are
- * dropped. The EXIF orientation is applied to the pixels first, so a portrait phone photo stays upright for staff.
- * The dimensions are checked from the header before decoding, because GD needs about four bytes per pixel, and a
- * large photo is scaled down before it is turned (kyc.max_image_pixels, kyc.stored_image_pixels).
+ * position, device, embedded thumbnails), ICC and text chunks, comments, and anything appended after the image data
+ * are dropped. A payload hidden in the pixel data itself (a lossless PNG can carry one) is not removed. The EXIF
+ * orientation is applied to the pixels first, so a portrait phone photo stays upright for staff.
+ *
+ * Memory: the dimensions are checked from the header before decoding (kyc.max_image_pixels), a large photo is scaled
+ * down before it is turned (kyc.stored_image_pixels), and one decode runs at a time across all web processes that
+ * share the cache lock store, because a single 25 MP decode needs about 200 MB.
  */
 class ImageSanitiser
 {
     /** The formats we accept (DocumentRequest::IMAGE_TYPES), keyed by the IMAGETYPE_* constant GD reports. */
     private const TYPES = [IMAGETYPE_JPEG => 'image/jpeg', IMAGETYPE_PNG => 'image/png', IMAGETYPE_WEBP => 'image/webp'];
+
+    /** Held while an image is decoded and encoded again; released when the closure returns or throws. */
+    public const LOCK = 'kyc:image-decode';
+
+    /** Seconds the lock outlives a process that dies while holding it. */
+    private const LOCK_TTL_SECONDS = 60;
 
     /**
      * @return array{bytes: string, mime: string}
@@ -38,6 +49,30 @@ class ImageSanitiser
             throw $this->refuse($field, __('The image must be :count megapixels or smaller.', ['count' => intdiv($limit, 1_000_000)]));
         }
 
+        try {
+            $encoded = Cache::lock(self::LOCK, self::LOCK_TTL_SECONDS)
+                ->block((int) config('kyc.image_decode_wait_seconds', 15), fn (): string => $this->reencode($bytes, $type, $field));
+        } catch (LockTimeoutException) {
+            throw $this->refuse($field, __('Other photos are being processed. Try again in a moment.'));
+        }
+
+        // The stored copy obeys the upload limit too: the review page and security:reencrypt hold it in memory.
+        $maxKb = (int) config('kyc.max_upload_kb', 5120);
+
+        if ($maxKb * 1024 < strlen($encoded)) {
+            throw $this->refuse($field, $maxKb >= 1024
+                ? __('The image must be :count MB or smaller.', ['count' => intdiv($maxKb, 1024)])
+                : __('The image must be :count KB or smaller.', ['count' => $maxKb]));
+        }
+
+        return ['bytes' => $encoded, 'mime' => self::TYPES[$type]];
+    }
+
+    /**
+     * Decode, scale, turn and encode. Runs only under self::LOCK; the images are freed when it returns.
+     */
+    private function reencode(string $bytes, int $type, string $field): string
+    {
         $image = @imagecreatefromstring($bytes);
 
         if (! $image instanceof GdImage) {
@@ -47,8 +82,35 @@ class ImageSanitiser
         // One statement each, so only two images are alive at a time.
         $image = $this->shrink($image);
         $image = $this->orient($image, $this->orientation($bytes, $type));
+        $encoded = $this->encode($image, $type);
 
-        return ['bytes' => $this->encode($image, $type), 'mime' => self::TYPES[$type]];
+        return $type === IMAGETYPE_JPEG ? $this->withoutComments($encoded) : $encoded;
+    }
+
+    /**
+     * Remove the COM segments (0xFFFE) before the scan data; GD writes one naming itself and its JPEG library.
+     */
+    private function withoutComments(string $jpeg): string
+    {
+        $kept = substr($jpeg, 0, 2);
+        $offset = 2;
+        $length = strlen($jpeg);
+
+        while ($offset + 4 <= $length && $jpeg[$offset] === "\xFF" && $jpeg[$offset + 1] !== "\xDA") {
+            $size = $this->number('n', $jpeg, $offset + 2);
+
+            if ($size < 2) {
+                break;
+            }
+
+            if ($jpeg[$offset + 1] !== "\xFE") {
+                $kept .= substr($jpeg, $offset, 2 + $size);
+            }
+
+            $offset += 2 + $size;
+        }
+
+        return $kept.substr($jpeg, $offset);
     }
 
     private function refuse(string $field, string $message): ValidationException
