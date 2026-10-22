@@ -20,20 +20,30 @@ arch('nothing uses the removed module-internal provisioning SPI (ADR 0009)')
         'App\Modules\Services\Support\Redactor',
     ]);
 
-arch('nothing uses the removed module-internal registrar SPI (ADR 0009)')
+// Removed from use in PR C2; the files stay on disk until PR C3 (#265) deletes them. Until then they may use only
+// each other. (`ignoring()` would also skip them as dependencies, so it cannot express this.)
+$deadRegistrarSpi = [
+    'App\Modules\Domains\Drivers\Registrars\Registrar',
+    'App\Modules\Domains\Drivers\Registrars\Data',
+    'App\Modules\Domains\Exceptions\RegistrarException',
+    'App\Modules\Domains\Exceptions\RegistrarTimeout',
+    'App\Modules\Domains\Exceptions\CapabilityNotSupported',
+];
+
+foreach ($deadRegistrarSpi as $removed) {
+    arch("{$removed} (the removed registrar SPI) is used by nothing else (ADR 0009)")
+        ->expect($removed)
+        ->toOnlyBeUsedIn($deadRegistrarSpi);
+}
+
+arch('nothing uses the removed module RegistrarManager (ADR 0009)')
     ->expect('App')
-    ->not->toUse([
-        'App\Modules\Domains\Drivers\Registrars\Registrar',
-        'App\Modules\Domains\Drivers\Registrars\Data',
-        'App\Modules\Domains\Drivers\Registrars\RegistrarManager',
-        'App\Modules\Domains\Exceptions\RegistrarException',
-        'App\Modules\Domains\Exceptions\RegistrarTimeout',
-        'App\Modules\Domains\Exceptions\CapabilityNotSupported',
-    ]);
+    ->not->toUse('App\Modules\Domains\Drivers\Registrars\RegistrarManager');
 
 arch('App\Modules\Domains\Drivers\Registrars sees snapshots only: no models, no database')
     ->expect('App\Modules\Domains\Drivers\Registrars')
-    ->not->toUse(['Illuminate\Database\Eloquent\Model', 'Illuminate\Support\Facades\DB', 'App\Modules\Domains\Models', 'App\Models']);
+    ->not->toUse(['Illuminate\Database\Eloquent\Model', 'Illuminate\Support\Facades\DB', 'App\Modules\Domains\Models', 'App\Models'])
+    ->ignoring($deadRegistrarSpi);
 
 // One target per rule: a not->toUse() over several targets passes when any one of them is clean (issue #275).
 foreach (['App\Contracts\Domains\Registrar', 'App\Data\Domains\Registrar'] as $registrarKernel) {
