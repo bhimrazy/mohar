@@ -223,8 +223,9 @@ the provider's refund id; a second report of the same id is a no-op. The steps, 
 2. **Invoice part.** It reserves and finalises at once, by the finalise row above: an automatic note when it falls on
    or after `enabled_from`, with actor "gateway" and reason `refunded_at_provider`.
 3. **Cap used up.** If the note would exceed the cap (usually because staff credited the sale to the account after a
-   release), take back the account credit that notes placed on that invoice (`credit_ledger` −amount with
-   `tax_note_id`, negative balance allowed, as other reversals).
+   release), take back the account credit that notes placed on that invoice, **up to the uncovered amount** (the part
+   of the invoice part the cap could not take): `credit_ledger` −amount with `tax_note_id`, negative balance
+   allowed, as other reversals.
 4. **Anything left** goes to "Gateway payments to review".
 
 Staff refunds use the same credit-first rule.
@@ -241,7 +242,10 @@ moves money through a provider, so it gets its own action, `RefundAccountCredit`
     - check the client's balance and the payment's `refundable_remaining`;
     - write the payout row, a `credit_ledger` row of −amount with reason `credit_refunded`. The recorded variant
       uses the same reason; while the refund row is pending this row acts as the hold;
-    - write a pending refund row with `invoice_id` null and the payment as its parent;
+    - write a pending refund row with `invoice_id` null, the payment as its parent, and
+      **`purpose = credit_refund`**, a new nullable `transactions.purpose` column (string, 30), written only by
+      `RefundAccountCredit`. The `credit_refunded` ledger row carries this refund row's id in
+      `credit_ledger.transaction_id`;
     - reduce `refundable_remaining`.
 
     Because the row is posted before the provider call, `ApplyCredit` cannot spend the credit meanwhile.
@@ -253,15 +257,18 @@ moves money through a provider, so it gets its own action, `RefundAccountCredit`
     - `ERROR` or `PENDING`: the row stays pending, and only Check refund is offered;
     - `SUCCESS` on a **failed** row (the provider declined, then paid):
         - post `credit_refunded` −amount again (negative balance allowed);
-        - take `refundable_remaining` back;
+        - take `refundable_remaining` back, clamped at 0 (another refund may have used it meanwhile). The to-do
+          records the shortfall when it was clamped;
         - mark the row succeeded;
         - open a staff to-do, "Credit refund paid after a decline".
 
         This is booked once, deduped on the provider's refund id;
 
     - any other result on a settled row is a no-op.
-- **Routing.** A refund row with `invoice_id` null and a parent payment is a cash-out. Every actor sends it here,
-  never down the invoice path. Today a callback for an own reference whose row is failed falls through to the
+- **Routing.** A refund row is a cash-out only when `transactions.purpose = credit_refund`. Every actor sends such a
+  row here, never down the invoice path. An empty `invoice_id` is never the test: develop already writes payments
+  without an invoice (the batch surplus, `PaymentBatches.php:186-197`), and `RefundTransaction` copies `invoice_id`
+  from the payment onto its refunds (`:80`). Today a callback for an own reference whose row is failed falls through to the
   parents path (`GatewayCallbackHandler.php:268` onward); PR 4 adds this branch before that path.
 
 ### 6. Events (ADR 0011)
