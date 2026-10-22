@@ -71,19 +71,21 @@ final class ApplyChunk implements ShouldBeEncrypted, ShouldQueue
             ['blank_cells' => (string) ($run->options['blank_cells'] ?? 'keep'), 'source_name' => $run->source->name], $run->applied_by);
         $clients = $registry->get('client');
         $logins = ($run->options['create_logins'] ?? true) && $registry->has('user') ? $registry->get('user') : null;
+        // Without Billing no opening balance is posted; the check warned on each row that has one.
+        $credits = $registry->has('credit_balance') ? $registry->get('credit_balance') : null;
         $pending = $records->whereNull('outcome');
         $emails = $pending->where('decision', 'create')->map(fn (MigrationRecord $record): string => (string) ($record->normalized['client']['email'] ?? ''))->filter()->values()->all();
         $taken = array_fill_keys(Client::query()->whereIn(DB::raw('lower(email)'), $emails)->pluck('email')->map(fn (string $email): string => mb_strtolower($email))->all(), true);
         $actor = $run->applied_by === null ? null : User::query()->find($run->applied_by);
 
         foreach ($pending as $record) {
-            DB::transaction(function () use ($run, $record, $context, $clients, $logins, $taken, $audit, $actor): void {
+            DB::transaction(function () use ($run, $record, $context, $clients, $logins, $credits, $taken, $audit, $actor): void {
                 // Claim the row: another job for this run (a redelivery, a Continue) may have applied it meanwhile.
                 $claimed = MigrationRecord::query()->whereKey($record->id)->whereNull('outcome')->lockForUpdate()->exists()
                     && MigrationRun::query()->whereKey($run->id)->where('status', MigrationRun::APPLYING)->exists();
 
                 if ($claimed) {
-                    $this->applyRow($run, $record, $context, $clients, $logins, $taken, $audit, $actor);
+                    $this->applyRow($run, $record, $context, $clients, $logins, $credits, $taken, $audit, $actor);
                 }
             });
         }
@@ -105,7 +107,7 @@ final class ApplyChunk implements ShouldBeEncrypted, ShouldQueue
     /**
      * @param  array<string, true>  $taken  emails clients hold now
      */
-    private function applyRow(MigrationRun $run, MigrationRecord $record, ImportContext $context, RecordImporter $clients, ?RecordImporter $logins, array $taken, ActivityLogger $audit, ?User $actor): void
+    private function applyRow(MigrationRun $run, MigrationRecord $record, ImportContext $context, RecordImporter $clients, ?RecordImporter $logins, ?RecordImporter $credits, array $taken, ActivityLogger $audit, ?User $actor): void
     {
         $normalized = $record->normalized ?? [];
         $client = $normalized['client'] ?? [];
@@ -142,6 +144,15 @@ final class ApplyChunk implements ShouldBeEncrypted, ShouldQueue
                 'verified' => ($run->options['trust_verified'] ?? false) && ($extra['email_verified'] ?? null) === true,
                 'link_existing' => $record->link_login === true,
             ], ['client_id' => $outcome->targetId]), $context, null)->issues];
+        }
+
+        if ($credits !== null && ($extra['credit_balance'] ?? null) !== null && in_array($outcome->action, [ImportAction::Created, ImportAction::Updated, ImportAction::Unchanged], true)) {
+            $credit = $credits->upsert(new ImportRecord('credit_balance', $run->source_system, (string) $record->source_id, [
+                'amount' => (int) $extra['credit_balance'], 'currency' => $fields['currency'] ?? null,
+            ], ['client_id' => $outcome->targetId]), $context, $outcome->targetId);
+            $issues = [...$issues, ...$credit->issues];
+            $outcome = $credit->changes === [] ? $outcome : new ImportOutcome($outcome->targetId, $outcome->action === ImportAction::Unchanged ? ImportAction::Updated : $outcome->action, $outcome->issues,
+                [...$outcome->changes, ...$credit->changes], $outcome->before === null && $credit->before === null ? null : [...($outcome->before ?? []), ...($credit->before ?? [])]);
         }
 
         $this->map($run, $record, $outcome);

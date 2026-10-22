@@ -16,6 +16,11 @@
  * currency (#218): Client::updateDetails (the admin client edit) changing the client's currency to <amount>, a currency
  * code; <pause ms> is spent saving the client, after the lock and the check.
  *
+ * manual (importer B2): a staff credit movement of <amount> minor units (negative takes credit away) through
+ * CreditLedgerService::post; <pause ms> is spent after the client lock, before the ledger row is inserted.
+ * opening (importer B2): the client import's opening balance for <client or invoice id> set to <amount> by run 8.
+ * opening-undo (importer B2): the undo of run 7's opening balance for the client.
+ *
  * Prints one JSON object: {label, invoice, status, applied, issued, ended}, or {label, error}. A plain invoice or a
  * currency change that is refused prints status "refused" and the reason as message.
  */
@@ -23,10 +28,13 @@
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Catalog\PriceBook;
+use App\Contracts\Migration\ImportIdResolver;
 use App\Contracts\Orders\PaymentGuard;
 use App\Contracts\Services\ServiceRegistry;
 use App\Data\Billing\InvoiceDraft;
 use App\Data\Billing\InvoiceLineData;
+use App\Data\Migration\ImportContext;
+use App\Data\Migration\ImportRecord;
 use App\Data\Services\ServiceDraft;
 use App\Enums\BillableType;
 use App\Modules\Billing\Actions\ApplyPayment;
@@ -34,15 +42,21 @@ use App\Modules\Billing\Actions\PaymentBatches;
 use App\Modules\Billing\Actions\Quotes;
 use App\Modules\Billing\Actions\SaveDraftInvoice;
 use App\Modules\Billing\Data\PaymentData;
+use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Exceptions\BillingException;
+use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentBatch;
 use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Models\Client;
 use App\Modules\Orders\Actions\PlaceOrder;
 use App\Modules\Orders\Data\CheckoutData;
+use App\Support\Migration\ImportRegistry;
+use App\Support\Money;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -103,6 +117,14 @@ if ($mode === 'checkout') {
     };
     Quote::saving($sleep);
     Invoice::saving($sleep);
+} elseif ($mode === 'manual') {
+    $pauseOnce = (int) $pause;
+    CreditLedgerEntry::creating(function () use (&$pauseOnce): void {
+        usleep($pauseOnce * 1000);
+        $pauseOnce = 0;
+    });
+} elseif ($mode === 'opening' || $mode === 'opening-undo') {
+    // Importer B2 probes: nothing to pause; the importer locks the client before it reads the ledger.
 } elseif ($mode === 'quote-convert') {
     // PR #237 probe: nothing to pause; convert locks the quote, then IssueInvoice locks the client.
 } else {
@@ -194,6 +216,37 @@ try {
         $issued = microtime(true);
         DB::commit();
         $print(['invoice' => $row->id, 'status' => 'saved', 'currency' => $row->currency, 'issued' => $issued, 'ended' => microtime(true)]);
+        exit(0);
+    }
+
+    if ($mode === 'manual' || $mode === 'opening' || $mode === 'opening-undo') {
+        $client = Client::query()->findOrFail((int) $clientId);
+
+        if ($mode === 'manual') {
+            try {
+                app(CreditLedgerService::class)->post($client->id, Money::of((int) $amount, $client->currency), CreditReason::Manual, description: 'Race '.$label);
+                $status = 'posted';
+            } catch (BillingException $e) {
+                $status = 'refused';
+            }
+        } else {
+            $importer = app(ImportRegistry::class)->get('credit_balance');
+            $context = new ImportContext($mode === 'opening' ? 8 : 7, 1, 'csv', false, CarbonImmutable::now(), null, new class implements ImportIdResolver
+            {
+                public function targetId(string $entity, string $sourceId): ?int
+                {
+                    return null;
+                }
+            }, ['source_name' => 'Old billing']);
+            $outcome = $mode === 'opening'
+                ? $importer->upsert(new ImportRecord('credit_balance', 'csv', 'race', ['amount' => (int) $amount, 'currency' => $client->currency], ['client_id' => $client->id]), $context, $client->id)
+                : $importer->reverse($client->id, $context);
+            $status = $outcome->action->value.implode('', array_map(fn ($issue): string => ':'.$issue->code, $outcome->issues));
+        }
+
+        $issued = microtime(true);
+        DB::commit();
+        $print(['status' => $status, 'issued' => $issued, 'ended' => microtime(true)]);
         exit(0);
     }
 

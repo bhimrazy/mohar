@@ -2,6 +2,7 @@
 
 namespace App\Modules\Migration\Support;
 
+use App\Contracts\Billing\TaxIdRules;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ClientRules;
 use Carbon\CarbonImmutable;
@@ -44,6 +45,7 @@ final class RowNormalizer
         private string $defaultCurrency,
         private array $groups,
         private array $locales,
+        private TaxIdRules $taxIds,
     ) {}
 
     /**
@@ -95,6 +97,7 @@ final class RowNormalizer
                     ? $this->problem('error', 'too_long', __('The consent evidence is longer than 500 characters.'), $target)
                     : $extra[$target] = $value,
                 'currency' => $client['currency'] = $this->currency($value),
+                'credit_balance' => $extra[$target] = $this->credit($value),
                 'client_group' => $client = [...$client, ...$this->group($value)],
                 'country' => $client['country'] = $this->country($value),
                 'status' => $client['status'] = $this->status($value),
@@ -104,6 +107,7 @@ final class RowNormalizer
         }
 
         $this->spreadsheetArtefacts($client);
+        $this->taxId($client);
         $validator = Validator::make([...$defaults, ...$client], ClientRules::fields())
             ->setAttributeNames(array_map(mb_strtolower(...), ClientColumns::TARGETS));
 
@@ -150,6 +154,51 @@ final class RowNormalizer
         }
 
         return $date->toDateString();
+    }
+
+    /**
+     * An opening credit balance in minor units, from a decimal written with an optional thousands separator (commas,
+     * lakh grouping included) and at most two decimals (ADR 0002). Parsed as text, never as a float.
+     */
+    private function credit(string $value): ?int
+    {
+        $plain = str_replace([',', ' '], '', $value);
+
+        if (preg_match('/^-\d/', $plain) === 1) {
+            $this->problem('error', 'credit_negative', __('The opening credit balance cannot be negative.'), 'credit_balance');
+
+            return null;
+        }
+
+        if (preg_match('/^(\d{1,12})(?:\.(\d{1,2}))?$/', $plain, $parts) !== 1) {
+            $this->problem('error', 'credit_format', __('The opening credit balance must be an amount such as 1,250.50, with at most two decimals.'), 'credit_balance');
+
+            return null;
+        }
+
+        return (int) $parts[1] * 100 + (int) str_pad($parts[2] ?? '0', 2, '0');
+    }
+
+    /**
+     * The tax number as invoices store it, and Billing's notes on it (client-import spec §6.6): warnings, never errors.
+     *
+     * @param  array<string, mixed>  $client
+     */
+    private function taxId(array &$client): void
+    {
+        $country = $client['country'] ?? null;
+
+        if (! is_string($country)) {
+            return;
+        }
+
+        if (is_string($client['tax_id'] ?? null)) {
+            $client['tax_id'] = $this->taxIds->normalize($country, $client['tax_id']);
+        }
+
+        foreach ($this->taxIds->notes($country, $client['tax_id'] ?? null, $client['state'] ?? null, ($client['company_name'] ?? '') !== '') as $note) {
+            $this->problem($note['severity'], $note['code'], $note['message'], 'tax_id');
+        }
     }
 
     private function currency(string $value): string

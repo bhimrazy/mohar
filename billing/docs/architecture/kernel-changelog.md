@@ -6,6 +6,15 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Client import opening balances and tax-number notes (importer B2b)
+
+- New capability `App\Contracts\Migration\ReversibleImporter extends RecordImporter` with
+  `reverse(int $targetId, ImportContext $context): ImportOutcome` (ADR 0012 growth by capability, for the import undo
+  of client-import spec §5.7). Billing's `credit_balance` importer implements it.
+- New contract `App\Contracts\Billing\TaxIdRules`: `normalize(string $country, string $taxId): string` and
+  `notes(string $country, ?string $taxId, ?string $state, bool $business): list<array{severity, code, message}>`.
+  Core binds `NullTaxIdRules`; Billing binds `BillingTaxIdRules` (Nepal PAN, Indian GSTIN, EU reverse charge).
+
 ### Client currency lock (#218)
 
 - `App\Support\Clients\ClientCurrencyUsage::sourcesFor(int $clientId): list<string>` (new method, additive): the keys

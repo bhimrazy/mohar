@@ -2,6 +2,7 @@
 
 namespace App\Modules\Migration\Jobs;
 
+use App\Contracts\Billing\TaxIdRules;
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Migration\Models\MigrationRecord;
@@ -10,6 +11,7 @@ use App\Modules\Migration\Support\ClientColumns;
 use App\Modules\Migration\Support\ClientMatcher;
 use App\Modules\Migration\Support\ReviewDigest;
 use App\Modules\Migration\Support\RowNormalizer;
+use App\Support\Migration\ImportRegistry;
 use App\Support\Queues;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -64,6 +66,7 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
         $columns = $run->mapping['columns'] ?? [];
         $hasExternalId = in_array(ClientColumns::EXTERNAL_ID, $columns, true);
         $normalizer = $this->normalizer($run, $columns);
+        $imports = app(ImportRegistry::class);
         $found = $this->afterRow === 0 ? [] : ($run->found_values ?? []);
         $rows = [];
 
@@ -72,6 +75,10 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
             $email = $normalized['client']['email'] ?? null;
             $hash = is_string($email) ? MigrationRecord::emailHash($email) : null;
             $sourceId = $hasExternalId ? ($normalized['extra'][ClientColumns::EXTERNAL_ID] ?? null) : ($hash === null ? null : "email:{$hash}");
+
+            if (($normalized['extra']['credit_balance'] ?? null) !== null && ! $imports->has('credit_balance')) {
+                $normalized['problems'][] = ['severity' => 'warning', 'code' => 'credit_unavailable', 'message' => __('The opening credit balance will not be imported: billing is not installed.'), 'field' => 'credit_balance'];
+            }
 
             if ($hasExternalId && $sourceId === null) {
                 $normalized['problems'][] = ['severity' => 'error', 'code' => 'no_external_id', 'message' => __('The External ID is empty.'), 'field' => ClientColumns::EXTERNAL_ID];
@@ -115,7 +122,8 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
                 'decision' => $decision['decision'],
                 'match_client_id' => $decision['match_client_id'],
                 'problems' => json_encode($decision['problems']),
-                'changes' => json_encode($decision['changes']),
+                // An update also moves the opening balance to the file's amount, when Billing finds it can (§6.12).
+                'changes' => json_encode($decision['decision'] === 'update' && ($row['payload']['extra']['credit_balance'] ?? null) !== null ? [...$decision['changes'], 'credit_balance'] : $decision['changes']),
                 'tax_exempt' => ($row['client']['tax_exempt'] ?? false) === true,
                 'link_login' => null,
                 'review_hash' => ReviewDigest::row($run, $row['row'], $decision['decision'], $row['checksum'], $decision['match_client_id'], null),
@@ -199,6 +207,6 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
         }
 
         return new RowNormalizer($run->header ?? [], $columns, $run->mapping['date_format'] ?? null, $currencies, $enabled[0] ?? 'USD', $groups,
-            array_values(array_unique([config('app.locale'), config('app.fallback_locale')])));
+            array_values(array_unique([config('app.locale'), config('app.fallback_locale')])), app(TaxIdRules::class));
     }
 }

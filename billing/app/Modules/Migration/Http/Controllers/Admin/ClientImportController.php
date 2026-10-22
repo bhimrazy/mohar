@@ -280,7 +280,7 @@ class ClientImportController extends Controller
             ->when($search !== '', fn ($query) => ctype_digit(str_replace(',', '', $search))
                 ? $query->where('row_number', (int) str_replace(',', '', $search))
                 : $query->where('email_hash', MigrationRecord::emailHash($search)))
-            ->with('matchedClient:id,first_name,last_name,company_name')
+            ->with('matchedClient:id,first_name,last_name,company_name,currency')
             ->orderBy('row_number')
             ->paginate(self::PER_PAGE, ['id', 'migration_run_id', 'row_number', 'normalized', 'status', 'decision', 'match_client_id', 'problems', 'changes', 'link_login', 'outcome', 'target_id'])
             ->withQueryString()
@@ -298,6 +298,11 @@ class ClientImportController extends Controller
                 'link_login' => $record->link_login,
                 'outcome' => $record->outcome,
                 'client_href' => in_array($record->outcome, ['created', 'updated'], true) && $record->target_id !== null ? route('admin.clients.show', $record->target_id) : null,
+                'credit' => ($record->normalized['extra']['credit_balance'] ?? null) === null ? null : [
+                    'amount' => (int) $record->normalized['extra']['credit_balance'],
+                    // The client's currency: the file's, else the matched client's, else the default a new client gets.
+                    'currency' => (string) ($record->normalized['client']['currency'] ?? $record->matchedClient?->currency ?? $record->normalized['defaults']['currency'] ?? ''),
+                ],
             ]);
 
         return Inertia::render('admin/migration/check', [
