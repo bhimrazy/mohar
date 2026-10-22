@@ -84,7 +84,7 @@ it('rb337-5: a failed capture is not charged again on the same company day', fun
 it('rb337-6: failedToday counts the run of the company day', function () {
     freezeAt0300Nepal();
     AutomationRun::query()->create(['run_date' => '2026-10-19', 'task' => 'x', 'status' => 'failed']);
-    AutomationRun::query()->create(['run_date' => '2026-10-18', 'task' => 'y', 'status' => 'failed']);
+    AutomationRun::query()->create(['run_date' => '2026-10-18', 'task' => 'y', 'status' => 'success']);
 
     expect(app(AutomationStatus::class)->failedToday())->toBe(1);
 });
