@@ -6,6 +6,16 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Step-up in the kernel (#81, ADR 0018 §4)
+
+- `App\Http\Middleware\RequireRecentPasswordConfirmation` (moved from `App\Modules\Platform\Http\Middleware`): the
+  `password.recent` middleware, aliased in `bootstrap/app.php`. Same contract: `ERROR_KEY`, `recentlyConfirmed()`,
+  `timeout()`; 423 for JSON, a `password_confirmation` validation error for Inertia. The window is read from
+  `auth.step_up_seconds` (900), which replaces `platform.password_confirmation_seconds`. Billing's
+  `ConfirmPasswordForAction` copy and Migration's `RequirePassword` fallback are deleted; modules register no step-up
+  alias of their own. `tests/Extensions/ModuleRoutesResolveTest.php` boots each module alone and fails when a route's
+  middleware does not resolve.
+
 ### Client import opening balances and tax-number notes (importer B2b)
 
 - New capability `App\Contracts\Migration\RevertsImport extends RecordImporter` with

@@ -39,9 +39,13 @@ foreach (FEATURE_MODULES as $module) {
         ->not->toUse($others);
 }
 
-arch('Core and the shared kernel do not depend on feature modules')
-    ->expect(['App\Modules\Core', 'App\Contracts', 'App\Data', 'App\Events', 'App\Enums', 'App\Support'])
-    ->not->toUse(array_map(fn (string $module): string => "App\\Modules\\{$module}", [...FEATURE_MODULES, ...READ_MODEL_MODULES]));
+// One rule per kernel namespace: with several targets in one expect(), the arch plugin reports a pass even when one
+// of them imports a module (probed on PR #268).
+foreach (['App\Modules\Core', 'App\Contracts', 'App\Data', 'App\Events', 'App\Enums', 'App\Support', 'App\Http'] as $kernel) {
+    arch("{$kernel} does not depend on feature modules")
+        ->expect($kernel)
+        ->not->toUse(array_map(fn (string $module): string => "App\\Modules\\{$module}", [...FEATURE_MODULES, ...READ_MODEL_MODULES]));
+}
 
 arch('contracts are interfaces')
     ->expect('App\Contracts')

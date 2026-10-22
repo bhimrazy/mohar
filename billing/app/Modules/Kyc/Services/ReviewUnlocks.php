@@ -2,6 +2,7 @@
 
 namespace App\Modules\Kyc\Services;
 
+use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 
@@ -20,7 +21,7 @@ class ReviewUnlocks
     public function unlock(Request $request, int $clientId): CarbonImmutable
     {
         $confirmedAt = (int) $request->session()->get('auth.password_confirmed_at', 0);
-        $stepUpEnds = $confirmedAt + (int) config('platform.password_confirmation_seconds', 900);
+        $stepUpEnds = $confirmedAt + RequireRecentPasswordConfirmation::timeout();
         $until = min(CarbonImmutable::now()->addMinutes(self::MINUTES)->getTimestamp(), $stepUpEnds);
         $unlocks = array_filter($this->all($request), fn (int $expires): bool => $expires > now()->getTimestamp());
         $unlocks[$clientId] = $until;

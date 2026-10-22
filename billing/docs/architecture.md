@@ -18,6 +18,7 @@ app/
   Events/<Area>/           domain events (scalar payloads, ids not models)
   Enums/                   shared enums (BillingCycle, BillableType)
   Support/                 Money, Modules base provider, Navigation, Dashboard registries
+  Http/Middleware/         kernel-owned, module-agnostic middleware (password.recent), aliased in bootstrap/app.php
   Modules/<Module>/
     <Module>ServiceProvider.php   extends App\Support\Modules\ModuleServiceProvider
     Config/<module>.php           defaults, merged as config('<module>.*')
@@ -37,7 +38,9 @@ loads only Core + Billing.
 ### Dependency rules (enforced in review)
 
 1. A module may import: its own namespace, `App\Modules\Core\*`, `App\Contracts|Data|Events|Enums|Support\*`,
-   `App\Models\User`, framework/vendor code.
+   `App\Http\Middleware\*` (kernel-owned HTTP middleware), `App\Models\User`, framework/vendor code.
+   Middleware home: framework-level, module-agnostic middleware goes in `App\Http\Middleware`; middleware that
+   needs Core models or services goes in `App\Modules\Core\Http\Middleware`.
 2. A module must NOT import another module's classes (models, services, controllers). Cross-module calls go
    through a contract in `app/Contracts`; cross-module reactions go through events in `app/Events`.
 3. Exceptions: **Reports** (read model) may read other modules' tables via their models.

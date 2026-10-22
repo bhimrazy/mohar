@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Step-up for sensitive actions works with any set of modules (#81).** The `password.recent` middleware moved from
+  the Platform module to the application kernel (`App\Http\Middleware\RequireRecentPasswordConfirmation`, aliased in
+  `bootstrap/app.php`). Installations that leave out Platform (`MODULES=Domains`, `MODULES=Services` and so on) no
+  longer get a 500 error on sensitive Domains, Services, Kyc, Notifications and Storefront actions: they get the usual
+  confirm-password prompt (423 for JSON clients). Billing's and Migration's own fallbacks are removed; Migration's
+  used to redirect to the confirm page, and now behaves like every other module. The window is still 900 seconds;
+  its setting moved from `platform.password_confirmation_seconds` to `auth.step_up_seconds` in `config/auth.php`.
+  Anyone who edited the old key in `app/Modules/Platform/Config/platform.php` sets the new one instead. No schema or
+  permission change.
 - **Cache lock store check.** `php artisan app:install` reports a new "Cache lock store" check. `CACHE_STORE=array`
   or `null` (or a `failover` list containing one) stops a first production install and warns on an existing installation; `file`, `apc` and `octane` warn that they are safe on a
   single host only; `database` and `redis` pass. In production the admin dashboard's System health card shows the same

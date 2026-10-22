@@ -114,4 +114,12 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    /*
+    | Step-up window: seconds a password confirmation unlocks sensitive mutations behind the "password.recent"
+    | middleware (App\Http\Middleware\RequireRecentPasswordConfirmation, ADR 0018 §4). Kept apart from
+    | password_timeout, which governs the "password.confirm" pages.
+    */
+
+    'step_up_seconds' => 900,
+
 ];
