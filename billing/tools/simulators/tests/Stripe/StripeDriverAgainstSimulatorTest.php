@@ -200,7 +200,7 @@ test('an inquiry that escalates and is won books the chargeback and its reversal
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
 });
 
-test('an inquiry that escalates and is won on an install without funds_withdrawn is acknowledged and books nothing (#232)', function () {
+test('an inquiry that escalates and is won on an install without funds_withdrawn is acknowledged and moves no money (#232)', function () {
     $this->scenario->simulator()->actions()['webhook_url'](['url' => route('billing.webhooks', StripeDriver::KEY), 'enabled_events' => [
         'checkout.session.completed', 'payment_intent.succeeded', 'charge.dispute.created', 'charge.dispute.closed',
     ]], $this->scenario);
@@ -217,9 +217,11 @@ test('an inquiry that escalates and is won on an install without funds_withdrawn
 
     $actions['close_dispute'](['dispute' => $dispute, 'status' => 'won'], $this->scenario);
     expect(deliverWebhooks())->toBe([[200, GatewayCallbackHandler::DISPUTE_WON_UNBOOKED]])
-        ->and(deliverWebhooks(replay: true))->toBe([[200, GatewayCallbackHandler::DISPUTE_WON_UNBOOKED]])
+        ->and(deliverWebhooks(replay: true))->toBe([[200, 'duplicate']])
         ->and($this->scenario->outbox()->pending())->toBe([])
-        ->and(Transaction::query()->whereIn('type', [TransactionType::Chargeback, TransactionType::ChargebackReversal])->exists())->toBeFalse()
+        ->and(Transaction::query()->where('type', TransactionType::Chargeback)->exists())->toBeFalse()
+        // The zero-amount marker that the dispute is won (#256 review B1).
+        ->and(Transaction::query()->where('type', TransactionType::ChargebackReversal)->sole()->amount_in)->toBe(0)
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
         ->and($payment->fresh()->refundable_remaining)->toBe(2_500);
 });

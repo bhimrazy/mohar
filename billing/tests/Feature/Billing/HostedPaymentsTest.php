@@ -44,6 +44,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/helpers.php';
@@ -787,6 +788,23 @@ test('after twelve lookups the poller checks a long-open attempt on every sixth 
     $this->artisan('billing:reconcile-payments', ['--only' => 'open'])->assertSuccessful();
 
     expect($attempt->fresh()->lookup_count)->toBe(13);
+});
+
+test('the five-minute poller stops at its per-run cap, never-checked and least recently checked attempts first, on its index (#256 review)', function () {
+    billingSettings(['gateways.lookups_per_run' => 2]);
+    $client = Client::factory()->create(['currency' => 'NPR']);
+    $open = fn (?int $minutesAgo): PaymentAttempt => tap(PaymentAttempt::query()->create(['reference' => PaymentAttempt::newReference(), 'gateway' => 'fake_wallet',
+        'client_id' => $client->id, 'amount' => 50_000, 'currency' => 'NPR', 'document_amount' => 50_000, 'document_currency' => 'NPR',
+        'status' => AttemptStatus::Pending, 'expires_at' => now()->addHour()]), fn (PaymentAttempt $attempt) => $minutesAgo === null ? null
+        : $attempt->forceFill(['last_lookup_at' => now()->subMinutes($minutesAgo), 'lookup_count' => 1])->save());
+    $recent = $open(10);
+    $never = $open(null);
+    $oldest = $open(20);
+
+    $this->artisan('billing:reconcile-payments', ['--only' => 'open'])->assertSuccessful();
+
+    expect([$recent->fresh()->lookup_count, $never->fresh()->lookup_count, $oldest->fresh()->lookup_count])->toBe([1, 1, 2])
+        ->and(Schema::hasIndex('payment_attempts', 'payment_attempts_status_last_lookup_at_index'))->toBeTrue();
 });
 
 test('a closed attempt the provider reports as expired or cancelled is not swept again', function (string $status) {

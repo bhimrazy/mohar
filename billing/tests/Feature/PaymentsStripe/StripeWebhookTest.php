@@ -1,6 +1,7 @@
 <?php
 
 use App\Events\Billing\InvoicePaid;
+use App\Events\Billing\PaymentReinstated;
 use App\Events\Billing\PaymentReversed;
 use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Enums\AttemptStatus;
@@ -404,8 +405,8 @@ function stripeWonDispute(): array
     return $won;
 }
 
-test('an escalated inquiry won without funds_withdrawn ever arriving is acknowledged once and books nothing (#232)', function () {
-    Event::fake([PaymentReversed::class]);
+test('an escalated inquiry won without funds_withdrawn ever arriving is acknowledged once and moves no money (#232)', function () {
+    Event::fake([PaymentReversed::class, PaymentReinstated::class]);
     [$invoice] = paidStripeAttempt();
     postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk();
     $payment = Transaction::query()->where('type', TransactionType::Payment)->sole();
@@ -415,16 +416,21 @@ test('an escalated inquiry won without funds_withdrawn ever arriving is acknowle
 
     $closed = stripeEvent('charge.dispute.closed', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0031');
     postStripeWebhook($closed)->assertOk()->assertJson(['result' => GatewayCallbackHandler::DISPUTE_WON_UNBOOKED]);
-    // Stripe's own retry, and a funds_withdrawn delivered after the win (a late subscription or a retry).
-    postStripeWebhook($closed)->assertOk()->assertJson(['result' => GatewayCallbackHandler::DISPUTE_WON_UNBOOKED]);
+    // Stripe's own retry finds the won marker; a funds_withdrawn delivered after the win (a late subscription or a
+    // retry) is ignored by the driver.
+    postStripeWebhook($closed)->assertOk()->assertJson(['result' => 'duplicate']);
     postStripeWebhook(stripeEvent('charge.dispute.funds_withdrawn', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0032'))->assertOk()->assertJson(['result' => 'ignored event type']);
 
-    expect(Transaction::query()->whereIn('type', [TransactionType::Chargeback, TransactionType::ChargebackReversal])->exists())->toBeFalse()
+    // The only row is the zero-amount marker that the dispute is won (#256 review B1).
+    expect(Transaction::query()->where('type', TransactionType::Chargeback)->exists())->toBeFalse()
+        ->and(Transaction::query()->where('type', TransactionType::ChargebackReversal)->sole())
+        ->amount_in->toBe(0)->amount_out->toBe(0)->gateway_txn_id->toBe('du_1MoharDispute0001')->review_amount->toBeNull()
         ->and($invoice->fresh())->status->toBe(InvoiceStatus::Paid)->balance->toBe(0)
         ->and($payment->fresh()->refundable_remaining)->toBe($payment->refundable_remaining)
         ->and(CreditLedgerEntry::query()->exists())->toBeFalse()
-        ->and(GatewayLog::query()->where('direction', 'callback')->where('result', GatewayCallbackHandler::DISPUTE_WON_UNBOOKED)->count())->toBe(2);
+        ->and(GatewayLog::query()->where('direction', 'callback')->where('result', GatewayCallbackHandler::DISPUTE_WON_UNBOOKED)->count())->toBe(1);
     Event::assertNotDispatched(PaymentReversed::class);
+    Event::assertNotDispatched(PaymentReinstated::class);
 });
 
 test('a won close that shows the reinstatement still reverses a chargeback that was booked (#232)', function () {

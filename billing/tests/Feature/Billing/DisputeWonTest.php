@@ -1,6 +1,7 @@
 <?php
 
 use App\Contracts\Billing\CreditLedger;
+use App\Data\Billing\CallbackEvent;
 use App\Events\Billing\InvoicePaid;
 use App\Events\Billing\PaymentReinstated;
 use App\Modules\Billing\Actions\CreateAddFundsInvoice;
@@ -12,6 +13,8 @@ use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Billing\Services\GatewayCallbackHandler;
+use App\Modules\Billing\Services\InvoicePdf;
 use App\Modules\Core\Models\Client;
 use App\Modules\Notifications\Models\WebhookDelivery;
 use App\Modules\Notifications\Models\WebhookEndpoint;
@@ -21,6 +24,7 @@ use App\Support\Money;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
+use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/helpers.php';
 require_once __DIR__.'/WebhookHelpers.php';
@@ -215,4 +219,24 @@ test('webhook subscribers get payment.reversed for the chargeback and payment.re
         ->and($deliveries[1]->payload['data']['object'])->toMatchArray(['id' => $won->id, 'type' => 'chargeback_reversal', 'reference' => 'dp_w9', 'invoice_id' => $invoice->id])
         ->and($deliveries[1]->payload['data']['ids'])->toMatchArray(['invoice_id' => $invoice->id, 'client_id' => $client->id, 'transaction_id' => $won->id])
         ->and($invoice->fresh()->balance)->toBe(2_000);
+});
+
+test('the won-dispute marker (#232) moves no money: hidden from the client invoice, credit page and PDF, never refundable, no ledger line', function () {
+    [, $client] = actingAsClient(Client::factory()->create());
+    $invoice = issueInvoice($client, [5_000]);
+    sandboxWebhook(['type' => 'payment.succeeded', 'invoice_id' => $invoice->id, 'txn_id' => 'ch_w10', 'amount' => 5_000, 'currency' => 'USD'])->assertOk();
+
+    $result = app(GatewayCallbackHandler::class)->process('sandbox_card', new CallbackEvent(CallbackEvent::DISPUTE_WON, null, 'dp_w10', 5_000, 'USD',
+        parentTxnId: 'ch_w10', raw: ['dispute' => 'dp_w10'], fundsReinstated: true));
+
+    $marker = Transaction::query()->where('type', 'chargeback_reversal')->sole();
+    expect($result['result'])->toBe(GatewayCallbackHandler::DISPUTE_WON_UNBOOKED)
+        ->and($marker)->amount_in->toBe(0)->amount_out->toBe(0)->refundable_remaining->toBe(0)
+        ->and($marker->isRefundable())->toBeFalse()
+        ->and(CreditLedgerEntry::query()->exists())->toBeFalse()
+        ->and($invoice->fresh())->amount_paid->toBe(5_000)->balance->toBe(0);
+
+    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page->has('transactions', 1)->where('transactions.0.type', 'payment'));
+    $this->get(route('client.credit.index'))->assertInertia(fn (Assert $page) => $page->has('transactions.data', 1));
+    expect(view('billing::pdf.invoice', app(InvoicePdf::class)->viewData($invoice->fresh()))->render())->not->toContain('Dispute won');
 });

@@ -89,8 +89,10 @@ class InvoiceController extends Controller
             'invoice' => new InvoiceResource($invoice),
             'items' => InvoiceItemResource::collection($invoice->items),
             'adjustments' => AdjustmentResource::collection($invoice->adjustments),
-            // A dispute inquiry is a staff to-do that moved no money (#212).
-            'transactions' => TransactionResource::collection($invoice->transactions()->where('type', '!=', TransactionType::DisputeInquiry)->get()),
+            // Zero-amount records (an inquiry's to-do #212, the won-dispute marker #232) moved no money: as on the PDF,
+            // the client sees only rows that did.
+            'transactions' => TransactionResource::collection($invoice->transactions()->where('type', '!=', TransactionType::DisputeInquiry)
+                ->where(fn ($query) => $query->where('amount_in', '>', 0)->orWhere('amount_out', '>', 0))->get()),
             'payment' => $invoice->status === InvoiceStatus::Unpaid && $invoice->balance > 0 ? $options->forInvoice($invoice) : null,
             'payment_in_progress' => $invoice->status->isPayable() ? $inProgress->forInvoice($invoice) : null,
         ]);
