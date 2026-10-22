@@ -86,7 +86,7 @@ review. `state.md` "Running now" lists the running agents and the queue.
 Run from the worktree's `billing/` directory with `export XDEBUG_MODE=off`:
 
 ```bash
-H=/workspaces/whmcs/scripts/heavy.sh
+H=$MOHAR_ROOT/scripts/heavy.sh
 vendor/bin/pint --dirty --format agent
 $H vendor/bin/phpstan analyse --memory-limit=1G     # Larastan level 7
 php artisan wayfinder:generate --with-form
@@ -98,7 +98,7 @@ $H php artisan test --compact tests/Arch <touched suites>
 ```
 
 CI is the full-suite runner on SQLite and PostgreSQL. Locally, engineers and reviewers run the tests they touched
-plus `tests/Arch`, on PostgreSQL too for queries and migrations: `eval "$(/workspaces/whmcs/scripts/pg.sh <slug>)"`
+plus `tests/Arch`, on PostgreSQL too for queries and migrations: `eval "$($MOHAR_ROOT/scripts/pg.sh <slug>)"`
 gives a database on the shared server `mohar-pg` (in-memory, recreated on demand; `--stop`, `--prune`). No private
 PostgreSQL containers. The full suite runs locally only to diagnose a CI failure.
 
@@ -133,9 +133,13 @@ The owner switches the repository (`bhimrazy/mohar`) between public and private 
 - Integration PRs update `billing/docs/testing/integration-test-matrix.md`.
 - Shared-kernel changes are made centrally by the CTO unless the PR body calls them out.
 
-## Machine limits (GitHub Codespace)
+## Machine limits
 
-- 4 vCPU, 15 GB RAM, 32 GB disk shared by `/`, `/workspaces` and Docker (about 9 GB is the base image). `/tmp` is a
+The work runs on the owner's Mac since 2026-10-22 (10 cores, 24 GB, Docker Desktop with 8 CPUs and 3.6 GB). It is
+also the owner's own machine: the agent budget above applies, `/tmp` survives reboots but is still not for work, and
+`storage-cleanup.sh` leaves Docker alone (other projects share it). The rules below apply on both.
+
+- Codespace: 4 vCPU, 15 GB RAM, 32 GB disk shared by `/`, `/workspaces` and Docker (about 9 GB is the base image). `/tmp` is a
   separate disk wiped on restart: disposable caches only (the npm cache lives there), never work.
 - `scripts/heavy.sh` allows three heavy commands machine-wide at low priority. `scripts/resource-monitor.sh <log>`
   logs load, memory, disk and top processes every 30 s; start it each session.

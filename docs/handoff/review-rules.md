@@ -9,11 +9,11 @@ checklist; this file holds what they have in common. The brief gives the PR numb
 - Read-only on the branch under review: do not modify, commit or push its code. The exceptions are a product sweep or
   database audit whose brief names a fix branch; those fixes go only to that branch. Probes and review bodies live in
   a scratch directory; `git status` in the worktree is clean when you finish.
-- Never run commands in the main checkout `/workspaces/whmcs/billing` and never touch port 8000 (the owner's
+- Never run commands in the main checkout `$MOHAR_ROOT/billing` and never touch port 8000 (the owner's
   preview). Chain every `cd` with `&&`.
-- Heavy commands (`npm ci`, builds, phpstan, test suites) go through `/workspaces/whmcs/scripts/heavy.sh` with
+- Heavy commands (`npm ci`, builds, phpstan, test suites) go through `$MOHAR_ROOT/scripts/heavy.sh` with
   `export XDEBUG_MODE=off`. Run targeted tests only; CI runs the full suite on SQLite and PostgreSQL.
-- PostgreSQL: use the shared server with your own database, `eval "$(/workspaces/whmcs/scripts/pg.sh <slug>)"`, then
+- PostgreSQL: use the shared server with your own database, `eval "$($MOHAR_ROOT/scripts/pg.sh <slug>)"`, then
   the tests you need. Don't start private containers. Drop the database when done.
 - Dev servers on the port range in your brief; stop them by port PID (`ss -ltnp | grep :<port>`), never `pkill -f`.
 

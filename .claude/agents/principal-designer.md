@@ -32,5 +32,5 @@ shared components, cover light and dark modes, and check keyboard access and con
 
 Capture before/after screenshots with headless Playwright into `billing/docs/screenshots/`, through `npm run
 images:optimize -- <paths>` (CI fails on images over 500 KB). Heavy commands through
-`/workspaces/whmcs/scripts/heavy.sh`; work only in your worktree, never on port 8000. Report: what changed,
+`$MOHAR_ROOT/scripts/heavy.sh`; work only in your worktree, never on port 8000. Report: what changed,
 screenshot paths, and any decision the owner must make.

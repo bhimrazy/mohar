@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-22 08:40 UTC by the CTO session. Work paused: the codespace hit its usage limit. Update this file whenever a PR merges, a workstream starts or
+Last updated: 2026-10-22 08:45 UTC (14:30 NPT) by the CTO session. Work moved from the codespace (usage limit) to the owner's Mac. Update this file whenever a PR merges, a workstream starts or
 stops, or the owner makes a decision. Keep it short: history goes in `history.md` and `docs/reviews/`.
 
 ## Summary
@@ -52,10 +52,11 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 | #112 | Sign-in PR 0                                          | Draft. To be cut to the ADR 0018 §4 fix, or closed.            |
 | #128 | Gateway expansion spec (connectIPS, Fonepay, cards)   | Draft. Owner questions in the PR.                              |
 
-## Paused (2026-10-22 08:40 UTC; one codespace, `mohar-codespace-2`; the old site is deleted)
+## Paused work, resuming on the owner's Mac (since 2026-10-22 08:45 UTC)
 
-All agents were stopped. Every branch is pushed; unfinished work is in `wip` commits. Resume each step below with a
-fresh agent (the stopped agents cannot be resumed on a new machine).
+The codespace `mohar-codespace-2` is shut down (disk kept until 2026-11-21). Every branch was pushed; nothing
+reached GitHub after the pause. Resume each step below with a fresh agent (the stopped agents cannot be resumed on
+a new machine). The Mac runs the main checkout with `MOHAR_ROOT` set in `.claude/settings.local.json`.
 
 | PR | Where it stopped | Next step |
 | --- | --- | --- |
@@ -99,7 +100,8 @@ Redactor gaps, the 40-user tail latency (#205). Full list: `gh issue list --labe
 
 ## Local-only state on the codespaces
 
-Not in git; does not exist on a new device:
+Not in git; does not exist on a new device. Not yet carried to the Mac: `rea/`, `.worktrees/_review/` helpers, the
+Stripe CLI login, Composer auth and `~/.npmrc` (log in again locally, or copy from the shut-down codespace):
 
 - Worktrees in `.worktrees/` (recreate with `scripts/new-worktree.sh <slug>`, or `git worktree add .worktrees/<slug>
   feature/<slug>` for an existing branch). `.worktrees/_review/`: screenshot and preview helpers.
