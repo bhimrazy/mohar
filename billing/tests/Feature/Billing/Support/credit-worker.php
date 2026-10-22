@@ -29,14 +29,17 @@ use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Catalog\PriceBook;
 use App\Contracts\Migration\ImportIdResolver;
+use App\Contracts\Migration\RevertsImport;
 use App\Contracts\Orders\PaymentGuard;
 use App\Contracts\Services\ServiceRegistry;
 use App\Data\Billing\InvoiceDraft;
 use App\Data\Billing\InvoiceLineData;
 use App\Data\Migration\ImportContext;
+use App\Data\Migration\ImportOutcome;
 use App\Data\Migration\ImportRecord;
 use App\Data\Services\ServiceDraft;
 use App\Enums\BillableType;
+use App\Enums\ImportAction;
 use App\Modules\Billing\Actions\ApplyPayment;
 use App\Modules\Billing\Actions\PaymentBatches;
 use App\Modules\Billing\Actions\Quotes;
@@ -231,6 +234,11 @@ try {
             }
         } else {
             $importer = app(ImportRegistry::class)->get('credit_balance');
+
+            if (! $importer instanceof RevertsImport) {
+                throw new LogicException('The credit_balance importer cannot revert.');
+            }
+
             $context = new ImportContext($mode === 'opening' ? 8 : 7, 1, 'csv', false, CarbonImmutable::now(), null, new class implements ImportIdResolver
             {
                 public function targetId(string $entity, string $sourceId): ?int
@@ -240,7 +248,7 @@ try {
             }, ['source_name' => 'Old billing']);
             $outcome = $mode === 'opening'
                 ? $importer->upsert(new ImportRecord('credit_balance', 'csv', 'race', ['amount' => (int) $amount, 'currency' => $client->currency], ['client_id' => $client->id]), $context, $client->id)
-                : $importer->reverse($client->id, $context);
+                : $importer->revert(new ImportRecord('credit_balance', 'csv', 'race', ['amount' => 0], ['client_id' => $client->id]), new ImportOutcome($client->id, ImportAction::Created), $context);
             $status = $outcome->action->value.implode('', array_map(fn ($issue): string => ':'.$issue->code, $outcome->issues));
         }
 

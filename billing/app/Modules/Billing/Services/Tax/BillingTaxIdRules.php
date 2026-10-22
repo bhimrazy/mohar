@@ -3,6 +3,7 @@
 namespace App\Modules\Billing\Services\Tax;
 
 use App\Contracts\Billing\TaxIdRules;
+use App\Data\Billing\TaxIdNote;
 
 /**
  * Billing's tax-number rules for other modules (client-import spec §6.6). Every finding is advice for staff, never a
@@ -40,31 +41,26 @@ class BillingTaxIdRules implements TaxIdRules
         return match (true) {
             $country === 'NP' => $this->nepal($taxId, $business),
             $country === 'IN' => $this->india($taxId, $state),
-            $taxId !== null && $this->engine->isReverseCharge($country, $taxId) => [[
-                'severity' => 'info', 'code' => 'reverse_charge',
-                'message' => __('The VAT ID has a valid format for another EU country, so invoices to this client are reverse charge.'),
-            ]],
+            $taxId !== null && $this->engine->isReverseCharge($country, $taxId) => [new TaxIdNote(TaxIdNote::INFO, 'reverse_charge',
+                __('The VAT ID has a valid format for another EU country, so invoices to this client are reverse charge.'))],
             default => [],
         };
     }
 
     /**
-     * @return list<array{severity: 'warning'|'info', code: string, message: string}>
+     * @return list<TaxIdNote>
      */
     private function nepal(?string $pan, bool $business): array
     {
         if ($pan === null) {
-            return $business ? [['severity' => 'info', 'code' => 'pan_missing', 'message' => __('This business has no PAN or VAT number; VAT invoices to a business show the buyer\'s PAN.')]] : [];
+            return $business ? [new TaxIdNote(TaxIdNote::INFO, 'pan_missing', __('This business has no PAN or VAT number; VAT invoices to a business show the buyer\'s PAN.'))] : [];
         }
 
-        return preg_match(self::NEPAL_PAN, $pan) === 1 ? [] : [[
-            'severity' => 'warning', 'code' => 'pan_invalid',
-            'message' => __('A Nepal PAN or VAT number has 9 digits; invoices will show this one as it is.'),
-        ]];
+        return preg_match(self::NEPAL_PAN, $pan) === 1 ? [] : [new TaxIdNote(TaxIdNote::WARNING, 'pan_invalid', __('A Nepal PAN or VAT number has 9 digits; invoices will show this one as it is.'))];
     }
 
     /**
-     * @return list<array{severity: 'warning'|'info', code: string, message: string}>
+     * @return list<TaxIdNote>
      */
     private function india(?string $gstin, ?string $state): array
     {
@@ -73,17 +69,15 @@ class BillingTaxIdRules implements TaxIdRules
         }
 
         if (! IndianStates::isValidGstin($gstin)) {
-            return [['severity' => 'warning', 'code' => 'gstin_invalid', 'message' => __('The GSTIN is not valid: invoices will show it, but tax uses the address state.')]];
+            return [new TaxIdNote(TaxIdNote::WARNING, 'gstin_invalid', __('The GSTIN is not valid: invoices will show it, but tax uses the address state.'))];
         }
 
         $registered = IndianStates::stateFromGstin($gstin);
         $address = IndianStates::normalize($state);
 
-        return $registered !== null && $address !== null && $registered !== $address ? [[
-            'severity' => 'warning', 'code' => 'gstin_state',
-            'message' => __('The GSTIN is registered in :gstin but the address is in :address; the place of supply follows the GSTIN.', [
+        return $registered !== null && $address !== null && $registered !== $address ? [new TaxIdNote(TaxIdNote::WARNING, 'gstin_state',
+            __('The GSTIN is registered in :gstin but the address is in :address; the place of supply follows the GSTIN.', [
                 'gstin' => IndianStates::label($registered), 'address' => IndianStates::label($address),
-            ]),
-        ]] : [];
+            ]))] : [];
     }
 }

@@ -15,4 +15,7 @@ enum ImportAction: string
     case Updated = 'updated';
     case Unchanged = 'unchanged';
     case Skipped = 'skipped';
+
+    /** An undo took back what a run wrote (App\Contracts\Migration\RevertsImport). */
+    case Reverted = 'reverted';
 }

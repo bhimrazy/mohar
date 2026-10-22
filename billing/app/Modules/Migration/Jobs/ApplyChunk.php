@@ -136,42 +136,53 @@ final class ApplyChunk implements ShouldBeEncrypted, ShouldQueue
             'marketing_consent_evidence' => $extra['marketing_consent_evidence'] ?? null,
             'blank' => $normalized['blank'] ?? [],
         ], checksum: (string) $record->checksum), $context, $creating ? null : $record->match_client_id);
-        $issues = $outcome->issues;
+        $applied = ['client' => $outcome];
 
         if ($outcome->action === ImportAction::Created && $logins !== null && ($fields['status'] ?? 'active') !== 'closed') {
-            $issues = [...$issues, ...$logins->upsert(new ImportRecord('user', $run->source_system, (string) $record->source_id, [
+            $applied['user'] = $logins->upsert(new ImportRecord('user', $run->source_system, (string) $record->source_id, [
                 'email' => $client['email'], 'name' => trim(($client['first_name'] ?? '').' '.($client['last_name'] ?? '')),
                 'verified' => ($run->options['trust_verified'] ?? false) && ($extra['email_verified'] ?? null) === true,
                 'link_existing' => $record->link_login === true,
-            ], ['client_id' => $outcome->targetId]), $context, null)->issues];
+            ], ['client_id' => $outcome->targetId]), $context, null);
         }
 
         if ($credits !== null && ($extra['credit_balance'] ?? null) !== null && in_array($outcome->action, [ImportAction::Created, ImportAction::Updated, ImportAction::Unchanged], true)) {
-            $credit = $credits->upsert(new ImportRecord('credit_balance', $run->source_system, (string) $record->source_id, [
+            // A client this run created gets its opening balance; an existing one only when Billing finds it safe (§6.12).
+            $applied['credit_balance'] = $credits->upsert(new ImportRecord('credit_balance', $run->source_system, (string) $record->source_id, [
                 'amount' => (int) $extra['credit_balance'], 'currency' => $fields['currency'] ?? null,
-            ], ['client_id' => $outcome->targetId]), $context, $outcome->targetId);
-            $issues = [...$issues, ...$credit->issues];
-            $outcome = $credit->changes === [] ? $outcome : new ImportOutcome($outcome->targetId, $outcome->action === ImportAction::Unchanged ? ImportAction::Updated : $outcome->action, $outcome->issues,
-                [...$outcome->changes, ...$credit->changes], $outcome->before === null && $credit->before === null ? null : [...($outcome->before ?? []), ...($credit->before ?? [])]);
+            ], ['client_id' => $outcome->targetId]), $context, $outcome->action === ImportAction::Created ? null : $outcome->targetId);
         }
 
-        $this->map($run, $record, $outcome);
-        $audit->log($outcome->action === ImportAction::Created ? 'Client created by import' : 'Client updated by import', null, $outcome->targetId,
-            ['run' => $run->id, 'row' => $record->row_number, 'changes' => $outcome->changes], 'migration.client_'.$outcome->action->value, $actor);
+        $issues = array_merge(...array_values(array_map(fn (ImportOutcome $entity): array => $entity->issues, $applied)));
+        $changes = array_values(array_unique(array_merge(...array_values(array_map(fn (ImportOutcome $entity): array => $entity->changes, $applied)))));
+        // The row is an update when any importer wrote something to a client that already existed.
+        $action = $outcome->action === ImportAction::Unchanged && $changes !== [] ? ImportAction::Updated : $outcome->action;
+
+        foreach ($applied as $entity => $entityOutcome) {
+            // Logins are reached through their client; every other entity a row wrote has its own id-map row.
+            if ($entity === 'client' || ($entity !== 'user' && in_array($entityOutcome->action, [ImportAction::Created, ImportAction::Updated], true))) {
+                $this->map($run, $record, $entity, $entityOutcome);
+            }
+        }
+
+        $audit->log($action === ImportAction::Created ? 'Client created by import' : 'Client updated by import', null, $outcome->targetId,
+            ['run' => $run->id, 'row' => $record->row_number, 'changes' => $changes], 'migration.client_'.$action->value, $actor);
         $record->forceFill([
-            'outcome' => $outcome->action->value,
+            'outcome' => $action->value,
             'target_id' => $outcome->targetId,
-            // The importer read these under its own row lock (ADR 0019); Migration never reads the client for undo.
-            'before' => $outcome->before,
+            // Per entity, so undo hands each importer its own outcome (ADR 0019 addendum). The importers read the
+            // snapshots under their own row locks; Migration never reads the client or the ledger for undo.
+            'entities' => array_map(fn (ImportOutcome $entity): array => ['action' => $entity->action->value, 'target_id' => $entity->targetId, 'changes' => $entity->changes], $applied),
+            'before' => array_filter(array_map(fn (ImportOutcome $entity): ?array => $entity->before, $applied), fn (?array $before): bool => $before !== null) ?: null,
             'problems' => [...($record->problems ?? []), ...array_map(fn (ImportIssue $issue): array => ['severity' => $issue->severity->value, 'code' => $issue->code, 'message' => $issue->message], $issues)],
-            'changes' => $outcome->changes,
+            'changes' => $changes,
             'applied_at' => now(),
         ])->save();
     }
 
-    private function map(MigrationRun $run, MigrationRecord $record, ImportOutcome $outcome): void
+    private function map(MigrationRun $run, MigrationRecord $record, string $entity, ImportOutcome $outcome): void
     {
-        $map = MigrationIdMap::query()->firstOrNew(['migration_source_id' => $run->migration_source_id, 'entity' => 'client', 'source_id' => (string) $record->source_id]);
+        $map = MigrationIdMap::query()->firstOrNew(['migration_source_id' => $run->migration_source_id, 'entity' => $entity, 'source_id' => (string) $record->source_id]);
         $map->forceFill([
             'target_id' => $outcome->targetId,
             'checksum' => (string) $record->checksum,
@@ -214,7 +225,37 @@ final class ApplyChunk implements ShouldBeEncrypted, ShouldQueue
             MigrationRunCompleted::dispatch($run->id, $run->source_system, [$run->entity => [
                 'created' => $run->created_count, 'updated' => $run->updated_count, 'unchanged' => $run->records()->where('outcome', 'unchanged')->count(),
                 'skipped' => $run->skipped_count, 'failed' => $run->failed_count,
-            ]]);
+            ], ...$this->entityCounts($run)]);
         });
+    }
+
+    /**
+     * Outcomes of the other entities a run wrote alongside its clients (logins, opening balances), counted once at the
+     * end from each applied row's per-entity outcomes.
+     *
+     * @return array<string, array{created: int, updated: int, unchanged: int, skipped: int, failed: int}>
+     */
+    private function entityCounts(MigrationRun $run): array
+    {
+        $counts = [];
+
+        $run->records()->whereNotNull('entities')->select(['id', 'entities'])->lazyById(500)->each(function (MigrationRecord $record) use ($run, &$counts): void {
+            foreach ($record->entities ?? [] as $entity => $outcome) {
+                if ($entity === $run->entity) {
+                    continue;
+                }
+
+                $counts[$entity] ??= ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'skipped' => 0, 'failed' => 0];
+
+                match ($outcome['action']) {
+                    'created' => $counts[$entity]['created']++,
+                    'updated' => $counts[$entity]['updated']++,
+                    'unchanged' => $counts[$entity]['unchanged']++,
+                    default => $counts[$entity]['skipped']++,
+                };
+            }
+        });
+
+        return $counts;
     }
 }

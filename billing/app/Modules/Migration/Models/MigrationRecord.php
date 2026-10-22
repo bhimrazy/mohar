@@ -30,7 +30,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $review_hash this row's part of the run's review digest
  * @property string|null $outcome created|updated|unchanged|skipped|failed, once applied
  * @property int|null $target_id the client the row created or updated
- * @property array<string, mixed>|null $before the changed fields' previous values (for undo)
+ * @property array<string, array<string, mixed>>|null $before per entity (client, credit_balance), the changed fields'
+ *                                                            previous values each importer read under its lock (for undo)
+ * @property array<string, array{action: string, target_id: int|null, changes: list<string>}>|null $entities per entity,
+ *                                                                                                           what its importer did
  * @property CarbonImmutable|null $applied_at
  * @property-read MigrationRun $run
  * @property-read Client|null $matchedClient
@@ -48,6 +51,7 @@ class MigrationRecord extends Model
             'problems' => 'array',
             'changes' => 'array',
             'before' => 'encrypted:array',
+            'entities' => 'array',
             'tax_exempt' => 'boolean',
             'link_login' => 'boolean',
             'applied_at' => 'immutable_datetime',

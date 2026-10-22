@@ -298,10 +298,13 @@ class ClientImportController extends Controller
                 'link_login' => $record->link_login,
                 'outcome' => $record->outcome,
                 'client_href' => in_array($record->outcome, ['created', 'updated'], true) && $record->target_id !== null ? route('admin.clients.show', $record->target_id) : null,
-                'credit' => ($record->normalized['extra']['credit_balance'] ?? null) === null ? null : [
+                // In the currency apply posts it in: a new client's (the file's, else the default), else the matched
+                // client's. A credit apply would not post (another currency) shows only as the row's error.
+                'credit' => ($record->normalized['extra']['credit_balance'] ?? null) === null || in_array('credit_currency', array_column($record->problems ?? [], 'code'), true) ? null : [
                     'amount' => (int) $record->normalized['extra']['credit_balance'],
-                    // The client's currency: the file's, else the matched client's, else the default a new client gets.
-                    'currency' => (string) ($record->normalized['client']['currency'] ?? $record->matchedClient->currency ?? $record->normalized['defaults']['currency'] ?? ''),
+                    'currency' => (string) ($record->decision === 'create' || $record->matchedClient === null
+                        ? ($record->normalized['client']['currency'] ?? $record->normalized['defaults']['currency'] ?? '')
+                        : $record->matchedClient->currency),
                 ],
             ]);
 

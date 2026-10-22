@@ -157,26 +157,27 @@ final class RowNormalizer
     }
 
     /**
-     * An opening credit balance in minor units, from a decimal written with an optional thousands separator (commas,
-     * lakh grouping included) and at most two decimals (ADR 0002). Parsed as text, never as a float.
+     * An opening credit balance in minor units (ADR 0002), parsed as text, never as a float: plain digits, western
+     * grouping (1,234,567) or lakh grouping (12,34,567), with an optional point and one or two decimals. Anything else
+     * is refused, so a decimal comma ("250,50") or loose grouping ("1,2,3") is never read as a larger amount.
      */
     private function credit(string $value): ?int
     {
-        $plain = str_replace([',', ' '], '', $value);
-
-        if (preg_match('/^-\d/', $plain) === 1) {
+        if (preg_match('/^-\d/', $value) === 1) {
             $this->problem('error', 'credit_negative', __('The opening credit balance cannot be negative.'), 'credit_balance');
 
             return null;
         }
 
-        if (preg_match('/^(\d{1,12})(?:\.(\d{1,2}))?$/', $plain, $parts) !== 1) {
-            $this->problem('error', 'credit_format', __('The opening credit balance must be an amount such as 1,250.50, with at most two decimals.'), 'credit_balance');
+        $grouped = '(?:\d{1,12}|\d{1,3}(?:,\d{3}){1,3}|\d{1,2}(?:,\d{2}){1,4},\d{3})';
+
+        if (preg_match('/^('.$grouped.')(?:\.(\d{1,2}))?$/', $value, $parts) !== 1 || strlen($whole = str_replace(',', '', $parts[1])) > 12) {
+            $this->problem('error', 'credit_format', __('The opening credit balance must be an amount such as 1,250.50 or 1,25,000.50: digits, commas only between groups, and at most two decimals after a point.'), 'credit_balance');
 
             return null;
         }
 
-        return (int) $parts[1] * 100 + (int) str_pad($parts[2] ?? '0', 2, '0');
+        return (int) $whole * 100 + (int) str_pad($parts[2] ?? '0', 2, '0');
     }
 
     /**
@@ -197,7 +198,7 @@ final class RowNormalizer
         }
 
         foreach ($this->taxIds->notes($country, $client['tax_id'] ?? null, $client['state'] ?? null, ($client['company_name'] ?? '') !== '') as $note) {
-            $this->problem($note['severity'], $note['code'], $note['message'], 'tax_id');
+            $this->problem($note->severity, $note->code, $note->message, 'tax_id');
         }
     }
 

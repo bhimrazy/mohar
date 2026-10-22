@@ -26,9 +26,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   admin dashboard's System health card shows "PHP runtime" in red while PHP is vulnerable. `composer.json` still
   requires `^8.4`. FrankenPHP 1.13.2 is younger than the 7-day cooldown and is adopted through the security-exception path.
 - **Client import opening balances.** Account-credit entries gain the reason `import`; an import's entries carry the
-  reference `import` / `run:<run>:client:<client>` in the existing unique (`gateway`, `external_ref`) pair. No migration
-  and no permission change. Kernel: `App\Contracts\Migration\ReversibleImporter` (capability of a record importer, for
-  undo) and `App\Contracts\Billing\TaxIdRules` (Core binds a null default, Billing its rules).
+  reference `import` / `run:<run>:client:<client>` in the existing unique (`gateway`, `external_ref`) pair. Migration
+  `980310` adds `migration_records.entities` (expand only); applied rows now keep their undo snapshot per entity
+  (`{client: …, credit_balance: …}`). GSTINs with the codes 97 (Other Territory) and 99 (Centre Jurisdiction) are now
+  valid. No permission change. Kernel: `App\Contracts\Migration\RevertsImport`, `ImportAction::Reverted`,
+  `App\Contracts\Billing\TaxIdRules` with `App\Data\Billing\TaxIdNote` (Core binds a null default, Billing its rules).
 - **A client's currency is fixed once the client has records in it (#218).** Staff can no longer change the currency
   on Admin → Clients → Edit when the client has invoices, quotes, payments, account credit, services, orders or
   domains (deleted services and domains count). The form shows the currency disabled with the reason, for example
@@ -424,15 +426,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   errors download as CSV (row, column, reason and the original cells; formula-like cells prefixed with an apostrophe),
   generated on request and never stored; staff need `migration.runs.execute` and a recent password.
 - **Opening credit balances** (client-import spec §6.12): a column mapped to **Opening credit balance** (suggested for
-  headers such as Credit or Opening balance) is read as an amount in the client's currency, with commas or lakh
-  grouping and at most two decimals, never as a float; a negative or malformed amount is a row error. The review shows
-  it in the currency's format. On import, Billing posts one account-credit entry with the reason `import`,
-  "Opening balance from <source>", in the client's currency, under the client's row lock. A later run of the same
-  source with another amount posts only the difference ("changed by a later import"), and only while the client's
-  credit has not moved since the last import entry; otherwise the balance is kept and the row says so. An amount that
-  is not in the client's currency is not posted. Each run posts at most one entry per client (a retried row posts
-  nothing twice). Undo, when it is built (spec PR 5), reverses exactly what a run posted while the balance still
-  covers it. Without the Billing module the review warns that balances will not be imported.
+  headers such as Credit or Opening balance) is read as an amount in the client's currency, never as a float: plain
+  digits, western grouping (1,234,567) or lakh grouping (1,25,000), with at most two decimals after a point. A decimal
+  comma ("250,50"), loose grouping ("1,2,3"), a negative amount or a credit in another currency than the client's is a
+  row error. Billing posts the balance automatically only for a client the import creates ("Opening balance from
+  <source>", reason `import`, in the client's currency, under the client's row lock), and on a later run of the same
+  client only the difference, while its credit has not moved since the last import. Otherwise (an existing client
+  matched for the first time, or credit that moved) nothing is posted and the row says "Existing credit kept; post the
+  opening balance manually if it is still owed." The review asks Billing what apply would do, so a balance shows as a
+  change only when it would be posted, and the same file again comes out unchanged. Each run posts at most one entry
+  per client. Undo, when it is built (spec PR 5), takes back exactly what a run posted while the balance still covers
+  it. Without the Billing module the review warns that balances will not be imported.
 - **Tax-number notes** (client-import spec §6.6): Nepal PAN/VAT numbers that are not 9 digits, Indian GSTINs that are not
   valid, and GSTINs registered in another state than the address (place of supply follows the GSTIN) are warnings
   in the review; a Nepal business without a PAN gets a note, and an EU VAT ID that makes invoices reverse charge gets a

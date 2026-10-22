@@ -92,7 +92,7 @@ test('B2: the undo snapshot is what the importer overwrote under its lock, so an
 
     expect(Client::query()->findOrFail($record->target_id)->last_name)->toBe('Changed')
         ->and($record->changes)->toBe(['last_name'])
-        ->and($record->before)->toBe(['last_name' => 'Admin']);
+        ->and($record->before)->toBe(['client' => ['last_name' => 'Admin']]);
 });
 
 test('re-review kernel hook: staff who change their own email on the staff page keep admin access (UpdateStaff keeps a self-change verified)', function () {

@@ -1,10 +1,12 @@
 <?php
 
 use App\Contracts\Migration\ImportIdResolver;
-use App\Contracts\Migration\ReversibleImporter;
+use App\Contracts\Migration\RevertsImport;
 use App\Data\Migration\ImportContext;
+use App\Data\Migration\ImportOutcome;
 use App\Data\Migration\ImportRecord;
 use App\Enums\ImportAction;
+use App\Enums\ImportSeverity;
 use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Services\CreditLedgerService;
@@ -33,13 +35,19 @@ function openingContext(int $runId = 7, bool $dryRun = false): ImportContext
     }, ['source_name' => 'Old billing']);
 }
 
-function openingImporter(): ReversibleImporter
+function openingImporter(): RevertsImport
 {
     $importer = app(ImportRegistry::class)->get('credit_balance');
-    expect($importer)->toBeInstanceOf(ReversibleImporter::class);
+    expect($importer)->toBeInstanceOf(RevertsImport::class);
 
-    /** @var ReversibleImporter $importer */
+    /** @var RevertsImport $importer */
     return $importer;
+}
+
+/** Undo of what run $runId posted for the client, as Migration hands it back. */
+function openingRevert(Client $client, int $runId = 7): ImportOutcome
+{
+    return openingImporter()->revert(openingRecord($client, 0), new ImportOutcome($client->id, ImportAction::Created, changes: ['credit_balance']), openingContext($runId));
 }
 
 function openingRecord(Client $client, int $amount, ?string $currency = null): ImportRecord
@@ -51,20 +59,24 @@ beforeEach(function () {
     Currency::factory()->npr()->create();
 });
 
-test('a run posts the opening balance once, a dry run writes nothing, and a credit in another currency is refused', function () {
+test('a run posts a new client\'s opening balance once; a dry run writes nothing; another currency is an error; an existing client keeps its credit', function () {
     $client = billingClient(['currency' => 'NPR']);
 
-    expect(openingImporter()->upsert(openingRecord($client, 50000), openingContext(dryRun: true), $client->id)->action)->toBe(ImportAction::Created)
+    expect(openingImporter()->upsert(openingRecord($client, 50000), openingContext(dryRun: true), null)->action)->toBe(ImportAction::Created)
         ->and(CreditLedgerEntry::query()->count())->toBe(0);
 
-    $outcome = openingImporter()->upsert(openingRecord($client, 50000), openingContext(), $client->id);
+    $outcome = openingImporter()->upsert(openingRecord($client, 50000), openingContext(), null);
     // A redelivered row of the same run posts nothing more.
-    $again = openingImporter()->upsert(openingRecord($client, 50000), openingContext(), $client->id);
+    $again = openingImporter()->upsert(openingRecord($client, 50000), openingContext(), null);
     $usd = openingImporter()->upsert(openingRecord($client, 50000, 'USD'), openingContext(8), $client->id);
+    $existing = billingClient(['currency' => 'NPR']);
+    $kept = openingImporter()->upsert(openingRecord($existing, 50000), openingContext(), $existing->id);
 
     expect($outcome->action)->toBe(ImportAction::Created)->and($outcome->before)->toBe(['credit_balance' => 0])
         ->and($again->action)->toBe(ImportAction::Unchanged)
-        ->and($usd->action)->toBe(ImportAction::Skipped)->and($usd->issues[0]->code)->toBe('credit_currency')
+        ->and($usd->action)->toBe(ImportAction::Skipped)->and($usd->issues[0]->code)->toBe('credit_currency')->and($usd->issues[0]->severity)->toBe(ImportSeverity::Error)
+        // A client that existed before the import, never imported into, keeps its credit (CTO rule, §6.12).
+        ->and($kept->action)->toBe(ImportAction::Skipped)->and($kept->issues[0]->message)->toBe('Existing credit kept; post the opening balance manually if it is still owed.')
         ->and(CreditLedgerEntry::query()->where('client_id', $client->id)->get(['amount', 'reason', 'gateway', 'external_ref'])->toArray())
         ->toBe([['amount' => 50000, 'reason' => 'import', 'gateway' => 'import', 'external_ref' => "run:7:client:{$client->id}"]]);
 });
@@ -75,18 +87,18 @@ test('undo takes back exactly what the run posted, once, and keeps a balance the
     $ledger = app(CreditLedgerService::class);
 
     foreach ([$kept, $undone] as $client) {
-        openingImporter()->upsert(openingRecord($client, 100000), openingContext(), $client->id);
+        openingImporter()->upsert(openingRecord($client, 100000), openingContext(), null);
     }
 
     $ledger->post($kept->id, Money::of(-100, 'NPR'), CreditReason::AppliedToInvoice);
 
-    expect(openingImporter()->reverse($undone->id, openingContext())->action)->toBe(ImportAction::Updated)
-        ->and(openingImporter()->reverse($undone->id, openingContext())->action)->toBe(ImportAction::Unchanged)
+    expect(openingRevert($undone)->action)->toBe(ImportAction::Reverted)
+        ->and(openingRevert($undone)->action)->toBe(ImportAction::Unchanged)
         ->and($ledger->balance($undone->id, 'NPR')->amount)->toBe(0)
-        ->and(openingImporter()->reverse($kept->id, openingContext())->issues[0]->code)->toBe('credit_used')
+        ->and(openingRevert($kept)->issues[0]->code)->toBe('credit_used')
         ->and($ledger->balance($kept->id, 'NPR')->amount)->toBe(99900)
         // Another run's undo finds nothing of its own to reverse.
-        ->and(openingImporter()->reverse($kept->id, openingContext(99))->action)->toBe(ImportAction::Unchanged);
+        ->and(openingRevert($kept, 99)->action)->toBe(ImportAction::Unchanged);
 });
 
 describe('opening balances racing staff credit movements (PostgreSQL)', function () {
@@ -100,7 +112,7 @@ describe('opening balances racing staff credit movements (PostgreSQL)', function
     $seed = function (): void {
         Currency::factory()->npr()->create();
         $client = billingClient(['email' => 'opening-race@example.test', 'currency' => 'NPR']);
-        openingImporter()->upsert(openingRecord($client, 100000), openingContext(), $client->id);
+        openingImporter()->upsert(openingRecord($client, 100000), openingContext(), null);
     };
 
     test('an undo waiting for a staff debit sees it and keeps the balance', function () use ($seed) {
