@@ -3,6 +3,11 @@
 namespace App\Modules\Domains\Services;
 
 use App\Data\Domains\Registrar\RegistrarConfig;
+use App\Data\Domains\Registrar\RegistrarResult;
+use App\Data\Domains\Registrar\SubmissionLookup;
+use App\Data\Domains\Registrar\TransferSyncResult;
+use App\Data\Integrations\ConnectionCheck;
+use App\Data\Integrations\ConnectionCheckStep;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarCommandLog;
 use App\Support\Domains\CapabilityNotSupported;
@@ -48,11 +53,13 @@ class RegistrarGateway
      * @param  Closure(TDriver, RegistrarConfig): T  $call
      * @param  array<string, mixed>  $request
      * @param  bool  $logSuccess  false for high-volume read calls (public lookups): only failures are logged
+     * @param  list<string>  $secrets  secret values the call's request carries (RegistrationRequest::secrets()), masked
+     *                                 with the account's credentials in everything the call returns, raises or logs
      * @return T
      *
      * @throws RegistrarException
      */
-    public function call(string $registrarKey, string $capability, string $interface, Closure $call, ?Domain $domain = null, array $request = [], ?int $staffId = null, bool $logSuccess = true): mixed
+    public function call(string $registrarKey, string $capability, string $interface, Closure $call, ?Domain $domain = null, array $request = [], ?int $staffId = null, bool $logSuccess = true, array $secrets = []): mixed
     {
         $driver = $this->drivers->get($registrarKey);
 
@@ -71,10 +78,10 @@ class RegistrarGateway
         $started = hrtime(true);
         $staffId ??= $this->currentStaffId();
         $config = $this->accounts->config($registrarKey);
-        $secrets = $config->secrets();
+        $secrets = [...$config->secrets(), ...array_values(array_filter($secrets, fn (string $secret): bool => $secret !== ''))];
 
         try {
-            $result = $call($driver, $config);
+            $result = $this->maskResult($call($driver, $config), $secrets);
 
             if ($logSuccess) {
                 $this->record($registrarKey, $capability, $domain, $request, $this->normalise($result), true, null, $started, $staffId, $secrets);
@@ -111,15 +118,16 @@ class RegistrarGateway
      * @param  class-string<TDriver>  $interface
      * @param  Closure(TDriver, RegistrarConfig): T  $call
      * @param  array<string, mixed>  $request
+     * @param  list<string>  $secrets  secret values the request carries (see call())
      * @return T
      */
-    public function forDomain(Domain $domain, string $capability, string $interface, Closure $call, array $request = [], ?int $staffId = null): mixed
+    public function forDomain(Domain $domain, string $capability, string $interface, Closure $call, array $request = [], ?int $staffId = null, array $secrets = []): mixed
     {
         if ($domain->registrar_key === null) {
             throw new CapabilityNotSupported($capability, 'manual');
         }
 
-        return $this->call($domain->registrar_key, $capability, $interface, $call, $domain, ['domain' => $domain->name, ...$request], $staffId);
+        return $this->call($domain->registrar_key, $capability, $interface, $call, $domain, ['domain' => $domain->name, ...$request], $staffId, secrets: $secrets);
     }
 
     /**
@@ -128,6 +136,33 @@ class RegistrarGateway
     public function supports(Domain $domain, string $capability): bool
     {
         return $domain->registrar_key !== null && $this->drivers->supports($domain->registrar_key, $capability);
+    }
+
+    /**
+     * The driver's answer with every staff-facing text masked (ADR 0009 Amendment 2): callers store and show result and
+     * lookup messages, transfer failure reasons and connection-test text as they get them.
+     *
+     * @template T
+     *
+     * @param  T  $result
+     * @param  list<string>  $secrets
+     * @return T
+     */
+    private function maskResult(mixed $result, array $secrets): mixed
+    {
+        $mask = fn (?string $text): ?string => $text === null ? null : $this->redactor->maskValues($text, $secrets);
+
+        return match (true) {
+            ($result instanceof RegistrarResult || $result instanceof SubmissionLookup) && $result->message !== null => $result->withMessage((string) $mask($result->message)),
+            $result instanceof TransferSyncResult && $result->reason !== null => new TransferSyncResult($result->completed, $result->failed, $mask($result->reason), $result->expiryDate, $result->remote),
+            $result instanceof ConnectionCheck => new ConnectionCheck(
+                $result->ok,
+                (string) $mask($result->message),
+                array_map(fn (ConnectionCheckStep $step): ConnectionCheckStep => new ConnectionCheckStep($step->label, $step->status, $mask($step->detail)), $result->steps),
+                array_map(fn (string $detail): string => (string) $mask($detail), $result->details),
+            ),
+            default => $result,
+        };
     }
 
     /**

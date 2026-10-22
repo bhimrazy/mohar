@@ -131,6 +131,9 @@ state changes happen in Actions/Services, not controllers, and dispatch the matc
 **Business logic** — Controllers are thin: validate (FormRequest) → call an Action/Service → redirect/render.
 Actions are single-purpose classes (`Actions/ApplyPayment.php` with `handle()`), reused by controllers,
 jobs, commands and other actions. Wrap multi-write operations in `DB::transaction`. Make automation idempotent.
+Kernel exceptions (`App\Support\*`) know nothing about HTTP: the module that throws them to users renders them
+through a renderer it registers (`callAfterResolving(ExceptionHandler::class, …)->renderable(…)`, as Domains does for
+`RegistrarException`), never with a `render()` method on the kernel class.
 
 **Settings** — `app(Settings::class)->get('billing.invoice_prefix')` → DB override, else `config()` default from
 the module's `Config/<module>.php`. Every tunable number in a spec becomes a setting with a default.

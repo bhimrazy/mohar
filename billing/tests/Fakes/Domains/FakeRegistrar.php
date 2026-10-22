@@ -3,14 +3,24 @@
 namespace Tests\Fakes\Domains;
 
 use App\Contracts\Domains\Registrar\RegistrarDriver;
+use App\Contracts\Integrations\IntegrationDriver;
 use App\Support\Domains\RegistrarDriverRegistry;
 use Closure;
+use LogicException;
+use Tests\Fakes\Domains\Registrars\CoreOnlyRegistrar;
+use Tests\Fakes\Domains\Registrars\FullRegistrar;
+use Tests\Fakes\Domains\Registrars\NameserverEppRegistrar;
+use Tests\Fakes\Domains\Registrars\NameserverRegistrar;
+use Tests\Fakes\Domains\Registrars\NameserverSyncingRegistrar;
+use Tests\Fakes\Domains\Registrars\ReconcilingRegistrar;
+use Tests\Fakes\Domains\Registrars\SyncingRegistrar;
 use Throwable;
 
 /**
  * Scriptable registrar: set the next result (or exception) per command and inspect calls. Capabilities come from
- * interfaces (ADR 0012), so each resolve hands the host a FakeRegistrarDriver subclass that implements exactly the
- * capability interfaces named in $capabilities; a test can change them at any time.
+ * interfaces (ADR 0012), so each resolve hands the host the fixture class (tests/Fakes/Domains/Registrars) that
+ * implements exactly the capability interfaces named in $capabilities; a test can change them at any time. The core
+ * capabilities (`register`, `renew`, `info`) cannot be removed.
  */
 class FakeRegistrar
 {
@@ -52,25 +62,35 @@ class FakeRegistrar
     }
 
     /**
-     * A driver implementing the capability interfaces of $capabilities. PHP cannot implement interfaces at run time,
-     * so the subclass (one per interface set, with an empty body) is declared once on first use.
+     * The fixture class implementing exactly the capability interfaces of $capabilities. `register`, `renew` and
+     * `info` are core: every fake has them, whatever $capabilities says.
      */
     public function driver(string $key): FakeRegistrarDriver
     {
-        $all = app(RegistrarDriverRegistry::class)->capabilities();
-        $interfaces = array_values(array_unique(array_intersect_key($all, array_flip($this->capabilities))));
+        $interfaces = array_values(array_unique(array_intersect_key(app(RegistrarDriverRegistry::class)->capabilities(), array_flip($this->capabilities))));
+        $interfaces = array_values(array_diff($interfaces, [RegistrarDriver::class]));
         sort($interfaces);
-        $class = 'FakeRegistrarDriver_'.md5(implode(',', $interfaces));
+        $class = self::fixtures()[implode(',', $interfaces)] ?? throw new LogicException('No fake registrar implements ['.implode(', ', $interfaces).']; add a fixture class under tests/Fakes/Domains/Registrars and map it in FakeRegistrar::fixtures().');
 
-        if (! class_exists(__NAMESPACE__.'\\'.$class, false)) {
-            $implements = $interfaces === [] ? '' : ' implements \\'.implode(', \\', $interfaces);
-            eval('namespace '.__NAMESPACE__.'; final class '.$class.' extends FakeRegistrarDriver'.$implements.' {}');
+        return new $class($this, $key);
+    }
+
+    /**
+     * Fixture class by its sorted capability interfaces (a closed map: PHP cannot add interfaces at run time).
+     *
+     * @return array<string, class-string<FakeRegistrarDriver>>
+     */
+    private static function fixtures(): array
+    {
+        $fixtures = [];
+
+        foreach ([CoreOnlyRegistrar::class, SyncingRegistrar::class, NameserverRegistrar::class, NameserverEppRegistrar::class, NameserverSyncingRegistrar::class, FullRegistrar::class, ReconcilingRegistrar::class] as $class) {
+            $interfaces = array_values(array_diff((array) class_implements($class), [RegistrarDriver::class, IntegrationDriver::class]));
+            sort($interfaces);
+            $fixtures[implode(',', $interfaces)] = $class;
         }
 
-        /** @var class-string<FakeRegistrarDriver> $fqcn */
-        $fqcn = __NAMESPACE__.'\\'.$class;
-
-        return new $fqcn($this, $key);
+        return $fixtures;
     }
 
     /**

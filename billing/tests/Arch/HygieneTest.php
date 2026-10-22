@@ -13,4 +13,8 @@ arch('controllers do not query other modules or the DB facade directly')
     ->expect('App\Modules\*\Http\Controllers')
     ->not->toUse(['Illuminate\Support\Facades\DB']);
 
+arch('nothing under app/ or tests/ uses eval')
+    ->expect(['App', 'Tests'])
+    ->not->toUse(['eval']);
+
 afterAll(fn () => releaseArchCache());

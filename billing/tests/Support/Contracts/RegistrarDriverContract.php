@@ -30,6 +30,7 @@ use App\Data\Integrations\ConnectionCheck;
 use App\Data\Integrations\SettingField;
 use App\Events\Domains\RegistrarActionFailed;
 use App\Modules\Core\Models\ActivityLog;
+use App\Modules\Domains\Actions\BuildDomainContacts;
 use App\Modules\Domains\Actions\SubmitToRegistrar;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarAccount;
@@ -215,6 +216,47 @@ final class RegistrarDriverContract
 
             foreach ([...array_values(RegistrarDriverContract::SECRETS), ...$configured->secrets()] as $secret) {
                 expect($seen)->not->toContain($secret);
+            }
+        });
+
+        test("{$key} registrar: what a driver says on success and in a connection test reaches staff masked", function () use ($key, $extension) {
+            $tld = Tld::query()->where('extension', $extension)->first() ?? Tld::factory()->extension($extension)->priced()->create(['registrar_key' => $key]);
+            $configured = RegistrarDriverContract::config(app(RegistrarDriverRegistry::class)->get($key));
+            RegistrarAccount::query()->updateOrCreate(['key' => $key], ['is_active' => true, 'test_mode' => true, 'settings' => $configured->settings]);
+            $echo = 'Accepted: '.implode(' ', [...$configured->secrets(), RegistrarDriverContract::SECRETS['epp_code']]);
+            $fake = FakeRegistrar::install($key)->will('transfer', new RegistrarResult('pending', message: $echo))->will('test_connection', new ConnectionCheck(false, 'Refused: '.implode(' ', $configured->secrets())));
+            $domain = Domain::factory()->pending('transfer')->create(['tld_id' => $tld->id, 'registrar_key' => $key, 'epp_code' => RegistrarDriverContract::SECRETS['epp_code']]);
+            actingAsStaff(['domains.registrars.manage']);
+            confirmPassword();
+
+            $submitted = app(SubmitToRegistrar::class)->handle($domain);
+            $this->post(route('admin.domains.registrars.test', $key));
+
+            $seen = (string) json_encode([
+                $submitted->message,
+                session('inertia.flash_data.toast'),
+                RegistrarCommandLog::query()->get(['request', 'response', 'error']),
+                ActivityLog::query()->get(['description', 'properties']),
+            ]);
+
+            expect($fake->commands())->toContain('transfer', 'test_connection');
+
+            foreach ([...$configured->secrets(), RegistrarDriverContract::SECRETS['epp_code']] as $secret) {
+                expect($seen)->not->toContain($secret);
+            }
+        });
+
+        test("{$key} registrar: the host sends contacts in the kernel shape", function () use ($key, $extension) {
+            $tld = Tld::query()->where('extension', $extension)->first() ?? Tld::factory()->extension($extension)->priced()->create(['registrar_key' => $key]);
+            $domain = Domain::factory()->pending()->create(['tld_id' => $tld->id, 'registrar_key' => $key]);
+            app(BuildDomainContacts::class)->forNewDomain($domain, $domain->client);
+
+            $contacts = app(BuildDomainContacts::class)->contactSet($domain->fresh())->toArray();
+
+            expect(array_keys($contacts))->toEqualCanonicalizing(ContactSet::ROLES);
+
+            foreach ($contacts as $role => $fields) {
+                expect(array_keys($fields))->toEqualCanonicalizing(ContactSet::FIELDS, "{$role} has other keys than ContactSet::FIELDS");
             }
         });
     }
