@@ -139,7 +139,7 @@ export default function ClientInvoiceShow({
         {
             key: 'method',
             header: 'Method',
-            cell: (txn) => humanize(txn.gateway),
+            cell: (txn) => txn.gateway_label ?? humanize(txn.gateway),
         },
         {
             key: 'amount',

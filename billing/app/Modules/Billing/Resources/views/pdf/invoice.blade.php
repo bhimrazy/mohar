@@ -31,11 +31,18 @@
             @if (! empty($seller['gstin']))
                 GSTIN: {{ $seller['gstin'] }}<br>
             @endif
-            @if (! empty($seller['pan']))
-                PAN: {{ $seller['pan'] }}<br>
-            @endif
-            @if (! empty($seller['vat_number']))
-                {{ ($seller['country'] ?? null) === 'NP' ? 'PAN/VAT No.' : 'VAT No.' }}: {{ $seller['vat_number'] }}
+            @php
+                $panIsVat = ! empty($seller['pan']) && ($seller['pan'] ?? null) === ($seller['vat_number'] ?? null);
+            @endphp
+            @if ($panIsVat)
+                PAN/VAT No.: {{ $seller['pan'] }}
+            @else
+                @if (! empty($seller['pan']))
+                    PAN: {{ $seller['pan'] }}<br>
+                @endif
+                @if (! empty($seller['vat_number']))
+                    {{ ($seller['country'] ?? null) === 'NP' && empty($seller['pan']) ? 'PAN/VAT No.' : 'VAT No.' }}: {{ $seller['vat_number'] }}
+                @endif
             @endif
         </td>
     </tr>
@@ -55,7 +62,7 @@
                 @endif
             @endforeach
             {{ trim(($buyer['city'] ?? '').' '.($buyer['state'] ?? '').' '.($buyer['postcode'] ?? '')) }}<br>
-            {{ $buyer['country'] ?? '' }}
+            {{ $countryName($buyer['country'] ?? null) }}
             @if (! empty($buyer['tax_id']))
                 <br>{{ $buyerTaxLabel }}: {{ $buyer['tax_id'] }}
             @endif

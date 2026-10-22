@@ -5,6 +5,7 @@ namespace App\Modules\Services\Database\Seeders;
 use App\Enums\BillingCycle;
 use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Models\Currency;
 use App\Modules\Services\Actions\ExecuteModuleCommand;
 use App\Modules\Services\Drivers\Provisioning\LogDriver;
 use App\Modules\Services\Enums\CancellationStatus;
@@ -83,17 +84,17 @@ class ServicesSeeder extends DemoSeeder
 
     private function seedDemoClient(Client $demo, CarbonImmutable $today): void
     {
-        $active = $this->pending($demo, 2, BillingCycle::Monthly, 'demolabs.io', $today->subMonths(5)->subDays(9));
+        $active = $this->pending($demo, 2, BillingCycle::Monthly, 'himallabs.io', $today->subMonths(5)->subDays(9));
         $this->execute($active, ModuleCommandName::Create);
         $this->paidThrough($active, $today->addDays(12));
         ServiceAddon::query()->create([
             'service_id' => $active->id, 'addon_id' => 1, 'name' => 'Daily backups', 'status' => ServiceStatus::Active,
-            'cycle' => BillingCycle::Monthly, 'currency' => 'USD', 'recurring_amount' => 300,
+            'cycle' => BillingCycle::Monthly, 'currency' => $demo->currency, 'recurring_amount' => $this->localAmount($demo, 300),
             'registration_date' => $active->registration_date, 'billing_anchor_day' => $active->billing_anchor_day,
             'next_due_date' => $active->next_due_date, 'next_invoice_date' => $active->next_invoice_date, 'activated_at' => $active->activated_at,
         ]);
 
-        $annual = $this->pending($demo, 3, BillingCycle::Annually, 'demolabs-reseller.com', $today->subMonths(7));
+        $annual = $this->pending($demo, 3, BillingCycle::Annually, 'himallabs-reseller.com', $today->subMonths(7));
         $this->execute($annual, ModuleCommandName::Create);
         $this->paidThrough($annual, $today->subMonths(7)->addYear());
 
@@ -102,7 +103,7 @@ class ServicesSeeder extends DemoSeeder
         $this->paidThrough($overdue, $today->subDays(12));
         $this->execute($overdue, ModuleCommandName::Suspend, ['reason' => 'overdue']);
 
-        $this->pending($demo, 4, BillingCycle::Monthly, 'vps.demolabs.io', $today);
+        $this->pending($demo, 4, BillingCycle::Monthly, 'vps.himallabs.io', $today);
 
         $gone = $this->pending($demo, 1, BillingCycle::Monthly, 'legacy-site.org', $today->subYear());
         $this->execute($gone, ModuleCommandName::Create);
@@ -124,7 +125,7 @@ class ServicesSeeder extends DemoSeeder
 
     private function pending(Client $client, int $product, BillingCycle $cycle, string $domain, CarbonImmutable $registered): Service
     {
-        $amount = self::PRODUCTS[$product]['amount'] * ($cycle === BillingCycle::Annually ? 10 : 1);
+        $amount = $this->localAmount($client, self::PRODUCTS[$product]['amount'] * ($cycle === BillingCycle::Annually ? 10 : 1));
 
         $servers = Server::query()->where('hostname', 'like', 'web%')->orderBy('id')->pluck('id');
 
@@ -145,6 +146,20 @@ class ServicesSeeder extends DemoSeeder
             'next_invoice_date' => $cycle->advance($registered, 1, $registered->day),
             'payment_gateway' => 'bank_transfer',
         ]);
+    }
+
+    /**
+     * A USD list price in the client's currency (the catalog's exchange rate), so an NPR client is not billed 4.99 rupees.
+     */
+    private function localAmount(Client $client, int $usd): int
+    {
+        if ($client->currency === 'USD') {
+            return $usd;
+        }
+
+        $currencies = Currency::query()->whereIn('code', ['USD', $client->currency])->get()->keyBy('code');
+
+        return isset($currencies['USD'], $currencies[$client->currency]) ? $currencies['USD']->convertTo($usd, $currencies[$client->currency]) : $usd;
     }
 
     private function paidThrough(Service $service, CarbonImmutable $date): void
