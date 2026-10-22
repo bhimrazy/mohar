@@ -116,8 +116,11 @@ test('partial refund then disputes never take back more than the overpayment pla
 // Verified: another currency's credit is never touched, and a client negative in two currencies counts once.
 test('a dispute only touches credit in the payment currency', function () {
     $client = billingClient();
-    app(CreditLedgerService::class)->post($client->id, Money::of(2_000, 'NPR'), CreditReason::Manual);
-    app(CreditLedgerService::class)->post($client->id, Money::of(-2_500, 'NPR'), CreditReason::Reversal, allowNegative: true);
+    // Credit in a second currency exists only from before the currency guard (#218), so it is seeded as stored rows.
+    DB::table('credit_ledger')->insert([
+        ['client_id' => $client->id, 'currency' => 'NPR', 'amount' => 2_000, 'balance_after' => 2_000, 'reason' => 'manual', 'created_at' => now(), 'updated_at' => now()],
+        ['client_id' => $client->id, 'currency' => 'NPR', 'amount' => -2_500, 'balance_after' => -500, 'reason' => 'reversal', 'created_at' => now(), 'updated_at' => now()],
+    ]);
     sandboxWebhook(['type' => 'payment.succeeded', 'invoice_id' => issueInvoice($client, [5_000])->id, 'txn_id' => 'ch_v3', 'amount' => 8_000, 'currency' => 'USD'])->assertOk();
     app(CreditLedgerService::class)->post($client->id, Money::of(-3_000, 'USD'), CreditReason::AppliedToInvoice);
 
