@@ -454,8 +454,8 @@ final class Redactor
      *   reference id (REFERENCE_ID_PATTERN), such as a Stripe Checkout Session id, optionally ending a sentence with
      *   `.`; anything joined to the id (`cs_live_x:…`, `%3A…`, `,…`) makes the value secret.
      * - An unquoted name whose separator runs past a line end takes the next line as its value unless that line is
-     *   header-shaped (a name, `:`, then a blank or the line end), so an empty `Cookie:` keeps the `Host:` line after
-     *   it while `password:\nvalue`, `token:\nQWx…==` and `secret:\na:b` are masked.
+     *   header-shaped (a name, `:`, blanks, then a value on that line), so an empty `Cookie:` keeps the `Host: a.test`
+     *   line after it while `password:\nvalue`, `password:\nhunter2:`, `token:\nQWx…==` and `secret:\na:b` are masked.
      *
      * @param  list<string>  $sensitiveKeys
      */
@@ -471,7 +471,7 @@ final class Redactor
         $lineBreak = strrpos($separator, "\n");
 
         if (! $quoted && $lineBreak !== false) {
-            if (preg_match('/\G[A-Za-z][A-Za-z0-9_.\-]*+[ \t]*+:(?![^ \t\r\n])/', $value, $pair, 0, $valueStart) === 1) {
+            if (preg_match('/\G[A-Za-z][A-Za-z0-9_.\-]*+[ \t]*+:[ \t]++(?=[^ \t\r\n])/', $value, $pair, 0, $valueStart) === 1) {
                 return false;
             }
         }
