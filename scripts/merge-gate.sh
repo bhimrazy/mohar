@@ -174,7 +174,8 @@ finish() {
         echo "Merge gate: PR #$pr (head $head) merged into origin/develop (${base:0:8}) on $os, $(date -u '+%Y-%m-%d %H:%M UTC')"
         printf '%s\n' ${rows[@]+"${rows[@]}"}
         echo "RESULT: $result (total $total)"
-        echo "Merge with: gh pr merge $pr -R $gh_repo --merge --match-head-commit $head"
+        echo "Head: ${head:-unknown}"
+        [ "$result" = PASS ] && echo "Merge with: gh pr merge $pr -R $gh_repo --merge --match-head-commit $head"
         echo "Step output: $logs/"
     } > "$summary"
     echo
