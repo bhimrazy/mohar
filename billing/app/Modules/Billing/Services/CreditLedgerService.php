@@ -45,7 +45,8 @@ class CreditLedgerService implements CreditLedger
     }
 
     /**
-     * Append a signed movement. Throws when the balance would go negative unless $allowNegative (reversals).
+     * Append a signed movement. Throws when the balance would go negative unless $allowNegative (reversals), and when
+     * the amount is not in the client's currency.
      * $gateway and $externalRef name the provider movement behind it; the pair is unique when set.
      */
     public function post(
@@ -61,7 +62,13 @@ class CreditLedgerService implements CreditLedger
         ?string $externalRef = null,
     ): CreditLedgerEntry {
         return DB::transaction(function () use ($clientId, $amount, $reason, $invoiceId, $transactionId, $description, $staffId, $allowNegative, $gateway, $externalRef): CreditLedgerEntry {
-            Client::query()->whereKey($clientId)->lockForUpdate()->firstOrFail();
+            $client = Client::query()->whereKey($clientId)->lockForUpdate()->firstOrFail();
+
+            // Credit is kept in the client's currency. Read under the lock, so a caller that priced the amount from a
+            // client row read earlier cannot post it after a currency change (#218).
+            if ($amount->currency !== $client->currency) {
+                throw new BillingException(__('Account credit must be in the client currency (:currency).', ['currency' => $client->currency]));
+            }
 
             $balance = $this->balance($clientId, $amount->currency)->add($amount);
 

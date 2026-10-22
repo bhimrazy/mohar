@@ -22,6 +22,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   "PHP" check (a warning on an existing installation; it stops a first install in production), and in production the
   admin dashboard's System health card shows "PHP runtime" in red while PHP is vulnerable. `composer.json` still
   requires `^8.4`. FrankenPHP 1.13.2 is younger than the 7-day cooldown and is adopted through the security-exception path.
+- **A client's currency is fixed once the client has records in it (#218).** Staff can no longer change the currency
+  on Admin → Clients → Edit when the client has invoices, quotes, payments, account credit, services, orders or
+  domains (deleted services and domains count). The form shows the currency disabled with the reason, for example
+  "This client has billing records and services in NPR, so the currency can't be changed.", and a save that tries
+  anyway gets the same message on the currency field. Before, the change was saved and amounts stored in the old
+  currency were read in the new one. A client with no records can still change currency, and saving other details
+  with the same currency works as before. The check runs under the client's row lock; invoices, draft invoices and
+  quotes now read the client under a share lock, and a checkout whose client currency changed after the cart was
+  priced is refused ("The account currency changed while this order was placed."), so a change and a client's first
+  invoice or order can't cross. Account credit (staff adjustments, manual payments without invoices) is refused when
+  its amount is not in the client's currency ("Account credit must be in the client currency (NPR)."). Saving a quote
+  now locks the quote first and checks its stage again, so an edit can no longer overwrite a quote accepted or
+  converted at the same moment. Clients changed before the upgrade are not corrected: look for clients whose invoices
+  are in another currency than the client's. For such a client, a refund, cancellation or reversal that would move
+  account credit in the invoice's old currency is now refused with that message. No migration and no permission
+  change. Kernel: `ClientCurrencyUsage::sourcesFor()`.
 - **Identity verification (KYC) module, off by default (#197).** A new `kyc_documents` table (migration
   `770100`, expand only). Nothing changes until a host turns on Admin → Settings → Identity verification
   (`kyc.enabled`, new permission `kyc.settings.manage`, granted by `*` and `kyc.*`). Two new **sensitive**
@@ -505,6 +521,8 @@ a time: medians of three runs before and three after, on the same database, on a
   simulators on a throwaway database. It covers install, a trusted cPanel server, an order paid on Stripe Checkout,
   provisioning, overdue suspension and unsuspension, cancellation, a refund, a dispute, forged and duplicate webhooks,
   and a create that times out and is adopted. CI runs it in its own job, `E2E simulators`.
+- `simulate:e2e` runs in NPR, the install default: the product, invoices and Stripe payments are in NPR instead of
+  forcing USD at install.
 - A refund or dispute webhook that arrives before its payment is booked (Stripe can send a dispute first) is answered
   409 and logged in the gateway log as "payment not booked yet; retry expected"; Stripe's retry books it.
 - The Stripe gateway reaches its API and checks its checkout host through the integration endpoints

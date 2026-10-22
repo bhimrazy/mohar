@@ -42,12 +42,18 @@ class Quotes
      */
     public function save(array $data, ?Quote $quote = null): Quote
     {
-        if ($quote !== null && ! in_array($quote->stage, [QuoteStage::Draft, QuoteStage::Delivered, QuoteStage::OnHold], true)) {
-            throw new BillingException(__('Accepted, declined or expired quotes can\'t be edited.'));
-        }
+        $this->assertEditable($quote);
 
         return DB::transaction(function () use ($data, $quote): Quote {
-            $client = Client::query()->findOrFail($data['client_id']);
+            // Lock order quote, then client, as convert() and accept() take it (ADR 0021). The stage is checked again
+            // under the quote lock, so an edit cannot overwrite a quote accepted or converted in the meantime.
+            if ($quote !== null) {
+                $quote = Quote::query()->lockForUpdate()->findOrFail($quote->id);
+                $this->assertEditable($quote);
+            }
+
+            // A share lock on the client, so its currency cannot change before this quote is saved in it (#218).
+            $client = Client::query()->sharedLock()->findOrFail($data['client_id']);
             $quote ??= new Quote(['stage' => QuoteStage::Draft]);
             $quote->fill([
                 'client_id' => $client->id,
@@ -78,6 +84,13 @@ class Quotes
 
             return $quote;
         });
+    }
+
+    private function assertEditable(?Quote $quote): void
+    {
+        if ($quote !== null && ! in_array($quote->stage, [QuoteStage::Draft, QuoteStage::Delivered, QuoteStage::OnHold], true)) {
+            throw new BillingException(__('Accepted, declined or expired quotes can\'t be edited.'));
+        }
     }
 
     /**

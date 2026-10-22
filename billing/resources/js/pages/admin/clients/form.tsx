@@ -18,6 +18,8 @@ import type { ClientRecord } from '@/types';
 type Props = {
     client?: ClientRecord;
     currencies: string[];
+    /** Why the client's currency can't change (it has records in it), or null. */
+    currencyLock?: string | null;
     groups: { id: number; name: string }[];
     statuses: string[];
     defaultCountry: string;
@@ -74,6 +76,7 @@ function TextField({
 export default function ClientForm({
     client,
     currencies,
+    currencyLock = null,
     groups,
     statuses,
     defaultCountry,
@@ -200,9 +203,8 @@ export default function ClientForm({
                                         label="Currency"
                                         error={errors.currency}
                                         hint={
-                                            editing
-                                                ? 'Changing currency is blocked once invoices exist.'
-                                                : undefined
+                                            currencyLock ??
+                                            "Can't be changed once the client has invoices, quotes, payments, account credit, services, orders or domains."
                                         }
                                     >
                                         <SelectField
@@ -217,6 +219,7 @@ export default function ClientForm({
                                                 label: code,
                                             }))}
                                             invalid={Boolean(errors.currency)}
+                                            disabled={Boolean(currencyLock)}
                                         />
                                     </Field>
                                     <Field

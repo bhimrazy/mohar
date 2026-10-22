@@ -80,9 +80,9 @@ function step(string $what): void
 function installAndConfigure(): Product
 {
     $test = test();
-    step('app:install without demo data, choosing USD as the default currency (the install default is NPR; Stripe and the product here are priced in USD)');
+    step('app:install without demo data, keeping the install default currency (NPR)');
     $test->artisan('migrate:fresh', ['--force' => true])->assertSuccessful();
-    expect(Artisan::call('app:install', ['--no-interaction' => true, '--admin-email' => E2E_OWNER, '--admin-name' => 'Olga Owner', '--currency' => 'USD']))->toBe(0);
+    expect(Artisan::call('app:install', ['--no-interaction' => true, '--admin-email' => E2E_OWNER, '--admin-name' => 'Olga Owner']))->toBe(0);
     preg_match('/one-time password\..*\R+  (\S{24})\R/', Artisan::output(), $oneTime);
     $admin = User::query()->where('email', E2E_OWNER)->sole();
 
@@ -100,8 +100,8 @@ function installAndConfigure(): Product
     $test->post(route('admin.services.servers.test', $server));
     expect(app('session.store')->get('inertia.flash_data.connectionCheck.ok'))->toBeTrue();
 
-    step('a product on the WHM package root_basic, and Stripe in test mode against its simulator');
-    $product = Product::factory()->withPrice('USD', BillingCycle::Monthly, 2_500)->create(['name' => 'Shared Basic', 'provisioning_driver' => 'cpanel', 'driver_config' => ['package' => 'root_basic']]);
+    step('an NPR product (1,500.00 a month) on the WHM package root_basic, and Stripe in test mode against its simulator');
+    $product = Product::factory()->withPrice('NPR', BillingCycle::Monthly, 150_000)->create(['name' => 'Shared Basic', 'provisioning_driver' => 'cpanel', 'driver_config' => ['package' => 'root_basic']]);
     stripeGateway(['secret_key' => StripeSimulator::SECRET_KEY, 'webhook_secret' => StripeSimulator::WEBHOOK_SECRET]);
     app('auth')->guard('web')->logout();
 
@@ -123,7 +123,10 @@ function registerAndOrder(Product $product): Invoice
     $test->post(route('store.cart.products.store', $product), ['cycle' => 'monthly', 'domain_mode' => 'existing', 'domain_name' => 'example-shop.com'])->assertSessionHasNoErrors();
     $test->post(route('store.checkout.store'), ['payment_gateway' => 'stripe', 'accept_tos' => true, 'idempotency_key' => 'e2e-'.uniqid()])->assertSessionHasNoErrors();
 
-    return Invoice::query()->latest('id')->firstOrFail();
+    $invoice = Invoice::query()->latest('id')->firstOrFail();
+    expect($invoice->currency)->toBe('NPR');
+
+    return $invoice;
 }
 
 /**

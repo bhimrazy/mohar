@@ -71,6 +71,25 @@ class ClientCurrencyUsage
     }
 
     /**
+     * The keys of the sources that hold amounts for one client, in registration order: every source is asked, so a
+     * refusal can name everything that blocks the change.
+     *
+     * @return list<string>
+     */
+    public function sourcesFor(int $clientId): array
+    {
+        $keys = [];
+
+        foreach ($this->sources as $key => $source) {
+            if (in_array($clientId, array_map(intval(...), array_values($source([$clientId]))), true)) {
+                $keys[] = $key;
+            }
+        }
+
+        return $keys;
+    }
+
+    /**
      * Registered keys, in registration order.
      *
      * @return list<string>

@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Core\Database\Factories\ClientFactory;
 use App\Modules\Core\Enums\ClientOrigin;
 use App\Modules\Core\Enums\EmailSource;
+use App\Modules\Core\Support\ClientCurrencyLock;
 use App\Modules\Core\Support\Like;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -20,6 +21,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * @property int $id
@@ -78,14 +80,23 @@ class Client extends Model
 
     /**
      * Update a client's details under a row lock, so two edits cannot interleave, recording who set the email.
+     * A currency change is checked under the same lock (#218): a module that copies the client's currency into a new
+     * row reads it under a share lock, so its row is either visible here and blocks the change, or reads the new one.
      *
      * @param  array<string, mixed>  $data  validated fields
      * @return array{0: self, 1: array<string, mixed>} the saved client, and the values of $data's fields before
+     *
+     * @throws ValidationException when the currency changes and a module already holds amounts in the old one
      */
     public static function updateDetails(int $id, array $data, EmailSource $emailSetBy): array
     {
         return DB::transaction(function () use ($id, $data, $emailSetBy): array {
             $client = self::query()->lockForUpdate()->findOrFail($id);
+
+            if (isset($data['currency']) && $data['currency'] !== $client->currency && ($reason = app(ClientCurrencyLock::class)->reason($client)) !== null) {
+                throw ValidationException::withMessages(['currency' => $reason]);
+            }
+
             $before = $client->only(array_keys($data));
             $client->fill(Arr::except($data, 'email'));
 
