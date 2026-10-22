@@ -7,7 +7,7 @@ Status: complete · Date read and written: 2026-10-18 · Owner: CTO
 **Scope.** How WHMCS works underneath and how third parties extend it: the External API and REST API v2, the hook
 system, every module type and its function contract, cron and automation, themes, templates, email and language
 systems, database and helper usage, logging, storage and security practices. Each item is compared with Mohar
-(`/workspaces/whmcs/billing`). The admin and client functional surface, release notes and community pain points are
+(`$MOHAR_ROOT/billing`). The admin and client functional surface, release notes and community pain points are
 covered by other slices and are out of scope here.
 
 **Method.** The whole of developers.whmcs.com was enumerated from the site's own navigation data (the site is a
@@ -18,7 +18,7 @@ understanding only. Nothing here copies WHMCS text or code; descriptions are our
 decoded. Appendix A lists every page with its coverage.
 
 **Status legend.** **Built** (file cited, path relative to `billing/app` unless shown otherwise) · **Specified**
-(spec section cited, `docs/product/<x>.md §n`) · **In progress** (branch in `/workspaces/whmcs/docs/handoff/state.md`
+(spec section cited, `docs/product/<x>.md §n`) · **In progress** (branch in `docs/handoff/state.md`
 or a worktree with commits) · **Missing** (no code, no spec). **Priority:** P0 = needed at v1 for parity or for
 third-party extensibility (an event a host would hook, an API an integration or the WHMCS importer needs);
 P1 = soon after v1; P2 = later or niche.

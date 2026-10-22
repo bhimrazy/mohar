@@ -26,7 +26,16 @@ const dark = args.includes('--dark');
 const width = Number(flag('width', 1440));
 const height = Number(flag('height', 900));
 
-const browser = await chromium.launch();
+let browser;
+try {
+    browser = await chromium.launch();
+} catch (error) {
+    if (String(error).includes("Executable doesn't exist")) {
+        console.error('Chromium for this Playwright version is missing: run `playwright install chromium`.');
+        process.exit(1);
+    }
+    throw error;
+}
 try {
     const context = await browser.newContext({ viewport: { width, height }, colorScheme: dark ? 'dark' : 'light' });
     // The app reads the theme from localStorage ('appearance'); set it before any page script runs.

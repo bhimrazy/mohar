@@ -1,6 +1,11 @@
 // Width comparison: renders directions/<d>/width/invoice-issued-<w>.html inside the webmail pane at 1280px
 // and measures body-text characters per line. Usage: node width.mjs
-import { chromium } from '/workspaces/whmcs/.worktrees/_review/pw/node_modules/playwright/index.mjs';
+import { createRequire } from 'node:module';
+import { execSync } from 'node:child_process';
+// Playwright is installed globally at a pinned version (billing/docs/devops/local-setup.md).
+const { chromium } = createRequire(import.meta.url)(
+    `${execSync('npm root -g').toString().trim()}/playwright`,
+);
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';

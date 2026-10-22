@@ -61,7 +61,7 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 After each merge close the issue by hand (`develop` ignores closing keywords). When resolving Markdown conflicts, run
 `npx vp check --fix` before pushing (a hand-merged changelog failed CI on #252).
 
-- Queue, in order: issue triage (101 open; close stale follow-ups); #241 vite-plus 1.3.0 (from 10-23 06:00 UTC);
+- Queue, in order: issue triage (98 open; close stale follow-ups); #241 vite-plus 1.3.0 (from 10-23 06:00 UTC);
   #233 KYC EXIF stripping; #126 deploy smoke seed; #254 Redactor follow-ups and ADR 0023; #278, #279, #277; #263
   credit ledger idempotency key; #267, #269, #250, #257, #258, #216, #225, #272–#274; #244 Node and Debian images
   (after 10-28); #208 simulators (low); tail latency (#205). The periodic review round is overdue.
@@ -80,8 +80,8 @@ After each merge close the issue by hand (`develop` ignores closing keywords). W
 
 ## Open issues worth knowing
 
-99 open. Go-live (label `go-live`): #25 key rotation, #218 client currency edit (#237), #238 currency code rename, #190
-Redactor gaps, the 40-user tail latency (#205). Full list: `gh issue list --label go-live`.
+98 open (2026-10-22 10:40 UTC). Go-live (label `go-live`): #11 Laravel 13.36 (PR #242) and #126 deploy smoke seed.
+The 40-user tail latency (#205) is a known performance finding without the label. Full list: `gh issue list --label go-live`.
 
 ## Scheduled
 
