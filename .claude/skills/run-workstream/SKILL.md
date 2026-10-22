@@ -27,7 +27,7 @@ adds what the agent definition does not know:
 ```
 Module: <name>. Spec: billing/docs/product/<module>.md (implement v1 per its acceptance criteria;
 out-of-scope section stays out). Expected size: <lines>; split proposed if above 2,000.
-Worktree: /workspaces/whmcs/.worktrees/<slug>/billing, branch feature/<slug>, at develop <sha>.
+Worktree: $MOHAR_ROOT/.worktrees/<slug>/billing, branch feature/<slug>, at develop <sha>.
 Setup: <npm ci needed? migrate:fresh --seed, wayfinder:generate --with-form>.
 Dev server ports: <range, e.g. 8100-8199>; screenshots to billing/docs/screenshots/<module>/.
 Module-specific constraints: <contracts to use, events to consume or emit, security requirements,
@@ -64,7 +64,7 @@ Lows and non-money mediums become issues (`gh issue create` citing the review).
 ## 5. Merge (CTO)
 
 ```bash
-cd /workspaces/whmcs/.worktrees/<slug>/billing && export XDEBUG_MODE=off && H=/workspaces/whmcs/scripts/heavy.sh \
+cd $MOHAR_ROOT/.worktrees/<slug>/billing && export XDEBUG_MODE=off && H=$MOHAR_ROOT/scripts/heavy.sh \
 && git fetch -q origin && git merge --no-edit origin/develop \
 && $H composer install -q && $H npm ci --silent && php artisan wayfinder:generate --with-form \
 && vendor/bin/pint --dirty --format agent && $H vendor/bin/phpstan analyse --memory-limit=1G \
@@ -76,7 +76,7 @@ gh pr checks <n> --watch              # CI runs the full suite on SQLite and Pos
 gh pr comment <n> -b "CTO sign-off at <sha>: <each blocking item and its evidence>, gates, test count"
 for s in $(gh pr list --base feature/<slug> --json number --jq '.[].number'); do gh pr edit $s --base develop; done
 gh pr merge <n> --merge --match-head-commit <sha> --delete-branch
-cd /workspaces/whmcs && git pull --ff-only && git worktree remove .worktrees/<slug> && git branch -D feature/<slug>
+cd $MOHAR_ROOT && git pull --ff-only && git worktree remove .worktrees/<slug> && git branch -D feature/<slug>
 ```
 
 - Code conflicts in money or auth PRs go back to the engineer; docs, changelog and lockfile conflicts the CTO resolves

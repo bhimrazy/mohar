@@ -7,6 +7,7 @@ use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\UsageSnapshot;
 use App\Modules\Services\Services\ProvisioningSnapshots;
+use App\Support\Integrations\Redactor;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Carbon\CarbonImmutable;
 use Throwable;
@@ -16,7 +17,7 @@ use Throwable;
  */
 class SyncUsage
 {
-    public function __construct(private ProvisioningDriverRegistry $drivers, private ProvisioningSnapshots $snapshots) {}
+    public function __construct(private ProvisioningDriverRegistry $drivers, private ProvisioningSnapshots $snapshots, private Redactor $redactor) {}
 
     public function handle(CarbonImmutable $today): int
     {
@@ -27,6 +28,8 @@ class SyncUsage
                 return;
             }
 
+            $connection = null;
+
             try {
                 $driver = $this->drivers->get($server->driver);
 
@@ -34,9 +37,10 @@ class SyncUsage
                     return;
                 }
 
-                $rows = $driver->usage($this->snapshots->connection($server));
+                $rows = $driver->usage($connection = $this->snapshots->connection($server));
             } catch (Throwable $exception) {
-                report($exception);
+                // Driver text can echo a request; report it masked, as the other Services callers do.
+                report(new \RuntimeException($this->redactor->maskValues($exception->getMessage(), $connection?->secrets() ?? [])));
 
                 return;
             }

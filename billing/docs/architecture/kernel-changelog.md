@@ -88,6 +88,32 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 - Additive: `HostedPaymentDriver` is unchanged and drivers without the interfaces keep working. Implemented by
   `StripeDriver` and the sandbox card driver.
 
+### Redactor gaps (#190, CTO-sanctioned kernel change)
+
+- `App\Support\Integrations\Redactor` (`@api`): public method signatures unchanged. The string rules behind
+  `redact()`, `maskValues()` and `excerpt()` now run as one linear left-to-right scan instead of the bounded
+  `maskPairs()` recursion (the `NESTED_PAIR_*` limits are gone): secret `name=value`, `name: value`, `"name":"value"`
+  and `'name' => 'value'` pairs (quoted values with escapes, JSON arrays and objects, unquoted values through `;` and
+  `,` that continue the value), XML elements named like a secret or labelled by a secret `key`/`name` attribute (CDATA
+  included), secret XML attributes, URL userinfo, percent-encoded pairs, `curl -u` credentials (quoted or attached), whole
+  `Cookie:` and `Set-Cookie:` lines, and Stripe and Khalti key shapes. End tags are found through one index of `</`
+  offsets read by a forward-only cursor, so the scan stays linear with many unclosed elements (#252 B1). A secret
+  element with no end tag masks the rest of the text (fail closed); an element named like an HTML void element
+  (`<input name="password">`, XML `<param>`) with no matching end tag later in the text masks the text up to the next
+  tag or its CDATA section, so an HTML input masks nothing after it; with an end tag later it is masked to that end
+  tag like any element, child elements and comments included. An unquoted name whose value would start on the next
+  line takes that line unless it is header-shaped (a name, `:`, then a blank or the line end), so an empty `Cookie:`
+  keeps the next header while `password:\nvalue` and `token:\nQWx…==` are masked. The word
+  rules gain `pw` (EPP `newPW`) and the run-together `session` (`cpsession`, `whostmgrsession`).
+- Masks widen, with two narrowings: `auth-userid` (ResellerClub's reseller id) is no longer secret, and after an
+  unquoted `Session:` or `hash:` label in free text a value that is a known reference id (Stripe `cs_`, `pi_`, `ch_`,
+  `evt_`, `cus_`, `in_`, `sub_`, `re_`, `py_`, `seti_` ids) stays readable when the id is the whole value, optionally ending a sentence with `.`. Any other value after those
+  labels, `session=`, `hash=` and quoted keys stay secret.
+- A string that is a whole JSON document and holds nothing secret is returned unchanged instead of re-encoded.
+- `redactPayment()` also applies the string rules to text leaves (before Luhn scrubbing). Key rules unchanged.
+- Behaviour change for callers comparing exact output: a quoted secret keeps its quotes (`"password":"[redacted]"`,
+  `password="[redacted]"`); an unquoted one is replaced whole as before.
+
 ### Client currency lock (#218)
 
 - `App\Support\Clients\ClientCurrencyUsage::sourcesFor(int $clientId): list<string>` (new method, additive): the keys

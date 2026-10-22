@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Create an isolated worktree for a workstream: scripts/new-worktree.sh <module-slug>
-# -> /workspaces/whmcs/.worktrees/<slug> on branch feature/<slug> (from a freshly fetched origin/develop, not the
+# -> $MOHAR_ROOT/.worktrees/<slug> on branch feature/<slug> (from a freshly fetched origin/develop, not the
 # local develop, which goes stale), dependencies ready.
 set -euo pipefail
 slug="$1"
@@ -9,8 +9,8 @@ wt="$root/.worktrees/$slug"
 git -C "$root" fetch -q origin develop
 git -C "$root" worktree add -q --no-track -b "feature/$slug" "$wt" origin/develop
 cd "$wt/billing"
-cp -a "$root/billing/vendor" .
-cp -al "$root/billing/node_modules" . 2>/dev/null || cp -a "$root/billing/node_modules" .
+cp -ac "$root/billing/vendor" . 2>/dev/null || cp -a "$root/billing/vendor" .
+cp -al "$root/billing/node_modules" . 2>/dev/null || cp -ac "$root/billing/node_modules" . 2>/dev/null || cp -a "$root/billing/node_modules" .
 cp "$root/billing/.env" .
 touch database/database.sqlite
 export XDEBUG_MODE=off

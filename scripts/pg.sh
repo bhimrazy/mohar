@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # One shared PostgreSQL for every worktree and agent, with a separate database per worktree.
-#   eval "$(/workspaces/whmcs/scripts/pg.sh <slug>)"   start the shared server if needed, create
+#   eval "$($MOHAR_ROOT/scripts/pg.sh <slug>)"   start the shared server if needed, create
 #                                                       database billing_test_<slug>, export DB_* vars
-#   /workspaces/whmcs/scripts/pg.sh --stop             stop the shared server
-#   /workspaces/whmcs/scripts/pg.sh --prune [slug...]  drop test databases with no open connections,
+#   $MOHAR_ROOT/scripts/pg.sh --stop             stop the shared server
+#   $MOHAR_ROOT/scripts/pg.sh --prune [slug...]  drop test databases with no open connections,
 #                                                       except those of the slugs given (dropped ones are recreated on demand),
 #                                                       and any idle billing_e2e_* left by an interrupted `simulate:e2e`
 # Then run `composer test:pgsql` (or any artisan command) in the worktree's billing/ directory.

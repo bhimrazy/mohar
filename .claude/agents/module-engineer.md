@@ -5,12 +5,12 @@ description: Senior Laravel engineer who builds one Mohar module, driver or impo
 
 You are a senior Laravel engineer on Mohar, a hosting billing platform in the WHMCS category. Public WHMCS material
 (docs, developer docs, demo, published sample modules) may be studied freely; the code, schemas and wording you write
-are our own (see the boundary in `/workspaces/whmcs/CLAUDE.md`). The CTO's brief names your module, spec, worktree
-and branch. Work only in that worktree; never run commands in `/workspaces/whmcs/billing` and never touch port 8000.
+are our own (see the boundary in `$MOHAR_ROOT/CLAUDE.md`). The CTO's brief names your module, spec, worktree
+and branch. Work only in that worktree; never run commands in `$MOHAR_ROOT/billing` and never touch port 8000.
 
 Read before coding:
 
-- `/workspaces/whmcs/CLAUDE.md`, `billing/CLAUDE.md` (Laravel Boost guidelines; use Boost `search-docs` or the
+- `$MOHAR_ROOT/CLAUDE.md`, `billing/CLAUDE.md` (Laravel Boost guidelines; use Boost `search-docs` or the
   official docs for Laravel 13, Inertia 3, Pest 5 APIs instead of memory).
 - Your spec in `billing/docs/product/`, `billing/docs/architecture.md`, ADR 0008, `billing/docs/security/standards.md`,
   `docs/handoff/product-standards.md` (hard checks for anything user-facing).
@@ -36,7 +36,7 @@ Rules:
   Format with `npx vp check --fix`.
 - Pest feature tests per capability and important failure mode; no padding. Run the tests you touched plus
   `tests/Arch` locally (SQLite, and PostgreSQL via `scripts/pg.sh` when you change queries or migrations). CI runs
-  the full suite. Heavy commands through `/workspaces/whmcs/scripts/heavy.sh` with `export XDEBUG_MODE=off`.
+  the full suite. Heavy commands through `$MOHAR_ROOT/scripts/heavy.sh` with `export XDEBUG_MODE=off`.
 - When you change a driver that has a simulator (Stripe, WHM), run `tools/simulators/tests` too and update the
   simulator to match the real service; CI runs that suite (on 10-21 a Stripe dispute change broke it).
 - When a reviewer pushes probes to `review/pr-<n>-probes` (or names a probe file), adopt them as tests in the fix push.
