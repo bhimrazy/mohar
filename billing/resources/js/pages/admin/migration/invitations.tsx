@@ -74,7 +74,7 @@ const columns: DataTableColumn<Login>[] = [
         cell: (login) => (
             <a
                 href={login.client_href}
-                className="text-primary hover:underline"
+                className="whitespace-normal text-primary hover:underline"
             >
                 {login.client}
             </a>
@@ -91,7 +91,7 @@ const columns: DataTableColumn<Login>[] = [
                     tone={STATES[login.state].tone}
                 />
                 {login.state === 'open' && login.expires_at && (
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-xs whitespace-normal text-muted-foreground">
                         Link works until{' '}
                         <DateTime value={login.expires_at} format="datetime" />
                     </span>
@@ -160,7 +160,9 @@ export default function ImportInvitations({
                                     <Send />
                                     {toSend > 0
                                         ? `Send ${count(toSend)} ${toSend === 1 ? 'invitation' : 'invitations'}`
-                                        : 'Continue sending'}
+                                        : sending > 0
+                                          ? 'Continue sending'
+                                          : 'Send invitations'}
                                 </Button>
                             }
                             title={
@@ -238,6 +240,7 @@ export default function ImportInvitations({
                                 name="scope"
                                 label="Clients"
                                 allLabel="Created by this import"
+                                className="sm:w-72"
                                 options={[
                                     {
                                         value: 'all',
