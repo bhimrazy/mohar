@@ -102,13 +102,14 @@ final class EsewaApi
         $booking = $this->booking($productCode.':'.$uuid);
         $found = $booking !== null && (int) $booking['total'] === $asked && ! in_array($booking['status'], ['CANCELED', 'EXPIRED'], true);
 
-        return Response::json([
+        // A JSON number that keeps its ".0", as eSewa's answers do (100.0).
+        return new Response(200, ['Content-Type' => 'application/json'], (string) json_encode([
             'product_code' => $productCode,
             'transaction_uuid' => $uuid,
             'total_amount' => (float) (($found ? (int) ($booking['settled'] ?? $booking['total']) : $asked) / 100),
             'status' => $found ? $booking['status'] : 'NOT_FOUND',
             'ref_id' => $found ? $booking['ref_id'] : null,
-        ]);
+        ], JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION));
     }
 
     /** GET /epay/booking/{id}: the payment page, with the payer's three outcomes. */
