@@ -95,7 +95,9 @@ the same metadata on the session and on `payment_intent_data`: `mohar_reference`
   payment" and "Use another method" to the invoice owner. Continue retrieves the stored session and redirects to its
   `url` only while it is `open` and on the checkout host. Use another method expires the stored session
   (`ResumesHostedPayment` and `CancelsHostedPayment`), then the lookup settles the attempt: `expired` frees the
-  invoice, and a paid session is booked.
+  invoice, and a paid session is booked. Each close sends its own Idempotency-Key (Stripe replays a key's first
+  answer, a 500 included, for 24 hours). Only drivers that implement `CancelsHostedPayment` offer or accept it; eSewa
+  and Khalti keep their cancel-return "Pay a different way".
 - The poller (`billing.payments.reconcile`) settles attempts whose customer never came back.
 
 ### 3.2 Lookup status mapping

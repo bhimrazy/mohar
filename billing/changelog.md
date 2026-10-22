@@ -349,9 +349,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   Stripe's checkout host), and **Use another method**. The second asks for confirmation, expires the session at Stripe
   first and frees the invoice only when Stripe's status confirms it can no longer be paid. If Stripe reports it paid,
   the payment is recorded instead. A double click closes it once.
-- Every hosted method offers **Use another method** while a payment is open. Without a provider "close" call (eSewa,
-  Khalti) the invoice is freed only when the status check shows no payable session. Otherwise the client sees why,
-  for example "The payment page is still open, so the payment could still be made there".
+- **Use another method** is offered only by methods that can close their payment page at the provider (Stripe
+  today). eSewa and Khalti don't offer it, and a direct request to close one of their payments is refused without a
+  status check or any change: their "not found" or "initiated" answer doesn't mean the customer's other tab can no
+  longer pay. If Stripe still holds the session or can't be reached, the client sees why, for example "The payment
+  page is still open, so the payment could still be made there". Each close sends Stripe a new idempotency key, so a
+  transient Stripe error is not replayed on the next click.
 - After a cancel on eSewa, the invoice now keeps a "Payment not completed" card with **Pay a different way** and
   the "Don't pay again" warning until the eSewa session time is over. A late success is still booked as before.
 - Operators: no migration, no setting and no permission change. Two new client routes,
