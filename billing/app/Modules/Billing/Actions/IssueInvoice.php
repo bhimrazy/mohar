@@ -48,7 +48,9 @@ class IssueInvoice
                 // An invoice that may take credit locks the client before inserting the invoice (#192). Otherwise the
                 // insert's key-share lock on the client, held while this waits for the invoice number, deadlocks
                 // (PostgreSQL) with another invoice of the client that holds the number and locks the client for credit.
-                $client = Client::query()->when($mayApplyCredit, fn ($query) => $query->lockForUpdate())->findOrFail($draft->clientId);
+                // Any other invoice reads the client under a share lock: a currency change (Client::updateDetails, #218)
+                // then either sees this invoice and is refused, or commits first and this reads the new currency.
+                $client = Client::query()->when($mayApplyCredit, fn ($query) => $query->lockForUpdate(), fn ($query) => $query->sharedLock())->findOrFail($draft->clientId);
                 $currency = strtoupper($draft->currency);
 
                 if ($currency !== strtoupper($client->currency)) {
