@@ -9,7 +9,7 @@ reach us. Decision record: [ADR 0007](../adr/0007-dependency-pinning-and-cooldow
 
 | What                    | Pinning rule                                                                                                                                            | Cooldown enforced by                                                                     |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Composer packages       | exact versions in `composer.json` (`"laravel/framework": "13.34.0"`), `composer.lock` is the source of truth                                            | `scripts/check-dependency-age.mjs` (packagist `time`)                                    |
+| Composer packages       | exact versions in `composer.json` (`"laravel/framework": "13.36.0"`), `composer.lock` is the source of truth                                            | `scripts/check-dependency-age.mjs` (packagist `time`)                                    |
 | npm packages            | exact versions in `package.json` (checked by the script for `billing/` and `docs-site/`), `save-exact=true`, `package-lock.json` is the source of truth | `.npmrc` `min-release-age=7` (native) + the script (registry `time`), for both lockfiles |
 | GitHub Actions          | full commit SHA + `# <tag>` comment on the same line; SHA must equal the tag                                                                            | the script (release date, tag → SHA)                                                     |
 | Docker images           | `<name>:<tag>@sha256:<digest>` (compose and workflow `services:`)                                                                                       | the script (Docker Hub push date)                                                        |
@@ -115,6 +115,5 @@ with the same label + `Security-Exception` lines + approval flow.
 
 ## Open follow-ups
 
-- [#11](https://github.com/bhimrazy/whmcs/issues/11) — bump `laravel/framework` to 13.36.x + `laravel/wayfinder`
-  0.1.22 on/after 2026-10-22 (security hardening in framework #61837 and #61755 was skipped by the cooldown
-  downgrade to 13.34.0); merge before `feature/platform`, or that PR takes the exception path.
+- [#11](https://github.com/bhimrazy/whmcs/issues/11) — done in the PR that bumps `laravel/framework` 13.36.0 and
+  `laravel/wayfinder` 0.1.22; transitives stay at their newest release older than 7 days.

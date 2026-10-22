@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Dependency security bump (#11).** `laravel/framework` 13.34.0 → 13.36.0 and `laravel/wayfinder` 0.1.21 → 0.1.22.
+  13.35 hardens SQL in cursor pagination and `whereRowValues` (laravel/framework#61837); 13.36 makes Mail Markdown
+  escape inline markdown in user input (#61755). Run `composer install` and `php artisan view:clear`; no config or
+  schema change. Pest, PHPUnit and the other transitive packages stay at their cooldown-compliant versions.
+
 - **Identity verification (KYC) module, off by default (#197).** A new `kyc_documents` table (migration
   `770100`, expand only). Nothing changes until a host turns on Admin → Settings → Identity verification
   (`kyc.enabled`, new permission `kyc.settings.manage`, granted by `*` and `kyc.*`). Two new **sensitive**
