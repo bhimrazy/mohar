@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-21 18:20 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts or
+Last updated: 2026-10-22 06:10 UTC by the CTO session (main site). Update this file whenever a PR merges, a workstream starts or
 stops, or the owner makes a decision. Keep it short: history goes in `history.md` and `docs/reviews/`.
 
 ## Summary
@@ -8,6 +8,8 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 - Progress toward "a product a host would switch to": **53/100** (CEO review round 3, 2026-10-20 afternoon,
   `docs/reviews/2026-10-20-ceo-round-3.md`; rubric in `docs/reviews/readme.md`). The merges below have not been scored
   yet; the next CEO round scores them.
+- Merged on 2026-10-22: the PHP 8.4.27 security patch for CVE-2026-109618/109619 through FrankenPHP 1.13.2, by
+  security exception (#243), and client KYC: uploads plus staff review by Full Administrators only (#228, #231).
 - Merged on 2026-10-21: the client importer is complete (#184 confirm and apply, #201 review decisions, report and
   errors CSV; #160–#163 earlier), `.np` registered by clients with the host's nameservers (#199), Nepal-first install
   defaults (#215), billing reversals and the client lock order (#211), eSewa fixes from a REA capture of the UAT
@@ -48,7 +50,7 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 | #112 | Sign-in PR 0                                          | Draft. To be cut to the ADR 0018 §4 fix, or closed.            |
 | #128 | Gateway expansion spec (connectIPS, Fonepay, cards)   | Draft. Owner questions in the PR.                              |
 
-## Running now (2026-10-21 18:20 UTC; budget: load below 8, 2 GB free, disk below 85%)
+## Running now (2026-10-22 06:10 UTC; budget: load below 8, 2 GB free, disk below 85%)
 
 - Code: KYC fix round (#228 part 1, #231 part 2; security re-check before merge); #218 client currency
   locked once the client has records (go-live).
@@ -56,6 +58,16 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
   (invitations, opening balances, tax-ID warnings); Khalti and eSewa simulators from captures (#208, low); #112 cut;
   kernel PR C before ResellerClub; #190 Redactor gaps; #235 (e2e default currency), #216, #217, #221, #225, #230, #232 follow-ups; the tail-latency
   performance work (#205).
+
+Two build sites since 10-22 (`operating-model.md`, "Two build sites"):
+
+- Main site: #237 client currency lock (re-check passed; merges on green CI); #242 Laravel 13.36 (CI from 13:25
+  UTC, after wayfinder clears the cooldown); importer B2 (invitations, opening balances, tax-ID warnings).
+- Second site: #238 currency code immutable; #240 KYC history cleared when the unlock ends; #235 e2e fixtures in NPR.
+- Queue, in order: #241 vite-plus 1.3.0 (from 10-23 06:00 UTC); #239 ImportServerAccounts lock; #233 KYC EXIF
+  stripping (before KYC is on by default); #244 Node 24.22.1 and Debian base images (after 10-28); Khalti and eSewa
+  simulators (#208, low); #112 cut; kernel PR C before ResellerClub; #190 Redactor gaps; #216, #217, #221, #225,
+  #230, #232 follow-ups; tail latency (#205).
 
 ## Open owner questions
 
@@ -69,14 +81,14 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 
 ## Open issues worth knowing
 
-99 open. Go-live (label `go-live`): #25 key rotation, #218 client currency edit, #190
+99 open. Go-live (label `go-live`): #25 key rotation, #218 client currency edit (#237), #238 currency code rename, #190
 Redactor gaps, the 40-user tail latency (#205). Full list: `gh issue list --label go-live`.
 
 ## Scheduled
 
 - On or after 2026-10-22: bump `laravel/framework` to 13.36.x and `laravel/wayfinder` to 0.1.22 (#11).
 
-## Local-only state on the current codespace
+## Local-only state on the codespaces
 
 Not in git; does not exist on a new device:
 
@@ -87,4 +99,7 @@ Not in git; does not exist on a new device:
   UAT sandbox for #213; never pointed at WHMCS files (`CLAUDE.md`, Boundary).
 - Agent transcripts under `~/.claude/projects/-workspaces-whmcs/` (needed to resume agents in place; on a new device,
   relaunch from `.claude/agents/` with the brief template in the `run-workstream` skill).
+- Main site extras copied from the original codespace on 10-22: the Stripe CLI login (`~/.stripe`, `~/.config/stripe`),
+  Composer auth, `~/.npmrc`. The repository is cloned at `/workspaces/mohar`, with `/workspaces/whmcs` linked to it so
+  existing paths work; PHP is switched to 8.4 (`~/.php/current`), since new codespaces default to 8.3.
 - Published design review page: https://claude.ai/artifact/9zNAXTVDgoF8juYYZ6wnZM (private to the owner).
