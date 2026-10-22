@@ -315,7 +315,7 @@ jobs:
                       echo "::warning::CI took ${elapsed} s, over 12 of the 15 minutes before the timeout; see billing/docs/devops/ci.md"
                   fi
 
-    # ADR 0016 §4-5: the end-to-end hosting scenario against the whm and stripe simulators, on a throwaway PostgreSQL
+    # ADR 0016 §4-5: the end-to-end hosting scenario against the whm, stripe, khalti and esewa simulators, on a throwaway PostgreSQL
     # database. Its own job and check name, so a simulator failure never hides a main-suite failure. Opt-in, about
     # 2 billable minutes a run: manual dispatch (the CTO's develop run after a batch of merges counts towards the
     # 10 consecutive green runs), pushes to main, and PRs labelled `e2e`. Never on ordinary PR events, and not a

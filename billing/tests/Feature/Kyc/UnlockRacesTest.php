@@ -28,6 +28,7 @@ beforeEach(function () {
 });
 
 test('#257: the page carries the seconds left, counted by the server, and nothing without an unlock', function () {
+    $this->freezeTime();
     ($this->show)()->assertInertia(fn (AssertableInertia $page) => $page->where('unlockedFor', null));
 
     confirmPassword();
