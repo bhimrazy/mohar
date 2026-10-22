@@ -38,6 +38,13 @@ Living status board. Each workstream updates its row when it opens a PR for revi
 
 ## Timeline
 
+### 2026-10-22
+
+- Sizing and restore docs (#320, draft): one minimum everywhere, 2 vCPU and 4 GB, with the measured memory (857 MiB at
+  50,000 clients on the load-test stack) and when to grow. The documented backup and restore ran end to end once on
+  Docker (database, bucket and an encrypted KYC image restored, 42 s); `down -v` needed both colour profiles and
+  `deploy/bin/deploy` needed a portable path.
+
 ### 2026-10-21
 
 - Morning: process review of the agents, skills and handoff docs (#204: shared review rules, `review-round` skill,

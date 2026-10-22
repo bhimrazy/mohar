@@ -37,7 +37,8 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
     accountant's answer (10-21).
 - Load test on the GitHub runner (small profile 2 vCPU / 4 GB, 50k clients; `billing/docs/devops/sizing.md`): p95
   424 ms at 40 users, billing day 285 s, no errors. Tail latency at 40 users (dashboard p95 5.1 s, sign-in p50
-  2.4 s) is the remaining performance finding.
+  2.4 s) is the remaining performance finding. Memory: the stack used at most 857 MiB there; 4 GB is the minimum
+  in every doc (#320), the smallest size tested.
 - The milestone that moves the number most: a Nepali host's switch path end to end on `develop`. Import clients and
   `.np` guidance are merged; next are eSewa and Khalti verified live, and a real cPanel/WHM account.
 
@@ -55,6 +56,7 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 
 | PR | Workstream | Status (2026-10-22 10:30 UTC) |
 | --- | --- | --- |
+| #320 | Sizing and restore docs (CEO review 2026-10-22) | Draft, fix round 1. Minimum 2 vCPU / 4 GB in every doc (smallest size tested, not a measured floor); restore drill run once on macOS (all checks passed, 42 s); `down -v` needs both profiles; `deploy/bin/deploy` portable. Unmeasured: deploy at 50k clients, Linux restore, real-size restore. |
 | #271 | macOS tooling: `MOHAR_ROOT`, portable scripts, `linux.sh`, Mailpit, screenshot helper | Draft; CTO's. Merge after a slop-review. |
 | #262 / #264 / #265 | Registrar contracts (ADR 0009 PR C1–C3) | Engineer resuming: C1 architecture items, C2 wip fixes (unblocked by #252), develop merged up the stack. Then architect + board re-checks. |
 | #242 | Laravel 13.36 (#11) | Cooldown clears 13:25 UTC 10-22: add `ci`, merge on green. |
