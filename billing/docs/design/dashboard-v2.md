@@ -294,9 +294,9 @@ header shows "⌘K" because the command palette exists. Hidden when the user has
 - Budget: one visit makes about 50 queries for first paint and about 24 for the deferred request (all
   modules and permissions, cold cache), with no growth per row. `DashboardQueryCountTest` holds the ceilings
   (60 and 32).
-- **Calendars.** Every series buckets days in the company timezone (`system.timezone`): Orders through its
-  `CompanyClock`; Billing and Core sign-ups through Core's `BusinessCalendar` (local today; local midnight
-  converted to UTC for query bounds). Billing sums income per currency and local day in SQL with literal
+- **Calendars.** Every series buckets days in the company timezone (`system.timezone`): Orders through the
+  `CompanyClock` contract; Billing and Core sign-ups through Core's `CoreCompanyClock` (local today; local midnight
+  converted to UTC for query bounds with `dayBounds()`). Billing sums income per currency and local day in SQL with literal
   per-driver SQL and the zone as a bound parameter: PostgreSQL `date((occurred_at at time zone 'UTC') at time
   zone ?)` (exact, DST included), MySQL `convert_tz` and SQLite a `date(col, ?)` modifier (today's offset),
   grouped by position (`GROUP BY 1, 2`). Due dates and automation run dates are calendar dates already.

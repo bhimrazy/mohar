@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Modules\Billing\Actions\CreateAddFundsInvoice;
 use App\Modules\Billing\Actions\PublishInvoice;
 use App\Modules\Billing\Actions\Quotes;
@@ -143,23 +144,29 @@ it('refuses a quote on the first company day after its validity', function (stri
     ['2026-10-18 18:15:00', false],
 ]);
 
-it('lists numbered invoices created between 00:00 and 05:45 Nepal time and rewrites nothing', function () {
+it('lists numbered invoices created, paid or updated between 00:00 and 05:45 Nepal time and rewrites nothing', function () {
+    freezeUtc('2026-10-20 06:00:00'); // factory rows get this updated_at: outside the window
     $client = billingClient();
     $early = Invoice::factory()->create(['client_id' => $client->id, 'number' => '41', 'issue_date' => '2026-10-18', 'created_at' => '2026-10-18 18:20:00']);
     $edge = Invoice::factory()->create(['client_id' => $client->id, 'number' => '42', 'issue_date' => '2026-10-18', 'created_at' => '2026-10-18 18:15:00']);
+    $paid = Invoice::factory()->create(['client_id' => $client->id, 'number' => '45', 'created_at' => '2026-10-18 10:00:00', 'paid_at' => '2026-10-18 19:00:00']);
+    $published = Invoice::factory()->create(['client_id' => $client->id, 'number' => '46', 'created_at' => '2026-10-18 10:00:00']);
+    Invoice::query()->whereKey($published->id)->toBase()->update(['updated_at' => '2026-10-18 18:30:00']);
     Invoice::factory()->create(['client_id' => $client->id, 'number' => '43', 'created_at' => '2026-10-18 18:14:59']);
     Invoice::factory()->create(['client_id' => $client->id, 'number' => '44', 'created_at' => '2026-10-18 05:00:00']);
     Invoice::factory()->create(['client_id' => $client->id, 'number' => null, 'created_at' => '2026-10-18 20:00:00']);
 
     $this->artisan('billing:report-utc-dates')
-        ->expectsOutputToContain('41')->expectsOutputToContain('42')->expectsOutputToContain('2 numbered invoice(s)')
+        ->expectsOutputToContain('41')->expectsOutputToContain('42')->expectsOutputToContain('paid 2026-10-18 19:00')->expectsOutputToContain('updated 2026-10-18 18:30')
+        ->expectsOutputToContain('4 numbered invoice(s)')
         ->doesntExpectOutputToContain('43')->doesntExpectOutputToContain('44')
         ->assertSuccessful();
 
-    expect($early->fresh()->issue_date->toDateString())->toBe('2026-10-18')->and($edge->fresh()->issue_date->toDateString())->toBe('2026-10-18');
+    expect($early->fresh()->issue_date->toDateString())->toBe('2026-10-18')->and($edge->fresh()->issue_date->toDateString())->toBe('2026-10-18')->and($paid->fresh()->paid_at->toDateString())->toBe('2026-10-18');
 });
 
 it('tells the owner when no invoice is affected, and caps the listing', function () {
+    freezeUtc('2026-10-20 06:00:00');
     $this->artisan('billing:report-utc-dates')->expectsOutputToContain('No numbered invoice')->assertSuccessful();
 
     foreach ([1, 2, 3] as $n) {
@@ -168,3 +175,23 @@ it('tells the owner when no invoice is affected, and caps the listing', function
 
     $this->artisan('billing:report-utc-dates', ['--limit' => 2])->expectsOutputToContain('3 numbered invoice(s)')->expectsOutputToContain('2 listed')->assertSuccessful();
 });
+
+it('dates a receipt on the company day of the payment', function (string $utc, string $date) {
+    $invoice = issueInvoice(billingClient(), [1_234]);
+    freezeUtc($utc);
+    $transaction = payInvoice($invoice, 1_234);
+
+    expect(app(MergeFieldRegistry::class)->resolve('transaction', $transaction->id))->toHaveKey('date', $date);
+})->with('boundary');
+
+it('does not turn an invoice overdue early in a zone west of UTC', function (string $utc, bool $overdue) {
+    inCompanyTimezone('America/New_York'); // UTC-4 in October: local midnight is 04:00 UTC
+    $invoice = Invoice::factory()->create(['client_id' => billingClient()->id, 'due_date' => '2026-10-18']);
+    freezeUtc($utc);
+
+    expect($invoice->isOverdue())->toBe($overdue)->and(Invoice::query()->overdue()->whereKey($invoice->id)->exists())->toBe($overdue);
+})->with([
+    ['2026-10-18 20:00:00', false],
+    ['2026-10-19 03:59:59', false],
+    ['2026-10-19 04:00:00', true],
+]);

@@ -2,6 +2,7 @@
 
 namespace App\Modules\Support;
 
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Support\PublicHelpDirectory;
 use App\Data\Notifications\SensitiveValue;
@@ -334,8 +335,8 @@ class SupportServiceProvider extends ModuleServiceProvider
     private function registerAutomation(): void
     {
         $automation = $this->app->make(Automation::class);
-        $automation->task('support.auto_close', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(AutoCloseTickets::class)->handle($today->isToday() ? null : $today->endOfDay()), label: 'Close idle tickets', description: 'Closes tickets that have waited on the customer longer than the auto-close period.');
-        $automation->task('support.purge_inbound_raw', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PurgeInboundRaw::class)->handle($today), label: 'Purge raw inbound emails', description: 'Deletes stored raw inbound email payloads older than the retention period.');
-        $automation->task('support.prune_attachments', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneAttachments::class)->handle($today), label: 'Delete old ticket attachments', description: 'Deletes attachment files from tickets closed longer than the configured months (details stay).');
+        $automation->task('support.auto_close', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(AutoCloseTickets::class)->handle($today->toDateString() === app(CompanyClock::class)->today()->toDateString() ? null : app(CompanyClock::class)->dayBounds($today)[1]), label: 'Close idle tickets', description: 'Closes tickets that have waited on the customer longer than the auto-close period.');
+        $automation->task('support.purge_inbound_raw', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PurgeInboundRaw::class)->handle(app(CompanyClock::class)->dayBounds($today)[0]), label: 'Purge raw inbound emails', description: 'Deletes stored raw inbound email payloads older than the retention period.');
+        $automation->task('support.prune_attachments', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneAttachments::class)->handle(app(CompanyClock::class)->dayBounds($today)[0]), label: 'Delete old ticket attachments', description: 'Deletes attachment files from tickets closed longer than the configured months (details stay).');
     }
 }

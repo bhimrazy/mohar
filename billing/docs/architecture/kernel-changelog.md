@@ -8,7 +8,7 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ### Company clock contract (ADR 0013 Amendment 1, PR 0a)
 
-- New `App\Contracts\Core\CompanyClock` (`@api`): `timezone()`, `now()`, `today()`, `dayBounds(date)` (the `[start, end)`
+- New `App\Contracts\Core\CompanyClock`: `timezone()`, `now()`, `today()`, `dayBounds(date)` (the `[start, end)`
   UTC instants of one company day) and `localDate(instant)`. Core implements it (`CoreCompanyClock`, bound in
   `CoreServiceProvider`) on the setting `system.timezone`; an invalid stored zone falls back to UTC. Additive; no
   setting rename or migration.
@@ -17,7 +17,11 @@ the same PR updates every in-repo implementer and gets the principal-architect g
   `Services\CompanyClock`, and Notifications' `MailClock` (its formatting stays, as `Support\MailDates`). None was
   public kernel surface; `BusinessCalendar::startOfDayUtc()` is `dayBounds()[0]`.
 - `automation:run` defaults its date to `CompanyClock::today()`, and its schedule and the exchange-rate schedule use
-  `->timezone($clock->timezone())`: `core.automation_time` and `platform.rates_update_time` are company time.
+  `->timezone($clock->timezone())`: `core.automation_time` and `platform.rates_update_time` are company time. The
+  run date is passed to tasks as a date value (00:00 UTC of the company date); `today()` itself is 00:00 in the company
+  zone. A run date can be skipped once on deploy (tasks select by `<=` windows and catch up).
+- `CoreCompanyClock` (not the contract) gains `isFallback()`: true when the stored zone is not a valid time zone and dates
+  use UTC (reported once; shown as a dashboard warning). Backward-compatible names such as `Asia/Katmandu` are accepted.
 - Billing's `DocumentNumbers::next()` now requires the document date (module code, not kernel API).
 
 ### Kept redirect URL for Khalti's Continue payment (#251)

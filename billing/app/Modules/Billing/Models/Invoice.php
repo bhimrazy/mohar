@@ -191,14 +191,14 @@ class Invoice extends Model
      */
     public function isOverdue(?CarbonImmutable $today = null): bool
     {
-        $today ??= app(CompanyClock::class)->today();
+        $today ??= app(CompanyClock::class)->today()->shiftTimezone('UTC');
 
         return $this->status === InvoiceStatus::Unpaid && $this->due_date !== null && $this->due_date->lt($today->startOfDay());
     }
 
     public function daysOverdue(?CarbonImmutable $today = null): int
     {
-        $today ??= app(CompanyClock::class)->today();
+        $today ??= app(CompanyClock::class)->today()->shiftTimezone('UTC');
 
         return $this->isOverdue($today) && $this->due_date !== null ? (int) $this->due_date->diffInDays($today->startOfDay()) : 0;
     }
@@ -247,7 +247,7 @@ class Invoice extends Model
      */
     public function scopeOverdue(Builder $query, ?CarbonImmutable $today = null): void
     {
-        $query->where('status', InvoiceStatus::Unpaid)->whereDate('due_date', '<', ($today ?? app(CompanyClock::class)->today())->toDateString());
+        $query->where('status', InvoiceStatus::Unpaid)->whereDate('due_date', '<', ($today ?? app(CompanyClock::class)->today()->shiftTimezone('UTC'))->toDateString());
     }
 
     /**

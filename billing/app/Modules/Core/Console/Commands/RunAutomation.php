@@ -57,7 +57,7 @@ class RunAutomation extends Command
 
     private function runPipeline(Automation $automation, Redactor $redactor, CompanyClock $clock): int
     {
-        $date = $this->option('date') ? CarbonImmutable::parse((string) $this->option('date'))->startOfDay() : $clock->today();
+        $date = $this->option('date') ? CarbonImmutable::parse((string) $this->option('date'))->startOfDay() : $clock->today()->shiftTimezone('UTC');
         $failed = false;
 
         foreach ($automation->ordered() as $key => $task) {

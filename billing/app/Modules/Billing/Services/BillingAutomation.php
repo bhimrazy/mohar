@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Services;
 
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Orders\PaymentGuard;
 use App\Events\Billing\InvoiceOverdue;
 use App\Events\Billing\InvoicePaymentReminder;
@@ -25,6 +26,7 @@ use Illuminate\Support\Collection;
 class BillingAutomation
 {
     public function __construct(
+        private CompanyClock $clock,
         private BillingSettings $settings,
         private ApplyLateFee $lateFee,
         private CaptureInvoice $capture,
@@ -74,7 +76,7 @@ class BillingAutomation
             ->where('status', InvoiceStatus::Unpaid)
             ->where('balance', '>', 0)
             ->whereDate('due_date', '<=', $window->toDateString())
-            ->where(fn ($query) => $query->whereNull('last_capture_attempt_at')->orWhere('last_capture_attempt_at', '<', $today->startOfDay()))
+            ->where(fn ($query) => $query->whereNull('last_capture_attempt_at')->orWhere('last_capture_attempt_at', '<', $this->clock->dayBounds($today)[0]))
             ->chunkById(200, function (Collection $invoices) use ($today, &$attempts): void {
                 foreach ($invoices as $invoice) {
                     if (! $this->captureDue($invoice, $today) || $this->guard->refusalReason($invoice->id) !== null) {
@@ -172,7 +174,7 @@ class BillingAutomation
         $log = $invoice->reminder_log ?? [];
 
         if (in_array($today->toDateString(), $log, true) || $invoice->due_date === null
-            || ($invoice->last_capture_attempt_at !== null && $invoice->last_capture_attempt_at->isSameDay($today))) {
+            || ($invoice->last_capture_attempt_at !== null && $this->clock->localDate($invoice->last_capture_attempt_at) === $today->toDateString())) {
             return null;
         }
 

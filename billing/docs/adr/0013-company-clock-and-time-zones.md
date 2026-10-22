@@ -1,6 +1,6 @@
 # ADR 0013 — Company clock and time zones
 
-- Status: Accepted · 2026-10-19 (CTO, after the 2026-10-19 architecture review) · Owner: Principal architect. Amendment 1 (Proposed, 2026-10-22) keeps the registered key `system.timezone` and puts fiscal documents first in the rollout.
+- Status: Accepted · 2026-10-19 (CTO, after the 2026-10-19 architecture review) · Owner: Principal architect. Amendment 1 (Accepted, 2026-10-23) keeps the registered key `system.timezone` and puts fiscal documents first in the rollout.
 
 ## Context
 
@@ -76,9 +76,9 @@ For a Kathmandu company, an invoice paid at 01:00 local time on the 5th counts a
 - Every module that touches dates needs a small migration PR. Wave 3 work (credit notes, reports) depends on this,
   so it should land before 3.8 and 3.9.
 
-## Amendment 1 — 2026-10-22, documents and the clock contract (Proposed)
+## Amendment 1 — 2026-10-22, documents and the clock contract (Accepted 2026-10-23)
 
-Status: Proposed, with ADR 0024. Written after the architecture review of #327, which found that Billing dates and
+Status: Accepted 2026-10-23 (CTO), with ADR 0024. Written after the architecture review of #327, which found that Billing dates and
 numbers fiscal documents on the UTC calendar.
 
 ### What changed since this ADR was accepted
@@ -99,7 +99,8 @@ numbers fiscal documents on the UTC calendar.
    key. Issue #85 keeps the general drift in settings ownership.
 2. **Contract.** `App\Contracts\Core\CompanyClock` keeps the shape in §3. Core implements it by turning
    `BusinessCalendar` into `CoreCompanyClock` and binds it in `CoreServiceProvider`. Orders' `CompanyClock` and
-   `MailClock` delegate to the contract and are deleted once their callers have moved, in a follow-up PR (decision 5). `sqlZoneArgument()` and
+   `MailClock` are deleted in PR 0a and their callers use the contract (CTO decision of 2026-10-23, see decision 5).
+   `sqlZoneArgument()` and
    `sqlLocalDate()` stay as Core-internal helpers until the two dashboards query with `dayBounds()`, and then they go.
    The contract gets no BS method: the Bikram Sambat date is computed in Billing from the company date (ADR 0024 §2).
 3. **Fiscal-document call sites switch first.** Billing step 4 of the rollout comes before any other module and
@@ -136,28 +137,45 @@ numbers fiscal documents on the UTC calendar.
     - Billing's fiscal call sites (decision 3) and the scheduler change;
     - the tests and the scan.
 
-    Orders, Kyc, Platform, Notifications, Services and Domains move in follow-up PRs, one module each, as in the
-    Rollout above. The local clocks are deleted only after their last caller has moved.
+    **CTO decision, 2026-10-23: the three local clocks are deleted in 0a.** Orders, Kyc, Platform and Notifications
+    moved only their clock imports (their own `today()` and `now()` calls are unchanged); Notifications' `MailClock`
+    keeps its date formatting as `MailDates`. The remaining `CarbonImmutable::today()` and `now()->toDateString()`
+    calls move module by module, as in the Rollout above, each with a Kathmandu test: Services (13 files), Domains
+    (9), Notifications (6), Platform (`ExchangeRateStatus`) and the retention cutoffs that use a date as an instant
+    (Orders `CancelStalePendingOrders`, Notifications `PruneNotificationLogs`, the Platform, Domains and Services
+    prunes). Support has no `today()` calls.
+    - **`today()` is a real instant**: 00:00 in the company zone, not 00:00 UTC of the company date. A company
+      date becomes an instant only through `dayBounds()`, never `startOfDay()` or a bare date compared with a
+      timestamp column. Automation tasks still receive the run date as a date value (00:00 UTC of the company
+      date, like a date column), so that code which compares it with date columns keeps working. A task that compares
+      it with a timestamp converts it with `dayBounds()`.
+    - **Invalid zone**: backward-compatible names (`Asia/Katmandu`, `Asia/Calcutta`) are accepted and mapped to their
+      canonical zones. A real fallback to UTC is reported and shown as a dashboard warning. A VAT note must refuse
+      to be issued while the clock is in fallback (`CoreCompanyClock::isFallback()`, used from PR 4).
 
 ### Migration of existing data
 
 - Calendar dates already stored (`issue_date`, `due_date`, `next_due_date`) were taken from the UTC calendar. Only
   rows created between 18:15 and 24:00 UTC (00:00–05:45 in Kathmandu) can be a day early.
 - **Numbered invoices are not rewritten.** They are issued documents (ADR 0024 §1), already sent and possibly filed.
-  A read-only command, `billing:report-utc-dates`, lists the affected numbered invoices by `created_at` so the owner
+  A read-only command, `billing:report-utc-dates`, lists the affected numbered invoices by when they were created, paid or last updated (the moment of dating is not stored) so the owner
   and the accountant can judge them. The fix applies from deploy onwards.
 - Drafts and proformas need no backfill: their dates are set again when they are published or paid.
 - Before Nepal VAT mode is enabled there are no notes and no stored BS fields, so nothing else moves. This is why the
   amendment must land before ADR 0024's schema.
-- On deploy the automation run day can shift by one: the first run after the switch uses the company date. Runs are
-  keyed by run date, so a day is neither run twice nor skipped. The release notes say this.
+- On deploy the automation run date can shift: the first run after the switch uses the company date. Runs are keyed
+  by (run date, task), so a date is never run twice. For a Kathmandu install deployed between 21:15 and 03:00 UTC a
+  run date can be skipped once (18 Oct, then 20 Oct). Nothing is lost: the Billing, Services and Domains tasks select
+  by `<=` windows, so the next run takes what the skipped one would have. An operator who wants the skipped date
+  can run `automation:run --date=<date>`. `core.automation_time` and `platform.rates_update_time` now mean company
+  time; the release notes say this, and no value is converted (there are no live installs yet).
 
 ### Consequences
 
 - One clock everywhere. Documents and their BS periods agree with the Kathmandu calendar at the day boundary.
 - `DocumentNumbers::next()` changes signature inside Billing. This is module code, not kernel API.
-- Three local clocks are removed in the follow-up PRs, not in PR 0a. Until then they delegate to the contract, so
-  every module already reads one company time zone.
+- The three local clocks are removed in PR 0a (CTO decision), with their callers moved to the contract, so every
+  module already reads one company time zone. The other `today()` calls move module by module.
 
 ### Alternatives considered
 

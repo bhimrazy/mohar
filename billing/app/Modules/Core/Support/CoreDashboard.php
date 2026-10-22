@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Support\Dashboard\Dashboard;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Route;
 
 /**
  * Core's admin dashboard widgets (clients). Registered from CoreServiceProvider::bootModule().
@@ -17,6 +18,13 @@ class CoreDashboard
         $dashboard->card('admin', 'core.clients', fn (?User $user): array => $this->activeClients(), 'core.clients.view', 10);
         $dashboard->card('admin', 'core.clients.new', fn (?User $user): array => $this->newClients(), 'core.clients.view', 11);
         $dashboard->widget('admin', 'core.clients.newest', 'list', fn (?User $user): array => $this->newestClients(), 'core.clients.view', 55, 'md');
+        $dashboard->todo('admin', 'core.timezone.invalid', fn (): array => [
+            'label' => 'Company time zone is not valid: dates use UTC',
+            'count' => app(CoreCompanyClock::class)->isFallback() ? 1 : 0,
+            'href' => Route::has('admin.platform.settings.edit') ? route('admin.platform.settings.edit', 'company') : route('admin.dashboard'),
+            'tone' => 'danger',
+            'icon' => 'Clock',
+        ], 'core.settings.update', 5);
         $dashboard->widget('admin', 'core.clients.signups', 'chart', fn (?User $user): array => $this->signups(), 'core.clients.view', 35, 'md', deferred: true);
     }
 

@@ -444,7 +444,7 @@ class BillingServiceProvider extends ModuleServiceProvider
                 'gateway' => $transaction->gateway,
                 'reference' => $transaction->gateway_txn_id,
                 'amount' => app(MoneyFormatter::class)->format(Money::of($transaction->amount_in > 0 ? $transaction->amount_in : $transaction->amount_out, $transaction->currency)),
-                'date' => $transaction->occurred_at->toDateString(),
+                'date' => app(CompanyClock::class)->localDate($transaction->occurred_at),
             ];
         });
     }

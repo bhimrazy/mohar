@@ -126,7 +126,7 @@ class Quotes
         return DB::transaction(function () use ($quote): Quote {
             $quote = Quote::query()->lockForUpdate()->findOrFail($quote->id);
 
-            if (! $quote->stage->isOpen() || ($quote->valid_until !== null && $quote->valid_until->lt($this->clock->today()))) {
+            if (! $quote->stage->isOpen() || ($quote->valid_until !== null && $quote->valid_until->toDateString() < $this->clock->today()->toDateString())) {
                 throw new BillingException(__('This quote can no longer be accepted.'));
             }
 

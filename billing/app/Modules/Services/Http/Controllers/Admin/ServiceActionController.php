@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Http\Controllers\Admin;
 
+use App\Contracts\Core\CompanyClock;
 use App\Http\Controllers\Controller;
 use App\Modules\Services\Actions\AddServiceAddon;
 use App\Modules\Services\Actions\OrderServiceChange;
@@ -56,10 +57,10 @@ class ServiceActionController extends Controller
         return back();
     }
 
-    public function change(ServiceChangeRequest $request, Service $service, OrderServiceChange $order): RedirectResponse
+    public function change(ServiceChangeRequest $request, Service $service, OrderServiceChange $order, CompanyClock $clock): RedirectResponse
     {
         $this->authorize('services.services.manage');
-        $today = CarbonImmutable::today();
+        $today = $clock->today()->shiftTimezone('UTC'); // a date value, as OrderServiceChange expects
 
         $change = $this->attempt(fn () => $order->handle($service, $request->integer('product_id'), $request->cycle(), $today));
 
