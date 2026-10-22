@@ -2,7 +2,6 @@
 
 use App\Contracts\Domains\Registrar\RegistrarRefs;
 use App\Support\Domains\RegistrarDriverRegistry;
-use Illuminate\Support\Facades\Http;
 use Tests\Fakes\Domains\InMemoryRegistrarRefs;
 use Tests\Support\Contracts\RegistrarDriverContract;
 
@@ -12,11 +11,11 @@ use Tests\Support\Contracts\RegistrarDriverContract;
  */
 $builtInDrivers = [
     'log' => null,
-    // ResellerClub answers every call with its error envelope here; its scenarios run against the simulator
-    // (tools/simulators/tests/ResellerClub). The contract account has no reseller id, so calls are refused before HTTP.
+    // The contract account has no ResellerClub reseller id, so every call is refused before any HTTP: for this driver
+    // the contract proves the refusal paths only. Its working scenarios run against the simulator
+    // (tools/simulators/tests/ResellerClub).
     'resellerclub' => function (): void {
         app()->instance(RegistrarRefs::class, new InMemoryRegistrarRefs);
-        Http::fake(['*' => Http::response(['status' => 'ERROR', 'message' => 'Refused by the contract fake.'], 500)]);
     },
 ];
 

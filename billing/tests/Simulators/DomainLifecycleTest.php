@@ -4,6 +4,7 @@ use App\Models\User;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Domains\Actions\IssueRenewalNow;
+use App\Modules\Domains\Drivers\Registrars\ResellerClub\ResellerClubContacts;
 use App\Modules\Domains\Drivers\Registrars\ResellerClub\ResellerClubDriver;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
@@ -85,7 +86,7 @@ test('a customer orders a domain, pays with Khalti, it is registered at Reseller
         ->and($domain->registrar_meta['remote']['order_id'])->toBe((int) $order['orderid'])
         ->and($domain->expiry_date->toDateString())->toBe(CarbonImmutable::createFromTimestamp((int) $order['endtime'])->toDateString())
         ->and($this->resellerclub->log()->count('register'))->toBe(1)
-        ->and(head($this->resellerclub->state()->all('customers'))['username'])->toBe('asha@example-shop.test');
+        ->and(head($this->resellerclub->state()->all('customers'))['username'])->toBe(ResellerClubContacts::customerUsername($customer->clients()->sole()->id));
 
     $renewal = app(IssueRenewalNow::class)->handle($domain, 'staff');
     $this->payWithWallet(Invoice::query()->findOrFail($renewal->invoiceId), KhaltiDriver::KEY);

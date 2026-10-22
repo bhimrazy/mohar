@@ -30,6 +30,7 @@ use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Enums\ReconcileStatus;
 use App\Support\Domains\RegistrarException;
+use App\Support\Domains\RegistrarTimeout;
 use Carbon\CarbonImmutable;
 
 /**
@@ -38,10 +39,17 @@ use Carbon\CarbonImmutable;
  * Orders are placed with `invoice-option=NoInvoice` (the host bills the client; the price comes off the reseller
  * balance) and `auto-renew=false` (the host renews). The order id is kept as `remote.order_id`.
  *
- * Never twice: before a register or transfer is sent, the account is searched for an order of that name. An order
- * found there (an earlier attempt whose answer was lost) is reported instead of sending another; a renewal names the
- * current expiry (`exp-date`), which ResellerClub refuses once the renewal ran. After an unknown outcome the host
- * settles it through findSubmission(), which reads the same order search.
+ * Never twice: the host claims a submission before it is sent and settles an unknown outcome through
+ * findSubmission(), which never re-sends. Before a register or transfer is sent, the account is also searched, for
+ * the client's own customer, and a live order of that name is adopted only when the host already holds its order id;
+ * any other order (placed by someone else, or by an attempt we cannot prove is ours) is a conflict for staff, so a
+ * name in the reseller account can never be taken over by typing it, whatever code is entered. A renewal is sent
+ * (with ResellerClub's own expiry epoch as `exp-date`, which it requires exactly) only when that expiry is the same
+ * date as OUR stored expiry: a repeat after a lost renewal finds ResellerClub ahead of us and is refused rather than
+ * charged again, until staff has synced the domain.
+ *
+ * Every order read is tied to the domain: by the order id the host holds, or else by the client's customer.
+ * A register or transfer chain runs inside a time budget (REGISTER_BUDGET) that fits the host job's timeout.
  */
 final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, ManagesIdProtection, ManagesLock, ManagesNameservers, ProvidesEppCode, ReconcilesSubmissions, RegistrarDriver, RestoresDomains, SyncsDomains, TestsRegistrarConnection, TransfersDomains
 {
@@ -49,6 +57,17 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
 
     /** Order states that no longer hold the name. */
     private const GONE = ['Deleted', 'Archived'];
+
+    /** Seconds a register or transfer chain may use in all; the host job's timeout is 180 s. */
+    private const REGISTER_BUDGET = 165;
+
+    /** Clock slack allowed between our claim time and ResellerClub's order creation time. */
+    private const CLOCK_SLACK = 120;
+
+    /** Rows per search page and the pages read at most: bounds one lookup to 250 rows. */
+    private const SEARCH_ROWS = 50;
+
+    private const SEARCH_PAGES = 5;
 
     public function __construct(private ResellerClubClient $client, private ResellerClubContacts $contacts) {}
 
@@ -98,17 +117,19 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
     {
         self::refuseSelfRegistered($request->domain);
 
-        if (($earlier = $this->existingOrder($config, $request->domain)) !== null) {
-            return $this->resultFor($config, $request->domain, $earlier, 'Already in the ResellerClub account; not sent again.');
-        }
+        return $this->client->within(self::REGISTER_BUDGET, function () use ($config, $request): RegistrarResult {
+            if (($earlier = $this->existingOrder($config, $request->domain)) !== null) {
+                return $this->resultFor($this->ours($earlier, $request->domain), 'Already in the ResellerClub account; not sent again.');
+            }
 
-        $answer = $this->client->post($config, 'domains/register.json', [
-            ...$this->orderParams($config, $request),
-            'years' => $request->years,
-            'ns' => $request->nameservers,
-        ]);
+            $answer = $this->client->post($config, 'domains/register.json', [
+                ...$this->orderParams($config, $request),
+                'years' => $request->years,
+                'ns' => $request->nameservers,
+            ]);
 
-        return $this->actionResult($config, $request->domain, $answer);
+            return $this->actionResult($config, $request->domain, $answer);
+        });
     }
 
     public function transfer(RegistrarConfig $config, RegistrationRequest $request): RegistrarResult
@@ -116,27 +137,34 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
         self::refuseSelfRegistered($request->domain);
         $code = (string) $request->eppCode;
 
-        if (($earlier = $this->existingOrder($config, $request->domain)) !== null) {
-            if ($earlier['entity.currentstatus'] === 'InActive' && $code !== '') {
-                // A transfer that waits for its code: hand the code to that order instead of ordering again.
-                $this->client->post($config, 'domains/transfer/submit-auth-code.json', ['order-id' => $earlier['orders.orderid'], 'auth-code' => $code]);
+        return $this->client->within(self::REGISTER_BUDGET, function () use ($config, $request, $code): RegistrarResult {
+            if (($earlier = $this->existingOrder($config, $request->domain)) !== null) {
+                // Our own transfer order (the host holds its id) that waits for its code: hand the code to that
+                // order instead of ordering again. Any other order of the name is a conflict, never adopted.
+                $earlier = $this->ours($earlier, $request->domain);
+                $message = 'The transfer is already in the ResellerClub account; not sent again.';
+
+                if ($earlier['entity.currentstatus'] === 'InActive' && $code !== '') {
+                    $message = $this->submitCode($config, $earlier['orders.orderid'], $code) ?? $message;
+                }
+
+                return new RegistrarResult('pending', message: $message, remote: ['order_id' => (int) $earlier['orders.orderid']]);
             }
 
-            return new RegistrarResult('pending', message: 'The transfer is already in the ResellerClub account; not sent again.', remote: ['order_id' => (int) $earlier['orders.orderid']]);
-        }
+            $answer = (array) $this->client->post($config, 'domains/transfer.json', [
+                ...$this->orderParams($config, $request),
+                ...($code === '' ? [] : ['auth-code' => $code]),
+                ...($request->nameservers === [] ? [] : ['ns' => $request->nameservers]),
+            ]);
 
-        $answer = (array) $this->client->post($config, 'domains/transfer.json', [
-            ...$this->orderParams($config, $request),
-            ...($code === '' ? [] : ['auth-code' => $code]),
-            ...($request->nameservers === [] ? [] : ['ns' => $request->nameservers]),
-        ]);
-
-        return new RegistrarResult('pending', message: (string) ($answer['actionstatusdesc'] ?? 'Transfer requested at ResellerClub.'), remote: self::orderRemote($answer));
+            return new RegistrarResult('pending', message: (string) ($answer['actionstatusdesc'] ?? 'Transfer requested at ResellerClub.'), remote: self::orderRemote($answer));
+        });
     }
 
     public function transferSync(RegistrarConfig $config, DomainRef $domain): TransferSyncResult
     {
-        $order = $this->existingOrder($config, $domain, includeGone: true);
+        // Only the order whose id the host holds counts: a name's order that nothing proves ours is never completed.
+        $order = isset($domain->remote['order_id']) ? $this->existingOrder($config, $domain, includeGone: true) : null;
 
         return match (true) {
             $order === null => new TransferSyncResult(false),
@@ -148,13 +176,24 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
 
     public function renew(RegistrarConfig $config, DomainRef $domain, int $years): RegistrarResult
     {
-        $details = $this->details($config, $domain, ['OrderDetails']);
-        $answer = $this->client->post($config, 'domains/renew.json', [
-            'order-id' => $details['orderid'], 'years' => $years, 'exp-date' => (string) $details['endtime'],
-            'invoice-option' => 'NoInvoice', 'auto-renew' => 'false',
-        ]);
+        return $this->client->within(self::REGISTER_BUDGET, function () use ($config, $domain, $years): RegistrarResult {
+            $details = $this->details($config, $domain, ['OrderDetails']);
+            $theirs = self::epoch($details['endtime'] ?? null);
 
-        return $this->actionResult($config, $domain, $answer, previousEnd: (string) $details['endtime']);
+            if ($domain->expiryDate === null || $theirs === null || abs($theirs->startOfDay()->diffInDays($domain->expiryDate->utc()->startOfDay())) > 1) {
+                // A different date means a renewal may already have run (or the host is behind): sending ours would
+                // be refused at best and charged twice at worst. Staff syncs the domain, then renews.
+                throw new RegistrarException('ResellerClub\'s expiry for '.$domain->name.' is '.($theirs?->toDateString() ?? 'unknown').', ours is '.($domain->expiryDate?->toDateString() ?? 'unknown').'; sync the domain first. Nothing was sent.');
+            }
+
+            // The dates agree, so ResellerClub's epoch is our expiry; it also makes ResellerClub refuse a stale repeat.
+            $answer = $this->client->post($config, 'domains/renew.json', [
+                'order-id' => $details['orderid'], 'years' => $years, 'exp-date' => (string) $details['endtime'],
+                'invoice-option' => 'NoInvoice', 'auto-renew' => 'false',
+            ]);
+
+            return $this->actionResult($config, $domain, $answer, previousEnd: (string) $details['endtime']);
+        });
     }
 
     public function restore(RegistrarConfig $config, DomainRef $domain, int $years): RegistrarResult
@@ -200,9 +239,18 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
         $info = $this->info($config, $domain);
 
         if (! $info->exists()) {
-            $elsewhere = ($this->checkAvailability($config, $domain->sld, [$domain->tld])[0] ?? null)?->status === 'registered';
+            // No order is not proof of anything for a registration that never reached ResellerClub: staff decides.
+            if ($domain->status !== 'active') {
+                return new SyncResult(false);
+            }
 
-            return new SyncResult(false, cancelled: ! $elsewhere, transferredAway: $elsewhere);
+            $status = ($this->checkAvailability($config, $domain->sld, [$domain->tld])[0] ?? null)?->status ?? 'unknown';
+
+            return match ($status) {
+                'available' => new SyncResult(false, cancelled: true),
+                'registered' => new SyncResult(false, transferredAway: true),
+                default => throw new RegistrarException('ResellerClub has no order for '.$domain->name.' and the registry did not answer; the domain was left unchanged.', retryable: true),
+            };
         }
 
         return new SyncResult($info->status === 'active', cancelled: $info->status === 'cancelled', expiryDate: $info->expiryDate, remote: $info->remote);
@@ -260,17 +308,25 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
 
     public function findSubmission(RegistrarConfig $config, DomainRef $domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup
     {
-        $order = $this->existingOrder($config, $domain);
-
         if ($command === 'renew') {
+            $order = $this->existingOrder($config, $domain);
+
             if ($order === null) {
                 return new SubmissionLookup(ReconcileStatus::Unknown, message: 'The domain is not in the ResellerClub account.');
             }
 
             $expiry = self::epoch($order['orders.endtime'] ?? null);
-            $renewed = $expiry !== null && $domain->expiryDate !== null && $expiry->gt($domain->expiryDate);
+            // Dates, not instants: ResellerClub's epoch has a time of day, ours is a date. Executed only when it moved on.
+            $renewed = $expiry !== null && $domain->expiryDate !== null && $expiry->toDateString() > $domain->expiryDate->addDay()->utc()->toDateString();
 
             return new SubmissionLookup($renewed ? ReconcileStatus::Executed : ReconcileStatus::NotExecuted, $renewed ? $expiry : null, ['order_id' => (int) $order['orders.orderid']]);
+        }
+
+        // Ours: the order whose id the host holds, or one of our customer created since the submission began.
+        $order = $this->existingOrder($config, $domain, since: $submittedAt);
+
+        if ($order === null && ! isset($domain->remote['order_id']) && $this->existingOrder($config, $domain) !== null) {
+            return new SubmissionLookup(ReconcileStatus::Conflict, message: 'The name is held in the ResellerClub account by an order that was not placed by this submission; link it by hand.');
         }
 
         if ($order !== null) {
@@ -304,29 +360,106 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
     }
 
     /**
-     * The newest order for the domain's name in the account, from the order search, or null. Orders that no longer
-     * hold the name count only with $includeGone.
+     * The newest order for the domain's name that is tied to this domain, or null. Tied means: the order id the host
+     * already holds, or, when it holds none, an order of the client's own ResellerClub customer (created at or after
+     * $since when given). The search is made with the customer-id filter (and creation-date-start), and every row is
+     * checked again, so a registrar that ignores a filter cannot widen it. Orders that no longer hold the name count
+     * only with $includeGone. Pages are read until the count ResellerClub reports is covered, at most SEARCH_PAGES.
      *
      * @return array<string, string>|null
      */
-    private function existingOrder(RegistrarConfig $config, DomainRef $domain, bool $includeGone = false): ?array
+    private function existingOrder(RegistrarConfig $config, DomainRef $domain, bool $includeGone = false, ?CarbonImmutable $since = null): ?array
     {
-        $answer = (array) $this->client->get($config, 'domains/search.json', ['no-of-records' => 10, 'page-no' => 1, 'domain-name' => $domain->name, 'order-by' => 'orderid desc']);
+        $held = $domain->remote['order_id'] ?? null;
+        $customer = $held === null ? $this->contacts->knownCustomerId($config, $domain) : null;
+
+        if ($held === null && $customer === null) {
+            return null;
+        }
+
+        $params = ['no-of-records' => self::SEARCH_ROWS, 'domain-name' => $domain->name, 'order-by' => 'orderid desc'];
+
+        if ($customer !== null) {
+            $params['customer-id'] = $customer;
+        }
+
+        if ($held === null && $since !== null) {
+            $params['creation-date-start'] = $since->subSeconds(self::CLOCK_SLACK)->getTimestamp();
+        }
+
         $found = null;
 
-        foreach ($answer as $key => $row) {
-            if (is_int($key) || ctype_digit((string) $key)) {
-                $row = (array) $row;
+        for ($page = 1; $page <= self::SEARCH_PAGES; $page++) {
+            $answer = (array) $this->client->get($config, 'domains/search.json', [...$params, 'page-no' => $page]);
+            $rows = 0;
 
-                if (strtolower((string) ($row['entity.description'] ?? '')) === $domain->name
-                    && ($includeGone || ! in_array($row['entity.currentstatus'] ?? '', self::GONE, true))
-                    && ($found === null || (int) $row['orders.orderid'] > (int) $found['orders.orderid'])) {
-                    $found = array_map('strval', array_filter($row, 'is_scalar'));
+            foreach ($answer as $key => $row) {
+                if (! is_int($key) && ! ctype_digit((string) $key)) {
+                    continue;
                 }
+
+                $rows++;
+                $row = array_map('strval', array_filter((array) $row, 'is_scalar'));
+
+                if (strtolower($row['entity.description'] ?? '') === $domain->name
+                    && ($includeGone || ! in_array($row['entity.currentstatus'] ?? '', self::GONE, true))
+                    && ($held !== null ? (string) ($row['orders.orderid'] ?? '') === (string) $held : ($row['entity.customerid'] ?? null) === $customer)
+                    && ($held !== null || $since === null || (int) ($row['orders.creationdt'] ?? 0) >= $since->getTimestamp() - self::CLOCK_SLACK)
+                    && isset($row['orders.orderid'])
+                    && ($found === null || (int) $row['orders.orderid'] > (int) $found['orders.orderid'])) {
+                    $found = $row;
+                }
+            }
+
+            if ($rows === 0 || $page * self::SEARCH_ROWS >= (int) ($answer['recsindb'] ?? 0)) {
+                break;
             }
         }
 
         return $found;
+    }
+
+    /**
+     * An existing order of the name may be adopted by register or transfer only when the host already holds its id
+     * (existingOrder() found it that way); otherwise it is a conflict for staff and nothing is adopted or sent.
+     *
+     * @param  array<string, string>  $order  a search row
+     * @return array<string, string>
+     *
+     * @throws RegistrarException
+     */
+    private function ours(array $order, DomainRef $domain): array
+    {
+        if (isset($domain->remote['order_id']) && (string) $domain->remote['order_id'] === $order['orders.orderid']) {
+            return $order;
+        }
+
+        throw new RegistrarException($domain->name.' is held in the ResellerClub account by another order; link it by hand. Nothing was sent.');
+    }
+
+    /**
+     * Hand a transfer code to an order that waits for it. ResellerClub refuses a second code for an order that already
+     * has one; that is an earlier attempt having worked, not a failure.
+     *
+     * @return string|null a message when the code was already sent
+     *
+     * @throws RegistrarException
+     */
+    private function submitCode(RegistrarConfig $config, string $orderId, #[\SensitiveParameter] string $code): ?string
+    {
+        try {
+            $this->client->post($config, 'domains/transfer/submit-auth-code.json', ['order-id' => $orderId, 'auth-code' => $code]);
+        } catch (RegistrarTimeout $timeout) {
+            throw $timeout;
+        } catch (RegistrarException $refused) {
+            if ($refused->retryable) {
+                throw $refused;
+            }
+
+            return 'The transfer code was already sent to ResellerClub; the order is waiting for the current registrar. If it stays that way, check the order in the ResellerClub panel.';
+        }
+
+        return null;
     }
 
     /**
@@ -339,6 +472,13 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
 
         if (! isset($details['orderid'])) {
             throw new RegistrarException('ResellerClub returned no order for '.$domain->name.'.', retryable: true);
+        }
+
+        $held = $domain->remote['order_id'] ?? null;
+        $customer = $held === null ? $this->contacts->knownCustomerId($config, $domain) : null;
+
+        if (($held !== null && (string) $details['orderid'] !== (string) $held) || ($customer !== null && isset($details['customerid']) && (string) $details['customerid'] !== $customer)) {
+            throw new RegistrarException('The ResellerClub order for '.$domain->name.' is not the one recorded for this domain; link it by hand.');
         }
 
         return $details;
@@ -405,7 +545,7 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
     /**
      * @param  array<string, string>  $order  a search row
      */
-    private function resultFor(RegistrarConfig $config, DomainRef $domain, array $order, string $message): RegistrarResult
+    private function resultFor(array $order, string $message): RegistrarResult
     {
         $active = $order['entity.currentstatus'] === 'Active';
 

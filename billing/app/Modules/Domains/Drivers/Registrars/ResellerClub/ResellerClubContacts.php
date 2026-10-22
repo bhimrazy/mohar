@@ -14,17 +14,17 @@ use App\Support\Domains\RegistrarException;
  * contact ids an order needs, created once per distinct contact and remembered in RegistrarRefs.
  *
  * - `customer_mode` default_customer: every order goes to the reseller's `default_customer_id`.
- * - per_client: one customer per client, signed up with the registrant's email as its username and a random password
- *   nobody keeps (clients never log in at ResellerClub). If that username already exists in the account (an earlier
- *   signup whose answer was lost), the existing customer is adopted.
+ * - per_client: one customer per client, signed up with a username generated from our client id
+ *   (`client-{id}@{host of APP_URL}`, see customerUsername()) and a random password nobody keeps (clients never log in
+ *   at ResellerClub). The registrant's email is typed by the client and never verified, so it is only ever a contact's
+ *   email, never the customer's username. If the generated username already exists in the account (an earlier signup
+ *   whose answer was lost), that customer is adopted only when ResellerClub returns exactly that username.
  * - A contact is keyed by the client and a hash of what was sent (payload_hash), so the same details reuse the same
  *   contact and changed details make a new one; a contact other orders use is never edited.
  * - Roles a TLD does not have are sent as -1; TLDs with their own contact type get it.
  */
 final class ResellerClubContacts
 {
-    public const KEY = 'resellerclub';
-
     /** Roles each registry lacks, by the extension's last label (the API reference's -1 lists). */
     private const ABSENT_ROLES = [
         'uk' => ['admin', 'tech', 'billing'], 'eu' => ['admin', 'tech', 'billing'], 'ru' => ['admin', 'tech', 'billing'],
@@ -56,14 +56,14 @@ final class ResellerClubContacts
             return (string) $id;
         }
 
-        $known = $this->refs->find(self::KEY, 'customer', 'client', $domain->clientId);
+        $known = $this->knownCustomerId($config, $domain);
 
         if ($known !== null) {
-            return $known->remoteId;
+            return $known;
         }
 
         $registrant = $contacts->role('registrant') ?? throw new RegistrarException('The domain has no registrant contact.');
-        $username = strtolower((string) $registrant['email']);
+        $username = self::customerUsername($domain->clientId);
 
         try {
             $id = (string) $this->client->post($config, 'customers/v2/signup.json', [
@@ -78,16 +78,52 @@ final class ResellerClubContacts
                 throw $exception;
             }
 
-            $id = (string) ($this->client->get($config, 'customers/details.json', ['username' => $username])['customerid'] ?? '');
+            $details = (array) $this->client->get($config, 'customers/details.json', ['username' => $username]);
+
+            if (strtolower((string) ($details['username'] ?? '')) !== $username) {
+                throw new RegistrarException('ResellerClub has a customer for this client that does not match; link the client by hand.');
+            }
+
+            $id = (string) ($details['customerid'] ?? '');
         }
 
         if (preg_match('/^\d+$/', $id) !== 1) {
             throw new RegistrarException('ResellerClub did not return a customer id.');
         }
 
-        $this->refs->remember(new RegistrarRef(self::KEY, 'customer', 'client', $domain->clientId, $id));
+        $this->refs->remember(new RegistrarRef(ResellerClubDriver::KEY, 'customer', 'client', $domain->clientId, $id));
 
         return $id;
+    }
+
+    /**
+     * The ResellerClub customer already holding this client's orders, or null when none is known yet: the default
+     * customer, or the one remembered for the client. Never creates anything.
+     *
+     * @throws RegistrarException
+     */
+    public function knownCustomerId(RegistrarConfig $config, DomainRef $domain): ?string
+    {
+        if ($config->setting('customer_mode', 'default_customer') !== 'per_client') {
+            $id = $config->setting('default_customer_id');
+
+            return is_scalar($id) && preg_match('/^\d+$/', (string) $id) === 1 ? (string) $id : null;
+        }
+
+        return $this->refs->find(ResellerClubDriver::KEY, 'customer', 'client', $domain->clientId)?->remoteId;
+    }
+
+    /**
+     * The username of a client's ResellerClub customer: built from our client id, which only we assign, so no one can
+     * pick another client's customer by typing their email address. ResellerClub needs an email-shaped username.
+     */
+    public static function customerUsername(int $clientId): string
+    {
+        $host = parse_url((string) config('app.url'), PHP_URL_HOST);
+
+        $host = is_string($host) && $host !== '' ? strtolower($host) : 'example';
+
+        return "client-{$clientId}@".(str_contains($host, '.') ? $host : $host.'.invalid');
     }
 
     /**
@@ -116,7 +152,7 @@ final class ResellerClubContacts
             $payload += ($contact['state'] ?? '') === '' ? [] : ['state' => (string) $contact['state']];
             ksort($payload);
             $hash = hash('sha256', (string) json_encode($payload));
-            $ids[$param] = $this->refs->find(self::KEY, 'contact', 'client', $domain->clientId, $hash)->remoteId ?? $this->create($config, $domain, $payload, $hash);
+            $ids[$param] = $this->refs->find(ResellerClubDriver::KEY, 'contact', 'client', $domain->clientId, $hash)->remoteId ?? $this->create($config, $domain, $payload, $hash);
         }
 
         return $ids;
@@ -164,7 +200,7 @@ final class ResellerClubContacts
             throw new RegistrarException('ResellerClub did not return a contact id.');
         }
 
-        $this->refs->remember(new RegistrarRef(self::KEY, 'contact', 'client', $domain->clientId, $id, $hash));
+        $this->refs->remember(new RegistrarRef(ResellerClubDriver::KEY, 'contact', 'client', $domain->clientId, $id, $hash));
 
         return $id;
     }

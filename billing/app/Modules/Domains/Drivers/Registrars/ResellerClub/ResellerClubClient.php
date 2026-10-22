@@ -6,6 +6,7 @@ use App\Data\Domains\Registrar\RegistrarConfig;
 use App\Support\Domains\RegistrarException;
 use App\Support\Domains\RegistrarTimeout;
 use App\Support\Integrations\Endpoints;
+use App\Support\Integrations\OutboundAddressGuard;
 use App\Support\Integrations\OutboundAddressRefused;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
@@ -38,10 +39,42 @@ final class ResellerClubClient
     /** cURL errors that prove the request never reached ResellerClub: unresolved host, refused connection. */
     private const NOT_SENT_ERRORS = ['cURL error 6:', 'cURL error 7:'];
 
+    /** Changes that can take a registry round trip; every other call is short. */
+    private const LONG_CALLS = ['domains/register.json', 'domains/transfer.json', 'domains/renew.json'];
+
+    /** Seconds kept back for the read that follows a change. */
+    private const READ_BACK_RESERVE = 15;
+
+    /** @var float|null when the current budget (within()) runs out, as microtime */
+    private ?float $deadline = null;
+
     /**
-     * @param  int  $timeoutSeconds  the whole call (connecting takes at most 10 s); a registration can take 30 s or more
+     * @param  int  $timeoutSeconds  the longest a register, transfer or renew call may take (connecting takes at most 10 s)
+     * @param  int  $shortTimeoutSeconds  the longest any other call may take: reads, contacts, customers, settings
      */
-    public function __construct(private int $timeoutSeconds = 90) {}
+    public function __construct(private int $timeoutSeconds = 90, private int $shortTimeoutSeconds = 15) {}
+
+    /**
+     * Run a chain of calls inside a time budget, so a job with a hard timeout is never killed between two of them:
+     * every call is limited to what is left, a change that cannot be given enough time is refused before it is sent
+     * (retryable, nothing ran), and the budget ends with the callback.
+     *
+     * @template T
+     *
+     * @param  \Closure(): T  $chain
+     * @return T
+     */
+    public function within(int $seconds, \Closure $chain): mixed
+    {
+        $outer = $this->deadline;
+        $this->deadline = microtime(true) + $seconds;
+
+        try {
+            return $chain();
+        } finally {
+            $this->deadline = $outer;
+        }
+    }
 
     /**
      * A read (GET). $check sends it to the availability host.
@@ -69,14 +102,6 @@ final class ResellerClubClient
     }
 
     /**
-     * Whether a rejection is ResellerClub refusing the account itself (wrong key, address not on the allow-list).
-     */
-    public static function accessDenied(RegistrarException $exception): bool
-    {
-        return str_contains($exception->getMessage(), 'refused the API credentials');
-    }
-
-    /**
      * @param  array<string, string|int|list<string|int>>  $params
      */
     private function send(RegistrarConfig $config, string $method, string $path, array $params, bool $check = false): mixed
@@ -89,10 +114,11 @@ final class ResellerClubClient
             throw new RegistrarException('The ResellerClub address is refused by this install\'s outbound policy; nothing was sent.', previous: $refused);
         }
 
+        $timeout = $this->timeoutFor($path, $mutating);
         $proxy = $config->setting('http_proxy');
-        $options = [...$endpoint->options, ...(is_string($proxy) && $proxy !== '' ? ['proxy' => $proxy] : [])];
+        $options = [...$endpoint->options, ...(is_string($proxy) && $proxy !== '' ? ['proxy' => self::validProxy($proxy)] : [])];
         $body = self::encode(['auth-userid' => $resellerId, 'api-key' => $apiKey, ...$params]);
-        $request = Http::withOptions($options)->acceptJson()->connectTimeout(10)->timeout(max(1, $this->timeoutSeconds));
+        $request = Http::withOptions($options)->acceptJson()->connectTimeout(min(10, $timeout))->timeout($timeout);
 
         try {
             $response = $mutating
@@ -109,6 +135,53 @@ final class ResellerClubClient
         }
 
         return $this->answer($response, $mutating);
+    }
+
+    /**
+     * The call's time limit: its own limit, cut to what is left of the budget. A change that would get less than
+     * 10 s after the read-back reserve, or a read with nothing left, is refused before anything is sent.
+     *
+     * @throws RegistrarException
+     */
+    private function timeoutFor(string $path, bool $mutating): int
+    {
+        $own = in_array($path, self::LONG_CALLS, true) ? $this->timeoutSeconds : min($this->shortTimeoutSeconds, $this->timeoutSeconds);
+
+        if ($this->deadline === null) {
+            return max(1, $own);
+        }
+
+        $left = (int) floor($this->deadline - microtime(true));
+        $allowed = $mutating && in_array($path, self::LONG_CALLS, true) ? $left - self::READ_BACK_RESERVE : $left;
+
+        if ($allowed < ($mutating ? 10 : 1)) {
+            throw new RegistrarException('The time allowed for this submission ran out before ResellerClub was asked; nothing was sent, try again.', retryable: true);
+        }
+
+        return max(1, min($own, $allowed));
+    }
+
+    /**
+     * An outbound proxy is http, https or socks5h, with a host the install's outbound policy allows.
+     *
+     * @throws RegistrarException
+     */
+    private static function validProxy(string $proxy): string
+    {
+        $parts = parse_url($proxy);
+        $host = is_array($parts) ? ($parts['host'] ?? '') : '';
+
+        if (! is_array($parts) || ! in_array(strtolower((string) ($parts['scheme'] ?? '')), ['http', 'https', 'socks5h'], true) || $host === '') {
+            throw new RegistrarException('The ResellerClub outbound proxy must be an http://, https:// or socks5h:// address; nothing was sent.');
+        }
+
+        try {
+            app(OutboundAddressGuard::class)->resolve($host, (int) ($parts['port'] ?? (strtolower($parts['scheme']) === 'https' ? 443 : 1080)));
+        } catch (OutboundAddressRefused $refused) {
+            throw new RegistrarException('The ResellerClub outbound proxy address is refused by this install\'s outbound policy; nothing was sent.', previous: $refused);
+        }
+
+        return $proxy;
     }
 
     private function answer(Response $response, bool $mutating): mixed

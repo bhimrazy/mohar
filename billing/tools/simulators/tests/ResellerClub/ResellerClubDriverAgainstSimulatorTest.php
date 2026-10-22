@@ -4,6 +4,7 @@ use App\Data\Domains\Registrar\ContactSet;
 use App\Data\Domains\Registrar\DomainRef;
 use App\Data\Domains\Registrar\RegistrarConfig;
 use App\Data\Domains\Registrar\RegistrationRequest;
+use App\Enums\ReconcileStatus;
 use App\Modules\Core\Models\Client;
 use App\Modules\Domains\Actions\BuildDomainContacts;
 use App\Modules\Domains\Actions\PerformRenewal;
@@ -13,6 +14,7 @@ use App\Modules\Domains\Actions\SubmitToRegistrar;
 use App\Modules\Domains\Actions\SyncDomain;
 use App\Modules\Domains\Actions\UpdateNameservers;
 use App\Modules\Domains\Drivers\Registrars\ResellerClub\ResellerClubClient;
+use App\Modules\Domains\Drivers\Registrars\ResellerClub\ResellerClubContacts;
 use App\Modules\Domains\Drivers\Registrars\ResellerClub\ResellerClubDriver;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
@@ -178,19 +180,144 @@ test('a registration whose answer is lost waits for review, and the next sync fi
         ->and($this->scenario->log()->count('register'))->toBe(1);
 });
 
-test('a register retried by hand after a lost answer finds the order instead of ordering again', function () {
+test('a register retried by hand after a lost answer never adopts the order unless the host holds its id', function () {
     $this->scenario->faults()->add('register', Fault::commitThenHang(30), nth: 1);
     $domain = rcDomain('asha-sim');
     app(SubmitToRegistrar::class)->handle($domain);
     $driver = app(RegistrarDriverRegistry::class)->get(ResellerClubDriver::KEY);
     $config = app(RegistrarManager::class)->config(ResellerClubDriver::KEY);
+    $request = fn (DomainRef $ref) => new RegistrationRequest($ref, 1, ['ns1.host.example.test', 'ns2.host.example.test'], app(BuildDomainContacts::class)->contactSet($domain));
+    $ref = $domain->fresh()->toRef();
 
-    $again = $driver->register($config, new RegistrationRequest($domain->fresh()->toRef(), 1, ['ns1.host.example.test', 'ns2.host.example.test'], app(BuildDomainContacts::class)->contactSet($domain)));
+    expect(fn () => $driver->register($config, $request($ref)))->toThrow(RegistrarException::class, 'another order');
 
-    expect($again->status)->toBe('completed')
-        ->and($again->remote['order_id'])->toBe((int) rcOrderOf('asha-sim.com')['orderid'])
+    $order = (int) rcOrderOf('asha-sim.com')['orderid'];
+    $held = $driver->register($config, $request(new DomainRef(...[...get_object_vars($ref), 'remote' => ['order_id' => $order]])));
+
+    expect($held->status)->toBe('completed')
+        ->and($held->remote['order_id'])->toBe($order)
         ->and($this->scenario->log()->count('register'))->toBe(1);
 });
+
+test('a transfer never adopts an order of the name that the host does not hold, whatever code is typed', function () {
+    $customer = rcDefaultCustomer();
+    rcAccount(['customer_mode' => 'default_customer', 'default_customer_id' => $customer]);
+    $victimDomain = rcDomain('victim-sim');
+    app(SubmitToRegistrar::class)->handle($victimDomain);
+    $victim = rcOrderOf('victim-sim.com');
+    $victimDomain->fresh()->forceFill(['status' => DomainStatus::Cancelled])->save();
+    $config = app(RegistrarManager::class)->config(ResellerClubDriver::KEY);
+    $attacker = rcDomain('victim-sim', type: 'transfer', eppCode: 'not-the-code');
+
+    $request = new RegistrationRequest($attacker->fresh()->toRef(), 1, [], app(BuildDomainContacts::class)->contactSet($attacker), eppCode: 'not-the-code');
+
+    expect(fn () => app(ResellerClubDriver::class)->transfer($config, $request))->toThrow(RegistrarException::class, 'another order')
+        ->and($this->scenario->log()->count('transfer'))->toBe(0)
+        ->and($this->scenario->log()->count('submit_auth_code'))->toBe(0)
+        ->and(app(ResellerClubDriver::class)->transferSync($config, $attacker->fresh()->toRef())->completed)->toBeFalse()
+        ->and(rcOrderOf('victim-sim.com')['orderid'])->toBe($victim['orderid']);
+});
+
+test('findSubmission adopts an order of our customer created since the submission, and reports an older one as a conflict', function () {
+    $customer = rcDefaultCustomer();
+    rcAccount(['customer_mode' => 'default_customer', 'default_customer_id' => $customer]);
+    $driver = app(ResellerClubDriver::class);
+    $config = app(RegistrarManager::class)->config(ResellerClubDriver::KEY);
+    $this->scenario->faults()->add('register', Fault::commitThenHang(30), nth: 1);
+    $domain = rcDomain('asha-sim');
+    $started = now()->toImmutable()->subSeconds(5);
+    app(SubmitToRegistrar::class)->handle($domain);
+    $ref = $domain->fresh()->toRef();
+
+    $mine = $driver->findSubmission($config, $ref, 'register', $started);
+    $later = $driver->findSubmission($config, $ref, 'register', now()->toImmutable()->addHours(2));
+
+    expect($mine->status)->toBe(ReconcileStatus::Executed)
+        ->and($mine->remote['order_id'])->toBe((int) rcOrderOf('asha-sim.com')['orderid'])
+        ->and($later->status)->toBe(ReconcileStatus::Conflict);
+});
+
+test('per-client mode names the customer from our client id, never from the typed email, and adopts only that exact username', function () {
+    $domain = rcDomain('asha-sim');
+    $username = ResellerClubContacts::customerUsername($domain->client_id);
+    $config = app(RegistrarManager::class)->config(ResellerClubDriver::KEY);
+    // An earlier signup whose answer was lost: the customer exists, but no ref is remembered.
+    $existing = (string) app(ResellerClubClient::class)->post($config, 'customers/v2/signup.json', [
+        'username' => $username, 'passwd' => 'HostPass2026', 'name' => 'Asha Shrestha', 'company' => 'N A', 'address-line-1' => '1 Main Road',
+        'city' => 'Lalitpur', 'state' => 'Bagmati', 'country' => 'NP', 'zipcode' => '44700', 'phone-cc' => '977', 'phone' => '15550199', 'lang-pref' => 'en',
+    ]);
+
+    app(SubmitToRegistrar::class)->handle($domain);
+
+    expect($username)->toBe('client-'.$domain->client_id.'@'.parse_url((string) config('app.url'), PHP_URL_HOST).(str_contains((string) parse_url((string) config('app.url'), PHP_URL_HOST), '.') ? '' : '.invalid'))
+        ->and(rcOrderOf('asha-sim.com')['customerid'])->toBe($existing)
+        ->and($this->scenario->state()->all('customers'))->toHaveCount(1);
+});
+
+test('sync leaves a registration that never reached ResellerClub for staff instead of cancelling it', function () {
+    $domain = rcDomain('never-sent');
+    $domain->forceFill(['status' => DomainStatus::PendingRegistration, 'needs_review' => true])->save();
+
+    app(SyncDomain::class)->handle($domain->fresh());
+
+    expect($domain->fresh()->status)->toBe(DomainStatus::PendingRegistration);
+});
+
+test('sync cancels an active domain with no order only when the registry says the name is free', function () {
+    $domain = rcDomain('asha-sim');
+    $domain->forceFill(['status' => DomainStatus::Active, 'expiry_date' => now()->addMonths(6)->toDateString()])->save();
+
+    app(SyncDomain::class)->handle($domain->fresh());
+
+    expect($domain->fresh()->status)->toBe(DomainStatus::Cancelled);
+});
+
+test('the order is found past the first search page of a busy account', function () {
+    $domain = rcDomain('asha-sim');
+    app(SubmitToRegistrar::class)->handle($domain);
+    $live = rcOrderOf('asha-sim.com');
+
+    // 60 older, deleted orders of the same name for the same customer sort before the live one.
+    for ($i = 1; $i <= 60; $i++) {
+        $this->scenario->state()->put('orders', (string) (70_000_000 + $i), [...$live, 'orderid' => (string) (70_000_000 + $i), 'currentstatus' => 'Deleted']);
+    }
+
+    $info = app(ResellerClubDriver::class)->info(app(RegistrarManager::class)->config(ResellerClubDriver::KEY), $domain->fresh()->toRef());
+
+    expect($info->status)->toBe('active')
+        ->and($info->remote['order_id'])->toBe((int) $live['orderid']);
+});
+
+test('a transfer retried after its code was already sent says so instead of failing', function () {
+    $domain = rcDomain('taken-elsewhere', type: 'transfer', eppCode: ResellerClubSimulator::FOREIGN_AUTH_CODE);
+    app(SubmitToRegistrar::class)->handle($domain);
+    $config = app(RegistrarManager::class)->config(ResellerClubDriver::KEY);
+    $request = new RegistrationRequest($domain->fresh()->toRef(), 1, [], app(BuildDomainContacts::class)->contactSet($domain), eppCode: ResellerClubSimulator::FOREIGN_AUTH_CODE);
+
+    $again = app(ResellerClubDriver::class)->transfer($config, $request);
+
+    expect($again->status)->toBe('pending')
+        ->and($again->message)->toContain('already sent')
+        ->and($this->scenario->log()->count('transfer'))->toBe(1);
+});
+
+test('a chain that has used its time budget is refused before anything is sent', function () {
+    $domain = rcDomain('asha-sim');
+    $config = app(RegistrarManager::class)->config(ResellerClubDriver::KEY);
+
+    $send = fn () => app(ResellerClubClient::class)->within(5, fn () => app(ResellerClubClient::class)->post($config, 'domains/register.json', ['domain-name' => 'asha-sim.com']));
+
+    expect($send)->toThrow(RegistrarException::class, 'nothing was sent')
+        ->and($this->scenario->log()->count('register'))->toBe(0);
+});
+
+test('an outbound proxy must be http, https or socks5h and a public address; nothing is sent otherwise', function (string $proxy) {
+    rcAccount(['http_proxy' => $proxy]);
+    $config = app(RegistrarManager::class)->config(ResellerClubDriver::KEY);
+
+    expect(fn () => app(ResellerClubDriver::class)->checkAvailability($config, 'asha-sim', ['.com']))->toThrow(RegistrarException::class, 'proxy')
+        ->and($this->scenario->log()->entries())->toBe([]);
+})->with(['ftp://proxy.example.test:21', 'not a url', 'http://169.254.169.254:80']);
 
 test('a rate limit is retryable and sends nothing; the retry registers once', function () {
     $this->scenario->faults()->add('register', Fault::rateLimit(5), nth: 1);
@@ -301,3 +428,12 @@ test('a .np name never reaches ResellerClub, even when the driver is called dire
         ->toThrow(RegistrarException::class, '.np domains are registered by the client')
         ->and($this->scenario->log()->entries())->toBe([]);
 });
+
+/** A ResellerClub customer to use as the one default customer. */
+function rcDefaultCustomer(): string
+{
+    return (string) app(ResellerClubClient::class)->post(app(RegistrarManager::class)->config(ResellerClubDriver::KEY), 'customers/v2/signup.json', [
+        'username' => 'host@example.test', 'passwd' => 'HostPass2026', 'name' => 'Host Admin', 'company' => 'Example Hosting', 'address-line-1' => '1 Main Road',
+        'city' => 'Lalitpur', 'state' => 'Bagmati', 'country' => 'NP', 'zipcode' => '44700', 'phone-cc' => '977', 'phone' => '15550199', 'lang-pref' => 'en',
+    ]);
+}
