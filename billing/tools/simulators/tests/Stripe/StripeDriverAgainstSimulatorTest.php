@@ -8,6 +8,7 @@ use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\GatewayCallbackHandler;
 use App\Modules\PaymentsStripe\Drivers\StripeDriver;
 use App\Support\Integrations\Endpoints;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -177,6 +178,50 @@ test('an inquiry raised at Stripe books a zero-amount to-do and no money, and it
         ->and(Transaction::query()->where('type', TransactionType::Chargeback)->exists())->toBeFalse()
         ->and($payment->fresh()->refundable_remaining)->toBe(2_500)
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
+});
+
+test('an inquiry that escalates and is won books the chargeback and its reversal when funds_withdrawn is subscribed (#232)', function () {
+    [, $invoice] = usdInvoice([2_500]);
+    browser()->post(checkoutFor($invoice).'/pay');
+    deliverWebhooks();
+    $payment = Transaction::query()->where('gateway', StripeDriver::KEY)->sole();
+    $actions = $this->scenario->simulator()->actions();
+    $dispute = $actions['dispute'](['payment_intent' => $payment->gateway_txn_id, 'inquiry' => true], $this->scenario)['dispute'];
+    deliverWebhooks();
+
+    $actions['escalate_dispute'](['dispute' => $dispute], $this->scenario);
+    expect(array_column(deliverWebhooks(), 1))->toBe(['chargeback recorded'])
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Collections);
+
+    $actions['close_dispute'](['dispute' => $dispute, 'status' => 'won'], $this->scenario);
+    // funds_reinstated is not subscribed to by the driver; the close books the win.
+    expect(array_column(deliverWebhooks(), 1))->toBe(['ignored event type', 'dispute won; payment reinstated'])
+        ->and(Transaction::query()->where('type', TransactionType::ChargebackReversal)->sole()->amount_in)->toBe(2_500)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
+});
+
+test('an inquiry that escalates and is won on an install without funds_withdrawn is acknowledged and books nothing (#232)', function () {
+    $this->scenario->simulator()->actions()['webhook_url'](['url' => route('billing.webhooks', StripeDriver::KEY), 'enabled_events' => [
+        'checkout.session.completed', 'payment_intent.succeeded', 'charge.dispute.created', 'charge.dispute.closed',
+    ]], $this->scenario);
+    [, $invoice] = usdInvoice([2_500]);
+    browser()->post(checkoutFor($invoice).'/pay');
+    deliverWebhooks();
+    $payment = Transaction::query()->where('gateway', StripeDriver::KEY)->sole();
+    $actions = $this->scenario->simulator()->actions();
+    $dispute = $actions['dispute'](['payment_intent' => $payment->gateway_txn_id, 'inquiry' => true], $this->scenario)['dispute'];
+    expect(array_column(deliverWebhooks(), 1))->toBe(['dispute inquiry recorded; no money moved']);
+
+    $actions['escalate_dispute'](['dispute' => $dispute], $this->scenario);
+    expect(deliverWebhooks())->toBe([]);
+
+    $actions['close_dispute'](['dispute' => $dispute, 'status' => 'won'], $this->scenario);
+    expect(deliverWebhooks())->toBe([[200, GatewayCallbackHandler::DISPUTE_WON_UNBOOKED]])
+        ->and(deliverWebhooks(replay: true))->toBe([[200, GatewayCallbackHandler::DISPUTE_WON_UNBOOKED]])
+        ->and($this->scenario->outbox()->pending())->toBe([])
+        ->and(Transaction::query()->whereIn('type', [TransactionType::Chargeback, TransactionType::ChargebackReversal])->exists())->toBeFalse()
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
+        ->and($payment->fresh()->refundable_remaining)->toBe(2_500);
 });
 
 test('a dispute delivered before the payment is booked gets a 409, and its retry is booked as a chargeback (#124)', function () {

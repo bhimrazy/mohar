@@ -110,10 +110,14 @@ final class StripeSimulator implements HasControlActions, RecordsLive, RedactsPa
     public function actions(): array
     {
         return [
+            // The event destination. `enabled_events` (optional) limits which event types it receives, as a Stripe
+            // event destination does; left out, every event is sent.
             'webhook_url' => function (array $input, Scenario $scenario): array {
                 $scenario->state()->put('config', 'webhook_url', (string) $input['url']);
+                $events = is_array($input['enabled_events'] ?? null) ? array_values(array_map('strval', $input['enabled_events'])) : [];
+                $scenario->state()->put('config', 'enabled_events', $events);
 
-                return ['webhook_url' => $input['url']];
+                return ['webhook_url' => $input['url'], 'enabled_events' => $events];
             },
             // The cardholder disputes a payment with their bank. A chargeback (the default) withdraws the disputed
             // amount plus the dispute fee from the balance at once, as one balance transaction on the dispute, and
@@ -161,6 +165,35 @@ final class StripeSimulator implements HasControlActions, RecordsLive, RedactsPa
                 }
 
                 return ['dispute' => $dispute['id']];
+            },
+            // The issuer escalates an inquiry to a chargeback: the same dispute becomes `needs_response`, the disputed
+            // amount plus the dispute fee is withdrawn as a balance transaction on it, and Stripe sends
+            // charge.dispute.funds_withdrawn. The charge can no longer be refunded outside the dispute.
+            'escalate_dispute' => function (array $input, Scenario $scenario): array {
+                $stripe = new StripeApi($scenario);
+                $dispute = $stripe->find((string) $input['dispute']);
+
+                if ($dispute === null || $dispute['object'] !== 'dispute') {
+                    throw new \InvalidArgumentException('No dispute '.$input['dispute'].'.');
+                }
+
+                if (! in_array($dispute['status'], ['warning_needs_response', 'warning_under_review'], true)) {
+                    throw new \InvalidArgumentException("A {$dispute['status']} dispute can't escalate.");
+                }
+
+                $withdrawal = self::disputeBalanceTransaction($stripe, -$dispute['amount'], $dispute['currency'], self::DISPUTE_FEE);
+                $dispute = [...$dispute, 'status' => 'needs_response', 'is_charge_refundable' => false, 'balance_transactions' => [...$dispute['balance_transactions'], $withdrawal]];
+                $scenario->state()->put('balance', $withdrawal['id'], $withdrawal);
+                $scenario->state()->put('disputes', $dispute['id'], $dispute);
+                $charge = $stripe->find((string) $dispute['charge']);
+
+                if (is_array($charge)) {
+                    $scenario->state()->put('charges', $charge['id'], [...$charge, 'disputed' => true]);
+                }
+
+                $stripe->emit('charge.dispute.funds_withdrawn', $dispute);
+
+                return ['dispute' => $dispute['id'], 'status' => $dispute['status']];
             },
             // The dispute's outcome: an inquiry closes as warning_closed (nothing moves); a chargeback is lost (nothing
             // moves) or won (the amount is reinstated, charge.dispute.funds_reinstated, then charge.dispute.closed).

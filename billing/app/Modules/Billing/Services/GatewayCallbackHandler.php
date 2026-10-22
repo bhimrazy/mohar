@@ -51,6 +51,9 @@ class GatewayCallbackHandler
     /** A won dispute whose chargeback is not booked yet (the win arrived first): 409, so the provider retries. */
     public const DISPUTE_NOT_BOOKED = 'dispute not booked yet; retry expected';
 
+    /** A won dispute the provider withdrew and reinstated before any chargeback was booked here (#232): 200, nothing booked. */
+    public const DISPUTE_WON_UNBOOKED = 'dispute won with no chargeback booked; funds reinstated at the provider, nothing recorded';
+
     public const MAX_CALLBACK_AGE_SECONDS = 300;
 
     /** Larger bodies are refused before any signature work (no provider sends callbacks near this size). */
@@ -477,6 +480,13 @@ class GatewayCallbackHandler
         $chargeback = $this->chargeback->existing($gatewayKey, $event->txnId);
 
         if ($chargeback === null) {
+            // The provider withdrew and returned the money before any chargeback was booked here (an escalated
+            // inquiry on an install not subscribed to the withdrawal, #232): nothing moved on our side, so nothing
+            // is recorded, and a retry would never find a chargeback.
+            if ($event->fundsReinstated) {
+                return $this->outcome($gatewayKey, 200, self::DISPUTE_WON_UNBOOKED, $event->raw, $event->invoiceId);
+            }
+
             return $this->outcome($gatewayKey, 409, self::DISPUTE_NOT_BOOKED, $event->raw, $event->invoiceId);
         }
 

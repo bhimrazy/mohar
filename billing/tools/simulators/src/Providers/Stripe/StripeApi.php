@@ -248,7 +248,8 @@ final class StripeApi
     }
 
     /**
-     * Record an event for an object as it is now, and queue its signed delivery to the app's webhook endpoint.
+     * Record an event for an object as it is now, and queue its signed delivery to the app's webhook endpoint when the
+     * destination is subscribed to its type.
      *
      * @param  array<string, mixed>  $object
      */
@@ -267,8 +268,9 @@ final class StripeApi
         ];
         $this->state->put('events', $event['id'], $event);
         $url = $this->state->get('config', 'webhook_url');
+        $enabled = $this->state->get('config', 'enabled_events');
 
-        if (is_string($url) && $url !== '') {
+        if (is_string($url) && $url !== '' && (! is_array($enabled) || $enabled === [] || in_array($type, $enabled, true))) {
             $this->scenario->outbox()->enqueue($url, (string) json_encode($event, JSON_UNESCAPED_SLASHES), ['Content-Type' => 'application/json; charset=utf-8']);
         }
     }
