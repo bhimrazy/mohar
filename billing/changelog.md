@@ -355,8 +355,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   secret keys, webhook secrets and client secrets, Khalti secret keys, and the `Key`, `whm` and `cpanel` authorization
   schemes. A secret pair behind any number of labels or long values is found (before, past two labels or 4 KB the
   value was kept). Ids, amounts and references stay readable (Stripe ids, Khalti `pidx`, eSewa `transaction_uuid`,
-  ResellerClub `auth-userid`, OpenSRS `order_id`, Namecheap `DomainID`, and a Stripe id or UUID after a `Session:`
-  label; any other value after it is masked). Also masked: EPP `<newPW>`, cPanel and WHM session cookies (`cpsession`, `whostmgrsession`) and
+  ResellerClub `auth-userid`, OpenSRS `order_id`, Namecheap `DomainID`, and a Stripe id after a `Session:`
+  label when the id is the whole value; anything joined to it, a UUID or any other value is masked). Also masked: EPP `<newPW>`, cPanel and WHM session cookies (`cpsession`, `whostmgrsession`) and
   every cookie on a `Cookie:` line, `print_r` dumps (`[password] => …`), pretty-printed JSON with the value on the next
   line, HTML-escaped JSON, an `&` inside an unquoted secret, field names up to 255 characters, `curl -u` credentials
   (quoted or attached) and a raw `@` in a URL password. A secret XML element with no end tag masks the rest of the

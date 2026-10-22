@@ -109,12 +109,16 @@ final class Redactor
 
     /**
      * After a REFERENCE_LABELS label, the only values left readable: Stripe object ids (Checkout Session, PaymentIntent,
-     * charge, event, customer, invoice, subscription, refund, payment, SetupIntent) and a UUID (eSewa
-     * `transaction_uuid`, Khalti references). Anything else after the label is masked.
+     * charge, event, customer, invoice, subscription, refund, payment, SetupIntent), and only when the id is the whole
+     * value (a UUID is a session-token shape, so it is masked). Anything else after the label is masked.
      */
-    private const REFERENCE_ID_PATTERN = '/\G(?:(?:cs|pi|ch|evt|cus|in|sub|re|py|seti)_(?:live_|test_)?[A-Za-z0-9]{4,}+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?![A-Za-z0-9_$\/+=.-])/';
+    private const REFERENCE_ID_PATTERN = '/\G(?:cs|pi|ch|evt|cus|in|sub|re|py|seti)_(?:live_|test_)?[A-Za-z0-9]{4,}+/';
 
-    /** HTML void elements: they have no content, so a secret `name` on one (`<input name="password">`) masks nothing more. */
+    /**
+     * HTML void elements: no end tag, so a secret `name` on one (`<input name="password">`) masks only the text before
+     * the next tag (and a CDATA section), which in HTML is usually nothing. XML uses the same names with content
+     * (`<param name="password">…</param>`), and that content is masked by the same rule. A prefixed name is never HTML.
+     */
     private const VOID_ELEMENTS = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'];
 
     /** Header names whose whole line is secret: every cookie on it (`Cookie: theme=dark; cpsession=…`). */
@@ -400,7 +404,12 @@ final class Redactor
                 continue;
             }
 
-            if (in_array(strtolower((string) $match[3][0]), self::VOID_ELEMENTS, true)) {
+            if ((string) $match[2][0] === (string) $match[3][0] && in_array(strtolower((string) $match[3][0]), self::VOID_ELEMENTS, true)) {
+                $contentEnd = $this->voidContentEnd($value, $end);
+                $content = substr($value, $end, $contentEnd - $end);
+                $output .= trim($content) === '' ? $content : self::MASK;
+                $position = $contentEnd;
+
                 continue;
             }
 
@@ -434,11 +443,11 @@ final class Redactor
 
     /**
      * Whether a pair's value, starting at $valueStart, is secret. Two exceptions to the name rule:
-     * - `Session:` and `hash:` as an unquoted label followed by a space keep a value readable only when it is a known
-     *   reference id (REFERENCE_ID_PATTERN), such as a Stripe Checkout Session id; any other value stays secret.
-     * - An unquoted name whose separator runs past a line end has no value unless the next line is an indented
-     *   continuation that is not itself a pair, so an empty `Cookie:` or `password:` does not mask the next line.
-     *   A quoted name (pretty-printed JSON) takes its value from the next line.
+     * - `Session:` and `hash:` as an unquoted label keep a value readable only when the whole value is a known
+     *   reference id (REFERENCE_ID_PATTERN), such as a Stripe Checkout Session id, optionally ending a sentence with
+     *   `.`; anything joined to the id (`cs_live_x:…`, `%3A…`, `,…`) makes the value secret.
+     * - An unquoted name whose separator runs past a line end takes the next line as its value unless that line is
+     *   itself a pair, so an empty `Cookie:` keeps the `Host:` line after it while `password:\nvalue` is masked.
      *
      * @param  list<string>  $sensitiveKeys
      */
@@ -454,19 +463,42 @@ final class Redactor
         $lineBreak = strrpos($separator, "\n");
 
         if (! $quoted && $lineBreak !== false) {
-            $indented = $lineBreak + 1 < strlen($separator);
-
-            if (! $indented || preg_match('/\G[A-Za-z][A-Za-z0-9_.\-]*+[ \t]*+[:=]/', $value, $pair, 0, $valueStart) === 1) {
+            if (preg_match('/\G[A-Za-z][A-Za-z0-9_.\-]*+[ \t]*+[:=]/', $value, $pair, 0, $valueStart) === 1) {
                 return false;
             }
         }
 
         if (! $quoted && in_array(strtolower($name), self::REFERENCE_LABELS, true) && str_starts_with(ltrim($separator, " \t"), ':')
             && preg_match(self::REFERENCE_ID_PATTERN, $value, $reference, 0, $valueStart) === 1) {
-            return false;
+            $idEnd = $valueStart + strlen($reference[0]);
+            $valueEnd = $this->valueEnd($value, $valueStart);
+
+            if ($valueEnd === $idEnd || ($valueEnd === $idEnd + 1 && $value[$idEnd] === '.')) {
+                return false;
+            }
         }
 
         return true;
+    }
+
+    /**
+     * Where the content of a secret void-named element starting at $start ends: past a CDATA section after optional
+     * blanks (an unterminated one runs to the end, failing closed), otherwise at the next `<`.
+     */
+    private function voidContentEnd(string $value, int $start): int
+    {
+        $length = strlen($value);
+        $first = $start + strspn($value, " \t\r\n", $start);
+
+        if ($first < $length && substr_compare($value, '<![CDATA[', $first, 9) === 0) {
+            $close = strpos($value, ']]>', $first + 9);
+
+            return $close === false ? $length : $close + 3;
+        }
+
+        $next = strpos($value, '<', $start);
+
+        return $next === false ? $length : $next;
     }
 
     /**

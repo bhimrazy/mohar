@@ -107,8 +107,8 @@ test('ids, amounts and references support needs stay readable', function (string
     'whm' => ['metadata: {"command":"createacct","result":1,"reason":"Account Creation Ok"} user=bob, domain=a.com.np, pkg=starter, ip=203.0.113.4'],
     'times and urls' => ['Rejected at 12:30:45 for https://r.test/a?b=c&id=5, Idempotency-Key: ik_123, X-Request-Id: req_9'],
     'email' => ['contact a@b.com or https://x.test/?email=a@b.com'],
-    'reference ids after a Session label' => ['{"message":"Session: cs_live_a1B2c3D4 expired","ref":"Session: 0b6f1c3e-2a4d-4c6b-9f1e-7d2a3b4c5d6e"}'],
-    'empty labels keep the next line' => ["Cookie:\r\nHost: keepme.test\npassword:\nnext line stays"],
+    'reference ids after a Session label' => ['{"message":"Session: cs_live_a1B2c3D4 expired","error":"Session: pi_a1B2c3D4."}'],
+    'an empty Cookie header keeps the next line' => ["Cookie:\r\nHost: keepme.test"],
     'void element with a secret name' => ['<input type="password" name="password" value=""><p>Forgot your password?</p>'],
     'flags without credentials' => ['ps -u root; tar -U x'],
     'unchanged json keeps its formatting' => ["{\n  \"id\": \"evt_1\",\n  \"data\": {}\n}"],
@@ -145,13 +145,13 @@ function maskSeconds(string $text, int $runs = 3): float
     return $best;
 }
 
-test('a 1 MB adversarial input is masked in under 4 s with bounded memory', function (Closure $unit) {
+test('a 1 MB adversarial input is masked in under 2 s with bounded memory', function (Closure $unit) {
     $large = adversarialInput(1024 * 1024, $unit);
 
     memory_reset_peak_usage();
     $before = memory_get_usage();
 
-    expect(maskSeconds($large))->toBeLessThan(4.0)
+    expect(maskSeconds($large))->toBeLessThan(2.0)
         ->and(memory_get_peak_usage() - $before)->toBeLessThan(24 * 1024 * 1024);
 })->with([
     'colon-joined labels' => [fn (): string => 'a:'],
@@ -196,4 +196,7 @@ test('the shapes that once ran quadratic scale linearly from 512 KB to 4 MB', fu
     'distinct labelled items' => [fn (int $i): string => '<i'.base_convert((string) $i, 10, 36).' key="password">'],
     'unclosed secret elements' => [fn (): string => '<password>'],
     'secret pairs' => [fn (): string => 'token=a&'],
+    'void-named XML elements with CDATA' => [fn (): string => '<param name="password"><![CDATA[x]]>'],
+    'labels with the value on the next line' => [fn (): string => "pw:\n"],
+    'session ids with a joined tail' => [fn (): string => 'Session: cs_live_a1B2c3D4:'],
 ]);
