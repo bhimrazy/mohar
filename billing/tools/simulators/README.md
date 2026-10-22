@@ -104,9 +104,49 @@ The control plane answers only requests that carry `X-Sim-Token`:
     - `tests/Stripe/StripeDriftTest.php` replays the sequence against the simulator for every live recording. A file that does not parse fails it.
     - Recording is deferred (CTO decision, #113): it needs a long-lived restricted test key as a GitHub or Codespaces secret from the owner, so the live check is skipped until then. Its script must rename `metadata` keys as well as values: the merchant chooses those keys, and they can name a customer.
 
+### `khalti`: Khalti KPG-2 web checkout, for the PaymentsNepal driver
+
+- **API.** `POST /api/v2/epayment/initiate/` and `POST /api/v2/epayment/lookup/` with `Authorization: Key KhaltiSimulator::SECRET_KEY` (anything else is a 401), and `POST /api/merchant-transaction/{transaction_id}/refund/` (no body refunds the rest; `amount` refunds part, in paisa).
+    - Amounts are paisa integers. Initiate needs `return_url`, `website_url`, `amount` (at least 1,000), `purchase_order_id` and `purchase_order_name`; a refusal is a 400 keyed by field with `error_key: validation_error`.
+    - Initiate answers `pidx`, `payment_url` (on this TLS port), `expires_at` in Nepal time and `expires_in` (1,800 s). A session left open past `expires_at` turns `Expired` on its own.
+    - Lookup answers `pidx`, `total_amount`, `status`, `transaction_id`, `fee` (3% here) and `refunded`. `Expired` and `User canceled` come back as HTTP 400 with the same body, and an unknown pidx as 404.
+- **Hosted page.** `GET /?pidx=` with Pay, "Pay (bank confirms later)" (`Pending`) and Cancel (`User canceled`). Each redirects to `return_url` with Khalti's unsigned query (`pidx`, `transaction_id`, `amount`, `total_amount`, `mobile`, `status`, `purchase_order_id`, ...). A second Pay charges nothing and gives the same redirect.
+- **Control actions.** `pay` (optional `total_amount` for an amount mismatch), `pending` and `cancel` return the `redirect` the browser follows; `complete` and `expire` are what Khalti later does to an open or Pending session; `refund` is a refund made in the merchant portal (all, or `amount` paisa).
+- **Using it from the app.** Set the printed `INTEGRATION_ENDPOINTS` (`khalti.api`, `khalti.refund`, `khalti.pay`), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`. Use the Khalti gateway in sandbox mode with the simulator's key.
+- **Shapes.** Written from docs.khalti.com only; there is no Khalti sandbox capture yet (#208). The driver's own fixtures (`tests/Feature/PaymentsNepal/KhaltiDriverTest.php`) use the same key paths.
+
+### `esewa`: eSewa ePay v2, for the PaymentsNepal driver
+
+- **Form.** `POST /api/epay/main/v2/form` (form fields, as the customer's browser posts them).
+    - The signature is base64 HMAC-SHA256 over `name=value` pairs of `signed_field_names`, which must cover `total_amount,transaction_uuid,product_code`. A wrong one, or an unknown product code, is a 400 with `code: ES104`.
+    - `total_amount` must be the sum of `amount`, `tax_amount` and both charges, in rupees.
+    - A `transaction_uuid` already booked for the product code is a 400 with `code: 0`.
+    - A booking redirects (302) to the payment page and stays payable for 50 minutes, as in the UAT captures.
+- **Payment page.** `GET /epay/booking/{id}` with Pay, "Go back without paying" (the booking stays `PENDING`) and Cancel. Pay redirects to `success_url?data=` with base64 JSON signed over `transaction_code,status,total_amount,transaction_uuid,product_code,signed_field_names`, `total_amount` written as eSewa writes it (`"1,130.5"`). The other two go to `failure_url`, unchanged.
+- **Status check.** `GET /api/epay/transaction/status/?product_code&total_amount&transaction_uuid`, matched on all three. It answers `PENDING` for a booked session, `COMPLETE` with a `ref_id` once paid, and `NOT_FOUND` for a cancelled or expired booking, an unknown uuid or another amount. `total_amount` is a JSON number (`100.0`).
+- **Control actions.** `pay` (optional `settled_amount` in rupees for an amount mismatch, and `variant` `wrong_secret`, `tampered` or `unsigned` for a forged return), `leave` and `cancel` return the `redirect`. `settle` sets what eSewa later reports: `COMPLETE`, `EXPIRED`, `AMBIGUOUS`, `FULL_REFUND` or `PARTIAL_REFUND`. eSewa has no refund API, so refunds are only an action.
+- **Using it from the app.** Set the printed `INTEGRATION_ENDPOINTS` (`esewa.form`, `esewa.status`), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`. Use the eSewa gateway in sandbox mode with product code `EPAYTEST` and `EsewaSimulator::SECRET_KEY`.
+- **Shapes.** The UAT captures of 2026-10-21 (`tests/Fixtures/Esewa`) are the expected shapes; `tests/Esewa/EsewaDriverAgainstSimulatorTest.php` checks the status answers against them.
+
+### Wallet scenarios and where each is proved
+
+`tests/Khalti/KhaltiDriverAgainstSimulatorTest.php` and `tests/Esewa/EsewaDriverAgainstSimulatorTest.php` run the unchanged drivers through the app's routes:
+
+| Scenario                | Khalti                                                 | eSewa                                                           |
+| ----------------------- | ------------------------------------------------------ | --------------------------------------------------------------- |
+| Success, in paisa       | Pay on the page, 1,130.55 booked with the fee          | Form post, Pay, 1,130.55 booked with the `ref_id`               |
+| User cancel             | `User canceled`: the attempt fails                     | `NOT_FOUND` after the cancel return: the attempt ends           |
+| Pending, then completed | `pending`, then `complete`, booked by the poller       | `leave`, then `settle COMPLETE`, booked by the poller           |
+| Pending, then expired   | `pending`, then `expire`: the attempt expires          | `leave`, then `settle EXPIRED`: the attempt expires             |
+| Amount mismatch         | `pay` with another `total_amount`: staff review        | `pay` with another `settled_amount`: staff review               |
+| Bad signature or forged | A forged return query pays nothing                     | Forged, wrong-secret, tampered and unsigned returns; ES104 form |
+| Duplicate callback      | Return twice plus a second Pay: one payment, no credit | The same                                                        |
+| Lookup timeout          | `commit_then_hang` on `lookup`: left to the poller     | `commit_then_hang` on `transaction_status`: left to the poller  |
+| Refunded or partial     | A full refund through the API, a partial in the portal | `FULL_REFUND` and `PARTIAL_REFUND` look up as such              |
+
 ## The end-to-end scenario
 
-`php artisan simulate:e2e` runs `tests/Simulators` (ADR 0016 §4) against both simulators:
+`php artisan simulate:e2e` runs `tests/Simulators` (ADR 0016 §4) against the `whm`, `stripe`, `khalti` and `esewa` simulators: the Stripe lifecycle, and the NPR lifecycle through eSewa and through Khalti:
 
 - it creates a throwaway database `billing_e2e_<random>` on PostgreSQL (`--connection=pgsql`, the default) or as a temporary SQLite file (`--connection=sqlite`);
 - it runs the scenario within a time budget (`--budget`, 360 s by default, at least 60);
@@ -155,7 +195,7 @@ The fixture in `tests/Fixtures/EchoSimulator.php` is the smallest working exampl
 - **Server-to-server callbacks** (webhooks, inbound mail) go through the outbox: `$scenario->outbox()->enqueue(url, body, headers)`, then `deliver()` with an optional `stale`, `wrong_secret` or `unsigned` variant.
     - Only a 2xx answer completes a delivery. Any other answer is retried, as Stripe retries for up to three days: on a compressed backoff (`CallbackDispatcher::BACKOFF_SECONDS`, 0, 1, 2, 4 and 8 s), up to `MAX_ATTEMPTS`. A scenario can set its own schedule with `retryPolicy()`.
     - `drain()` delivers until nothing retryable is left, and `exhausted()` lists the deliveries that used every attempt.
-- **Browser redirects** carry the provider's signed answer in the return URL's query (Khalti and eSewa returns, S5). They are not outbox deliveries. A `HasControlActions` action (for example `pay`) changes the state and returns `['redirect' => <return_url with its signed query>]`. The test or the E2E runner then follows that URL into the app as the browser would, and tampered or unsigned variants are separate actions. S5 adds these actions; the framework needs nothing more.
+- **Browser redirects** carry the provider's answer in the return URL's query (Khalti and eSewa returns). They are not outbox deliveries. A `HasControlActions` action (for example `pay`) changes the state and returns `['redirect' => <return_url with its query>]`. The test or the E2E runner then follows that URL into the app as the browser would. Forged eSewa returns are a `variant` of `pay`.
 
 ## Limits
 
