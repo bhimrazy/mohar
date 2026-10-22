@@ -69,9 +69,13 @@ sandbox before we rely on it.
   and `signature` (OpenSRS). Add them. Drivers must never copy raw request params into `meta` or exception messages.
   _2026-10-20: the kernel `Redactor` already matches these keys by word (and `domsecret`, `auth-code`); the contract
   test found that a pair quoted behind a label (`Rejected: api-key=…`) was kept whole, which is fixed._
+- **Connection test** is the capability `test_connection` (`TestsRegistrarConnection::testConnection(RegistrarConfig)`,
+  ADR 0009 Amendment 2), not core. Every driver below implements it; staff run it through `RegistrarGateway`, which
+  logs and masks it and also runs it on a disabled account.
 - Deferred (premium is off): `RegistrationRequest` needs `?int $premiumRegisterCost` and `?string $costCurrency`, because
   Namecheap (`PremiumPrice`) and OpenSRS (`premium_price_to_verify`) reject mismatched prices. Also,
-  `AvailabilityResult` premium costs currently have no currency.
+  `AvailabilityResult` premium costs currently have no currency. ADR 0009 Amendment 2: when premium is switched on,
+  both carry `App\Support\Money`, never bare integers.
 
 ## 3. ResellerClub / LogicBoxes (`resellerclub`)
 

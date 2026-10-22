@@ -21,7 +21,9 @@ used the module SPI.
 - `RegistrarGateway::call()` and `forDomain()` take the capability interface after the capability name, and the
   closure receives `(driver, RegistrarConfig)`. A trailing `$secrets` (the request's `secrets()`) joins the account's
   credentials in the mask, and every result, lookup, transfer-sync reason and connection check the gateway returns is
-  masked (`withMessage()`, `withReason()`, `mapText()`). The connection test goes through the gateway too. Domains renders `RegistrarException` through a renderer it registers.
+  masked (`withMessage()`, `withReason()`, `mapText()`). Exceptions keep their class, retry flag and `previous`
+  chain with every message along it masked. `testConnection(key)` runs the connection test through the same path,
+  also on a disabled account. Domains renders `RegistrarException` through a renderer it registers.
 - `info` is core: the host no longer checks for it before using it to verify a lost submission.
 - `tests/Support/Contracts/RegistrarDriverContract::verifyHost()` adds the Domains host redaction check; the
   temporary `ModuleRegistrarDriverContract` is removed.
