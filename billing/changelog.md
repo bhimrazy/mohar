@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Integration log masking (#190).** No schema or permission change. New log rows mask more secret shapes (see
+  Security below); rows written before the upgrade are not rewritten. Payment payload text values (`error`,
+  `message`) now get the same text rules as module logs, so a `name=value` secret inside them is masked.
 - **Application key rotation (#25).** New command `php artisan security:reencrypt` re-encrypts every stored secret
   with the current `APP_KEY`: the 22 encrypted-cast columns of the module models, secret settings, staff and client
   two-factor secrets and recovery codes, the new install secrets, and the identity images on the objects disk (27
@@ -434,6 +437,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   (`platform.invitation_expiry_days`, default 7), now shared by staff and client-login invitations. Invitations sent
   before the upgrade were password-reset links and expire as before; those logins have no open invitation, so staff
   use the new "Send a password reset" action for them instead of "Send a new invitation".
+
+### Security
+
+- **Integration logs mask more secret shapes (#190).** The module, registrar and gateway logs, transaction and refund
+  provider answers, and error text shown to staff now also mask: a JSON value quoted after a label
+  (`HTTP 500: {"api-key":"…"}`, nested, arrays, escaped quotes), XML element values (`<password>`, EPP
+  `<domain:authInfo>`, CDATA), OpenSRS `<item key="reg_password">` items and secret XML attributes (a `key` attribute that is the element's only value, as in `<license key="…"/>`, stays masked; it reads as a label only when the element has text, a non-blank CDATA section or a non-blank `value` attribute; child elements, comments, blanks or an empty `value` alone do not make it one), the rest of a value
+  after `;` or `,` (`passwd=ab;cd`), URL userinfo (`https://user:pass@host`), percent-encoded `api_key=` pairs, Stripe
+  secret keys, webhook secrets and client secrets, Khalti secret keys, and the `Key`, `whm` and `cpanel` authorization
+  schemes. A secret pair behind any number of labels or long values is found (before, past two labels or 4 KB the
+  value was kept). Ids, amounts and references stay readable (Stripe ids, Khalti `pidx`, eSewa `transaction_uuid`,
+  ResellerClub `auth-userid`, OpenSRS `order_id`, Namecheap `DomainID`, and a Stripe id after a `Session:`
+  label when the id is the whole value; anything joined to it, a UUID or any other value is masked). Also masked: EPP `<newPW>`, cPanel and WHM session cookies (`cpsession`, `whostmgrsession`) and
+  every cookie on a `Cookie:` line, `print_r` dumps (`[password] => …`), pretty-printed JSON with the value on the next
+  line, HTML-escaped JSON, an `&` inside an unquoted secret, field names up to 255 characters, `curl -u` credentials
+  (quoted or attached) and a raw `@` in a URL password. A secret XML element with no end tag masks the rest of the
+  text; an XML `<param name="password">` with child elements, comments or CDATA is masked to its end tag, and a value
+  on the line after a secret label is masked even when it contains `=` or `:` (`token:\nQWx…==`). Text is read in one linear pass: a 1 MB adversarial string, including many
+  distinct unclosed secret elements, is masked in under a second.
+- Registrar errors re-thrown by the gateway keep their exception class, retry flag and `previous` chain; the message
+  of every exception in the chain is masked. Webhook delivery errors and receiver answers, failed automation run
+  summaries, usage-sync errors reported to the log, and the provider answer stored on a card capture's transaction
+  are now masked too. A webhook receiver's answer is cut to its stored 2 KB before it is masked, so a large answer
+  costs nothing to mask; a JSON answer with nothing secret is stored as received, and one with a secret is stored
+  re-encoded (whitespace can differ).
 
 ### Architecture tests check every target (#275)
 
