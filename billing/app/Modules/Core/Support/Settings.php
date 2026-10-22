@@ -86,6 +86,12 @@ class Settings
         return $count;
     }
 
+    /** Drop the cached values (after `security:reencrypt` rewrote stored ciphertext). */
+    public function forgetCached(): void
+    {
+        Cache::memo()->forget(self::CACHE_KEY);
+    }
+
     public static function isEncrypted(mixed $value): bool
     {
         return is_string($value) && str_starts_with($value, self::ENCRYPTED_PREFIX);

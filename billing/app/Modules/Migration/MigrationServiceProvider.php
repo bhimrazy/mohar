@@ -3,6 +3,7 @@
 namespace App\Modules\Migration;
 
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\InstallSecrets;
 use App\Modules\Migration\Models\MigrationRecord;
 use App\Modules\Migration\Models\MigrationRun;
 use App\Support\Automation\Automation;
@@ -10,11 +11,11 @@ use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Security\EncryptedModel;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
-use Illuminate\Auth\Middleware\RequirePassword;
-use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -29,12 +30,11 @@ class MigrationServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
-        // Step-up is Platform's middleware; without Platform, fall back to the framework's password confirmation.
-        $router = $this->app->make(Router::class);
-
-        if (! array_key_exists('password.recent', $router->getMiddleware())) {
-            $router->aliasMiddleware('password.recent', RequirePassword::class);
-        }
+        // Encrypted casts, for `security:reencrypt` (ADR 0022).
+        $encrypted = $this->app->make(EncryptedStorage::class);
+        $encrypted->register('migration_runs', new EncryptedModel(MigrationRun::class));
+        $encrypted->register('migration_records', new EncryptedModel(MigrationRecord::class));
+        $this->app->make(InstallSecrets::class)->define(MigrationRecord::EMAIL_HASH_SECRET, MigrationRecord::emailHashKey(...));
 
         $this->app->make(PermissionRegistry::class)->register('Migration', [
             'migration.runs.view' => 'See client imports and their checks',

@@ -31,7 +31,7 @@ final class ClientMatcher
     private const LEGAL_SUFFIXES = '/\b(private limited|pvt ltd|pvt|ltd|limited|llc|inc|incorporated|gmbh|plc|co)\b/';
 
     /**
-     * @param  list<array{row: int, source_id: string, email_hash: string|null, client: array<string, mixed>, blank: list<string>, checksum: string, problems: list<array<string, mixed>>}>  $rows
+     * @param  list<array{row: int, source_id: string, email_hash: string|null, client: array<string, mixed>, blank: list<string>, checksum: string, problems: list<array<string, mixed>>, payload?: array{extra?: array<string, mixed>}}>  $rows
      * @return list<array{decision: string|null, match_client_id: int|null, problems: list<array<string, mixed>>, changes: list<string>}>
      */
     public function decide(MigrationRun $run, array $rows, bool $hasExternalId): array
@@ -113,7 +113,8 @@ final class ClientMatcher
 
             $changes = $match instanceof Client && in_array($decision, ['update', 'unchanged'], true) ? $this->changes($row, $match, ($options['blank_cells'] ?? 'keep') === 'keep') : [];
             $results[] = [
-                'decision' => $decision === 'update' && $changes === [] ? 'unchanged' : $decision,
+                // A changed opening balance alone is still an update: Billing posts the difference (spec §6.12).
+                'decision' => $decision === 'update' && $changes === [] && ($row['payload']['extra']['credit_balance'] ?? null) === null ? 'unchanged' : $decision,
                 'match_client_id' => $match?->id,
                 'problems' => $problems,
                 'changes' => $changes,

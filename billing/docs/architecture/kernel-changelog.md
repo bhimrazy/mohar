@@ -6,6 +6,44 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Key rotation (#25, ADR 0022)
+
+- New registry `App\Support\Security\EncryptedStorage` (`final`, `@api`, singleton, ADR 0012 shape):
+  `register(string $key, EncryptedModel|EncryptedColumn|EncryptedFiles $target, bool $replace = false)`, `has()`,
+  `keys()` and `all()`. Keys match `[a-z0-9_]{1,50}` (`<module>` or `<module>_<part>`); a duplicate key throws unless
+  `$replace`, and two keys naming the same storage throw `LogicException`. Modules declare there all data encrypted
+  with `APP_KEY` that outlives a rotation, so `security:reencrypt` (Core) covers it without reading other modules'
+  classes.
+- New value objects (`@api`): `EncryptedModel(class-string<Model>)` (a model whose encrypted casts are read when the
+  command runs), `EncryptedColumn` (table, column, key column, prefix, JSON string) and `EncryptedFiles` (path columns
+  of a table, a disk, and `lockFirst` naming the parent row to lock before the row). Additive. Every module with an
+  encrypted cast registers its models; Core also registers `core_settings`, the two Fortify columns and
+  `core_install_secrets`; Kyc registers `kyc_documents_files`. With a module absent, its registrations are absent
+  and a real run asks for `--partial`.
+- Outside the kernel: `App\Providers\ModulesServiceProvider::availableModules()` (every module on disk) and
+  `App\Modules\Core\Support\InstallSecrets` (per-install secrets that survive a rotation; Migration's email hash
+  uses it).
+
+### Step-up in the kernel (#81, ADR 0018 §4)
+
+- `App\Http\Middleware\RequireRecentPasswordConfirmation` (moved from `App\Modules\Platform\Http\Middleware`): the
+  `password.recent` middleware, aliased in `bootstrap/app.php`. Same contract: `ERROR_KEY`, `recentlyConfirmed()`,
+  `timeout()`; 423 for JSON, a `password_confirmation` validation error for Inertia. The window is read from
+  `auth.step_up_seconds` (900), which replaces `platform.password_confirmation_seconds`. Billing's
+  `ConfirmPasswordForAction` copy and Migration's `RequirePassword` fallback are deleted; modules register no step-up
+  alias of their own. `tests/Extensions/ModuleRoutesResolveTest.php` boots each module alone and fails when a route's
+  middleware does not resolve.
+
+### Client import opening balances and tax-number notes (importer B2b)
+
+- New capability `App\Contracts\Migration\RevertsImport extends RecordImporter` with
+  `revert(ImportRecord $record, ImportOutcome $applied, ImportContext $context): ImportOutcome` (ADR 0019 addendum).
+  Billing's `credit_balance` importer implements it. `App\Enums\ImportAction::Reverted` (new case of the open enum).
+- New contract `App\Contracts\Billing\TaxIdRules`: `normalize(string $country, string $taxId): string` and
+  `notes(string $country, ?string $taxId, ?string $state, bool $business): list<TaxIdNote>`, with the new DTO
+  `App\Data\Billing\TaxIdNote` (`severity` WARNING or INFO, `code`, `message`).
+  Core binds `NullTaxIdRules`; Billing binds `BillingTaxIdRules` (Nepal PAN, Indian GSTIN, EU reverse charge).
+
 ### Payment follow-ups (#232, #221)
 
 - New event `App\Events\Billing\PaymentReinstated(invoiceId, clientId, transactionId, chargebackTransactionId,

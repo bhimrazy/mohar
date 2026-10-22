@@ -126,7 +126,7 @@ test('a re-run with an External ID never changes a client\'s email or its login;
     expect($client)->email->toBe('a@example.com')->last_name->toBe('Changed')->email_changed_at->toBeNull()
         ->and($client->users()->sole()->email)->toBe('a@example.com')
         ->and($record->changes)->toBe(['last_name'])
-        ->and($record->before)->toBe(['last_name' => 'Rai'])
+        ->and($record->before)->toBe(['client' => ['last_name' => 'Rai']])
         ->and((string) DB::table('migration_records')->where('id', $record->id)->value('before'))->not->toContain('Rai');
 });
 

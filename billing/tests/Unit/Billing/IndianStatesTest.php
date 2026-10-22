@@ -15,7 +15,10 @@ test('states normalise from ISO code, GST code or name', function (string $input
 test('GSTIN format and state of registration', function () {
     expect(IndianStates::isValidGstin('27AAPFU0939F1ZV'))->toBeTrue()
         ->and(IndianStates::stateFromGstin('29AAGCB7383J1Z4'))->toBe('KA')
-        ->and(IndianStates::isValidGstin('99AAPFU0939F1ZV'))->toBeFalse()
+        ->and(IndianStates::isValidGstin('00AAPFU0939F1ZV'))->toBeFalse()
+        ->and(IndianStates::isValidGstin('99AAPFU0939F1ZV'))->toBeTrue()
+        ->and(IndianStates::isValidGstin('97AAPFU0939F1ZV'))->toBeTrue()
+        ->and(IndianStates::stateFromGstin('99AAPFU0939F1ZV'))->toBeNull()
         ->and(IndianStates::isValidGstin('27AAPFU0939F1Z'))->toBeFalse();
 });
 
