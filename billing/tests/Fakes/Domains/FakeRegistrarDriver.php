@@ -22,7 +22,7 @@ use Carbon\CarbonImmutable;
 
 /**
  * Every registrar method, answered by the FakeRegistrar script. It implements only the core interface; the
- * subclasses FakeRegistrar::driver() declares add the capability interfaces.
+ * fixture classes in tests/Fakes/Domains/Registrars add the capability interfaces.
  */
 class FakeRegistrarDriver implements RegistrarDriver
 {
@@ -136,6 +136,6 @@ class FakeRegistrarDriver implements RegistrarDriver
 
     public function testConnection(RegistrarConfig $config): ConnectionCheck
     {
-        return new ConnectionCheck(true, 'Fake connected.');
+        return $this->script->record('test_connection', null, new ConnectionCheck(true, 'Fake connected.'));
     }
 }

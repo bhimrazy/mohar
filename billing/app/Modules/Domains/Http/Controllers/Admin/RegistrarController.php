@@ -2,7 +2,6 @@
 
 namespace App\Modules\Domains\Http\Controllers\Admin;
 
-use App\Contracts\Domains\Registrar\TestsRegistrarConnection;
 use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Http\Controllers\Controller;
@@ -11,8 +10,10 @@ use App\Modules\Domains\Http\Requests\RegistrarAccountRequest;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\Tld;
-use App\Modules\Domains\Services\RegistrarManager;
+use App\Modules\Domains\Services\RegistrarGateway;
+use App\Support\Domains\CapabilityNotSupported;
 use App\Support\Domains\RegistrarDriverRegistry;
+use App\Support\Domains\RegistrarException;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -62,21 +63,20 @@ class RegistrarController extends Controller
         return to_route('admin.domains.registrars.index');
     }
 
-    public function test(string $registrar, RegistrarDriverRegistry $registrars, RegistrarManager $accounts): RedirectResponse
+    public function test(string $registrar, RegistrarDriverRegistry $registrars, RegistrarGateway $gateway): RedirectResponse
     {
         $this->authorize('domains.registrars.manage');
         abort_unless($registrars->has($registrar), 404);
 
-        $driver = $registrars->get($registrar);
-
-        if (! $driver instanceof TestsRegistrarConnection) {
-            Inertia::flash('toast', ['type' => 'error', 'message' => __('The :name registrar has no connection test.', ['name' => $driver->name()])]);
-
-            return to_route('admin.domains.registrars.index');
+        // Through the gateway, so it is logged and whatever the driver says is masked; it runs on a disabled account too.
+        try {
+            $result = $gateway->testConnection($registrar);
+            Inertia::flash('toast', ['type' => $result->ok ? 'success' : 'error', 'message' => $result->message]);
+        } catch (CapabilityNotSupported) {
+            Inertia::flash('toast', ['type' => 'error', 'message' => __('The :name registrar has no connection test.', ['name' => $registrars->get($registrar)->name()])]);
+        } catch (RegistrarException $error) {
+            Inertia::flash('toast', ['type' => 'error', 'message' => $error->getMessage()]);
         }
-
-        $result = $driver->testConnection($accounts->config($registrar));
-        Inertia::flash('toast', ['type' => $result->ok ? 'success' : 'error', 'message' => $result->message]);
 
         return to_route('admin.domains.registrars.index');
     }

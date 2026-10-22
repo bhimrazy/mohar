@@ -11,13 +11,13 @@ final readonly class RegistrarConfig
     /**
      * @param  array<string, mixed>  $settings  the account's decrypted settings, keyed by settingsFields() key
      * @param  bool  $testMode  use the registrar's sandbox and the test credentials, never the live ones
-     * @param  list<string>  $secretKeys  settings typed Secret or SecretText; the host masks their values
+     * @param  list<string>  $secretSettingKeys  settings typed Secret or SecretText; the host masks their values
      */
     public function __construct(
         public string $key,
         #[\SensitiveParameter] public array $settings = [],
         public bool $testMode = false,
-        public array $secretKeys = [],
+        public array $secretSettingKeys = [],
     ) {}
 
     public function setting(string $key, mixed $default = null): mixed
@@ -34,7 +34,7 @@ final readonly class RegistrarConfig
     {
         $values = [];
 
-        foreach ($this->secretKeys as $key) {
+        foreach ($this->secretSettingKeys as $key) {
             if (is_string($this->settings[$key] ?? null) && $this->settings[$key] !== '') {
                 $values[] = $this->settings[$key];
             }

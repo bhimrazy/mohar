@@ -12,6 +12,7 @@ use App\Modules\Kyc\Actions\PruneDocuments;
 use App\Modules\Kyc\Enums\DocumentStatus;
 use App\Modules\Kyc\Enums\KycStatus;
 use App\Modules\Kyc\Http\Controllers\Admin\ReviewController;
+use App\Modules\Kyc\Http\Middleware\ClearEndedReviewHistory;
 use App\Modules\Kyc\Http\Middleware\ShareKycBanner;
 use App\Modules\Kyc\Listeners\ScheduleDocumentRetention;
 use App\Modules\Kyc\Models\KycDocument;
@@ -21,6 +22,9 @@ use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Security\EncryptedFiles;
+use App\Support\Security\EncryptedModel;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
@@ -46,7 +50,14 @@ class KycServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        // The document number (encrypted cast) and the identity images on the objects disk, for `security:reencrypt`
+        // (ADR 0022). A path switch locks the client, then the document (ADR 0021 §3).
+        $encrypted = $this->app->make(EncryptedStorage::class);
+        $encrypted->register('kyc_documents', new EncryptedModel(KycDocument::class));
+        $encrypted->register('kyc_documents_files', new EncryptedFiles('kyc_documents', ['front_path', 'back_path'], KycDocument::DISK, lockFirst: ['clients', 'client_id']));
+
         $this->app->make(Kernel::class)->appendMiddlewareToGroup('web', ShareKycBanner::class);
+        $this->app->make(Kernel::class)->appendMiddlewareToGroup('web', ClearEndedReviewHistory::class);
 
         // A document number never reaches the session, also when an action (not the form request) refuses the upload.
         $this->callAfterResolving(ExceptionHandler::class, function (object $handler): void {

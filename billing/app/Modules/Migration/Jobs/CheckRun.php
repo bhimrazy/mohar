@@ -2,6 +2,10 @@
 
 namespace App\Modules\Migration\Jobs;
 
+use App\Contracts\Billing\TaxIdRules;
+use App\Data\Migration\ImportContext;
+use App\Data\Migration\ImportRecord;
+use App\Enums\ImportAction;
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Migration\Models\MigrationRecord;
@@ -10,7 +14,10 @@ use App\Modules\Migration\Support\ClientColumns;
 use App\Modules\Migration\Support\ClientMatcher;
 use App\Modules\Migration\Support\ReviewDigest;
 use App\Modules\Migration\Support\RowNormalizer;
+use App\Modules\Migration\Support\SourceIds;
+use App\Support\Migration\ImportRegistry;
 use App\Support\Queues;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -64,6 +71,7 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
         $columns = $run->mapping['columns'] ?? [];
         $hasExternalId = in_array(ClientColumns::EXTERNAL_ID, $columns, true);
         $normalizer = $this->normalizer($run, $columns);
+        $imports = app(ImportRegistry::class);
         $found = $this->afterRow === 0 ? [] : ($run->found_values ?? []);
         $rows = [];
 
@@ -72,6 +80,10 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
             $email = $normalized['client']['email'] ?? null;
             $hash = is_string($email) ? MigrationRecord::emailHash($email) : null;
             $sourceId = $hasExternalId ? ($normalized['extra'][ClientColumns::EXTERNAL_ID] ?? null) : ($hash === null ? null : "email:{$hash}");
+
+            if (($normalized['extra']['credit_balance'] ?? null) !== null && ! $imports->has('credit_balance')) {
+                $normalized['problems'][] = ['severity' => 'warning', 'code' => 'credit_unavailable', 'message' => __('The opening credit balance will not be imported: billing is not installed.'), 'field' => 'credit_balance'];
+            }
 
             if ($hasExternalId && $sourceId === null) {
                 $normalized['problems'][] = ['severity' => 'error', 'code' => 'no_external_id', 'message' => __('The External ID is empty.'), 'field' => ClientColumns::EXTERNAL_ID];
@@ -102,7 +114,7 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
         $writes = [];
 
         foreach ($rows as $index => $row) {
-            $decision = $decisions[$index];
+            $decision = $this->openingBalance($run, $row, $decisions[$index], $imports);
             $severities = array_column($decision['problems'], 'severity');
             $writes[] = [
                 'migration_run_id' => $run->id,
@@ -199,6 +211,42 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
         }
 
         return new RowNormalizer($run->header ?? [], $columns, $run->mapping['date_format'] ?? null, $currencies, $enabled[0] ?? 'USD', $groups,
-            array_values(array_unique([config('app.locale'), config('app.fallback_locale')])));
+            array_values(array_unique([config('app.locale'), config('app.fallback_locale')])), app(TaxIdRules::class));
+    }
+
+    /**
+     * What an update does to the matched client's opening balance, asked of Billing's importer as a dry run (it reads
+     * without locks and writes nothing, ADR 0019); apply asks again under the lock. A balance it would post is listed as
+     * a change; one it would keep is a note, and a row with nothing else to change comes out unchanged (§6.12, §17); a
+     * credit in another currency than the client's is a row error. Asked only for updates that carry a balance, so
+     * rows without one cost no query.
+     *
+     * @param  array{source_id: string, client: array<string, mixed>, payload: array{extra: array<string, mixed>}}  $row
+     * @param  array{decision: string|null, match_client_id: int|null, problems: list<array<string, mixed>>, changes: list<string>}  $decision
+     * @return array{decision: string|null, match_client_id: int|null, problems: list<array<string, mixed>>, changes: list<string>}
+     */
+    private function openingBalance(MigrationRun $run, array $row, array $decision, ImportRegistry $imports): array
+    {
+        $amount = $row['payload']['extra']['credit_balance'] ?? null;
+
+        if ($decision['decision'] !== 'update' || $amount === null || $decision['match_client_id'] === null || ! $imports->has('credit_balance')) {
+            return $decision;
+        }
+
+        $context = new ImportContext($run->id, $run->migration_source_id, $run->source_system, true, CarbonImmutable::now(), null, new SourceIds($run->migration_source_id));
+        $outcome = $imports->get('credit_balance')->upsert(new ImportRecord('credit_balance', $run->source_system, $row['source_id'], [
+            'amount' => (int) $amount, 'currency' => $row['client']['currency'] ?? null,
+        ], ['client_id' => $decision['match_client_id']]), $context, $decision['match_client_id']);
+
+        foreach ($outcome->issues as $issue) {
+            $decision['problems'][] = ['severity' => $issue->severity->value, 'code' => $issue->code, 'message' => $issue->message, 'field' => 'credit_balance'];
+        }
+
+        return match (true) {
+            in_array($outcome->action, [ImportAction::Created, ImportAction::Updated], true) => [...$decision, 'changes' => [...$decision['changes'], 'credit_balance']],
+            in_array('error', array_column($decision['problems'], 'severity'), true) => [...$decision, 'decision' => null, 'changes' => []],
+            $decision['changes'] === [] => [...$decision, 'decision' => 'unchanged'],
+            default => $decision,
+        };
     }
 }

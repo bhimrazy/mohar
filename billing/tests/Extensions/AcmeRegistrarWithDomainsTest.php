@@ -9,13 +9,13 @@ use Tests\Fixtures\Extensions\AcmePanel\AcmePanelServiceProvider;
 use Tests\TestCase;
 
 /*
- * The Domains module (with Core and Platform only) and a package's registrar driver (ADR 0009 "Verification"): the driver is listed
+ * The Domains module (with Core only) and a package's registrar driver (ADR 0009 "Verification"): the driver is listed
  * in the registrar admin and runs through the host with its configured account.
  */
 
 uses(RefreshDatabase::class);
 
-// This file migrates its own in-memory database with only Core, Domains and Platform tables; the next file must not reuse it.
+// This file migrates its own in-memory database with only Core and Domains tables; the next file must not reuse it.
 $freshDatabase = function (): void {
     RefreshDatabaseState::$migrated = false;
     RefreshDatabaseState::$inMemoryConnections = [];
@@ -23,8 +23,8 @@ $freshDatabase = function (): void {
 
 beforeAll(function () use ($freshDatabase): void {
     $freshDatabase();
-    // Platform owns the password.recent step-up the registrar routes use; Domains has no fallback of its own.
-    TestCase::$onlyModules = 'Domains,Platform';
+    // The password.recent step-up the registrar routes use is in the kernel since #268, so Platform is not needed.
+    TestCase::$onlyModules = 'Domains';
 });
 
 afterAll(function () use ($freshDatabase): void {

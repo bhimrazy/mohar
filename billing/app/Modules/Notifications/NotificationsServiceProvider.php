@@ -29,6 +29,8 @@ use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Security\EncryptedModel;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
@@ -63,6 +65,10 @@ class NotificationsServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        // Encrypted casts, for `security:reencrypt` (ADR 0022).
+        $encrypted = $this->app->make(EncryptedStorage::class);
+        $encrypted->register('notifications_webhook_endpoints', new EncryptedModel(WebhookEndpoint::class));
+
         // Framework and module notifications (password reset fallback, security notices, invitations) get the
         // company sender name and the support Reply-To too; templated mail sets its own per category.
         Event::listen(MessageSending::class, [BrandOutgoingMail::class, 'handle']);

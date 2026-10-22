@@ -93,8 +93,10 @@ All commands run from the repository root (a clone at the release you deploy).
     docker compose -f deploy/compose.prod.yaml build migrate
     ```
 
-3. **Application key**, once. Put the output in `APP_KEY`, and store a copy in your password manager, away from the
-   backups: it decrypts the stored gateway, registrar and server credentials.
+3. **Application key**, once. Put the output in `APP_KEY` (or in a Docker secret, see
+   [key-rotation.md](key-rotation.md#where-the-key-lives)), and store a copy in your password manager, away from the
+   backups: it decrypts the stored gateway, registrar and server credentials. Rotating it later:
+   [key-rotation.md](key-rotation.md).
 
     ```bash
     docker compose -f deploy/compose.prod.yaml run --rm --no-deps -e APP_OPTIMIZE=0 migrate php artisan key:generate --show
@@ -194,8 +196,8 @@ backup taken before the update.
 
 ## Backups
 
-What to back up, as in [install.md](install.md#backups): the database, the objects bucket, and `deploy/.env` with
-`APP_KEY`, each kept apart from the others.
+What to back up, as in [install.md](install.md#backups): the database and the objects bucket. `APP_KEY` is kept in
+a secrets store, apart from both; host and file backups exclude `deploy/.env` ([key-rotation.md](key-rotation.md)).
 
 - **Database**, nightly and before every update, from the host's crontab (`crontab -e` as a user in the `docker`
   group), before the 03:00 automation run. Cron turns `%` into a newline, hence `\%`; `umask 077` keeps the dump
@@ -219,7 +221,10 @@ What to back up, as in [install.md](install.md#backups): the database, the objec
     $compose start rustfs
     ```
 
-- **`deploy/.env`** in a secrets store, never next to the dumps.
+- **`APP_KEY`** (and the earlier keys, for dumps taken before a rotation) in a password manager or secrets store, never
+  next to the dumps. A snapshot of the host or of `/srv/billing` excludes `deploy/.env`. To keep the key out of
+  `deploy/.env` altogether, use Docker secrets (`deploy/compose.secrets.example.yaml`, see
+  [key-rotation.md](key-rotation.md#where-the-key-lives)).
 
 Copy the files off the host, and test a restore every quarter.
 

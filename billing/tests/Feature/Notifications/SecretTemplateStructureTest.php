@@ -155,7 +155,7 @@ it('strips CC and BCC from every secret template, and from a duplicated one sent
     app(NotificationMailer::class)->send(new EmailRequest($copy->key, [$recipient], [], 'cc|copy', $client->id, carriesSecret: true));
 
     $messages = EmailMessage::query()->whereIn('template_key', [...array_keys(SecretTemplatePolicy::ACTION_LINKS), $copy->key])->get();
-    expect($messages)->toHaveCount(6)
+    expect($messages)->toHaveCount(count(SecretTemplatePolicy::ACTION_LINKS) + 1)
         ->and($messages->pluck('cc')->filter()->all())->toBe([])
         ->and($messages->pluck('bcc')->filter()->all())->toBe([])
         ->and($messages->firstWhere('template_key', $copy->key)->status->value)->toBe('failed');
