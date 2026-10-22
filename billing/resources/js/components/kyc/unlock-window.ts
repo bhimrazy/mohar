@@ -114,18 +114,26 @@ export function useUnlockWindow(
         [unlockedUntil, unlockedFor, attempt],
     );
 
-    useEffect(
-        () =>
-            watchUnlock(
-                deadline,
-                () => setEnded(deadline),
-                () =>
-                    router.reload({
-                        onSuccess: () => setAttempt((n) => n + 1),
-                    }),
-            ),
-        [deadline],
-    );
+    useEffect(() => {
+        const reload = () =>
+            router.reload({ onSuccess: () => setAttempt((n) => n + 1) });
+        const cancel = watchUnlock(deadline, () => setEnded(deadline), reload);
+
+        // A timer does not advance while a laptop sleeps or a tab is throttled: look at the clock again on return.
+        const recheck = () => {
+            if (deadline !== null && deadline <= Date.now()) {
+                setEnded(deadline);
+            }
+        };
+        document.addEventListener('visibilitychange', recheck);
+        window.addEventListener('pageshow', recheck);
+
+        return () => {
+            cancel();
+            document.removeEventListener('visibilitychange', recheck);
+            window.removeEventListener('pageshow', recheck);
+        };
+    }, [deadline]);
 
     return deadline !== null && ended !== deadline && deadline > Date.now();
 }

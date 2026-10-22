@@ -45,11 +45,19 @@ class ClearEndedReviewHistory
             return $next($request);
         }
 
-        if ($this->unlocks->forgetEnded((int) $holder)) {
+        // Only staff open documents; everyone else skips the table (and the legacy session key below).
+        if (! (bool) Auth::user()?->is_staff) {
+            return $next($request);
+        }
+
+        $binding = $this->unlocks->binding($request);
+
+        // The legacy check is the one-release shim for unlocks the previous release kept in the session.
+        if ($this->unlocks->forgetEnded((int) $holder, $binding) | $this->unlocks->forgetEndedLegacy($request)) {
             Inertia::clearHistory();
         }
 
-        $held = $this->unlocks->any((int) $holder);
+        $held = $this->unlocks->any((int) $holder, $binding);
         $response = $next($request);
 
         // Logout flushes the session, so the flag goes into the new one and reaches the next page.

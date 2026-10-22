@@ -7,6 +7,7 @@ use App\Modules\Kyc\Services\ReviewUnlocks;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia;
 
 require_once __DIR__.'/Support/race.php';
@@ -35,7 +36,7 @@ test('B1: a second session of the same staff member, with no password step-up, d
     ($this->page)()->assertInertia(fn (AssertableInertia $page) => $page->where('documents.0.number', '27-01-74-04821'));
 
     // Another browser or a copied session cookie: same login, its own session, never confirmed the password.
-    $this->flushSession();
+    $this->withCookie((string) config('session.cookie'), Str::random(40))->flushSession();
     $this->actingAs($this->staff);
 
     ($this->page)()->assertInertia(fn (AssertableInertia $page) => $page
@@ -84,7 +85,9 @@ test('L: Show from a page whose unlock ended a moment ago (end not noticed yet) 
     $generation = ($this->generation)();
 
     $this->travel(16)->minutes();
-    confirmPassword();
+    // The step-up is stamped with the travelled clock too (time() does not follow travel()).
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
+    session()->save(); // the browser's session id is stable, so what the last request saved would win otherwise
     $this->post(route('admin.kyc.unlock', $this->client), ['generation' => $generation])->assertRedirect();
 
     ($this->page)()->assertInertia(fn (AssertableInertia $page) => $page->whereNot('unlockedUntil', null));
@@ -101,7 +104,7 @@ describe('the row lock in open() is what keeps Hide (PostgreSQL)', function () {
         $this->useSeededDatabase('kyc_unlock_gap', function (): void {
             $client = Client::factory()->create(['email' => 'kyc-gap@example.test']);
             $staff = User::factory()->staff(['*'])->create(['email' => 'kyc-gap-staff@example.test']);
-            app(ReviewUnlocks::class)->open($staff->id, $client->id, now()->addMinutes(10));
+            app(ReviewUnlocks::class)->open($staff->id, $client->id, now()->addMinutes(10), 0);
         });
         $client = Client::query()->where('email', 'kyc-gap@example.test')->sole();
         $staff = User::query()->where('email', 'kyc-gap-staff@example.test')->sole();

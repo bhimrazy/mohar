@@ -25,7 +25,7 @@ test('B1: unlocking one client does not reveal another client\'s document number
     KycDocument::factory()->create(['client_id' => $a->id]);
     KycDocument::factory()->create(['client_id' => $b->id, 'number' => '99-88-77-66666']);
 
-    $this->post(route('admin.kyc.unlock', $a))->assertRedirect();
+    $this->post(route('admin.kyc.unlock', $a), kycUnlockData($a))->assertRedirect();
 
     // At 2754ff47 kyc.unlocked_until is one session flag: B's numbers and links show, with no audit entry for B.
     $this->get(route('admin.kyc.show', $b))->assertOk()
@@ -75,7 +75,7 @@ test('V1: an image link answers private, no-store with nosniff and the global CS
     $document = KycDocument::factory()->create();
     Storage::disk(KycDocument::DISK)->put($document->front_path, Crypt::encryptString('front-bytes'));
     // Adopted in the fix round: links are bound to the staff member and need the client unlocked (#231 B1, M1).
-    $this->post(route('admin.kyc.unlock', $document->client_id))->assertRedirect();
+    $this->post(route('admin.kyc.unlock', $document->client_id), kycUnlockData($document->client_id))->assertRedirect();
     $url = URL::temporarySignedRoute('admin.kyc.image', now()->addMinutes(15), ['document' => $document->id, 'side' => 'front', 'staff' => $staff->id]);
 
     $response = $this->get($url)->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');

@@ -14,9 +14,10 @@ use Illuminate\Database\Eloquent\Model;
  * @property int $user_id
  * @property int $client_id
  * @property int $generation
+ * @property string $session_hash
  * @property CarbonImmutable|null $expires_at
  */
-#[Fillable(['user_id', 'client_id', 'generation', 'expires_at'])]
+#[Fillable(['user_id', 'client_id', 'generation', 'session_hash', 'expires_at'])]
 class KycReviewUnlock extends Model
 {
     protected function casts(): array

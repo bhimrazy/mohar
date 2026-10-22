@@ -17,6 +17,7 @@ use App\Modules\Kyc\Http\Middleware\ShareKycBanner;
 use App\Modules\Kyc\Listeners\ScheduleDocumentRetention;
 use App\Modules\Kyc\Models\KycDocument;
 use App\Modules\Kyc\Services\KycVerification;
+use App\Modules\Kyc\Services\ReviewUnlocks;
 use App\Support\Automation\Automation;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
@@ -28,6 +29,7 @@ use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
+use Illuminate\Auth\Events\Logout;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\Facades\Event;
@@ -66,6 +68,12 @@ class KycServiceProvider extends ModuleServiceProvider
             }
         });
 
+        // Signing out ends every document unlock of that staff member.
+        Event::listen(Logout::class, function (Logout $event): void {
+            if ($event->user !== null) {
+                $this->app->make(ReviewUnlocks::class)->closeAll((int) $event->user->getAuthIdentifier());
+            }
+        });
         Event::listen([ClientClosed::class, ClientReopened::class, ClientMerged::class], ScheduleDocumentRetention::class);
 
         $this->app->make(PermissionRegistry::class)->register('Identity verification', [

@@ -39,7 +39,11 @@ version, `php artisan migrate` pins the secret, and `security:reencrypt` pins it
 Both first check which configured key reproduces a stored hash, from a staged email or the email of an imported
 client. When several keys are configured and no hash can be checked (the staged rows were purged and the imported
 clients changed their emails), both stop with a message instead of guessing (migrate fails, `security:reencrypt`
-exits 2). Upgrade and run `migrate` under the key in use first, and rotate in a later restart. Key order in `APP_PREVIOUS_KEYS` does not matter for this, and neither does the number of rotations. Passkeys: Fortify derives the passkey user handle from
+exits 2). The message says what to do next: restore the key the hashes were made with (the `APP_KEY` in use before the
+rotation) as `APP_KEY`, or remove the stale key from `APP_PREVIOUS_KEYS`, then run `migrate` again. A key listed twice
+(for example `APP_KEY` also in `APP_PREVIOUS_KEYS`) counts once, and so do a `base64:` key and its decoded form, so
+one distinct key never makes a refusal. Upgrade and run `migrate` under the key in use first, and rotate in a later
+restart. Key order in `APP_PREVIOUS_KEYS` does not matter for this, and neither does the number of rotations. Passkeys: Fortify derives the passkey user handle from
 `APP_KEY` unless `PASSKEYS_USER_HANDLE_SECRET` is set. Existing passkeys keep working after a rotation, but set that
 variable to a fixed random value before rotating, so new registrations keep the same handle.
 

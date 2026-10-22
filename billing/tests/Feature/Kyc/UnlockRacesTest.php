@@ -7,6 +7,7 @@ use App\Modules\Kyc\Services\ReviewUnlocks;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia;
 
 require_once __DIR__.'/Support/race.php';
@@ -30,7 +31,7 @@ test('#257: the page carries the seconds left, counted by the server, and nothin
     ($this->show)()->assertInertia(fn (AssertableInertia $page) => $page->where('unlockedFor', null));
 
     confirmPassword();
-    $this->post(route('admin.kyc.unlock', $this->client))->assertRedirect();
+    $this->post(route('admin.kyc.unlock', $this->client), kycUnlockData($this->client))->assertRedirect();
     ($this->show)()->assertInertia(fn (AssertableInertia $page) => $page->where('unlockedFor', 900));
 
     $this->travel(5)->minutes();
@@ -42,7 +43,7 @@ test('#257: the page carries the seconds left, counted by the server, and nothin
 
 test('#258: a session saved by a request that began before Hide documents does not bring the unlock back', function () {
     confirmPassword();
-    $this->post(route('admin.kyc.unlock', $this->client))->assertRedirect();
+    $this->post(route('admin.kyc.unlock', $this->client), kycUnlockData($this->client))->assertRedirect();
     $before = session()->all();
 
     $this->post(route('admin.kyc.lock', $this->client))->assertRedirect();
@@ -56,7 +57,7 @@ test('#258: a session saved by a request that began before Hide documents does n
 
 test('#258: a Show request from before Hide documents is refused by its generation, a fresh one is not', function () {
     confirmPassword();
-    $this->post(route('admin.kyc.unlock', $this->client))->assertRedirect();
+    $this->post(route('admin.kyc.unlock', $this->client), kycUnlockData($this->client))->assertRedirect();
     $generation = ($this->show)()->viewData('page')['props']['unlockGeneration'];
 
     $this->post(route('admin.kyc.lock', $this->client))->assertRedirect();
@@ -67,6 +68,26 @@ test('#258: a Show request from before Hide documents is refused by its generati
     $fresh = ($this->show)()->viewData('page')['props']['unlockGeneration'];
     $this->post(route('admin.kyc.unlock', $this->client), ['generation' => $fresh])->assertRedirect();
     ($this->show)()->assertInertia(fn (AssertableInertia $page) => $page->whereNot('unlockedUntil', null));
+});
+
+test('#308: a session id regenerated while the unlock is open ends the unlock (fails closed), and Hide still works', function () {
+    confirmPassword();
+    $this->post(route('admin.kyc.unlock', $this->client), kycUnlockData($this->client))->assertRedirect();
+    ($this->show)()->assertInertia(fn (AssertableInertia $page) => $page->where('documents.0.number', '27-01-74-04821'));
+
+    // A fixation guard gives the same session a new id; the data stays, the id is what the unlock is bound to.
+    $this->withCookie((string) config('session.cookie'), Str::random(40));
+
+    ($this->show)()->assertInertia(fn (AssertableInertia $page) => $page->where('unlockedUntil', null)->where('documents.0.number', null)->where('documents.0.images', []));
+    $this->post(route('admin.kyc.lock', $this->client))->assertRedirect();
+});
+
+test('#308: Show from a second tab after the first tab showed the documents says they are already shown', function () {
+    confirmPassword();
+    $stale = kycUnlockData($this->client);
+    $this->post(route('admin.kyc.unlock', $this->client), $stale)->assertRedirect();
+
+    $this->post(route('admin.kyc.unlock', $this->client), $stale)->assertRedirect()->assertSessionHas('inertia.flash_data.toast.type', 'info');
 });
 
 describe('Show and Hide in real concurrent transactions (PostgreSQL)', function () {
@@ -80,7 +101,7 @@ describe('Show and Hide in real concurrent transactions (PostgreSQL)', function 
             $this->useSeededDatabase($name, function (): void {
                 $client = Client::factory()->create(['email' => 'kyc-unlock@example.test']);
                 $staff = User::factory()->staff(['*'])->create(['email' => 'kyc-unlock-staff@example.test']);
-                app(ReviewUnlocks::class)->open($staff->id, $client->id, now()->addMinutes(10));
+                app(ReviewUnlocks::class)->open($staff->id, $client->id, now()->addMinutes(10), 0);
             });
             $this->raceClient = Client::query()->where('email', 'kyc-unlock@example.test')->sole();
             $this->raceStaff = User::query()->where('email', 'kyc-unlock-staff@example.test')->sole();
@@ -98,7 +119,7 @@ describe('Show and Hide in real concurrent transactions (PostgreSQL)', function 
         // The page showed the current generation. "open" takes the row and holds it 1.5 s; "close" arrives 0.5 s later.
         $results = ($this->raceRun)([
             'open' => ['open', $this->raceGeneration, '0', '1500'],
-            'close' => ['close', '-', '500', '0'],
+            'close' => ['close', '0', '500', '0'],
         ]);
 
         expect($results['open']['outcome'])->toBe('applied')
@@ -111,7 +132,7 @@ describe('Show and Hide in real concurrent transactions (PostgreSQL)', function 
         ($this->raceSeed)('kyc_unlock_stale_show');
         // "close" holds the row 1.5 s. "open" comes from the page that showed the generation before Hide, 0.5 s later, and waits.
         $results = ($this->raceRun)([
-            'close' => ['close', '-', '0', '1500'],
+            'close' => ['close', '0', '0', '1500'],
             'open' => ['open', $this->raceGeneration, '500', '0'],
         ]);
 
