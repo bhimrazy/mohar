@@ -112,6 +112,9 @@ return [
         'valid_days' => 30,
     ],
 
+    // Print the Bikram Sambat date beside the AD issue and due dates on invoice pages, PDFs and emails (#207).
+    'show_bs_dates' => false,
+
     // PDFs (§9)
     'pdf' => [
         'attach_to_emails' => true,

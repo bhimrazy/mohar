@@ -97,7 +97,7 @@ class ReviewController extends Controller
             'unlockedUntil' => $until?->toIso8601String(),
             // Seconds left, counted here: the page times its hide and reload from this, not from the browser clock (#257).
             'unlockedFor' => $this->unlocks->remaining($until),
-            'unlockGeneration' => $this->unlocks->generation($staffId, $client->id),
+            'unlockGeneration' => $this->unlocks->generation($staffId, $client->id, $this->unlocks->binding($request)),
             'canDecide' => $request->user()?->hasPermission(self::PERMISSION) ?? false,
             'documents' => $documents->map(fn (KycDocument $document): array => [
                 'id' => $document->id,
@@ -149,7 +149,7 @@ class ReviewController extends Controller
 
         $this->unlocks->forgetLegacy($request, $client->id);
 
-        if ($this->unlocks->close($this->staffId($request), $client->id)) {
+        if ($this->unlocks->close($this->staffId($request), $client->id, $this->unlocks->binding($request))) {
             Inertia::clearHistory();
             $activity->log('Identity documents hidden again', $client, $client->id, event: 'kyc.documents.closed');
         }

@@ -120,6 +120,20 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
+     * A PostgreSQL identifier of at most $max bytes (63 is the server limit). A name that fits is returned unchanged; a
+     * longer one keeps its first ($max - 9) bytes, "_", and the first 8 hex digits of its SHA-256, so names that differ
+     * only at the end stay distinct. scripts/pg.sh applies the same rule (name_fit) to its database names.
+     */
+    public static function pgsqlIdentifier(string $name, int $max = 63): string
+    {
+        if (strlen($name) <= $max) {
+            return $name;
+        }
+
+        return substr($name, 0, $max - 9).'_'.substr(hash('sha256', $name), 0, 8);
+    }
+
+    /**
      * Run this test on a database that $seed fills once per worker process, instead of seeding inside every test:
      * for seeds that take tens of seconds, such as the demo billing history. The database is created and migrated
      * fresh the first time a process asks for it (<database>_<name> on PostgreSQL, a temporary file on SQLite), and
@@ -134,7 +148,7 @@ abstract class TestCase extends BaseTestCase
         $config = config("database.connections.{$default}");
         $database = $config['driver'] === 'sqlite'
             ? sys_get_temp_dir().DIRECTORY_SEPARATOR."mohar-test-{$name}-".getmypid().'.sqlite'
-            : $config['database'].'_'.$name;
+            : static::pgsqlIdentifier($config['database'].'_'.$name);
         $connection = "seeded_{$name}";
 
         config([

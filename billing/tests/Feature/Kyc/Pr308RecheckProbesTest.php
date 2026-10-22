@@ -40,14 +40,15 @@ beforeEach(function () {
     };
 });
 
-test('R1: Show in a second browser of the same login clears the first browser\'s history on its next page', function () {
+// CTO decision on #308: each session has its own unlock, so a Show in a second browser does not end the first
+// browser's (the probe first expected its history to be cleared, which would need Show to end it).
+test('R1: Show in a second browser of the same login leaves the first browser\'s unlock and history alone', function () {
     ($this->showIn)($this->a);
-    ($this->asBrowser)($this->a);
-    $this->get(route('admin.kyc.show', $this->client))->assertInertia(fn (AssertableInertia $page) => $page->where('documents.0.number', '27-01-74-04821'));
-
     ($this->showIn)($this->b);
 
-    expect(($this->pageIn)($this->a))->toHaveKey('clearHistory', true);
+    ($this->asBrowser)($this->a);
+    $this->get(route('admin.kyc.show', $this->client))->assertInertia(fn (AssertableInertia $page) => $page->where('documents.0.number', '27-01-74-04821'));
+    expect(($this->pageIn)($this->a))->not->toHaveKey('clearHistory');
 });
 
 test('R1: Hide in a second browser clears the first browser\'s history on its next page', function () {
@@ -63,4 +64,13 @@ test('control: the same harness sees the clearing when the first browser\'s own 
     $this->travel(16)->minutes();
 
     expect(($this->pageIn)($this->a))->toHaveKey('clearHistory', true);
+});
+
+test('R1: signing out in a second browser clears the first browser\'s history on its next page, and not twice', function () {
+    ($this->showIn)($this->a);
+    ($this->asBrowser)($this->b);
+    $this->post(route('logout'))->assertRedirect();
+
+    expect(($this->pageIn)($this->a))->toHaveKey('clearHistory', true)
+        ->and(($this->pageIn)($this->a))->not->toHaveKey('clearHistory');
 });

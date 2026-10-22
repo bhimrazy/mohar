@@ -65,7 +65,7 @@ class SampleContext
             'invoice' => [
                 'id' => 2101, 'number' => 'INV-2026-0101', 'status' => 'Unpaid', 'currency' => 'USD', 'total' => '$28.98',
                 'balance' => '$18.98', 'balance_minor' => 1898, 'amount_paid' => '$10.00', 'amount_paid_minor' => 1000, 'subtotal' => '$28.98', 'discount' => null, 'credit_applied' => null,
-                'taxes' => [], 'issue_date' => $today, 'due_date' => $due,
+                'taxes' => [], 'issue_date' => $today, 'due_date' => $due, 'issue_date_bs' => null, 'due_date_bs' => null,
                 'items' => [
                     ['description' => 'Starter Hosting — example.com', 'period_start' => $period[0], 'period_end' => $period[1], 'amount' => '$18.99'],
                     ['description' => 'Domain renewal — example.com', 'period_start' => $period[0], 'period_end' => $period[1], 'amount' => '$9.99'],

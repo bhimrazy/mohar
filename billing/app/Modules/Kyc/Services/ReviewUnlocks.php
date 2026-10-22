@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\DB;
  * request, so one that began before Hide documents would write the old unlock back (issue #258). Show and Hide change
  * the row under a lock (ADR 0021), and a Show built from an older page is refused by its generation.
  *
- * An ended entry stays until forgetEnded() notices it, once, so the browser history that still holds the numbers is
+ * An ended entry stays (also when another session ended it) until forgetEnded() of its own session notices it, once, so the browser history that still holds the numbers is
  * cleared exactly once (issue #240).
  */
 class ReviewUnlocks
@@ -45,42 +45,58 @@ class ReviewUnlocks
     }
 
     /**
-     * Open one client's documents for the session $binding. $generation is what the page showed; when the row has
+     * Open one client's documents for the session $binding (each session has its own row, so another session's Show or end does not touch this one). $generation is what the page showed; when the row has
      * moved on (Hide, or a Show from another tab) nothing changes and this returns false.
      */
     public function open(int $userId, int $clientId, CarbonImmutable $until, int $generation, string $binding = ''): bool
     {
         return DB::transaction(function () use ($userId, $clientId, $until, $generation, $binding): bool {
             // Make sure the row exists (a no-op when it does), then take it: the lock is what orders Show and Hide.
-            KycReviewUnlock::query()->insertOrIgnore(['user_id' => $userId, 'client_id' => $clientId, 'generation' => 0, 'created_at' => now(), 'updated_at' => now()]);
-            $row = KycReviewUnlock::query()->where('user_id', $userId)->where('client_id', $clientId)->lockForUpdate()->firstOrFail();
+            // Rows of sessions long gone (they were never signed out) are dropped here; bounded by the user's own rows.
+            KycReviewUnlock::query()->where('user_id', $userId)->where('updated_at', '<', now()->subDay())->delete();
+            KycReviewUnlock::query()->insertOrIgnore(['user_id' => $userId, 'client_id' => $clientId, 'session_hash' => $binding, 'generation' => 0, 'created_at' => now(), 'updated_at' => now()]);
+            $row = KycReviewUnlock::query()->where('user_id', $userId)->where('client_id', $clientId)->where('session_hash', $binding)->lockForUpdate()->firstOrFail();
 
             if ($row->generation !== $generation) {
                 return false;
             }
 
-            $row->forceFill(['generation' => $row->generation + 1, 'expires_at' => $until, 'session_hash' => $binding])->save();
+            $row->forceFill(['generation' => $row->generation + 1, 'expires_at' => $until])->save();
 
             return true;
         });
     }
 
     /**
-     * Hide one client's documents again before the window ends, in whichever session opened them. True when they were
-     * open (or ended and not yet noticed). The conditional update waits for a Show that holds the row, then applies
-     * on top of it.
+     * Hide one client's documents again. This session's row is closed; every other session of the same login that
+     * still has them open gets its row marked ended (not deleted), so its next request notices the end and clears its
+     * browser history, once. True when anything was open. The conditional update on this row waits for a Show that
+     * holds it, then applies on top.
      */
-    public function close(int $userId, int $clientId): bool
+    public function close(int $userId, int $clientId, string $binding = ''): bool
     {
-        return KycReviewUnlock::query()->where('user_id', $userId)->where('client_id', $clientId)->whereNotNull('expires_at')
-            ->update(['expires_at' => null, 'generation' => DB::raw('generation + 1'), 'updated_at' => now()]) > 0;
+        return DB::transaction(function () use ($userId, $clientId, $binding): bool {
+            $own = KycReviewUnlock::query()->where('user_id', $userId)->where('client_id', $clientId)->where('session_hash', $binding)->whereNotNull('expires_at')
+                ->update(['expires_at' => null, 'generation' => DB::raw('generation + 1'), 'updated_at' => now()]);
+            $others = KycReviewUnlock::query()->where('user_id', $userId)->where('client_id', $clientId)->where('session_hash', '!=', $binding)->where('expires_at', '>', now())
+                ->update(['expires_at' => now(), 'generation' => DB::raw('generation + 1'), 'updated_at' => now()]);
+
+            return $own + $others > 0;
+        });
     }
 
-    /** Sign-out: every unlock of this staff member ends, whichever session opened it. */
-    public function closeAll(int $userId): void
+    /**
+     * Sign-out of one session: its own rows are closed (the sign-out response clears its history), and every other
+     * session of the login that has documents open has them marked ended, as close() does.
+     */
+    public function closeAll(int $userId, string $binding = ''): void
     {
-        KycReviewUnlock::query()->where('user_id', $userId)->whereNotNull('expires_at')
-            ->update(['expires_at' => null, 'generation' => DB::raw('generation + 1'), 'updated_at' => now()]);
+        DB::transaction(function () use ($userId, $binding): void {
+            KycReviewUnlock::query()->where('user_id', $userId)->where('session_hash', $binding)->whereNotNull('expires_at')
+                ->update(['expires_at' => null, 'generation' => DB::raw('generation + 1'), 'updated_at' => now()]);
+            KycReviewUnlock::query()->where('user_id', $userId)->where('session_hash', '!=', $binding)->where('expires_at', '>', now())
+                ->update(['expires_at' => now(), 'generation' => DB::raw('generation + 1'), 'updated_at' => now()]);
+        });
     }
 
     public function until(int $userId, int $clientId, string $binding = ''): ?CarbonImmutable
@@ -92,9 +108,9 @@ class ReviewUnlocks
     }
 
     /** The generation a page shows and sends back with Show. */
-    public function generation(int $userId, int $clientId): int
+    public function generation(int $userId, int $clientId, string $binding = ''): int
     {
-        return (int) KycReviewUnlock::query()->where('user_id', $userId)->where('client_id', $clientId)->value('generation');
+        return (int) KycReviewUnlock::query()->where('user_id', $userId)->where('client_id', $clientId)->where('session_hash', $binding)->value('generation');
     }
 
     /** Whole seconds left, counted by this server, so the browser never compares its own clock with ours. */
@@ -112,12 +128,6 @@ class ReviewUnlocks
     {
         return KycReviewUnlock::query()->where('user_id', $userId)->where('session_hash', $binding)->whereNotNull('expires_at')->where('expires_at', '<=', now())
             ->update(['expires_at' => null, 'updated_at' => now()]) > 0;
-    }
-
-    /** Whether this session has any entry, open or ended and not yet noticed. */
-    public function any(int $userId, string $binding = ''): bool
-    {
-        return KycReviewUnlock::query()->where('user_id', $userId)->where('session_hash', $binding)->whereNotNull('expires_at')->exists();
     }
 
     /**
