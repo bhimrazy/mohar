@@ -14,6 +14,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Re-encode identity images stored before #286 (#287).** Run `php artisan kyc:reencode-images` once after upgrading,
+  off-peak (`--dry-run` first). It re-encodes the images of documents uploaded before #286 through the same sanitiser
+  as uploads, so their EXIF, GPS and device details are removed; new uploads are marked and skipped. It works in
+  chunks, resumes after an interruption, never overlaps a second run, and writes one audit entry with counts only
+  (event `kyc.images.reencoded`). An image it cannot read or re-encode is left as stored, flagged for staff and listed
+  by id (exit 1). Start it only after an `APP_KEY` restart is complete; it refuses to start while `security:reencrypt`
+  runs. Runbook: `docs/devops/kyc-images.md`. Migration `2026_10_22_770300` (expand only): nullable columns
+  `kyc_documents.sanitised_at` and `sanitise_issue` with the partial index `kyc_documents_unsanitised_index` (`id` where
+  `sanitised_at` is null, built concurrently on PostgreSQL), and table
+  `kyc_image_rewrites` (paths of files being switched). On PostgreSQL the column step waits at most
+  `DB_MIGRATION_LOCK_TIMEOUT` (3s) per attempt for its lock on `kyc_documents`, 4 attempts, then stops and names the
+  session in the way; run the migration again once it has finished. New setting `kyc.reencode_decode_wait_seconds` (30). No
+  permission change.
 - **Bikram Sambat dates on invoices (#207).** New billing setting `billing.show_bs_dates`, off by default; no schema or
   permission change. The default text of the invoice emails and the service suspension email changed: the Issued, Due,
   Was due and Charge date rows print the BS date when the setting is on. `app:install` (run on every upgrade) brings
@@ -21,8 +34,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   PDFs rendered with BS dates are cached under a new path ending in `-bs.pdf`.
 - **Identity images are re-encoded (#233).** PHP's `gd` extension with JPEG, PNG and WebP support is now required
   (`ext-gd` in `composer.json`; the production image already has it and its build checks the codecs). No schema or
-  permission change. Documents uploaded before the upgrade are not rewritten and keep their
-  metadata until they are replaced or deleted by retention. Six new settings in `kyc.php`: `max_image_pixels`
+  permission change. Documents uploaded before the upgrade keep their metadata until
+  `kyc:reencode-images` (#287, above) re-encodes them. Six new settings in `kyc.php`: `max_image_pixels`
   (25 000 000), `max_buffered_jpeg_pixels` (20 000 000), `stored_image_pixels` (16 000 000), `stored_webp_pixels`
   (8 000 000), `step_down_pixels` (12 000 000, 8 000 000) and `image_decode_wait_seconds` (5). Image decoding takes
   the cache lock `kyc:image-decode`, so it needs the shared lock store the install already checks. The document
@@ -648,6 +661,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   account) leads. A new **Hide documents** button ends the window early for that client; it needs no password and is
   recorded in the activity log ("Identity documents hidden again", event `kyc.documents.closed`). New route `POST
   admin/kyc/clients/{client}/lock` (permission `kyc.documents.view` or `kyc.documents.review`); no schema change.
+- Documents uploaded before images were re-encoded (#286) can be re-encoded with `php artisan kyc:reencode-images`
+  (#287). A document whose images could not be re-encoded shows a note on its staff review card asking for a new
+  upload.
 
 ### Client import
 
