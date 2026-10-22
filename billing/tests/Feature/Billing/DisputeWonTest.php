@@ -1,6 +1,8 @@
 <?php
 
 use App\Contracts\Billing\CreditLedger;
+use App\Events\Billing\InvoicePaid;
+use App\Events\Billing\PaymentReinstated;
 use App\Modules\Billing\Actions\CreateAddFundsInvoice;
 use App\Modules\Billing\Actions\PaymentBatches;
 use App\Modules\Billing\Enums\CreditReason;
@@ -11,8 +13,13 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Core\Models\Client;
+use App\Modules\Notifications\Models\WebhookDelivery;
+use App\Modules\Notifications\Models\WebhookEndpoint;
+use App\Modules\Notifications\Webhooks\HostResolver;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Money;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 
 require_once __DIR__.'/helpers.php';
@@ -152,4 +159,60 @@ test('a won dispute clears the rest nobody covered from staff review', function 
 
     expect(wonTodo('billing.reversals_review'))->toBe(0)
         ->and(Transaction::query()->where('type', 'chargeback_reversal')->sole()->amount_in)->toBe(5_500);
+});
+
+test('every won dispute fires PaymentReinstated once, also when the invoice still owes more or the money goes to review (#221)', function (string $case, int $amount, int $review, bool $paid) {
+    Event::fake([PaymentReinstated::class, InvoicePaid::class]);
+    $client = billingClient();
+    $invoice = issueInvoice($client, [5_000]);
+    // "owing": 3,000 of 5,000 paid, so the win leaves 2,000 to pay; "settled": paid in full; "review": paid again since.
+    sandboxWebhook(['type' => 'payment.succeeded', 'invoice_id' => $invoice->id, 'txn_id' => "ch_$case", 'amount' => $amount, 'currency' => 'USD'])->assertOk();
+    sandboxWebhook(['type' => 'charge.dispute', 'txn_id' => "dp_$case", 'parent_txn_id' => "ch_$case", 'amount' => $amount, 'currency' => 'USD'])->assertOk();
+
+    if ($case === 'review') {
+        payInvoice($invoice->fresh(), 5_000);
+    }
+
+    $paidBefore = Event::dispatched(InvoicePaid::class)->count();
+    winDispute($case, $amount)->assertOk();
+    winDispute($case, $amount)->assertOk()->assertJson(['result' => 'duplicate']);
+
+    $won = Transaction::query()->where('type', 'chargeback_reversal')->sole();
+    $chargeback = Transaction::query()->where('type', 'chargeback')->sole();
+    Event::assertDispatchedTimes(PaymentReinstated::class, 1);
+    Event::assertDispatched(PaymentReinstated::class, fn (PaymentReinstated $event): bool => $event->invoiceId === $invoice->id
+        && $event->clientId === $client->id && $event->transactionId === $won->id && $event->chargebackTransactionId === $chargeback->id
+        && $event->amount === $amount && $event->currency === 'USD' && $event->reviewAmount === $review);
+    // InvoicePaid comes with the win only when it settles the invoice.
+    expect(Event::dispatched(InvoicePaid::class)->count() - $paidBefore)->toBe($paid ? 1 : 0);
+})->with([
+    'invoice still owes more' => ['owing', 3_000, 0, false],
+    'invoice settled' => ['settled', 5_000, 0, true],
+    'money to staff review' => ['review', 5_000, 5_000, false],
+]);
+
+test('webhook subscribers get payment.reversed for the chargeback and payment.reinstated for the win (#221)', function () {
+    app()->instance(HostResolver::class, new class extends HostResolver
+    {
+        public function resolve(string $host): array
+        {
+            return ['93.184.216.34'];
+        }
+    });
+    Http::fake(['hooks.example.com/*' => Http::response('ok')]);
+    WebhookEndpoint::factory()->create(['url' => 'https://hooks.example.com/billing', 'events' => ['payment.reversed', 'payment.reinstated'], 'secret' => 'whsec_test']);
+    $client = billingClient();
+    $invoice = issueInvoice($client, [5_000]);
+    sandboxWebhook(['type' => 'payment.succeeded', 'invoice_id' => $invoice->id, 'txn_id' => 'ch_w9', 'amount' => 3_000, 'currency' => 'USD'])->assertOk();
+    sandboxWebhook(['type' => 'charge.dispute', 'txn_id' => 'dp_w9', 'parent_txn_id' => 'ch_w9', 'amount' => 3_000, 'currency' => 'USD'])->assertOk();
+
+    winDispute('w9', 3_000)->assertOk()->assertJson(['result' => 'dispute won; payment reinstated']);
+    winDispute('w9', 3_000)->assertOk()->assertJson(['result' => 'duplicate']);
+
+    $deliveries = WebhookDelivery::query()->orderBy('id')->get();
+    $won = Transaction::query()->where('type', 'chargeback_reversal')->sole();
+    expect($deliveries->pluck('event_type')->all())->toBe(['payment.reversed', 'payment.reinstated'])
+        ->and($deliveries[1]->payload['data']['object'])->toMatchArray(['id' => $won->id, 'type' => 'chargeback_reversal', 'reference' => 'dp_w9', 'invoice_id' => $invoice->id])
+        ->and($deliveries[1]->payload['data']['ids'])->toMatchArray(['invoice_id' => $invoice->id, 'client_id' => $client->id, 'transaction_id' => $won->id])
+        ->and($invoice->fresh()->balance)->toBe(2_000);
 });

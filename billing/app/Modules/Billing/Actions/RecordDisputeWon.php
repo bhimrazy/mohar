@@ -3,6 +3,7 @@
 namespace App\Modules\Billing\Actions;
 
 use App\Events\Billing\InvoiceModified;
+use App\Events\Billing\PaymentReinstated;
 use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Enums\InvoiceKind;
 use App\Modules\Billing\Enums\InvoiceStatus;
@@ -34,6 +35,9 @@ use Illuminate\Support\Facades\DB;
  *
  * The reversal row (`chargeback_reversal`, the dispute id) books everything the chargeback booked out as money in; the
  * unique `(gateway, gateway_txn_id, type)` index stops a second one. Locks run payment, invoice, client.
+ *
+ * Each win dispatches PaymentReinstated after commit (#221), also when the invoice still owes more or the money went
+ * to staff review; a duplicate delivery dispatches nothing.
  */
 class RecordDisputeWon
 {
@@ -132,6 +136,9 @@ class RecordDisputeWon
             if ($review > 0) {
                 $won->update(['review_amount' => $review]);
             }
+
+            // Every win, settled or not: consumers that heard PaymentReversed learn the chargeback was undone (#221).
+            AfterCommit::dispatch(new PaymentReinstated($won->invoice_id, $won->client_id, $won->id, $chargeback->id, $won->amount_in, $won->currency, $review));
 
             return $won;
         });
