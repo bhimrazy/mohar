@@ -19,11 +19,12 @@ require_once __DIR__.'/Support/image-fixtures.php';
  */
 describe('re-encoding versus a replacement upload in real concurrent transactions (PostgreSQL)', function () {
     beforeEach(function () {
+        $this->root = sys_get_temp_dir().'/kyc287-race-'.bin2hex(random_bytes(4));
+
         if (DB::connection()->getDriverName() !== 'pgsql') {
             $this->markTestSkipped('Needs separate committed sessions on one server database (PostgreSQL).');
         }
 
-        $this->root = sys_get_temp_dir().'/kyc287-race-'.bin2hex(random_bytes(4));
         config(['filesystems.disks.objects' => ['driver' => 'local', 'root' => $this->root, 'throw' => true]]);
         Storage::forgetDisk(KycDocument::DISK);
     });

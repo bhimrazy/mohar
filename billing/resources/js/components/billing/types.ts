@@ -46,6 +46,9 @@ export type Invoice = {
     currency: string;
     issue_date: string | null;
     due_date: string | null;
+    /** "28 Poush 2082 BS" when the BS date setting is on, else null. */
+    issue_date_bs: string | null;
+    due_date_bs: string | null;
     paid_at: string | null;
     subtotal: number;
     discount_total: number;

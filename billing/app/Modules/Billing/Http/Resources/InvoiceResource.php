@@ -3,6 +3,7 @@
 namespace App\Modules\Billing\Http\Resources;
 
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Support\InvoiceBsDates;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -17,6 +18,7 @@ class InvoiceResource extends JsonResource
     public function toArray(Request $request): array
     {
         $staff = (bool) $request->user()?->is_staff;
+        $bs = app(InvoiceBsDates::class);
 
         return [
             'id' => $this->id,
@@ -29,6 +31,8 @@ class InvoiceResource extends JsonResource
             'currency' => $this->currency,
             'issue_date' => $this->issue_date?->toDateString(),
             'due_date' => $this->due_date?->toDateString(),
+            'issue_date_bs' => $bs->label($this->issue_date),
+            'due_date_bs' => $bs->label($this->due_date),
             'paid_at' => $this->paid_at?->toIso8601String(),
             'subtotal' => $this->subtotal,
             'discount_total' => $this->discount_total,
