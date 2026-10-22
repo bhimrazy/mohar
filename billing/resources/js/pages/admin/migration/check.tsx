@@ -17,6 +17,7 @@ import { DataTable } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
 import { Money } from '@/components/app/money';
 import { SectionCard } from '@/components/app/section-card';
+import { StepUpDownloadLink } from '@/components/app/step-up-download-link';
 import { SelectField } from '@/components/app/select-field';
 import type { DataTableColumn } from '@/components/app/data-table';
 import { EmptyState } from '@/components/app/empty-state';
@@ -367,13 +368,13 @@ export default function ImportCheck({
 
                 {errorsUrl && (
                     <p className="text-sm text-muted-foreground">
-                        <a
+                        <StepUpDownloadLink
                             href={errorsUrl}
                             className="inline-flex items-center gap-1 text-primary hover:underline"
                         >
                             <Download className="size-4" />
                             Download the rows with errors
-                        </a>{' '}
+                        </StepUpDownloadLink>{' '}
                         (CSV, with the reason and the original cells, to fix the
                         file).
                     </p>
