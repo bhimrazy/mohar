@@ -19,6 +19,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   "PHP" check (a warning on an existing installation; it stops a first install in production), and in production the
   admin dashboard's System health card shows "PHP runtime" in red while PHP is vulnerable. `composer.json` still
   requires `^8.4`. FrankenPHP 1.13.2 is younger than the 7-day cooldown and is adopted through the security-exception path.
+- **Client import invitations.** A new table `migration_invitations` (migration `980300`, expand only) and a setting
+  `migration.invite_per_hour` (500). The permission `migration.runs.execute` now also covers sending invitations to
+  imported logins. A new system email template `client.migration_invitation` is installed by `php artisan app:install`
+  (run on every upgrade); it is always sent and cannot be switched off. Kernel: `App\Contracts\Auth\ClientLoginInvitations`
+  (Core binds a null default, Platform its invitation flow) and `App\Enums\InvitationOutcome`.
 - **A client's currency is fixed once the client has records in it (#218).** Staff can no longer change the currency
   on Admin → Clients → Edit when the client has invoices, quotes, payments, account credit, services, orders or
   domains (deleted services and domains count). The form shows the currency disabled with the reason, for example
@@ -413,6 +418,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   listed by outcome (created, updated, unchanged, skipped, not imported) with a link to each client. The rows with
   errors download as CSV (row, column, reason and the original cells; formula-like cells prefixed with an apostrophe),
   generated on request and never stored; staff need `migration.runs.execute` and a recent password.
+- **Send invitations** (import report → Send invitations, client-import spec §5.7): lists the owner logins the import
+  created that nobody has used (no sign-in, no two-factor authentication, the password they were created with), by
+  state (not invited, waiting to send, invitation sent, expired), filtered by clients created or also updated by the
+  import, client group and status. Closed clients are never invited, and a login staff chose to link (it has its own
+  password) is never listed. Sending needs `migration.runs.execute` and a recent password; it queues the logins not
+  invited yet or whose invitation expired (an open invitation is not replaced in bulk) and sends at most
+  `migration.invite_per_hour` an hour, install-wide (default 500, Admin → Settings → Client import). Each login gets
+  its own single-use link through the same invitation flow as a login staff add (it sets the password and confirms
+  the email address) with the new editable template **Invitation after a client import**
+  (`client.migration_invitation`): never copied (CC and BCC are dropped), the link only in the button, never in the
+  subject, and never resent from the email log. A login that signed in, or whose client closed, after it was queued
+  is skipped. Without the Platform module, or while the link host check fails, the button is disabled with the reason.
 - The client profile shows the columns an import kept, under **Imported fields**, with the import date and source.
 - Uploads that are never applied lose their rows after 7 days (`migration.staging_days`, housekeeping task "Purge
   expired client imports"); their counts stay. Applied imports keep row details for 7 days (`migration.undo_days`); an
