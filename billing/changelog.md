@@ -494,6 +494,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   Years after the current panchang (about 2084 BS onwards) are projections from public calendar tables. Fiscal-year
   invoice numbering in BS is not part of this change.
 
+### Stripe smoke command without Billing (#269)
+
+- `php artisan payments:stripe-smoke` stops with an error before asking for a key when the `billing.gateways.return`
+  route is not registered (PaymentsStripe loaded without Billing). It used to fail with an exception. No schema,
+  permission or configuration change.
+
 ### Step-up window from the environment (#273)
 
 - `AUTH_STEP_UP_SECONDS` sets how long a password confirmation unlocks sensitive changes. It is optional and defaults
