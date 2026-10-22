@@ -16,6 +16,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   their `external_ref`, so a previous-release worker running beside the new one during a deploy still finds them (a
   later release stops writing that pair, #284). A gateway driver can no longer register the key `import`, or a key
   outside `[a-z0-9_]{1,50}`: it fails at boot with a LogicException. No permission or user-facing change.
+- **Dependency security bump (#11).** `laravel/framework` 13.34.0 → 13.36.0 and `laravel/wayfinder` 0.1.21 → 0.1.22.
+  13.35 hardens SQL in cursor pagination and `whereRowValues` (laravel/framework#61837); 13.36 makes Mail Markdown
+  escape inline markdown in user input (#61755). Run `composer install` and `php artisan view:clear`; no config or
+  schema change. Pest, PHPUnit and the other transitive packages stay at their cooldown-compliant versions.
 - **Importer invitation rate.** The default of `migration.invite_per_hour` drops from 500 to 100, because cPanel/Exim and Google Workspace sending caps make 500 risky for deliverability. Installs that never changed the setting now send 100 an hour; raise it in Admin → Settings (1–10,000) if your mail provider allows more. No schema or permission change.
 - **Integration log masking (#190).** No schema or permission change. New log rows mask more secret shapes (see
   Security below); rows written before the upgrade are not rewritten. Payment payload text values (`error`,
@@ -471,6 +475,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   are now masked too. A webhook receiver's answer is cut to its stored 2 KB before it is masked, so a large answer
   costs nothing to mask; a JSON answer with nothing secret is stored as received, and one with a secret is stored
   re-encoded (whitespace can differ).
+
+### Step-up window from the environment (#273)
+
+- `AUTH_STEP_UP_SECONDS` sets how long a password confirmation unlocks sensitive changes. It is optional and defaults
+  to 900, the same as before, and an empty value counts as unset. It must be a whole number from 60 to 3600; any
+  other value stops the application at boot with a message naming the value received. Documented in `.env.example`, `docs/devops/install.md` and ADR 0018 §4.
 
 ### Architecture tests check every target (#275)
 
