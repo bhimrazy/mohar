@@ -1,13 +1,24 @@
 <?php
 
+use App\Contracts\Domains\Registrar\RegistrarRefs;
 use App\Support\Domains\RegistrarDriverRegistry;
+use Illuminate\Support\Facades\Http;
+use Tests\Fakes\Domains\InMemoryRegistrarRefs;
 use Tests\Support\Contracts\RegistrarDriverContract;
 
 /**
  * Every registrar driver shipped with the Domains module passes the shared contract (registrars.md §7). A new
  * built-in driver is added here.
  */
-$builtInDrivers = ['log' => null];
+$builtInDrivers = [
+    'log' => null,
+    // ResellerClub answers every call with its error envelope here; its scenarios run against the simulator
+    // (tools/simulators/tests/ResellerClub). The contract account has no reseller id, so calls are refused before HTTP.
+    'resellerclub' => function (): void {
+        app()->instance(RegistrarRefs::class, new InMemoryRegistrarRefs);
+        Http::fake(['*' => Http::response(['status' => 'ERROR', 'message' => 'Refused by the contract fake.'], 500)]);
+    },
+];
 
 foreach ($builtInDrivers as $key => $arrange) {
     RegistrarDriverContract::verify($key, $arrange);

@@ -40,7 +40,7 @@ class FakeRegistrarDriver implements RegistrarDriver
 
     public function settingsFields(): array
     {
-        return [new SettingField('api_key', 'API key', FieldType::Secret)];
+        return $this->script->settingsFields !== [] ? $this->script->settingsFields : [new SettingField('api_key', 'API key', FieldType::Secret)];
     }
 
     /**

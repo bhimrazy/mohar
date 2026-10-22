@@ -38,10 +38,16 @@ class FakeRegistrar
         $this->capabilities = array_values(array_diff(array_keys(app(RegistrarDriverRegistry::class)->capabilities()), ['reconcile']));
     }
 
+    /** @var list<\App\Data\Integrations\SettingField> the replaced driver's settings, if it replaced one */
+    public array $settingsFields = [];
+
     public static function install(string $key = 'fake'): self
     {
         $fake = new self;
-        app(RegistrarDriverRegistry::class)->register($key, fn (): RegistrarDriver => $fake->driver($key), replace: true);
+        $registry = app(RegistrarDriverRegistry::class);
+        // Standing in for a real driver keeps its settings, so the host masks that driver's secrets as it would.
+        $fake->settingsFields = $registry->has($key) ? $registry->fields($key) : [];
+        $registry->register($key, fn (): RegistrarDriver => $fake->driver($key), replace: true);
 
         return $fake;
     }
