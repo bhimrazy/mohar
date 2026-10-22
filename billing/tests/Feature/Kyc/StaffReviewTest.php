@@ -25,7 +25,7 @@ beforeEach(function () {
     Storage::disk(KycDocument::DISK)->put($this->document->back_path, Crypt::encryptString('back-bytes'));
     $this->unlock = function (?Client $client = null): void {
         confirmPassword();
-        $this->post(route('admin.kyc.unlock', $client ?? $this->client))->assertRedirect();
+        $this->post(route('admin.kyc.unlock', $client ?? $this->client), kycUnlockData($client ?? $this->client))->assertRedirect();
     };
     $this->imageUrl = fn (int $index = 0): string => $this->get(route('admin.kyc.show', $this->client))->viewData('page')['props']['documents'][0]['images'][$index]['url'];
     $this->decide = fn (array $data, ?KycDocument $document = null) => $this->post(route('admin.kyc.decide', ($document ?? $this->document)->id), [
@@ -41,7 +41,7 @@ test('the review permission is sensitive: kyc.* does not grant it, the exact key
     confirmPassword();
     $this->get(route('admin.kyc.index'))->assertForbidden();
     $this->get(route('admin.kyc.show', $this->client))->assertForbidden();
-    $this->post(route('admin.kyc.unlock', $this->client))->assertForbidden();
+    $this->post(route('admin.kyc.unlock', $this->client), kycUnlockData($this->client))->assertForbidden();
     ($this->decide)(['decision' => 'approve'])->assertForbidden();
 
     actingAsStaff(['kyc.documents.review']);
@@ -59,7 +59,7 @@ test('numbers and images show only for the client that was unlocked, after a ste
         ->assertInertia(fn (AssertableInertia $page) => $page->where('unlockedUntil', null)->where('documents.0.number', null)->where('documents.0.images', []));
     expect($response->getContent())->not->toContain('27-01-74-04821')->not->toContain($this->document->front_path);
 
-    $this->post(route('admin.kyc.unlock', $this->client))->assertSessionHasErrors('password_confirmation');
+    $this->post(route('admin.kyc.unlock', $this->client), kycUnlockData($this->client))->assertSessionHasErrors('password_confirmation');
     ($this->unlock)();
 
     $this->get(route('admin.kyc.show', $this->client))
@@ -75,7 +75,7 @@ test('the unlock ends with the password step-up, whichever comes first', functio
     $this->freezeSecond();
     actingAsStaff(['kyc.documents.review']);
     $this->withSession(['auth.password_confirmed_at' => now()->subMinutes(10)->getTimestamp()]);
-    $this->post(route('admin.kyc.unlock', $this->client))->assertRedirect();
+    $this->post(route('admin.kyc.unlock', $this->client), kycUnlockData($this->client))->assertRedirect();
 
     $this->get(route('admin.kyc.show', $this->client))
         ->assertInertia(fn (AssertableInertia $page) => $page->where('unlockedUntil', now()->addMinutes(5)->toIso8601String()));

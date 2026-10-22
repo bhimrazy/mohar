@@ -83,7 +83,7 @@ class ReviewController extends Controller
         Inertia::encryptHistory();
         $documents = $this->kyc->documents($client);
         $staffId = $this->staffId($request);
-        $until = $this->unlocks->until($staffId, $client->id);
+        $until = $this->unlocks->until($staffId, $client->id, $this->unlocks->binding($request));
         $status = $this->kyc->status($client, $documents);
 
         return Inertia::render('admin/kyc/show', [
@@ -121,11 +121,15 @@ class ReviewController extends Controller
     public function unlock(Request $request, Client $client, ActivityLogger $activity): RedirectResponse
     {
         $this->authorizeView($request);
-        $generation = $request->filled('generation') ? $request->integer('generation') : null;
+        $data = $request->validate(['generation' => ['required', 'integer', 'min:0']]);
+        $staffId = $this->staffId($request);
 
-        if (! $this->unlocks->open($this->staffId($request), $client->id, $this->unlocks->windowEnd($request), $generation)) {
-            // The documents were hidden (or opened) elsewhere since this page loaded: nothing opens from an old page.
-            Inertia::flash('toast', ['type' => 'error', 'message' => __('The documents changed since this page loaded. Show them again.')]);
+        if (! $this->unlocks->open($staffId, $client->id, $this->unlocks->windowEnd($request), (int) $data['generation'], $this->unlocks->binding($request))) {
+            // Hidden (or shown from another tab) since this page loaded: nothing opens from an old page.
+            $shown = $this->unlocks->until($staffId, $client->id, $this->unlocks->binding($request)) !== null;
+            Inertia::flash('toast', $shown
+                ? ['type' => 'info', 'message' => __('The documents are already shown.')]
+                : ['type' => 'error', 'message' => __('The documents changed since this page loaded. Show them again.')]);
 
             return to_route('admin.kyc.show', $client);
         }
@@ -143,6 +147,8 @@ class ReviewController extends Controller
     {
         $this->authorizeView($request);
 
+        $this->unlocks->forgetLegacy($request, $client->id);
+
         if ($this->unlocks->close($this->staffId($request), $client->id)) {
             Inertia::clearHistory();
             $activity->log('Identity documents hidden again', $client, $client->id, event: 'kyc.documents.closed');
@@ -159,7 +165,7 @@ class ReviewController extends Controller
     {
         $this->authorizeView($request);
         abort_unless((int) $request->query('staff') === (int) $request->user()?->getAuthIdentifier(), 403);
-        abort_if($this->unlocks->until($this->staffId($request), $document->client_id) === null, 403, __('Open the documents again to see this image.'));
+        abort_if($this->unlocks->until($this->staffId($request), $document->client_id, $this->unlocks->binding($request)) === null, 403, __('Open the documents again to see this image.'));
         $path = $side === 'back' ? $document->back_path : $document->front_path;
         abort_if($path === null, 404);
 
@@ -198,7 +204,7 @@ class ReviewController extends Controller
         $staff = $request->user();
         abort_unless($staff instanceof User, 403);
 
-        if ($this->unlocks->until($this->staffId($request), $document->client_id) === null) {
+        if ($this->unlocks->until($this->staffId($request), $document->client_id, $this->unlocks->binding($request)) === null) {
             return back()->withErrors(['document' => __('Open the documents first, then decide.')]);
         }
 

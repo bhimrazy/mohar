@@ -15,6 +15,9 @@ return new class extends Migration
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->foreignId('client_id')->constrained()->cascadeOnDelete();
             $table->unsignedInteger('generation')->default(0);
+            // Keyed hash of the session that opened it (never the id): another session of the same login, or the same
+            // person after signing in again, has not confirmed the password and sees nothing.
+            $table->string('session_hash', 64)->default('');
             // Null while hidden; a past time until the end is noticed (once), which clears the browser history.
             $table->timestamp('expires_at')->nullable();
             $table->timestamps();

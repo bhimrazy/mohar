@@ -18,7 +18,7 @@ beforeEach(function () {
     Storage::disk(KycDocument::DISK)->put($this->document->front_path, Crypt::encryptString('front-bytes'));
     $this->staff = actingAsStaff(['kyc.documents.view']);
     confirmPassword();
-    $this->post(route('admin.kyc.unlock', $this->client))->assertRedirect();
+    $this->post(route('admin.kyc.unlock', $this->client), kycUnlockData($this->client))->assertRedirect();
 });
 
 // Finding M1: the PR body says "logout, forced logout", but a session ended server side (staff deactivated, which

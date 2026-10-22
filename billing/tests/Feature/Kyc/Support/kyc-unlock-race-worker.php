@@ -3,9 +3,9 @@
 /**
  * Race helper (#258): one document-unlock request, in its own process and transaction.
  *
- *   php kyc-unlock-race-worker.php <label> <database> open|close <staff id> <client id> <generation or -> <delay ms> <hold ms>
+ *   php kyc-unlock-race-worker.php <label> <database> open|close <staff id> <client id> <generation> <delay ms> <hold ms>
  *
- * open: opens the documents for 10 minutes (Show documents); <generation> is the one the page showed, "-" for none.
+ * open: opens the documents for 10 minutes (Show documents); <generation> is the one the page showed.
  * close: hides them (Hide documents).
  * Both wait <delay ms> first, then keep their transaction (and so the row lock they took) open for <hold ms> before
  * committing. Prints one JSON object: {label, outcome, at} or {label, error}.
@@ -35,7 +35,7 @@ try {
 
     $applied = DB::transaction(function () use ($unlocks, $mode, $staff, $client, $generation, $hold): bool {
         $applied = $mode === 'open'
-            ? $unlocks->open((int) $staff, (int) $client, CarbonImmutable::now()->addMinutes(10), $generation === '-' ? null : (int) $generation)
+            ? $unlocks->open((int) $staff, (int) $client, CarbonImmutable::now()->addMinutes(10), (int) $generation)
             : $unlocks->close((int) $staff, (int) $client);
         usleep((int) $hold * 1000);
 

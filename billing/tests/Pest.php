@@ -3,8 +3,10 @@
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Kyc\Services\ReviewUnlocks;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Str;
 use Pest\Arch\Repositories\ObjectsRepository;
 use Symfony\Component\Finder\Exception\DirectoryNotFoundException;
 use Tests\TestCase;
@@ -23,6 +25,10 @@ use Tests\TestCase;
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
     ->in('Feature');
+
+// A test browser keeps its session cookie: an unlock belongs to one session id (ReviewUnlocks::binding), and without a
+// cookie every test request would start a session with a new id.
+pest()->beforeEach(fn () => test()->withCookie((string) config('session.cookie'), Str::random(40)))->in('Feature/Kyc');
 
 // Extension packages booted with a module subset (TestCase::$onlyModules); these tests never touch the database.
 pest()->extend(TestCase::class)->in('Extensions');
@@ -68,6 +74,17 @@ function actingAsStaff(array $permissions = ['*']): User
 function confirmPassword(): void
 {
     test()->withSession(['auth.password_confirmed_at' => time()]);
+}
+
+/**
+ * The body of a Show documents request: the generation the review page would send, read for the signed-in staff
+ * member without a page request (a request could use up a one-time flag a test is checking).
+ *
+ * @return array{generation: int}
+ */
+function kycUnlockData(Client|int $client): array
+{
+    return ['generation' => app(ReviewUnlocks::class)->generation((int) auth()->id(), $client instanceof Client ? $client->id : $client)];
 }
 
 /**
