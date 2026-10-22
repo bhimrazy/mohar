@@ -11,6 +11,7 @@ final readonly class Request
      * @param  array<array-key, mixed>  $query  as fields() reads it: dotted names kept, brackets nested
      * @param  array<string, string>  $headers  lower-case names
      * @param  string  $remoteAddress  the peer the backend saw: the TLS front on 127.0.0.1, as every client is local
+     * @param  string  $rawQuery  the query string as sent, for APIs that repeat a name (values())
      */
     public function __construct(
         public string $method,
@@ -19,6 +20,7 @@ final readonly class Request
         public array $headers = [],
         public string $body = '',
         public string $remoteAddress = '127.0.0.1',
+        public string $rawQuery = '',
     ) {}
 
     public static function fromGlobals(): self
@@ -44,7 +46,48 @@ final readonly class Request
             $headers,
             (string) file_get_contents('php://input'),
             (string) ($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'),
+            (string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_QUERY),
         );
+    }
+
+    /**
+     * Every value sent under $name, in order, for APIs that send a list by repeating the name without brackets
+     * (`ns=a&ns=b`), which fields() reads as its last value only. A name in a form body is read from the body alone
+     * (the body wins, as in input()), otherwise from the query string. A body is read as a form unless it is a JSON
+     * object or list, so `123` is a form body; a multipart body is refused, since no API simulated here takes one.
+     *
+     * @return list<string>
+     *
+     * @throws \InvalidArgumentException for a multipart body
+     */
+    public function values(string $name): array
+    {
+        if (str_starts_with(strtolower((string) $this->header('content-type')), 'multipart/')) {
+            throw new \InvalidArgumentException('Multipart bodies are not read by values().');
+        }
+
+        $form = is_array(json_decode($this->body, true)) ? '' : $this->body;
+        $fromBody = self::pairs($form, $name);
+
+        return $fromBody !== [] ? $fromBody : self::pairs($this->rawQuery, $name);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function pairs(string $encoded, string $name): array
+    {
+        $values = [];
+
+        foreach (explode('&', $encoded) as $pair) {
+            [$key, $value] = array_pad(explode('=', $pair, 2), 2, '');
+
+            if ($pair !== '' && urldecode($key) === $name) {
+                $values[] = urldecode($value);
+            }
+        }
+
+        return $values;
     }
 
     public function header(string $name): ?string

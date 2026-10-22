@@ -24,7 +24,7 @@ final class RequestLog
             'headers' => $this->redactor->redact($request->headers, sensitiveKeys: ['authorization', 'stripe-signature']),
             'input' => $this->redactor->redactPayment($this->redactor->redact($request->input())),
             'status' => $response->status,
-            'response' => $this->redactor->redactPayment($this->redactor->redact(json_decode($response->body, true) ?? ['raw' => mb_strcut($response->body, 0, 4096)])),
+            'response' => $this->redactor->redactPayment($this->redactor->redact(self::decoded($response->body))),
             'at' => microtime(true),
         ];
 
@@ -32,6 +32,23 @@ final class RequestLog
         $encoded = (string) preg_replace(['#cpsess\d{6,}#', '#([?&]session=)[^&"\s]+#'], ['cpsess[redacted]', '$1[redacted]'], (string) json_encode($entry, JSON_UNESCAPED_SLASHES));
 
         $this->state->pdo()->prepare('INSERT INTO log (operation, entry) VALUES (?, ?)')->execute([$operation, $encoded]);
+    }
+
+    /**
+     * The answer as an array: JSON objects and lists as they are, a bare JSON value (an id, `true`) under `value`, and
+     * anything else as a raw excerpt.
+     *
+     * @return array<array-key, mixed>
+     */
+    private static function decoded(string $body): array
+    {
+        $decoded = json_decode($body, true);
+
+        return match (true) {
+            is_array($decoded) => $decoded,
+            $decoded !== null => ['value' => $decoded],
+            default => ['raw' => mb_strcut($body, 0, 4096)],
+        };
     }
 
     /**
