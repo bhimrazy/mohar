@@ -20,6 +20,10 @@ arch('nothing uses the removed module-internal provisioning SPI (ADR 0009)')
         'App\Modules\Services\Support\Redactor',
     ]);
 
+arch('registrar contracts and DTOs use no model and no module (ADR 0009 "Verification")')
+    ->expect(['App\Contracts\Domains\Registrar', 'App\Data\Domains\Registrar'])
+    ->not->toUse(['Illuminate\Database\Eloquent\Model', 'App\Models', 'App\Modules']);
+
 arch('provisioning drivers see snapshots only: no models, no database')
     ->expect(['App\Modules\Services\Drivers\Provisioning', 'Tests\Fixtures\Extensions'])
     ->not->toUse(['Illuminate\Database\Eloquent\Model', 'Illuminate\Support\Facades\DB', 'App\Modules\Services\Models', 'App\Models']);
@@ -33,7 +37,7 @@ arch('driver registries are kernel classes, final, and never extended by modules
     ->not->toExtend('App\Support\Integrations\DriverRegistry');
 
 arch('concrete driver registries are final')
-    ->expect('App\Support\Services\ProvisioningDriverRegistry')
+    ->expect(['App\Support\Services\ProvisioningDriverRegistry', 'App\Support\Domains\RegistrarDriverRegistry'])
     ->toBeFinal();
 
 /** What a record importer may not use (client-import spec §9, AC 2): it writes quietly and reaches no provider. */
@@ -44,6 +48,7 @@ function importerForbidden(): array
         'Illuminate\Support\Facades\Mail', 'Illuminate\Support\Facades\Notification', 'App\Contracts\Notifications\SystemMailer',
         'App\Contracts\Auth\AuthMailer', 'App\Contracts\Integrations\IntegrationDriver', 'App\Contracts\Services\Provisioning',
         'App\Contracts\Billing\GatewayDriver', 'App\Contracts\Billing\HostedPaymentDriver', 'App\Support\Services\ProvisioningDriverRegistry',
+        'App\Contracts\Domains\Registrar', 'App\Support\Domains\RegistrarDriverRegistry',
         ...array_map(fn (string $area): string => 'App\\Events\\'.basename($area), array_filter(glob(dirname(__DIR__, 2).'/app/Events/*', GLOB_ONLYDIR) ?: [], fn (string $area): bool => basename($area) !== 'Migration')),
     ];
 }

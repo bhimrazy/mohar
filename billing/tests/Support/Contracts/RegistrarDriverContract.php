@@ -2,52 +2,62 @@
 
 namespace Tests\Support\Contracts;
 
-use App\Events\Domains\RegistrarActionFailed;
-use App\Modules\Core\Models\ActivityLog;
-use App\Modules\Domains\Actions\SubmitToRegistrar;
-use App\Modules\Domains\Drivers\Registrars\Data\ContactSet;
-use App\Modules\Domains\Drivers\Registrars\Data\RegistrationRequest;
-use App\Modules\Domains\Drivers\Registrars\Data\SubmissionLookup;
-use App\Modules\Domains\Drivers\Registrars\Registrar;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
-use App\Modules\Domains\Exceptions\CapabilityNotSupported;
-use App\Modules\Domains\Exceptions\RegistrarException;
-use App\Modules\Domains\Models\Domain;
-use App\Modules\Domains\Models\RegistrarAccount;
-use App\Modules\Domains\Models\RegistrarCommandLog;
-use App\Modules\Domains\Models\Tld;
+use App\Contracts\Domains\Registrar\ChecksAvailability;
+use App\Contracts\Domains\Registrar\ManagesContacts;
+use App\Contracts\Domains\Registrar\ManagesIdProtection;
+use App\Contracts\Domains\Registrar\ManagesLock;
+use App\Contracts\Domains\Registrar\ManagesNameservers;
+use App\Contracts\Domains\Registrar\ProvidesEppCode;
+use App\Contracts\Domains\Registrar\ReconcilesSubmissions;
+use App\Contracts\Domains\Registrar\RegistrarDriver;
+use App\Contracts\Domains\Registrar\RestoresDomains;
+use App\Contracts\Domains\Registrar\SuggestsNames;
+use App\Contracts\Domains\Registrar\SyncsDomains;
+use App\Contracts\Domains\Registrar\TestsRegistrarConnection;
+use App\Contracts\Domains\Registrar\TransfersDomains;
+use App\Data\Domains\Registrar\AvailabilityResult;
+use App\Data\Domains\Registrar\ContactSet;
+use App\Data\Domains\Registrar\DomainInfo;
+use App\Data\Domains\Registrar\DomainRef;
+use App\Data\Domains\Registrar\EppCodeResult;
+use App\Data\Domains\Registrar\RegistrarConfig;
+use App\Data\Domains\Registrar\RegistrarResult;
+use App\Data\Domains\Registrar\RegistrationRequest;
+use App\Data\Domains\Registrar\SubmissionLookup;
+use App\Data\Domains\Registrar\SyncResult;
+use App\Data\Domains\Registrar\TransferSyncResult;
+use App\Data\Integrations\ConnectionCheck;
+use App\Data\Integrations\SettingField;
+use App\Support\Domains\CapabilityNotSupported;
+use App\Support\Domains\RegistrarDriverRegistry;
+use App\Support\Domains\RegistrarException;
 use App\Support\Integrations\Redactor;
 use Carbon\CarbonImmutable;
 use Closure;
-use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
-use RuntimeException;
-use Tests\Fakes\Domains\FakeRegistrar;
 use Throwable;
 
 /**
- * The contract every registrar driver passes (registrars.md §7). Call it from a test file, once per driver key:
+ * The contract every registrar driver passes (ADR 0009, registrars.md §7). Call it from a test file, once per key:
  *
  *   RegistrarDriverContract::verify('resellerclub', arrange: fn () => Http::fake([...]));
  *
- * `arrange` runs before each check and fakes the remote system so calls succeed; stray HTTP fails the test. Checks:
- * - identity, capabilities from Registrar::CAPABILITIES, typed settings (credential-like keys are secrets with no
- *   default);
- * - every method outside the driver's capabilities throws CapabilityNotSupported, so the host can hide it;
- * - every supported call answers with exactly one outcome: its documented result type or a RegistrarException
- *   (rejected / retryable / RegistrarTimeout), never another error, and register is completed or pending;
- * - findSubmission (capability `reconcile`) answers a SubmissionLookup for register and renew;
- * - with the account configured with known credentials, neither they nor credential-named pairs (`api-key`,
- *   `passwd`, `signature`, `domsecret`, auth and EPP codes) reach registrar_command_log, the domain's last_error, the
- *   activity log or RegistrarActionFailed (C5): on the real driver's submit path, and on a rejected and a lost
- *   register whose error text echoes them. `failing` makes the real driver fail that way (an API driver fakes its
- *   provider's error body); by default a scriptable driver takes its place for the failure.
- * Response-mapping scenarios of API drivers (timeouts, refused connections, fixtures) belong in the driver's own
- * tests.
+ * `arrange` runs before each check and fakes the remote system so calls succeed; stray HTTP fails the test. The
+ * driver is resolved through the kernel registry and called with DTOs only, so verify() needs no module: it runs
+ * with only Core loaded. Checks:
+ * - identity, and resolution without queries or HTTP;
+ * - typed settings: credential-like keys are secrets, and secrets have no default;
+ * - the core calls and every capability the driver implements answer with their documented type or a
+ *   RegistrarException (rejected, retryable, RegistrarTimeout), never another error; a write is completed or
+ *   pending; nothing touches the database (one entry per capability interface in calls());
+ * - whatever a driver echoes into results and error text is fully masked by the host's redaction set
+ *   (RegistrarConfig::secrets()).
+ * Response-mapping scenarios of API drivers (availability and status matrices, timeouts, refused connections,
+ * fixtures) belong in the driver's own tests.
  */
 final class RegistrarDriverContract
 {
-    /** Credential values a driver might echo back; none may be stored in the command log. */
+    /** Credential values a driver might echo back; none may be logged. */
     public const SECRETS = [
         'api-key' => 'contract-api-key-1', 'passwd' => 'contract-passwd-2', 'signature' => 'contract-signature-3',
         'domsecret' => 'contract-domsecret-4', 'auth-code' => 'contract-auth-code-5', 'epp_code' => 'contract-epp-6',
@@ -55,165 +65,208 @@ final class RegistrarDriverContract
 
     /**
      * @param  (Closure(): void)|null  $arrange
-     * @param  (Closure(string, Throwable): void)|null  $failing  make the driver's next register fail with this error
      */
-    public static function verify(string $key, ?Closure $arrange = null, string $extension = '.com', ?Closure $failing = null): void
+    public static function verify(string $key, ?Closure $arrange = null): void
     {
-        $setUp = function () use ($key, $arrange, $extension): Domain {
+        $setUp = function () use ($key, $arrange): RegistrarDriver {
             Http::preventStrayRequests();
 
             if ($arrange !== null) {
                 $arrange();
             }
 
-            $tld = Tld::query()->where('extension', $extension)->first() ?? Tld::factory()->extension($extension)->priced()->create(['registrar_key' => $key]);
-
-            return Domain::factory()->pending()->create(['tld_id' => $tld->id, 'registrar_key' => $key]);
+            return app(RegistrarDriverRegistry::class)->get($key);
         };
 
-        test("{$key} registrar: identity, capabilities and typed settings", function () use ($key, $setUp) {
-            $setUp();
-            $registrars = app(RegistrarManager::class);
-            $driver = $registrars->driver($key);
+        test("{$key} registrar: is registered and resolves without I/O", function () use ($key, $setUp) {
+            $driver = null;
+            $queries = ProvisioningDriverContract::countQueries(function () use ($setUp, &$driver): void {
+                $driver = $setUp();
+            });
 
-            expect($driver->name())->not->toBe('')
-                ->and(array_diff($driver->capabilities(), Registrar::CAPABILITIES))->toBe([])
-                ->and($driver->capabilities())->toContain('register');
+            Http::assertNothingSent();
+            expect($driver?->key())->toBe($key)
+                ->and(trim((string) $driver?->name()))->not->toBe('')
+                ->and($queries)->toBe(0);
+        });
 
-            foreach ($registrars->fields($key) as $field) {
-                if (app(Redactor::class)->isSensitiveKey($field->key)) {
-                    expect($field->isSecret())->toBeTrue("{$field->key} reads like a credential but is not a secret field");
-                }
+        test("{$key} registrar: declares typed settings and types every credential as a secret", function () use ($setUp) {
+            $fields = $setUp()->settingsFields();
+            $redactor = new Redactor;
+            expect($fields)->toBeList()->each->toBeInstanceOf(SettingField::class);
+            $keys = array_map(fn (SettingField $field): string => $field->key, $fields);
+            expect($keys)->toBe(array_values(array_unique($keys)), 'settings have duplicate keys');
 
-                if ($field->isSecret()) {
-                    expect($field->default)->toBeNull();
-                }
+            foreach ($fields as $field) {
+                expect($field->isSecret() || ! $redactor->isSensitiveKey($field->key))->toBeTrue("{$field->key} reads like a credential but is typed {$field->type->value}")
+                    ->and($field->isSecret() && $field->default !== null)->toBeFalse("secret {$field->key} has a default");
             }
         });
 
-        test("{$key} registrar: calls outside its capabilities throw CapabilityNotSupported", function () use ($key, $setUp) {
-            $domain = $setUp();
-            $driver = app(RegistrarManager::class)->driver($key);
+        test("{$key} registrar: every call answers with one documented outcome and touches no database", function () use ($key, $setUp) {
+            $driver = $setUp();
+            $registry = app(RegistrarDriverRegistry::class);
+            $checked = [];
 
-            $calls = RegistrarDriverContract::calls($domain);
-            expect(array_keys($calls))->toEqualCanonicalizing(Registrar::CAPABILITIES);
+            $queries = ProvisioningDriverContract::countQueries(function () use ($driver, &$checked): void {
+                foreach (RegistrarDriverContract::runs($driver) as $interface => $runs) {
+                    foreach ($runs as $name => [$expected, $run]) {
+                        RegistrarDriverContract::assertOutcome($name, $expected, $run);
+                    }
 
-            foreach ($calls as $capability => $call) {
-                if (! in_array($capability, $driver->capabilities(), true)) {
-                    expect(fn () => $call($driver))->toThrow(CapabilityNotSupported::class);
+                    $checked[] = $interface;
                 }
-            }
+            });
+
+            expect($checked)->toEqualCanonicalizing(array_values(array_unique(array_intersect_key($registry->capabilities(), array_flip($registry->capabilitiesOf($key))))))
+                ->and($queries)->toBe(0);
         });
 
-        test("{$key} registrar: supported calls answer with one documented outcome", function () use ($key, $setUp) {
-            $domain = $setUp();
-            $driver = app(RegistrarManager::class)->driver($key);
-            foreach (RegistrarDriverContract::calls($domain) as $capability => $call) {
-                if (! in_array($capability, $driver->capabilities(), true)) {
-                    continue;
-                }
+        test("{$key} registrar: everything it echoes is masked by the host's redaction set", function () use ($setUp) {
+            $driver = $setUp();
+            $secrets = RegistrarDriverContract::config($driver)->secrets();
+            $redactor = new Redactor;
+            $logged = [];
 
-                try {
-                    $result = $call($driver);
-                } catch (RegistrarException $rejected) {
-                    expect($rejected)->not->toBeInstanceOf(CapabilityNotSupported::class);
-
-                    continue;
-                }
-
-                if ($capability === 'register') {
-                    expect($result->status)->toBeIn(['completed', 'pending']);
+            foreach (RegistrarDriverContract::runs($driver) as $runs) {
+                foreach ($runs as $name => [, $run]) {
+                    try {
+                        $result = $run();
+                        $array = (array) json_decode((string) json_encode(is_object($result) && method_exists($result, 'toArray') ? $result->toArray() : $result), true);
+                        $logged[] = $redactor->redact($array, $secrets, in_array($name, ['epp', 'transfer'], true) ? ['code'] : []);
+                    } catch (Throwable $error) {
+                        $logged[] = $redactor->maskValues($error->getMessage(), $secrets);
+                    }
                 }
             }
-        });
 
-        test("{$key} registrar: configured credentials never reach the command log, the domain, the activity log or events", function () use ($key, $setUp, $failing) {
-            $domain = $setUp();
-            Event::fake([RegistrarActionFailed::class]);
-            $configured = RegistrarDriverContract::configureSecrets($key);
-            $echo = 'Rejected: '.http_build_query(RegistrarDriverContract::SECRETS).' with '.implode(' ', $configured);
-            $fail = $failing ?? fn (string $key, Throwable $error) => FakeRegistrar::install($key)->will('register', $error);
+            expect($secrets)->not->toBeEmpty('the contract configures a value in every secret setting');
 
-            app(SubmitToRegistrar::class)->handle($domain);
-            $rejected = Domain::factory()->pending()->create(['tld_id' => $domain->tld_id, 'registrar_key' => $key]);
-            $fail($key, new RegistrarException($echo));
-            app(SubmitToRegistrar::class)->handle($rejected);
-            $lost = Domain::factory()->pending()->create(['tld_id' => $domain->tld_id, 'registrar_key' => $key]);
-            $fail($key, new RuntimeException($echo));
-            app(SubmitToRegistrar::class)->handle($lost);
-
-            $ids = [$domain->id, $rejected->id, $lost->id];
-            $seen = (string) json_encode([
-                RegistrarCommandLog::query()->whereIn('domain_id', $ids)->get(['request', 'response', 'error']),
-                Domain::query()->whereIn('id', $ids)->pluck('last_error'),
-                ActivityLog::query()->where('subject_type', (new Domain)->getMorphClass())->whereIn('subject_id', $ids)->get(['description', 'properties']),
-                Event::dispatched(RegistrarActionFailed::class)->map(fn (array $event): array => get_object_vars($event[0])),
-            ]);
-
-            expect(Event::dispatched(RegistrarActionFailed::class))->not->toBeEmpty()
-                ->and($lost->fresh()->needs_review)->toBeTrue();
-
-            foreach ([...array_values(RegistrarDriverContract::SECRETS), ...$configured] as $secret) {
-                expect($seen)->not->toContain($secret);
+            foreach ($secrets as $secret) {
+                expect((string) json_encode($logged))->not->toContain($secret);
             }
         });
     }
 
     /**
-     * Configure the registrar account with a known value in every secret setting (and defaults elsewhere).
+     * The calls of every interface the driver implements, as the host makes them, against the contract account.
      *
-     * @return list<string> the configured secret values
+     * @return array<class-string, array<string, array{0: string, 1: Closure(): mixed}>>
      */
-    public static function configureSecrets(string $key): array
+    public static function runs(RegistrarDriver $driver): array
+    {
+        $config = self::config($driver);
+        $runs = [];
+
+        foreach (self::calls() as $interface => $calls) {
+            if ($driver instanceof $interface) {
+                $runs[$interface] = $calls($driver, $config);
+            }
+        }
+
+        return $runs;
+    }
+
+    /**
+     * Run one call: it answers with $expected (`list` for a list of AvailabilityResult; a write is completed or
+     * pending) or a RegistrarException, never the host's CapabilityNotSupported guard and never another error.
+     *
+     * @param  Closure(): mixed  $run
+     */
+    public static function assertOutcome(string $name, string $expected, Closure $run): void
+    {
+        try {
+            $result = $run();
+        } catch (RegistrarException $rejected) {
+            expect($rejected)->not->toBeInstanceOf(CapabilityNotSupported::class, "{$name} threw the host's capability guard");
+
+            return;
+        }
+
+        if ($expected === 'list') {
+            expect($result)->toBeList()->each->toBeInstanceOf(AvailabilityResult::class);
+
+            return;
+        }
+
+        expect($result)->toBeInstanceOf($expected, "{$name} returned ".get_debug_type($result));
+
+        if ($result instanceof RegistrarResult) {
+            expect($result->status)->toBeIn(['completed', 'pending'], "{$name} answered {$result->status}");
+        }
+    }
+
+    /**
+     * One entry per interface: call name => [expected result, call]. A new capability in RegistrarDriverRegistry
+     * needs an entry here; the completeness test in tests/Extensions/AcmePanelWithoutServicesTest holds the two lists together.
+     *
+     * @return array<class-string, Closure(mixed, RegistrarConfig): array<string, array{0: string, 1: Closure(): mixed}>>
+     */
+    public static function calls(): array
+    {
+        $domain = self::domain();
+        $request = self::request($domain);
+        $since = CarbonImmutable::now()->subHour();
+
+        return [
+            RegistrarDriver::class => fn (RegistrarDriver $driver, RegistrarConfig $config): array => [
+                'register' => [RegistrarResult::class, fn (): mixed => $driver->register($config, $request)],
+                'renew' => [RegistrarResult::class, fn (): mixed => $driver->renew($config, $domain, 1)],
+                'info' => [DomainInfo::class, fn (): mixed => $driver->info($config, $domain)],
+            ],
+            ChecksAvailability::class => fn (ChecksAvailability $driver, RegistrarConfig $config): array => ['availability' => ['list', fn (): mixed => $driver->checkAvailability($config, $domain->sld, [$domain->tld])]],
+            SuggestsNames::class => fn (SuggestsNames $driver, RegistrarConfig $config): array => ['suggestions' => ['list', fn (): mixed => $driver->suggest($config, $domain->sld, [$domain->tld], 5)]],
+            TransfersDomains::class => fn (TransfersDomains $driver, RegistrarConfig $config): array => [
+                'transfer' => [RegistrarResult::class, fn (): mixed => $driver->transfer($config, $request)],
+                'transfer_sync' => [TransferSyncResult::class, fn (): mixed => $driver->transferSync($config, $domain)],
+            ],
+            RestoresDomains::class => fn (RestoresDomains $driver, RegistrarConfig $config): array => ['restore' => [RegistrarResult::class, fn (): mixed => $driver->restore($config, $domain, 1)]],
+            ManagesNameservers::class => fn (ManagesNameservers $driver, RegistrarConfig $config): array => ['nameservers' => [RegistrarResult::class, fn (): mixed => $driver->setNameservers($config, $domain, ['ns1.contract.test', 'ns2.contract.test'])]],
+            ManagesLock::class => fn (ManagesLock $driver, RegistrarConfig $config): array => ['lock' => [RegistrarResult::class, fn (): mixed => $driver->setLock($config, $domain, true)]],
+            ManagesContacts::class => fn (ManagesContacts $driver, RegistrarConfig $config): array => [
+                'get_contacts' => [ContactSet::class, fn (): mixed => $driver->getContacts($config, $domain)],
+                'contacts' => [RegistrarResult::class, fn (): mixed => $driver->setContacts($config, $domain, $request->contacts)],
+            ],
+            ProvidesEppCode::class => fn (ProvidesEppCode $driver, RegistrarConfig $config): array => ['epp' => [EppCodeResult::class, fn (): mixed => $driver->getEppCode($config, $domain)]],
+            ManagesIdProtection::class => fn (ManagesIdProtection $driver, RegistrarConfig $config): array => ['id_protection' => [RegistrarResult::class, fn (): mixed => $driver->setIdProtection($config, $domain, true)]],
+            SyncsDomains::class => fn (SyncsDomains $driver, RegistrarConfig $config): array => ['sync' => [SyncResult::class, fn (): mixed => $driver->sync($config, $domain)]],
+            ReconcilesSubmissions::class => fn (ReconcilesSubmissions $driver, RegistrarConfig $config): array => [
+                'reconcile_register' => [SubmissionLookup::class, fn (): mixed => $driver->findSubmission($config, $domain, 'register', $since)],
+                'reconcile_renew' => [SubmissionLookup::class, fn (): mixed => $driver->findSubmission($config, $domain, 'renew', $since)],
+            ],
+            TestsRegistrarConnection::class => fn (TestsRegistrarConnection $driver, RegistrarConfig $config): array => ['test_connection' => [ConnectionCheck::class, fn (): mixed => $driver->testConnection($config)]],
+        ];
+    }
+
+    /**
+     * The account in test mode, with a recognisable value in every secret setting and defaults elsewhere.
+     */
+    public static function config(RegistrarDriver $driver): RegistrarConfig
     {
         $settings = [];
-        $secrets = [];
+        $secretKeys = [];
 
-        foreach (app(RegistrarManager::class)->fields($key) as $field) {
+        foreach ($driver->settingsFields() as $field) {
             if ($field->isSecret()) {
-                $settings[$field->key] = $secrets[] = "contract-{$field->key}-value";
+                $settings[$field->key] = "contract-{$field->key}-value";
+                $secretKeys[] = $field->key;
             } elseif ($field->default !== null) {
                 $settings[$field->key] = $field->default;
             }
         }
 
-        RegistrarAccount::query()->updateOrCreate(['key' => $key], ['is_active' => true, 'test_mode' => true, 'settings' => $settings]);
-
-        return $secrets;
+        return new RegistrarConfig($driver->key(), $settings, true, $secretKeys);
     }
 
-    /**
-     * One call per capability, as the host makes them.
-     *
-     * @return array<string, Closure(Registrar): mixed>
-     */
-    public static function calls(Domain $domain): array
+    public static function domain(): DomainRef
     {
-        $request = self::request($domain);
-
-        return [
-            'availability' => fn (Registrar $driver): mixed => $driver->checkAvailability($domain->sld, [$domain->tld]),
-            'suggestions' => fn (Registrar $driver): mixed => $driver->suggest($domain->sld, [$domain->tld], 5),
-            'register' => fn (Registrar $driver): mixed => $driver->register($request),
-            'transfer' => fn (Registrar $driver): mixed => $driver->transfer($request),
-            'info' => fn (Registrar $driver): mixed => $driver->info($domain),
-            'nameservers' => fn (Registrar $driver): mixed => $driver->setNameservers($domain, ['ns1.contract.test', 'ns2.contract.test']),
-            'contacts' => fn (Registrar $driver): mixed => $driver->setContacts($domain, $request->contacts),
-            'sync' => fn (Registrar $driver): mixed => $driver->sync($domain),
-            'reconcile' => fn (Registrar $driver): mixed => [$driver->findSubmission($domain, 'renew', CarbonImmutable::now()->subHour()), $driver->findSubmission($domain, 'register', CarbonImmutable::now()->subHour())][1],
-            'renew' => fn (Registrar $driver): mixed => $driver->renew($domain, 1),
-            'restore' => fn (Registrar $driver): mixed => $driver->renew($domain, 1, restore: true),
-            'lock' => fn (Registrar $driver): mixed => $driver->setLock($domain, true),
-            'id_protection' => fn (Registrar $driver): mixed => $driver->setIdProtection($domain, true),
-            'epp' => fn (Registrar $driver): mixed => $driver->getEppCode($domain),
-            'transfer_sync' => fn (Registrar $driver): mixed => $driver->transferSync($domain),
-        ];
+        return new DomainRef(9001, 42, 'contract-test.com', 'contract-test', '.com', 'active', CarbonImmutable::today()->addMonths(2), 'contract', ['order_id' => 123], ['ns1.contract.test', 'ns2.contract.test'], true);
     }
 
-    public static function request(Domain $domain): RegistrationRequest
+    public static function request(DomainRef $domain): RegistrationRequest
     {
         $contact = ['first_name' => 'Asha', 'last_name' => 'Shrestha', 'email' => 'asha@contract.test', 'phone' => '+977.15550100', 'address_1' => '1 Durbar Marg', 'city' => 'Kathmandu', 'postcode' => '44600', 'country' => 'NP'];
 
-        return new RegistrationRequest($domain, 1, ['ns1.contract.test', 'ns2.contract.test'], new ContactSet(['registrant' => $contact, 'admin' => $contact]));
+        return new RegistrationRequest($domain, 1, ['ns1.contract.test', 'ns2.contract.test'], new ContactSet(['registrant' => $contact, 'admin' => $contact]), eppCode: self::SECRETS['epp_code']);
     }
 }

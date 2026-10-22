@@ -6,6 +6,31 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Registrar driver contracts, ADR 0009 PR C1
+
+Additive; Domains moves onto these in PR C2, which removes its module SPI.
+
+- `App\Contracts\Domains\Registrar\RegistrarDriver` (provider contract, extends `IntegrationDriver`):
+  `settingsFields(): list<SettingField>`, `register(RegistrarConfig, RegistrationRequest)`, `renew(RegistrarConfig,
+  DomainRef, int $years)`, `info(RegistrarConfig, DomainRef)`. Capability interfaces in the same namespace:
+  `ChecksAvailability`, `SuggestsNames`, `TransfersDomains` (`transfer` and `transferSync`), `RestoresDomains`
+  (`restore(config, domain, years)`, replacing `renew(restore: true)`), `ManagesNameservers`, `ManagesLock`,
+  `ManagesContacts` (get and set), `ProvidesEppCode`, `ManagesIdProtection`, `SyncsDomains`, `ReconcilesSubmissions`
+  (C2, `findSubmission(config, domain, command, submittedAt): SubmissionLookup`) and `TestsRegistrarConnection`
+  (`testConnection(RegistrarConfig): ConnectionCheck`).
+- `App\Contracts\Domains\Registrar\RegistrarRefs` (consumer contract, C4): `find(registrarKey, refType, localType,
+  localId, payloadHash = '')` and `remember(RegistrarRef)`. Implemented by Domains in PR C2.
+- `App\Data\Domains\Registrar`: `RegistrarConfig(key, settings, testMode, secretKeys)` with `setting()` and
+  `secrets()`; `DomainRef` (the ADR 0009 §2 fields plus a trailing `periodYears`); `RegistrarRef`; and the result DTOs
+  from the Domains module, unchanged apart from `RegistrationRequest::$domain` being a `DomainRef`, `eppCode` and
+  `EppCodeResult::$code` marked `#[\SensitiveParameter]`, and `RegistrarResult::withMessage()` /
+  `SubmissionLookup::withMessage()` (a copy with a new message, for host-side masking).
+- `App\Support\Domains\RegistrarDriverRegistry` (final, singleton in `AppServiceProvider`): the `DriverRegistry`
+  API plus `supports(key, capability)` and `fields(key)`. Capability names are the strings the admin already shows;
+  `register`, `renew` and `info` map to the core interface, `transfer` and `transfer_sync` to `TransfersDomains`, and
+  `test_connection` is new. `RegistrarException` (without HTTP rendering), `RegistrarTimeout` and
+  `CapabilityNotSupported` in the same namespace.
+
 ### Client currency lock (#218)
 
 - `App\Support\Clients\ClientCurrencyUsage::sourcesFor(int $clientId): list<string>` (new method, additive): the keys

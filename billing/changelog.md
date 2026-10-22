@@ -1018,6 +1018,15 @@ a time: medians of three runs before and three after, on the same database, on a
   `ReconcileStatus` enums, `UsernamePolicy` and per-driver command timeouts, and the final
   `ProvisioningDriverRegistry`. A package registers a driver from its own service provider without the Services
   module being loaded. Every driver passes a shared contract dataset.
+- Registrar driver contracts (ADR 0009, PR C1): `RegistrarDriver` (`settingsFields`, `register`, `renew`, `info`)
+  plus capability interfaces (`ChecksAvailability`, `SuggestsNames`, `TransfersDomains`, `RestoresDomains`,
+  `ManagesNameservers`, `ManagesLock`, `ManagesContacts`, `ProvidesEppCode`, `ManagesIdProtection`, `SyncsDomains`,
+  `ReconcilesSubmissions`, `TestsRegistrarConnection`), the stateless `RegistrarConfig` every call receives, the
+  `DomainRef` snapshot instead of the domain model, the result DTOs with remote ids (C1), `RegistrarResult` and
+  `SubmissionLookup` gaining `withMessage()`, the `RegistrarRefs` contract for remote customers and contacts (C4), and
+  the final `RegistrarDriverRegistry`. A package registers a registrar driver from its own service provider without
+  the Domains module being loaded, and every registrar driver passes a shared contract dataset. Domains still runs on
+  its own driver interface until PR C2; nothing changes for users.
 - `PriceBook::moduleInputs()` (options and custom fields by module key, hidden, admin-only and retired included) and
   `PriceBook::productsForDriver()`; provisioning snapshots carry options by module key. `ProvisioningDrivers::all()`
   gains `fields` in the shared `SettingField` shape (`config_fields` deprecated). Module keys of custom fields are unique per product (#65).
