@@ -1,9 +1,11 @@
 # VAT sales register and credit notes — Product Spec (v1)
 
-Status: draft for engineering · Owner: Billing workstream · Refines `billing.md` §2 (invoice_adjustments), §3, §4.7 and
-`reports.md` §6 (`tax_liability`) · Sources read 2026-10-22 (§17) · CEO review 2026-10-22, recommendation 4
+Status: draft for engineering, fix round 1 after the architecture review of #327; aligned with ADR 0024 (fiscal
+documents), ADR 0013 Amendment 1 (company clock) and ADR 0025 (report registry), all Proposed in #329 · Owner: Billing workstream · Refines
+`billing.md` §2 (invoice_adjustments), §3, §4.7 and `reports.md` §6 (`tax_liability`) · Sources read 2026-10-22 (§17)
+· CEO review 2026-10-22, recommendation 4
 Clean-room: behaviour derived from public tax guidance and public category docs (WHMCS, HostBill, Blesta forums); no
-vendor text copied; naming and schemas are ours.
+vendor text copied; naming and schemas are ours. Code references are to `develop` at `34928b98`.
 
 ## 0. Why one new file
 
@@ -11,204 +13,278 @@ Credit notes and the sales register are one feature for the user: a VAT-register
 the register, and the register is only right if every change to an issued tax invoice is a numbered note. Splitting
 them across `billing.md` (documents) and `reports.md` (read-only metrics) would put the two halves of one tie-out in
 different specs. The register is owned by Billing, not Reports, because it reads Billing's own documents, needs the
-Bikram Sambat (BS) code in `App\Modules\Billing\Support`, and is a compliance document rather than a metric.
-`billing.md` and `reports.md` get one pointer line each (this PR).
+Bikram Sambat (BS) code in `App\Modules\Billing\Support`, and is a compliance document rather than a metric. It is
+a report in the kernel registry (ADR 0025): Billing computes the rows, the kernel pipeline exports them.
+`billing.md` and `reports.md` carry one pointer line each.
 
 ## 1. Key facts that shape the design
 
-Confidence: **high** = template or several independent sources agree; **medium** = one practitioner source;
-**assumption** = our reading, not confirmed. Government sites (`ird.gov.np`, `lawcommission.gov.np`) did not answer
-from our network on 2026-10-22, so no rule text was read first-hand (§17, "Not confirmed").
+Confidence: **high** = the prescribed template itself, read first-hand; **medium** = practitioner sources that agree
+with each other; **low** = one source, or sources that disagree. Government sites (`ird.gov.np`,
+`lawcommission.gov.np`) did not answer from our network on 2026-10-22, so no rule text was read first-hand (§17, "Not
+confirmed"). Rule numbers below are as the secondary sources give them.
 
-| #   | Fact                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Confidence                                     |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| F1  | The VAT Rules (Rule 23(1)) require a sales book (बिक्री खाता) in a prescribed schedule, alongside the purchase book, copies of tax invoices, and all credit and debit notes. Records are kept six years (Rule 23(7)).                                                                                                                                                                                                                                                                                                    | high                                           |
-| F2  | The prescribed sales-book layout (IRD template, Rule 23(1)(ज)) has a header with the taxpayer's PAN, name, year and tax period, and these columns: date; invoice number; buyer name; buyer PAN; goods or service name; quantity; unit; total sales or export (Rs); locally exempt sales (Rs); taxable sales value (Rs) and tax (Rs); export value (Rs); export country; export declaration number; export declaration date.                                                                                             | high (template)                                |
-| F3  | Credit and debit notes (Rule 20(1)) must be marked as such, carry a sequential number and issue date, name both parties with registration numbers, cite the related tax invoice's number and date, describe the goods or services and the reason, and state the amount and the tax credited or debited. Rule 20(2) asks for a monthly account of the notes.                                                                                                                                                             | medium (two practitioner sources agree)        |
-| F4  | The VAT tax period is the BS month; the return (Schedule 10) is due within 25 days of the month's end; nil returns are required. Some small taxpayers may file four-monthly. The fiscal year runs 1 Shrawan to the end of Asar.                                                                                                                                                                                                                                                                                         | high                                           |
-| F5  | A note adjusts output VAT in the period the note is issued, not the period of the original invoice.                                                                                                                                                                                                                                                                                                                                                                                                                     | medium                                         |
-| F6  | The tax invoice must say "Tax Invoice" (कर बीजक) and carry the seller's PAN, buyer's name, address and PAN, number, date, lines, taxable value, VAT and total. Practitioner guides show the date in BS.                                                                                                                                                                                                                                                                                                                 | high (fields) / medium (BS on the invoice)     |
-| F7  | Software billing rules (Electronic Billing Procedure 2074): data cannot be edited or deleted once entered, corrections are new entries, cancelled bills stay with a reason, returns go through credit notes, every record carries date, time and user, reprints are marked as copies with a print count, data exports to Excel or PDF.                                                                                                                                                                                  | medium (one source; matches CBMS field names)  |
-| F8  | Real-time reporting to CBMS (Central Billing Monitoring System) is mandatory above an annual turnover of Rs 20 crore (IRD decision published about 17 April 2026). The FY 2083/84 budget announced Rs 10 crore; no IRD notice putting it into force was found as of early October 2026. An older notice set Rs 5 crore for hotels, restaurants and **internet service providers**. Below the threshold, billing by software needs the tax office's permission. Cloud-hosted billing data must sit on a server in Nepal. | medium (sources disagree on the current line)  |
-| F9  | CBMS takes one bill per post (fiscal year as `2083.084`, BS date `YYYY.MM.DD`, buyer PAN, total, taxable, VAT, exempt, export) and one credit note per post (`ref_invoice_number`, note number and date, reason, amounts). It rejects a duplicate bill number but accepts a duplicate credit note.                                                                                                                                                                                                                      | medium (third-party client and a vendor guide) |
-| F10 | India GST (later market): a credit note reduces output tax only if declared by 30 November after the financial year of the supply, or the annual return date if earlier (CGST s.34).                                                                                                                                                                                                                                                                                                                                    | high                                           |
-| F11 | Category: WHMCS has no native credit notes (third-party add-ons fill the gap; the feature request has been open since 2015); its Sales Tax Liability report shows subtotal, tax and total for a period and leaves partial refunds out. HostBill has credit notes with their own sequence and per-item refunds.                                                                                                                                                                                                          | high                                           |
+| #   | Fact                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Confidence                                      |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| F1  | The VAT Rules (Rule 23(1)) require a sales book (बिक्री खाता) in a prescribed schedule, alongside the purchase book, copies of tax invoices, and all credit and debit notes. Records are kept six years (Rule 23(7)).                                                                                                                                                                                                                                                                                | medium (LookupTax; the template cites Rule 23)  |
+| F2  | The prescribed sales-book layout (IRD template, Rule 23(1)(ज)) has a header with the taxpayer's PAN, name, year and tax period, and these columns: date; invoice number; buyer name; buyer PAN; goods or service name; quantity; unit; total sales or export (Rs); locally exempt sales (Rs); taxable sales value (Rs) and tax (Rs); export value (Rs); export country; export declaration number; export declaration date.                                                                         | high (template read cell by cell)               |
+| F3  | Credit and debit notes (Rule 20(1)) must be marked as such, carry a sequential number and issue date, name both parties with registration numbers, cite the related tax invoice's number and date, describe the goods or services and the reason, and state the amount and the tax credited or debited. Rule 20(2) asks for a monthly account of the notes.                                                                                                                                         | medium (two practitioner sources agree)         |
+| F4  | The VAT tax period is the BS month; the return (Schedule 10) is due within 25 days of the month's end; nil returns are required. Some small taxpayers may file four-monthly. The fiscal year runs 1 Shrawan to the end of Asar.                                                                                                                                                                                                                                                                     | medium (LookupTax and Common Law agree)         |
+| F5  | A note adjusts output VAT in the period the note is issued, not the period of the original invoice.                                                                                                                                                                                                                                                                                                                                                                                                 | low (one source)                                |
+| F6  | The tax invoice must say "Tax Invoice" (कर बीजक) and carry the seller's PAN, buyer's name, address and PAN, number, date, lines, taxable value, VAT and total. Practitioner guides show the date in BS.                                                                                                                                                                                                                                                                                             | medium (fields) / low (BS on the invoice)       |
+| F7  | Software billing rules (Electronic Billing Procedure 2074): data cannot be edited or deleted once entered, corrections are new entries, cancelled bills stay with a reason, returns go through credit notes, every record carries date, time and user, reprints are marked as copies with a print count, data exports to Excel or PDF.                                                                                                                                                              | low (one source)                                |
+| F8  | Real-time reporting to CBMS (Central Billing Monitoring System) is mandatory above an annual turnover of Rs 20 crore (IRD decision published about 17 April 2026). The FY 2083/84 budget announced Rs 10 crore; no IRD notice putting it into force was found. An older notice set Rs 5 crore for hotels, restaurants and internet service providers. Below the line, billing by software may need the tax office's permission, and cloud-hosted billing data may have to sit on a server in Nepal. | low (sources disagree on the current line)      |
+| F9  | CBMS takes one bill per post (fiscal year as `2083.084`, BS date `YYYY.MM.DD`, buyer PAN, total, taxable, VAT, exempt, export) and one credit note per post (`ref_invoice_number`, note number and date, reason, amounts). A third-party client reports that it rejects a duplicate bill number but accepts a duplicate credit note.                                                                                                                                                                | low (third-party client and a vendor guide)     |
+| F10 | India GST (later market): a credit note reduces output tax only if declared by 30 November after the financial year of the supply, or the annual return date if earlier (CGST s.34).                                                                                                                                                                                                                                                                                                                | medium (two commentaries agree)                 |
+| F11 | Category: WHMCS ships no credit notes; a third-party add-on (SupportHost) fills the gap and says the WHMCS feature request has been open since 2015. WHMCS's Sales Tax Liability report shows subtotal, tax and total for a period and leaves partial refunds out. HostBill has credit notes with their own sequence and per-item refunds. A Blesta forum thread asked for credit notes for VAT (title and search summary only).                                                                    | medium (vendor docs and the add-on's own claim) |
 
 What this means for us: an issued tax invoice is a legal document that is never edited, and the only way to reduce
-or increase it is a numbered note in the period it is issued. Today Mohar cancels invoices and cancels lines with
-**unnumbered** credit adjustments (`CancelInvoice`, `CancelInvoiceItems`) and refunds with a `refund` adjustment.
-That is right for the balance but invisible to the tax register. This spec turns those adjustments into numbered
-documents when they change a tax invoice.
+or increase it is a numbered note dated in its own period. Today Mohar cancels invoices and lines with **unnumbered**
+credit adjustments (`CancelInvoice`, `CancelInvoiceItems`), refunds paid invoices with a `refund` adjustment
+(`RefundTransaction::applyToInvoice`) and adds late fees as `late_fee` adjustments (`ApplyLateFee`). That is right for
+the balance but invisible to a tax register. §5.4 lists every such path and what it becomes.
 
 **Better than the category:** WHMCS leaves credit notes to add-ons and its tax report ignores partial refunds; Mohar
-makes the credit note the only correction path and ties the register to the notes, so register totals always equal
+makes the note the only correction path and ties the register to the notes, so register totals always equal
 "invoices minus credit notes plus debit notes" for the period, in BS months, with the buyer PAN in place.
 
 ## 2. Purpose and scope
 
 In scope:
 
-- Numbered **credit notes** and **debit notes** against one issued tax invoice each, full or partial, by line or by
-  amount, with PDF, email and client-area view.
-- The **settlement** of a credit note: reduce the open balance, credit the account, refund to the original method, or
+- Numbered **credit notes** and **debit notes** against one tax invoice each, full or partial, by line or by amount,
+  with PDF, email and client-area view.
+- The **settlement** of a credit note: reduce the open balance, credit the account, refund through the gateway, or
   record a refund made outside Mohar.
-- Automatic notes when a numbered tax invoice is cancelled (staff or automation) or has lines cancelled, and debit
-  notes for late fees added to a tax invoice.
+- Notes written by the existing paths (cancel, cancel lines, late fee, refunds from staff and from the provider), §5.4.
 - The **VAT sales register** (monthly by BS month, annual by BS fiscal year, any AD range) and the **credit and debit
   note register**, on screen and as CSV and PDF exports, with totals that feed the monthly return.
-- "Nepal VAT mode" (§3) that switches these on for a Nepal seller registered for VAT.
+- **Nepal VAT mode** (§3), an explicit opt-in that switches these on.
 
-Out of scope: §16.
+Out of scope: §16. Prerequisites in PR 0 (§18): the `CompanyClock` contract used by Billing's issue dates and numbering
+(ADR 0013 Amendment 1), and the report registry with `SafeCsv` (ADR 0025).
 
 ## 3. Nepal VAT mode and which document is the tax invoice
 
-- `billing.nepal_vat.enabled` (Admin → Settings → Billing → Tax; on by default when the seller country is NP and a
-  seller VAT number is set; the setting page says what it changes). When on: §4–§9 apply; numbered notes are
-  mandatory for every change to a numbered invoice; the register is shown. When off, credit notes stay available
-  (`billing.credit_notes.enabled`, default on) and the register is shown as the generic `tax_liability` report. **MUST**
-- **Tax invoice moment.** A hosting invoice is usually raised 14 days before the due date and many are never paid. If
-  the legal number is assigned at publish, every unpaid renewal is a sale in the register and needs a credit note when
-  it is cancelled. Mohar already has proforma mode (`billing.sequential_paid_numbering`): unpaid invoices carry a
-  proforma number and become tax invoices, with the legal number and issue date, when paid. Owner decision D1
-  (2026-10-22): an invoice becomes a tax invoice on payment, so turning Nepal VAT mode on turns proforma mode on
-  (`sequential_paid_numbering` and `set_issue_date_on_payment` true). Staff can switch proforma mode off, and the
-  setting page says that every unpaid invoice then becomes a sale needing a credit note when cancelled. **MUST**
-- Rule used everywhere below: a **tax invoice** is an invoice with a legal `number` (not a proforma number, not a draft).
-  Only tax invoices appear in the register and only they take notes. A proforma invoice is cancelled without a note.
-  **MUST**
-- Add-funds invoices are deposits, not supplies: never in the register, never credited by a note (their refunds stay
-  as in `billing.md` §4.8). VAT is accounted when credit pays a tax invoice. **MUST** (assumption A3)
+- `billing.nepal_vat.enabled` with its `enabled_from` company date (ADR 0024 §8), set in Admin → Settings → Billing →
+  Tax by staff with `billing.settings.manage` and a recent password. It is an explicit opt-in: the seller country and
+  VAT number only pre-fill the suggestion, so editing a VAT number never changes legal behaviour by itself. **MUST**
+    - The date must be the first day of a BS month (company clock), not before the start of the current BS month.
+    - Enabling is refused while any old-style value adjustment (`cancellation`, `item_cancellation`, `refund`,
+      `late_fee`) on a numbered invoice is dated on or after the chosen date; the page lists them and offers the next
+      BS month instead. So the register never contains an old-style row (decision on B6, §12). This is stricter than
+      ADR 0024 §8, which prorates such rows when the register reads them: here proration is used only for caps and the
+      remainder rule.
+    - Enabling and every later change of the setting write an activity entry. Switching the mode off is refused once a
+      note exists. **MUST**
+- **Tax invoice moment (owner decision D1, 2026-10-22).** An invoice becomes a tax invoice on payment. Enabling the
+  mode turns proforma mode on (`sequential_paid_numbering` and `set_issue_date_on_payment` true; Mohar already
+  implements both in `InvoiceSettlement::settle`). Unpaid invoices carry a proforma number. If staff switch proforma
+  mode off later, the setting page warns that every unpaid invoice then becomes a sale that needs a credit note when
+  cancelled. **MUST**
+- Rule used everywhere below: a **tax invoice** is an invoice with a legal `number`. Drafts and proforma invoices are
+  not. Only tax invoices appear in the register and only they take notes. **MUST**
+- Consequence of D1: a tax invoice is normally paid, so cancel, cancel lines, late fees and reopen (which act only on
+  unpaid or cancelled invoices) reach a tax invoice only when it was numbered before the mode (legacy) or when proforma
+  mode is off. They are still specified (§5.4), because both cases exist.
+- Add-funds invoices are deposits, not supplies: never in the register, never credited by a note (their refunds stay as
+  in `billing.md` §4.8). VAT is accounted when credit pays a tax invoice. **MUST** (assumption A3)
 
 ## 4. Entities and key fields
 
-### 4.1 `tax_notes` (one table for credit and debit notes)
+### 4.1 Tax-invoice value snapshot on `invoices` (written once, at numbering)
 
-`id, kind (credit|debit), number (unique, never null), sequence_period, invoice_id (required), client_id, currency,
-issue_date (company tz date), issued_at (timestamp), invoice_number (snapshot), invoice_issue_date (snapshot),
-reason_code (enum, below), reason_text (client-visible, required, ≤ 500), taxable_amount, exempt_amount, tax1_name,
-tax1_rate, tax1_amount, tax2_name, tax2_rate, tax2_amount, total (all int minor, positive; kind gives direction),
-npr_rate (decimal 18,8, copied from the invoice, §4.4), settlement (json, §5.3), seller_snapshot (json), buyer_snapshot
-(json: name, company, address, tax_id), bs_issue_date (char 10, `YYYY.MM.DD`), bs_fiscal_year (char 8, `2083.084`),
-bs_period (char 7, `2083.07`), created_by, print_count (int, default 0), cbms_status (nullable, reserved, §11),
-cbms_reference (nullable), timestamps`
+At the moment an invoice gets its legal number (publish with proforma mode off, or `settle` in proforma mode), in the
+same transaction, Billing writes: **MUST**
 
-- `reason_code`: credit — `invoice_cancelled`, `lines_cancelled`, `service_not_delivered`, `price_correction`,
-  `duplicate_invoice`, `discount_after_sale`, `goodwill`, `other`; debit — `late_fee`, `price_correction`,
-  `reverses_credit_note`, `other`. Codes drive filters and the CBMS `reason_for_return`; the text is what the client
-  reads. **MUST**
-- One note references one invoice. A correction that spans invoices is several notes. **MUST**
-- BS fields are computed once at issue from `issue_date` with `BikramSambat::fromAd` and stored, so a later table
-  correction of the BS calendar never moves a filed note between periods. **MUST**
-- Snapshots: buyer and seller are copied from the invoice's snapshots, not from the live client, so the note names
-  the same buyer PAN as the invoice it corrects. **MUST**
+- `fiscal_taxable`, `fiscal_exempt`, `fiscal_tax1`, `fiscal_tax2`, `fiscal_total` (int minor; tax names and rates
+  are already frozen on the invoice): the value of the supply as numbered (ADR 0024 §2). It is the invoice's own totals plus every **value adjustment** (§4.4) written while it was a
+  proforma (a late fee, a cancelled line), each at its stored taxable and tax split. Item-cancellation rows are
+  classed taxable or exempt by their line's `taxable` flag; for that, `CancelInvoiceItems` stores `invoice_item_id`
+  on the adjustment from PR 1. Adjustment tax is split between tax1 and tax2 in the invoice's tax1:tax2 proportion,
+  remainder to tax2 (Nepal uses one level).
+- `report_currency` (char 3) and `report_rate` (decimal 24,12): the install's reporting currency
+  (`billing.tax.report_currency`, NPR for a Nepal seller, INR later for India) and the rate from the invoice currency
+  to it, read from the stored currency rates through `CurrencyConverter::rate()` (no network call inside the
+  transaction). An invoice in the reporting currency stores 1. Which rate a host must use is open (D6). **MUST**
+- `supply_class` (`taxable` | `exempt` | `export`, ADR 0024 §2): taken from the tax rule that applied, at numbering,
+  so a later tax-rule edit never moves the register's export column. A document mixing taxed and untaxed lines is
+  `taxable` with its exempt part in `fiscal_exempt`. Which rule marks a supply as export is open (D6); until then no
+  document is `export`. **MUST**
+- `bs_issue_date` (`YYYY.MM.DD`), `bs_period` (`2083.07`), `bs_fiscal_year` (`2083.084`), from the company-clock
+  `issue_date` (company calendar, `system.timezone`) with `BikramSambat::fromAd`. Stored, so a correction of the BS month table never moves a filed invoice
+  between periods; invoices and notes are both filtered on the stored period. **MUST**
+- `credited_total`, `debited_total` (int minor, cached): written only by `InvoiceSettlement::adjust`, from value
+  adjustments written after numbering, so the cache and the cap (§5.1) read the same set. **MUST**
+- Backfill when PR 1 ships (new columns only; no existing row is rewritten): invoices numbered at publish get the
+  snapshot from their own totals; invoices numbered at payment get their totals plus the value adjustments created
+  before `paid_at`. **MUST**
+- Immutability in the model: `Invoice::FROZEN` gains `number`, `issue_date`, `client_snapshot`, `seller_snapshot`
+  and the fields above. The one allowed change is the proforma → numbered transition inside `settle` (number, issue
+  date, snapshot written together). **MUST**
 
-### 4.2 `tax_note_lines`
+### 4.2 `tax_notes` (credit and debit notes)
 
-`id, tax_note_id, invoice_item_id (nullable for an amount-only note), description, quantity (decimal), unit_amount,
-amount (net, int minor), taxable (bool), tax_amount, sort_order`
+`id, kind (credit|debit), number (unique, never null), invoice_id (FK, restrictOnDelete), client_id (FK,
+restrictOnDelete), currency, issue_date (company-clock date), issued_at, invoice_number (snapshot), invoice_bs_issue_date
+(snapshot), reason_code, reason_text (client-visible, required, ≤ 500), taxable_amount, exempt_amount, tax1_amount,
+tax2_amount, total (int minor, positive; kind gives direction), report_currency, report_rate, supply_class (copied
+from the invoice), seller_snapshot, buyer_snapshot (copied from the invoice's snapshots), bs_issue_date, bs_period,
+bs_fiscal_year, automatic (bool), created_by (null when automatic), print_count (int, default 0), cbms_status,
+cbms_reference (nullable, reserved, §11), timestamps`
 
-### 4.3 Links to the existing ledger
+- `reason_code` (Billing enum): credit — `invoice_cancelled`, `lines_cancelled`, `refunded`, `refunded_at_provider`,
+  `service_not_delivered`, `price_correction`, `duplicate_invoice`, `discount_after_sale`, `goodwill`, `other`;
+  debit — `late_fee`, `price_correction`, `reverses_credit_note`, `other`. **MUST**
+- One note references one invoice. **MUST**
+- There is no `settlement` JSON. How a note was settled is read from the rows that carry `tax_note_id` (§4.4). **MUST**
 
-- Every note writes exactly one `invoice_adjustments` row (`kind` = note kind, new reasons `credit_note` and
-  `debit_note`, `tax_note_id` FK, `number` = the note number). The balance formula in `billing.md` §2 is unchanged.
-  **MUST**
-- The existing reasons `cancellation`, `item_cancellation`, `refund` and `late_fee` are no longer written for a tax
-  invoice in Nepal VAT mode; they remain for proforma invoices and for installs with the mode off. `credit_applied`,
-  `credit_removed`, `overpayment` and `write_off` never become notes: they move money or settle a balance and do not
-  change the value of the supply. **MUST**
-- `invoices` gains `credited_total` and `debited_total` (int minor, cached, sums of notes) and a derived label
-  "Credited" / "Partly credited" beside the status. No new invoice status. **MUST**
+### 4.3 `tax_note_lines`
 
-### 4.4 Invoice additions
+`id, tax_note_id, invoice_item_id (nullable only for a late-fee debit note), description, quantity (unsigned int, as
+invoice_items), unit_amount, amount (net), taxable (bool), tax1_amount, tax2_amount, sort_order`
 
-- `npr_rate`: for an invoice not in NPR, the rate to NPR snapshotted when the legal number is assigned (from the
-  install's rate table, `ExchangeRateSource`). The register converts with it; notes reuse it. NPR invoices store 1.
-  Which rate a Nepali host must use is D6. **MUST**
-- `print_count` on invoices and notes (§9). **SHOULD**
+- Every credit note is allocated to lines, including a note "by amount" (§5.1), so per-line caps and remainders are
+  always defined. **MUST**
+
+### 4.4 Rows a note writes, and the value-adjustment set
+
+- **Value adjustments** (they change the value of the supply): `credit_note`, `debit_note`, and the old reasons
+  `cancellation`, `item_cancellation`, `refund`, `late_fee`, `manual`. Caps, the cached totals and the remainder rule
+  read this set. Old-style rows store taxable 0 and tax 0 for `cancellation` and `refund` (`CancelInvoice`,
+  `RefundTransaction`); where tax is needed (the remainder rule) it is prorated from the snapshot at read time. They
+  are never rewritten. **MUST**
+- **Settlement adjustments** (move money or credit, never value): `credit_applied`, `credit_removed`, `overpayment`,
+  `write_off`, and the new `credit_note_to_credit`. Never notes. **MUST**
+- Every note writes exactly one value adjustment (`kind` = note kind, reason `credit_note` / `debit_note`,
+  `tax_note_id` set, `number` left null so it cannot collide with the unique `invoice_adjustments.number`). **MUST**
+- A credit note settled to account credit additionally writes one settlement adjustment (debit,
+  `credit_note_to_credit`, same amount, `tax_note_id`) and one `credit_ledger` row (+amount, reason `credit_note`,
+  `tax_note_id`). A credit note settled by refund writes the refund `transactions` row with `tax_note_id`, in place of
+  today's `refund` adjustment. **MUST**
+- **Balance invariant:** an invoice's balance is ≥ 0 at every commit. The settlement parts of a credit note sum to its
+  total: balance reduced + account credit + refunds. **MUST**
+- Schema: `tax_note_id` (nullable FK, restrictOnDelete) on `invoice_adjustments`, `transactions` and
+  `credit_ledger`; `invoice_item_id` (nullable) on `invoice_adjustments`.
 
 ### 4.5 Numbering
 
-- New sequences in `DocumentNumbers`: `credit_note` and `debit_note`, each gap-free, locked `FOR UPDATE`, consumed in
-  the same transaction that writes the note. There are no draft notes: staff see a preview, confirm, and the note is
-  numbered on commit. **MUST**
-- Formats `billing.credit_note_format: "CN-{NUMBER}"`, `billing.debit_note_format: "DN-{NUMBER}"`, own padding, reset
-  `never` by default. Never shared with the invoice sequence (a shared sequence leaves gaps in invoice numbers, the
-  known flaw of the WHMCS add-on approach). **MUST**
-- Tokens `{BS_YEAR}`, `{BS_FY}` (`2083-84`) and reset `bs_fiscal_year` for invoices and notes alike. **SHOULD**, built
-  only after the owner's answer on fiscal-year numbering (D2).
+- `DocumentNumbers` gets sequences `credit_note` and `debit_note`, each gap-free and consumed in the transaction that
+  writes the note. There are no draft notes: staff see a preview, confirm, and the note is numbered on commit. A
+  rolled-back note consumes no number (the nested transaction is a savepoint and the sequence row stays locked until
+  the outer commit). **MUST**
+- Per-sequence settings: today `number_padding`, `number_reset` and `number_increment` are read globally for every
+  sequence except quotes. Notes get their own: `billing.credit_note_format: "CN-{NUMBER}"`,
+  `billing.debit_note_format: "DN-{NUMBER}"`, and `*_padding`, `*_reset` (default `never`), `*_increment`. The two
+  formats must differ (validated). Notes never share the invoice sequence. **MUST**
+- `issue_date` and the `{YEAR}`/`{MONTH}`/`{DAY}` tokens use the company clock (`App\Contracts\Core\CompanyClock`,
+  setting `system.timezone`, ADR 0013 Amendment 1), not `CarbonImmutable::today()` in UTC, for invoices and notes
+  alike; `DocumentNumbers::next()` takes the date from its caller. Otherwise a document issued between 00:00 and 05:45 Nepal time gets the
+  previous day and, on the first of a BS month, the previous VAT period. **MUST**
+- Tokens `{BS_YEAR}`, `{BS_FY}` and reset `bs_fiscal_year`: only if D2 is decided that way. **SHOULD**
 
 ## 5. Flows
 
 ### 5.1 Issue a credit note (staff)
 
-1. From a tax invoice: "Issue credit note". Choose **by line** (each open line with quantity or amount up to what is
-   left to credit on it) or **by amount** (one gross amount). **MUST**
-2. Tax comes from the invoice's own snapshotted rates and inclusive/exclusive mode, never from current tax rules. By
-   line: per-line tax prorated from the line's tax. By amount: split across taxable and exempt value, and across tax
-   levels, in the invoice's proportions. Rounding half-up per line; the note that brings an invoice's credited total to
-   its full value takes the exact remainder, so a fully credited invoice nets to zero tax to the paisa. **MUST**
-3. Caps: per line, credited ≤ line gross − earlier credits on that line; per invoice, Σ credit notes ≤ total + Σ debit
-   notes. Over-cap requests are refused with the amount still creditable. **MUST**
-4. Reason code and client-visible text are required. Preview shows the note, the new invoice balance and the
-   settlement (§5.3). Confirm requires a recent password (step-up, ADR 0018). **MUST**
-5. On commit, one transaction under the lock order payment → invoice → client (ADR 0021): number, note, lines,
-   adjustment row, cached totals, settlement postings, activity entry; then `TaxNoteIssued` after commit (§10). **MUST**
-6. The client gets the "Credit note issued" email with the PDF, unless staff untick "Send to client". **SHOULD**
+1. From a tax invoice: "Issue credit note". **By line**: each open line with quantity or amount up to what is left to
+   credit on it. **By amount**: one gross amount, allocated to lines pro rata to each line's remaining creditable gross,
+   half-up, the rounding difference to the line with the most remaining. **MUST**
+2. Tax per note line comes from the invoice's snapshotted rates and inclusive/exclusive mode, never from current tax
+   rules. **Remainder rule**, per line and per tax level: when a line's credited gross reaches its full value, that note
+   line takes exactly the line's remaining net, tax1 and tax2 (after earlier notes and old-style value adjustments,
+   prorated as in §4.4). A fully credited invoice then nets to zero value and zero tax to the paisa. **MUST**
+3. Caps, checked under the invoice lock: per line, credited ≤ line gross − earlier value credits on that line; per
+   invoice, Σ value credits after numbering ≤ `fiscal_total` + Σ value debits after numbering. Value credits include
+   the old reasons and refunds reserved but not yet finalised (§5.3). Over-cap requests are refused with the amount
+   still creditable. **MUST**
+4. Reason code and client-visible text are required. The preview shows the note, the new balance and the settlement.
+   **MUST**
+5. **Confirm then apply (ADR 0021 §1):** the confirm carries the invoice `version` and a digest of the previewed lines,
+   amounts, tax and settlement. The issuer locks, recomputes allocation, caps and tax, and refuses with "The invoice
+   changed; review the note again" if the version or the digest differs. Confirm requires a recent password (ADR 0018).
+   **MUST**
+6. Lock order: payment(s) in id order → invoice → client (credit ledger) → sequence row last (the sequence row is
+   install-wide). This extends ADR 0021 §3; PR 1 updates the ADR. **MUST**
+7. On commit, in one transaction: number, note, lines, the rows of §4.4, cached totals, activity entry; then the event
+   after commit (§10). A settlement by gateway refund follows §5.3 instead. **MUST**
+8. The client gets the "Credit note issued" email with the PDF, unless staff untick "Send to client". **SHOULD**
 
-### 5.2 Automatic notes
-
-- **Cancel a tax invoice** (staff, bulk, order cancel, or automation step 4 auto-cancel): instead of the unnumbered
-  `cancellation` adjustment, a credit note `invoice_cancelled` for the remaining uncredited value is issued, with the
-  reason text from the cancel dialog or "Cancelled automatically: unpaid N days after the due date". Credit applied to
-  the invoice is returned as today. **MUST**
-- **Cancel lines** on a tax invoice: one credit note `lines_cancelled` with one line per cancelled line. **MUST**
-- **Late fee** on a tax invoice: a debit note `late_fee` instead of the `late_fee` adjustment, taxable per
-  `billing.tax.apply_to`. **MUST**
-- **Reopen** a cancelled tax invoice is refused once a credit note exists (already the rule in `billing.md` §2);
-  staff use "Reissue" (new invoice). **MUST**
-- **Reverse a mistaken credit note**: a debit note `reverses_credit_note` for the same amount and tax, referencing the
-  same invoice; the PDF names the credit note it reverses. Notes are never deleted or edited. **MUST**
-
-### 5.3 Settlement of a credit note
+### 5.2 Settlement of a credit note
 
 The credit first reduces what the invoice still owes; only what exceeds the balance (money already received) needs a
-destination. Staff choose it in the preview. Owner decision D3 (2026-10-22): account credit is pre-selected and the
-refund options are one click away.
+destination. Owner decision D3 (2026-10-22): account credit is pre-selected; the refund options are one click away.
 
-| Invoice state           | Credit up to the balance | Credit above the balance (money already paid)                                                                                                                                                                             |
-| ----------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unpaid, no payments     | reduces the balance      | not possible (cap)                                                                                                                                                                                                        |
-| Partly paid             | reduces the balance      | account credit, or refund                                                                                                                                                                                                 |
-| Paid / payment received | —                        | account credit (`credit_ledger` reason `credit_note`), or refund to the original method (gateway refund, same rules as `billing.md` §4.7), or "refunded outside" (record-only, method and reference required), or a split |
+| Invoice state        | Up to the balance   | Above the balance (money already received)                                                                                        |
+| -------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Unpaid, no payments  | reduces the balance | not possible (cap)                                                                                                                |
+| Partly paid (legacy) | reduces the balance | account credit, or refund                                                                                                         |
+| Paid                 | —                   | account credit (§4.4 rows), refund through the gateway (§5.3), or "refunded outside" (record-only, method and reference required) |
 
-- `settlement` json on the note records each part: `{balance: n, account_credit: n, refunds: [{transaction_id, mode}]}`.
-  The parts sum to the note total. **MUST**
-- A gateway refund that fails leaves the note issued and the amount as account credit, with a staff to-do "Credit
-  note refund failed"; the note itself never rolls back once numbered. **MUST**
-- Status: a credit note that brings an unpaid invoice's balance to zero with no payment is a cancellation (§5.2); with
-  payments covering the rest, the invoice is `paid` as today. When refunds through notes equal `amount_paid`, the
-  invoice is `refunded` as today. **MUST**
+- Status: a note that brings an unpaid invoice to zero with no payment is a cancellation (§5.4). With payments covering
+  the rest, the invoice is `paid`, as today. When refunds through notes bring `amount_paid` to 0 on a paid invoice, it
+  is `refunded`, as today. A paid invoice settled to account credit stays `paid`, balance 0, labelled "Credited" or
+  "Partly credited". **MUST**
+- Once a credit note has used up an invoice's value, a later refund of its payment cannot go through a note (cap) and
+  is refused, so a client cannot get both account credit and a refund for the same sale. Refunding the account credit
+  itself is a separate, existing action. **MUST**
 
-### 5.4 Refunds in Nepal VAT mode
+### 5.3 Refund settlement: refund first, note on success
 
-- Refunding money that paid a tax invoice changes the sale, so the refund dialog opens the credit-note form
-  pre-filled with "refund" settlement. A refund of money that went to account credit (overpayment, deposit) is a plain
-  refund with no note. **MUST** (assumption A4)
-- A chargeback does not issue a note: the sale stands until staff decide (issue a note if the money is lost for good,
-  or leave it if the dispute is won). The "Disputes to review" to-do says so. **SHOULD** (assumption A5)
-- "Mark paid" write-offs keep the sale in the register (no bad-debt relief assumed, A6).
+Decision on B1, as ADR 0024 §5: **a failed refund issues no note.** The three phases of `RefundTransaction` are kept:
+
+1. **Reserve** (one transaction, locks in §5.1 order): validate cap and digest, reserve the refund as a pending
+   `transactions` row carrying the intended note's reason, lines digest and `tax_note_id` null. The pending refund
+   counts against the invoice cap, so a concurrent note cannot use the same value. No number is taken. **MUST**
+2. **Call the provider**, outside any transaction. **MUST**
+3. **Finalise** (one transaction): on success, issue the note (number, lines, value adjustment), mark the refund
+   succeeded with `tax_note_id`, reduce `amount_paid`, set the status, write the activity entry; event after commit.
+   On refusal, mark the refund failed and release the reservation as today; **no note exists**, and staff see "The
+   gateway refused the refund. Retry, record a refund made outside, or credit the account instead." **MUST**
+
+"Refunded outside" and account credit have no network step and are issued in one transaction (§5.1 step 7). §9's
+immutability is untouched: nothing on a note changes after it is numbered.
+
+### 5.4 Every existing path that changes a tax invoice
+
+| Path on `develop`                                                                                | Writes today                                                                | In Nepal VAT mode, on a tax invoice                                                                                                                                                                                                                                                                                           | Reason code / text                                                    | Actor               | Settlement                                          |
+| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------- | --------------------------------------------------- |
+| Staff cancel, single or bulk (`InvoiceActionController` → `CancelInvoice`)                       | credit `cancellation` = balance; applied credit returned (`credit_removed`) | credit note for the open balance. Applied credit is returned first, as today, and is **not** part of the note. Payments stay on the invoice; refunding them later is a further note (row "staff refund")                                                                                                                      | `invoice_cancelled` / the cancel dialog's note, required in the mode  | staff               | balance                                             |
+| Auto-cancel (`BillingAutomation` step 4)                                                         | credit `cancellation`                                                       | credit note; auto-cancel already picks only invoices with no payments and no applied credit                                                                                                                                                                                                                                   | `invoice_cancelled` / "Automatically cancelled after N days overdue." | automation          | balance                                             |
+| `Invoicer::cancel` (Orders `CancelOrder`, Domains `RenewalInvoices`)                             | as `CancelInvoice`, no reason                                               | credit note, as staff cancel                                                                                                                                                                                                                                                                                                  | `invoice_cancelled` / "Cancelled by <module>" (ADR 0024 §7)           | automatic (module)  | balance                                             |
+| Cancel lines (`CancelInvoiceItems`)                                                              | credit `item_cancellation` per line                                         | one credit note with one line per cancelled line. If the selection cancels the last open line, the action issues a single `invoice_cancelled` note for it and calls `CancelInvoice` in a mode that writes no further value adjustment: **one note, not two**                                                                  | `lines_cancelled` or `invoice_cancelled` / staff text, required       | staff               | balance                                             |
+| Late fee (`ApplyLateFee`)                                                                        | debit `late_fee`                                                            | debit note                                                                                                                                                                                                                                                                                                                    | `late_fee` / "Late payment fee"                                       | automation          | adds to the balance                                 |
+| Reopen (`ReopenInvoice`)                                                                         | debit `cancellation`                                                        | refused for every tax invoice. Staff raise a new invoice instead. ("Reissue" is not built; `billing.md` §10 lists it only.)                                                                                                                                                                                                   | —                                                                     | —                   | —                                                   |
+| Staff refund of a payment (`RefundTransaction`, gateway, record-only or to credit)               | on a paid invoice: credit `refund`                                          | split as the callback does, credit first: the part up to the account credit that payment placed (overpayment) is a plain refund with no note; the rest is the invoice part and goes through a credit note (§5.3)                                                                                                              | `refunded` / staff text, required                                     | staff               | refund (or account credit when mode is "to credit") |
+| Provider-initiated refund (`GatewayCallbackHandler::refunded` → `RefundTransaction` record-only) | on a paid invoice: credit `refund`                                          | the callback already takes credit back first; the invoice part becomes an **automatic** credit note in the same transaction as the refund row. If the cap is used up (the sale was already credited to account), the callback also takes back the credit that note placed; anything left goes to "Gateway payments to review" | `refunded_at_provider` / "Refunded at <gateway> (<refund id>)"        | automatic (gateway) | refund (record-only)                                |
+| Refund of a payment on an unpaid invoice                                                         | no adjustment; balance goes up                                              | no note: the sale is unchanged, the client owes again                                                                                                                                                                                                                                                                         | —                                                                     | —                   | —                                                   |
+| Chargeback (`RecordChargeback`) and dispute won                                                  | no adjustment (`amount_paid` changes, status `collections`)                 | no note; staff decide later (A5)                                                                                                                                                                                                                                                                                              | —                                                                     | —                   | —                                                   |
+| Mark paid (`MarkInvoicePaid`, `write_off`), apply or remove credit, overpayment                  | settlement adjustments                                                      | no note; the sale keeps its value (A6)                                                                                                                                                                                                                                                                                        | —                                                                     | —                   | —                                                   |
+| `manual`, `chargeback` adjustment reasons                                                        | defined in `AdjustmentReason`, no writer on `develop`                       | must not be written on a tax invoice; any value change goes through the note issuer (architecture test)                                                                                                                                                                                                                       | —                                                                     | —                   | —                                                   |
+
+- Proforma invoices keep today's behaviour on every path (no note, nothing in the register). **MUST**
+- Each row is a **MUST**; the architecture test (`tests/Arch`) checks that only the note issuer writes value
+  adjustments on numbered invoices while the mode is on.
+
+### 5.5 Reverse a mistaken credit note
+
+A debit note `reverses_credit_note` for the same lines, amounts and tax, against the same invoice; its PDF names the
+credit note it reverses. Notes are never deleted or edited. Where the credit note credited the account, the reversal
+takes that credit back (ledger row with `tax_note_id`, allowed negative as other reversals). **MUST**
 
 ## 6. VAT sales register
 
 ### 6.1 Rows and basis
 
-- One row per tax invoice whose `issue_date` falls in the period, plus one row per credit note (negative amounts) and
-  debit note (positive) whose `issue_date` falls in the period, ordered by date then number. Notes count in their own
-  period, not the invoice's (F5). **MUST**
-- Basis is the document date, never the payment date or cash. In proforma mode a tax invoice's date is its payment
-  date because that is when it was numbered. **MUST**
-- Excluded: drafts, proforma-only invoices, add-funds invoices, the zero-amount dispute rows. Cancelled tax invoices
-  stay in their own period (the sale was made) and the cancelling credit note sits in its period. **MUST**
+- One row per tax invoice whose stored `bs_period` (or `issue_date`, for an AD range) falls in the period, plus one
+  row per credit note (negative) and debit note (positive) in the period, ordered by date then number. Notes count in
+  their own period, not the invoice's (F5, assumption). **MUST**
+- Amounts are the invoice's numbering snapshot (§4.1) and the notes' own amounts, never the live invoice totals. **MUST**
+- Basis is the document date, never cash. In proforma mode a tax invoice's date is its payment date (company clock),
+  because that is when it was numbered. **MUST**
+- Only documents dated on or after `nepal_vat.enabled_from` appear; earlier periods are not offered. Drafts, proforma
+  invoices and add-funds invoices never appear. A cancelled tax invoice stays in its own period and its credit note
+  sits in the note's period. **MUST**
 
 ### 6.2 Columns (on screen and in exports)
 
@@ -216,268 +292,312 @@ Header block: seller PAN, seller legal name, BS fiscal year, tax period (BS mont
 
 | #   | Column                          | Source                                                                                   |
 | --- | ------------------------------- | ---------------------------------------------------------------------------------------- |
-| 1   | Date (BS)                       | `BikramSambat::fromAd(issue_date)` as `YYYY.MM.DD`                                       |
+| 1   | Date (BS)                       | stored `bs_issue_date`                                                                   |
 | 2   | Date (AD)                       | `issue_date`, ISO 8601                                                                   |
 | 3   | Document type                   | Tax invoice, Credit note, Debit note                                                     |
 | 4   | Document number                 | invoice `number` or note `number`                                                        |
 | 5   | Reference invoice               | notes only: invoice number and its BS date                                               |
 | 6   | Buyer name                      | snapshot company, else name                                                              |
-| 7   | Buyer PAN                       | snapshot `tax_id`; blank when missing (owner decision 10-22: warn, never block)          |
+| 7   | Buyer PAN                       | snapshot `tax_id`; blank when missing (assumption A11)                                   |
 | 8   | Goods or service                | first line description, "+ n more" when several; the full lines are in the detail export |
-| 9   | Quantity, 10 Unit               | sum of line quantities and "service" when the lines share one unit; blank otherwise      |
-| 11  | Total sales (Rs)                | taxable + exempt + export value, in NPR                                                  |
-| 12  | Exempt sales (Rs)               | value of untaxed lines and of tax-exempt clients, NPR                                    |
-| 13  | Taxable sales value (Rs)        | taxable net, NPR                                                                         |
-| 14  | VAT (Rs)                        | tax1 + tax2, NPR                                                                         |
-| 15  | Export value (Rs)               | value of documents classified as export (D6), NPR                                        |
+| 9   | Quantity                        | sum of line quantities when the lines share one unit; blank otherwise                    |
+| 10  | Unit                            | "service" when the lines share it; blank otherwise                                       |
+| 11  | Total sales (Rs)                | taxable + exempt + export value, in the reporting currency                               |
+| 12  | Exempt sales (Rs)               | `fiscal_exempt` / note `exempt_amount`                                                   |
+| 13  | Taxable sales value (Rs)        | `fiscal_taxable` / note `taxable_amount`                                                 |
+| 14  | VAT (Rs)                        | tax1 + tax2                                                                              |
+| 15  | Export value (Rs)               | value of documents with `supply_class = export`                                          |
 | 16  | Export country                  | buyer country for exports                                                                |
-| 17  | Export declaration no. and date | blank for services; editable later only if the owner says hosts record one (A8)          |
-| 18  | Currency, amount, rate          | for non-NPR documents: original currency, total and `npr_rate`                           |
+| 17  | Export declaration no. and date | blank for services (A8)                                                                  |
+| 18  | Currency, amount, rate          | for documents not in the reporting currency: original currency, total and `report_rate`  |
 
-- Columns 1, 4, 6, 7, 8, 9–17 map one to one to the prescribed sales-book columns (F2); 2, 3, 5 and 18 are additions
-  the template does not have, placed after them in the IRD-layout export (§7). **MUST**
-- Money in rupees with two decimals; conversion per document, half-up, then summed (as `reports.md` §2). **MUST**
+- Mapping to the prescribed columns (F2): 1, 4, 6, 7, 8, 9, 10, 11, 12, 13 and 14, 15, 16 are one template column
+  each; 17 covers two template columns (declaration number and date), which the IRD-layout export writes separately.
+  2, 3, 5 and 18 are our additions, placed after the template's columns in the IRD-layout export (§7). **MUST**
+- Money in rupees with two decimals; conversion per document with its stored `report_rate`, half-up, then summed.
+  **MUST**
 
 ### 6.3 Periods and totals
 
 - Monthly: a BS month picker defaulting to the last closed BS month. Annual: BS fiscal year (1 Shrawan – end Asar).
-  Custom: any AD date range. Monthly is the default view in Nepal VAT mode. **MUST**
-- Footer totals: total sales, exempt, taxable, VAT, export, each split into invoices, credit notes and debit notes, and
-  the net. A "Return figures" box shows the net taxable sales, net VAT on sales, exempt sales and export sales the
-  accountant types into the monthly return, with the note "Sales side only; purchases and input VAT are not in this
-  product". **MUST**
+  Custom: any AD date range. **MUST**
+- Footer totals: total sales, exempt, taxable, VAT, export, each split into invoices, credit notes and debit notes,
+  and the net. A "Return figures" box shows net taxable sales, net VAT on sales, exempt sales and export sales for the
+  monthly return, with the note "Sales side only; purchases and input VAT are not in this product". **MUST**
 - Invariant tested on every period: net VAT = Σ invoice VAT − Σ credit-note VAT + Σ debit-note VAT, exactly in paisa.
-  **MUST**
+  It holds because every row is a snapshot or a note and no old-style row can fall after `enabled_from` (§3). **MUST**
 - Annual view: one row per BS month with the same totals, plus the full detail in the export. **MUST**
-- Warnings above the table (not blocking): business buyers without a PAN, documents outside the BS table range, and
-  non-NPR documents without a rate. **SHOULD**
+- Warnings above the table (not blocking): business buyers without a PAN, and documents not in the reporting currency
+  whose `report_rate` came from a manually entered rate. **SHOULD**
 
 ### 6.4 Credit and debit note register (Rule 20(2) monthly account)
 
-A second tab with the same periods listing notes only: number, BS and AD date, type, reference invoice number and BS
-date, buyer, PAN, reason code and text, taxable, exempt, VAT, total, settlement summary, created by. **MUST**
+A second tab with the same periods, listing notes only: number, BS and AD date, type, reference invoice number and BS
+date, buyer, PAN, reason code and text, taxable, exempt, VAT, total, settlement summary (read from the rows with
+`tax_note_id`), created by or "automatic". **MUST**
 
 ## 7. Export formats
 
-- **CSV (detail)**: one row per document as §6.2, English headings, UTF-8 **with BOM** by default for this report
-  (Excel on Windows otherwise garbles Nepali names; overrides `reports.csv_bom` for this key only), formula-injection
-  guard and activity entry as `reports.md` §7. **MUST**
-- **CSV (IRD layout)**: the prescribed columns in the prescribed order with the Nepali headings of the template,
-  header block rows for PAN, name, year and period, then our extra columns. **MUST**
-- **PDF**: A4 landscape through the existing PDF renderer, header block, BS period, page totals and grand totals,
-  "Printed by <staff> at <time>", the brand from `BrandProvider`. For a self-certified annual book. **MUST**
-- No XLSX. Owner decision D4 (2026-10-22): CSV (detail and IRD layout) plus PDF; XLSX waits until the IRD portal
-  needs an upload (§16).
-- Large exports (> `reports.sync_export_max_rows`) are queued as in `reports.md` §7. **SHOULD**
-- Note PDF: titled "Credit Note" / "Debit Note", seller name, address and PAN/VAT number, buyer name, address and PAN,
-  note number, BS and AD date, "Against tax invoice <number> dated <BS date> (<AD date>)", reason, lines, taxable,
-  VAT, total, settlement line ("Credited to your account", "Refunded to eSewa", …). **MUST**
+Owner decision D4 (2026-10-22): CSV (detail and IRD layout) plus PDF; no XLSX until the IRD portal needs an upload.
+Exports go through the kernel pipeline of ADR 0025; Billing provides `VatRegisterReport` and `TaxNoteRegisterReport`
+(the `Report` contract with `ProvidesTotals`, `ProvidesHeaderBlock` and `ProvidesLayouts`) and builds no export of its
+own.
+
+- **CSV, layout `detail`**: one row per document as §6.2, English headings, UTF-8 with BOM by default for these
+  reports (Excel on Windows otherwise garbles Nepali names). Written by `SafeCsv`: the formula guard applies to text
+  cells only, so a credit-note amount of `-1300.00` stays a number. **MUST**
+- **CSV, layout `ird`**: the prescribed columns in the prescribed order with the template's Nepali headings, the header
+  block as leading rows (PAN, name, year, period), then our extra columns. **MUST**
+- **PDF**: the kernel report view (A4 landscape, header block, page and grand totals, "Printed by <staff> at <company
+  time>", brand from `BrandProvider`). **MUST**
+- Sync up to `reports.sync_export_max_rows`, queued above it with a 24-hour signed link, and one `report.exported`
+  activity entry per export: all done by the pipeline (ADR 0025 §3, §5). **MUST** (sync) / **SHOULD** (queued)
+- Note PDF (Billing's own document view, beside the invoice PDF): titled "Credit Note" / "Debit Note", seller name,
+  address and PAN/VAT number, buyer name, address and PAN, note number, BS and AD date, "Against tax invoice <number>
+  dated <BS date> (<AD date>)", reason, lines, taxable, VAT, total, settlement line ("Credited to your account",
+  "Refunded to eSewa", …). **MUST**
 
 ## 8. Admin and client capabilities
 
 Admin:
 
-- Invoice page: "Issue credit note" and "Issue debit note" (tax invoices only), a Notes panel listing the invoice's
-  notes with links and the remaining creditable amount. **MUST**
-- Billing → Credit notes: list with filters (kind, period BS/AD, client, reason, settlement), view, PDF, resend. **MUST**
-- Billing → VAT register: §6 with the two tabs and exports. **MUST**
+- Invoice page: "Issue credit note" and "Issue debit note" (tax invoices only, mode on), a Notes panel listing the
+  invoice's notes and the remaining creditable amount. **MUST**
+- Billing → Credit notes: list with filters (kind, period BS/AD, client, reason, settlement, automatic), view, PDF,
+  resend. **MUST**
+- Billing → VAT register: §6 with the two tabs and the exports. **MUST**
 - Client page: the client's notes beside invoices. **SHOULD**
 
 Client area:
 
-- Invoice page lists its notes; Billing → Credit notes lists the client's notes with PDF download. **MUST**
-- Clients never create notes. **MUST**
+- Invoice page lists its notes; Billing → Credit notes lists the client's notes with PDF download. Clients never
+  create notes. **MUST**
 
 ### 8.1 Permissions (registered in `PermissionRegistry`)
 
-| Key                               | Grants                                                         | Sensitive (step-up) |
-| --------------------------------- | -------------------------------------------------------------- | ------------------- |
-| `billing.tax_notes.view`          | see notes in admin, download their PDFs                        | no                  |
-| `billing.tax_notes.issue`         | issue credit and debit notes (settlement to credit or balance) | yes                 |
-| `billing.refunds.manage` (exists) | additionally required when a note's settlement refunds money   | yes                 |
-| `billing.vat_register.view`       | see the register and the note register                         | no                  |
-| `billing.vat_register.export`     | export CSV and PDF                                             | no                  |
+| Key                                          | Grants                                                         | Sensitive (step-up) |
+| -------------------------------------------- | -------------------------------------------------------------- | ------------------- |
+| `billing.tax_notes.view`                     | see notes in admin, download their PDFs                        | no                  |
+| `billing.tax_notes.issue`                    | issue credit and debit notes (settlement to balance or credit) | yes                 |
+| `billing.refunds.manage` (exists)            | additionally required when a note's settlement refunds money   | yes                 |
+| `reports.vat_register.view`                  | see the register (registered by the report registry)           | no                  |
+| `reports.vat_register.export`                | export it in any format                                        | yes (ADR 0025 §4)   |
+| `reports.tax_note_register.view` / `.export` | the same for the note register                                 | export: yes         |
 
-- Full Administrator has all; the seeded Billing role gets `view`, `issue`, `vat_register.*`; Support gets none.
-  Automatic notes (§5.2) need only the permission of the action that triggers them (`billing.invoices.manage`). **MUST**
+- Full Administrator has all; Billing's seeder grants the seeded Billing role `billing.tax_notes.*` and both reports'
+  keys; Support gets none.
+  Notes written by existing paths (§5.4) need only the permission of the action that triggers them. **MUST**
 
 ## 9. Audit and immutability
 
-- A numbered note is never updated or deleted, except `print_count`, `cbms_status` and `cbms_reference`. The model
-  refuses other changes (`ImmutableInvoiceException`), and a PostgreSQL trigger rejects UPDATE of any other column and
-  any DELETE on `tax_notes` and `tax_note_lines`, so a console or a future bug cannot alter a filed document. **MUST**
-  (model) / **SHOULD** (trigger; architect to confirm triggers fit the conventions)
-- The same trigger guard covers the legal fields of numbered invoices (number, issue date, lines, amounts, tax,
-  snapshots). **SHOULD**
+- A numbered note and its lines are never updated or deleted, except `print_count`, `cbms_status` and
+  `cbms_reference`. The model refuses other changes (`ImmutableInvoiceException`); `restrictOnDelete` on the note's
+  foreign keys stops a cascade from an invoice or client delete. **MUST**
+- Database triggers are not used in this version: the codebase has none, SQLite CI cannot exercise them, and an
+  invoice trigger would need to allow the proforma → numbered transition. ADR 0024 §9 defers them to their own ADR.
 - Activity log entries (`ActivityLogger`): `billing.tax_note.issued` (number, kind, invoice, total, settlement, staff
-  or "automation"), `billing.tax_note.emailed`, `billing.tax_note.printed` (with the new print count),
-  and `report.exported` with key `vat_register` or `tax_note_register`,
-  period and row count. Viewing the register is not logged. **MUST**
+  or "automatic"), `billing.tax_note.emailed`, `billing.tax_note.printed` (with the new print count),
+  `billing.nepal_vat.enabled` / `.changed`; exports are logged by the pipeline as `report.exported`. Viewing the
+  register is not logged. **MUST**
 - Print marking: the first PDF download of an invoice or note is the original; later ones carry "Copy of original —
-  print n" in the header, in Nepal VAT mode (F7). Admin and client downloads both count. **SHOULD** (A7)
-- Retention: notes, invoices and their PDFs are never pruned by any cleanup job; the KYC 90-day deletion never
-  touches billing documents. Six years minimum (F1). **MUST**
+  print n" in the header, in the mode (F7, assumption A7). Admin and client downloads both count. **SHOULD**
+- Retention: notes, invoices and their PDFs are never pruned by any cleanup job; the KYC 90-day deletion never touches
+  billing documents. Six years minimum (F1). **MUST**
 
-## 10. Events (`app/Events/Billing`, kernel change made by the CTO session)
+## 10. Events (`app/Events/Billing`, kernel change made by the CTO session in PR 0)
 
-Emitted:
+Emitted after commit, as defined in ADR 0024 §6 (`DomainEvent`, `ShouldDispatchAfterCommit`, the int + currency
+pattern of `InvoiceRefunded`):
 
-- `TaxNoteIssued(int $taxNoteId, int $invoiceId, int $clientId, string $kind, int $total, string $currency, bool
-  $automatic)` after commit, once per note. **MUST**
+- `CreditNoteIssued(int $taxNoteId, string $number, int $invoiceId, int $clientId, int $total, string $currency,
+  bool $automatic)` **MUST**
+- `DebitNoteIssued(...)` with the same fields. **MUST**
 - Existing events keep their meaning: `InvoiceCancelled` still fires on cancellation (after the note),
-  `InvoiceModified` when a partial note changes the balance, `InvoiceRefunded` when a note refunds money, and
+  `InvoiceModified` when a partial note changes the balance, `InvoiceRefunded` when a note refunds money,
   `LateFeeApplied` for a late-fee debit note. **MUST**
 
 Consumed by:
 
 - Notifications: "Credit note issued" / "Debit note issued" email with the PDF; webhook events `credit_note.issued`
-  and `debit_note.issued`; merge fields `tax_note.*` through `MergeFieldRegistry`. **MUST** (email) / **SHOULD**
-  (webhook)
-- Affiliates: none; commission reversal stays on `PaymentReversed` and refunds. A credit note without a refund does
-  not reverse commission (owner can revisit).
-- Services: none. A note never suspends or cancels a service; staff do that separately.
+  and `debit_note.issued` (one class to one key in `WebhookEventTypes::MAP`); merge fields `tax_note.*` through
+  `MergeFieldRegistry`. **MUST** (email) / **SHOULD** (webhooks)
+- Affiliates and Services: none. Commission reversal stays on `PaymentReversed`; a note never suspends or cancels a
+  service.
 
-Billing consumes nothing new.
+**Behaviour change under ADR 0010 (ADR 0024 §7):** `Invoicer::cancel()` can now create a legal document (a credit
+note) when the mode is on. PR 3 updates its docblock and lists the change in `docs/architecture/kernel-changelog.md`;
+the signature is unchanged (a trailing `?string $reason = null` can come later).
 
-## 11. Integration (ADR 0008 contracts) and CBMS readiness
+## 11. Integration (ADR 0008 contracts), ADRs and CBMS readiness
 
-- `Invoicer` and `InvoiceQueries`: unchanged. Reports reads `tax_notes` and the register query directly from Billing
-  (Billing owns the screen), so no new cross-module read contract is needed now.
-- `ExchangeRateSource` (existing) supplies `npr_rate` at numbering.
-- `BikramSambat` stays in `App\Modules\Billing\Support`; it gains `fiscalYear(DateTimeInterface): string` and
-  `period(DateTimeInterface): string`. If another module needs BS dates it moves to `app/Support` (kernel) then.
-- **CBMS** is not built (owner decision D5, 2026-10-22). The data model is ready for it: BS date, fiscal year in the CBMS form,
-  buyer PAN, the amount split CBMS expects, the reference invoice and reason on notes, and `cbms_status` columns. A
-  later driver would post each tax invoice and note through an outbox, retry by invoice number (CBMS rejects a
-  duplicate bill), and never retry a note blindly (CBMS accepts duplicate notes, F9).
+- `Invoicer` (behaviour change above) and `InvoiceQueries`: no signature change. Reports reads `tax_notes` and the
+  register query from Billing, so no new cross-module read contract is needed now.
+- `CurrencyConverter::rate()` (Billing, stored rates) supplies `report_rate`; the remote `ExchangeRateSource` is
+  never called at numbering.
+- `BikramSambat` stays in `App\Modules\Billing\Support` and gains `fiscalYear()` and `period()`; it moves to the kernel
+  only when a second module needs it.
+- **Prerequisite (PR 0):** the `App\Contracts\Core\CompanyClock` contract and Billing's issue dates and numbering on it
+  (ADR 0013 Amendment 1, fiscal-document call sites first); the report registry, `ReportExporter` and `SafeCsv`
+  (ADR 0025); the two events (ADR 0024 §6).
+- **ADRs this spec builds on** (Proposed in #329): ADR 0024 "Fiscal documents and correction notes" (immutability,
+  numbering, the value snapshot, caps and rounding, lock order, refund order, mode switch, triggers deferred); ADR 0025
+  "Report registry and one export pipeline"; ADR 0013 Amendment 1. Where this spec and an ADR differ, the ADR wins,
+  except the stricter `enabled_from` rule of §3, which the architect is asked to confirm.
+- **CBMS** is not built (owner decision D5, 2026-10-22). The model is ready for it: BS date, the fiscal year in the
+  CBMS form, buyer PAN, the amount split CBMS expects, the reference invoice and reason on notes, `cbms_status`
+  columns. A later driver would post through an outbox, retry a bill by its invoice number, and never retry a note
+  blindly (F9).
 
 ## 12. Edge cases
 
-- **Invoice in USD to a client abroad**: register converts with the invoice's `npr_rate`; whether it is export
-  (zero-rated) or taxable depends on the tax rule that applied, not on the currency (D6).
+- **Invoice numbered before the mode** (legacy): takes notes like any other. Its cap includes the old-style value
+  adjustments; their tax is prorated from the snapshot at read time for the remainder rule. It is in the register only
+  if dated on or after `enabled_from`. Decision on B6: old-style rows are **excluded** from the tie-out by
+  construction, because `enabled_from` cannot precede any of them (§3); no backfill of their tax is written.
+- **Proforma with a late fee, then paid**: the snapshot includes the fee and its tax; the register shows the value paid
+  for, not the original total.
+- **Invoice in USD to a client abroad**: the register converts with the stored `report_rate`; whether it is export
+  depends on the stored `supply_class`, not on the currency (D6).
 - **Credit note in a later fiscal year** than the invoice: allowed; it sits in its own BS month and fiscal year and
   cites the old invoice and its BS date.
-- **BS date outside the table** (after 2095 BS): the document cannot be issued in Nepal VAT mode; staff see why. Until
-  then not reachable in practice.
-- **Partial payment then full cancellation**: the credit note covers the full uncredited value; the balance part
-  zeroes the invoice, the paid part goes to the chosen settlement.
-- **Concurrent notes** on one invoice: the invoice row lock serialises them; the cap is checked under the lock.
-- **Credit applied then invoice cancelled**: the applied credit returns to the account (as today) and the note
-  records `account_credit: n`, so the account is not credited twice.
-- **Tax rule changed** after the invoice: the note uses the invoice's snapshotted rates.
-- **Discount lines**: credited with their parent line, never on their own (a negative credit is not a credit note).
-- **Rounding**: last-note-takes-remainder keeps a fully credited invoice at exactly zero net and zero tax.
-- **Client changes PAN** after the invoice: the note keeps the invoice's buyer snapshot; the register shows the PAN
-  as invoiced.
-- **Imported invoices** (importer phase 2): imported tax invoices keep their WHMCS numbers and take notes like any
-  other; they appear in the register only for periods after the cut-over date (a setting on the import run).
-- **Mode switched on mid-year**: existing unnumbered adjustments are shown in the register as "Adjustment (before
-  credit notes)" rows in their own period so totals still tie; no back-numbering.
+- **Payment just after midnight Nepal time**: the company clock dates the tax invoice that day, in that BS month.
+- **Date outside the BS table** (after 2095 BS): no tax invoice or note can be numbered in the mode; staff see why.
+- **Partial payment, then cancel** (legacy or proforma off): the note covers the open balance; the payments stay, and
+  refunding them is a further note.
+- **Credit applied, then cancel**: the applied credit is returned through `credit_removed` as today and is not part of
+  the note; the note covers the balance after that return.
+- **Concurrent notes, or a note racing a payment or refund**: serialised by the lock order of §5.1; the cap is checked
+  under the lock and counts pending refund reservations. PR 1 ships the PostgreSQL race tests ADR 0021 §4 requires:
+  two notes on one invoice, a note against a payment, a note against a refund.
+- **Refund across several payments**: the payments are locked in id order before the invoice.
+- **Tax rule changed** after numbering: the note uses the invoice's snapshot rates.
+- **Discount lines**: credited with their parent line, never on their own.
+- **Client changes PAN** after the invoice: the note keeps the invoice's buyer snapshot.
+- **Imported invoices** (importer phase 2): imported tax invoices get the snapshot at import and take notes; they are
+  in the register only if dated on or after `enabled_from`.
 
 ## 13. Acceptance criteria
 
 MUST:
 
-1. Given Nepal VAT mode and a tax invoice of Rs 11,300 (10,000 + 13% VAT), when staff issue a full credit note, then
-   it is numbered `CN-1`, references the invoice number and its BS date, and has taxable 10,000.00 and VAT 1,300.00.
-2. Given two credit notes issued concurrently on different invoices, then they get consecutive distinct numbers with
-   no gap; a failed (rolled back) note consumes no number.
-3. Given a tax invoice with lines 5,000 and 6,300 gross, when staff credit only the second line, then the note has one
-   line and the invoice's creditable remainder is 5,000.
-4. Given a tax invoice of 11,300 already credited 11,000, when staff try to credit 400, then it is refused with
-   "300.00 can still be credited".
-5. Given three partial credit notes that together credit an invoice in full, then their VAT sums exactly to the
-   invoice VAT.
-6. Given a tax rule changed from 13% to 15% after the invoice, then a credit note on it uses 13%.
-7. Given a paid tax invoice and settlement "account credit", when the note is issued, then the client's credit rises
-   by the note total with ledger reason `credit_note` and the invoice stays paid and shows "Credited".
-8. Given settlement "refund to original method" on an eSewa or Stripe payment, then a refund transaction linked to the
-   note exists; if the gateway refund fails, the amount is account credit and a staff to-do exists, and the note is
-   unchanged.
-9. Given an unpaid tax invoice cancelled by staff, then a credit note `invoice_cancelled` is issued and no unnumbered
-   `cancellation` adjustment is written.
-10. Given automation auto-cancels an overdue tax invoice, then a credit note with created-by "automation" is issued and
-    `TaxNoteIssued` has `automatic = true`.
-11. Given Nepal VAT mode (proforma on, D1) and an unpaid proforma invoice, when it is cancelled, then no note is issued and nothing
-    appears in the register.
-12. Given a late fee added to a tax invoice, then a debit note `late_fee` is issued and the register shows it as a
-    positive row.
-13. Given a numbered note, when any code path updates its amount or deletes it, then the change is refused.
-14. Given a cancelled tax invoice with a credit note, then "Reopen" is refused and "Reissue" is offered.
-15. Given a refund of the invoice part of a payment in Nepal VAT mode, then the refund goes through a credit note; a
-    refund of an overpayment held as credit issues no note.
-16. Given an invoice dated in Kartik 2083 and its credit note dated in Mangsir 2083, then the Kartik register shows the
+1. Given the mode and a tax invoice of Rs 11,300 (10,000 + 13% VAT), when staff issue a full credit note, then it is
+   numbered `CN-1`, references the invoice number and its BS date, and has taxable 10,000.00 and VAT 1,300.00.
+2. Given two notes issued concurrently on different invoices, then they get consecutive distinct numbers; a rolled-back
+   note consumes no number.
+3. Given lines of 5,000 and 6,300 gross, when staff credit only the second, then the note has one line and 5,000 is
+   still creditable.
+4. Given an invoice numbered before the mode with a 1,000 `item_cancellation`, then at most total − 1,000 can be
+   credited.
+5. Given a note by amount, then by line, then by amount that together credit an invoice in full, then each note has
+   lines, and per line and per tax level they sum exactly to the invoice's snapshot.
+6. Given a tax rule changed from 13% to 15% after numbering, then a credit note on the invoice uses 13%.
+7. Given a paid invoice and settlement "account credit", then exactly these rows exist: a `credit_note` credit
+   adjustment, a `credit_note_to_credit` debit adjustment and a `credit_ledger` +amount row, all with `tax_note_id`;
+   the balance is 0 and the invoice is `paid` and "Credited".
+8. Given settlement by gateway refund and the provider refuses, then no note exists, no number is consumed, the refund
+   row is failed and the invoice is unchanged; given the provider succeeds, then the note and the succeeded refund row
+   with its `tax_note_id` commit together.
+9. Given a gateway refund reserved for a note and not yet finalised, when staff try a second note for the same value,
+   then it is refused by the cap.
+10. Given a provider-initiated refund of a paid tax invoice, then an automatic credit note `refunded_at_provider` with
+    the provider's refund id in its text is issued in the same transaction as the refund row.
+11. Given a paid invoice credited in full to account, when the provider later refunds the payment, then no note is
+    issued, the credit that note placed is taken back, and the rest goes to "Gateway payments to review".
+12. Given a payment of 12,000 on an 11,300 invoice (700 overpayment in credit), when staff refund 1,000, then 700 is a
+    plain refund and 300 goes through a credit note.
+13. Given a proforma with a 500 late fee (taxable) and one cancelled line, when it is paid, then `fiscal_*` equal the
+    totals plus those adjustments with their tax, and the register row shows the snapshot.
+14. Given a proforma paid at 00:30 Nepal time on 1 Kartik 2083 (still the previous day in UTC), then its issue date,
+    BS date and register period are 1 Kartik.
+15. Given a tax invoice numbered before the mode and cancelled by staff, by `Invoicer::cancel` and by auto-cancel, then
+    each issues one `invoice_cancelled` note with the reason text of §5.4 and no `cancellation` adjustment.
+16. Given cancel lines that cancels the last open line, then exactly one note is issued.
+17. Given a proforma invoice cancelled, then no note is issued and nothing appears in the register.
+18. Given a late fee on a tax invoice with proforma mode off, then a `late_fee` debit note is issued and shown as a
+    positive register row.
+19. Given any tax invoice in the mode, then "Reopen" is refused.
+20. Given a numbered note, when any model path updates its amount or deletes it, or deletes its invoice, then the change
+    is refused.
+21. Given a preview, when the invoice changes before confirm (a payment, another note), then the confirm is refused with
+    "The invoice changed; review the note again".
+22. Given a mistaken credit note to account credit, when staff reverse it, then a `reverses_credit_note` debit note with
+    the same lines and tax exists, the credit is taken back and the balance is where it was.
+23. Given an invoice dated in Kartik 2083 and its credit note in Mangsir 2083, then the Kartik register shows the
     invoice and the Mangsir register shows the note as a negative row.
-17. Given a register period, then net VAT equals Σ invoice VAT − Σ credit-note VAT + Σ debit-note VAT exactly, and the
+24. Given a register period, then net VAT equals Σ invoice VAT − Σ credit-note VAT + Σ debit-note VAT exactly, and the
     "Return figures" box shows the same numbers.
-18. Given the annual view for 2082/83, then it covers 1 Shrawan 2082 to the last day of Asar 2083 and has 12 month rows.
-19. Given a business client without a PAN, then the row exports with a blank PAN and the page shows a warning; nothing
-    is blocked.
-20. Given a USD invoice with `npr_rate` 134.25, then its register amounts are the USD amounts × 134.25, rounded per
-    document, and the original currency, amount and rate are in the extra columns.
-21. Given an add-funds invoice, a draft, or a zero-amount dispute row, then none appears in the register.
-22. Given the IRD-layout CSV, then its columns are in the prescribed order with the template's Nepali headings and the
-    header rows carry seller PAN, name, fiscal year and period.
-23. Given a buyer named `=HYPERLINK(...)`, then the CSV cell starts with `'=`; and every export writes `report.exported`
-    with period and row count.
-24. Given staff without `billing.tax_notes.issue`, then the issue buttons are absent and the endpoint returns 403; with
-    it but without a recent password, the confirm step asks for one.
-25. Given settlement "refund" and staff without `billing.refunds.manage`, then refund options are not offered.
-26. Given a client, then they see and download only their own notes; another client's note URL returns 404.
-27. Given a note issued, then an activity entry `billing.tax_note.issued` with number, invoice, total, settlement and
+25. Given the annual view for 2082/83, then it covers 1 Shrawan 2082 to the last day of Asar 2083 in 12 month rows.
+26. Given a business client without a PAN, then the row has a blank PAN and the page warns; nothing is blocked.
+27. Given a USD invoice numbered with `report_rate` 134.25, then its register amounts are the USD amounts × 134.25,
+    rounded per document, unchanged after the rate table or the tax rule is edited.
+28. Given an add-funds invoice, a draft, or a tax invoice dated before `enabled_from`, then none appears in the
+    register, and periods before `enabled_from` are not offered.
+29. Given staff enabling the mode, then `enabled_from` must be the first day of a BS month, it is refused while an
+    old-style value adjustment is dated on or after it, proforma mode turns on, an activity entry is written, and
+    switching off is refused once a note exists.
+30. Given the IRD-layout CSV, then its columns are in the prescribed order with the template's Nepali headings,
+    declaration number and date in separate columns, and header rows with seller PAN, name, fiscal year and period.
+31. Given a buyer named `=HYPERLINK(...)`, then the CSV cell starts with `'=`, while a credit-note amount `-1300.00` is
+    written unprefixed; every export writes one `report.exported` entry with layout, format, filters and row count.
+32. Given staff without `billing.tax_notes.issue`, then the issue buttons are absent and the endpoint returns 403; with
+    it but without a recent password, the confirm asks for one. Given staff without `reports.vat_register.export`, the
+    exports are absent; with it, an export asks for a recent password.
+33. Given staff without `billing.refunds.manage`, then the refund settlements are not offered.
+34. Given a client, then they see and download only their own notes; another client's note URL returns 404.
+35. Given a note issued, then an activity entry `billing.tax_note.issued` with number, invoice, total, settlement and
     actor exists.
-28. Given the note PDF, then it shows "Credit Note", seller PAN/VAT number, buyer PAN, both dates, the referenced
+36. Given the note PDF, then it shows "Credit Note", seller PAN/VAT number, buyer PAN, both dates, the referenced
     invoice and the reason.
-29. Given a mistaken credit note, when staff reverse it, then a debit note `reverses_credit_note` with the same amount
-    and tax exists and the invoice balance is back where it was.
-30. Given a new install with seller country NP and a seller VAT number, then Nepal VAT mode and proforma mode are on;
-    when a proforma invoice is paid, then it gets the next legal number, its issue date becomes the payment date and it
-    appears in that BS month's register (D1).
-31. Given a credit note on a paid invoice, when the preview opens, then account credit is the selected settlement and
-    refund to the original method and "refunded outside" are offered beside it (D3).
-32. Given the register page, then the exports offered are CSV (detail), CSV (IRD layout) and PDF, and nothing is sent
-    to CBMS when a tax invoice or note is issued; `cbms_status` stays null (D4, D5).
+37. Given the mode on, when a proforma is paid, then it gets the next legal number, its issue date is the payment date
+    (company clock) and it appears in that BS month's register (D1).
+38. Given a credit note on a paid invoice, when the preview opens, then account credit is selected and the refund
+    options are offered beside it (D3).
+39. Given the register, then the exports offered are CSV (detail), CSV (IRD layout) and PDF, and issuing a document
+    sends nothing to CBMS; `cbms_status` stays null (D4, D5).
+40. Given a credit note issued, then `CreditNoteIssued` with its number fires once after commit and the
+    `credit_note.issued` webhook is queued; a debit note fires `DebitNoteIssued`.
 
 SHOULD:
 
-33. Given an invoice PDF downloaded twice in Nepal VAT mode, then the second copy says "Copy of original — print 2" and
+41. Given an invoice PDF downloaded twice in the mode, then the second copy says "Copy of original — print 2" and
     `print_count` is 2.
-34. Given a direct SQL UPDATE of `tax_notes.total` on PostgreSQL, then the trigger rejects it.
-35. Given a note issued with "Send to client" ticked, then the client gets the email with the PDF attached.
-36. Given a register export above the sync limit, then it is queued and the staff member gets a 24-hour signed link.
-37. Given `{BS_FY}` in the note format and reset `bs_fiscal_year` (only if D2 is decided that way), then the first note on 1 Shrawan 2083 is
-    `CN-2083-84-1`.
+42. Given a note issued with "Send to client" ticked, then the client gets the email with the PDF attached.
+43. Given `{BS_FY}` in the note format and reset `bs_fiscal_year` (only if D2 goes that way), then the first note on
+    1 Shrawan 2083 is `CN-2083-84-1`.
+
+Not in this build: a PostgreSQL trigger on notes (ADR 0024 §9). Queued exports come with the pipeline (ADR 0025) and
+are tested there.
 
 ## 14. Owner decisions
 
 Decided by the owner on 2026-10-22 (#327):
 
-| #   | Decision                                              | Decided                                                                                          |
-| --- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| D1  | When does an invoice become the tax invoice?          | On payment. Unpaid invoices are proforma; Nepal VAT mode turns proforma mode on (§3).            |
-| D3  | Default settlement of a credit note on a paid invoice | Account credit, with refund one click away (§5.3).                                               |
-| D4  | Register export format                                | CSV (detail and IRD layout) plus PDF. XLSX waits until the IRD portal needs an upload (§7, §16). |
-| D5  | CBMS                                                  | Not now. The data model stays CBMS-ready (§4.1, §11).                                            |
+| #   | Decision                                              | Decided                                                                                     |
+| --- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| D1  | When does an invoice become the tax invoice?          | On payment. Unpaid invoices are proforma; enabling the mode turns proforma mode on (§3).    |
+| D3  | Default settlement of a credit note on a paid invoice | Account credit, with refund one click away (§5.2).                                          |
+| D4  | Register export format                                | CSV (detail and IRD layout) plus PDF. XLSX waits until the IRD portal needs an upload (§7). |
+| D5  | CBMS                                                  | Not now. The data model stays CBMS-ready (§4, §11).                                         |
 
-Open, waiting for the accountant (with A1–A10 in §15):
+Open, waiting for the accountant (with A1–A11 in §15):
 
-| #   | Decision                     | Options                                                                                                                                                                                      | Recommendation                                                                                      |
-| --- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| D2  | Note numbering               | own `CN-`/`DN-` sequences never reset (now); or reset each BS fiscal year with `{BS_FY}`                                                                                                     | never reset now; switch together with invoices when the accountant answers the fiscal-year question |
-| D6  | Invoices in other currencies | which rate to NPR (Nepal Rastra Bank rate on the invoice date, the install's rate table, or the rate the payment was received at); whether foreign clients' invoices are export (zero-rated) | the install's rate on the numbering date, NRB-sourced; export only through an explicit tax rule     |
+| #   | Decision                     | Options                                                                                                                                                                                       | Recommendation                                                                                         |
+| --- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| D2  | Note numbering               | own `CN-`/`DN-` sequences never reset (now); or reset each BS fiscal year with `{BS_FY}`                                                                                                      | never reset now; switch together with invoices when the accountant answers the fiscal-year question    |
+| D6  | Invoices in other currencies | which rate to the reporting currency (Nepal Rastra Bank rate on the invoice date, the install's rate table, or the rate the payment was received at); which tax rule marks a supply as export | the install's stored rate on the numbering date, NRB-sourced; export only through an explicit tax rule |
 
 Still to ask the accountant under D5: whether hosting counts as an "internet service provider" (Rs 5 crore line) and
 whether software billing below the line needs the tax office's permission.
 
-## 15. Owner to confirm (local practice the specs assume)
+## 15. Owner to confirm (assumptions about local practice)
 
 - A1: Nepali hosts give a proforma or "estimate" before payment and the VAT bill after payment; accountants accept
   that for hosting and domains.
 - A2: The accountant files the monthly return by typing the sales totals from the register into the IRD portal; no
   file upload of the sales book is required for a host of this size.
 - A3: Add-funds deposits are not VAT sales; VAT is charged on the invoice the credit later pays.
-- A4: A refund of a hosting payment is always given with a credit note against the VAT bill, by bank transfer, eSewa or
-  Khalti, and recorded by staff.
+- A4: A refund of a hosting payment is always given with a credit note against the VAT bill, by bank transfer, eSewa
+  or Khalti; a refund of an overpayment held as credit needs no note.
 - A5: A chargeback or reversed wallet payment does not change the VAT bill until the host decides the money is lost.
 - A6: Unpaid tax invoices written off keep their VAT (no bad-debt relief is claimed).
 - A7: Tax offices expect reprints of a computer bill to be marked "copy of original" with a count, even below the CBMS
@@ -487,43 +607,82 @@ whether software billing below the line needs the tax office's permission.
   officers; the register itself always shows BS.
 - A10: The rule that cloud-hosted billing data must be on a server in Nepal applies only to IRD-approved e-billing
   software, not to a host's own billing system below the CBMS line.
+- A11: A tax invoice or register row may leave the buyer PAN blank when the client has none (the recorded 10-22
+  decision covers importer PANs only, not invoices or the register).
 
 ## 16. Out of scope
 
-Purchase register, input VAT and the full VAT return; CBMS posting (D5; designed for, §11); XLSX exports (D4); IRD e-billing software
-registration; abbreviated tax invoices (retail, under Rs 10,000); excise, health service tax and education fee
-columns; Devanagari numerals and a Nepali UI; India GST credit notes and GSTR-1 export (later; the model fits, with the
-30 November limit of F10 as a warning); credit notes across several invoices; credit notes for downgrades issued
-automatically by Services (HostBill does this; later); notes on proforma invoices.
+Purchase register, input VAT and the full VAT return; CBMS posting (D5; designed for, §11); XLSX exports (D4); queued
+exports beyond what the ADR 0025 pipeline provides; database triggers (ADR 0024 §9); "Reissue"; IRD e-billing
+software registration; abbreviated tax invoices (retail, under Rs 10,000); excise, health service tax and education fee
+columns; Devanagari numerals and a Nepali UI; credit notes with the mode off; India GST credit notes and GSTR-1 export
+(later; the model fits, with the 30 November limit of F10 as a warning); credit notes across several invoices;
+automatic downgrade credit notes from Services (HostBill does this; later); notes on proforma invoices.
 
 ## 17. Sources (all read 2026-10-22)
 
-| Source                                                                                                                                                                                                                                                                                                                           | Used for            | Notes                                                                                                                     |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| IRD sales register template (बिक्री खाता, Rule 23(1)(ज)), Excel, as redistributed by Baker Tilly Nepal: <https://bakertilly.com.np/tax-portal/notices-and-circulars/new-format-of-sales-register-and-purchase-register> (file `1645950238_Purchase_Register.xlsx`, which holds the sales register; the files are swapped by name) | F2, §6.2, §7        | Opened and read cell by cell; template itself, not a summary. Release date not stated (file name suggests February 2022). |
-| LookupTax, Nepal VAT guidelines: <https://lookuptax.com/docs/country/nepal-vat-guidelines-indirect-tax>                                                                                                                                                                                                                          | F1, F3, F4, F6, F8  | Cites Rules 17, 18, 20, 23, 25, 26 and the April 2026 CBMS decision; secondary.                                           |
-| Nepal Taxes, provisions relating to invoices (2023-05-17): <https://nepaltaxes.com/provisions-relating-to-invoices-guide-to-invoice-abbreviated-tax-invoice/>                                                                                                                                                                    | F3, F6              | Credit-note contents, three invoice copies; secondary.                                                                    |
-| Union Nepal, VAT bill in Nepal: <https://www.unionnepal.com/vat-bill-in-nepal>                                                                                                                                                                                                                                                   | F6, register fields | BS date on bills; buyer PAN above Rs 1 lakh for individuals; undated; secondary.                                          |
-| Common Law Nepal, VAT invoice rules and penalties: <https://commonlaw.com.np/publications/vat-invoice-rules-and-penalties-in-nepal>                                                                                                                                                                                              | F4, penalties       | No rule numbers; secondary.                                                                                               |
-| Nexus Advisory, IRD billing software (checked 2026-10-08): <https://nexusadvisory.com.np/ird-approved-billing-software-nepal/>                                                                                                                                                                                                   | F7, F8              | Cites IRD notices with BS dates, including the Rs 5 crore ISP line; secondary.                                            |
-| CompanySathi, e-billing mandate (2026-08-17): <https://companysathi.com/blog/electronic-billing-mandate-nepal-2026>                                                                                                                                                                                                              | F8                  | Rs 25 crore → Rs 20 crore.                                                                                                |
-| Clickmandu (2026-05-29): <https://english.clickmandu.com/2026/05/9187/>                                                                                                                                                                                                                                                          | F8                  | Rs 10 crore budget announcement.                                                                                          |
-| `Manjish/ird-cbms` client README: <https://github.com/Manjish/ird-cbms>                                                                                                                                                                                                                                                          | F9, §11             | Field names, BS formats, duplicate behaviour observed on the public test account.                                         |
-| Tech One Global, Nepal CBMS Business Central guide: <https://tog-downloads.azurewebsites.net/2022/NP-User-Manual/Nepal-CBMS-User-Guide.pdf> (search summary only)                                                                                                                                                                | F9                  | `ref_invoice_number` and the `billreturn` endpoint.                                                                       |
-| CGST Act s.34 commentary: <https://www.cggst.com/uploads/document/1753688693-section-34.pdf>, <https://bhattandjoshiassociates.com/gst-credit-note-declarations-navigating-the-legal-framework/>                                                                                                                                 | F10                 | India later.                                                                                                              |
-| WHMCS docs, Reports (Sales Tax Liability, VAT MOSS): <https://docs.whmcs.com/Reports>; proforma and sequential paid numbering (mirror): <https://whmcsdocs.devops.cpanel.net/8-13/billing-and-invoicing/invoicing-tutorials/enable-proforma-invoicing>                                                                           | F11, §3             | Public docs only.                                                                                                         |
-| SupportHost WHMCS credit-note add-on: <https://supporthost.com/whmcs-credit-note-addon/>                                                                                                                                                                                                                                         | F11, §4.5           | Shows the gap in WHMCS and the shared-sequence flaw.                                                                      |
-| HostBill docs, Credit notes: <https://hostbill.atlassian.net/wiki/spaces/DOCS/pages/1212574/Credit+notes>                                                                                                                                                                                                                        | F11                 | Own sequence, per-item, unpaid invoices, downgrades.                                                                      |
-| Blesta forum, credit notes spec thread: <https://www.blesta.com/forums/topic/6976-credit-notes-help-us-spec-this-out-looking-for-your-feedback>                                                                                                                                                                                  | F11                 | Title and search summary only.                                                                                            |
+- IRD sales register template (बिक्री खाता, Rule 23(1)(ज)), Excel, as redistributed by Baker Tilly Nepal:
+  <https://bakertilly.com.np/tax-portal/notices-and-circulars/new-format-of-sales-register-and-purchase-register>.
+  The file named `1645950238_Purchase_Register.xlsx` holds the sales register (the two downloads are swapped by
+  name). Read cell by cell; the template itself. Release date not stated (the file name suggests February 2022).
+  Used for F2, §6.2, §7.
+- LookupTax, Nepal VAT guidelines: <https://lookuptax.com/docs/country/nepal-vat-guidelines-indirect-tax>. Cites
+  Rules 17, 18, 20, 23, 25, 26 and the April 2026 CBMS decision; secondary. F1, F3, F4, F6, F8.
+- Nepal Taxes, provisions relating to invoices (2023-05-17):
+  <https://nepaltaxes.com/provisions-relating-to-invoices-guide-to-invoice-abbreviated-tax-invoice/>. Credit-note
+  contents, three invoice copies; secondary. F3, F6.
+- Union Nepal, VAT bill in Nepal: <https://www.unionnepal.com/vat-bill-in-nepal>. BS date on bills, register fields;
+  undated; secondary. F6.
+- Common Law Nepal, VAT invoice rules and penalties:
+  <https://commonlaw.com.np/publications/vat-invoice-rules-and-penalties-in-nepal>. No rule numbers; secondary. F4.
+- Nexus Advisory, IRD billing software (checked 2026-10-08):
+  <https://nexusadvisory.com.np/ird-approved-billing-software-nepal/>. Cites IRD notices, including the Rs 5 crore ISP
+  line and the 2074 procedure; secondary. F7, F8.
+- CompanySathi, e-billing mandate (2026-08-17): <https://companysathi.com/blog/electronic-billing-mandate-nepal-2026>.
+  Rs 25 crore → Rs 20 crore. F8.
+- Clickmandu (2026-05-29): <https://english.clickmandu.com/2026/05/9187/>. Rs 10 crore budget announcement. F8.
+- `Manjish/ird-cbms` client README: <https://github.com/Manjish/ird-cbms>. Field names, BS formats, duplicate
+  behaviour seen on the public test account. F9, §11.
+- Tech One Global, Nepal CBMS Business Central guide:
+  <https://tog-downloads.azurewebsites.net/2022/NP-User-Manual/Nepal-CBMS-User-Guide.pdf> (search summary only).
+  `ref_invoice_number` and the bill-return endpoint. F9.
+- CGST s.34 commentary: <https://www.cggst.com/uploads/document/1753688693-section-34.pdf>,
+  <https://bhattandjoshiassociates.com/gst-credit-note-declarations-navigating-the-legal-framework/>. F10.
+- WHMCS docs, Reports (Sales Tax Liability, VAT MOSS): <https://docs.whmcs.com/Reports>; proforma and sequential paid
+  numbering (mirror):
+  <https://whmcsdocs.devops.cpanel.net/8-13/billing-and-invoicing/invoicing-tutorials/enable-proforma-invoicing>.
+  Public docs only. F11, §3.
+- SupportHost WHMCS credit-note add-on: <https://supporthost.com/whmcs-credit-note-addon/>. The add-on's own account of
+  the WHMCS gap and of the shared-sequence option. F11, §4.5.
+- HostBill docs, Credit notes: <https://hostbill.atlassian.net/wiki/spaces/DOCS/pages/1212574/Credit+notes>. Own
+  sequence, per-item, unpaid invoices, downgrades. F11.
+- Blesta forum, credit notes spec thread:
+  <https://www.blesta.com/forums/topic/6976-credit-notes-help-us-spec-this-out-looking-for-your-feedback>. Title and
+  search summary only. F11.
 
-**Not confirmed** (government sites unreachable from our network on 2026-10-22; `ird.gov.np` and
-`lawcommission.gov.np` refused or timed out):
+**Not confirmed** (`ird.gov.np` and `lawcommission.gov.np` refused or timed out from our network on 2026-10-22):
 
-- The text of VAT Rules 17, 20, 23 and 25 and the Electronic Billing Procedure 2074; we rely on secondary summaries.
+- The text of VAT Rules 17, 20, 23 and 25 and of the Electronic Billing Procedure 2074; we rely on secondary summaries.
 - The current CBMS threshold (Rs 20 crore in force; Rs 10 crore announced, not confirmed) and whether a hosting
   company is an "internet service provider" under the Rs 5 crore notice.
-- Whether software billing below the CBMS line needs the tax office's permission for a host, and the server-in-Nepal
-  rule's reach.
+- Whether software billing below the CBMS line needs the tax office's permission for a host, and how far the
+  server-in-Nepal rule reaches.
 - Whether the IRD portal expects an uploaded sales book (format and columns) with the monthly return.
 - The official CBMS API specification (we read a third-party client and a vendor guide).
-- Rule 53(1A) CGST particulars (India, not needed now).
+- CGST Rule 53(1A) particulars (India, not needed now).
+
+## 18. Build order
+
+Each PR ≤ 2,000 lines; the mode stays hidden until PR 4 merges. Acceptance criteria by number (§13).
+
+| PR              | Content                                                                                                                                                                                                                                                                                                                                                                                     | AC                             |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| 0 (CTO, kernel) | `CompanyClock` contract and Billing's issue dates and numbering on it (ADR 0013 Amendment 1); `CreditNoteIssued` / `DebitNoteIssued` and webhook registration (ADR 0024 §6); report registry, `ReportExporter`, `SafeCsv` with `ErrorsCsv` switched to it (ADR 0025)                                                                                                                        | 14, 40 (events)                |
+| 1               | Schema (`tax_notes`, lines, invoice value snapshot and backfill, cached totals, `report_currency`/`report_rate`, `supply_class`, BS fields, `tax_note_id` on adjustments, transactions and ledger); per-sequence `DocumentNumbers`; the note issuer (allocation, caps, remainder, locks, digest); model immutability incl. `Invoice::FROZEN`; ADR 0021 §3 lock order; PostgreSQL race tests | 1–6, 13, 20, 21                |
+| 2               | Manual issue UI, settlement to balance, account credit and recorded refund, step-up, permissions, notes panel and list, reversing debit note                                                                                                                                                                                                                                                | 7, 22, 32, 33, 35, 38          |
+| 3               | Existing paths: cancel, cancel lines, late fee, reopen, `Invoicer::cancel` (ADR 0010 entry), automation; enabling the mode with `enabled_from`; architecture test                                                                                                                                                                                                                           | 15–19, 29, 37                  |
+| 4               | Refunds through notes: three-phase gateway refund, provider-initiated refunds, overpayment split (combined review, money)                                                                                                                                                                                                                                                                   | 8–12                           |
+| 5               | Note PDF, email, merge fields, client area, `print_count`                                                                                                                                                                                                                                                                                                                                   | 34, 36, 40 (consumers), 41, 42 |
+| 6               | `VatRegisterReport` and `TaxNoteRegisterReport` on the registry: rows, totals, header block, screens (BS month, BS fiscal year, AD range; note tab; warnings)                                                                                                                                                                                                                               | 23–28                          |
+| 7               | The `detail` and `ird` layouts and the PDF through the pipeline; export permissions                                                                                                                                                                                                                                                                                                         | 30, 31, 39                     |
+| later           | Trigger after its own ADR (ADR 0024 §9); `{BS_FY}` after D2                                                                                                                                                                                                                                                                                                                                 | 43                             |
