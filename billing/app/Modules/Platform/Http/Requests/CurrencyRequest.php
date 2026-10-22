@@ -26,8 +26,9 @@ class CurrencyRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        if ($this->has('code')) {
-            $this->merge(['code' => strtoupper((string) $this->input('code'))]);
+        // Non-string input (e.g. code[]=X) is left for the string rule to reject.
+        if (is_string($this->input('code'))) {
+            $this->merge(['code' => strtoupper($this->input('code'))]);
         }
     }
 

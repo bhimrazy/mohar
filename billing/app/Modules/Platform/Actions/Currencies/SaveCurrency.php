@@ -37,7 +37,7 @@ class SaveCurrency
      */
     public function handle(?Currency $currency, array $data): Currency
     {
-        $creating = $currency === null;
+        $creating = ! $currency?->exists;
         $currency ??= new Currency(['is_default' => false]);
         $before = $currency->exists ? $currency->only(['code', 'name', 'prefix', 'suffix', 'format']) : [];
 

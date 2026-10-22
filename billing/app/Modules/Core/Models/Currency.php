@@ -65,7 +65,8 @@ class Currency extends Model
     protected static function booted(): void
     {
         // Clients, invoices, quotes, transactions, prices and rate history store the code, so renaming it would orphan
-        // them. Add a new currency instead.
+        // them. Add a new currency instead. This guards model saves only: query-builder writes
+        // (Currency::query()->update(), DB::table('currencies')) bypass it, and no code path writes the code that way.
         static::updating(function (self $currency): void {
             if ($currency->isDirty('code')) {
                 throw new LogicException("Currency code {$currency->getOriginal('code')} cannot be changed.");
