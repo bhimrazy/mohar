@@ -205,7 +205,7 @@ class SupportSeeder extends DemoSeeder
                 priority: $priority, serviceId: $serviceId,
             );
 
-            $slow = $open->handle($draft($departments['technical'], 'Website loads very slowly since this morning', "Hi,\n\nSince about 8am our shop at **himal-labs.example** takes 10+ seconds to load. Nothing changed on our side.\n\nCan you check the server?", TicketPriority::High, app(ClientServiceDirectory::class)->forClient($demo->id)[0]['id'] ?? null));
+            $slow = $open->handle($draft($departments['technical'], 'Website loads very slowly since this morning', "Hi,\n\nSince about 8am our shop at **himallabs.com.np** takes 10+ seconds to load. Nothing changed on our side.\n\nCan you check the server?", TicketPriority::High, app(ClientServiceDirectory::class)->forClient($demo->id)[0]['id'] ?? null));
             $this->attachLog($slow);
             $reply->handle($slow, $staff, "Hi {{ requester.first_name }},\n\nThanks for the report. We see elevated I/O on **web03** and a storage disk is being replaced right now — see the [network status](/network-status) page.\n\nI'll update you as soon as it's done.", status: TicketStatus::InProgress);
             app(AddNote::class)->handle($slow, $admin, 'Linked to the web03 disk incident. Follow up once the array has rebuilt.');

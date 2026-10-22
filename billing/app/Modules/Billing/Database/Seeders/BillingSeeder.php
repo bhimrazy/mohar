@@ -38,18 +38,20 @@ class BillingSeeder extends DemoSeeder
     public const NEPAL_WALLETS = ['esewa', 'khalti'];
 
     /**
-     * NPR prices in paisa as the demo catalogue lists them (Catalog's seed at its starting exchange rate), so an
-     * invoice line matches the product the client's service is on. Domain renewal is himallabs.com's .com renewal.
+     * NPR prices in paisa, the same figures the demo shows elsewhere (the US dollar list prices at the starting
+     * exchange rate of 151.94): the hosting, VPS and backup lines equal the recurring amount of the demo client's
+     * service on that product (ServicesSeeder), the domain line is himallabs.com's .com renewal (DomainsSeeder), and
+     * Pro is the catalogue's Pro Hosting monthly price (CatalogSeeder).
      */
-    private const NPR_STARTER = 60_900;
+    private const NPR_STARTER = 75_818;
 
     private const NPR_PRO = 121_900;
 
-    private const NPR_BUSINESS = 227_900;
+    private const NPR_BUSINESS = 197_370;
 
-    private const NPR_VPS_SMALL = 182_900;
+    private const NPR_VPS_SMALL = 288_686;
 
-    private const NPR_BACKUPS = 45_900;
+    private const NPR_BACKUPS = 45_582;
 
     private const NPR_DOMAIN_COM_RENEWAL = 227_900;
 
@@ -110,7 +112,7 @@ class BillingSeeder extends DemoSeeder
             ['daysAgo' => 30, 'hour' => 10, 'run' => fn () => $cancel->handle($issue($demo, [new InvoiceLineData('Pro Hosting (cancelled order)', self::NPR_PRO)], 'bank_transfer'), note: 'Order cancelled by customer')],
             // Overdue with a partial bank transfer.
             ['daysAgo' => 24, 'hour' => 11, 'run' => function () use (&$overdue, $issue, $demo, $service, $on): void {
-                $overdue = $issue($demo, [$service('VPS Small — vps.himal-labs.com.np', self::NPR_VPS_SMALL, 2, $on())], 'bank_transfer');
+                $overdue = $issue($demo, [$service('VPS Small — vps.himallabs.com.np', self::NPR_VPS_SMALL, 2, $on())], 'bank_transfer');
             }],
             ['daysAgo' => 20, 'hour' => 14, 'run' => function () use (&$overdue, $pay): void {
                 $pay->handle($overdue->refresh(), new PaymentData(100_000, 'bank_transfer', 'WIRE-'.random_int(10000, 99999)));
@@ -118,7 +120,7 @@ class BillingSeeder extends DemoSeeder
             // Paid through eSewa or Khalti.
             ['daysAgo' => 12, 'hour' => 10, 'run' => function () use (&$paid, $issue, $demo, $service, $on, $wallet): void {
                 $paid = $issue($demo, [
-                    $service('Business Hosting — himal-labs.com.np', self::NPR_BUSINESS, 1, $on()->subMonth()),
+                    $service('Business Hosting — himallabs.com.np', self::NPR_BUSINESS, 1, $on()->subMonth()),
                     new InvoiceLineData('Domain renewal — himallabs.com', self::NPR_DOMAIN_COM_RENEWAL, billableType: BillableType::Domain, billableId: 1),
                 ], $wallet(0));
             }],
@@ -126,7 +128,7 @@ class BillingSeeder extends DemoSeeder
                 $pay->handle($paid->refresh(), new PaymentData($paid->balance, $paid->payment_gateway, strtoupper(substr((string) $paid->payment_gateway, 0, 3)).'-'.random_int(100000, 999999)));
             }],
             // Due soon.
-            ['daysAgo' => 9, 'hour' => 10, 'run' => fn () => $issue($demo, [$service('Business Hosting — himal-labs.com.np', self::NPR_BUSINESS, 1, $on()), new InvoiceLineData('Daily backups add-on', self::NPR_BACKUPS, billableType: BillableType::ServiceAddon, billableId: 3)], $wallet(1))],
+            ['daysAgo' => 9, 'hour' => 10, 'run' => fn () => $issue($demo, [$service('Business Hosting — himallabs.com.np', self::NPR_BUSINESS, 1, $on()), new InvoiceLineData('Daily backups add-on', self::NPR_BACKUPS, billableType: BillableType::ServiceAddon, billableId: 3)], $wallet(1))],
         ];
 
         // Starter Hosting for the first Nepali clients, paid for every third one, issued over the last ten days.
@@ -171,7 +173,7 @@ class BillingSeeder extends DemoSeeder
         $quote = $quotes->save([
             'client_id' => $demo->id,
             'subject' => 'Managed Kubernetes migration',
-            'proposal_text' => "Migration of the himal-labs.com.np stack to a managed cluster.\nIncludes planning, cut-over and two weeks of hypercare.",
+            'proposal_text' => "Migration of the himallabs.com.np stack to a managed cluster.\nIncludes planning, cut-over and two weeks of hypercare.",
             'items' => [
                 ['description' => 'Migration planning workshop', 'quantity' => 1, 'unit_amount' => 4_500_000, 'discount_percent' => 0, 'taxable' => true],
                 ['description' => 'Cut-over engineering (hours)', 'quantity' => 12, 'unit_amount' => 450_000, 'discount_percent' => 10, 'taxable' => true],

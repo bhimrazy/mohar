@@ -24,7 +24,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   the 90-day history. The quote PDF prints "valid until" in the Date format setting, the invoice PDF prints the buyer's
   country name and one "PAN/VAT No." line when the seller's PAN is the VAT number, the client invoice shows "eSewa"
   as staff named it, and the client dashboard no longer ends with ".." after a company name ending in "Ltd.". Demo
-  data only: re-run `php artisan migrate:fresh --seed`; `db:seed` in production is unchanged; no schema, permission or
+  invoice numbers now pad to five digits (INV-01957), the Nepal install default. Demo data only: re-run `php artisan migrate:fresh --seed`; `db:seed` in production is unchanged; no schema, permission or
   setting change.
 - **Registrar submission refuses `.np` domains (#280).** A pending domain under a TLD marked "Registered by the client
   at the registry" (on by default for `.np` and its second levels), or a `.np` name outside the registry's second

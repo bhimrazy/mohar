@@ -118,7 +118,7 @@ every item.
   view time, never stored. (2026-10-20)
 - A destructive (red) tone marks only what failed, never successful lines. (2026-10-20)
 - Every date, including dates inside sentences, uses the app's date format. (2026-10-20)
-- Demo and sample data match the market the product leads with: host, clients, currency, time zone, date format and domain names are Nepali, and no seeded invoice bills a `.np` domain or features a refund until credit notes exist. (proposed 2026-10-22, owner to confirm)
+- Demo and sample data match the market the product leads with: host, clients, currency, time zone, date format and domain names are Nepali, and no seeded invoice bills a `.np` domain, and no showcase invoice features a refund until credit notes exist. (proposed 2026-10-22, owner to confirm)
 
 ## Simulators and test doubles
 
