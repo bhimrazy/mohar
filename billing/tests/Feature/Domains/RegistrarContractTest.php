@@ -1,13 +1,23 @@
 <?php
 
+use App\Contracts\Domains\Registrar\RegistrarRefs;
 use App\Support\Domains\RegistrarDriverRegistry;
+use Tests\Fakes\Domains\InMemoryRegistrarRefs;
 use Tests\Support\Contracts\RegistrarDriverContract;
 
 /**
  * Every registrar driver shipped with the Domains module passes the shared contract (registrars.md §7). A new
  * built-in driver is added here.
  */
-$builtInDrivers = ['log' => null];
+$builtInDrivers = [
+    'log' => null,
+    // The contract account has no ResellerClub reseller id, so every call is refused before any HTTP: for this driver
+    // the contract proves the refusal paths only. Its working scenarios run against the simulator
+    // (tools/simulators/tests/ResellerClub).
+    'resellerclub' => function (): void {
+        app()->instance(RegistrarRefs::class, new InMemoryRegistrarRefs);
+    },
+];
 
 foreach ($builtInDrivers as $key => $arrange) {
     RegistrarDriverContract::verify($key, $arrange);

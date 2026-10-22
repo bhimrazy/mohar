@@ -12,6 +12,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **ResellerClub registrar (#280).** Hosts can register, transfer, renew and restore domains through ResellerClub:
+  Admin → Domains → Registrars → ResellerClub takes the reseller id and API key (and separate demo credentials for
+  test mode), one default customer or one customer per client, and an optional outbound proxy for the API allow-list.
+  The driver also checks availability, syncs status and expiry, follows transfers, and sets name servers, the transfer
+  lock, privacy and contacts, and returns the EPP code. Orders are placed without a ResellerClub invoice (the price
+  comes off the reseller balance). Before it registers or transfers, it searches the client's own customer for an order of
+  that name; an order is adopted only when the host already holds its id (a lost answer is settled by the host's
+  reconcile step, created since the submission began), and any other order of the name is a conflict for staff, so a
+  name in the reseller account cannot be taken over by typing it or its transfer code. In one-customer-per-client
+  mode the ResellerClub username is generated from our client id (`client-{id}@{host of APP_URL}`) and an existing
+  customer is adopted only on that exact username; the client's email is only a contact email. Reads, sync and the EPP code act only on the order id recorded from our own register
+  or transfer answer (or the submission lookup inside our own window); sync never links an order it finds by searching,
+  and says "no order is linked" when none is recorded (domains imported without one need the order id set by hand). A
+  renewal is sent only when ResellerClub's expiry date equals ours; when ResellerClub is ahead, our expiry is updated
+  from it and nothing is ordered again. A wrong transfer code gets its own message, apart from "code already sent". A
+  registration that is still unconfirmed 15 minutes after submission and cannot be followed is listed in Needs attention
+  and its sync reports the error instead of ok.
+  Sync never cancels a domain on an unknown registry answer or a registration that never reached ResellerClub. Calls
+  of a register, transfer or renew chain are time-bounded to fit the 180 s job, and the outbound proxy must be an
+  http, https or socks5h address that passes the outbound policy. `.np` names never reach
+  it. Verified against the ResellerClub simulator only (no live or demo account). No schema or permission change; the
+  registrar shows up as a new, unconfigured entry.
+
 - **ResellerClub simulator (#280, ADR 0016 S6).** Developers and CI can run ResellerClub's HTTP API as a local TLS
   simulator (`php artisan simulate:start resellerclub`): customers and contacts, availability, register, transfer with
   a later auth code, renew bound to the current expiry, restore, name servers, theft lock, privacy, contact changes,

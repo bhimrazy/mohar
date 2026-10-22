@@ -146,7 +146,7 @@ The control plane answers only requests that carry `X-Sim-Token`:
     - `.com.au` needs `id-type`, `id`, `policyReason` and `isAUWarranty=true`; `.dev` needs `tnc=y`. `.co.uk` has no admin, tech or billing contact and `.ca` no billing contact: those take `-1`.
     - Insufficient funds: `set_balance` below the price. A timeout after commit and a rate limit are the framework faults `commit_then_hang` and `rate_limit` on any operation.
 - **Control actions.** `settle_order` {domain, outcome `active`|`failed`; a failure refunds the order's charge and frees the name}, `set_status` {domain, status}, `add_foreign_domain` {domain, auth_code, expires_in_days}, `set_balance` {cents}, `registry_down` {tld, down}, `ip_allowed` {allowed}, `next_actionstatus` {value} (the next change answers that actionstatus, an unknown one say, and still runs), and `reset`, which wipes the account, its id counters and the fault plan and reseeds it, as the demo account is wiped daily. An action that refuses its input answers HTTP 400.
-- **Using it from the app.** Set the printed `INTEGRATION_ENDPOINTS` (`resellerclub.api` and `resellerclub.check`, both this port), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`. Use the ResellerClub registrar in test mode with the demo reseller id and API key. The driver that reads these keys arrives in the next PR of #280; until then nothing in the app calls this simulator.
+- **Using it from the app.** Set the printed `INTEGRATION_ENDPOINTS` (`resellerclub.api` and `resellerclub.check`, both this port), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`. Use the ResellerClub registrar in test mode with the demo reseller id and API key. The ResellerClub driver reads these keys (`tests/ResellerClub/ResellerClubDriverAgainstSimulatorTest.php` runs it against the simulator through the Domains host).
 - **Shapes.** Written from the public HTTP API reference only (no demo-account capture); `tests/ResellerClub/ResellerClubSimulatorTest.php` covers each scenario over the TLS port.
 
 ### Wallet scenarios and where each is proved
@@ -167,7 +167,7 @@ The control plane answers only requests that carry `X-Sim-Token`:
 
 ## The end-to-end scenario
 
-`php artisan simulate:e2e` runs `tests/Simulators` (ADR 0016 §4) against the `whm`, `stripe`, `khalti` and `esewa` simulators: the Stripe lifecycle, and the NPR lifecycle through eSewa and through Khalti:
+`php artisan simulate:e2e` runs `tests/Simulators` (ADR 0016 §4) against the `whm`, `stripe`, `khalti`, `esewa` and `resellerclub` simulators: the Stripe lifecycle, the NPR lifecycle through eSewa and through Khalti, and a domain ordered, paid with Khalti, registered and renewed at ResellerClub (`tests/Simulators/DomainLifecycleTest.php`):
 
 - it creates a throwaway database `billing_e2e_<random>` on PostgreSQL (`--connection=pgsql`, the default) or as a temporary SQLite file (`--connection=sqlite`);
 - it runs the scenario within a time budget (`--budget`, 360 s by default, at least 60);
