@@ -160,7 +160,7 @@ test('Check refund repeats the original request with the same idempotency key wh
         ->and(Transaction::query()->where('type', TransactionType::Refund)->count())->toBe(1);
 });
 
-test('Check refund keeps a refund pending while Stripe is still processing the first request, and releases one Stripe refuses', function (array $body, int $code, string $status, int $remaining) {
+test('Check refund keeps a refund pending while Stripe is still processing the first request or answers with an error', function (array $body, int $code, string $status, int $remaining) {
     $payment = paidStripePayment();
     Http::fake([STRIPE_API.'refunds' => Http::sequence()->pushFailedConnection('timed out')->push($body, $code)]);
     $pending = app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
@@ -170,7 +170,7 @@ test('Check refund keeps a refund pending while Stripe is still processing the f
 })->with([
     'first request still running (409)' => [['error' => ['type' => 'idempotency_error', 'message' => 'in use']], 409, 'pending', 1_500],
     'server error' => [['error' => ['type' => 'api_error']], 500, 'pending', 1_500],
-    'charge already fully refunded elsewhere' => [stripeFixture('error_already_refunded'), 400, 'failed', 2_500],
+    'charge already fully refunded elsewhere' => [stripeFixture('error_already_refunded'), 400, 'pending', 1_500],
 ]);
 
 test('a refund lookup after the idempotency window lists the payment\'s refunds, and absence is "no such refund" only past 24 hours', function (array $body, int $status, int $hoursOld, string $expected, ?string $id) {
@@ -225,11 +225,11 @@ test('a Check replay that Stripe never processed (rejected key, no key, idempote
     'key removed' => [null, true],
 ]);
 
-test('a Check replay Stripe processed and refused (400, 402, 404) releases the amount', function (int $code) {
+test('a Check replay answering an error (400, 402, 404) releases nothing: it says nothing about the original request', function (int $code) {
     $payment = paidStripePayment();
     Http::fake([STRIPE_API.'refunds' => Http::sequence()->pushFailedConnection('timed out')->push(['error' => ['type' => 'invalid_request_error', 'message' => 'refused']], $code)]);
     $pending = app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
 
-    expect(app(RefundTransaction::class)->check($pending)->status)->toBe(TransactionStatus::Failed)
-        ->and($payment->fresh()->refundable_remaining)->toBe(2_500);
+    expect(app(RefundTransaction::class)->check($pending)->status)->toBe(TransactionStatus::Pending)
+        ->and($payment->fresh()->refundable_remaining)->toBe(1_500);
 })->with([400, 402, 404]);

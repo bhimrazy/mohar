@@ -336,11 +336,14 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
             return $result;
         }
 
+        // Only a refund object Stripe itself marks failed or canceled is a definite no. Every error answer (4xx
+        // included: resource_missing after a key moved to another account, charge_already_refunded, amount_too_large)
+        // says nothing about the original request, so it stays unknown; the list after 24 hours or staff settle it.
         $http = $result->raw['http_status'] ?? null;
-        $refused = in_array($http, [400, 402, 404], true) && ($result->raw['error_type'] ?? null) !== 'idempotency_error';
-        $failed = is_int($http) && $http >= 200 && $http < 300;
+        $failed = is_int($http) && $http >= 200 && $http < 300
+            && is_string($result->txnId) && str_starts_with($result->txnId, 're_');
 
-        return $refused || $failed
+        return $failed
             ? $result
             : new ChargeResult(ChargeResult::ERROR, $result->txnId, declineReason: $result->declineReason, raw: $result->raw);
     }

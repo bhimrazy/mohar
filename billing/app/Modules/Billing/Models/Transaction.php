@@ -171,9 +171,14 @@ class Transaction extends Model
      */
     public function stuckAtLookup(): bool
     {
+        $lookup = $this->raw[self::REFUND_STATE]['lookup'] ?? [];
+        $stuckFrom = $this->created_at?->copy()->addHours(self::REFUND_LOOKUP_STUCK_HOURS);
+
+        // The last Check must itself have come after the wait, so an early "unknown" cannot open the hatch.
         return $this->awaitsProviderConfirmation()
-            && ($this->raw[self::REFUND_STATE]['lookup']['answer'] ?? null) === 'error'
-            && $this->created_at !== null && $this->created_at->lte(now()->subHours(self::REFUND_LOOKUP_STUCK_HOURS));
+            && ($lookup['answer'] ?? null) === 'error'
+            && $stuckFrom !== null && $stuckFrom->lte(now())
+            && is_string($lookup['at'] ?? null) && CarbonImmutable::parse($lookup['at'])->gte($stuckFrom);
     }
 
     /**
