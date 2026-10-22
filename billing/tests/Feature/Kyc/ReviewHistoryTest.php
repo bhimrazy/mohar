@@ -20,7 +20,7 @@ beforeEach(function () {
     $this->staff = actingAsStaff(['kyc.documents.view']);
     $this->unlock = function (?Client $client = null): void {
         confirmPassword();
-        $this->post(route('admin.kyc.unlock', $client ?? $this->client))->assertRedirect();
+        $this->post(route('admin.kyc.unlock', $client ?? $this->client), kycUnlockData($client ?? $this->client))->assertRedirect();
     };
     $this->page = fn (?string $url = null): array => $this->get($url ?? route('admin.kyc.show', $this->client))->assertOk()->viewData('page');
 });
@@ -72,7 +72,7 @@ test('a hover prefetch does not use up the history clearing; the next visit gets
 
 test('an unlock cut short by the end of the password step-up clears the history when it ends', function () {
     $this->withSession(['auth.password_confirmed_at' => now()->subMinutes(10)->getTimestamp()]);
-    $this->post(route('admin.kyc.unlock', $this->client))->assertRedirect();
+    $this->post(route('admin.kyc.unlock', $this->client), kycUnlockData($this->client))->assertRedirect();
 
     $this->travel(4)->minutes();
     expect(($this->page)())->not->toHaveKey('clearHistory');
@@ -87,7 +87,8 @@ test('unlocking another client after one ended still clears the history of the e
 
     // confirmPassword() uses time(), which travel() does not move.
     $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
-    $this->post(route('admin.kyc.unlock', $other))->assertRedirect();
+    session()->save(); // the browser's session id is stable, so what the last request saved would win otherwise
+    $this->post(route('admin.kyc.unlock', $other), kycUnlockData($other))->assertRedirect();
     $page = ($this->page)(route('admin.kyc.show', $other));
 
     expect($page)->toHaveKey('clearHistory', true)->and($page['props']['unlockedUntil'])->not->toBeNull();

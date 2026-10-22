@@ -24,8 +24,10 @@ class ClearEndedReviewHistory
      */
     public function handle(Request $request, Closure $next): Response
     {
-        if ($request->hasSession() && Auth::check() && $request->header('Purpose') !== 'prefetch'
-            && $this->unlocks->forgetEnded($request)) {
+        // Only staff open documents; everyone else skips the table (and the legacy session key).
+        if ($request->hasSession() && Auth::user()?->is_staff && $request->header('Purpose') !== 'prefetch'
+            // The legacy check is the one-release shim for unlocks the previous release kept in the session.
+            && ($this->unlocks->forgetEnded((int) Auth::id(), $this->unlocks->binding($request)) | $this->unlocks->forgetEndedLegacy($request))) {
             Inertia::clearHistory();
         }
 

@@ -82,7 +82,8 @@ class ReviewController extends Controller
         // Encrypted, and cleared when the unlock ends (ClearEndedReviewHistory) or is locked again (lock()).
         Inertia::encryptHistory();
         $documents = $this->kyc->documents($client);
-        $until = $this->unlocks->until($request, $client->id);
+        $staffId = $this->staffId($request);
+        $until = $this->unlocks->until($staffId, $client->id, $this->unlocks->binding($request));
         $status = $this->kyc->status($client, $documents);
 
         return Inertia::render('admin/kyc/show', [
@@ -94,6 +95,9 @@ class ReviewController extends Controller
             ],
             'steps' => ['email' => $this->kyc->emailProved($client), 'phone' => $this->kyc->phoneDone($client)],
             'unlockedUntil' => $until?->toIso8601String(),
+            // Seconds left, counted here: the page times its hide and reload from this, not from the browser clock (#257).
+            'unlockedFor' => $this->unlocks->remaining($until),
+            'unlockGeneration' => $this->unlocks->generation($staffId, $client->id, $this->unlocks->binding($request)),
             'canDecide' => $request->user()?->hasPermission(self::PERMISSION) ?? false,
             'documents' => $documents->map(fn (KycDocument $document): array => [
                 'id' => $document->id,
@@ -117,7 +121,19 @@ class ReviewController extends Controller
     public function unlock(Request $request, Client $client, ActivityLogger $activity): RedirectResponse
     {
         $this->authorizeView($request);
-        $this->unlocks->unlock($request, $client->id);
+        $data = $request->validate(['generation' => ['required', 'integer', 'min:0']]);
+        $staffId = $this->staffId($request);
+
+        if (! $this->unlocks->open($staffId, $client->id, $this->unlocks->windowEnd($request), (int) $data['generation'], $this->unlocks->binding($request))) {
+            // Hidden (or shown from another tab) since this page loaded: nothing opens from an old page.
+            $shown = $this->unlocks->until($staffId, $client->id, $this->unlocks->binding($request)) !== null;
+            Inertia::flash('toast', $shown
+                ? ['type' => 'info', 'message' => __('The documents are already shown.')]
+                : ['type' => 'error', 'message' => __('The documents changed since this page loaded. Show them again.')]);
+
+            return to_route('admin.kyc.show', $client);
+        }
+
         $activity->log('Identity documents opened for review', $client, $client->id, event: 'kyc.documents.opened');
 
         return to_route('admin.kyc.show', $client);
@@ -131,7 +147,9 @@ class ReviewController extends Controller
     {
         $this->authorizeView($request);
 
-        if ($this->unlocks->lock($request, $client->id)) {
+        $this->unlocks->forgetLegacy($request, $client->id);
+
+        if ($this->unlocks->close($this->staffId($request), $client->id, $this->unlocks->binding($request))) {
             Inertia::clearHistory();
             $activity->log('Identity documents hidden again', $client, $client->id, event: 'kyc.documents.closed');
         }
@@ -147,7 +165,7 @@ class ReviewController extends Controller
     {
         $this->authorizeView($request);
         abort_unless((int) $request->query('staff') === (int) $request->user()?->getAuthIdentifier(), 403);
-        abort_if($this->unlocks->until($request, $document->client_id) === null, 403, __('Open the documents again to see this image.'));
+        abort_if($this->unlocks->until($this->staffId($request), $document->client_id, $this->unlocks->binding($request)) === null, 403, __('Open the documents again to see this image.'));
         $path = $side === 'back' ? $document->back_path : $document->front_path;
         abort_if($path === null, 404);
 
@@ -186,7 +204,7 @@ class ReviewController extends Controller
         $staff = $request->user();
         abort_unless($staff instanceof User, 403);
 
-        if ($this->unlocks->until($request, $document->client_id) === null) {
+        if ($this->unlocks->until($this->staffId($request), $document->client_id, $this->unlocks->binding($request)) === null) {
             return back()->withErrors(['document' => __('Open the documents first, then decide.')]);
         }
 
@@ -196,6 +214,11 @@ class ReviewController extends Controller
             : __(':document declined. We emailed the client the reason.', ['document' => $decided->type->label()])]);
 
         return to_route('admin.kyc.show', $decided->client_id);
+    }
+
+    private function staffId(Request $request): int
+    {
+        return (int) $request->user()?->getAuthIdentifier();
     }
 
     /**

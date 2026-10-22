@@ -37,6 +37,8 @@ type Props = {
     status: { value: string; label: string; verifiedAt: string | null };
     steps: { email: boolean; phone: boolean };
     unlockedUntil: string | null;
+    unlockedFor: number | null;
+    unlockGeneration: number;
     canDecide: boolean;
     documents: Document[];
 };
@@ -146,13 +148,15 @@ export default function KycReview({
     status,
     steps,
     unlockedUntil,
+    unlockedFor,
+    unlockGeneration,
     canDecide,
     documents,
 }: Props) {
     const [opening, setOpening] = useState(false);
     const [hiding, setHiding] = useState(false);
     // False from the moment the window ends, also on a page restored from history; the page then reloads.
-    const unlocked = useUnlockWindow(unlockedUntil);
+    const unlocked = useUnlockWindow(unlockedUntil, unlockedFor);
 
     return (
         <>
@@ -282,7 +286,7 @@ export default function KycReview({
                                             ReviewController.unlock.url(
                                                 client.id,
                                             ),
-                                            {},
+                                            { generation: unlockGeneration },
                                             {
                                                 preserveScroll: true,
                                                 onStart: () => setOpening(true),

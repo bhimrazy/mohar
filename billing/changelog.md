@@ -497,6 +497,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   megapixels (WebP: 8 megapixels) are scaled down to that size. A stored image is at most 5 MB: a larger result is
   encoded again at quality 75, then scaled to 12 and 8 megapixels (an opaque PNG becomes a JPEG), and is refused only
   if it is still larger.
+- **KYC review: Hide documents holds, and the page times the end from the server (#257, #258).** Which clients' documents a
+  staff member has open is now a database row (new table `kyc_review_unlocks`) changed under a row lock, not part of the
+  session. A request that began before Hide documents can no longer write the old unlock back when it saves its
+  session, and a Show request from a page loaded before Hide is refused (a generation number travels with the page).
+  The review page now gets the seconds left from the server and counts them on its own clock, so a browser clock that
+  runs ahead no longer makes the reload at the end arrive early and re-encrypt the numbers in the browser history; if
+  the server still says the unlock is open, the page waits again. **Operators:** run `php artisan migrate` (adds
+  `kyc_review_unlocks`, expand only). Documents open at upgrade time are hidden again on the new release (staff press Show documents once); for one release the
+  old session entry is still read so its browser history is cleared when it ends, and Hide also removes it (a
+  compatibility shim, removed in the release after next). During a blue-green overlap or after a rollback, Hide documents
+  served by the old release does not close a row the new release wrote; that unlock ends by itself within 15 minutes.
+  Each browser session has its own unlock: Hide and sign-out in one browser end the others' too, and those browsers
+  clear their history on their next page.
+  An unlock now belongs to the session that opened it (a hash of the session id is stored, never the id): another
+  browser or a copied session cookie of the same login sees nothing, signing in again does not bring it back, a changed
+  session id ends it, and signing out ends every unlock of that staff member. Show documents now requires the
+  `generation` the page sends.
 - **Key rotation counts distinct keys (#279).** A key listed in both `APP_KEY` and `APP_PREVIOUS_KEYS` (or as `base64:`
   and decoded) counts once, so restoring the old `APP_KEY` no longer makes `migrate` refuse again. The refusal now says
   to restore the key the email hashes were made with or remove the stale key from `APP_PREVIOUS_KEYS`; the key-rotation
