@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **Identity photos shrink in the browser before upload (#288).** On the verification page a photo whose long edge is over 2,800 px, or whose file is over 1 MB, is scaled down (never enlarged) and saved as JPEG at quality 85 before it is sent; the EXIF orientation is applied, and an image with transparency stays PNG. A preview shows the old and new file size, and the client can choose another photo. A file that is not a JPEG, PNG or WebP (for example HEIC) is refused at once with a plain message; if the browser cannot shrink a valid photo, the original is uploaded and the server decides. The two file fields no longer overflow the card on desktop. The server checks and limits are unchanged. No schema, permission or setting change.
+
 ### Upgrade notes
 
 - **Re-encode identity images stored before #286 (#287).** Run `php artisan kyc:reencode-images` once after upgrading,
@@ -477,6 +481,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Security
 
+- Log redaction (#278): an unclosed void-named container with a secret name (`<param name="password"><value>…`, a
+  truncated XML-RPC body, `<input>` used as an XML/SOAP element) now masks everything after it instead of leaking the
+  child value, also after an empty CDATA section, a stray end tag, or a child whose name starts with `_`. Inside an
+  HTML document (a `<!doctype html` or `<html` start tag earlier in the text, not inside a comment, CDATA section,
+  attribute value or masked secret) these elements keep the next-tag bound, so `<meta name="csrf-token">` and
+  `<input name="password"><p>…` on an HTML page stay readable. Without that marker a void-named secret element
+  followed by an end tag and then a child element (`<object><param name="password"></object><p>…`) masks the rest.
+  The marker is found by a forward walk with constant extra memory; a raw `<html>` inside a non-secret JSON string still
+  counts as a marker, which only allows the next-tag bound and never exposes a secret value.
+- **Downloads behind a recent-password check (#272).** A link to a protected file (today only the Migration "rows with errors" CSV) used to bounce back to the page and look dead. Clicking it now opens the confirm-password dialog and starts the download after the password is confirmed. A link opened in a new tab goes to the confirm-password page and returns to the file. The file is never sent without a recent confirmation. No schema or permission change.
 - **Encrypted browser history is cleared on every logout (#250).** Before, only a logout with a KYC document unlock
   open cleared it, so any page that encrypts its history stayed restorable with Back or a restored tab until the tab
   closed. Now the history is cleared for staff and clients whenever a request ends or swaps the login (logout, deleting
@@ -520,6 +534,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   are now masked too. A webhook receiver's answer is cut to its stored 2 KB before it is masked, so a large answer
   costs nothing to mask; a JSON answer with nothing secret is stored as received, and one with a secret is stored
   re-encoded (whitespace can differ).
+
+### Migrations wait briefly for table locks (#290)
+
+- Migration DDL on PostgreSQL no longer waits indefinitely behind a long transaction. Before, an `ALTER TABLE` behind
+  one held up every later read and write of the table until that transaction ended. `LockTimeout::run()` sets
+  `lock_timeout` (default 3s), retries 4 times with a 1, 2, 4 s backoff, then stops the migration with an error naming
+  the table and the sessions in the way. `OnlineIndex` builds and drops use it too. Concurrent index builds wait for
+  every older transaction, so they get 60s and 3 attempts, with the timeout set for the session and restored
+  afterwards. New migrations use it (`docs/architecture.md`, rules 5 and 6); migrations already merged are unchanged.
+- `OnlineIndex` now compares the partial-index `WHERE` before it reuses an existing index of the same name. Before,
+  an index with the same columns but another predicate, or none, was kept without a word; now the migration fails.
+  Columns in a predicate may be qualified by the table name.
+- A concurrent index build whose last attempt fails now drops the INVALID index it left; before, a unique one kept
+  rejecting rows until the next deploy. An INVALID index that another session is still building is never dropped:
+  the migration waits for that build instead.
+- **Operators:** no schema or permission change. A deploy can now stop at a migration that cannot get its lock:
+  let the named transaction finish or end it, then deploy again. `DB_MIGRATION_LOCK_TIMEOUT` and
+  `DB_MIGRATION_CONCURRENT_LOCK_TIMEOUT` (PostgreSQL durations such as `5s`) change the waits. The Docker `migrate`
+  service now runs the cache-table migration first and then `migrate --isolated=1`: a second deploy started while
+  one is migrating stops with "The [migrate] command is already running." (exit 1). A killed migrator holds that
+  lock for up to an hour; `docs/devops/production.md` shows how to release it.
 
 ### Bikram Sambat dates beside AD dates on invoices (#207)
 

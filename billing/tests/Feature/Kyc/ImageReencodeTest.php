@@ -235,3 +235,20 @@ test('the images are stored outside the database transaction, so a contended dec
 
     expect($vault->levels)->toBe([$baseline, $baseline]);
 });
+
+test('a 3000 x 2000 quality 85 JPEG without metadata is accepted and its pixels are kept (the shape the browser resize produces)', function () {
+    $image = imagecreatetruecolor(3000, 2000);
+    imagefilledrectangle($image, 0, 0, 1499, 1999, imagecolorallocate($image, 220, 20, 20));
+    imagefilledrectangle($image, 1500, 0, 2999, 1999, imagecolorallocate($image, 20, 20, 220));
+    ob_start();
+    imagejpeg($image, null, 85);
+    $browserOutput = (string) ob_get_clean();
+
+    reencodeSubmit($browserOutput)->assertSessionHasNoErrors();
+    $stored = reencodeStoredFront();
+    $size = getimagesizefromstring($stored);
+
+    expect(KycDocument::query()->sole()->front_mime)->toBe('image/jpeg')
+        ->and([$size[0], $size[1]])->toBe([3000, 2000])
+        ->and(strlen($stored))->toBeLessThanOrEqual(5 * 1024 * 1024);
+});
