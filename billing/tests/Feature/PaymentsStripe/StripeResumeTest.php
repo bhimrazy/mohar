@@ -166,7 +166,7 @@ test('when Stripe can\'t be reached the attempt stays open and the client is tol
     fakeStripeSession(fn () => stripeCreatedSession($attempt->reference, $invoice->id), fn () => throw new ConnectionException('timeout'));
 
     $this->from(route('client.invoices.show', $invoice->id))->post(closeUrl($attempt))
-        ->assertSessionHasErrors(['billing' => 'Stripe still has this payment open, so it could still be paid there. Finish it there, or try again in a few minutes.']);
+        ->assertSessionHasErrors(['billing' => 'The payment page is still open, so the payment could still be made there. Finish it there, or try again in a few minutes.']);
 
     expect($attempt->fresh()->status)->toBe(AttemptStatus::Pending)
         ->and(GatewayLog::query()->where('result', 'hosted session close: unreachable')->count())->toBe(1);

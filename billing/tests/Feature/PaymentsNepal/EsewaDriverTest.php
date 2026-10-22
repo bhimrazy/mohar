@@ -315,7 +315,7 @@ test('use another method frees the invoice only when eSewa holds no payable sess
 
     // eSewa still holds a payable booking: nothing changes and the client is told why.
     $this->from(route('client.invoices.show', $invoice->id))->post($close)
-        ->assertSessionHasErrors(['billing' => 'Esewa still has this payment open, so it could still be paid there. Finish it there, or try again in a few minutes.']);
+        ->assertSessionHasErrors(['billing' => 'The payment page is still open, so the payment could still be made there. Finish it there, or try again in a few minutes.']);
     expect($attempt->fresh()->status)->toBe(AttemptStatus::Pending);
 
     $this->post($close)->assertSessionHasNoErrors()->assertRedirect(route('client.invoices.show', $invoice->id));

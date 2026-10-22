@@ -37,7 +37,7 @@ function clientMessage(attempt: PaymentInProgressData): string {
     }
 
     return attempt.can_resume
-        ? `If your payment at ${name} didn't go through (for example, a declined card), continue it or use another method.`
+        ? `If your payment didn't go through (for example, a declined card), continue it or use another method.`
         : `If you completed the payment at ${name}, you don't need to do anything: this invoice updates once ${name} confirms it.`;
 }
 

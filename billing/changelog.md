@@ -351,7 +351,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   the payment is recorded instead. A double click closes it once.
 - Every hosted method offers **Use another method** while a payment is open. Without a provider "close" call (eSewa,
   Khalti) the invoice is freed only when the status check shows no payable session. Otherwise the client sees why,
-  for example "Khalti still has this payment open, so it could still be paid there".
+  for example "The payment page is still open, so the payment could still be made there".
 - After a cancel on eSewa, the invoice now keeps a "Payment not completed" card with **Pay a different way** and
   the "Don't pay again" warning until the eSewa session time is over. A late success is still booked as before.
 - Operators: no migration, no setting and no permission change. Two new client routes,

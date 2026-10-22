@@ -176,20 +176,18 @@ class InvoiceController extends Controller
      * "Use another method": close this client's open attempt at the provider, then free the invoice only if the
      * lookup confirms the attempt can no longer be paid (#123).
      */
-    public function closeAttempt(int $invoice, string $reference, CloseHostedPayment $close, GatewayManager $gateways): RedirectResponse
+    public function closeAttempt(int $invoice, string $reference, CloseHostedPayment $close): RedirectResponse
     {
         $this->context->authorize('billing');
         $attempt = $this->ownAttempt($this->find($invoice), $reference);
         $status = $close->handle($attempt);
 
+        // The gateway's display label is a method name ("Card"), not a place, so the messages don't name it (#121).
         if ($status->isOpen()) {
-            $attempt->refresh();
-            $name = $gateways->has($attempt->gateway) ? $gateways->gateway($attempt->gateway)->display_name : $attempt->gateway;
-
             throw new BillingException(match (true) {
-                $status === AttemptStatus::Ambiguous => __(':gateway hasn\'t confirmed this payment yet, so it can\'t be closed. If you were charged, you don\'t need to pay again.', ['gateway' => $name]),
-                $attempt->expires_at === null => __(':gateway is still processing this payment, so it can\'t be closed. This invoice updates once it finishes.', ['gateway' => $name]),
-                default => __(':gateway still has this payment open, so it could still be paid there. Finish it there, or try again in a few minutes.', ['gateway' => $name]),
+                $status === AttemptStatus::Ambiguous => __('This payment hasn\'t been confirmed yet, so it can\'t be closed. If you were charged, you don\'t need to pay again.'),
+                $attempt->refresh()->expires_at === null => __('This payment is still being processed, so it can\'t be closed. This invoice updates once it finishes.'),
+                default => __('The payment page is still open, so the payment could still be made there. Finish it there, or try again in a few minutes.'),
             });
         }
 

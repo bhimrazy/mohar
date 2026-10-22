@@ -233,8 +233,8 @@ export default function ClientInvoiceShow({
                                                                 method
                                                             </Button>
                                                         }
-                                                        title={`Stop the ${payment_in_progress.gateway_name} payment?`}
-                                                        description={`We'll close the ${payment_in_progress.gateway_name} payment page first, so it can't be paid there any more. If ${payment_in_progress.gateway_name} says it was already paid, the payment is recorded instead.`}
+                                                        title="Stop this payment?"
+                                                        description="We'll close the payment page first, so the payment can't be made there any more. If it was already paid, we record the payment instead."
                                                         confirmLabel="Use another method"
                                                         destructive={false}
                                                         action={closeAttempt([
