@@ -7,7 +7,6 @@ use App\Data\Domains\Registrar\RegistrarResult;
 use App\Data\Domains\Registrar\SubmissionLookup;
 use App\Data\Domains\Registrar\TransferSyncResult;
 use App\Data\Integrations\ConnectionCheck;
-use App\Data\Integrations\ConnectionCheckStep;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarCommandLog;
 use App\Support\Domains\CapabilityNotSupported;
@@ -150,17 +149,12 @@ class RegistrarGateway
      */
     private function maskResult(mixed $result, array $secrets): mixed
     {
-        $mask = fn (?string $text): ?string => $text === null ? null : $this->redactor->maskValues($text, $secrets);
+        $mask = fn (string $text): string => $this->redactor->maskValues($text, $secrets);
 
         return match (true) {
-            ($result instanceof RegistrarResult || $result instanceof SubmissionLookup) && $result->message !== null => $result->withMessage((string) $mask($result->message)),
-            $result instanceof TransferSyncResult && $result->reason !== null => new TransferSyncResult($result->completed, $result->failed, $mask($result->reason), $result->expiryDate, $result->remote),
-            $result instanceof ConnectionCheck => new ConnectionCheck(
-                $result->ok,
-                (string) $mask($result->message),
-                array_map(fn (ConnectionCheckStep $step): ConnectionCheckStep => new ConnectionCheckStep($step->label, $step->status, $mask($step->detail)), $result->steps),
-                array_map(fn (string $detail): string => (string) $mask($detail), $result->details),
-            ),
+            ($result instanceof RegistrarResult || $result instanceof SubmissionLookup) && $result->message !== null => $result->withMessage($mask($result->message)),
+            $result instanceof TransferSyncResult && $result->reason !== null => $result->withReason($mask($result->reason)),
+            $result instanceof ConnectionCheck => $result->mapText($mask),
             default => $result,
         };
     }

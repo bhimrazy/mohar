@@ -11,14 +11,17 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 Breaking, under the pre-1.0 window (ADR 0010): every in-repo implementer is updated in the same PR, and no package
 used the module SPI.
 
-- Removed: `App\Modules\Domains\Drivers\Registrars\Registrar` (with its `CAPABILITIES`, `configure()`,
-  `capabilities()` and array `settingsSchema()`), the `Registrars\Data` DTOs, `App\Modules\Domains\Exceptions\
-  {RegistrarException,RegistrarTimeout,CapabilityNotSupported}` and `RegistrarManager::extend()/has()/keys()/names()/
-  fields()/driver()/capabilitiesOf()`. Use the kernel types from PR C1 and `RegistrarDriverRegistry`.
+- Removed: `RegistrarManager::extend()/has()/keys()/names()/fields()/driver()/capabilitiesOf()`. Unused from here on
+  (an arch rule forbids them) and deleted in PR C3 (#265): `App\Modules\Domains\Drivers\Registrars\Registrar` (with
+  its `CAPABILITIES`, `configure()`, `capabilities()` and array `settingsSchema()`), the `Registrars\Data` DTOs and
+  `App\Modules\Domains\Exceptions\{RegistrarException,RegistrarTimeout,CapabilityNotSupported}`. Use the kernel types
+  from PR C1 and `RegistrarDriverRegistry`.
 - `RegistrarManager` moves to `App\Modules\Domains\Services` and keeps only account handling: `config(key):
   RegistrarConfig` and `isActive(key)`.
 - `RegistrarGateway::call()` and `forDomain()` take the capability interface after the capability name, and the
-  closure receives `(driver, RegistrarConfig)`. Domains renders `RegistrarException` through a renderer it registers.
+  closure receives `(driver, RegistrarConfig)`. A trailing `$secrets` (the request's `secrets()`) joins the account's
+  credentials in the mask, and every result, lookup, transfer-sync reason and connection check the gateway returns is
+  masked (`withMessage()`, `withReason()`, `mapText()`). The connection test goes through the gateway too. Domains renders `RegistrarException` through a renderer it registers.
 - `info` is core: the host no longer checks for it before using it to verify a lost submission.
 - `tests/Support/Contracts/RegistrarDriverContract::verifyHost()` adds the Domains host redaction check; the
   temporary `ModuleRegistrarDriverContract` is removed.
