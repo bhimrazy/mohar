@@ -125,16 +125,26 @@ test('Hide documents needs a KYC permission and leaves other clients open', func
     $this->post(route('admin.kyc.lock', $other))->assertForbidden();
 });
 
-test('logging out while documents are open clears the history on the next page', function () {
+test('logging out while documents are open clears the history on the page logout leads to', function () {
     ($this->unlock)();
 
     $this->post(route('logout'))->assertRedirect();
 
-    expect(($this->page)(route('login')))->toHaveKey('clearHistory', true);
+    expect(($this->page)(route('home')))->toHaveKey('clearHistory', true);
 });
 
-test('logging out without having opened documents does not clear the history', function () {
+test('logging out without having opened documents does not clear the history there', function () {
     $this->post(route('logout'))->assertRedirect();
 
-    expect(($this->page)(route('login')))->not->toHaveKey('clearHistory');
+    expect(($this->page)(route('home')))->not->toHaveKey('clearHistory');
+});
+
+test('the login and two-factor challenge pages always clear the history for a guest, other guest pages do not', function () {
+    auth()->logout();
+
+    expect(($this->page)(route('login')))->toHaveKey('clearHistory', true)
+        ->and(($this->page)(route('home')))->not->toHaveKey('clearHistory');
+
+    $this->withSession(['login.id' => $this->staff->id, 'login.remember' => false]);
+    $this->get(route('two-factor.login'))->assertOk()->assertInertia(fn ($page) => expect($page->toArray())->toHaveKey('clearHistory', true));
 });

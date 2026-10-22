@@ -22,8 +22,7 @@ class ReviewUnlocks
         $confirmedAt = (int) $request->session()->get('auth.password_confirmed_at', 0);
         $stepUpEnds = $confirmedAt + (int) config('platform.password_confirmation_seconds', 900);
         $until = min(CarbonImmutable::now()->addMinutes(self::MINUTES)->getTimestamp(), $stepUpEnds);
-        // Ended entries are left for forgetEnded(), which clears the browser history when it drops them.
-        $unlocks = $this->all($request);
+        $unlocks = array_filter($this->all($request), fn (int $expires): bool => $expires > now()->getTimestamp());
         $unlocks[$clientId] = $until;
         $this->store($request, $unlocks);
 
@@ -38,7 +37,7 @@ class ReviewUnlocks
     }
 
     /**
-     * Hide one client's documents again before the window ends. True when they were open (or had ended unnoticed).
+     * Hide one client's documents again before the window ends. True when they were open.
      */
     public function lock(Request $request, int $clientId): bool
     {
