@@ -31,6 +31,7 @@ use PHPUnit\Framework\AssertionFailedError;
 const STEP_UP_EXEMPT = [
     'admin.billing.gateways.test' => 'Test connection sends no stored data anywhere it was not saved for, and changes nothing.',
     'admin.billing.payment-attempts.check' => 'Asks the gateway for the status of an attempt and books only a payment the gateway confirms, also for a closed attempt (a late payment, #130); it moves no money staff did not already receive.',
+    'admin.kyc.lock' => 'Hide documents only ends this staff member\'s own document unlock early and clears the browser history (#240); it takes access away and changes no data.',
 ];
 
 /** Routes the scan cannot reach even with empty bound models, and why (none today; the scan fails on a new one). */
