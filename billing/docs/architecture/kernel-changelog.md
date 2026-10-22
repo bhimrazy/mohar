@@ -6,6 +6,35 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Payment follow-ups (#232, #221)
+
+- New event `App\Events\Billing\PaymentReinstated(invoiceId, clientId, transactionId, chargebackTransactionId,
+  amount, currency, reviewAmount = 0)` (compatible addition, #221): a won dispute undid a chargeback. The counterpart
+  of `PaymentReversed`, one to one: Billing's `RecordDisputeWon` dispatches, after commit, one per chargeback row that
+  fired `PaymentReversed`, with the same invoice and amount (one per invoice of a combined charge; none for a dispute
+  that took back only credit), whether or not the invoice is settled again. `transactionId` is the win's
+  `chargeback_reversal` row, `chargebackTransactionId` the chargeback row, `reviewAmount` the part held for staff
+  review. Implements `DomainEvent` and
+  `ShouldDispatchAfterCommit`. Notifications publishes it as the `payment.reinstated` webhook, and `PaymentReversed`
+  as `payment.reversed`; with Notifications absent nothing listens.
+- `App\Data\Billing\CallbackEvent` gains a trailing `bool $fundsReinstated = false` (compatible, #232): on
+  `DISPUTE_WON`, the provider's record shows the disputed money withdrawn and reinstated, so a win with no booked
+  chargeback is acknowledged (200, a zero-amount `chargeback_reversal` row as the won marker, no money moved) instead of
+  refused with 409. Set by the Stripe driver from the
+  dispute's balance transactions; other drivers keep the 409-and-retry behaviour.
+
+### Resume or cancel a hosted payment (#123)
+
+- New opt-in capability `App\Contracts\Billing\ResumesHostedPayment::resumeUrl(GatewayConfig, PaymentAttemptRef):
+  ?string`: the provider page where the customer can finish a still-open attempt, read from the provider at request
+  time and accepted only as https on the provider's own payment host. Billing never stores it or sends it as a prop.
+- New opt-in capability `App\Contracts\Billing\CancelsHostedPayment::cancelSession(GatewayConfig, PaymentAttemptRef):
+  HostedSessionCancel`: closes the provider session before Billing frees the invoice for another way to pay. Called
+  outside any database transaction; the answer is logged only, and settlement still comes from `lookup()`.
+- New closed enum `App\Enums\HostedSessionCancel` (`closed`, `already_final`, `unreachable`).
+- Additive: `HostedPaymentDriver` is unchanged and drivers without the interfaces keep working. Implemented by
+  `StripeDriver` and the sandbox card driver.
+
 ### Redactor gaps (#190, CTO-sanctioned kernel change)
 
 - `App\Support\Integrations\Redactor` (`@api`): public method signatures unchanged. The string rules behind
@@ -17,10 +46,11 @@ the same PR updates every in-repo implementer and gets the principal-architect g
   `Cookie:` and `Set-Cookie:` lines, and Stripe and Khalti key shapes. End tags are found through one index of `</`
   offsets read by a forward-only cursor, so the scan stays linear with many unclosed elements (#252 B1). A secret
   element with no end tag masks the rest of the text (fail closed); an element named like an HTML void element
-  (`<input name="password">`, XML `<param>`) masks the text up to the next tag or its CDATA section, so an HTML
-  input masks nothing after it while XML content is masked. An unquoted name whose value would start on the next
-  line takes that line unless it is itself a pair, so an empty `Cookie:` keeps the next header and `password:\nvalue`
-  is masked. The word
+  (`<input name="password">`, XML `<param>`) with no matching end tag later in the text masks the text up to the next
+  tag or its CDATA section, so an HTML input masks nothing after it; with an end tag later it is masked to that end
+  tag like any element, child elements and comments included. An unquoted name whose value would start on the next
+  line takes that line unless it is header-shaped (a name, `:`, then a blank or the line end), so an empty `Cookie:`
+  keeps the next header while `password:\nvalue` and `token:\nQWx…==` are masked. The word
   rules gain `pw` (EPP `newPW`) and the run-together `session` (`cpsession`, `whostmgrsession`).
 - Masks widen, with two narrowings: `auth-userid` (ResellerClub's reseller id) is no longer secret, and after an
   unquoted `Session:` or `hash:` label in free text a value that is a known reference id (Stripe `cs_`, `pi_`, `ch_`,
