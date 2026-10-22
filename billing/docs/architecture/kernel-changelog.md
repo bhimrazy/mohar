@@ -13,13 +13,17 @@ the same PR updates every in-repo implementer and gets the principal-architect g
   `maskPairs()` recursion (the `NESTED_PAIR_*` limits are gone): secret `name=value`, `name: value`, `"name":"value"`
   and `'name' => 'value'` pairs (quoted values with escapes, JSON arrays and objects, unquoted values through `;` and
   `,` that continue the value), XML elements named like a secret or labelled by a secret `key`/`name` attribute (CDATA
-  included), secret XML attributes, URL userinfo, percent-encoded pairs, `curl -u` credentials, whole `Cookie:` and
-  `Set-Cookie:` lines, and Stripe and Khalti key shapes. End tags are found through one index of `</` offsets (64 end
-  tags of lookahead per secret element), so the scan stays linear with many unclosed elements (#252 B1). The word
+  included), secret XML attributes, URL userinfo, percent-encoded pairs, `curl -u` credentials (quoted or attached), whole
+  `Cookie:` and `Set-Cookie:` lines, and Stripe and Khalti key shapes. End tags are found through one index of `</`
+  offsets read by a forward-only cursor, so the scan stays linear with many unclosed elements (#252 B1). A secret
+  element with no end tag masks the rest of the text (fail closed); HTML void elements (`<input name="password">`)
+  have no content to mask. An unquoted name whose value would start on the next line takes it only from an indented
+  continuation line that is not itself a pair, so an empty `Cookie:` keeps the next header. The word
   rules gain `pw` (EPP `newPW`) and the run-together `session` (`cpsession`, `whostmgrsession`).
-- Masks widen, with two narrowings: `auth-userid` (ResellerClub's reseller id) is no longer secret, and an unquoted
-  `Session:` or `hash:` label followed by a space in free text introduces a reference (a Stripe Checkout Session id),
-  not a credential. `session=`, `hash=` and quoted keys stay secret.
+- Masks widen, with two narrowings: `auth-userid` (ResellerClub's reseller id) is no longer secret, and after an
+  unquoted `Session:` or `hash:` label in free text a value that is a known reference id (Stripe `cs_`, `pi_`, `ch_`,
+  `evt_`, `cus_`, `in_`, `sub_`, `re_`, `py_`, `seti_` ids, or a UUID) stays readable. Any other value after those
+  labels, `session=`, `hash=` and quoted keys stay secret.
 - A string that is a whole JSON document and holds nothing secret is returned unchanged instead of re-encoded.
 - `redactPayment()` also applies the string rules to text leaves (before Luhn scrubbing). Key rules unchanged.
 - Behaviour change for callers comparing exact output: a quoted secret keeps its quotes (`"password":"[redacted]"`,
