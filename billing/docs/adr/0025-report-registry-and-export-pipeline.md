@@ -71,7 +71,10 @@ a second one.
 ### 3. One export pipeline
 
 - `App\Support\Reports\ReportExporter::export(string $key, ReportQuery, ExportFormat $format, ?string $layout)` is
-  the only export path. Formats are `csv` and `pdf`. XLSX is not included (see the open questions).
+  the only export path. `ExportFormat` is a kernel enum with the cases `csv` and `pdf` (D4, decided by the owner on
+  2026-10-22). Each format is written by its own `ExportWriter`, selected by format. Adding a format means adding an
+  enum case and a writer; reports, permissions, audit and queued delivery stay as they are. `ExportFormat` is
+  documented `@open` (ADR 0010), so consumers keep a default branch.
 - **CSV.**
     - Written by `App\Support\Csv\SafeCsv`, a stream writer that fixes the comma separator, the quoting and the
       optional BOM.
@@ -121,9 +124,9 @@ reports ("Report modules" in `billing/docs/parity/developer-architecture.md`).
 
 ## Open questions
 
-- **D4:** XLSX in the IRD template needs a spreadsheet package, which requires approval and the cooldown (ADR 0007),
-  and the accountant's answer on whether hosts upload the register (spec A2). If the answer is yes, XLSX becomes a
-  third `ExportFormat` behind the same pipeline.
+- **D4 is decided** (owner, 2026-10-22): CSV and PDF now. XLSX is added only once the IRD portal requires an upload.
+  It then needs a spreadsheet package, with approval and the cooldown (ADR 0007). It is added as a third
+  `ExportFormat` with its own writer, behind the same pipeline.
 - Whether the IRD portal expects a particular file layout. The `ird` layout follows the template as read (spec F2);
   an answer only changes that layout.
 
@@ -143,4 +146,4 @@ reports ("Report modules" in `billing/docs/parity/developer-architecture.md`).
   for cross-module reports.
 - **Keeping the guard where it is:** the only copy is in Migration, which other modules cannot import, so every new
   export would copy it again, `-` rule included. Rejected.
-- **Laravel Excel for every format:** one library, but a new dependency for CSV, which needs none. Deferred until D4.
+- **Laravel Excel for every format:** one library, but a new dependency for CSV, which needs none. Deferred: XLSX comes only once the IRD portal requires an upload (D4).
