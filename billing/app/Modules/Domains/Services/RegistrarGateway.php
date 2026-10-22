@@ -2,18 +2,26 @@
 
 namespace App\Modules\Domains\Services;
 
-use App\Modules\Domains\Drivers\Registrars\Registrar;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
-use App\Modules\Domains\Exceptions\CapabilityNotSupported;
-use App\Modules\Domains\Exceptions\RegistrarException;
-use App\Modules\Domains\Exceptions\RegistrarTimeout;
+use App\Contracts\Domains\Registrar\TestsRegistrarConnection;
+use App\Data\Domains\Registrar\RegistrarConfig;
+use App\Data\Domains\Registrar\RegistrarResult;
+use App\Data\Domains\Registrar\SubmissionLookup;
+use App\Data\Domains\Registrar\TransferSyncResult;
+use App\Data\Integrations\ConnectionCheck;
 use App\Modules\Domains\Models\Domain;
-use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\RegistrarCommandLog;
+use App\Support\Domains\CapabilityNotSupported;
+use App\Support\Domains\RegistrarDriverRegistry;
+use App\Support\Domains\RegistrarException;
+use App\Support\Domains\RegistrarTimeout;
 use App\Support\Integrations\Redactor;
 use Closure;
+use Error;
+use Exception;
 use Illuminate\Support\Facades\Auth;
 use JsonSerializable;
+use LogicException;
+use ReflectionProperty;
 use Throwable;
 
 /**
@@ -21,7 +29,9 @@ use Throwable;
  * times the call and writes registrar_command_log with secrets redacted and responses truncated.
  *
  * Error text a driver raises is masked (secret pairs by name, and the account's own configured credentials by value)
- * before it is logged or re-thrown, so callers can store it in last_error, the activity log and events.
+ * before it is logged or re-thrown, so callers can store it in last_error, the activity log and events. The re-thrown
+ * exception keeps its class, retry flag and previous chain; only the messages along the chain are masked. What a
+ * driver answers (result and lookup messages, transfer reasons, connection-test text) is masked the same way.
  *
  * Failure semantics for the non-idempotent commands (register, transfer, renew, restore): only a
  * RegistrarException(retryable: true) from the driver means "not executed, safe to retry". Any other
@@ -35,38 +45,76 @@ class RegistrarGateway
     /** Commands that change state at the registry and must never be blindly repeated. */
     public const MUTATING = ['register', 'transfer', 'renew', 'restore'];
 
-    public function __construct(private RegistrarManager $registrars, private Redactor $redactor) {}
+    public function __construct(private RegistrarDriverRegistry $drivers, private RegistrarManager $accounts, private Redactor $redactor) {}
 
     /**
-     * Run $call against the driver of $registrarKey after checking $capability.
+     * Run $call against the driver of $registrarKey and its account after checking $capability, whose interface
+     * (its entry in RegistrarDriverRegistry::capabilities()) the closure receives the driver as.
      *
+     * @template TDriver of object
      * @template T
      *
-     * @param  Closure(Registrar): T  $call
+     * @param  class-string<TDriver>  $interface
+     * @param  Closure(TDriver, RegistrarConfig): T  $call
      * @param  array<string, mixed>  $request
      * @param  bool  $logSuccess  false for high-volume read calls (public lookups): only failures are logged
+     * @param  list<string>  $secrets  secret values the call's request carries (RegistrationRequest::secrets()), masked
+     *                                 with the account's credentials in everything the call returns, raises or logs
      * @return T
      *
      * @throws RegistrarException
      */
-    public function call(string $registrarKey, string $capability, Closure $call, ?Domain $domain = null, array $request = [], ?int $staffId = null, bool $logSuccess = true): mixed
+    public function call(string $registrarKey, string $capability, string $interface, Closure $call, ?Domain $domain = null, array $request = [], ?int $staffId = null, bool $logSuccess = true, array $secrets = []): mixed
     {
-        $driver = $this->registrars->driver($registrarKey);
-
-        if (! $this->registrars->isActive($registrarKey)) {
-            throw new RegistrarException("The {$driver->name()} registrar is disabled; enable it under Registrars first.");
+        if (! $this->accounts->isActive($registrarKey)) {
+            throw new RegistrarException("The {$this->drivers->get($registrarKey)->name()} registrar is disabled; enable it under Registrars first.");
         }
 
-        if (! in_array($capability, $driver->capabilities(), true)) {
+        return $this->run($registrarKey, $capability, $interface, $call, $domain, $request, $staffId, $logSuccess, $secrets);
+    }
+
+    /**
+     * Test the account's connection, logged and masked like every other call. Unlike call() it also runs while the
+     * registrar is disabled, so staff can check new credentials before enabling them.
+     *
+     * @throws RegistrarException
+     */
+    public function testConnection(string $registrarKey): ConnectionCheck
+    {
+        return $this->run($registrarKey, RegistrarDriverRegistry::TEST_CONNECTION, TestsRegistrarConnection::class, fn (TestsRegistrarConnection $driver, RegistrarConfig $config): ConnectionCheck => $driver->testConnection($config));
+    }
+
+    /**
+     * @template TDriver of object
+     * @template T
+     *
+     * @param  class-string<TDriver>  $interface
+     * @param  Closure(TDriver, RegistrarConfig): T  $call
+     * @param  array<string, mixed>  $request
+     * @param  list<string>  $secrets
+     * @return T
+     *
+     * @throws RegistrarException
+     */
+    private function run(string $registrarKey, string $capability, string $interface, Closure $call, ?Domain $domain = null, array $request = [], ?int $staffId = null, bool $logSuccess = true, array $secrets = []): mixed
+    {
+        $driver = $this->drivers->get($registrarKey);
+
+        if (($this->drivers->capabilities()[$capability] ?? null) !== $interface) {
+            throw new LogicException("The registrar capability [{$capability}] is not implemented through {$interface}.");
+        }
+
+        if (! $driver instanceof $interface) {
             throw new CapabilityNotSupported($capability, $driver->name());
         }
 
         $started = hrtime(true);
         $staffId ??= $this->currentStaffId();
-        $secrets = $this->secretValues($registrarKey);
+        $config = $this->accounts->config($registrarKey);
+        $secrets = [...$config->secrets(), ...array_values(array_filter($secrets, fn (string $secret): bool => $secret !== ''))];
 
         try {
-            $result = $call($driver);
+            $result = $this->maskResult($call($driver, $config), $secrets);
 
             if ($logSuccess) {
                 $this->record($registrarKey, $capability, $domain, $request, $this->normalise($result), true, null, $started, $staffId, $secrets);
@@ -77,39 +125,39 @@ class RegistrarGateway
             $error = $this->redactor->maskValues($exception->getMessage(), $secrets);
             $this->record($registrarKey, $capability, $domain, $request, null, false, $error, $started, $staffId, $secrets);
 
-            throw match (true) {
-                $error === $exception->getMessage() => $exception,
-                $exception instanceof RegistrarTimeout => new RegistrarTimeout($error),
-                default => new RegistrarException($error, $exception->retryable),
-            };
+            throw $this->maskChain($exception, $secrets);
         } catch (Throwable $exception) {
             $error = $this->redactor->maskValues($exception->getMessage(), $secrets);
             $this->record($registrarKey, $capability, $domain, $request, null, false, $error, $started, $staffId, $secrets);
+            $previous = $this->maskChain($exception, $secrets);
 
             if (in_array($capability, self::MUTATING, true)) {
-                throw new RegistrarTimeout("Unexpected registrar error; the {$capability} outcome is unknown: {$error}");
+                throw new RegistrarTimeout("Unexpected registrar error; the {$capability} outcome is unknown: {$error}", $previous);
             }
 
-            throw new RegistrarException('The registrar call failed: '.$error, retryable: true);
+            throw new RegistrarException('The registrar call failed: '.$error, retryable: true, previous: $previous);
         }
     }
 
     /**
      * Run $call against the domain's own registrar.
      *
+     * @template TDriver of object
      * @template T
      *
-     * @param  Closure(Registrar): T  $call
+     * @param  class-string<TDriver>  $interface
+     * @param  Closure(TDriver, RegistrarConfig): T  $call
      * @param  array<string, mixed>  $request
+     * @param  list<string>  $secrets  secret values the request carries (see call())
      * @return T
      */
-    public function forDomain(Domain $domain, string $capability, Closure $call, array $request = [], ?int $staffId = null): mixed
+    public function forDomain(Domain $domain, string $capability, string $interface, Closure $call, array $request = [], ?int $staffId = null, array $secrets = []): mixed
     {
         if ($domain->registrar_key === null) {
             throw new CapabilityNotSupported($capability, 'manual');
         }
 
-        return $this->call($domain->registrar_key, $capability, $call, $domain, ['domain' => $domain->name, ...$request], $staffId);
+        return $this->call($domain->registrar_key, $capability, $interface, $call, $domain, ['domain' => $domain->name, ...$request], $staffId, secrets: $secrets);
     }
 
     /**
@@ -117,26 +165,52 @@ class RegistrarGateway
      */
     public function supports(Domain $domain, string $capability): bool
     {
-        return in_array($capability, $this->registrars->capabilitiesOf($domain->registrar_key), true);
+        return $domain->registrar_key !== null && $this->drivers->supports($domain->registrar_key, $capability);
     }
 
     /**
-     * The registrar account's configured credentials (its secret settings), masked by value wherever they appear.
+     * Mask the message of the exception and of every exception behind it, in place, so the re-thrown error keeps its
+     * class, retry flag, trace and `previous` while nothing it carries to the log or to staff holds a credential.
      *
-     * @return list<string>
+     * @template E of Throwable
+     *
+     * @param  E  $exception
+     * @param  list<string>  $secrets
+     * @return E
      */
-    private function secretValues(string $registrarKey): array
+    private function maskChain(Throwable $exception, array $secrets): Throwable
     {
-        $settings = RegistrarAccount::query()->where('key', $registrarKey)->first()->settings ?? [];
-        $secrets = [];
+        for ($link = $exception, $hops = 0; $link !== null && $hops < 16; $link = $link->getPrevious(), $hops++) {
+            $masked = $this->redactor->maskValues($link->getMessage(), $secrets);
 
-        foreach ($this->registrars->fields($registrarKey) as $field) {
-            if ($field->isSecret() && is_string($settings[$field->key] ?? null) && $settings[$field->key] !== '') {
-                $secrets[] = $settings[$field->key];
+            if ($masked !== $link->getMessage()) {
+                (new ReflectionProperty($link instanceof Exception ? Exception::class : Error::class, 'message'))->setValue($link, $masked);
             }
         }
 
-        return $secrets;
+        return $exception;
+    }
+
+    /**
+     * The driver's answer with every staff-facing text masked (ADR 0009 Amendment 2): callers store and show result and
+     * lookup messages, transfer failure reasons and connection-test text as they get them.
+     *
+     * @template T
+     *
+     * @param  T  $result
+     * @param  list<string>  $secrets
+     * @return T
+     */
+    private function maskResult(mixed $result, array $secrets): mixed
+    {
+        $mask = fn (string $text): string => $this->redactor->maskValues($text, $secrets);
+
+        return match (true) {
+            ($result instanceof RegistrarResult || $result instanceof SubmissionLookup) && $result->message !== null => $result->withMessage($mask($result->message)),
+            $result instanceof TransferSyncResult && $result->reason !== null => $result->withReason($mask($result->reason)),
+            $result instanceof ConnectionCheck => $result->mapText($mask),
+            default => $result,
+        };
     }
 
     /**

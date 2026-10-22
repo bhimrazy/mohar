@@ -7,15 +7,34 @@ fallback and not the default: [deployment-options.md](deployment-options.md#cpan
 
 ## What the account needs
 
-| Need              | Details                                                                                                                                                                                      |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PHP 8.4           | EasyApache's `ea-php84`, with `pdo_pgsql`, `pgsql`, `intl`, `gd`, `bcmath`, `zip`, `mbstring`, `openssl`, `curl`. Ask the host to install the missing ones. `pcntl` is optional (see Limits) |
-| PostgreSQL 18     | a database the account can reach over the network: a managed PostgreSQL 18, or one the host provides. cPanel's own PostgreSQL is the OS version, usually far older                           |
-| Cron every minute | cPanel → Cron Jobs → "Once Per Minute". Hosts that only allow every 5 or 15 minutes delay jobs by that much and need the two settings under Limits (Scheduler)                               |
-| A terminal        | SSH or cPanel → Terminal, for the install and upgrade commands                                                                                                                               |
-| `flock`           | usually present (`util-linux`); without it, drop the `flock -n …` part of each cron line                                                                                                     |
-| Document root     | the domain's document root must point at `~/billing/public` (cPanel → Domains → Manage)                                                                                                      |
-| Object storage    | any S3-compatible bucket, or `OBJECTS_DRIVER=local` (files in `storage/app/objects`, which the account backup must then include)                                                             |
+| Need              | Details                                                                                                                                                                                                                                                         |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PHP 8.4.27+       | EasyApache's `ea-php84` at 8.4.27 or newer (see [PHP security floor](#php-security-floor)), with `pdo_pgsql`, `pgsql`, `intl`, `gd`, `bcmath`, `zip`, `mbstring`, `openssl`, `curl`. Ask the host to install the missing ones. `pcntl` is optional (see Limits) |
+| PostgreSQL 18     | a database the account can reach over the network: a managed PostgreSQL 18, or one the host provides. cPanel's own PostgreSQL is the OS version, usually far older                                                                                              |
+| Cron every minute | cPanel → Cron Jobs → "Once Per Minute". Hosts that only allow every 5 or 15 minutes delay jobs by that much and need the two settings under Limits (Scheduler)                                                                                                  |
+| A terminal        | SSH or cPanel → Terminal, for the install and upgrade commands                                                                                                                                                                                                  |
+| `flock`           | usually present (`util-linux`); without it, drop the `flock -n …` part of each cron line                                                                                                                                                                        |
+| Document root     | the domain's document root must point at `~/billing/public` (cPanel → Domains → Manage)                                                                                                                                                                         |
+| Object storage    | any S3-compatible bucket, or `OBJECTS_DRIVER=local` (files in `storage/app/objects`, which the account backup must then include)                                                                                                                                |
+
+## PHP security floor
+
+PHP 8.4.26 and older (and 8.5.11 and older) are open to **CVE-2026-109618** and **CVE-2026-109619** ("PHP2Shell"),
+unauthenticated remote code execution through every web SAPI, with no workaround besides upgrading
+([php.net, 2026-10-21](https://www.php.net/archive/2026.php)). The account needs **`ea-php84` 8.4.27 or newer**
+(8.5.12 or newer if the host offers `ea-php85`). EasyApache packages are updated by the host, not by the account:
+check the version, and ask the host to update it if it is older.
+
+```bash
+/opt/cpanel/ea-php84/root/usr/bin/php -v   # the PHP the cron lines and the terminal commands run
+```
+
+The PHP that serves the site can be a separate package (PHP-FPM or LSAPI): `php artisan app:install` and the admin
+dashboard's System health card ("PHP runtime") report a vulnerable version, the dashboard for the PHP that serves web
+requests. After the host updates PHP, the PHP-FPM or LSAPI processes that serve the site must be restarted to load
+it; on shared hosting that is the host's job, so ask if the dashboard still shows the old version. In cron mode each
+queue worker stops within a minute and the next cron run starts it on the new PHP; `php artisan queue:restart` (with
+the `ea-php84` binary) stops the current ones early.
 
 ## Limits compared with the Docker stack
 
@@ -124,7 +143,9 @@ release working against the new schema.
   ([install.md](install.md#backups)).
 - **Files:** `~/billing/storage` (and `storage/app/objects` with `OBJECTS_DRIVER=local`) in the cPanel account
   backup, or the bucket's own versioning or replication.
-- **`.env`** with `APP_KEY` in a secrets store, never next to the dumps.
+- **`.env`** is not part of any backup. Keep `APP_KEY` (and earlier keys, for older dumps) in a secrets store, never
+  next to the dumps. cPanel's account backup includes the home directory, so exclude the key: list `billing/.env` and
+  `billing/bootstrap/cache/config.php` in `~/cpbackup-exclude.conf`. Rotation: [key-rotation.md](key-rotation.md).
 
 ## How cron mode is tested
 

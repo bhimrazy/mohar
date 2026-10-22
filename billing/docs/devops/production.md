@@ -93,8 +93,10 @@ All commands run from the repository root (a clone at the release you deploy).
     docker compose -f deploy/compose.prod.yaml build migrate
     ```
 
-3. **Application key**, once. Put the output in `APP_KEY`, and store a copy in your password manager, away from the
-   backups: it decrypts the stored gateway, registrar and server credentials.
+3. **Application key**, once. Put the output in `APP_KEY` (or in a Docker secret, see
+   [key-rotation.md](key-rotation.md#where-the-key-lives)), and store a copy in your password manager, away from the
+   backups: it decrypts the stored gateway, registrar and server credentials. Rotating it later:
+   [key-rotation.md](key-rotation.md).
 
     ```bash
     docker compose -f deploy/compose.prod.yaml run --rm --no-deps -e APP_OPTIMIZE=0 migrate php artisan key:generate --show
@@ -126,6 +128,11 @@ All commands run from the repository root (a clone at the release you deploy).
 
 The same sequence, with generated secrets and Caddy's internal certificate, is what `deploy/bin/smoke` runs on a
 GitHub runner (Actions → Deploy smoke, or the `deploy-smoke` label on a pull request).
+
+The smoke also runs the full demo seeder, `php artisan db:seed --force`, once at the end in a one-off container with
+`APP_ENV=local` on the stack's backend network (the stack itself stays `production`, where `DatabaseSeeder` skips demo data). The seeders need Faker, which the production image does not contain, so the step builds the smoke-only `smoke-seed` target of `deploy/Dockerfile` (dev dependencies; never deployed or published). That exercises every
+module's seeder on PostgreSQL with real commits; any seeder error fails the smoke, and the step refuses to run under
+`APP_ENV=production` or for a `SMOKE_PROJECT` that is not `mohar-smoke*`. Never seed demo data on a real installation: the demo accounts have a known password.
 
 ## Changing settings
 
@@ -172,6 +179,13 @@ RustFS in `compose.prod.yaml` are bumped by hand: GitHub does not document wheth
 named `compose.prod.yaml`. Every pin must be a digest at least 7 days old (`composer deps:check`), and the postgres
 image must equal the one in `billing/compose.yaml` (CI checks it).
 
+**PHP security floor.** The image runs PHP 8.4.27 (FrankenPHP 1.13.2), which fixes CVE-2026-109618 and
+CVE-2026-109619 (unauthenticated remote code execution in every web SAPI); images built from an older checkout run
+PHP 8.4.26 or older and are vulnerable. Update with the steps above: `deploy/bin/deploy` rebuilds the image and replaces
+the web container and every worker, so no PHP process keeps the old binary. Check with
+`docker compose -f deploy/compose.prod.yaml exec web-<colour> php -v`. The prod build stops if its PHP is older than the
+floor, and the admin dashboard shows "PHP runtime" in red while it is (see [install.md](install.md#php-security-floor)).
+
 ## Rolling back
 
 ```bash
@@ -187,8 +201,8 @@ backup taken before the update.
 
 ## Backups
 
-What to back up, as in [install.md](install.md#backups): the database, the objects bucket, and `deploy/.env` with
-`APP_KEY`, each kept apart from the others.
+What to back up, as in [install.md](install.md#backups): the database and the objects bucket. `APP_KEY` is kept in
+a secrets store, apart from both; host and file backups exclude `deploy/.env` ([key-rotation.md](key-rotation.md)).
 
 - **Database**, nightly and before every update, from the host's crontab (`crontab -e` as a user in the `docker`
   group), before the 03:00 automation run. Cron turns `%` into a newline, hence `\%`; `umask 077` keeps the dump
@@ -212,7 +226,10 @@ What to back up, as in [install.md](install.md#backups): the database, the objec
     $compose start rustfs
     ```
 
-- **`deploy/.env`** in a secrets store, never next to the dumps.
+- **`APP_KEY`** (and the earlier keys, for dumps taken before a rotation) in a password manager or secrets store, never
+  next to the dumps. A snapshot of the host or of `/srv/billing` excludes `deploy/.env`. To keep the key out of
+  `deploy/.env` altogether, use Docker secrets (`deploy/compose.secrets.example.yaml`, see
+  [key-rotation.md](key-rotation.md#where-the-key-lives)).
 
 Copy the files off the host, and test a restore every quarter.
 

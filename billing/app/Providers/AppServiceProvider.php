@@ -10,12 +10,14 @@ use App\Support\Clients\ClientMergeRegistry;
 use App\Support\Currencies\ExchangeRateSources;
 use App\Support\Currencies\PriceConverters;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Domains\RegistrarDriverRegistry;
 use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Integrations\Endpoints;
 use App\Support\Migration\ImportRegistry;
 use App\Support\Navigation\Navigation;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Security\PasswordPolicy;
 use App\Support\Seo\SitemapRegistry;
 use App\Support\Services\ProvisioningDriverRegistry;
@@ -55,9 +57,11 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(ClientCurrencyUsage::class);
         $this->app->singleton(ImportRegistry::class);
         $this->app->singleton(ReferenceDataRegistry::class);
+        $this->app->singleton(EncryptedStorage::class);
         $this->app->singleton(ExchangeRateSources::class);
         $this->app->singleton(PriceConverters::class);
         $this->app->singleton(ProvisioningDriverRegistry::class);
+        $this->app->singleton(RegistrarDriverRegistry::class);
         $this->app->singleton(SitemapRegistry::class);
         $this->app->singleton(Endpoints::class);
     }

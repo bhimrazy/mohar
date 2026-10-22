@@ -6,13 +6,13 @@ CI itself is defined once, at the repository root: `.github/workflows/ci.yml` (a
 
 ## Prerequisites
 
-| Tool           | Version                                        | Notes                                                                                        |
-| -------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| PHP            | 8.4 (local build: 8.4.15)                      | extensions: `pdo_sqlite`, `pdo_pgsql`, `pgsql`, `mbstring`, `openssl`, `curl`, `dom`, `zlib` |
-| Composer       | 2.10.x                                         |                                                                                              |
-| Node / npm     | `billing/.nvmrc` (24.21.0) / npm 11            | `nvm use` inside `billing/`; lockfile is `package-lock.json` → `npm ci`                      |
-| Docker Compose | v2.23+ (uses inline `configs.content`)         | RustFS + PostgreSQL                                                                          |
-| Playwright     | Chromium in `~/.cache/ms-playwright` (screens) | only for screenshots                                                                         |
+| Tool           | Version                                                                           | Notes                                                                                        |
+| -------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| PHP            | 8.4 (local build: 8.4.15)                                                         | extensions: `pdo_sqlite`, `pdo_pgsql`, `pgsql`, `mbstring`, `openssl`, `curl`, `dom`, `zlib` |
+| Composer       | 2.10.x                                                                            |                                                                                              |
+| Node / npm     | `billing/.nvmrc` (24.21.0) / npm 11                                               | `nvm use` inside `billing/`; lockfile is `package-lock.json` → `npm ci`                      |
+| Docker Compose | v2.23+ (uses inline `configs.content`)                                            | RustFS + PostgreSQL                                                                          |
+| Playwright     | 1.64.1, global (`npm i -g playwright@1.64.1`, then `playwright install chromium`) | screenshots and page walks (`scripts/screenshot.mjs`); not in the lockfile                   |
 
 Always prefix PHP commands with `XDEBUG_MODE=off` unless you are debugging — Xdebug makes the suite and
 Larastan several times slower. The composer `ci` / `test:pgsql` scripts set it for you.
@@ -129,9 +129,23 @@ release binary, check it against `actionlint_1.7.12_checksums.txt`, run it from 
 
 ## Screenshots
 
-Screenshots for `docs/progress.md` live in `docs/screenshots/` and are captured with headless Playwright
-(Chromium in `~/.cache/ms-playwright`) against a running instance (`composer dev`,
-`APP_URL=http://localhost:8000`); the design-system showcase is at `/dev/components`.
+Screenshots for `docs/progress.md` live in `docs/screenshots/` and are captured with headless Playwright against a
+running instance (`composer dev`, `APP_URL=http://localhost:8000`); the design-system showcase is at `/dev/components`.
+Playwright is installed globally at a pinned version (table above), outside the lockfile. From the repository root:
+
+```bash
+node scripts/screenshot.mjs http://localhost:8000/admin out.png --login admin@example.com:password
+node scripts/screenshot.mjs http://localhost:8000/admin out-dark.png --login admin@example.com:password --dark --width 390 --height 844
+```
+
+Then `npm run images:optimize -- <paths>` (CI fails on images over 500 KB).
+
+## Mail
+
+`docker compose up -d mailpit` starts Mailpit, which catches every outgoing mail: set `MAIL_MAILER=smtp`,
+`MAIL_HOST=127.0.0.1`, `MAIL_PORT=1025` in `.env` and read the mail at http://localhost:8025 (API: `/api/v1/messages`). The host ports can be moved with
+`MAILPIT_SMTP_PORT` and `MAILPIT_UI_PORT`.
+Invitations, password resets and invoice mail can then be tested end to end without a real mail provider.
 
 ## Reverse proxies and `TrustProxies`
 

@@ -95,7 +95,7 @@ is marked sensitive.
       $submittedAt): SubmissionLookup`)
     - `TestsRegistrarConnection`
 
-    The `.np` manual driver implements only the core interface.
+    ~~The `.np` manual driver implements only the core interface.~~ There is no `.np` driver (Amendment 2).
 
 - `RegistrarGateway` and `ExecuteModuleCommand` keep the capability check, but it becomes `instanceof`. The string
   lists the admin UI shows (`capabilitiesOf()`) are computed from the interfaces, so the props do not change.
@@ -235,3 +235,39 @@ Each PR gets the principal-architect gate.
 - `UsernamePolicy` (a host default of 8 characters, replaced by the driver's own policy) and
   `DriverMetadata::$commandTimeoutSeconds` (capped at 180 s; see the ADR 0014 invariant) come from the cPanel spec,
   §13 K6 and K9.
+
+## Amendment 2 — 2026-10-22, after the reviews of PR C (#262, #264, #265)
+
+PR C shipped in three parts: C1 the kernel contracts (#262), C2 Domains on them (#264), C3 the `registrar_refs`
+store (#265). The architect accepted these differences from §2–§5 and `registrars.md` §2:
+
+1. **`DomainRef::$periodYears`** (trailing, default 1): the registration term, which a driver needs where the
+   registrar returns no expiry (Namecheap `domains.create`).
+2. **`RegistrarConfig::$secretSettingKeys` and `secrets()`**, named like `ServerConnection::$secretSettingKeys`. Request
+   DTOs that carry a secret say so: `RegistrationRequest::secrets()` returns the transfer code. The host masks
+   `RegistrarConfig::secrets()` plus the request's secrets in everything a call returns or raises (the command log,
+   `last_error`, the activity log, events, flash messages), using `RegistrarResult::withMessage()` and
+   `SubmissionLookup::withMessage()`. The contract dataset still fails a driver that echoes any of them.
+3. **`restore()`**: `RestoresDomains::restore(config, domain, years)` replaces `renew(..., restore: true)`.
+4. **`test_connection` is a capability** (`TestsRegistrarConnection`), not core, as in provisioning. The host runs it
+   through `RegistrarGateway` (command log, masking), also while the account is disabled so staff can test before
+   enabling it, and disables "Test connection", with the reason, for drivers without it.
+5. **`reconcile`** is the capability name of `ReconcilesSubmissions` (C2), matching `ProvisioningDriverRegistry::RECONCILE`.
+6. **No `.np` driver**: since #199 clients register `.np` names at the registry themselves, so §3's `.np` line is void.
+
+Kernel shapes decided now:
+
+- **Contacts.** `ContactSet::ROLES` and `ContactSet::FIELDS` are kernel constants; the host sends exactly those roles
+  and keys, with the formats documented on `ContactSet` (ISO 3166-1 alpha-2 country, phone as typed). Domains'
+  `DomainContact` uses the kernel constants.
+- **TLD attributes** (built with the ResellerClub driver, which needs them first): `RegistrationRequest` gains a
+  trailing `array<string, string> $tldAttributes = []` (keys owned by the driver), and a capability
+  `DeclaresTldAttributes::tldAttributeFields(string $tld): list<SettingField>` tells Domains which fields to render,
+  validate and store per domain. Domains keeps no hand-written list of its own.
+- **Premium** stays deferred. When it is switched on, costs are `App\Support\Money` (currency included) on both
+  `AvailabilityResult` and `RegistrationRequest`, never bare integers.
+- **Result statuses** (`RegistrarResult::$status`, `DomainInfo::$status`, `AvailabilityResult::$status`) stay strings
+  by design: their values are documented on each DTO; `SubmissionLookup` uses the shared `ReconcileStatus`.
+- **`RegistrarRefs`** is bound by Domains only, so a driver that injects it resolves only while Domains is loaded. Its
+  `remember()` is last-writer-wins for now; first-writer-wins with a lock per local record is a follow-up (#267),
+  before the first driver that writes refs.

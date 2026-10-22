@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-21 18:20 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts or
+Last updated: 2026-10-22 10:30 UTC (16:15 NPT) by the CTO session, on the owner's Mac (the codespace hit its usage limit). Update this file whenever a PR merges, a workstream starts or
 stops, or the owner makes a decision. Keep it short: history goes in `history.md` and `docs/reviews/`.
 
 ## Summary
@@ -8,6 +8,14 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 - Progress toward "a product a host would switch to": **53/100** (CEO review round 3, 2026-10-20 afternoon,
   `docs/reviews/2026-10-20-ceo-round-3.md`; rubric in `docs/reviews/readme.md`). The merges below have not been scored
   yet; the next CEO round scores them.
+- Merged on 2026-10-22 on the Mac: #266 hosted resume (#123), #256 chargebacks (#232, #230, #221), #259 importer B2b
+  opening balances, #268 password.recent in the kernel (#81), #276 Arch rules one per target (#275; Pest bug
+  pestphp/pest#1751), #253 key rotation (#25), #255 importer B2a invitations, #252 Redactor gaps (#190). #112 closed
+  (its §4 landed in #268; §1/§5 left for social sign-in).
+- Merged on 2026-10-22 (codespace): #237 client currency lock, #246 e2e in NPR, #248 currency code immutable, #249 KYC
+  history cleared, #261 server-import lock, #260 install requires a shared lock store (#64), #245 two-site docs.
+- Merged on 2026-10-22: the PHP 8.4.27 security patch for CVE-2026-109618/109619 through FrankenPHP 1.13.2, by
+  security exception (#243), and client KYC: uploads plus staff review by Full Administrators only (#228, #231).
 - Merged on 2026-10-21: the client importer is complete (#184 confirm and apply, #201 review decisions, report and
   errors CSV; #160–#163 earlier), `.np` registered by clients with the host's nameservers (#199), Nepal-first install
   defaults (#215), billing reversals and the client lock order (#211), eSewa fixes from a REA capture of the UAT
@@ -40,22 +48,25 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 - Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`. Process:
   `docs/handoff/operating-model.md`, `docs/handoff/review-rules.md`.
 
-## Open pull requests
+## Open pull requests and running work
 
-| PR   | Workstream                                            | Status (2026-10-21 18:20 UTC)                                  |
-| ---- | ----------------------------------------------------- | -------------------------------------------------------------- |
-| #188 | Local merge gate script                               | Draft. Needed only while the repository is private.            |
-| #112 | Sign-in PR 0                                          | Draft. To be cut to the ADR 0018 §4 fix, or closed.            |
-| #128 | Gateway expansion spec (connectIPS, Fonepay, cards)   | Draft. Owner questions in the PR.                              |
+| PR | Workstream | Status (2026-10-22 10:30 UTC) |
+| --- | --- | --- |
+| #271 | macOS tooling: `MOHAR_ROOT`, portable scripts, `linux.sh`, Mailpit, screenshot helper | Draft; CTO's. Merge after a slop-review. |
+| #262 / #264 / #265 | Registrar contracts (ADR 0009 PR C1–C3) | Engineer resuming: C1 architecture items, C2 wip fixes (unblocked by #252), develop merged up the stack. Then architect + board re-checks. |
+| #242 | Laravel 13.36 (#11) | Cooldown clears 13:25 UTC 10-22: add `ci`, merge on green. |
+| #188 | Local merge gate | Kept for private periods: DevOps review, macOS port and a real run in progress. |
+| #128 | Gateway expansion spec | Draft. Owner questions in the PR. |
 
-## Running now (2026-10-21 18:20 UTC; budget: load below 8, 2 GB free, disk below 85%)
+After each merge close the issue by hand (`develop` ignores closing keywords). When resolving Markdown conflicts, run
+`npx vp check --fix` before pushing (a hand-merged changelog failed CI on #252).
 
-- Code: KYC fix round (#228 part 1, #231 part 2; security re-check before merge); #218 client currency
-  locked once the client has records (go-live).
-- Queue, in order: importer B2
-  (invitations, opening balances, tax-ID warnings); Khalti and eSewa simulators from captures (#208, low); #112 cut;
-  kernel PR C before ResellerClub; #190 Redactor gaps; #235 (e2e default currency), #216, #217, #221, #225, #230, #232 follow-ups; the tail-latency
-  performance work (#205).
+- Queue, in order: issue triage (98 open; close stale follow-ups); #241 vite-plus 1.3.0 (from 10-23 06:00 UTC);
+  #233 KYC EXIF stripping; #126 deploy smoke seed; #254 Redactor follow-ups and ADR 0023; #278, #279, #277; #263
+  credit ledger idempotency key; #267, #269, #250, #257, #258, #216, #225, #272–#274; #244 Node and Debian images
+  (after 10-28); #208 simulators (low); tail latency (#205). The periodic review round is overdue.
+- Owner questions from importer B2: how Nepali hosts invite migrated clients today; whether 500 invitations per
+  hour is right; whether a missing PAN is a warning or blocks the import.
 
 ## Open owner questions
 
@@ -69,16 +80,18 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 
 ## Open issues worth knowing
 
-99 open. Go-live (label `go-live`): #25 key rotation, #218 client currency edit, #190
-Redactor gaps, the 40-user tail latency (#205). Full list: `gh issue list --label go-live`.
+98 open (2026-10-22 10:40 UTC). Go-live (label `go-live`): #11 Laravel 13.36 (PR #242) and #126 deploy smoke seed.
+The 40-user tail latency (#205) is a known performance finding without the label. Full list: `gh issue list --label go-live`.
 
 ## Scheduled
 
 - On or after 2026-10-22: bump `laravel/framework` to 13.36.x and `laravel/wayfinder` to 0.1.22 (#11).
 
-## Local-only state on the current codespace
+## Local-only state on the codespaces
 
-Not in git; does not exist on a new device:
+Not in git; does not exist on a new device. On the Mac: Homebrew PHP 8.4.26 (upgrade to 8.4.27 when bottled), Homebrew Composer, global Playwright 1.64.1,
+Mailpit in `compose.yaml`; screenshots via `scripts/screenshot.mjs`. Not carried over: `rea/`, the Stripe CLI login,
+Composer auth and `~/.npmrc` (log in again locally). The codespace list below is history:
 
 - Worktrees in `.worktrees/` (recreate with `scripts/new-worktree.sh <slug>`, or `git worktree add .worktrees/<slug>
   feature/<slug>` for an existing branch). `.worktrees/_review/`: screenshot and preview helpers.
@@ -87,4 +100,7 @@ Not in git; does not exist on a new device:
   UAT sandbox for #213; never pointed at WHMCS files (`CLAUDE.md`, Boundary).
 - Agent transcripts under `~/.claude/projects/-workspaces-whmcs/` (needed to resume agents in place; on a new device,
   relaunch from `.claude/agents/` with the brief template in the `run-workstream` skill).
+- Main site extras copied from the original codespace on 10-22: the Stripe CLI login (`~/.stripe`, `~/.config/stripe`),
+  Composer auth, `~/.npmrc`. The repository is cloned at `/workspaces/mohar`, with `/workspaces/whmcs` linked to it so
+  existing paths work; PHP is switched to 8.4 (`~/.php/current`), since new codespaces default to 8.3.
 - Published design review page: https://claude.ai/artifact/9zNAXTVDgoF8juYYZ6wnZM (private to the owner).

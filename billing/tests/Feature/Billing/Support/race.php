@@ -63,7 +63,10 @@ function runRaceWorkers(array $workers, float $timeoutSeconds = 30.0): array
         $result = json_decode(trim($worker['out']), true);
         expect($result)->toBeArray("worker $label printed no result: ".$worker['out'].$worker['err'])
             ->and($result['label'] ?? null)->toBe($label)
-            ->and(array_key_exists('error', $result))->toBeFalse("worker $label failed: ".($result['error'] ?? '').' '.$worker['err']);
+            ->and(array_key_exists('error', $result))->toBeFalse("worker $label failed: ".($result['error'] ?? '').' '.$worker['err'])
+            // The worker wrote to the database it was given (argument 2) and left no transaction open (#256 review N3).
+            ->and($result['database'] ?? null)->toBe($workers[$label][1], "worker $label used another database")
+            ->and($result['transaction_level'] ?? null)->toBe(0, "worker $label left a transaction open");
         $results[$label] = $result;
     }
 

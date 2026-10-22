@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reclaim disk space on the codespace without losing work.
+# Reclaim disk space on the codespace or a developer machine without losing work.
 #   scripts/storage-cleanup.sh            report only (dry run)
 #   scripts/storage-cleanup.sh --apply    perform the safe actions below
 #   LOW_SPACE_GB=4 scripts/storage-cleanup.sh --apply   also clear the npm cache when free space is below 4 GB
@@ -12,6 +12,8 @@
 #      uses and nothing in compose.yaml or .github references.
 #   4. git gc --auto on the main repository.
 #   5. Clear the npm cache only when free space is below LOW_SPACE_GB (default 4).
+# Step 3 prunes Docker machine-wide, so it runs only on a codespace ($CODESPACES set) or with STORAGE_DOCKER=1;
+# on a shared machine such as the owner's Mac it would remove other projects' containers and images.
 set -uo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 apply=false
@@ -19,7 +21,7 @@ apply=false
 low_gb="${LOW_SPACE_GB:-4}"
 
 run() { if $apply; then "$@"; else echo "  would run: $*"; fi; }
-free_gb() { df -BG --output=avail / | tail -1 | tr -dc '0-9'; }
+free_gb() { df -Pk "$root" | awk 'NR==2 {printf "%d", $4 / 1048576}'; }
 
 echo "== $(date -u +%FT%TZ) storage cleanup (apply=$apply), free before: $(free_gb) GB"
 
@@ -48,7 +50,7 @@ git -C "$root" worktree list --porcelain | awk '/^worktree /{print $2}' | tail -
     done
 done
 
-if command -v docker >/dev/null 2>&1; then
+if command -v docker >/dev/null 2>&1 && { [ -n "${CODESPACES:-}" ] || [ "${STORAGE_DOCKER:-}" = 1 ]; }; then
     echo "- docker: stopped containers older than 2h and dangling images"
     run docker container prune -f --filter "until=2h"
     run docker image prune -f

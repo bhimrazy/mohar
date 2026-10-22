@@ -246,7 +246,15 @@ class PlaceOrder
             // Lock the client before any row that references it is inserted, the order IssueInvoice uses (#192). The
             // order's foreign key takes a key-share lock on the client; two checkouts of one client that apply credit
             // would each hold one while waiting for the other's credit lock on the client, and deadlock.
-            Client::query()->whereKey($client->id)->lockForUpdate()->firstOrFail();
+            $locked = Client::query()->whereKey($client->id)->lockForUpdate()->firstOrFail();
+
+            // The payment methods, the fraud total and a staff price override were worked out in the currency of the
+            // client as read before this lock. A currency changed since (#218) refuses the order rather than mixing.
+            if ($locked->currency !== $client->currency) {
+                throw ValidationException::withMessages(['cart' => __('The account currency changed while this order was placed. Reload the page and try again.')]);
+            }
+
+            $client = $locked;
         }
 
         $cart = $this->pricer->price($data->items, $client->currency, $data->promotionCode, $client, $data->priceOverrides);

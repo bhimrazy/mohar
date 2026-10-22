@@ -13,7 +13,9 @@
 # reach Caddy's access log; a queued RunAutomationJob processed by the live colour's automation worker (its own queue
 # connection); UID 10001 on a read-only root; PHP stream TLS verifies public certificates; compiled views stay per
 # container. Then a blue-green deploy to green and a rollback to blue under a steady request loop: no failed request,
-# the live upstream, one scheduler and one automation worker, and the old colour's workers drained.
+# the live upstream, one scheduler and one automation worker, and the old colour's workers drained. Last, the full
+# demo seeder (`db:seed --force`) on the stack's PostgreSQL with real commits, run once with APP_ENV=local because
+# the stack itself runs as production, which skips demo data (#126).
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -30,6 +32,12 @@ admin_email="smoke-admin@example.com"
 export DEPLOY_ENV_FILE="$env_file" DEPLOY_PROJECT="$project" DEPLOY_STATE_DIR="$work/state"
 compose=(docker compose -p "$project" -f deploy/compose.prod.yaml --env-file "$env_file" --profile blue --profile green)
 failed=1
+
+# This script ends with `down -v` and seeds demo data: it must never be pointed at a real stack.
+case "$project" in
+    mohar-smoke|mohar-smoke-*) ;;
+    *) echo "FAIL SMOKE_PROJECT='$project' is not a smoke project (mohar-smoke or mohar-smoke-*); refusing to run" >&2; exit 1 ;;
+esac
 
 step() { printf '\n== %s\n' "$*"; }
 pass() { printf 'PASS %s\n' "$*"; [ -n "${GITHUB_STEP_SUMMARY:-}" ] && printf -- '- PASS %s\n' "$*" >> "$GITHUB_STEP_SUMMARY"; return 0; }
@@ -51,6 +59,7 @@ cleanup() {
         return
     fi
     "${compose[@]}" down -v --remove-orphans --timeout 20 >/dev/null 2>&1 || true
+    docker rmi "${image%:*}:smoke-seed" >/dev/null 2>&1 || true
     rm -f "$env_file"
     rm -rf "$work"
 }
@@ -258,6 +267,30 @@ deploy/bin/deploy rollback || fail "rollback"
 stop_loop "rollback"
 assert_live blue green
 queued_job blue
+
+step "full demo seed on PostgreSQL (real commits, non-production APP_ENV)"
+# The stack is APP_ENV=production, where DatabaseSeeder skips demo data, and its image has no dev dependencies, which
+# the demo seeders need (Faker, factories). So: build the `smoke-seed` target of the same Dockerfile (dev dependencies,
+# smoke only, never deployed) and run it once, with APP_ENV=local, on the stack's backend network against its
+# PostgreSQL. deploy/.env.smoke and the running services stay production. Refuse unless this is a smoke project and
+# the environment is not production: the demo accounts have a known password.
+seed_env=local
+case "$project" in mohar-smoke|mohar-smoke-*) ;; *) fail "refusing to seed project '$project': not a smoke project" ;; esac
+[ "$seed_env" != production ] || fail "refusing to seed demo data with APP_ENV=production"
+seed_image="${image%:*}:smoke-seed"
+start=$(date +%s)
+docker build -q -f deploy/Dockerfile --target smoke-seed -t "$seed_image" . > /dev/null || fail "build of the smoke-seed image"
+pass "smoke-seed image built in $(( $(date +%s) - start ))s"
+docker run --rm --init --network "${project}_backend" --env-file "$env_file" \
+    -e APP_ENV="$seed_env" -e DB_CONNECTION=pgsql -e DB_HOST=postgres -e DB_PORT=5432 \
+    -e OBJECTS_DRIVER=s3 -e OBJECTS_ENDPOINT=http://rustfs:9000 \
+    "$seed_image" sh -c 'test "$APP_ENV" != production && php artisan db:seed --force --no-interaction' > "$work/seed.log" 2>&1 \
+    || { tail -40 "$work/seed.log" >&2; fail "db:seed --force (APP_ENV=$seed_env)"; }
+grep -qi 'demo data skipped' "$work/seed.log" && fail "the seeder skipped demo data: APP_ENV was not applied"
+seeded="$("${compose[@]}" exec -T postgres psql -U billing -d billing -Atc 'select count(*) from users')" \
+    || fail "psql could not count users in the stack's PostgreSQL after db:seed"
+[ "${seeded:-0}" -gt 1 ] || fail "no demo accounts after db:seed (users = ${seeded:-none})"
+pass "db:seed --force ran the demo seeders on PostgreSQL after migrations (APP_ENV=$seed_env, users = $seeded)"
 
 failed=0
 step "all checks passed"

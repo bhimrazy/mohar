@@ -21,9 +21,9 @@ Constraints:
 - Any change under `deploy/` or `loadtest/` keeps the probes in `billing/tests/Unit/Deploy` green and adds guards for
   copies that could drift from `deploy/`.
 - Local runs use SQLite; PostgreSQL and RustFS run through docker compose. Never restart Docker; never use `pkill -f`.
-- Agents never run commands in `/workspaces/whmcs/billing` and never touch port 8000 (the owner's preview).
+- Agents never run commands in `$MOHAR_ROOT/billing` and never touch port 8000 (the owner's preview).
 
-Heavy commands through `/workspaces/whmcs/scripts/heavy.sh`. Chain every `cd` with `&&`. Commit Conventional
+Heavy commands through `$MOHAR_ROOT/scripts/heavy.sh`. Chain every `cd` with `&&`. Commit Conventional
 Commits, push, open a draft PR into `develop` with a changelog entry when operators are affected. Report: PR URL,
 what changed, the commands you ran with their actual output (measured CI or run durations, not estimates), and
 follow-ups. Say what you did not verify.

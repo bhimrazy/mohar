@@ -46,7 +46,7 @@ test('the detail page shows management options for the registrar capabilities', 
         ->assertInertia(fn (Assert $page) => $page
             ->component('client/domains/show')
             ->where('domain.name', $this->domain->name)
-            ->where('capabilities', ['nameservers', 'epp'])
+            ->where('capabilities', ['register', 'renew', 'info', 'nameservers', 'epp'])
             ->where('canManage', true)
             ->has('renewalTerms', 9));
 });

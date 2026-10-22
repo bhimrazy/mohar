@@ -24,8 +24,8 @@ these skills with the Skill tool and apply them: `design:design-critique`, `data
 ## How
 
 - Serve the branch under review (or `develop` for a sweep): `php artisan migrate:fresh --seed -n`, build through
-  `/workspaces/whmcs/scripts/heavy.sh npm run build`, `php artisan serve --port=<port from the brief>`. Log in as
-  admin@example.com / password and demo@example.com / password. Walk every page in scope with headless Playwright at
+  `$MOHAR_ROOT/scripts/heavy.sh npm run build`, `php artisan serve --port=<port from the brief>`. Log in as
+  admin@example.com / password and demo@example.com / password. Walk every page in scope with headless Playwright (`$MOHAR_ROOT/scripts/screenshot.mjs`, global Playwright; mail in Mailpit at http://localhost:8025) at
   1440px and 390px, light and dark. Capture screenshots to a scratch directory.
 - Classify each finding: **owner-blocking** (the owner would reject it), **polish**, or **idea**. Give each one
   evidence: a screenshot path or file:line, plus the fix.

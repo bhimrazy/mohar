@@ -4,6 +4,7 @@ namespace App\Modules\Domains;
 
 use App\Contracts\Domains\DomainPricing;
 use App\Contracts\Domains\DomainRegistry;
+use App\Contracts\Domains\Registrar\RegistrarRefs;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Events\Billing\InvoiceCancelled;
 use App\Events\Billing\InvoicePaid;
@@ -21,31 +22,40 @@ use App\Modules\Domains\Actions\ConvertTldPrices;
 use App\Modules\Domains\Actions\IssueRenewalInvoices;
 use App\Modules\Domains\Actions\SendExpiryReminders;
 use App\Modules\Domains\Drivers\Registrars\LogRegistrar;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Jobs\SyncRegistrars;
 use App\Modules\Domains\Listeners\HandleInvoiceCancelled;
 use App\Modules\Domains\Listeners\HandleInvoicePaid;
 use App\Modules\Domains\Listeners\MirrorLinkedServiceState;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\RegistrarCommandLog;
+use App\Modules\Domains\Models\RegistrarRefRecord;
 use App\Modules\Domains\Services\DomainPricingService;
 use App\Modules\Domains\Services\DomainRegistryService;
+use App\Modules\Domains\Services\EloquentRegistrarRefs;
 use App\Modules\Domains\Services\RenewalInvoices;
 use App\Support\Automation\Automation;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\PriceConverters;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Domains\RegistrarDriverRegistry;
+use App\Support\Domains\RegistrarException;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Security\EncryptedModel;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -65,16 +75,10 @@ class DomainsServiceProvider extends ModuleServiceProvider
 
     protected function registerModule(): void
     {
-        $this->app->singleton(RegistrarManager::class, function (): RegistrarManager {
-            $manager = new RegistrarManager;
-            $manager->extend('log', LogRegistrar::class);
-
-            return $manager;
-        });
-
         $this->app->scoped(DomainPricingService::class);
         $this->app->scoped(DomainPricing::class, fn ($app) => $app->make(DomainPricingService::class));
         $this->app->bind(DomainRegistry::class, DomainRegistryService::class);
+        $this->app->bind(RegistrarRefs::class, EloquentRegistrarRefs::class);
     }
 
     protected function schedule(Schedule $schedule): void
@@ -84,6 +88,24 @@ class DomainsServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $this->app->make(RegistrarDriverRegistry::class)->register('log', LogRegistrar::class);
+
+        // Kernel registrar exceptions know nothing about HTTP (ADR 0009 §4): a failed staff or client action goes back
+        // to the form with the (already redacted) message.
+        $this->callAfterResolving(ExceptionHandler::class, function (object $handler): void {
+            if (method_exists($handler, 'renderable')) {
+                $handler->renderable(fn (RegistrarException $exception, Request $request): JsonResponse|RedirectResponse => $request->expectsJson()
+                    ? response()->json(['message' => $exception->getMessage(), 'code' => $exception->errorCode()], 422)
+                    : back()->withErrors(['registrar' => $exception->getMessage()]));
+            }
+        });
+
+        // Encrypted casts, for `security:reencrypt` (ADR 0022).
+        $encrypted = $this->app->make(EncryptedStorage::class);
+        $encrypted->register('domains_registrar_accounts', new EncryptedModel(RegistrarAccount::class));
+        $encrypted->register('domains_domains', new EncryptedModel(Domain::class));
+        $encrypted->register('domains_registrar_refs', new EncryptedModel(RegistrarRefRecord::class));
+
         $this->registerListeners();
 
         // A domain's prices are stored in its client's currency (client-import spec §6.4); a deleted one still counts.

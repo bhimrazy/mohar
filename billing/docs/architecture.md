@@ -18,6 +18,7 @@ app/
   Events/<Area>/           domain events (scalar payloads, ids not models)
   Enums/                   shared enums (BillingCycle, BillableType)
   Support/                 Money, Modules base provider, Navigation, Dashboard registries
+  Http/Middleware/         kernel-owned, module-agnostic middleware (password.recent), aliased in bootstrap/app.php
   Modules/<Module>/
     <Module>ServiceProvider.php   extends App\Support\Modules\ModuleServiceProvider
     Config/<module>.php           defaults, merged as config('<module>.*')
@@ -37,13 +38,19 @@ loads only Core + Billing.
 ### Dependency rules (enforced in review)
 
 1. A module may import: its own namespace, `App\Modules\Core\*`, `App\Contracts|Data|Events|Enums|Support\*`,
-   `App\Models\User`, framework/vendor code.
+   `App\Http\Middleware\*` (kernel-owned HTTP middleware), `App\Models\User`, framework/vendor code.
+   Middleware home: framework-level, module-agnostic middleware goes in `App\Http\Middleware`; middleware that
+   needs Core models or services goes in `App\Modules\Core\Http\Middleware`.
 2. A module must NOT import another module's classes (models, services, controllers). Cross-module calls go
    through a contract in `app/Contracts`; cross-module reactions go through events in `app/Events`.
 3. Exceptions: **Reports** (read model) may read other modules' tables via their models.
 4. Enforced by Pest architecture tests (`tests/Arch/ArchitectureTest.php`, run in CI): sibling-module imports,
    kernel → module imports, non-interface contracts, non-final DTOs/events, Eloquent models in DTOs/events, debug
    calls, and `DB` facade use in controllers all fail the build. The module list is read from `app/Modules`. (Pest only resolves existing classes, so violations surface once branches meet in `develop`.)
+   Each rule has exactly one `expect()` target: in pest-plugin-arch 5.0, `expect([A, B])->not->toUse(X)` passes as
+   soon as one target does not use `X`, so a violation in any other target goes unreported (issue #275, upstream
+   pestphp/pest#1751). Write a `foreach` with one `arch()` per namespace instead. Each file in `tests/Arch` also
+   checks that its target namespaces match at least one class, so a typo or a moved directory cannot pass silently.
 5. Need a new contract/event/DTO? Ask the CTO — shared kernel changes are reviewed centrally.
 6. Each module binds its contract implementations in `registerModule()`. In tests of a consuming module,
    bind a fake (`$this->app->instance(PriceBook::class, new FakePriceBook)`), never the real sibling.
@@ -71,7 +78,9 @@ Settings, connection checks, logos and log redaction are shared by every driver 
 - `Contracts\Integrations\ProvidesLogo` (returning `Data\Integrations\IntegrationLogo`) lets any driver ship a logo.
 - `Support\Integrations\Redactor` masks secrets in the gateway, module and registrar logs (one rule, matched by
   word). The host calls it on what drivers return; drivers never call it. `excerpt()` makes raw provider output safe
-  to show staff (redacted, 4 KB).
+  to show staff (redacted, 4 KB). Text (headers, query strings, form bodies, JSON or XML after a label) is masked in
+  one linear pass. The rule is that anything storing or logging provider text, error messages included, goes
+  through it; the known gaps are tracked in #254.
 - `Support\Integrations\OutboundAddressGuard` checks every connection to a host a person typed in (SSRF, ADR 0015):
   resolve once, refuse non-public addresses under the install policy in `config/integrations.php`, pin the request to
   the checked IP and port (`CURLOPT_CONNECT_TO`), bypass proxies (`proxy: ''`), follow no redirects. Drivers call it before they connect and never choose the
@@ -131,6 +140,9 @@ state changes happen in Actions/Services, not controllers, and dispatch the matc
 **Business logic** — Controllers are thin: validate (FormRequest) → call an Action/Service → redirect/render.
 Actions are single-purpose classes (`Actions/ApplyPayment.php` with `handle()`), reused by controllers,
 jobs, commands and other actions. Wrap multi-write operations in `DB::transaction`. Make automation idempotent.
+Kernel exceptions (`App\Support\*`) know nothing about HTTP: the module that throws them to users renders them
+through a renderer it registers (`callAfterResolving(ExceptionHandler::class, …)->renderable(…)`, as Domains does for
+`RegistrarException`), never with a `render()` method on the kernel class.
 
 **Settings** — `app(Settings::class)->get('billing.invoice_prefix')` → DB override, else `config()` default from
 the module's `Config/<module>.php`. Every tunable number in a spec becomes a setting with a default.

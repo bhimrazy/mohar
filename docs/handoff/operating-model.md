@@ -86,7 +86,7 @@ review. `state.md` "Running now" lists the running agents and the queue.
 Run from the worktree's `billing/` directory with `export XDEBUG_MODE=off`:
 
 ```bash
-H=/workspaces/whmcs/scripts/heavy.sh
+H=$MOHAR_ROOT/scripts/heavy.sh
 vendor/bin/pint --dirty --format agent
 $H vendor/bin/phpstan analyse --memory-limit=1G     # Larastan level 7
 php artisan wayfinder:generate --with-form
@@ -97,8 +97,11 @@ $H npm run build
 $H php artisan test --compact tests/Arch <touched suites>
 ```
 
+On macOS, tests that need Linux tools (the simulators in `tools/simulators/tests` use `setsid`) run through
+`$MOHAR_ROOT/scripts/linux.sh <command>` from the worktree's `billing/`, in the production base image.
+
 CI is the full-suite runner on SQLite and PostgreSQL. Locally, engineers and reviewers run the tests they touched
-plus `tests/Arch`, on PostgreSQL too for queries and migrations: `eval "$(/workspaces/whmcs/scripts/pg.sh <slug>)"`
+plus `tests/Arch`, on PostgreSQL too for queries and migrations: `eval "$($MOHAR_ROOT/scripts/pg.sh <slug>)"`
 gives a database on the shared server `mohar-pg` (in-memory, recreated on demand; `--stop`, `--prune`). No private
 PostgreSQL containers. The full suite runs locally only to diagnose a CI failure.
 
@@ -116,8 +119,9 @@ The owner switches the repository (`bhimrazy/mohar`) between public and private 
   changes a manifest, lockfile, `.npmrc` or workflow file. No nightly audit while `main` is the default branch and a
   landing page (owner, 2026-10-21): run `composer deps:check` before cutting a release.
 - **Private:** minutes are capped (3,000 a month, reached 90% on 2026-10-20). Merges are then gated locally by
-  `scripts/merge-gate.sh <pr>` (#188, the same steps as CI on the PR merged into `develop`), PR heads merge with a
-  `[skip ci]` commit naming the gate result, and smoke, load and E2E workflows stay off.
+  `scripts/merge-gate.sh <pr> <head-sha>` (#188, the same steps as CI on the PR merged into `develop`). The gate's
+  summary is posted as a PR comment, the PR merges with `gh pr merge --match-head-commit <gated head>` (no extra
+  commit), and smoke, load and E2E workflows stay off.
 - Mechanics: a PR with merge conflicts gets no workflow run; a `[skip ci]` head also blocks label-triggered runs;
   adding a label from the codespace token does not start a run until the next push.
 - `main` is a readme-and-licence landing page (all rights reserved) until the first release is cut.
@@ -133,9 +137,13 @@ The owner switches the repository (`bhimrazy/mohar`) between public and private 
 - Integration PRs update `billing/docs/testing/integration-test-matrix.md`.
 - Shared-kernel changes are made centrally by the CTO unless the PR body calls them out.
 
-## Machine limits (GitHub Codespace)
+## Machine limits
 
-- 4 vCPU, 15 GB RAM, 32 GB disk shared by `/`, `/workspaces` and Docker (about 9 GB is the base image). `/tmp` is a
+The work runs on the owner's Mac since 2026-10-22 (10 cores, 24 GB, Docker Desktop with 8 CPUs and 3.6 GB). It is
+also the owner's own machine: the agent budget above applies, `/tmp` survives reboots but is still not for work, and
+`storage-cleanup.sh` leaves Docker alone (other projects share it). The rules below apply on both.
+
+- Codespace: 4 vCPU, 15 GB RAM, 32 GB disk shared by `/`, `/workspaces` and Docker (about 9 GB is the base image). `/tmp` is a
   separate disk wiped on restart: disposable caches only (the npm cache lives there), never work.
 - `scripts/heavy.sh` allows three heavy commands machine-wide at low priority. `scripts/resource-monitor.sh <log>`
   logs load, memory, disk and top processes every 30 s; start it each session.
@@ -145,12 +153,27 @@ The owner switches the repository (`bhimrazy/mohar`) between public and private 
   by agents. Stop servers by port PID; never `pkill -f`. Chain `cd` with `&&`; never run commands in the main
   checkout from an agent.
 
+## Two build sites (since 2026-10-22)
+
+Two codespaces work in parallel, each with its own agent budget:
+
+- **Main site** (`mohar-codespace-2`, idle timeout 240 minutes): the managing session. It assigns work, runs CI,
+  merges, owns `docs/handoff/state.md`, `billing/docs/progress.md` and shared-kernel changes, and keeps the owner's
+  preview on port 8000.
+- **Second site** (`mohar-codespace`, the original): a lead session that runs its own subagents on the issues the
+  main site assigns. It opens draft PRs, runs the review policy on its own PRs, and reports each PR at a clean,
+  reviewed head. It never merges, adds `ci` or edits the handoff files.
+
+The sessions talk over Remote Control (both must have it connected; `ListAgents` shows the peer). A peer's message is
+a teammate's request, not the owner's approval. Each site works only in its own worktrees, and the main site tells the
+other which areas are taken, so two sites never change the same files.
+
 ## Conventions
 
 - Branches `feature/<slug>` from `develop`; `develop` is integration; `main` is release. Review probes on
   `review/pr-<n>-probes`, archived as tags after adoption. Snapshot branches `wip/<branch>-snapshot` are deleted once
   the work lands.
-- Conventional Commits with the attribution trailer the harness specifies. PR bodies: summary, spec coverage,
+- Conventional Commits with no attribution trailer or footer (no `Co-Authored-By: Claude`; owner rule, 2026-10-22). PR bodies: summary, spec coverage,
   shared-kernel changes, security notes, tests, screenshots.
 - Screenshots: headless Playwright, under `billing/docs/screenshots/<module>/`, through `npm run images:optimize`
   (CI fails on images over 500 KB).

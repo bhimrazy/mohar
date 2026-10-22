@@ -58,7 +58,7 @@ class CurrencyController extends Controller
 
     public function store(CurrencyRequest $request, SaveCurrency $save): RedirectResponse
     {
-        $currency = $save->handle(null, $this->payload($request));
+        $currency = $save->handle(null, ['code' => $request->string('code')->toString(), ...$this->payload($request)]);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Currency :code created.', ['code' => $currency->code])]);
 
         return to_route('admin.platform.currencies.edit', $currency);
@@ -86,6 +86,7 @@ class CurrencyController extends Controller
             ], $this->status->recentChanges($currency)),
             'review' => $review ? $this->presentReview($review) : null,
             'canManageRates' => $request->user()?->hasPermission('core.currencies.rates') ?? false,
+            'codeLockedReason' => __('Clients, invoices, prices and rate history refer to this code, so it cannot be changed. To use another code, add a new currency.'),
         ]);
     }
 
@@ -136,12 +137,13 @@ class CurrencyController extends Controller
     }
 
     /**
-     * @return array{code: string, name: string, prefix: ?string, suffix: ?string, decimals: int, format: string, exchange_rate: ?string}
+     * Display settings from the form. The code is added on create only; an existing currency keeps its code.
+     *
+     * @return array{name: string, prefix: ?string, suffix: ?string, decimals: int, format: string, exchange_rate: ?string}
      */
     private function payload(CurrencyRequest $request): array
     {
         return [
-            'code' => $request->string('code')->toString(),
             'name' => $request->string('name')->toString(),
             'prefix' => $request->input('prefix'),
             'suffix' => $request->input('suffix'),

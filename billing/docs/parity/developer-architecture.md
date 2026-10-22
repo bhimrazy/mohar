@@ -7,7 +7,7 @@ Status: complete · Date read and written: 2026-10-18 · Owner: CTO
 **Scope.** How WHMCS works underneath and how third parties extend it: the External API and REST API v2, the hook
 system, every module type and its function contract, cron and automation, themes, templates, email and language
 systems, database and helper usage, logging, storage and security practices. Each item is compared with Mohar
-(`/workspaces/whmcs/billing`). The admin and client functional surface, release notes and community pain points are
+(`$MOHAR_ROOT/billing`). The admin and client functional surface, release notes and community pain points are
 covered by other slices and are out of scope here.
 
 **Method.** The whole of developers.whmcs.com was enumerated from the site's own navigation data (the site is a
@@ -18,7 +18,7 @@ understanding only. Nothing here copies WHMCS text or code; descriptions are our
 decoded. Appendix A lists every page with its coverage.
 
 **Status legend.** **Built** (file cited, path relative to `billing/app` unless shown otherwise) · **Specified**
-(spec section cited, `docs/product/<x>.md §n`) · **In progress** (branch in `/workspaces/whmcs/docs/handoff/state.md`
+(spec section cited, `docs/product/<x>.md §n`) · **In progress** (branch in `docs/handoff/state.md`
 or a worktree with commits) · **Missing** (no code, no spec). **Priority:** P0 = needed at v1 for parity or for
 third-party extensibility (an event a host would hook, an API an integration or the WHMCS importer needs);
 P1 = soon after v1; P2 = later or niche.
@@ -83,8 +83,9 @@ queued execution `Services/Jobs/RunModuleCommand.php`, spec `services.md §7–�
 
 ## 4. Registrar modules
 
-Mohar contract: `Modules/Domains/Drivers/Registrars/Registrar.php` (module-internal), DTOs in `Registrars/Data/`,
-`RegistrarManager::extend()`, spec `domains.md`, `registrars.md` (contract changes C1–C5).
+Mohar contract: the kernel `App\Contracts\Domains\Registrar\RegistrarDriver` plus capability interfaces, DTOs in
+`App\Data\Domains\Registrar`, `RegistrarDriverRegistry::register()` (ADR 0009 PR C), spec `domains.md`, `registrars.md`
+(contract changes C1–C5).
 
 | Item                                                | What WHMCS does (our words)                                                                                                                                                                                | Mohar equivalent/status + pointer                                                                                                              | Priority | Better-than note                                                                     |
 | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------ |
@@ -575,7 +576,7 @@ additions from the per-action pages:
 | WHMCS extension               | Mohar mechanism                                                           | Contract location                                                                                                                  | Status                                                | Priority | Better-than note                                                     |
 | ----------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | -------- | -------------------------------------------------------------------- |
 | Provisioning module           | `ProvisioningDriver` + `DriverMetadata`, registered in `DriverRegistry`   | `Modules/Services/Drivers/Provisioning` (module-internal); kernel only has `Contracts/Services/ProvisioningDrivers` (list, exists) | **Built** internally, **Missing** for packages        | P0       | Typed capabilities, retryable results, queue and log by default.     |
-| Registrar module              | `Registrar` via `RegistrarManager::extend()`                              | `Modules/Domains/Drivers/Registrars` (module-internal)                                                                             | **Built** internally, **Missing** for packages        | P0       | Reconcile on unknown outcomes (`registrars.md` C2).                  |
+| Registrar module              | `RegistrarDriver` via `RegistrarDriverRegistry::register()`               | `App\Contracts\Domains\Registrar` (kernel)                                                                                         | **Built**, open to packages (ADR 0009 PR C)           | P0       | Reconcile on unknown outcomes (`registrars.md` C2).                  |
 | Gateway module                | `GatewayDriver` / `HostedPaymentDriver` via `GatewayRegistry::register()` | `app/Contracts/Billing`                                                                                                            | **Built**                                             | P0       | Verification, idempotency and reconciliation are core.               |
 | Fraud module                  | `FraudChecker` selected by setting                                        | `Modules/Orders/Fraud` (module-internal)                                                                                           | **Built** internally, **Missing** for packages        | P1       | Fail-open setting (`orders.md §7`).                                  |
 | Mail provider                 | Laravel mail transport                                                    | framework                                                                                                                          | **Built**                                             | P2       |                                                                      |

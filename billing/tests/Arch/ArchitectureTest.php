@@ -28,7 +28,10 @@ define('FEATURE_MODULES', array_values(array_unique(array_diff(
     ['Core', ...READ_MODEL_MODULES],
 ))));
 
-foreach (FEATURE_MODULES as $module) {
+/** Feature modules with code on this branch: a rule over a planned module's empty namespace would check nothing. */
+define('MODULES_ON_BRANCH', array_values(array_filter(FEATURE_MODULES, fn (string $module): bool => is_dir(dirname(__DIR__, 2)."/app/Modules/{$module}"))));
+
+foreach (MODULES_ON_BRANCH as $module) {
     $others = array_values(array_map(
         fn (string $other): string => "App\\Modules\\{$other}",
         array_filter([...FEATURE_MODULES, ...READ_MODEL_MODULES], fn (string $other): bool => $other !== $module),
@@ -39,21 +42,28 @@ foreach (FEATURE_MODULES as $module) {
         ->not->toUse($others);
 }
 
-arch('Core and the shared kernel do not depend on feature modules')
-    ->expect(['App\Modules\Core', 'App\Contracts', 'App\Data', 'App\Events', 'App\Enums', 'App\Support'])
-    ->not->toUse(array_map(fn (string $module): string => "App\\Modules\\{$module}", [...FEATURE_MODULES, ...READ_MODEL_MODULES]));
+// One rule per kernel namespace: with several targets in one expect(), the arch plugin reports a pass even when one
+// of them imports a module (probed on PR #268).
+foreach (['App\Modules\Core', 'App\Contracts', 'App\Data', 'App\Events', 'App\Enums', 'App\Support', 'App\Http'] as $kernel) {
+    arch("{$kernel} does not depend on feature modules")
+        ->expect($kernel)
+        ->not->toUse(array_map(fn (string $module): string => "App\\Modules\\{$module}", [...FEATURE_MODULES, ...READ_MODEL_MODULES]));
+}
 
 arch('contracts are interfaces')
     ->expect('App\Contracts')
     ->toBeInterfaces();
 
-arch('DTOs and events carry data, never Eloquent models')
-    ->expect(['App\Data', 'App\Events'])
-    ->not->toUse(['Illuminate\Database\Eloquent\Model', 'App\Models']);
+// One target per rule here too (issue #275, upstream pestphp/pest#1751).
+foreach (['App\Data', 'App\Events'] as $carrier) {
+    arch("{$carrier} carries data, never Eloquent models")
+        ->expect($carrier)
+        ->not->toUse(['Illuminate\Database\Eloquent\Model', 'App\Models']);
 
-arch('DTOs and events are final and immutable-by-construction')
-    ->expect(['App\Data', 'App\Events'])
-    ->toBeFinal();
+    arch("{$carrier} classes are final and immutable-by-construction")
+        ->expect($carrier)
+        ->toBeFinal();
+}
 
 arch('every kernel event is a DomainEvent with an occurrence id (ADR 0011)')
     ->expect('App\Events')
@@ -165,6 +175,17 @@ test('the driver rule exempts only the three demo drivers, by full path, and fol
         'app/Modules/Billing/Drivers/Gateways/GatewayManager.php',
         'app/Modules/PaymentsNepal/Support/ProviderHttp.php',
     ]);
+});
+
+test('every arch target in this file matches at least one class', function () {
+    $targets = [
+        ...array_map(fn (string $module): string => "App\\Modules\\{$module}", MODULES_ON_BRANCH),
+        'App\Modules\Core', 'App\Contracts', 'App\Data', 'App\Events', 'App\Enums', 'App\Support', 'App\Http',
+    ];
+
+    expect(archTargetsWithoutClasses($targets))->toBe([])
+        ->and(archTargetsWithoutClasses(['App\Support', 'App\NoSuchNamespace', 'App\Modules\*\NoSuchDirectory']))
+        ->toBe(['App\NoSuchNamespace', 'App\Modules\*\NoSuchDirectory']);
 });
 
 afterAll(fn () => releaseArchCache());

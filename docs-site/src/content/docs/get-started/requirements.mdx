@@ -26,16 +26,16 @@ Next: [Install with Docker Compose](../install-docker/).
 
 You run PHP, the database and the workers yourself.
 
-| Component      | What you need                                                                                                         |
-| -------------- | --------------------------------------------------------------------------------------------------------------------- |
-| PHP            | 8.4, with the extensions Laravel needs plus `pdo_pgsql`, `pgsql`, `intl`, `gd`, `bcmath`, `pcntl`, `zip` and `opcache` |
-| Web server     | nginx with php-fpm, or another server that can run PHP, serving HTTPS only                                           |
-| Composer       | 2.10                                                                                                                  |
-| Node.js        | 24.21.0, only to build the front-end files during install and upgrade                                                 |
-| PostgreSQL     | 18. SQLite is for development only                                                                                    |
-| Object storage | any S3-compatible bucket (for example RustFS, MinIO or AWS S3) for invoice PDFs, attachments and uploads              |
-| Mail           | an SMTP account or a mail service                                                                                     |
-| Processes      | cron for the scheduler, and systemd or Supervisor to keep the queue workers running                                   |
+| Component      | What you need                                                                                                                                                                                                                              |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| PHP            | 8.4.27 or newer (8.5.12 or newer on 8.5), with the extensions Laravel needs plus `pdo_pgsql`, `pgsql`, `intl`, `gd`, `bcmath`, `pcntl`, `zip` and `opcache`. Older releases allow remote code execution (CVE-2026-109618, CVE-2026-109619) |
+| Web server     | nginx with php-fpm, or another server that can run PHP, serving HTTPS only                                                                                                                                                                 |
+| Composer       | 2.10                                                                                                                                                                                                                                       |
+| Node.js        | 24.21.0, only to build the front-end files during install and upgrade                                                                                                                                                                      |
+| PostgreSQL     | 18. SQLite is for development only                                                                                                                                                                                                         |
+| Object storage | any S3-compatible bucket (for example RustFS, MinIO or AWS S3) for invoice PDFs, attachments and uploads                                                                                                                                   |
+| Mail           | an SMTP account or a mail service                                                                                                                                                                                                          |
+| Processes      | cron for the scheduler, and systemd or Supervisor to keep the queue workers running                                                                                                                                                        |
 
 Next: [Install on a server without Docker](../install-server/).
 
