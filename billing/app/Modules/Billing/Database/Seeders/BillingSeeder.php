@@ -4,6 +4,7 @@ namespace App\Modules\Billing\Database\Seeders;
 
 use App\Contracts\Billing\GatewayRegistry;
 use App\Contracts\Billing\Invoicer;
+use App\Contracts\Core\CompanyClock;
 use App\Data\Billing\InvoiceDraft;
 use App\Data\Billing\InvoiceLineData;
 use App\Enums\BillableType;
@@ -64,7 +65,7 @@ class BillingSeeder extends DemoSeeder
             return;
         }
 
-        $today = CarbonImmutable::today();
+        $today = app(CompanyClock::class)->today();
         $demo = Client::query()->where('email', 'demo@example.com')->first();
 
         if ($demo === null) {
@@ -104,7 +105,7 @@ class BillingSeeder extends DemoSeeder
             $description, $amount, billableType: BillableType::Service, billableId: $id, periodStart: $start, periodEnd: $start->addMonth(),
         );
         // Every scripted invoice is issued on its own day with the usual 14 days to pay, so the due date is never before it.
-        $on = fn (): CarbonImmutable => CarbonImmutable::today();
+        $on = fn (): CarbonImmutable => app(CompanyClock::class)->today();
 
         $paid = $overdue = null;
         $scenario = [
@@ -229,7 +230,7 @@ class BillingSeeder extends DemoSeeder
      */
     private function issue(Client $client, array $lines, ?string $gateway = null, int $termDays = 14): Invoice
     {
-        $issued = CarbonImmutable::today();
+        $issued = app(CompanyClock::class)->today();
         $result = app(Invoicer::class)->issue(new InvoiceDraft($client->id, $client->currency, $lines, $issued->addDays($termDays), $issued, paymentGateway: $gateway, notify: false));
 
         return Invoice::query()->findOrFail($result->invoiceId);

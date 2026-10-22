@@ -73,3 +73,5 @@ test('the scan sees the forms it forbids', function () {
 test('the scan reads the Billing module', function () {
     expect(array_keys(billingDocumentCode()))->toContain('Modules/Billing/Actions/PublishInvoice.php')->not->toContain('Modules/Billing/Database/Factories/InvoiceFactory.php');
 });
+
+afterAll(fn () => releaseArchCache());
