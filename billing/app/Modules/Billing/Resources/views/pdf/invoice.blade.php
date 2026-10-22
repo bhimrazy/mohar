@@ -8,7 +8,12 @@
         <td>
             <h1>{{ $title }}</h1>
             <div style="font-size: 13px; font-weight: bold">{{ $invoice->displayNumber() }}</div>
-            <div class="muted">{{ __('Issued') }} {{ $date($invoice->issue_date) }} · {{ __('Due') }} {{ $date($invoice->due_date) }}</div>
+            @if ($bsDates)
+                <div class="muted">{{ __('Issued') }} {{ $invoiceDate($invoice->issue_date) }}</div>
+                <div class="muted">{{ __('Due') }} {{ $invoiceDate($invoice->due_date) }}</div>
+            @else
+                <div class="muted">{{ __('Issued') }} {{ $date($invoice->issue_date) }} · {{ __('Due') }} {{ $date($invoice->due_date) }}</div>
+            @endif
             @if ($invoice->status->value === 'paid')
                 <div style="margin-top: 8px"><span class="stamp">{{ __('Paid') }}</span></div>
             @elseif (in_array($invoice->status->value, ['cancelled', 'refunded', 'collections'], true))

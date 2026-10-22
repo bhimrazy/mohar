@@ -14,6 +14,7 @@ use App\Modules\PaymentsStripe\Support\StripeClient;
 use App\Support\Billing\SandboxPolicy;
 use App\Support\Money;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -41,6 +42,13 @@ class StripeSmoke extends Command
     {
         if (! SandboxPolicy::allowed()) {
             $this->error('Test money is not allowed in this environment (production). Run the smoke test elsewhere.');
+
+            return self::FAILURE;
+        }
+
+        // The return URLs are built from the Billing module's route; without Billing loaded the check cannot run.
+        if (! Route::has('billing.gateways.return')) {
+            $this->error('The billing.gateways.return route is not registered. Run the smoke test where the Billing module is enabled.');
 
             return self::FAILURE;
         }

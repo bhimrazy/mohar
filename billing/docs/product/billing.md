@@ -64,10 +64,11 @@ amount, taxable (bool), tax_amount (cached), period_start, period_end, sort_orde
 
 ### credit_ledger (backs `CreditLedger`)
 
-`id, client_id, currency, amount (signed), balance_after, reason (overpayment|add_funds|refund_to_credit|applied_to_invoice|manual|downgrade|reversal), invoice_id, transaction_id, description, staff_id, created_at`
+`id, client_id, currency, amount (signed), balance_after, reason (overpayment|add_funds|refund_to_credit|applied_to_invoice|manual|downgrade|reversal), invoice_id, transaction_id, description, staff_id, gateway, external_ref, idempotency_key, created_at`
 
 - Client balance = latest `balance_after` (row-locked append). Negative balance allowed only via reversal. **MUST**
 - Credit applied automatically (renewals, `applyCredit`) is the amount read under the client lock: credit spent concurrently lowers it, and with none left the invoice is issued unpaid (#192). **MUST**
+- Once-only keys: `gateway` + `external_ref` (unique together) name a provider movement only (a refund or dispute id). A posting Mohar makes itself (an import's opening balance, later automation credits) carries `idempotency_key` instead, unique, prefixed with the poster's name (`import:run:<run>:client:<client>`). The poster reads the key under the client lock before posting; the unique index stops a writer that did not. `import` is a reserved gateway key: opening balances also carry it with `external_ref` `run:…` until the contract step (#284). (#263) **MUST**
 
 ### gateways & pay_methods
 
@@ -164,6 +165,26 @@ Order within the global daily pipeline: _(Services/Domains renewal generation)_ 
 
 - Server-side rendering (HTML template → PDF), cached by `(invoice_id, version, locale)`; regenerated after any change. Contains company details, client snapshot, number (or proforma number), dates, lines with periods, tax breakdown, adjustments, payments table, balance, "PAID"/"REVERSE CHARGE" stamps. **MUST**
 - Attach PDF to invoice emails `billing.pdf.attach_to_emails: true`; paper size `billing.pdf.paper: A4`. **SHOULD**
+
+### 9.1 Bikram Sambat dates beside AD dates (#207)
+
+- Invoices use Gregorian (AD) dates. `billing.show_bs_dates` (Admin → Settings → Billing, "Show the Bikram Sambat date
+  beside the AD date on invoices", default off) adds the BS date in brackets after the issue and due dates: "12 Jan 2026
+  (28 Poush 2082 BS)". The AD part follows the date format setting; BS month names are English transliterations
+  (Baisakh … Chaitra). **SHOULD**
+- Shown on the admin and client invoice pages (`issue_date_bs` / `due_date_bs` in the invoice resource, null when
+  off), the invoice PDF, and the key-facts rows (Issued, Due, Was due, Charge date) of the invoice emails and the
+  service suspension email (merge fields `invoice.issue_date_bs`, `invoice.due_date_bs`). Subjects, preheaders and
+  sentences keep the AD date only.
+- Conversion: `App\Modules\Billing\Support\BikramSambat`, a month-length table for 2000–2095 BS (14 Apr 1943 to
+  14 Apr 2039 AD) with its sources in the class comment and `THIRD_PARTY_NOTICES.md`. The table stops at 2095 because
+  both source tables give 2096 only 364 days. The BS label has a fixed format and does not follow the date format setting. Dates outside the table are refused (`OutOfRangeException`);
+  the invoice then shows the AD date alone. Rows after the current panchang are projections and are corrected when
+  Nepal's official calendar for that year is published.
+- A PDF rendered with BS dates is cached under its own path (`…-<locale>-bs.pdf`), so switching the setting never
+  serves the other version.
+- Not in scope: BS fiscal-year invoice numbering (waits for an accountant's answer on IRD/CBMS rules) and Devanagari
+  numerals or month names (the app has no Nepali locale yet).
 
 ## 10. Admin capabilities
 

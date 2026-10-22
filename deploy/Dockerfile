@@ -175,10 +175,12 @@ COPY --from=assets /app/public/build /app/public/build
 RUN mkdir -p storage/app/private storage/app/public storage/framework/cache/data storage/framework/sessions \
         storage/logs /data/caddy /config/caddy \
     && chown -R app:app storage bootstrap/cache /data /config \
-    # The slimmed runtime must still load every extension the app needs, and OpenSSL must find the CA bundle.
+    # The slimmed runtime must still load every extension the app needs, GD must read and write the identity-image
+    # formats (KYC re-encoding), and OpenSSL must find the CA bundle.
     && php -r 'foreach (["bcmath","ctype","curl","dom","fileinfo","gd","intl","mbstring","openssl","pcntl","pdo_pgsql", \
         "pgsql","sodium","zip","Zend OPcache"] as $e) { if (! extension_loaded($e)) { fwrite(STDERR, "missing $e\n"); exit(1); } } \
-        if (! is_readable((string) ini_get("openssl.cafile"))) { fwrite(STDERR, "no CA bundle\n"); exit(1); }' \
+        if (! is_readable((string) ini_get("openssl.cafile"))) { fwrite(STDERR, "no CA bundle\n"); exit(1); } \
+        foreach (["JPEG Support","PNG Support","WebP Support"] as $c) { if (empty(gd_info()[$c])) { fwrite(STDERR, "gd lacks $c\n"); exit(1); } }' \
     # Never ship a PHP build with CVE-2026-109618 / CVE-2026-109619 (same floor as the app's system check).
     && php -r 'if (version_compare(PHP_VERSION, "8.4.27", "<")) { fwrite(STDERR, "PHP ".PHP_VERSION." is vulnerable, need 8.4.27+\n"); exit(1); }' \
     && php -v \

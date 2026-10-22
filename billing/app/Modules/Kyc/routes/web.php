@@ -9,7 +9,7 @@ Route::clientArea(function (): void {
     Route::prefix('verification')->name('kyc.')->middleware(EnsureKycEnabled::class)->group(function (): void {
         Route::get('/', [VerificationController::class, 'show'])->name('show');
         Route::put('phone', [VerificationController::class, 'phone'])->middleware('throttle:10,1')->name('phone');
-        Route::post('documents', [VerificationController::class, 'document'])->middleware('throttle:10,1')->name('documents.store');
+        Route::post('documents', [VerificationController::class, 'document'])->middleware(['throttle:10,1', 'throttle:kyc-upload'])->name('documents.store');
     });
 });
 

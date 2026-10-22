@@ -8,6 +8,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Bikram Sambat dates on invoices (#207).** New billing setting `billing.show_bs_dates`, off by default; no schema or
+  permission change. The default text of the invoice emails and the service suspension email changed: the Issued, Due,
+  Was due and Charge date rows print the BS date when the setting is on. `app:install` (run on every upgrade) brings
+  unedited templates to the new text; edited templates keep their text and the editor offers the new default. Invoice
+  PDFs rendered with BS dates are cached under a new path ending in `-bs.pdf`.
+- **Identity images are re-encoded (#233).** PHP's `gd` extension with JPEG, PNG and WebP support is now required
+  (`ext-gd` in `composer.json`; the production image already has it and its build checks the codecs). No schema or
+  permission change. Documents uploaded before the upgrade are not rewritten and keep their
+  metadata until they are replaced or deleted by retention. Six new settings in `kyc.php`: `max_image_pixels`
+  (25 000 000), `max_buffered_jpeg_pixels` (20 000 000), `stored_image_pixels` (16 000 000), `stored_webp_pixels`
+  (8 000 000), `step_down_pixels` (12 000 000, 8 000 000) and `image_decode_wait_seconds` (5). Image decoding takes
+  the cache lock `kyc:image-decode`, so it needs the shared lock store the install already checks. The document
+  upload route has a new rate limiter `kyc-upload` (20 a minute per IP address) on top of 10 a minute per user.
+- **Credit ledger idempotency key (#263).** New nullable column `credit_ledger.idempotency_key` with a partial
+  unique index (`credit_ledger_idempotency_key_unique`, built concurrently on PostgreSQL), migration
+  `2026_10_22_300630`, expand only. The migration copies the key of existing imported opening balances (gateway
+  `import`) as `import:<external_ref>`, in batches of 1,000; their `gateway` and `external_ref` are left as they are.
+  Imported opening balances now carry the idempotency key; in this release they also keep `gateway` `import` and
+  their `external_ref`, so a previous-release worker running beside the new one during a deploy still finds them (a
+  later release stops writing that pair, #284). A gateway driver can no longer register the key `import`, or a key
+  outside `[a-z0-9_]{1,50}`: it fails at boot with a LogicException. No permission or user-facing change.
 - **Dependency security bump (#11).** `laravel/framework` 13.34.0 → 13.36.0 and `laravel/wayfinder` 0.1.21 → 0.1.22.
   13.35 hardens SQL in cursor pagination and `whereRowValues` (laravel/framework#61837); 13.36 makes Mail Markdown
   escape inline markdown in user input (#61755). Run `composer install` and `php artisan view:clear`; no config or
@@ -445,6 +466,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Security
 
+- **Encrypted browser history is cleared on every logout (#250).** Before, only a logout with a KYC document unlock
+  open cleared it, so any page that encrypts its history stayed restorable with Back or a restored tab until the tab
+  closed. Now the history is cleared for staff and clients whenever a request ends or swaps the login (logout, deleting
+  your own account, a deactivated login signed out, sign in as a client and back), and on the login and two-factor
+  pages, where a session that ended on the server leads. A hover prefetch does not use up the clearing. No schema or
+  permission change.
+- **Identity images are re-encoded (#233).** Each uploaded JPEG, PNG or WebP is decoded and encoded again in the same
+  format before it is encrypted. EXIF (GPS position, device, embedded thumbnails), colour profiles, text chunks, JPEG
+  comments and bytes appended after the image data are not stored; a payload built into the pixel data of a lossless
+  PNG is not removed. The EXIF orientation is applied to the pixels, so staff see the photo upright. Refused with a validation
+  error: a file that cannot be decoded ("Upload a photo or scan as JPEG, PNG or WebP."), an image above 25 megapixels
+  or a progressive or CMYK JPEG above 20 megapixels (from its header, before decoding), and an upload that waits more
+  than 5 seconds for another upload's decode ("Other photos are being processed. Try again in a moment."). Decodes
+  run one at a time per cache lock store, and uploads are limited to 20 a minute per IP address. Images above 16
+  megapixels (WebP: 8 megapixels) are scaled down to that size. A stored image is at most 5 MB: a larger result is
+  encoded again at quality 75, then scaled to 12 and 8 megapixels (an opaque PNG becomes a JPEG), and is refused only
+  if it is still larger.
+- **Key rotation counts distinct keys (#279).** A key listed in both `APP_KEY` and `APP_PREVIOUS_KEYS` (or as `base64:`
+  and decoded) counts once, so restoring the old `APP_KEY` no longer makes `migrate` refuse again. The refusal now says
+  to restore the key the email hashes were made with or remove the stale key from `APP_PREVIOUS_KEYS`; the key-rotation
+  runbook says the same. No schema or permission change.
 - **Integration logs mask more secret shapes (#190).** The module, registrar and gateway logs, transaction and refund
   provider answers, and error text shown to staff now also mask: a JSON value quoted after a label
   (`HTTP 500: {"api-key":"…"}`, nested, arrays, escaped quotes), XML element values (`<password>`, EPP
@@ -489,6 +531,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   one is migrating stops with "The [migrate] command is already running." (exit 1). A killed migrator holds that
   lock for up to an hour; `docs/devops/production.md` shows how to release it.
 
+### Bikram Sambat dates beside AD dates on invoices (#207)
+
+- Admin → Settings → Billing → "Show the Bikram Sambat date beside the AD date on invoices" (off by default). When on,
+  the issue and due dates on the admin and client invoice pages, the invoice PDF and the key-facts rows of invoice
+  emails also show the BS date: "12 Jan 2026 (28 Poush 2082 BS)". Month names are in English transliteration.
+- BS dates cover 2000–2095 BS (14 April 1943 to 14 April 2039); a date outside that range shows the AD date only.
+  Years after the current panchang (about 2084 BS onwards) are projections from public calendar tables. Fiscal-year
+  invoice numbering in BS is not part of this change.
+
+### PostgreSQL test database names (#285)
+
+- `scripts/pg.sh` gives a slug longer than 42 characters a shortened database name (55 bytes: its first 46 bytes, `_`,
+  and 8 hex digits of its SHA-256). Shorter slugs keep their names. Parallel test workers and the race tests' extra
+  databases now stay within PostgreSQL's 63-byte limit, so they no longer collide. No change for users or operators.
+
+### Stripe smoke command without Billing (#269)
+
+- `php artisan payments:stripe-smoke` stops with an error before asking for a key when the `billing.gateways.return`
+  route is not registered (PaymentsStripe loaded without Billing). It used to fail with an exception. No schema,
+  permission or configuration change.
+
 ### Step-up window from the environment (#273)
 
 - `AUTH_STEP_UP_SECONDS` sets how long a password confirmation unlocks sensitive changes. It is optional and defaults
@@ -501,6 +564,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   events, database use in provisioning drivers) passed whenever one target was clean, so a violation in the others
   went unreported. Each rule now has one target, and each file fails if one of its target namespaces has no classes.
   No violations were found on `develop`. No change for users or operators.
+- The target check now also accepts single classes, and the concrete driver registries and the base `DriverRegistry`
+  are covered, so renaming one of them fails the build instead of leaving its rule empty (#277). No change for users
+  or operators.
 
 ### Hosted payments: continue or pay another way (#123)
 

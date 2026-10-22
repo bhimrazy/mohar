@@ -28,9 +28,12 @@ use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\RateLimiter;
 
 /**
  * Client identity verification (spec docs/product/kyc.md): email, phone and two identity documents, reviewed by
@@ -55,6 +58,10 @@ class KycServiceProvider extends ModuleServiceProvider
         $encrypted = $this->app->make(EncryptedStorage::class);
         $encrypted->register('kyc_documents', new EncryptedModel(KycDocument::class));
         $encrypted->register('kyc_documents_files', new EncryptedFiles('kyc_documents', ['front_path', 'back_path'], KycDocument::DISK, lockFirst: ['clients', 'client_id']));
+
+        // Every upload decodes under one global lock (ImageSanitiser::LOCK); per IP on top of the per-user 10 a minute, so
+        // several accounts from one address cannot keep the queue full.
+        RateLimiter::for('kyc-upload', fn (Request $request): Limit => Limit::perMinute(20)->by('kyc-upload|'.$request->ip()));
 
         $this->app->make(Kernel::class)->appendMiddlewareToGroup('web', ShareKycBanner::class);
         $this->app->make(Kernel::class)->appendMiddlewareToGroup('web', ClearEndedReviewHistory::class);

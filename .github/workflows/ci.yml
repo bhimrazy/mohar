@@ -136,7 +136,7 @@ jobs:
               with:
                   php-version: '8.4'
                   tools: composer:2.10.3
-                  extensions: pdo_sqlite, pdo_pgsql, pgsql
+                  extensions: gd, pdo_sqlite, pdo_pgsql, pgsql
                   coverage: none
 
             - name: Set up Node
@@ -356,7 +356,7 @@ jobs:
               with:
                   php-version: '8.4'
                   tools: composer:2.10.3
-                  extensions: pdo_sqlite, pdo_pgsql, pgsql
+                  extensions: gd, pdo_sqlite, pdo_pgsql, pgsql
                   coverage: none
 
             # The main job runs the lockfile, audit and cooldown checks; this one installs the same locked versions.

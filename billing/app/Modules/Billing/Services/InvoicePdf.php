@@ -8,6 +8,7 @@ use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Services\Tax\IndianStates;
 use App\Modules\Billing\Services\Tax\VatNumber;
 use App\Modules\Billing\Support\BillingSettings;
+use App\Modules\Billing\Support\InvoiceBsDates;
 use App\Modules\Core\Support\DateFormats;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonInterface;
@@ -23,11 +24,13 @@ class InvoicePdf
         private SellerDetails $seller,
         private MoneyFormatter $money,
         private GatewayManager $gateways,
+        private InvoiceBsDates $bsDates,
     ) {}
 
     public function path(Invoice $invoice, ?string $locale = null): string
     {
-        return sprintf('billing/invoices/%d/v%d-%s.pdf', $invoice->id, $invoice->version, $locale ?? app()->getLocale());
+        // A PDF rendered with BS dates is cached apart, so turning the setting on or off never serves the other one.
+        return sprintf('billing/invoices/%d/v%d-%s%s.pdf', $invoice->id, $invoice->version, $locale ?? app()->getLocale(), $this->bsDates->enabled() ? '-bs' : '');
     }
 
     /**
@@ -87,6 +90,9 @@ class InvoicePdf
             'showSac' => $sellerCountry === 'IN' && ($indianGst || $taxed) && $invoice->items->contains(fn ($item) => $item->sac_code !== null),
             'money' => fn (int $amount): string => $this->money->format($amount, $invoice->currency),
             'date' => fn (?CarbonInterface $date): string => $date?->format($dateFormat) ?? '—',
+            // Issue and due dates: the AD date, and the BS date in brackets when that setting is on.
+            'invoiceDate' => fn (?CarbonInterface $date): string => $date === null ? '—' : $date->format($dateFormat).(($bs = $this->bsDates->label($date)) !== null ? ' ('.$bs.')' : ''),
+            'bsDates' => $this->bsDates->enabled(),
             'gatewayName' => fn (string $key): string => $this->gateways->has($key) ? $this->gateways->gateway($key)->display_name : ucfirst(str_replace('_', ' ', $key)),
         ];
     }
