@@ -122,8 +122,8 @@ install pre-flight warns in production when `APP_URL` is not an `https://` addre
 password confirmation unlocks sensitive changes (ADR 0018 §4). It must be a whole number from 60 to 3600. Any other
 value fails when the configuration loads, and `deploy/entrypoint.sh` runs `php artisan optimize` under `set -eu` in
 every service, so the web, worker and scheduler containers exit at start and restart in a loop until the value is
-fixed. The error names the value received. `php artisan config:clear` still works, so it can be used to inspect the
-state, but it does not make a bad value valid.
+fixed. The error names the value received. Fix the value in the environment and restart; `php artisan config:clear`
+also fails while the bad value is set, unless a cached configuration file already exists.
 
 `CACHE_STORE` must be a store that every web and queue process shares, because cache locks (a provisioning create
 that waits for verification, per-attempt payment locks) only exclude each other through one lock store. Use `database`
