@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Core\CompanyClock;
 use App\Data\Billing\InvoiceDraft;
 use App\Data\Billing\InvoiceLineData;
 use App\Enums\BillableType;
@@ -15,7 +16,6 @@ use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Models\Client;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Money;
-use Carbon\CarbonImmutable;
 
 /**
  * Client deposit into the credit balance (§4.5): an add_funds invoice that credits the ledger when paid.
@@ -26,6 +26,7 @@ class CreateAddFundsInvoice
         private IssueInvoice $issue,
         private CreditLedgerService $credit,
         private BillingSettings $settings,
+        private CompanyClock $clock,
     ) {}
 
     /**
@@ -65,7 +66,7 @@ class CreateAddFundsInvoice
             clientId: $client->id,
             currency: $currency,
             lines: [new InvoiceLineData(__('Add funds to account credit'), $amount, taxable: $this->settings->bool('credit.tax_add_funds'), billableType: BillableType::AddFunds)],
-            dueDate: CarbonImmutable::today(),
+            dueDate: $this->clock->today(),
             paymentGateway: $gateway,
         ), 'add_funds');
     }

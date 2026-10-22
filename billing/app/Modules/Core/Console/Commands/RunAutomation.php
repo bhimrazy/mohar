@@ -2,6 +2,7 @@
 
 namespace App\Modules\Core\Console\Commands;
 
+use App\Contracts\Core\CompanyClock;
 use App\Events\Core\AutomationRunCompleted;
 use App\Modules\Core\Models\AutomationRun;
 use App\Support\Automation\Automation;
@@ -14,7 +15,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
 
-#[Signature('automation:run {--date= : Run date (Y-m-d), defaults to today} {--only= : Run a single task key} {--force : Re-run tasks that already succeeded for the date}')]
+#[Signature('automation:run {--date= : Run date (Y-m-d), defaults to today on the company clock} {--only= : Run a single task key} {--force : Re-run tasks that already succeeded for the date}')]
 #[Description('Run the daily billing automation pipeline in stage order (idempotent per task and date)')]
 class RunAutomation extends Command
 {
@@ -37,7 +38,7 @@ class RunAutomation extends Command
         return false;
     }
 
-    public function handle(Automation $automation, Redactor $redactor): int
+    public function handle(Automation $automation, Redactor $redactor, CompanyClock $clock): int
     {
         $lock = Cache::lock(self::LOCK, Queues::AUTOMATION_TIMEOUT_SECONDS);
 
@@ -48,15 +49,15 @@ class RunAutomation extends Command
         }
 
         try {
-            return $this->runPipeline($automation, $redactor);
+            return $this->runPipeline($automation, $redactor, $clock);
         } finally {
             $lock->release();
         }
     }
 
-    private function runPipeline(Automation $automation, Redactor $redactor): int
+    private function runPipeline(Automation $automation, Redactor $redactor, CompanyClock $clock): int
     {
-        $date = $this->option('date') ? CarbonImmutable::parse((string) $this->option('date'))->startOfDay() : CarbonImmutable::today();
+        $date = $this->option('date') ? CarbonImmutable::parse((string) $this->option('date'))->startOfDay() : $clock->today();
         $failed = false;
 
         foreach ($automation->ordered() as $key => $task) {

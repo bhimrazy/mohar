@@ -9,6 +9,7 @@ use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Billing\TaxIdRules;
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Enums\BillableType;
 use App\Events\Orders\OrderAccepted;
@@ -40,7 +41,6 @@ use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\InvoiceBsDates;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
-use App\Modules\Core\Support\BusinessCalendar;
 use App\Support\Automation\Automation;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
@@ -354,7 +354,7 @@ class BillingServiceProvider extends ModuleServiceProvider
     {
         $invoice = Invoice::query()->with('items')
             ->whereIn('status', array_map(fn (InvoiceStatus $status): string => $status->value, InvoiceStatus::payable()))
-            ->whereDate('due_date', '<', app(BusinessCalendar::class)->today()->toDateString())
+            ->whereDate('due_date', '<', app(CompanyClock::class)->today()->toDateString())
             ->whereHas('items', fn ($items) => $items->where('type', $type->value)->where('billable_id', $billableId)->whereNull('cancelled_at'))
             ->orderBy('due_date')->orderBy('id')->first();
 

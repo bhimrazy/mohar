@@ -2,9 +2,9 @@
 
 namespace App\Modules\Kyc\Actions;
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Core\Support\BusinessCalendar;
 use App\Modules\Kyc\Enums\DocumentStatus;
 use App\Modules\Kyc\Enums\DocumentType;
 use App\Modules\Kyc\Models\KycDocument;
@@ -22,7 +22,7 @@ use Throwable;
  */
 class StoreDocument
 {
-    public function __construct(private DocumentVault $vault, private ActivityLogger $activity, private BusinessCalendar $calendar, private RetentionDate $retention) {}
+    public function __construct(private DocumentVault $vault, private ActivityLogger $activity, private CompanyClock $calendar, private RetentionDate $retention) {}
 
     /**
      * @throws ValidationException

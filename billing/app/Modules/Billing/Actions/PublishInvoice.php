@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Core\CompanyClock;
 use App\Enums\BillableType;
 use App\Events\Billing\InvoiceCreated;
 use App\Modules\Billing\Enums\InvoiceStatus;
@@ -30,6 +31,7 @@ class PublishInvoice
         private InvoiceSettlement $settlement,
         private BillingSettings $settings,
         private SellerDetails $seller,
+        private CompanyClock $clock,
     ) {}
 
     /**
@@ -65,7 +67,7 @@ class PublishInvoice
                 throw new BillingException(__('An invoice total can\'t be negative. Issue account credit or a credit note instead.'));
             }
 
-            $today = CarbonImmutable::today();
+            $today = $this->clock->today();
             $invoice->issue_date = $issueDate ?? $today;
             $invoice->due_date ??= $today->addDays($this->settings->int('invoice_days_before_due', 14));
 

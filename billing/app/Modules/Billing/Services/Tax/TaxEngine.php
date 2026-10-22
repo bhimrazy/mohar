@@ -3,6 +3,7 @@
 namespace App\Modules\Billing\Services\Tax;
 
 use App\Contracts\Billing\TaxCalculator;
+use App\Contracts\Core\CompanyClock;
 use App\Data\Billing\InvoiceLineData;
 use App\Data\Billing\TaxTotals;
 use App\Enums\BillableType;
@@ -57,7 +58,7 @@ class TaxEngine implements TaxCalculator
         $scope = $this->supplyScope($country, $state, $vatId);
         $rules = TaxRule::query()
             ->where(fn ($query) => $query->whereNull('country')->orWhere('country', $country))
-            ->where(fn ($query) => $query->whereNull('effective_from')->orWhereDate('effective_from', '<=', ($date ?? CarbonImmutable::today())->toDateString()))
+            ->where(fn ($query) => $query->whereNull('effective_from')->orWhereDate('effective_from', '<=', ($date ?? app(CompanyClock::class)->today())->toDateString()))
             ->orderBy('id')
             ->get()
             ->filter(fn (TaxRule $rule): bool => ($rule->state === null || ($state !== null && strcasecmp($rule->state, $state) === 0))

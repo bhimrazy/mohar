@@ -8,6 +8,7 @@ use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Billing\TaxIdRules;
 use App\Contracts\Branding\BrandProvider;
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Currencies\CurrencyDirectory;
 use App\Contracts\Notifications\EmailTemplates;
 use App\Contracts\Notifications\MergeFieldRegistry;
@@ -32,6 +33,7 @@ use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\CachedCurrencyDirectory;
 use App\Modules\Core\Support\ClientContext;
+use App\Modules\Core\Support\CoreCompanyClock;
 use App\Modules\Core\Support\CoreDashboard;
 use App\Modules\Core\Support\CurrencyRollup;
 use App\Modules\Core\Support\DateFormats;
@@ -82,6 +84,8 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->scoped(CurrencyRollup::class);
 
         $this->app->singleton(Settings::class);
+        $this->app->singleton(CoreCompanyClock::class);
+        $this->app->bind(CompanyClock::class, CoreCompanyClock::class);
         $this->app->singleton(InstallSecrets::class);
         $this->app->singleton(RegionalDefaults::class);
         // The company time zone (ADR 0013) follows the application's until staff set one; the settings form needs a value.
@@ -112,8 +116,12 @@ class CoreServiceProvider extends ModuleServiceProvider
     {
         $time = (string) rescue(fn (): mixed => $this->app->make(Settings::class)->get('core.automation_time'), config('core.automation_time', '03:00'), report: false);
 
+        // The run time is company time (ADR 0013 Amendment 1): 03:00 means 03:00 on the company's clock.
+        $zone = (string) rescue(fn (): string => $this->app->make(CompanyClock::class)->timezone(), 'UTC', report: false);
+
         $schedule->command('automation:run')
             ->dailyAt(preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $time) === 1 ? $time : '03:00')
+            ->timezone($zone)
             ->withoutOverlapping()
             ->onOneServer();
 
@@ -174,9 +182,9 @@ class CoreServiceProvider extends ModuleServiceProvider
             new SettingDefinition('core.company_name', 'Company name', rules: ['required', 'max:150']),
             new SettingDefinition('core.company_email', 'Billing email address', 'email', 'Shown on invoices and used as the reply-to for client email.', rules: ['required']),
             new SettingDefinition('core.default_country', 'Default country', help: 'Two-letter ISO code pre-selected for new clients.', rules: ['required', 'size:2', 'alpha']),
-            new SettingDefinition('system.timezone', 'Company time zone', 'select', 'What "today" means for due dates and overdue days, and the time zone dates and times are shown in. The daily run still starts at the server time set below. Changing it moves the day boundary once.', options: array_combine(RegionalDefaults::timezones(), RegionalDefaults::timezones()), rules: ['timezone:all']),
+            new SettingDefinition('system.timezone', 'Company time zone', 'select', 'What "today" means for due dates and overdue days, and the time zone dates and times are shown in. The daily run starts at the company time set below. Changing it moves the day boundary once.', options: array_combine(RegionalDefaults::timezones(), RegionalDefaults::timezones()), rules: ['timezone:all']),
             new SettingDefinition('core.date_format', 'Date format', 'select', options: DateFormats::OPTIONS),
-            new SettingDefinition('core.automation_time', 'Daily automation time', help: 'Server time (HH:MM) when the daily automation pipeline runs.', rules: ['required', 'date_format:H:i']),
+            new SettingDefinition('core.automation_time', 'Daily automation time', help: 'Company time (HH:MM, in the time zone above) when the daily automation pipeline runs.', rules: ['required', 'date_format:H:i']),
             // Shown in the public site footer (Storefront); legal name, address, phone and tax numbers are the invoice seller details.
             new SettingDefinition('core.support_email', 'Support email address', 'email', 'Shown on the website for questions and "Contact us". Empty uses the billing address.', rules: ['nullable', 'email', 'max:150']),
             new SettingDefinition('core.support_hours', 'Support hours', help: 'Shown in the website footer, e.g. "Sunday–Friday, 9:00–18:00 (Nepal time). Tickets every day."', rules: ['nullable', 'string', 'max:160']),

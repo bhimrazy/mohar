@@ -90,7 +90,7 @@ class CoreDashboard
      */
     private function signups(): array
     {
-        $calendar = app(BusinessCalendar::class);
+        $calendar = app(CoreCompanyClock::class);
         $start = $calendar->today()->startOfWeek()->subWeeks(11);
         $weeks = [];
 
@@ -99,7 +99,7 @@ class CoreDashboard
         }
 
         Client::query()->toBase()
-            ->where('created_at', '>=', $calendar->startOfDayUtc($start))
+            ->where('created_at', '>=', $calendar->dayBounds($start)[0])
             ->selectRaw($calendar->sqlLocalDate('created_at').' as day, count(*) as total', [$calendar->sqlZoneArgument()])
             ->groupByRaw('1')
             ->get()

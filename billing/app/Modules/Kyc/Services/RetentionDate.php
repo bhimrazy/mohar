@@ -2,8 +2,8 @@
 
 namespace App\Modules\Kyc\Services;
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Core\Models\Client;
-use App\Modules\Core\Support\BusinessCalendar;
 use Carbon\CarbonImmutable;
 
 /**
@@ -12,7 +12,7 @@ use Carbon\CarbonImmutable;
  */
 class RetentionDate
 {
-    public function __construct(private BusinessCalendar $calendar) {}
+    public function __construct(private CompanyClock $calendar) {}
 
     public function deleteAfter(Client $client): ?string
     {
@@ -20,6 +20,6 @@ class RetentionDate
             return null;
         }
 
-        return CarbonImmutable::parse((string) $this->calendar->localDate($client->closed_at))->addDays((int) config('kyc.retention_days', 90))->toDateString();
+        return CarbonImmutable::parse($this->calendar->localDate($client->closed_at))->addDays((int) config('kyc.retention_days', 90))->toDateString();
     }
 }

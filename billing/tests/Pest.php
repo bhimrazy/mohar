@@ -3,6 +3,7 @@
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Kyc\Services\ReviewUnlocks;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -54,6 +55,15 @@ pest()->extend(TestCase::class)->in('Extensions');
 | global functions to help you to reduce the number of lines of code in your test files.
 |
 */
+
+/**
+ * Set the company time zone (setting `system.timezone`, ADR 0013). Freeze time at a UTC instant with
+ * `CarbonImmutable::setTestNow('2026-10-18 18:15:00 UTC')`, never at a local time.
+ */
+function inCompanyTimezone(string $timezone = 'Asia/Kathmandu'): void
+{
+    app(Settings::class)->set('system.timezone', $timezone);
+}
 
 /**
  * Sign in as a staff member whose role grants the given permissions ("*" = all).

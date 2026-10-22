@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Orders\PaymentGuard;
 use App\Data\Billing\ChargeResult;
 use App\Events\Billing\PaymentFailed;
@@ -15,7 +16,6 @@ use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Services\GatewayCharger;
 use App\Modules\Billing\Services\GatewayLogger;
 use App\Modules\Billing\Support\BillingSettings;
-use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -30,6 +30,7 @@ class CaptureInvoice
         private ApplyPayment $applyPayment,
         private BillingSettings $settings,
         private PaymentGuard $guard,
+        private CompanyClock $clock,
     ) {}
 
     /**
@@ -118,7 +119,7 @@ class CaptureInvoice
     private function recordFailure(Invoice $invoice, ?PayMethod $payMethod): void
     {
         if ($invoice->first_capture_failure_on === null) {
-            $invoice->first_capture_failure_on = CarbonImmutable::today();
+            $invoice->first_capture_failure_on = $this->clock->today();
             $invoice->save();
         }
 

@@ -2,15 +2,18 @@
 
 namespace App\Modules\Core\Support;
 
+use App\Contracts\Core\CompanyClock;
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use DateTimeZone;
 use Illuminate\Support\Facades\DB;
 
 /**
- * The company's calendar (Settings → system.timezone) for reports that bucket UTC timestamps into local days.
- * Timestamps are stored in UTC; dates (due dates, run dates) are already calendar dates and need no conversion.
+ * Core's CompanyClock (ADR 0013): the company's calendar from Settings → `system.timezone`. Timestamps are stored in
+ * UTC; dates (due dates, run dates) are calendar dates and need no conversion. The SQL helpers below are Core-internal
+ * and go once the two dashboards that use them query with dayBounds().
  */
-final class BusinessCalendar
+final class CoreCompanyClock implements CompanyClock
 {
     public function __construct(private Settings $settings) {}
 
@@ -21,28 +24,27 @@ final class BusinessCalendar
         return in_array($timezone, DateTimeZone::listIdentifiers(), true) ? $timezone : 'UTC';
     }
 
-    /**
-     * Today's local date, at midnight (as a plain date value, like CarbonImmutable::today()).
-     */
+    public function now(): CarbonImmutable
+    {
+        return CarbonImmutable::now($this->timezone());
+    }
+
     public function today(): CarbonImmutable
     {
-        return CarbonImmutable::parse(CarbonImmutable::now($this->timezone())->toDateString());
+        return CarbonImmutable::parse($this->now()->toDateString());
     }
 
-    /**
-     * Local midnight of a local date, in UTC: the lower bound for queries on UTC timestamp columns.
-     */
-    public function startOfDayUtc(CarbonImmutable $localDate): CarbonImmutable
+    public function dayBounds(string|CarbonInterface $date): array
     {
-        return CarbonImmutable::parse($localDate->toDateString(), $this->timezone())->utc();
+        $day = $date instanceof CarbonInterface ? $date->format('Y-m-d') : CarbonImmutable::parse($date)->format('Y-m-d');
+        $start = CarbonImmutable::parse($day, $this->timezone());
+
+        return [$start->utc(), $start->addDay()->utc()];
     }
 
-    /**
-     * The local date (Y-m-d) of a UTC timestamp read from the database.
-     */
-    public function localDate(mixed $utcTimestamp): ?string
+    public function localDate(CarbonInterface $instant): string
     {
-        return $utcTimestamp === null ? null : CarbonImmutable::parse((string) $utcTimestamp, 'UTC')->setTimezone($this->timezone())->toDateString();
+        return CarbonImmutable::instance($instant)->setTimezone($this->timezone())->toDateString();
     }
 
     /**

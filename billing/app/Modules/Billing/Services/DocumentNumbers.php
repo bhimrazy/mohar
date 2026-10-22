@@ -27,9 +27,12 @@ class DocumentNumbers
 
     public function __construct(private BillingSettings $settings) {}
 
-    public function next(string $sequence, ?CarbonImmutable $date = null): string
+    /**
+     * @param  CarbonImmutable  $date  the document's company-calendar date (its yearly and monthly period and the
+     *                                 {YEAR}, {MONTH} and {DAY} fields); there is no default, so a caller can't fall back to UTC
+     */
+    public function next(string $sequence, CarbonImmutable $date): string
     {
-        $date ??= CarbonImmutable::today();
         $reset = $sequence === self::QUOTE ? 'never' : $this->settings->string('number_reset', 'never');
         $period = match ($reset) {
             'yearly' => $date->format('Y'),

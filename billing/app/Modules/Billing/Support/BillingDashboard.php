@@ -10,7 +10,7 @@ use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
-use App\Modules\Core\Support\BusinessCalendar;
+use App\Modules\Core\Support\CoreCompanyClock;
 use App\Modules\Core\Support\CurrencyRollup;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
@@ -46,7 +46,7 @@ class BillingDashboard
     /** Weekly points on the KPI sparklines. */
     private const WEEKS = 12;
 
-    public function __construct(private BillingSettings $settings, private BusinessCalendar $calendar) {}
+    public function __construct(private BillingSettings $settings, private CoreCompanyClock $calendar) {}
 
     public function register(Dashboard $dashboard): void
     {
@@ -579,9 +579,9 @@ class BillingDashboard
         /** @var array{income: array<string, array<string, int>>, receivables: array<string, array<string, mixed>>, tax: list<array{label: string, money: array{amount: int, currency: string}}>} */
         // The dataset is the same for every user (permissions apply per widget); the key follows the local day.
         return Cache::remember('dashboard.billing.'.$this->calendar->timezone().'.'.$today->toDateString(), self::CACHE_SECONDS, fn (): array => [
-            'income' => $this->incomeByDay($this->calendar->startOfDayUtc($today->startOfMonth()->subMonths(23))),
+            'income' => $this->incomeByDay($this->calendar->dayBounds($today->startOfMonth()->subMonths(23))[0]),
             'receivables' => $this->receivables($today),
-            'tax' => $this->taxCollected($this->calendar->startOfDayUtc($today->startOfMonth())),
+            'tax' => $this->taxCollected($this->calendar->dayBounds($today->startOfMonth())[0]),
         ]);
     }
 
@@ -622,7 +622,7 @@ class BillingDashboard
      */
     private function receivables(CarbonImmutable $today): array
     {
-        $since = $this->calendar->startOfDayUtc($today->subWeeks(self::WEEKS)->subDay());
+        $since = $this->calendar->dayBounds($today->subWeeks(self::WEEKS)->subDay())[0];
         $zone = $this->calendar->sqlZoneArgument();
         $base = fn () => Invoice::query()->toBase()->whereNotNull('issue_date');
         // Per invoice: whether it is open today, whether it can count as overdue, the amount it carried while open,

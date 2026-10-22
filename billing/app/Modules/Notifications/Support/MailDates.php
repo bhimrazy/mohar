@@ -2,7 +2,7 @@
 
 namespace App\Modules\Notifications\Support;
 
-use App\Modules\Core\Support\BusinessCalendar;
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Core\Support\DateFormats;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -10,14 +10,14 @@ use Throwable;
 
 /**
  * The one date and time format in email: the "Date format" setting, times as 24-hour H:i with the zone, always in
- * the company's time zone (system.timezone). Calendar dates (Y-m-d: due dates, run dates) are shown as they are;
- * timestamps are converted from UTC.
+ * the company's time zone (the `CompanyClock` contract). Calendar dates (Y-m-d: due dates, run dates) are shown as
+ * they are; timestamps are converted from UTC.
  */
-final class MailClock
+final class MailDates
 {
     public static function timezone(): string
     {
-        return rescue(fn (): string => app(BusinessCalendar::class)->timezone(), 'UTC', report: false);
+        return rescue(fn (): string => app(CompanyClock::class)->timezone(), 'UTC', report: false);
     }
 
     /**
@@ -25,7 +25,7 @@ final class MailClock
      */
     public static function today(): string
     {
-        return CarbonImmutable::now(self::timezone())->toDateString();
+        return rescue(fn (): string => app(CompanyClock::class)->today()->toDateString(), CarbonImmutable::now('UTC')->toDateString(), report: false);
     }
 
     public static function date(mixed $value, ?string $format = null, string $locale = 'en'): ?string

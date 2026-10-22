@@ -4,6 +4,7 @@ namespace App\Modules\Orders\Actions;
 
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Catalog\PriceBook;
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Domains\DomainRegistry;
 use App\Contracts\Services\ServiceRegistry;
 use App\Data\Billing\InvoiceDraft;
@@ -39,7 +40,6 @@ use App\Modules\Orders\Pricing\PricedItem;
 use App\Modules\Orders\Pricing\PricedLine;
 use App\Modules\Orders\Pricing\PromotionEligibility;
 use App\Modules\Orders\Services\CheckoutGateways;
-use App\Modules\Orders\Services\CompanyClock;
 use App\Modules\Orders\Services\OrderNumberGenerator;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Registered;
