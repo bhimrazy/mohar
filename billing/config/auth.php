@@ -123,10 +123,22 @@ return [
     */
 
     'step_up_seconds' => (static function (): int {
-        $seconds = filter_var(env('AUTH_STEP_UP_SECONDS', 900), FILTER_VALIDATE_INT);
+        $configured = env('AUTH_STEP_UP_SECONDS');
+
+        // env() turns "true" and "false" into booleans; keep the word so that "false" is rejected, not read as empty.
+        if (is_bool($configured)) {
+            $configured = $configured ? 'true' : 'false';
+        }
+
+        // An empty value (AUTH_STEP_UP_SECONDS= in a file, or a compose pass-through of an unset variable) is unset.
+        if ($configured === null || trim((string) $configured) === '') {
+            return 900;
+        }
+
+        $seconds = filter_var($configured, FILTER_VALIDATE_INT);
 
         if ($seconds === false || $seconds < 60 || $seconds > 3600) {
-            throw new InvalidArgumentException('AUTH_STEP_UP_SECONDS must be a whole number of seconds from 60 to 3600.');
+            throw new InvalidArgumentException('AUTH_STEP_UP_SECONDS must be a whole number of seconds from 60 to 3600, got "'.$configured.'".');
         }
 
         return $seconds;
