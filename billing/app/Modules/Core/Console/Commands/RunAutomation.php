@@ -5,6 +5,7 @@ namespace App\Modules\Core\Console\Commands;
 use App\Events\Core\AutomationRunCompleted;
 use App\Modules\Core\Models\AutomationRun;
 use App\Support\Automation\Automation;
+use App\Support\Integrations\Redactor;
 use App\Support\Queues;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Attributes\Description;
@@ -81,8 +82,9 @@ class RunAutomation extends Command
             } catch (Throwable $exception) {
                 report($exception);
                 $failed = true;
-                $run->fill(['status' => 'failed', 'summary' => $exception->getMessage()]);
-                $this->components->twoColumnDetail($key, '<fg=red>failed: '.$exception->getMessage().'</>');
+                $message = app(Redactor::class)->maskValues($exception->getMessage(), []);
+                $run->fill(['status' => 'failed', 'summary' => $message]);
+                $this->components->twoColumnDetail($key, '<fg=red>failed: '.$message.'</>');
             }
 
             $run->duration_ms = (int) ((hrtime(true) - $started) / 1_000_000);

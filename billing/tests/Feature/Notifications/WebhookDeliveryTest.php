@@ -11,6 +11,7 @@ use App\Modules\Notifications\Webhooks\HostResolver;
 use App\Modules\Notifications\Webhooks\WebhookPublisher;
 use App\Modules\Notifications\Webhooks\WebhookSender;
 use App\Modules\Notifications\Webhooks\WebhookUrlGuard;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -204,4 +205,15 @@ it('dispatches each due retry exactly once', function () {
 
     Queue::assertPushed(DeliverWebhook::class, 1);
     Queue::assertPushed(DeliverWebhook::class, fn (DeliverWebhook $job): bool => $job->deliveryId === $due->id);
+});
+
+it('stores the receiver answer and transport errors with secrets masked (#190)', function () {
+    Http::fake(['hooks.example.com/*' => Http::response('{"error":"bad api_key","api_key":"K1"}', 500)]);
+    app(WebhookPublisher::class)->publishEvent(new InvoicePaid(7, 1, []));
+    expect(WebhookDelivery::query()->sole()->response_body)->not->toContain('K1')->toContain('bad api_key');
+
+    WebhookDelivery::query()->delete();
+    Http::fake(fn () => throw new ConnectionException('cURL error 28 for https://hooks.example.com/billing?token=T1&id=5'));
+    app(WebhookPublisher::class)->publishEvent(new InvoicePaid(8, 1, []));
+    expect(WebhookDelivery::query()->sole()->error)->toContain('token=[redacted]&id=5');
 });
