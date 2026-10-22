@@ -42,8 +42,11 @@ final class AppKeyCheck
 
         foreach ((array) config('app.previous_keys') as $previous) {
             if (! Encrypter::supported(self::raw((string) $previous), (string) config('app.cipher'))) {
-                $problems[] = 'An entry of APP_PREVIOUS_KEYS does not fit the cipher, so values encrypted with it cannot be read.';
-            } elseif (hash_equals($key, (string) $previous)) {
+                // Laravel refuses to build the encrypter then: nothing can be encrypted or decrypted.
+                return new EnvironmentCheck('APP_KEY', CheckStatus::Failed, 'An entry of APP_PREVIOUS_KEYS does not fit the cipher, so the app cannot encrypt or decrypt anything. Fix or remove it.');
+            }
+
+            if (hash_equals($key, (string) $previous)) {
                 $problems[] = 'APP_PREVIOUS_KEYS contains the current APP_KEY; list only the old keys.';
             }
         }
@@ -55,7 +58,7 @@ final class AppKeyCheck
         $previous = count((array) config('app.previous_keys'));
 
         return new EnvironmentCheck('APP_KEY', CheckStatus::Ok, 'Set'.($fromFile ? ' (from APP_KEY_FILE)' : '')
-            .($previous > 0 ? ", with {$previous} previous key(s): run `php artisan security:reencrypt`, then remove them." : '.'));
+            .($previous > 0 ? ", with {$previous} previous key(s): run `php artisan security:reencrypt`, then remove them (docs/devops/key-rotation.md)." : '.'));
     }
 
     /**

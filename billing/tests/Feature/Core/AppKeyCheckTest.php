@@ -72,7 +72,7 @@ test('a random key is fine, and previous keys are reminded and checked', functio
     expect(keyCheck($key)->status)->toBe(CheckStatus::Ok)
         ->and(keyCheck($key, previous: [$old])->detail)->toContain('1 previous key(s): run `php artisan security:reencrypt`')
         ->and(keyCheck($key, previous: [$key])->detail)->toContain('contains the current APP_KEY')
-        ->and(keyCheck($key, previous: ['base64:short'])->detail)->toContain('does not fit the cipher');
+        ->and(keyCheck($key, previous: ['base64:short']))->status->toBe(CheckStatus::Failed)->detail->toContain('does not fit the cipher');
 });
 
 test('every APP_KEY committed to the repository is recognised as published', function () {
