@@ -47,7 +47,10 @@ class CreditLedgerService implements CreditLedger
     /**
      * Append a signed movement. Throws when the balance would go negative unless $allowNegative (reversals), and when
      * the amount is not in the client's currency.
-     * $gateway and $externalRef name the provider movement behind it; the pair is unique when set.
+     * $gateway and $externalRef name the provider movement behind it; the pair is unique when set. $idempotencyKey is
+     * the once-only key of a posting Mohar makes itself (an import, automation), prefixed with the poster's name
+     * (`import:…`); unique when set. Neither is checked here: the caller reads it under the client lock first, and the
+     * unique index stops a second writer that did not.
      */
     public function post(
         int $clientId,
@@ -60,8 +63,9 @@ class CreditLedgerService implements CreditLedger
         bool $allowNegative = false,
         ?string $gateway = null,
         ?string $externalRef = null,
+        ?string $idempotencyKey = null,
     ): CreditLedgerEntry {
-        return DB::transaction(function () use ($clientId, $amount, $reason, $invoiceId, $transactionId, $description, $staffId, $allowNegative, $gateway, $externalRef): CreditLedgerEntry {
+        return DB::transaction(function () use ($clientId, $amount, $reason, $invoiceId, $transactionId, $description, $staffId, $allowNegative, $gateway, $externalRef, $idempotencyKey): CreditLedgerEntry {
             $client = Client::query()->whereKey($clientId)->lockForUpdate()->firstOrFail();
 
             // Credit is kept in the client's currency. Read under the lock, so a caller that priced the amount from a
@@ -88,6 +92,7 @@ class CreditLedgerService implements CreditLedger
                 'staff_id' => $staffId,
                 'gateway' => $gateway,
                 'external_ref' => $externalRef,
+                'idempotency_key' => $idempotencyKey,
             ]);
         });
     }
