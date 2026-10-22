@@ -187,8 +187,13 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
             }
 
             if ($theirs->startOfDay()->gt($ours->addDay())) {
-                // ResellerClub is ahead of us: the renewal already ran there (an answer was lost). Take its date and
-                // ask for nothing, so the term is never bought twice.
+                // Ahead by a whole renewal term (within a day) means the renewal already ran there and an answer was
+                // lost: take its date and order nothing, so the term is never bought twice. Ahead by anything else
+                // (changed at the registrar) is not a renewal we can account for: nothing is sent, staff check.
+                if ($theirs->startOfDay()->lt($ours->addYears($years)->subDay())) {
+                    throw new RegistrarException('ResellerClub\'s expiry for '.$domain->name.' ('.$theirs->toDateString().') is ahead of ours ('.$ours->toDateString().') by less than the '.$years.'-year term; nothing was sent. Check the domain at ResellerClub.');
+                }
+
                 return new RegistrarResult('completed', $theirs, 'ResellerClub had already renewed '.$domain->name.' to '.$theirs->toDateString().'; our expiry was updated from it and nothing was ordered again.', remote: ['order_id' => (int) $details['orderid']]);
             }
 
@@ -416,7 +421,7 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
                 if (strtolower($row['entity.description'] ?? '') === $domain->name
                     && ($includeGone || ! in_array($row['entity.currentstatus'] ?? '', self::GONE, true))
                     && ($held !== null ? (string) ($row['orders.orderid'] ?? '') === (string) $held : ($row['entity.customerid'] ?? null) === $customer)
-                    && ($held !== null || $since === null || (int) ($row['orders.creationdt'] ?? 0) >= $since->getTimestamp() - self::CLOCK_SLACK)
+                    && ($held !== null || $since === null || self::createdBy($row, $since))
                     && isset($row['orders.orderid'])
                     && ($found === null || (int) $row['orders.orderid'] > (int) $found['orders.orderid'])) {
                     $found = $row;
@@ -429,6 +434,21 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
         }
 
         return $found;
+    }
+
+    /**
+     * Whether a search row was created by the submission that began at $since: within the register budget of it, with
+     * clock slack on both sides. A later order of the same name (a panel order, another install on the customer) is
+     * outside the window and is never adopted by a lingering claim.
+     *
+     * @param  array<string, string>  $row
+     */
+    private static function createdBy(array $row, CarbonImmutable $since): bool
+    {
+        $created = (int) ($row['orders.creationdt'] ?? 0);
+
+        return $created >= $since->getTimestamp() - self::CLOCK_SLACK
+            && $created <= $since->getTimestamp() + self::REGISTER_BUDGET + self::CLOCK_SLACK;
     }
 
     /**

@@ -60,7 +60,10 @@ class SyncDomain
             return ['changes' => [], 'error' => null];
         } catch (RegistrarException $exception) {
             $domain->forceFill(['last_synced_at' => now(), 'last_sync_status' => 'error', 'last_error' => $exception->getMessage()])->save();
-            $this->flagUnconfirmedRegistration($domain, $exception->getMessage());
+            if (! $exception->retryable) {
+                // A transient error (timeout, rate limit) says nothing about the registration; the next sync retries.
+                $this->flagUnconfirmedRegistration($domain, $exception->getMessage());
+            }
 
             return ['changes' => [], 'error' => $exception->getMessage()];
         }
