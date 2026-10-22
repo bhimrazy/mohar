@@ -360,7 +360,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   every cookie on a `Cookie:` line, `print_r` dumps (`[password] => …`), pretty-printed JSON with the value on the next
   line, HTML-escaped JSON, an `&` inside an unquoted secret, field names up to 255 characters, `curl -u` credentials
   and a raw `@` in a URL password. Text is read in one linear pass: a 1 MB adversarial string, including many
-  distinct unclosed secret elements, is masked in under half a second.
+  distinct unclosed secret elements, is masked in under a second.
 - Registrar errors re-thrown by the gateway keep their exception class, retry flag and `previous` chain; the message
   of every exception in the chain is masked. Webhook delivery errors and receiver answers, failed automation run
   summaries, usage-sync errors reported to the log, and the provider answer stored on a card capture's transaction
