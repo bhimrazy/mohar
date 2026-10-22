@@ -39,6 +39,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $check_reason
  * @property CarbonImmutable|null $late_checked_at
  * @property CarbonImmutable|null $lookups_closed_at
+ * @property string|null $resume_url
  * @property CarbonImmutable|null $created_at
  * @property-read Invoice|null $invoice
  */
@@ -46,7 +47,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'reference', 'gateway', 'client_id', 'invoice_id', 'payment_batch_id', 'amount', 'currency', 'document_amount',
     'document_currency', 'fx_rate', 'provider_ref', 'provider_txn_id', 'status', 'review_reason', 'expires_at',
     'last_lookup_at', 'lookup_count', 'transaction_id', 'raw', 'late_payment_at', 'check_reason',
-    'late_checked_at', 'lookups_closed_at',
+    'late_checked_at', 'lookups_closed_at', 'resume_url',
 ])]
 class PaymentAttempt extends Model
 {
@@ -78,6 +79,9 @@ class PaymentAttempt extends Model
 
     protected $attributes = ['status' => 'pending', 'lookup_count' => 0];
 
+    /** The kept provider page (#251) is for the driver only: never in an array, JSON or page prop. */
+    protected $hidden = ['resume_url'];
+
     protected function casts(): array
     {
         return [
@@ -92,6 +96,7 @@ class PaymentAttempt extends Model
             'lookups_closed_at' => 'datetime',
             'lookup_count' => 'integer',
             'raw' => 'array',
+            'resume_url' => 'encrypted',
         ];
     }
 
@@ -127,6 +132,6 @@ class PaymentAttempt extends Model
 
     public function toRef(bool $interactive = false): PaymentAttemptRef
     {
-        return new PaymentAttemptRef($this->reference, $this->money(), $this->provider_ref, $this->provider_txn_id, $this->expires_at, $interactive);
+        return new PaymentAttemptRef($this->reference, $this->money(), $this->provider_ref, $this->provider_txn_id, $this->expires_at, $interactive, $this->resume_url);
     }
 }

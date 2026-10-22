@@ -6,6 +6,17 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Resumable redirect for Khalti (#251)
+
+- `App\Data\Billing\RedirectInstruction` gains `bool $resumable = false` (last parameter). A driver sets it when the
+  provider serves the redirect URL again while its session is open but has no API that returns it later. Billing then
+  keeps the URL on the attempt, encrypted at rest.
+- `App\Data\Billing\PaymentAttemptRef` gains `?string $resumeUrl = null` (last parameter, `#[\SensitiveParameter]`):
+  that kept URL, for `ResumesHostedPayment::resumeUrl()`. The driver checks its host and asks the provider before
+  returning it.
+- `ResumesHostedPayment`'s docblock no longer says the URL is never stored; it is still never logged or sent as a
+  prop. Additive: existing drivers and callers are unchanged. Used by `KhaltiDriver`.
+
 ### Redactor void containers (#278)
 
 - `App\Support\Integrations\Redactor` (`@api`): public method signatures unchanged; only private methods were

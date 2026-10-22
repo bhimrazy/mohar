@@ -4,6 +4,7 @@ namespace App\Modules\PaymentsNepal\Drivers;
 
 use App\Contracts\Billing\ConnectionTester;
 use App\Contracts\Billing\HostedPaymentDriver;
+use App\Contracts\Billing\ResumesHostedPayment;
 use App\Contracts\Integrations\ProvidesLogo;
 use App\Data\Billing\AmountLimits;
 use App\Data\Billing\ChargeResult;
@@ -36,8 +37,12 @@ use Throwable;
  * initiate() asks Khalti for a payment session (pidx) and sends the customer to its payment_url. Khalti's
  * browser return is unsigned, so it is a hint only: lookup() of the pidx stored on the attempt is the only
  * source of truth, and only "Completed" counts as paid. Refunds (full or partial) go through Khalti's API.
+ *
+ * "Continue payment" (#251): the lookup doesn't return the payment_url and Khalti doesn't document building it from
+ * the pidx, so initiate() marks it resumable and Billing keeps it encrypted on the attempt. resumeUrl() hands it back
+ * only while a lookup says the session is still Initiated.
  */
-final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTester, HostedPaymentDriver, ProvidesLogo
+final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTester, HostedPaymentDriver, ProvidesLogo, ResumesHostedPayment
 {
     public const KEY = 'khalti';
 
@@ -121,7 +126,27 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
             throw new ProviderException('Khalti initiate failed (HTTP '.$response->status().') '.ProviderHttp::summary($response->json()));
         }
 
-        return new RedirectInstruction($paymentUrl, $pidx, self::sessionExpiry($response->json('expires_at'), $response->json('expires_in')));
+        return new RedirectInstruction($paymentUrl, $pidx, self::sessionExpiry($response->json('expires_at'), $response->json('expires_in')), resumable: true);
+    }
+
+    /**
+     * The payment_url kept from initiate(), only while Khalti's lookup of the stored pidx says Initiated (its page is
+     * served then; Pending means the payer already paid and the bank hasn't confirmed). Expired, cancelled, completed,
+     * unreachable or any other answer gives null, as does a kept URL that fails the Khalti host check.
+     */
+    public function resumeUrl(GatewayConfig $gateway, PaymentAttemptRef $attempt): ?string
+    {
+        if ($attempt->resumeUrl === null || ! $this->isKhaltiUrl($attempt->resumeUrl)
+            || ($attempt->expiresAt !== null && ! $attempt->expiresAt->isFuture())) {
+            return null;
+        }
+
+        $result = $this->lookup($gateway, $attempt);
+        $status = $result->raw['status'] ?? null;
+
+        return $result->status === LookupResult::PENDING && ! $result->retryable && is_string($status) && mb_strtolower(trim($status)) === 'initiated'
+            ? $attempt->resumeUrl
+            : null;
     }
 
     /**
