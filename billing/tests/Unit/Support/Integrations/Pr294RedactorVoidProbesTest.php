@@ -11,7 +11,7 @@ test('B1: an HTML head void element with a secret name keeps the page after it r
     expect((new Redactor)->maskValues($text, []))->toContain($kept);
 })->with([
     'meta csrf-token before the title' => ["<html><head><meta name=\"csrf-token\" content=\"x\">\n<title>Gateway error</title></head><body>Order 1234 declined</body>", 'Order 1234 declined'],
-    'meta session-timeout' => ['<head><meta name="session-timeout" content="30"><p>KEEP1</p>', 'KEEP1'],
+    'meta session-timeout' => ['<!DOCTYPE html><html><head><meta name="session-timeout" content="30"><p>KEEP1</p>', 'KEEP1'],
 ]);
 
 test('L1 to L3: a child after a blank CDATA, an underscore-named child or a stray end tag is still masked', function (string $text, string $secret) {

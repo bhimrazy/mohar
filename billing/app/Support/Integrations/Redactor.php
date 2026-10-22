@@ -118,13 +118,17 @@ final class Redactor
      * HTML void elements: no end tag, so a secret `name` on one (`<input name="password">`) masks only the text before
      * the next tag (and a CDATA section), which in HTML is usually nothing. XML uses the same names with content
      * (`<param name="password">…</param>`), and that content is masked by the same rule. A prefixed name is never HTML.
-     * An element with no end tag keeps that next-tag bound only in an HTML document (HTML_DOCUMENT_PATTERN matches
-     * before it); anywhere else it is an XML container and a child element after it fails closed (voidContainerEnd).
+     * An element with no end tag keeps that next-tag bound only in an HTML document (HTML_MARKER_PATTERN finds a
+     * `<!doctype html` or `<html` start tag at markup level before it); anywhere else it is an XML container and a child element after it fails closed (voidContainerEnd).
      */
     private const VOID_ELEMENTS = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'];
 
-    /** Marks an HTML document: a doctype, `<html`, `<head` or `<body` tag (not `<header`), any case. */
-    private const HTML_DOCUMENT_PATTERN = '/<(?:!doctype\s+html|html|head|body)(?![\w:.-])/i';
+    /**
+     * Candidate HTML document markers, found in one pass: a `<!doctype html` or an unprefixed `<html` start tag (group 1,
+     * any case). Comments, CDATA sections and quoted attribute values (an unterminated one runs to the end) are consumed
+     * whole, so a marker inside them is never a candidate. `<head` and `<body` are not markers: SOAP has a `<Body>`.
+     */
+    private const HTML_MARKER_PATTERN = '~<!--.*?(?:-->|\z)|<!\[CDATA\[.*?(?:\]\]>|\z)|(<!doctype\s+html(?![\w.:-])|<html(?![\w.:-]))(?&tail)|<[A-Za-z_/?!](?&tail)(?(DEFINE)(?<tail>[^>"\']*+(?:(?:"[^"]*+(?:"|\z)|\'[^\']*+(?:\'|\z))[^>"\']*+)*+>?))~is';
 
     /** Header names whose whole line is secret: every cookie on it (`Cookie: theme=dark; cpsession=…`). */
     private const WHOLE_LINE_KEYS = ['cookie', 'set-cookie'];
@@ -379,8 +383,13 @@ final class Redactor
         $endTagCursor = 0;
         /** @var array<string, int> $lastEndTag offset of the last `</name` per void element name, found once per name */
         $lastEndTag = [];
-        /** @var int|null $htmlStart offset of the first HTML document marker, found once; PHP_INT_MAX when there is none */
-        $htmlStart = null;
+        /** @var list<int>|null $markers offsets of the candidate HTML markers, found once when a void-named secret element needs them */
+        $markers = null;
+        $markerCursor = 0;
+        $htmlSeen = false;
+        /** @var list<int> $masked start and end offsets, in pairs, of every span masked so far (a marker inside one is not markup) */
+        $masked = [];
+        $maskedCursor = 0;
 
         while ($position < $length && preg_match(self::TOKEN_PATTERN, $value, $match, PREG_OFFSET_CAPTURE | PREG_UNMATCHED_AS_NULL, $position) === 1) {
             $start = $match[0][1];
@@ -396,6 +405,8 @@ final class Redactor
                         ? $end + strcspn($value, "\r\n", $end)
                         : $this->valueEnd($value, $end);
                     $output .= $this->maskSpan(substr($value, $end, $valueEnd - $end));
+                    $masked[] = $end;
+                    $masked[] = $valueEnd;
                     $position = $valueEnd;
                 }
 
@@ -421,12 +432,34 @@ final class Redactor
 
             if ((string) $match[2][0] === (string) $match[3][0] && in_array($voidName, self::VOID_ELEMENTS, true)
                 && ($lastEndTag[$voidName] ??= (int) strripos($value, '</'.$voidName)) < $end) {
-                $htmlStart ??= preg_match(self::HTML_DOCUMENT_PATTERN, $value, $html, PREG_OFFSET_CAPTURE) === 1 ? $html[0][1] : PHP_INT_MAX;
-                $contentEnd = $htmlStart < $start
+                if ($markers === null) {
+                    $markers = [];
+
+                    if (preg_match_all(self::HTML_MARKER_PATTERN, $value, $found, PREG_SET_ORDER | PREG_OFFSET_CAPTURE | PREG_UNMATCHED_AS_NULL) !== false) {
+                        foreach ($found as $candidate) {
+                            if (($candidate[1][0] ?? null) !== null) {
+                                $markers[] = $candidate[1][1];
+                            }
+                        }
+                    }
+                }
+
+                // A candidate counts when it lies before this element and outside every span masked so far.
+                for ($markerCount = count($markers), $maskedCount = count($masked); ! $htmlSeen && $markerCursor < $markerCount && $markers[$markerCursor] < $start; $markerCursor++) {
+                    while ($maskedCursor < $maskedCount && $masked[$maskedCursor + 1] <= $markers[$markerCursor]) {
+                        $maskedCursor += 2;
+                    }
+
+                    $htmlSeen = $maskedCursor >= $maskedCount || $markers[$markerCursor] < $masked[$maskedCursor];
+                }
+
+                $contentEnd = $htmlSeen
                     ? $this->voidContentEnd($value, $end)
                     : $this->voidContainerEnd($value, $end);
                 $content = substr($value, $end, $contentEnd - $end);
                 $output .= trim($content) === '' ? $content : self::MASK;
+                $masked[] = $end;
+                $masked[] = $contentEnd;
                 $position = $contentEnd;
 
                 continue;
@@ -454,6 +487,8 @@ final class Redactor
 
             $content = substr($value, $end, $contentEnd - $end);
             $output .= trim($content) === '' ? $content : self::MASK;
+            $masked[] = $end;
+            $masked[] = $contentEnd;
             $position = $contentEnd;
         }
 
@@ -569,9 +604,10 @@ final class Redactor
                 $position = $close + 3;
             } elseif ($after === '/') {
                 $bound ??= $position;
-                $close = strpos($value, '>', $position);
+                $close = $position + 1 + strcspn($value, '<>', $position + 1);
 
-                if ($close === false) {
+                // The end tag's `>` must come before the next `<`; otherwise stop here, so a later pass never walks this span again.
+                if ($close >= $length || $value[$close] !== '>') {
                     return $bound;
                 }
 

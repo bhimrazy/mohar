@@ -443,8 +443,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Log redaction (#278): an unclosed void-named container with a secret name (`<param name="password"><value>…`, a
   truncated XML-RPC body, `<input>` used as an XML/SOAP element) now masks everything after it instead of leaking the
   child value, also after an empty CDATA section, a stray end tag, or a child whose name starts with `_`. Inside an
-  HTML document (a `<!doctype html`, `<html`, `<head` or `<body` tag earlier in the text) these elements keep the
-  next-tag bound, so `<meta name="csrf-token">` and `<input name="password"><p>…` on an HTML page stay readable.
+  HTML document (a `<!doctype html` or `<html` start tag earlier in the text, not inside a comment, CDATA section,
+  attribute value or masked secret) these elements keep the next-tag bound, so `<meta name="csrf-token">` and
+  `<input name="password"><p>…` on an HTML page stay readable. Without that marker a void-named secret element
+  followed by an end tag and then a child element (`<object><param name="password"></object><p>…`) masks the rest.
 - **Integration logs mask more secret shapes (#190).** The module, registrar and gateway logs, transaction and refund
   provider answers, and error text shown to staff now also mask: a JSON value quoted after a label
   (`HTTP 500: {"api-key":"…"}`, nested, arrays, escaped quotes), XML element values (`<password>`, EPP
