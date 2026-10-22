@@ -743,6 +743,52 @@ test('the hourly late sweep looks up a closed attempt on every run, although eac
     expect($attempt->fresh()->lookup_count)->toBe(3);
 });
 
+test('the five-minute poller looks up an open attempt on every run, although each lookup is stamped after the run starts (#230)', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-10-21 10:00:00', 'Asia/Kathmandu'));
+    $client = Client::factory()->create(['currency' => 'NPR']);
+    $attempt = PaymentAttempt::query()->create(['reference' => PaymentAttempt::newReference(), 'gateway' => 'fake_wallet',
+        'client_id' => $client->id, 'amount' => 50_000, 'currency' => 'NPR', 'document_amount' => 50_000, 'document_currency' => 'NPR',
+        'status' => AttemptStatus::Pending, 'expires_at' => now()->addHours(2)]);
+    FakeNprWalletDriver::$provider[$attempt->reference] = new LookupResult(LookupResult::PENDING);
+    FakeNprWalletDriver::$lookupSeconds = 3;
+
+    foreach (['10:00:00', '10:05:00', '10:10:00'] as $index => $run) {
+        $this->travelTo(CarbonImmutable::parse('2026-10-21 '.$run, 'Asia/Kathmandu'));
+        $this->artisan('billing:reconcile-payments', ['--only' => 'open'])->assertSuccessful();
+
+        expect($attempt->fresh()->lookup_count)->toBe($index + 1);
+    }
+
+    // A second run inside the same interval does not look it up again.
+    $this->travelTo(CarbonImmutable::parse('2026-10-21 10:12:00', 'Asia/Kathmandu'));
+    $this->artisan('billing:reconcile-payments', ['--only' => 'open'])->assertSuccessful();
+
+    expect($attempt->fresh()->lookup_count)->toBe(3);
+});
+
+test('after twelve lookups the poller checks a long-open attempt on every sixth run, not every seventh (#230)', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-10-21 10:00:00', 'Asia/Kathmandu'));
+    $client = Client::factory()->create(['currency' => 'NPR']);
+    $attempt = PaymentAttempt::query()->create(['reference' => PaymentAttempt::newReference(), 'gateway' => 'fake_wallet',
+        'client_id' => $client->id, 'amount' => 50_000, 'currency' => 'NPR', 'document_amount' => 50_000, 'document_currency' => 'NPR',
+        'status' => AttemptStatus::Pending, 'expires_at' => now()->addHours(6)]);
+    $attempt->forceFill(['lookup_count' => 12, 'last_lookup_at' => now()->addSeconds(3)])->save();
+    FakeNprWalletDriver::$provider[$attempt->reference] = new LookupResult(LookupResult::PENDING);
+    FakeNprWalletDriver::$lookupSeconds = 3;
+
+    foreach (['10:05:00', '10:10:00', '10:15:00', '10:20:00', '10:25:00'] as $run) {
+        $this->travelTo(CarbonImmutable::parse('2026-10-21 '.$run, 'Asia/Kathmandu'));
+        $this->artisan('billing:reconcile-payments', ['--only' => 'open'])->assertSuccessful();
+    }
+
+    expect($attempt->fresh()->lookup_count)->toBe(12);
+
+    $this->travelTo(CarbonImmutable::parse('2026-10-21 10:30:00', 'Asia/Kathmandu'));
+    $this->artisan('billing:reconcile-payments', ['--only' => 'open'])->assertSuccessful();
+
+    expect($attempt->fresh()->lookup_count)->toBe(13);
+});
+
 test('a closed attempt the provider reports as expired or cancelled is not swept again', function (string $status) {
     [$attempt] = closedWalletAttempts(1);
     FakeNprWalletDriver::$provider[$attempt->reference] = new LookupResult($status);

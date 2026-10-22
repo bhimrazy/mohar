@@ -40,6 +40,13 @@ class PaymentReconciler
      */
     public const LATE_SLACK_MINUTES = 10;
 
+    /**
+     * Slack on the open interval (#230), the same reasoning as LATE_SLACK_MINUTES for the five-minute poller: a lookup
+     * stamped up to this long into the previous run still counts as one interval ago. Capped at half the interval, so
+     * two lookups of one attempt stay at least half an interval apart even when runs are started by hand.
+     */
+    public const OPEN_SLACK_SECONDS = 60;
+
     public function __construct(
         private SettlePaymentAttempt $settle,
         private BillingSettings $settings,
@@ -50,15 +57,22 @@ class PaymentReconciler
         $interval = max(1, $this->settings->int('gateways.lookup_interval_minutes', 5));
         $checked = 0;
 
+        // Cut-offs are taken once, when the run starts: lookups are stamped as they finish, so a cut-off read per
+        // attempt, or without slack, skips the attempt on the next run and doubles the real interval (#230).
+        $slack = min(self::OPEN_SLACK_SECONDS, intdiv($interval * 60, 2));
+        $start = now()->toImmutable();
+        $lookedUpBefore = $start->subMinutes($interval)->addSeconds($slack);
+        $backedOffBefore = $start->subMinutes($interval * 6)->addSeconds($slack);
+
         PaymentAttempt::query()
             ->whereIn('status', [AttemptStatus::Pending, AttemptStatus::Ambiguous])
-            ->where('created_at', '>=', now()->subDays(14))
-            ->where(fn ($query) => $query->whereNull('last_lookup_at')->orWhere('last_lookup_at', '<=', now()->subMinutes($interval)))
+            ->where('created_at', '>=', $start->subDays(14))
+            ->where(fn ($query) => $query->whereNull('last_lookup_at')->orWhere('last_lookup_at', '<=', $lookedUpBefore))
             ->orderBy('id')
-            ->chunkById(100, function (Collection $attempts) use ($interval, &$checked): void {
+            ->chunkById(100, function (Collection $attempts) use ($backedOffBefore, &$checked): void {
                 foreach ($attempts as $attempt) {
                     // Back off: after 12 lookups, check at most once per 6 intervals.
-                    if ($attempt->lookup_count >= 12 && $attempt->last_lookup_at !== null && $attempt->last_lookup_at->gt(now()->subMinutes($interval * 6))) {
+                    if ($attempt->lookup_count >= 12 && $attempt->last_lookup_at !== null && $attempt->last_lookup_at->gt($backedOffBefore)) {
                         continue;
                     }
 
