@@ -30,7 +30,7 @@ When proposing directions, research current products in the market, present a sm
 screenshots or mockups, recommend one, and let the owner decide. When implementing, use theme tokens only, reuse
 shared components, cover light and dark modes, and check keyboard access and contrast.
 
-Capture before/after screenshots with headless Playwright into `billing/docs/screenshots/`, through `npm run
+Capture before/after screenshots with headless Playwright (`$MOHAR_ROOT/scripts/screenshot.mjs`) into `billing/docs/screenshots/`, through `npm run
 images:optimize -- <paths>` (CI fails on images over 500 KB). Heavy commands through
 `$MOHAR_ROOT/scripts/heavy.sh`; work only in your worktree, never on port 8000. Report: what changed,
 screenshot paths, and any decision the owner must make.
