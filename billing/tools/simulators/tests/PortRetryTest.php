@@ -85,3 +85,37 @@ test('scenario ports are distinct and never the forbidden ones', function () {
     expect(array_unique($ports))->toHaveCount(50)
         ->and(array_intersect($ports, Scenario::FORBIDDEN_PORTS))->toBe([]);
 });
+
+test('scenario ports stay out of the ephemeral range, where other processes\' outgoing connections take their ports', function () {
+    $range = preg_split('/\s+/', trim((string) @file_get_contents('/proc/sys/net/ipv4/ip_local_port_range')));
+    $ephemeralStart = (int) ($range[0] ?? 32768);
+
+    $ports = Scenario::freePorts(30);
+
+    expect(min($ports))->toBeGreaterThanOrEqual(20000)
+        ->and(max($ports))->toBeLessThan($ephemeralStart);
+});
+
+test('parallel workers pick from slices of their own, so they cannot take each other\'s ports', function () {
+    $original = getenv('TEST_TOKEN');
+    $slices = [];
+
+    try {
+        foreach (['1', '2', '3', '4'] as $worker) {
+            putenv("TEST_TOKEN={$worker}");
+            $slices[$worker] = [min($ports = Scenario::freePorts(40)), max($ports)];
+        }
+    } finally {
+        $original === false ? putenv('TEST_TOKEN') : putenv("TEST_TOKEN={$original}");
+    }
+
+    foreach ($slices as $worker => [$low, $high]) {
+        expect($high - $low)->toBeLessThan(1000);
+
+        foreach ($slices as $other => [$otherLow, $otherHigh]) {
+            if ($worker !== $other) {
+                expect($high < $otherLow || $low > $otherHigh)->toBeTrue("workers {$worker} and {$other} overlap");
+            }
+        }
+    }
+});

@@ -95,6 +95,7 @@ class SettlePaymentAttempt
                     default => $this->closeLookups($attempt, $result),
                 };
 
+                self::forgetResumeUrl($attempt);
                 $attempt->save();
 
                 return $attempt->status;
@@ -112,10 +113,22 @@ class SettlePaymentAttempt
             };
 
             $this->closeLookups($attempt, $result);
+            self::forgetResumeUrl($attempt);
             $attempt->save();
 
             return $attempt->status;
         });
+    }
+
+    /**
+     * The kept provider page (#251) is only ever reopened for a Pending attempt (PaymentInProgress::closable()), and
+     * an attempt never returns to Pending, so the URL is dropped as soon as the status leaves it.
+     */
+    private static function forgetResumeUrl(PaymentAttempt $attempt): void
+    {
+        if ($attempt->status !== AttemptStatus::Pending) {
+            $attempt->resume_url = null;
+        }
     }
 
     /**
