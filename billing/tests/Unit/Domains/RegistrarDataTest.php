@@ -6,6 +6,10 @@ use App\Data\Domains\Registrar\RegistrarConfig;
 use App\Data\Domains\Registrar\RegistrarResult;
 use App\Data\Domains\Registrar\RegistrationRequest;
 use App\Data\Domains\Registrar\SubmissionLookup;
+use App\Data\Domains\Registrar\TransferSyncResult;
+use App\Data\Integrations\ConnectionCheck;
+use App\Data\Integrations\ConnectionCheckStep;
+use App\Enums\CheckStatus;
 use App\Enums\ReconcileStatus;
 use Carbon\CarbonImmutable;
 
@@ -34,4 +38,13 @@ test('a registration request reports its transfer code as a secret, and nothing 
     expect((new RegistrationRequest($domain, 1, [], new ContactSet, eppCode: 'Ep-9!'))->secrets())->toBe(['Ep-9!'])
         ->and((new RegistrationRequest($domain, 1, [], new ContactSet, eppCode: ''))->secrets())->toBe([])
         ->and((new RegistrationRequest($domain, 1, [], new ContactSet))->secrets())->toBe([]);
+});
+
+test('a transfer sync result and a connection check copy with replaced text only', function () {
+    $sync = new TransferSyncResult(false, true, 'raw', null, ['transfer_id' => 3]);
+    $check = new ConnectionCheck(false, 'raw message', [new ConnectionCheckStep('Login', CheckStatus::Fail, 'raw step')], ['account' => 'raw detail']);
+
+    expect($sync->withReason('masked'))->toEqual(new TransferSyncResult(false, true, 'masked', null, ['transfer_id' => 3]))
+        ->and($check->mapText(fn (string $text): string => str_replace('raw', 'masked', $text)))
+        ->toEqual(new ConnectionCheck(false, 'masked message', [new ConnectionCheckStep('Login', CheckStatus::Fail, 'masked step')], ['account' => 'masked detail']));
 });

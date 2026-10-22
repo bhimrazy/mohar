@@ -44,6 +44,9 @@ Additive; Domains moves onto these in PR C2, which removes its module SPI.
   from the Domains module, unchanged apart from `RegistrationRequest::$domain` being a `DomainRef`, `eppCode` and
   `EppCodeResult::$code` marked `#[\SensitiveParameter]`, and `RegistrarResult::withMessage()` /
   `SubmissionLookup::withMessage()` (a copy with a new message, for host-side masking).
+- `TransferSyncResult::withReason()` and `App\Data\Integrations\ConnectionCheck::mapText(Closure)` (additive): copies with
+  replaced text, so the host masks what a driver says before showing it. `RegistrarTimeout` takes a trailing
+  `?Throwable $previous`.
 - `App\Support\Domains\RegistrarDriverRegistry` (final, singleton in `AppServiceProvider`): the `DriverRegistry`
   API plus `supports(key, capability)` and `fields(key)`. Capability names are the strings the admin already shows;
   `register`, `renew` and `info` map to the core interface, `transfer` and `transfer_sync` to `TransfersDomains`, and
