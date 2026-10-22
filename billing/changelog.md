@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **A currency's code can no longer be changed after it is created (#238).** Clients, invoices, quotes,
+  transactions, prices and rate history store the code, so renaming it left them pointing at a currency that no
+  longer existed. Admin → Currencies → Edit shows the code read-only with the reason; an update request that sends a
+  different code is refused with "The code of an existing currency cannot be changed. To use another code, add a new
+  currency." Staff who need another code add a new currency. No schema or permission change. Installations where a
+  code was already renamed keep their records under the old code; nothing repairs them automatically.
 - **Security: upgrade PHP to 8.4.27 or newer (CVE-2026-109618, CVE-2026-109619).** PHP 8.4.26 and older (8.5.11
   and older) allow unauthenticated remote code execution through every web SAPI, FrankenPHP included, with no
   workaround besides upgrading. **Operators: upgrade PHP to 8.4.27+ (8.5.12+ on 8.5) and rebuild or pull the image.**
@@ -518,6 +524,8 @@ a time: medians of three runs before and three after, on the same database, on a
   simulators on a throwaway database. It covers install, a trusted cPanel server, an order paid on Stripe Checkout,
   provisioning, overdue suspension and unsuspension, cancellation, a refund, a dispute, forged and duplicate webhooks,
   and a create that times out and is adopted. CI runs it in its own job, `E2E simulators`.
+- `simulate:e2e` runs in NPR, the install default: the product, invoices and Stripe payments are in NPR instead of
+  forcing USD at install.
 - A refund or dispute webhook that arrives before its payment is booked (Stripe can send a dispute first) is answered
   409 and logged in the gateway log as "payment not booked yet; retry expected"; Stripe's retry books it.
 - The Stripe gateway reaches its API and checks its checkout host through the integration endpoints
@@ -697,6 +705,9 @@ a time: medians of three runs before and three after, on the same database, on a
 
 ### Platform admin
 
+- Currencies: the ISO code is fixed once a currency exists. The edit form shows it read-only with the reason, the
+  update request refuses a different code, saving display settings never writes the code, and the `Currency` model
+  refuses any other attempt to rename it (#238).
 - Automation → Run now queues one run at a time: while a run waits or runs, another request is not queued, and the
   page says "An automation run is already queued or running." During the scheduled run it says "An automation run
   is in progress"; a request queued just before a scheduled run starts is skipped and recorded in the activity log
