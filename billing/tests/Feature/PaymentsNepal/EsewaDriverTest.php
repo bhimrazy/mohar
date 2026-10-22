@@ -305,29 +305,22 @@ test('a booked eSewa session keeps the invoice locked for eSewa\'s whole booking
     $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page->where('payment_in_progress.can_pay_another_way', true));
 });
 
-test('use another method frees the invoice only when eSewa holds no payable session, and a late success is still booked', function () {
+test('use another method is neither offered nor carried out for eSewa, whose NOT_FOUND does not close the form', function () {
     [$invoice, $attempt] = startEsewa(10_000);
-    $close = route('client.invoices.attempts.close', [$invoice->id, $attempt->reference]);
-    Http::fake([ESEWA_STATUS => Http::sequence()
-        ->push(esewaFixture('status_pending', ['transaction_uuid' => $attempt->reference, 'total_amount' => 100.0]))
-        ->push(esewaFixture('status_not_found_cancelled', ['transaction_uuid' => $attempt->reference]))
-        ->whenEmpty(Http::response(esewaFixture('status_complete', ['transaction_uuid' => $attempt->reference])))]);
+    Http::fake([ESEWA_STATUS => Http::response(esewaFixture('status_not_found_cancelled', ['transaction_uuid' => $attempt->reference]))]);
 
-    // eSewa still holds a payable booking: nothing changes and the client is told why.
-    $this->from(route('client.invoices.show', $invoice->id))->post($close)
-        ->assertSessionHasErrors(['billing' => 'The payment page is still open, so the payment could still be made there. Finish it there, or try again in a few minutes.']);
-    expect($attempt->fresh()->status)->toBe(AttemptStatus::Pending);
+    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
+        ->where('payment_in_progress.status', 'pending')
+        ->where('payment_in_progress.can_close', false));
 
-    $this->post($close)->assertSessionHasNoErrors()->assertRedirect(route('client.invoices.show', $invoice->id));
-    expect($attempt->fresh())->status->toBe(AttemptStatus::Failed)->lookups_closed_at->toBeNull();
+    // A direct POST is refused before any lookup: no settle, no state change, the invoice stays locked.
+    $this->from(route('client.invoices.show', $invoice->id))->post(route('client.invoices.attempts.close', [$invoice->id, $attempt->reference]))
+        ->assertRedirect(route('client.invoices.show', $invoice->id))
+        ->assertSessionHasErrors(['billing' => 'This payment can\'t be closed from here. Check its status, or wait until the payment page times out.']);
 
-    // The old form is paid anyway: booked on the invoice as a late payment, once.
-    $this->travel(61)->minutes();
-    $this->artisan('billing:reconcile-payments');
-
-    expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
-        ->and(Transaction::query()->where('gateway', EsewaDriver::KEY)->count())->toBe(1)
-        ->and($attempt->fresh())->status->toBe(AttemptStatus::Succeeded)->late_payment_at->not->toBeNull();
+    Http::assertNothingSent();
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Pending)->lookup_count->toBe(0)
+        ->and(Transaction::query()->count())->toBe(0);
 });
 
 test('an attempt in staff review is not ended by a later NOT_FOUND', function () {

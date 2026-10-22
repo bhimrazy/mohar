@@ -13,7 +13,7 @@ function staffMessage(attempt: PaymentInProgressData): string {
     const name = attempt.gateway_name;
 
     if (attempt.status === 'failed' || attempt.status === 'expired') {
-        return `The client left this payment unfinished. It is still checked with ${name} in case it was paid after all.`;
+        return 'The client left this payment unfinished. It is still checked with the provider in case it was paid after all.';
     }
 
     return attempt.status === 'ambiguous'
@@ -29,7 +29,7 @@ function clientMessage(attempt: PaymentInProgressData): string {
     }
 
     if (attempt.status === 'failed' || attempt.status === 'expired') {
-        return `If you didn't finish paying at ${name}, you can pay another way.`;
+        return "If you didn't finish this payment, you can pay another way.";
     }
 
     if (attempt.can_pay_another_way) {
@@ -63,7 +63,7 @@ export function PaymentInProgressCard({
             title={ended ? 'Payment not completed' : 'Payment in progress'}
             description={
                 ended
-                    ? `The ${name} payment was cancelled or left unfinished.`
+                    ? 'This payment was cancelled or left unfinished.'
                     : review
                       ? `${name} hasn't confirmed this payment yet.`
                       : `Waiting for ${name} to confirm this payment.`

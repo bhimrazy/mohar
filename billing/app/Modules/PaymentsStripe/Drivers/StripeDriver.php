@@ -235,6 +235,11 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
     /**
      * Expires the stored session (POST /v1/checkout/sessions/{id}/expire). Stripe expires only an open session and
      * refuses for one already complete or expired, so a paid session is never touched.
+     *
+     * Each close sends its own Idempotency-Key. Stripe saves the first answer to a key for 24 hours, a 500 included,
+     * so a key shared between clicks (or with the cancel-return expire) would replay one transient error and keep the
+     * invoice locked until the session times out. Expire needs no key to be safe: a second call for a session that
+     * is no longer open is refused with a 400.
      */
     public function cancelSession(GatewayConfig $gateway, PaymentAttemptRef $attempt): HostedSessionCancel
     {
@@ -243,7 +248,7 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
         }
 
         try {
-            $response = $this->client->post($gateway, 'checkout/sessions/'.$attempt->providerRef.'/expire', [], 'mohar-expire-'.$attempt->reference, interactive: true);
+            $response = $this->client->post($gateway, 'checkout/sessions/'.$attempt->providerRef.'/expire', [], 'mohar-close-'.$attempt->reference.'-'.Str::lower(Str::random(16)), interactive: true);
         } catch (Throwable $exception) {
             report($exception);
 

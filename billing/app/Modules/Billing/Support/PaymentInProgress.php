@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Support;
 
+use App\Contracts\Billing\CancelsHostedPayment;
 use App\Contracts\Billing\ResumesHostedPayment;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
@@ -111,7 +112,8 @@ class PaymentInProgress
             'can_pay_another_way' => ! self::blocks($attempt),
             // Only a pending attempt the provider may still take: one in staff review might already be paid.
             'can_resume' => ! $staff && $known && self::closable($attempt) && $this->gateways->driver($attempt->gateway) instanceof ResumesHostedPayment,
-            'can_close' => ! $staff && self::closable($attempt) && $this->gateways->hosted($attempt->gateway) !== null,
+            // Only drivers that can close the provider session (Stripe), never eSewa or Khalti (CTO decision on #266).
+            'can_close' => ! $staff && $known && self::closable($attempt) && $this->gateways->driver($attempt->gateway) instanceof CancelsHostedPayment,
             'review_reason' => $staff ? $attempt->review_reason : null,
         ];
     }

@@ -38,8 +38,25 @@ class CloseHostedPayment
         private GatewayLogger $log,
     ) {}
 
+    /**
+     * Only a driver that can close its provider session offers "Use another method" (CTO decision on #266). eSewa and
+     * Khalti can't: their NOT_FOUND or "Initiated" answer doesn't mean the customer's other tab can no longer pay.
+     */
+    public function supports(PaymentAttempt $attempt): bool
+    {
+        return $this->gateways->has($attempt->gateway)
+            && $this->gateways->driver($attempt->gateway) instanceof CancelsHostedPayment;
+    }
+
+    /**
+     * @throws BillingException when the attempt's driver can't close its session; nothing is looked up or changed
+     */
     public function handle(PaymentAttempt $attempt): AttemptStatus
     {
+        if (! $this->supports($attempt)) {
+            throw new BillingException(__('This payment can\'t be closed from here. Check its status, or wait until the payment page times out.'));
+        }
+
         try {
             return Cache::lock('billing.attempt.close.'.$attempt->id, self::LOCK_SECONDS)
                 ->block(self::WAIT_SECONDS, fn (): AttemptStatus => $this->close($attempt));
@@ -51,17 +68,15 @@ class CloseHostedPayment
     private function close(PaymentAttempt $attempt): AttemptStatus
     {
         $attempt = PaymentAttempt::query()->findOrFail($attempt->id);
-        $driver = $this->gateways->hosted($attempt->gateway);
+        $driver = $this->gateways->driver($attempt->gateway);
 
         // Already settled, closed or in staff review (an earlier click, a return or the poller got there first).
-        if (! PaymentInProgress::closable($attempt) || $driver === null) {
+        if (! PaymentInProgress::closable($attempt) || ! $driver instanceof CancelsHostedPayment) {
             return $attempt->status;
         }
 
-        if ($driver instanceof CancelsHostedPayment) {
-            $outcome = $driver->cancelSession($this->gateways->config($attempt->gateway), $attempt->toRef(interactive: true));
-            $this->log->log($attempt->gateway, 'request', 'hosted session close: '.$outcome->value, ['reference' => $attempt->reference], $attempt->invoice_id);
-        }
+        $outcome = $driver->cancelSession($this->gateways->config($attempt->gateway), $attempt->toRef(interactive: true));
+        $this->log->log($attempt->gateway, 'request', 'hosted session close: '.$outcome->value, ['reference' => $attempt->reference], $attempt->invoice_id);
 
         return $this->settle->handle($attempt, interactive: true, cancelReturn: true);
     }

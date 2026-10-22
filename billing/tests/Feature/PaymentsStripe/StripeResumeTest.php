@@ -30,13 +30,13 @@ beforeEach(function () {
  * Fake Stripe: the retrieve answers with $session (a closure of the current state), the expire with $expire.
  *
  * @param  Closure(): array<string, mixed>  $session
- * @param  Closure(): mixed  $expire
+ * @param  Closure(Request): mixed  $expire
  */
 function fakeStripeSession(Closure $session, ?Closure $expire = null): void
 {
     Http::fake(function (Request $request) use ($session, $expire) {
         if ($request->method() === 'POST' && $request->url() === STRIPE_API.'checkout/sessions/'.STRIPE_SESSION.'/expire') {
-            return $expire !== null ? $expire() : Http::response(stripeFixture('error_resource_missing'), 400);
+            return $expire !== null ? $expire($request) : Http::response(stripeFixture('error_resource_missing'), 400);
         }
 
         if ($request->method() === 'GET' && str_starts_with($request->url(), STRIPE_API.'checkout/sessions/'.STRIPE_SESSION)) {
@@ -124,7 +124,7 @@ test('use another method expires the session at Stripe first, outside any transa
 
     $sent = Http::recorded()->map(fn (array $pair) => $pair[0]->method().' '.strtok($pair[0]->url(), '?'))->values()->all();
     expect(array_slice($sent, -2))->toBe(['POST '.STRIPE_API.'checkout/sessions/'.STRIPE_SESSION.'/expire', 'GET '.STRIPE_API.'checkout/sessions/'.STRIPE_SESSION]);
-    Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/expire') && $request->header('Idempotency-Key') === ['mohar-expire-'.$attempt->reference]);
+    Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/expire') && preg_match('/^mohar-close-'.preg_quote($attempt->reference, '/').'-[a-z0-9]{16}$/', $request->header('Idempotency-Key')[0] ?? '') === 1);
 
     // Free for a new payment straight away, and the closed attempt is no longer shown.
     $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page->where('payment_in_progress', null)->whereNot('payment', null));
@@ -171,6 +171,35 @@ test('when Stripe can\'t be reached the attempt stays open and the client is tol
     expect($attempt->fresh()->status)->toBe(AttemptStatus::Pending)
         ->and(GatewayLog::query()->where('result', 'hosted session close: unreachable')->count())->toBe(1);
     $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => StripeDriver::KEY])->assertSessionHasErrors('billing');
+});
+
+test('a transient Stripe error on close is not replayed: the next click sends a new idempotency key and frees the invoice', function () {
+    [, $invoice, $attempt] = startStripe();
+    $state = 'open';
+    $keys = [];
+    fakeStripeSession(function () use (&$state, $attempt, $invoice) {
+        return stripeCreatedSession($attempt->reference, $invoice->id, ['status' => $state]);
+    }, function (Request $request) use (&$state, &$keys, $attempt, $invoice) {
+        $keys[] = $request->header('Idempotency-Key')[0] ?? null;
+
+        if (count($keys) === 1) {
+            return Http::response(['error' => ['type' => 'api_error', 'message' => 'An unknown error occurred']], 500);
+        }
+
+        $state = 'expired';
+
+        return Http::response(stripeCreatedSession($attempt->reference, $invoice->id, ['status' => 'expired']));
+    });
+
+    $this->post(closeUrl($attempt))->assertSessionHasErrors('billing');
+    expect($attempt->fresh()->status)->toBe(AttemptStatus::Pending);
+
+    $this->post(closeUrl($attempt))->assertSessionHasNoErrors();
+
+    expect($keys)->toHaveCount(2)->and($keys[0])->not->toBe($keys[1])
+        ->and($keys[1])->not->toBe('mohar-expire-'.$attempt->reference)
+        ->and($attempt->fresh()->status)->toBe(AttemptStatus::Expired)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
 });
 
 test('another client can neither reopen nor close an attempt', function () {
