@@ -30,6 +30,7 @@ use App\Modules\Domains\Listeners\MirrorLinkedServiceState;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\RegistrarCommandLog;
+use App\Modules\Domains\Models\RegistrarRefRecord;
 use App\Modules\Domains\Services\DomainPricingService;
 use App\Modules\Domains\Services\DomainRegistryService;
 use App\Modules\Domains\Services\EloquentRegistrarRefs;
@@ -103,6 +104,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $encrypted = $this->app->make(EncryptedStorage::class);
         $encrypted->register('domains_registrar_accounts', new EncryptedModel(RegistrarAccount::class));
         $encrypted->register('domains_domains', new EncryptedModel(Domain::class));
+        $encrypted->register('domains_registrar_refs', new EncryptedModel(RegistrarRefRecord::class));
 
         $this->registerListeners();
 
