@@ -1,7 +1,10 @@
 # VAT sales register and credit notes — Product Spec (v1)
 
-Status: draft for engineering, fix round 2 (architecture review and review board of #327, CTO decisions of 2026-10-22); aligned with ADR 0024 (fiscal
-documents), ADR 0013 Amendment 1 (company clock) and ADR 0025 (report registry), all Proposed in #329 · Owner: Billing workstream · Refines
+Status: draft for engineering, reworked after the round-2 re-checks (CTO decisions of 2026-10-22). Built on ADR 0024
+(fiscal documents), ADR 0013 Amendment 1 (company clock) and ADR 0025 (report registry), all Proposed in #329. **The
+snapshot and backfill, lock order, refund state machine, mode start and build order are stated only in ADR 0024
+(§2, §4, §5, §5a, §8, §10). This spec refers to them and gives their acceptance criteria; it does not restate them.**
+· Owner: Billing workstream · Refines
 `billing.md` §2 (invoice_adjustments), §3, §4.7 and `reports.md` §6 (`tax_liability`) · Sources read 2026-10-22 (§17)
 · CEO review 2026-10-22, recommendation 4
 Clean-room: behaviour derived from public tax guidance and public category docs (WHMCS, HostBill, Blesta forums); no
@@ -66,30 +69,16 @@ Out of scope: §16. Kernel prerequisites (§18): PR 0a, the `CompanyClock` contr
 
 ## 3. Nepal VAT mode and which document is the tax invoice
 
-- `billing.nepal_vat.enabled` with its `enabled_from` company date (ADR 0024 §8), set in Admin → Settings → Billing →
-  Tax by staff with `billing.settings.manage` and a recent password. It is an explicit opt-in: the seller country and
-  VAT number only pre-fill the suggestion, so editing a VAT number never changes legal behaviour by itself. **MUST**
-    - `enabled_from` must be the first day of a BS month on the company calendar, not before the start of the current
-      BS month. Notes can be issued from the moment the mode is enabled. **MUST**
-    - **Staff review first.** Old value adjustments that cannot be classified as taxable or exempt (line-less rows,
-      and item-cancellation rows that stored the net as taxable on an untaxed line) are listed by the PR 1a backfill
-      (§4.1). The mode cannot be enabled until staff have reviewed that list. **MUST**
-    - **Old-style rows after the start date.** Enabling is refused while an old-style value adjustment
-      (`cancellation`, `item_cancellation`, `refund`, `late_fee`) written **after its invoice's `numbered_at`** is dated
-      (company date of `created_at`) on or after `enabled_from`; the page lists them and offers the next BS month.
-      Rows written before numbering are already in the snapshot and are not checked. The check runs with the mode's
-      setting row locked (`FOR UPDATE`); the old-style paths read the mode inside their own transaction with a shared
-      lock on the same row, so none can commit an old-style row after the check has passed. So the register never
-      contains an old-style row (decision on B6, §12). **MUST**
-    - Enabling and every later change of the setting write an activity entry. Switching the mode off is refused once a
-      note exists. **MUST**
-    - **Settings locked while on.** Numbering settings (formats, padding, reset of invoices, credit notes and debit
-      notes) and the issue-date settings (`sequential_paid_numbering`, `set_issue_date_on_payment`) are read-only while
-      the mode is on, and the increment of every fiscal sequence is fixed at 1, so legal numbers are consecutive.
-      **MUST**
+- `billing.nepal_vat.enabled`, set in Admin → Settings → Billing → Tax by staff with `billing.settings.manage` and a
+  recent password. It is an explicit opt-in: the seller country and VAT number only pre-fill the suggestion. **MUST**
+- **Mode start, enable-time refusal and locked settings:** ADR 0024 §8. In short, `enabled_from` is the first day of
+  the current or a later BS month, and the mode takes effect on that day. The settings page shows the next allowed
+  date, lists any rows that block enabling, and links to the staff-review list (ADR 0024 §2). Criteria: AC 26, 52.
+  **MUST**
+- Enabling and every later change of the setting write an activity entry. **MUST**
 - **Tax invoice moment (owner decision D1, 2026-10-22).** An invoice becomes a tax invoice on payment. Enabling the
   mode turns proforma mode on (`sequential_paid_numbering` and `set_issue_date_on_payment` true; Mohar already
-  implements both in `InvoiceSettlement::settle`), and the lock above keeps it on. Unpaid invoices carry a proforma
+  implements both in `InvoiceSettlement::settle`), and the settings lock of ADR 0024 §8 keeps it on. Unpaid invoices carry a proforma
   number. **MUST**
 - Rule used everywhere below: a **tax invoice** is an invoice with a legal `number`. Drafts and proforma invoices are
   not. Only tax invoices appear in the register and only they take notes. **MUST**
@@ -103,48 +92,22 @@ Out of scope: §16. Kernel prerequisites (§18): PR 0a, the `CompanyClock` contr
 
 ### 4.1 Tax-invoice value snapshot on `invoices` (written once, at numbering)
 
-At the moment an invoice gets its legal number (publish with proforma mode off, or `settle` in proforma mode), in the
-same transaction, Billing writes: **MUST**
+Columns added to `invoices` in PR 1a and frozen with the number:
 
-- `numbered_at` (instant): set in the numbering transaction and never again. It is the numbering moment for every
-  rule below; `paid_at` is never used for it (a `collections` invoice paid again later gets a new `paid_at`, while
-  its number, `numbered_at` and snapshot stay). **MUST**
-- `fiscal_taxable`, `fiscal_exempt`, `fiscal_tax1`, `fiscal_tax2`, `fiscal_total` (int minor; tax names and rates
-  are already frozen on the invoice): the value of the supply as numbered (ADR 0024 §2). It is the invoice's own
-  totals plus the **signed** sum (debits +, credits −) of the value adjustments (§4.4) created up to and including
-  `numbered_at`, so rows written in the numbering transaction itself count (a line cancelled and the invoice settled
-  in one `CancelInvoiceItems` call). Each row counts at its stored taxable and tax split. Item-cancellation rows are
-  classed taxable or exempt by their line's `taxable` flag through `invoice_item_id`, which `CancelInvoiceItems`
-  writes from PR 1a. Adjustment tax is split between tax1 and tax2 in the invoice's tax1:tax2 proportion, remainder to
-  tax2 (Nepal uses one level). **MUST**
-- `report_currency` (char 3) and `report_rate` (decimal 24,12): the install's reporting currency
-  (`billing.tax.report_currency`, NPR for a Nepal seller, INR later for India) and the rate from the invoice currency
-  to it. The rate is a **decimal string** computed from the stored currency rates with `Decimal::divide` (as
-  `CurrencyConverter` does internally) and never passed through `float`; conversions use `Decimal` arithmetic,
-  half-up. No network call inside the transaction. An invoice in the reporting currency stores `1`. Which rate a host
-  must use is open (D6). **MUST**
-- `supply_class` (`taxable` | `exempt` | `export`, ADR 0024 §2): taken from the tax rule that applied, at numbering,
-  so a later tax-rule edit never moves the register's export column. A document mixing taxed and untaxed lines is
-  `taxable` with its exempt part in `fiscal_exempt`. Which rule marks a supply as export is open (D6); until then no
-  document is `export`. **MUST**
-- `bs_issue_date` (`YYYY.MM.DD`), `bs_period` (`2083.07`), `bs_fiscal_year` (`2083.084`), from the company-calendar
-  `issue_date` (`system.timezone`) with `BikramSambat::fromAd`. Stored, so a correction of the BS month table never
-  moves a filed invoice between periods; invoices and notes are both filtered on the stored period. **MUST**
-- `credited_total`, `debited_total` (int minor, cached): written only by `InvoiceSettlement::adjust`, from value
-  adjustments created after `numbered_at`, so the cache and the cap (§5.1) read the same set. **MUST**
-- **Backfill in the PR 1a migration** (chunked; new columns only, no existing row is rewritten; not at mode enable,
-  because the columns are frozen from PR 1a): **MUST**
-    - `numbered_at`: for payment-numbered invoices (with a `proforma_number`), the instant the balance first reached
-      zero, derived from the succeeded payments and credit rows; for publish-numbered invoices, no value adjustment can
-      precede numbering, so the instant only needs to precede every adjustment (the invoice's `created_at` or its
-      first adjustment, whichever is earlier). Invoices whose instant cannot be derived go on the staff-review list.
-    - the snapshot, by the same signed-sum rule;
-    - `credited_total` and `debited_total`, from value adjustments created after `numbered_at`;
-    - the staff-review list of unclassifiable rows (§3). Such rows count against the invoice-level cap only, never a
-      line cap, and are left out of the per-line remainder rule.
-- Immutability in the model: `Invoice::FROZEN` gains `number`, `numbered_at`, `issue_date`, `client_snapshot`,
-  `seller_snapshot` and the fields above. The one allowed change is the proforma → numbered transition inside `settle`
-  (number, `numbered_at`, issue date and snapshot written together). **MUST**
+- `numbered_at`;
+- `fiscal_taxable`, `fiscal_exempt`, `fiscal_tax1`, `fiscal_tax2`, `fiscal_total`;
+- `report_currency`, `report_rate`;
+- `supply_class`;
+- `bs_issue_date`, `bs_period`, `bs_fiscal_year`;
+- `credited_total`, `debited_total`.
+
+What each holds, how it is computed at numbering, and how existing invoices are backfilled (including the
+staff-review list) is ADR 0024 §2. The caps they feed are ADR 0024 §3. Criteria: AC 7–10. **MUST**
+
+- `billing.tax.report_currency` names the reporting currency: NPR for a Nepal seller, INR later for India. Which rate
+  a host must use is open (D6). Until D6 names an export rule, no document is `export`.
+- `Invoice::FROZEN` gains `number`, `numbered_at`, `issue_date`, `client_snapshot`, `seller_snapshot` and the columns
+  above. The one change allowed is the proforma → numbered transition inside `settle`. **MUST**
 
 ### 4.2 `tax_notes` (credit and debit notes)
 
@@ -171,23 +134,17 @@ invoice_items), unit_amount, amount (net), taxable (bool), tax1_amount, tax2_amo
 - Every credit note is allocated to lines, including a note "by amount" (§5.1), so per-line caps and remainders are
   always defined. **MUST**
 
-### 4.3a `tax_note_reservations` and `tax_note_reservation_lines` (refund settlements)
+### 4.3a Refund reservations
 
-`tax_note_reservations: id, invoice_id, transaction_id (the pending refund), reason_code, reason_text, digest, created_by,
-status (pending | finalised | released), tax_note_id (set at finalise), timestamps`
-`tax_note_reservation_lines: reservation_id, invoice_item_id, quantity, unit_amount, amount, taxable, tax1_amount,
-tax2_amount, sort_order`
-
-- The reservation holds the full allocation of the note to be issued. Pending reservations count in both the line caps
-  and the invoice cap. Finalise issues exactly this allocation (§5.3). **MUST**
+`tax_note_reservations` and `tax_note_reservation_lines`: the columns, states and transitions are in ADR 0024 §5.
+**MUST**
 
 ### 4.4 Rows a note writes, and the value-adjustment set
 
 - **Value adjustments** (they change the value of the supply): `credit_note`, `debit_note`, and the old reasons
   `cancellation`, `item_cancellation`, `refund`, `late_fee`, `manual`. Caps, the cached totals and the remainder rule
   read this set, each row with its sign (an `item_cancellation` of a discount line, or the `cancellation` written by
-  `ReopenInvoice`, is a debit). Old-style `cancellation` and `refund` rows store taxable 0 and tax 0 and have no line:
-  they are on the staff-review list and count against the invoice cap only (§4.1). Old rows are never rewritten.
+  `ReopenInvoice`, is a debit). How old-style rows count is ADR 0024 §2 and §3. Old rows are never rewritten.
   **MUST**
 - **Settlement adjustments** (move money or credit, never value): `credit_applied`, `credit_removed`, `overpayment`,
   `write_off`, and the new `credit_note_to_credit`. Never notes. **MUST**
@@ -212,21 +169,10 @@ tax2_amount, sort_order`
 - Per-sequence settings: today `number_padding`, `number_reset` and `number_increment` are read globally for every
   sequence except quotes. Notes get their own: `billing.credit_note_format: "CN-{NUMBER}"`,
   `billing.debit_note_format: "DN-{NUMBER}"`, and `*_padding` and `*_reset` (default `never`). The increment of every
-  fiscal sequence is 1 while the mode is on (§3). The two formats must differ (validated). Notes never share the
+  fiscal sequence is 1 while the mode is on (ADR 0024 §8). The two formats must differ (validated). Notes never share the
   invoice sequence. **MUST**
-- **Company clock** (`App\Contracts\Core\CompanyClock`, setting `system.timezone`, ADR 0013 Amendment 1), not
-  `CarbonImmutable::today()` in UTC. Otherwise a document issued between 00:00 and 05:45 Nepal time gets the previous
-  day and, on the first of a BS month, the previous VAT period. Fiscal call sites that must use it: **MUST**
-    - `PublishInvoice` (issue date) and `InvoiceSettlement::settle` (issue date and `numbered_at` on payment);
-    - `DocumentNumbers::next()`, which takes the date from its caller (no default), for the `{YEAR}`/`{MONTH}`/`{DAY}`
-      tokens and reset periods;
-    - the note issuer and the refund finalise step (note issue date and BS fields);
-    - the BS fields of invoices and notes (computed from the company date);
-    - the mode switch: `enabled_from` validation and the old-row check (company date of `created_at`);
-    - the register: the default "last closed BS month", period bounds (`dayBounds()` for an AD range) and the PDF's
-      "Printed at".
-      The arch scan of ADR 0013 is widened to catch `today()`, `now()->toDateString()` and `date('Y-m-d')` as well as
-      `::today(`. Boundary tests at 18:14:59 and 18:15:00 UTC (23:59:59 and 00:00:00 Nepal time) cover every call site.
+- **Company clock:** every fiscal date comes from `App\Contracts\Core\CompanyClock` (setting `system.timezone`). The
+  call sites, the scan and the boundary tests are listed in ADR 0013 Amendment 1. Criteria: AC 43, 48. **MUST**
 - Tokens `{BS_YEAR}`, `{BS_FY}` and reset `bs_fiscal_year`: only if D2 is decided that way. **SHOULD**
 
 ## 5. Flows
@@ -250,9 +196,7 @@ tax2_amount, sort_order`
    amounts, tax and settlement. The issuer locks, recomputes allocation, caps and tax, and refuses with "The invoice
    changed; review the note again" if the version or the digest differs. Confirm requires a recent password (ADR 0018).
    **MUST**
-6. Lock order: payment(s) in id order → invoice → client (credit ledger) → sequence row last (the sequence row is
-   install-wide). Every money path that can meet a note uses it, including the provider-refund callback (§5.4). This
-   extends ADR 0021 §3 (ADR 0024 §4). **MUST**
+6. Lock order: ADR 0024 §4. **MUST**
 7. On commit, in one transaction: number, note, lines, the rows of §4.4, cached totals, activity entry; then the event
    after commit (§10). A settlement by gateway refund follows §5.3 instead. **MUST**
 8. The client gets the "Credit note issued" email with the PDF, unless staff untick "Send to client". **SHOULD**
@@ -278,54 +222,39 @@ destination. Owner decision D3 (2026-10-22): account credit is pre-selected; the
 
 ### 5.3 Refund settlement: refund first, note on success
 
-Decision on B1, as ADR 0024 §5: **a failed refund issues no note.** The three phases of `RefundTransaction` are kept
-and extended:
+A credit note settled by a gateway refund follows the reservation state machine in ADR 0024 §5: reserve, provider
+call, then finalise or release, for every actor and provider result. The failed or unknown cases issue no note.
+Staff-facing wording:
 
-1. **Reserve** (one transaction): lock the payment(s) in id order, then the invoice, then the client, then nothing
-   else (no number is taken). Check the digest and both caps. Write the pending refund `transactions` row and the
-   reservation with its full per-line allocation, reason and text (§4.3a). From here the reserved lines count in every
-   cap. **MUST**
-2. **Call the provider**, outside any transaction, with the pending row's id as the provider reference (as today).
-   **MUST**
-3. **Finalise** (one transaction, same lock order, then the sequence row): issue **exactly the reserved allocation**,
-   never recomputing caps. Number the note, write its value adjustment, mark the refund succeeded with `tax_note_id`,
-   reduce `amount_paid`, mark the reservation finalised, write the activity entry; event after commit. The step is
-   idempotent: it does nothing if the reservation is already finalised. **MUST**
-    - **Balance re-read under the lock.** The refund amount is fixed (the money has left), so if the invoice was paid
-      meanwhile and the balance would go negative, the excess goes to account credit (`credit_note_to_credit` and a
-      ledger row, both with `tax_note_id`). The balance stays ≥ 0. **MUST**
-    - **Refusal.** The refund is marked failed and the reservation released; **no note exists**, and staff see "The
-      gateway refused the refund. Retry, record a refund made outside, or credit the account instead." **MUST**
-    - **Crash after the provider's success.** The provider's refund callback for a pending row that carries a
-      reservation runs the finalise step instead of answering 409; staff also get "Check refund" on the pending row,
-      which asks the provider and finalises. A retry of either finalises once. **MUST**
+- after `DECLINED`: "The gateway refused the refund. Retry, record a refund made outside, or credit the account
+  instead.";
+- while `ERROR` or `PENDING`: "Refund outcome not known yet." with only **Check refund**, never Retry.
 
-"Refunded outside" and account credit have no network step and are issued in one transaction (§5.1 step 7). §9's
-immutability is untouched: nothing on a note changes after it is numbered.
+Criteria: AC 28–30, 49–51, 53. **MUST**
+
+"Refunded outside" and account credit have no network step, and are issued in one transaction (§5.1 step 7).
 
 ### 5.4 Every existing path that changes a tax invoice
 
-| Path on `develop`                                                                                                                                                                                                                                              | Writes today                                                                | In Nepal VAT mode, on a tax invoice                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Reason code / text                                                    | Actor               | Settlement                                          |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------- | --------------------------------------------------- |
-| Staff cancel, single or bulk (`InvoiceActionController` → `CancelInvoice`)                                                                                                                                                                                     | credit `cancellation` = balance; applied credit returned (`credit_removed`) | credit note for the open balance. Applied credit is returned first, as today, and is **not** part of the note. Payments stay on the invoice; refunding them later is a further note (row "staff refund")                                                                                                                                                                                                                                                                                                        | `invoice_cancelled` / the cancel dialog's note, required in the mode  | staff               | balance                                             |
-| Auto-cancel (`BillingAutomation` step 4)                                                                                                                                                                                                                       | credit `cancellation`                                                       | credit note; auto-cancel already picks only invoices with no payments and no applied credit                                                                                                                                                                                                                                                                                                                                                                                                                     | `invoice_cancelled` / "Automatically cancelled after N days overdue." | automation          | balance                                             |
-| `Invoicer::cancel`: Orders `CancelOrder`, `DeleteOrder`, `MarkOrderFraud`; Services `CancelOpenRenewals`, `ExpireUnpaidChanges`; Domains `RenewalInvoices`. These hold their own row locks before Billing's invoice lock (named in the kernel-changelog entry) | as `CancelInvoice`, no reason                                               | credit note, as staff cancel                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | `invoice_cancelled` / "Cancelled by <module>" (ADR 0024 §7)           | automatic (module)  | balance                                             |
-| Cancel lines (`CancelInvoiceItems`)                                                                                                                                                                                                                            | credit `item_cancellation` per line                                         | one credit note with one line per cancelled line. If the selection cancels the last open line, the action issues a single `invoice_cancelled` note for it and calls `CancelInvoice` in a mode that writes no further value adjustment: **one note, not two**                                                                                                                                                                                                                                                    | `lines_cancelled` or `invoice_cancelled` / staff text, required       | staff               | balance                                             |
-| Late fee (`ApplyLateFee`)                                                                                                                                                                                                                                      | debit `late_fee`                                                            | debit note                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | `late_fee` / "Late payment fee"                                       | automation          | adds to the balance                                 |
-| Reopen (`ReopenInvoice`)                                                                                                                                                                                                                                       | debit `cancellation`                                                        | refused for every tax invoice. Staff raise a new invoice instead. ("Reissue" is not built; `billing.md` §10 lists it only.)                                                                                                                                                                                                                                                                                                                                                                                     | —                                                                     | —                   | —                                                   |
-| Staff refund of a payment (`RefundTransaction`, gateway, record-only or to credit)                                                                                                                                                                             | on a paid invoice: credit `refund`                                          | split as the callback does, credit first: the part up to the account credit that payment placed (overpayment) is a plain refund with no note; the rest is the invoice part and goes through a credit note (§5.3)                                                                                                                                                                                                                                                                                                | `refunded` / staff text, required                                     | staff               | refund (or account credit when mode is "to credit") |
-| Provider-initiated refund (`GatewayCallbackHandler::refunded` → `RefundTransaction` record-only)                                                                                                                                                               | on a paid invoice: credit `refund`                                          | the callback already locks payments, then invoices (`lockParents`), before `reverseCredit` locks the client, which is the §5.1 order; it takes credit back first, and the invoice part becomes an **automatic** credit note in the same transaction as the refund row. If the cap is used up (the sale was already credited to account), the callback also takes back the credit that note placed; anything left goes to "Gateway payments to review". A callback for a pending reservation finalises it (§5.3) | `refunded_at_provider` / "Refunded at <gateway> (<refund id>)"        | automatic (gateway) | refund (record-only)                                |
-| Refund of a payment on an unpaid invoice                                                                                                                                                                                                                       | no adjustment; balance goes up                                              | no note: the sale is unchanged, the client owes again                                                                                                                                                                                                                                                                                                                                                                                                                                                           | —                                                                     | —                   | —                                                   |
-| Chargeback (`RecordChargeback`) and dispute won                                                                                                                                                                                                                | no adjustment (`amount_paid` changes, status `collections`)                 | no note; staff decide later (A5)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | —                                                                     | —                   | —                                                   |
-| Mark paid (`MarkInvoicePaid`, `write_off`), apply or remove credit, overpayment                                                                                                                                                                                | settlement adjustments                                                      | no note; the sale keeps its value (A6)                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | —                                                                     | —                   | —                                                   |
-| `manual`, `chargeback` adjustment reasons                                                                                                                                                                                                                      | defined in `AdjustmentReason`, no writer on `develop`                       | must not be written on a tax invoice; any value change goes through the note issuer (architecture test)                                                                                                                                                                                                                                                                                                                                                                                                         | —                                                                     | —                   | —                                                   |
+| Path on `develop`                                                                                                                                                                                                                                              | Writes today                                                                | In Nepal VAT mode, on a tax invoice                                                                                                                                                                                                                                                                                                                                                                                             | Reason code / text                                                    | Actor               | Settlement                                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------- | --------------------------------------------------- |
+| Staff cancel, single or bulk (`InvoiceActionController` → `CancelInvoice`)                                                                                                                                                                                     | credit `cancellation` = balance; applied credit returned (`credit_removed`) | credit note for the open balance. Applied credit is returned first, as today, and is **not** part of the note. Payments stay on the invoice; refunding them later is a further note (row "staff refund")                                                                                                                                                                                                                        | `invoice_cancelled` / the cancel dialog's note, required in the mode  | staff               | balance                                             |
+| Auto-cancel (`BillingAutomation` step 4)                                                                                                                                                                                                                       | credit `cancellation`                                                       | credit note; auto-cancel already picks only invoices with no payments and no applied credit                                                                                                                                                                                                                                                                                                                                     | `invoice_cancelled` / "Automatically cancelled after N days overdue." | automation          | balance                                             |
+| `Invoicer::cancel`: Orders `CancelOrder`, `DeleteOrder`, `MarkOrderFraud`; Services `CancelOpenRenewals`, `ExpireUnpaidChanges`; Domains `RenewalInvoices`. These hold their own row locks before Billing's invoice lock (named in the kernel-changelog entry) | as `CancelInvoice`, no reason                                               | credit note, as staff cancel                                                                                                                                                                                                                                                                                                                                                                                                    | `invoice_cancelled` / "Cancelled by <module>" (ADR 0024 §7)           | automatic (module)  | balance                                             |
+| Cancel lines (`CancelInvoiceItems`)                                                                                                                                                                                                                            | credit `item_cancellation` per line                                         | one credit note with one line per cancelled line. If the selection cancels the last open line, the action issues a single `invoice_cancelled` note for it and calls `CancelInvoice` in a mode that writes no further value adjustment: **one note, not two**                                                                                                                                                                    | `lines_cancelled` or `invoice_cancelled` / staff text, required       | staff               | balance                                             |
+| Late fee (`ApplyLateFee`)                                                                                                                                                                                                                                      | debit `late_fee`                                                            | debit note                                                                                                                                                                                                                                                                                                                                                                                                                      | `late_fee` / "Late payment fee"                                       | automation          | adds to the balance                                 |
+| Reopen (`ReopenInvoice`)                                                                                                                                                                                                                                       | debit `cancellation`                                                        | refused for every tax invoice. Staff raise a new invoice instead. ("Reissue" is not built; `billing.md` §10 lists it only.)                                                                                                                                                                                                                                                                                                     | —                                                                     | —                   | —                                                   |
+| Staff refund of a payment (`RefundTransaction`, gateway, record-only or to credit)                                                                                                                                                                             | on a paid invoice: credit `refund`                                          | split as the callback does, credit first: the part up to the account credit that payment placed (overpayment) is a plain refund with no note; the rest is the invoice part and goes through a credit note (§5.3)                                                                                                                                                                                                                | `refunded` / staff text, required                                     | staff               | refund (or account credit when mode is "to credit") |
+| Provider-initiated refund (`GatewayCallbackHandler::refunded` → `RefundTransaction` record-only)                                                                                                                                                               | on a paid invoice: credit `refund`                                          | credit is taken back first, and the invoice part becomes an **automatic** credit note in the same transaction as the refund row (ADR 0024 §5, provider-initiated refunds). If the cap is used up (the sale was already credited to account), the callback also takes back the credit that note placed; anything left goes to "Gateway payments to review". A callback for one of our reservations follows the ADR 0024 §5 table | `refunded_at_provider` / "Refunded at <gateway> (<refund id>)"        | automatic (gateway) | refund (record-only)                                |
+| Refund of a payment on an unpaid invoice                                                                                                                                                                                                                       | no adjustment; balance goes up                                              | no note: the sale is unchanged, the client owes again                                                                                                                                                                                                                                                                                                                                                                           | —                                                                     | —                   | —                                                   |
+| Chargeback (`RecordChargeback`) and dispute won                                                                                                                                                                                                                | no adjustment (`amount_paid` changes, status `collections`)                 | no note; staff decide later (A5)                                                                                                                                                                                                                                                                                                                                                                                                | —                                                                     | —                   | —                                                   |
+| Mark paid (`MarkInvoicePaid`, `write_off`), apply or remove credit, overpayment                                                                                                                                                                                | settlement adjustments                                                      | no note; the sale keeps its value (A6)                                                                                                                                                                                                                                                                                                                                                                                          | —                                                                     | —                   | —                                                   |
+| `manual`, `chargeback` adjustment reasons                                                                                                                                                                                                                      | defined in `AdjustmentReason`, no writer on `develop`                       | must not be written on a tax invoice; any value change goes through the note issuer (architecture test)                                                                                                                                                                                                                                                                                                                         | —                                                                     | —                   | —                                                   |
 
 - Proforma invoices keep today's behaviour on every path (no note, nothing in the register). **MUST**
 - Each row is a **MUST**; the architecture test (`tests/Arch`) checks that only the note issuer writes value
   adjustments on numbered invoices while the mode is on.
-- Race tests (PostgreSQL, two processes, ADR 0021 §4), PR 1b and PR 4: two notes on one invoice; a note against a
-  payment; a note against a refund; two refund reservations on two payments of one invoice; a provider refund callback
-  against a staff note to account credit (no deadlock). **MUST**
+- Race tests: the list in ADR 0024 §4. **MUST**
 
 ### 5.5 Reverse a mistaken credit note
 
@@ -342,8 +271,8 @@ account credit the default settlement, Billing adds one:
   required. Permission `billing.credit.refund` (new, sensitive, step-up). Writes a `credit_ledger` row (−amount,
   reason `credit_refunded`) and a `refund` transaction (amount out, no invoice), with an activity entry. Lock order:
   client only (no payment or invoice is touched). **MUST** (recorded refund made outside)
-- Through the gateway against a chosen earlier payment of the client whose refundable amount covers it, using the
-  three phases without a reservation and without touching that payment's invoice. **SHOULD**
+- Through the gateway, against an earlier payment of the client chosen by staff whose refundable amount covers it:
+  the `RefundAccountCredit` action, with its credit hold and permissions, as ADR 0024 §5a defines it. **SHOULD**
 - No note: paying out credit is not a supply (assumption A4). The mode does not change this action.
 
 ## 6. VAT sales register
@@ -400,7 +329,7 @@ Header block: seller PAN, seller legal name, BS fiscal year, tax period (BS mont
   monthly return, with the note "Sales side only; purchases and input VAT are not in this product". **MUST**
 - Invariant tested on every period: net VAT = Σ invoice VAT − Σ credit-note VAT + Σ debit-note VAT, exactly in paisa.
   It holds because every row is a snapshot or a note, and no old-style row written after numbering can fall on or
-  after `enabled_from` (§3). **MUST**
+  after `enabled_from` (ADR 0024 §8). **MUST**
 - Annual view: one row per BS month with the same totals, plus the full detail in the export. **MUST**
 - Warnings above the table (not blocking): business buyers without a PAN, and documents not in the reporting currency
   whose `report_rate` came from a manually entered rate. **SHOULD**
@@ -450,15 +379,15 @@ Client area:
 
 ### 8.1 Permissions (registered in `PermissionRegistry`)
 
-| Key                                          | Grants                                                         | Sensitive (step-up) |
-| -------------------------------------------- | -------------------------------------------------------------- | ------------------- |
-| `billing.tax_notes.view`                     | see notes in admin, download their PDFs                        | no                  |
-| `billing.tax_notes.issue`                    | issue credit and debit notes (settlement to balance or credit) | yes                 |
-| `billing.refunds.manage` (exists)            | additionally required when a note's settlement refunds money   | yes                 |
-| `reports.vat_register.view`                  | see the register (registered by the report registry)           | no                  |
-| `reports.vat_register.export`                | export it in any format                                        | yes (ADR 0025 §4)   |
-| `reports.tax_note_register.view` / `.export` | the same for the note register                                 | export: yes         |
-| `billing.credit.refund`                      | pay account credit out (§5.6)                                  | yes                 |
+| Key                                          | Grants                                                                                                | Sensitive (step-up) |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------- |
+| `billing.tax_notes.view`                     | see notes in admin, download their PDFs                                                               | no                  |
+| `billing.tax_notes.issue`                    | issue credit and debit notes (settlement to balance or credit)                                        | yes                 |
+| `billing.refunds.manage` (exists)            | additionally required when a note's settlement refunds money                                          | yes                 |
+| `reports.vat_register.view`                  | see the register (registered by the report registry)                                                  | no                  |
+| `reports.vat_register.export`                | export it in any format                                                                               | yes (ADR 0025 §4)   |
+| `reports.tax_note_register.view` / `.export` | the same for the note register                                                                        | export: yes         |
+| `billing.credit.refund`                      | pay account credit out (§5.6); the gateway variant also needs `billing.refunds.manage` (ADR 0024 §5a) | yes                 |
 
 - Full Administrator has all; Billing's seeder grants the seeded Billing role `billing.tax_notes.*` and both reports'
   keys; Support gets none.
@@ -516,7 +445,7 @@ naming the six callers of §5.4 and their lock order (their own rows, then Billi
   ADR 0013 Amendment 1); PR 0b, the two events (ADR 0024 §6); PR 0c, the report registry, `SafeCsv` and synchronous
   CSV and PDF export (ADR 0025), with the queued export deferred.
 - **ADRs this spec builds on** (Proposed in #329): ADR 0024 "Fiscal documents and correction notes", ADR 0025 "Report
-  registry and one export pipeline", ADR 0013 Amendment 1. Where the spec and an ADR differ, the ADR wins.
+  registry and one export pipeline", ADR 0013 Amendment 1. The rules listed in the status line are stated there only.
 - **CBMS** is not built (owner decision D5, 2026-10-22). The model is ready for it: BS date, the fiscal year in the
   CBMS form, buyer PAN, the amount split CBMS expects, the reference invoice and reason on notes, `cbms_status`
   columns. A later driver would post through an outbox, retry a bill by its invoice number, and never retry a note
@@ -524,11 +453,9 @@ naming the six callers of §5.4 and their lock order (their own rows, then Billi
 
 ## 12. Edge cases
 
-- **Invoice numbered before the mode** (legacy): takes notes like any other. Its caps include the old-style value
-  adjustments written after `numbered_at` (classified rows on their lines, unclassified rows at invoice level only). It
-  is in the register only if dated on or after `enabled_from`. Decision on B6: old-style rows written after numbering
-  are **excluded** from the tie-out by construction, because enabling is refused while any is dated on or after
-  `enabled_from` (§3); their tax is never backfilled.
+- **Invoice numbered before the mode** (legacy): takes notes like any other. Its caps and backfill are ADR 0024 §2
+  and §3. It is in the register only if dated on or after `enabled_from`, and no old-style row can fall in a register
+  period (ADR 0024 §8).
 - **Chargebacked invoice paid again** (`collections` → `paid`): `settle` sets a new `paid_at`; `numbered_at`, the number
   and the snapshot do not change.
 - **Proforma with a late fee, then paid**: the snapshot includes the fee and its tax; the register shows the value paid
@@ -539,16 +466,13 @@ naming the six callers of §5.4 and their lock order (their own rows, then Billi
   cites the old invoice and its BS date.
 - **Payment just after midnight Nepal time** (from 18:15:00 UTC): the company clock dates the tax invoice that day, in
   that BS month; at 18:14:59 UTC it is still the previous day.
-- **Gateway refund while the client pays the rest** (legacy partly paid invoice): finalise re-reads the balance and
-  moves the excess to account credit (§5.3).
+- **Gateway refund while the client pays the rest**, and **a gateway timeout**: ADR 0024 §5.
 - **Date outside the BS table** (after 2095 BS): no tax invoice or note can be numbered in the mode; staff see why.
 - **Partial payment, then cancel** (legacy or proforma off): the note covers the open balance; the payments stay, and
   refunding them is a further note.
 - **Credit applied, then cancel**: the applied credit is returned through `credit_removed` as today and is not part of
   the note; the note covers the balance after that return.
-- **Concurrent notes, or a note racing a payment or refund**: serialised by the lock order of §5.1; the cap is checked
-  under the lock and counts pending reservation lines. Race tests: §5.4.
-- **Refund across several payments**: the payments are locked in id order before the invoice.
+- **Concurrent notes, or a note racing a payment or refund**: ADR 0024 §4.
 - **Tax rule changed** after numbering: the note uses the invoice's snapshot rates.
 - **Discount lines**: credited with their parent line, never on their own.
 - **Client changes PAN** after the invoice: the note keeps the invoice's buyer snapshot.
@@ -557,120 +481,147 @@ naming the six callers of §5.4 and their lock order (their own rows, then Billi
 
 ## 13. Acceptance criteria
 
-The PR in brackets is where each criterion first passes (§18).
+Which PR each criterion first passes in is ADR 0024 §10.
 
 MUST:
 
-1. [1b] Given the mode and a tax invoice of Rs 11,300 (10,000 + 13% VAT), when staff issue a full credit note, then it
+1. Given the mode and a tax invoice of Rs 11,300 (10,000 + 13% VAT), when staff issue a full credit note, then it
    is numbered `CN-1`, references the invoice number and its BS date, and has taxable 10,000.00 and VAT 1,300.00.
-2. [1b] Given two notes issued concurrently on different invoices, then they get consecutive distinct numbers; a
+2. Given two notes issued concurrently on different invoices, then they get consecutive distinct numbers; a
    rolled-back note consumes no number.
-3. [1b] Given lines of 5,000 and 6,300 gross, when staff credit only the second, then the note has one line and 5,000
+3. Given lines of 5,000 and 6,300 gross, when staff credit only the second, then the note has one line and 5,000
    is still creditable.
-4. [1b] Given an invoice numbered at publish before the mode, with a 1,000 `item_cancellation` written after
+4. Given an invoice numbered at publish before the mode, with a 1,000 `item_cancellation` written after
    numbering, then at most total − 1,000 can be credited.
-5. [1b] Given a note by amount, then by line, then by amount that together credit an invoice in full, then each note
+5. Given a note by amount, then by line, then by amount that together credit an invoice in full, then each note
    has lines, and per line and per tax level they sum exactly to the invoice's snapshot.
-6. [1b] Given a tax rule changed from 13% to 15% after numbering, then a credit note on the invoice uses 13%, and the
+6. Given a tax rule changed from 13% to 15% after numbering, then a credit note on the invoice uses 13%, and the
    note's `report_rate` equals the invoice's.
-7. [1a] Given a proforma paid in full, then `numbered_at` is set in that transaction; given it later goes to
+7. Given a proforma paid in full, then `numbered_at` is set in that transaction; given it later goes to
    `collections` and is paid again, then `paid_at` changes and `numbered_at`, the number and the snapshot do not.
-8. [1a] Given a proforma with a 500 taxable late fee, and one line cancelled in the same `CancelInvoiceItems` call that
+8. Given a proforma with a 500 taxable late fee, and one line cancelled in the same `CancelInvoiceItems` call that
    settles it, then `fiscal_*` equal the totals plus the fee minus the cancelled line, each with its tax.
-9. [1a] Given the PR 1a migration on a database with legacy invoices, then snapshots are the signed sums up to
-   `numbered_at`, `credited_total` and `debited_total` equal the post-numbering value adjustments, and line-less or
-   misclassified old rows appear on the staff-review list.
-10. [1a] Given a numbered note or invoice, when any model path changes a frozen field, deletes the note, or deletes its
+9. Given the PR 1a migration on a database with legacy invoices, then:
+    - a publish-numbered invoice gets `numbered_at` = its `created_at` and a snapshot equal to its own totals;
+    - a payment-numbered invoice gets `numbered_at` = the `created_at` of its numbering payment row, even when that
+      payment's `occurred_at` was backdated;
+    - an invoice without one identifiable numbering payment, a line-less row and a misclassified row all appear on
+      the staff-review list;
+    - `credited_total` and `debited_total` equal the value adjustments after `numbered_at`.
+10. Given a numbered note or invoice, when any model path changes a frozen field, deletes the note, or deletes its
     invoice, then the change is refused.
-11. [1b] Given a preview, when the invoice changes before confirm (a payment, another note), then the confirm is refused
+11. Given a preview, when the invoice changes before confirm (a payment, another note), then the confirm is refused
     with "The invoice changed; review the note again".
-12. [1b] Given two processes, then the race tests of §5.4 for notes (two notes on one invoice, note against payment,
+12. Given two processes, then the race tests of §5.4 for notes (two notes on one invoice, note against payment,
     note against refund) leave the caps and the balance invariant intact.
-13. [2] Given a paid invoice and settlement "account credit", then exactly these rows exist: a `credit_note` credit
+13. Given a paid invoice and settlement "account credit", then exactly these rows exist: a `credit_note` credit
     adjustment, a `credit_note_to_credit` debit adjustment and a `credit_ledger` +amount row, all with `tax_note_id`;
     the balance is 0 and the invoice is `paid` and "Credited".
-14. [2] Given a mistaken credit note to account credit, when staff reverse it, then a `reverses_credit_note` debit note
+14. Given a mistaken credit note to account credit, when staff reverse it, then a `reverses_credit_note` debit note
     with the same lines and tax exists, the credit is taken back and the balance is where it was.
-15. [2] Given staff without `billing.tax_notes.issue`, then the issue buttons are absent and the endpoint returns 403;
+15. Given staff without `billing.tax_notes.issue`, then the issue buttons are absent and the endpoint returns 403;
     with it but without a recent password, the confirm asks for one.
-16. [2] Given staff without `billing.refunds.manage`, then the refund settlements are not offered.
-17. [2] Given a note issued, then an activity entry `billing.tax_note.issued` with number, invoice, total, settlement
+16. Given staff without `billing.refunds.manage`, then the refund settlements are not offered.
+17. Given a note issued, then an activity entry `billing.tax_note.issued` with number, invoice, total, settlement
     and actor exists.
-18. [2] Given a credit note on a paid invoice, when the preview opens, then account credit is selected and the refund
+18. Given a credit note on a paid invoice, when the preview opens, then account credit is selected and the refund
     options are offered beside it (D3).
-19. [2] Given a client with 1,300 of account credit, when staff with `billing.credit.refund` and a recent password
+19. Given a client with 1,300 of account credit, when staff with `billing.credit.refund` and a recent password
     record a refund of 1,000 made outside, then a −1,000 `credit_refunded` ledger row and a `refund` transaction exist,
     no note is issued and no invoice changes; without the permission the action is absent.
-20. [2] Given a credit note issued, then `CreditNoteIssued` with its number fires once after commit and the
+20. Given a credit note issued, then `CreditNoteIssued` with its number fires once after commit and the
     `credit_note.issued` webhook is queued; a debit note fires `DebitNoteIssued` and queues `debit_note.issued`.
-21. [3] Given a tax invoice numbered at publish before the mode, cancelled by staff, by auto-cancel, and by
+21. Given a tax invoice numbered at publish before the mode, cancelled by staff, by auto-cancel, and by
     `Invoicer::cancel` from each of the six callers in §5.4, then each issues one `invoice_cancelled` note with the
     reason text of §5.4 and no `cancellation` adjustment.
-22. [3] Given cancel lines that cancels the last open line, then exactly one note is issued.
-23. [3] Given a proforma invoice cancelled, then no note is issued and nothing appears in the register.
-24. [3] Given a late fee on a legacy unpaid tax invoice, then a `late_fee` debit note is issued and shown as a positive
+22. Given cancel lines that cancels the last open line, then exactly one note is issued.
+23. Given a proforma invoice cancelled, then no note is issued and nothing appears in the register.
+24. Given a late fee on a legacy unpaid tax invoice, then a `late_fee` debit note is issued and shown as a positive
     register row.
-25. [3] Given any tax invoice in the mode, then "Reopen" is refused.
-26. [3] Given staff enabling the mode at 00:10 Nepal time on day 1 of a BS month, then that day is accepted as
-    `enabled_from`; enabling is refused while the staff-review list is unreviewed or a post-numbering old-style row is
-    dated on or after it (a late fee committing concurrently is either before the check or blocked); proforma mode
-    turns on; numbering and issue-date settings become read-only with increment 1; an activity entry is written; and
-    switching off is refused once a note exists.
-27. [3] Given the mode on, when a proforma is paid, then it gets the next legal number, its issue date is the company
+25. Given any tax invoice in the mode, then "Reopen" is refused.
+26. Given staff enabling the mode, then:
+    - `enabled_from` is accepted only as the first day of the current or a later BS month;
+    - before that day the issuer refuses notes and the old paths run;
+    - from 00:00 Nepal time that day, notes replace them;
+    - enabling is refused while the staff-review list is unreviewed, or while a post-numbering old-style row is dated
+      on or after `enabled_from` (a late fee committing concurrently is either before the check or blocked);
+    - proforma mode turns on, numbering and issue-date settings become read-only with increment 1, and an activity
+      entry is written;
+    - switching off is refused once a note exists.
+27. Given the mode on, when a proforma is paid, then it gets the next legal number, its issue date is the company
     date of `numbered_at` and it appears in that BS month's register (D1).
-28. [4] Given settlement by gateway refund and the provider refuses, then no note exists, no number is consumed, the
-    refund row is failed and the reservation released; given it succeeds, then exactly the reserved allocation is
-    issued with the succeeded refund row; given the client paid the remaining balance during the provider call, then
-    the excess is account credit and the balance is 0, not negative.
-29. [4] Given a by-line refund reservation on line B pending, when another staff member credits line B to account,
+28. Given settlement by gateway refund:
+    - when the provider answers `DECLINED`, then no note exists, no number is consumed, the refund row is failed and
+      the reservation is `released`;
+    - when it answers `SUCCESS`, then exactly the reserved allocation is issued with the succeeded refund row;
+    - when the client paid the remaining balance during the provider call, then the excess is account credit and the
+      balance is 0, not negative.
+29. Given a by-line refund reservation on line B pending, when another staff member credits line B to account,
     then it is refused by the line cap.
-30. [4] Given a crash after the provider's success, when the provider's refund callback arrives (or staff press "Check
+30. Given a crash after the provider's success, when the provider's refund callback arrives (or staff press "Check
     refund"), then the pending reservation is finalised once, and a repeat does nothing.
-31. [4] Given a provider-initiated refund of a paid tax invoice, then an automatic credit note `refunded_at_provider`
+31. Given a provider-initiated refund of a paid tax invoice, then an automatic credit note `refunded_at_provider`
     with the provider's refund id in its text is issued in the same transaction as the refund row.
-32. [4] Given a paid invoice credited in full to account, when the provider later refunds the payment, then no note is
+32. Given a paid invoice credited in full to account, when the provider later refunds the payment, then no note is
     issued, the credit that note placed is taken back, and the rest goes to "Gateway payments to review".
-33. [4] Given a payment of 12,000 on an 11,300 invoice (700 overpayment in credit), when staff refund 1,000, then 700
+33. Given a payment of 12,000 on an 11,300 invoice (700 overpayment in credit), when staff refund 1,000, then 700
     is a plain refund and 300 goes through a credit note.
-34. [4] Given two processes, then two refund reservations on two payments of one invoice respect the cap, and a
+34. Given two processes, then two refund reservations on two payments of one invoice respect the cap, and a
     provider refund callback racing a staff note to account credit completes without a deadlock.
-35. [5] Given a client, then they see and download only their own notes; another client's note URL returns 404.
-36. [5] Given the note PDF, then it shows "Credit Note", seller PAN/VAT number, buyer PAN, both dates, the referenced
+35. Given a client, then they see and download only their own notes; another client's note URL returns 404.
+36. Given the note PDF, then it shows "Credit Note", seller PAN/VAT number, buyer PAN, both dates, the referenced
     invoice and the reason.
-37. [6] Given an invoice dated in Kartik 2083 and its credit note in Mangsir 2083, then the Kartik register shows the
+37. Given an invoice dated in Kartik 2083 and its credit note in Mangsir 2083, then the Kartik register shows the
     invoice and the Mangsir register shows the note as a negative row.
-38. [6] Given a register period, then net VAT equals Σ invoice VAT − Σ credit-note VAT + Σ debit-note VAT exactly, and
+38. Given a register period, then net VAT equals Σ invoice VAT − Σ credit-note VAT + Σ debit-note VAT exactly, and
     the "Return figures" box shows the same numbers.
-39. [6] Given the annual view for 2082/83, then it covers 1 Shrawan 2082 to the last day of Asar 2083 in 12 month rows.
-40. [6] Given a business client without a PAN, then the row has a blank PAN and the page warns; nothing is blocked.
-41. [6] Given a USD invoice with `report_rate` `134.250000000000`, then its register amounts are computed in `Decimal`,
+39. Given the annual view for 2082/83, then it covers 1 Shrawan 2082 to the last day of Asar 2083 in 12 month rows.
+40. Given a business client without a PAN, then the row has a blank PAN and the page warns; nothing is blocked.
+41. Given a USD invoice with `report_rate` `134.250000000000`, then its register amounts are computed in `Decimal`,
     rounded per document, unchanged after the rate table or the tax rule is edited, and a full credit note on it nets
     to exactly zero in NPR.
-42. [6] Given an add-funds invoice, a draft, or a tax invoice dated before `enabled_from`, then none appears in the
+42. Given an add-funds invoice, a draft, or a tax invoice dated before `enabled_from`, then none appears in the
     register, and periods before `enabled_from` are not offered.
-43. [6] Given the register opened at 18:15:00 UTC on the last day of a BS month, then the default period is that month
+43. Given the register opened at 18:15:00 UTC on the last day of a BS month, then the default period is that month
     (now closed); at 18:14:59 UTC it is the month before.
-44. [7] Given the IRD-layout CSV, then its columns are in the prescribed order with the template's Nepali headings,
+44. Given the IRD-layout CSV, then its columns are in the prescribed order with the template's Nepali headings,
     declaration number and date in separate columns, and header rows with seller PAN, name, fiscal year and period.
-45. [0c] Given a buyer named `=HYPERLINK(...)`, then the CSV cell starts with `'=`, while a credit-note amount
+45. Given a buyer named `=HYPERLINK(...)`, then the CSV cell starts with `'=`, while a credit-note amount
     `-1300.00` is written unprefixed; every export writes one `report.exported` entry with layout, format, filters and
     row count.
-46. [7] Given staff without `reports.vat_register.export`, then the exports are absent; with it, an export asks for a
+46. Given staff without `reports.vat_register.export`, then the exports are absent; with it, an export asks for a
     recent password.
-47. [7] Given the register, then the exports offered are CSV (detail), CSV (IRD layout) and PDF, and issuing a document
+47. Given the register, then the exports offered are CSV (detail), CSV (IRD layout) and PDF, and issuing a document
     sends nothing to CBMS; `cbms_status` stays null (D4, D5).
-48. [0a, notes in 1b] Given a proforma paid at 18:14:59 UTC and another at 18:15:00 UTC on the last day of Asoj 2083,
+48. Given a proforma paid at 18:14:59 UTC and another at 18:15:00 UTC on the last day of Asoj 2083,
     then the first is dated the last day of Asoj and the second 1 Kartik, in their BS periods; a credit note issued at
     18:20 UTC that day is dated 1 Kartik.
 
+49. Given a gateway refund whose request times out (`ERROR`), then the reservation stays `pending`, staff are offered
+    only "Check refund" (no Retry) and no second refund row exists. When the provider's callback then reports
+    `SUCCESS`, exactly one note and one refund exist.
+50. Given the callback has finalised a reservation, when the request's late `ERROR` or `DECLINED` arrives, then nothing
+    changes: the note, the succeeded refund row and `refundable_remaining` stay as they were.
+51. Given a `PENDING` answer, when staff press "Check refund" and the provider answers `DECLINED` for the same
+    reference, then the reservation is `released`, `refundable_remaining` is restored, and Retry is offered with a new
+    reservation and reference.
+52. Given the mode starting on 1 Kartik 2083, when a late-fee transaction captures its instant at 23:59:59.9 Nepal time
+    on the last day of Asoj and commits after midnight, then its row's `created_at` is that instant (dated Asoj), it is
+    old-style, and the Kartik register holds no old-style row. A late fee at 00:00:00 on 1 Kartik is a debit note.
+53. Given a reservation `released` after `DECLINED`, when the provider later reports `SUCCESS` for it, then the refund
+    is booked as provider-initiated: an automatic note if the caps allow it, otherwise "Gateway payments to review".
+
 SHOULD:
 
-49. [5] Given an invoice PDF downloaded twice in the mode, then the second copy says "Copy of original — print 2" and
+54. Given an invoice PDF downloaded twice in the mode, then the second copy says "Copy of original — print 2" and
     `print_count` is 2.
-50. [5] Given a note issued with "Send to client" ticked, then the client gets the email with the PDF attached.
-51. [4] Given staff refund account credit through the gateway against an earlier payment, then the payment's
-    refundable amount falls and its invoice does not change.
-52. [later] Given `{BS_FY}` in the note format and reset `bs_fiscal_year` (only if D2 goes that way), then the first
+55. Given a note issued with "Send to client" ticked, then the client gets the email with the PDF attached.
+56. Given staff with `billing.credit.refund` and `billing.refunds.manage` refund account credit through the gateway
+    against an earlier payment, then a `credit_refund_hold` row holds the credit during the provider call (so
+    `ApplyCredit` cannot spend it), the payment's refundable amount falls, and its invoice does not change. On
+    `DECLINED` the hold is reversed; on `ERROR` it stays until Check refund resolves it. Without
+    `billing.refunds.manage`, the gateway variant is not offered.
+57. Given `{BS_FY}` in the note format and reset `bs_fiscal_year` (only if D2 goes that way), then the first
     note on 1 Shrawan 2083 is `CN-2083-84-1`.
 
 Not in this build: a PostgreSQL trigger on notes (ADR 0024 §9) and queued exports (deferred in PR 0c until the
@@ -781,19 +732,4 @@ automatic downgrade credit notes from Services (HostBill does this; later); note
 
 ## 18. Build order
 
-Each PR ≤ 2,000 lines; the mode stays hidden until PR 4 merges. Acceptance criteria by number (§13).
-
-| PR               | Content                                                                                                                                                                                                                                                                                           | AC                      |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| 0a (CTO, kernel) | `CompanyClock` contract and Core implementation; Billing's fiscal call sites on it (§4.5); widened arch scan; boundary tests at 18:14:59 and 18:15:00 UTC. Other modules move later                                                                                                               | 48 (invoices)           |
-| 0b (CTO, kernel) | `CreditNoteIssued` / `DebitNoteIssued` and their `WebhookEventTypes::MAP` entries (ADR 0024 §6)                                                                                                                                                                                                   | —                       |
-| 1a               | Schema (`numbered_at`, value snapshot, cached totals, `report_currency`/`report_rate`, `supply_class`, BS fields, `tax_notes`, lines, reservations, `tax_note_id` and `invoice_item_id` columns); the backfill migration and staff-review list; `Invoice::FROZEN`; per-sequence `DocumentNumbers` | 7–10                    |
-| 1b               | The note issuer: allocation, caps with reservations, remainder, locks, digest; PostgreSQL race tests for notes                                                                                                                                                                                    | 1–6, 11, 12, 48 (notes) |
-| 2                | Manual issue UI; settlement to balance, account credit and recorded refund; reversing debit note; step-up and permissions; notes panel and list; "Refund account credit" (recorded); webhook delivery                                                                                             | 13–20                   |
-| 3                | Existing paths: cancel, cancel lines, late fee, reopen, `Invoicer::cancel` and its six callers (kernel-changelog entry), automation; enabling the mode (review list, setting lock, settings read-only)                                                                                            | 21–27                   |
-| 4                | Refunds through notes: reservation, provider call, idempotent finalise, crash recovery through the callback and "Check refund", provider-initiated refunds, overpayment split, gateway cash-out of credit; race tests (combined review, money)                                                    | 28–34, 51               |
-| 5                | Note PDF, email, merge fields, client area, `print_count`                                                                                                                                                                                                                                         | 35, 36, 49, 50          |
-| 0c (CTO, kernel) | Report registry, DTOs, `SafeCsv` (with `ErrorsCsv` switched to it), synchronous CSV and PDF export; queued export and `report_exports` deferred to the Reports module (ADR 0025). Lands just before PR 6                                                                                          | 45                      |
-| 6                | `VatRegisterReport` and `TaxNoteRegisterReport` on the registry: rows, totals, header block, screens (BS month, BS fiscal year, AD range; note tab; warnings)                                                                                                                                     | 37–43                   |
-| 7                | The `detail` and `ird` layouts and the PDF through the pipeline; export permissions                                                                                                                                                                                                               | 44, 46, 47              |
-| later            | Trigger after its own ADR (ADR 0024 §9); queued export with the Reports module; `{BS_FY}` after D2                                                                                                                                                                                                | 52                      |
+ADR 0024 §10: the PRs, their content, and which acceptance criteria each one must pass.
