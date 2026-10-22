@@ -16,6 +16,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
+use stdClass;
 
 /**
  * Import report → Send invitations (client-import spec §5.7): how many imported owner logins have no password, by
@@ -32,7 +33,7 @@ class ImportInvitationController extends Controller
         $filters = $this->filters($request);
         $perHour = max(1, (int) $settings->get('migration.invite_per_hour'));
         $logins = $invitations->candidates($run, $filters)->orderBy('u.id')->paginate(self::PER_PAGE)->withQueryString()
-            ->through(fn (object $row): array => [
+            ->through(fn (stdClass $row): array => [
                 'name' => (string) $row->name,
                 'email' => (string) $row->email,
                 'client' => trim(($row->first_name ?? '').' '.($row->last_name ?? '')).($row->company_name ? ' ('.$row->company_name.')' : ''),

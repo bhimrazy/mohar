@@ -34,12 +34,21 @@ class ImportInvitations
      */
     public function blocked(MigrationRun $run): ?string
     {
-        return match (true) {
-            $run->status !== MigrationRun::COMPLETED => __('Invitations can be sent once the import has finished.'),
-            $this->invitations instanceof NullClientLoginInvitations => __('Invitations are not available: the module that sends them is not installed.'),
-            ($problem = AccountLinks::problem()) !== null => __('Invitations are held: the link host isn\'t your site address. :problem', ['problem' => $problem]),
-            default => null,
-        };
+        if ($run->status !== MigrationRun::COMPLETED) {
+            return __('Invitations can be sent once the import has finished.');
+        }
+
+        if ($this->invitations instanceof NullClientLoginInvitations) {
+            return __('Invitations are not available: the module that sends them is not installed.');
+        }
+
+        $problem = AccountLinks::problem();
+
+        if ($problem === null) {
+            return null;
+        }
+
+        return __('Invitations are held until the link host is your site address. :problem', ['problem' => $problem]);
     }
 
     /**

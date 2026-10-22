@@ -135,7 +135,7 @@ class ManageClientLogins
      */
     private function sendInvitation(User $user, Client $client): void
     {
-        if ($this->mailInvitation($user, $client, ClientLoginInvitations::TEMPLATE_DEFAULT, auth()->id()) === SystemMailOutcome::Refused) {
+        if ($this->mailInvitation($user, $client, ClientLoginInvitations::TEMPLATE_DEFAULT, ($actor = auth()->user()) instanceof User ? $actor->id : null) === SystemMailOutcome::Refused) {
             throw ValidationException::withMessages(['email' => __('The login was added, but the invitation was not sent: its link failed the security check. Check APP_URL, then send the invitation again.')]);
         }
     }

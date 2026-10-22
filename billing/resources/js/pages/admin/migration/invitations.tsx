@@ -192,7 +192,9 @@ export default function ImportInvitations({
                 {errors.invitations && (
                     <Alert variant="destructive">
                         <CircleAlert />
-                        <AlertDescription>{errors.invitations}</AlertDescription>
+                        <AlertDescription>
+                            {errors.invitations}
+                        </AlertDescription>
                     </Alert>
                 )}
 
@@ -277,7 +279,9 @@ export default function ImportInvitations({
                             description="Every imported login in this list has a password, has signed in, or belongs to a closed client."
                         />
                     }
-                    footer={<Pagination paginator={logins} itemLabel="logins" />}
+                    footer={
+                        <Pagination paginator={logins} itemLabel="logins" />
+                    }
                 />
             </Page>
         </>
