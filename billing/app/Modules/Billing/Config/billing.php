@@ -47,6 +47,8 @@ return [
     // Hosted gateways (payments-nepal.md §3): lookup-driven reconciliation
     'gateways' => [
         'lookup_interval_minutes' => 5,
+        // Pending and unclear attempts looked up per five-minute run at most (1 to 1,000), least recently looked up first.
+        'lookups_per_run' => 200,
         'lookup_grace_minutes' => 120,
         // Closed attempts are still looked up hourly this long after they started, for late payments (0 = off, max 168),
         // at most late_lookups_per_run of them per hourly run.

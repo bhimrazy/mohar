@@ -51,8 +51,11 @@ class GatewayCallbackHandler
     /** A won dispute whose chargeback is not booked yet (the win arrived first): 409, so the provider retries. */
     public const DISPUTE_NOT_BOOKED = 'dispute not booked yet; retry expected';
 
-    /** A won dispute the provider withdrew and reinstated before any chargeback was booked here (#232): 200, nothing booked. */
-    public const DISPUTE_WON_UNBOOKED = 'dispute won with no chargeback booked; funds reinstated at the provider, nothing recorded';
+    /** A won dispute the provider withdrew and reinstated before any chargeback was booked here (#232): 200, a zero-amount marker. */
+    public const DISPUTE_WON_UNBOOKED = 'dispute won with no chargeback booked; funds reinstated at the provider, no money moved';
+
+    /** A chargeback for a dispute already won (its win, or the #232 marker, is booked): 200, nothing booked. */
+    public const DISPUTE_ALREADY_WON = 'dispute already won; nothing booked';
 
     public const MAX_CALLBACK_AGE_SECONDS = 300;
 
@@ -274,6 +277,13 @@ class GatewayCallbackHandler
         try {
             return DB::transaction(function () use ($gatewayKey, $event, $parents): array {
                 $parents = $this->lockParents($parents);
+
+                // The dispute is already won at the provider (#232): a chargeback built from a dispute retrieved before
+                // the win must not be booked, since nothing would ever reverse it.
+                if ($event->txnId !== '' && $this->disputeWon->existing($gatewayKey, $event->txnId) !== null) {
+                    return $this->outcome($gatewayKey, 200, self::DISPUTE_ALREADY_WON, $event->raw, $parents[0]->invoice_id);
+                }
+
                 $remaining = $this->amounts->toDocument($parents[0], $event->amount, $event->currency);
 
                 // Credit first, then the invoice: the reverse of how the money arrived, since only the surplus went to
@@ -375,6 +385,13 @@ class GatewayCallbackHandler
         try {
             return DB::transaction(function () use ($gatewayKey, $event, $parents): array {
                 $parents = $this->lockParents($parents);
+
+                // The dispute is already won at the provider (#232): a chargeback built from a dispute retrieved before
+                // the win must not be booked, since nothing would ever reverse it.
+                if ($event->txnId !== '' && $this->disputeWon->existing($gatewayKey, $event->txnId) !== null) {
+                    return $this->outcome($gatewayKey, 200, self::DISPUTE_ALREADY_WON, $event->raw, $parents[0]->invoice_id);
+                }
+
                 $remaining = $this->amounts->toDocument($parents[0], $event->amount, $event->currency);
 
                 // Credit first, then the invoice, as for refunds (#194).
@@ -479,14 +496,18 @@ class GatewayCallbackHandler
 
         $chargeback = $this->chargeback->existing($gatewayKey, $event->txnId);
 
-        if ($chargeback === null) {
-            // The provider withdrew and returned the money before any chargeback was booked here (an escalated
-            // inquiry on an install not subscribed to the withdrawal, #232): nothing moved on our side, so nothing
-            // is recorded, and a retry would never find a chargeback.
-            if ($event->fundsReinstated) {
-                return $this->outcome($gatewayKey, 200, self::DISPUTE_WON_UNBOOKED, $event->raw, $event->invoiceId);
+        if ($chargeback === null && $event->fundsReinstated) {
+            $unbooked = $this->wonUnbooked($gatewayKey, $event);
+
+            if ($unbooked !== null) {
+                return $unbooked;
             }
 
+            // A chargeback committed while we waited for the payment lock: reverse it as usual.
+            $chargeback = $this->chargeback->existing($gatewayKey, $event->txnId);
+        }
+
+        if ($chargeback === null) {
             return $this->outcome($gatewayKey, 409, self::DISPUTE_NOT_BOOKED, $event->raw, $event->invoiceId);
         }
 
@@ -504,6 +525,46 @@ class GatewayCallbackHandler
         return $this->outcome($gatewayKey, 200, $won->review_amount !== null ? 'dispute won; needs staff review' : 'dispute won; payment reinstated', [
             ...$event->raw, 'reinstated' => $won->amount_in, 'review' => $won->review_amount,
         ], $chargeback->invoice_id);
+    }
+
+    /**
+     * A won dispute the provider withdrew and reinstated before any chargeback was booked here (an escalated inquiry
+     * on an install not subscribed to the withdrawal, #232). No money moved on our side, and a retry would never find
+     * a chargeback, so the win is answered 200. Under the payment lock (the lock the chargeback path takes) it either
+     * finds a chargeback that committed meanwhile (null: the caller reverses it), or writes a zero-amount
+     * `chargeback_reversal` row for the dispute id: the durable record that the dispute is won, which a chargeback
+     * delivered later (a stale funds_withdrawn) checks under the same lock, so it books nothing. Unique on
+     * `(gateway, gateway_txn_id, type)`.
+     *
+     * @return Outcome|null
+     */
+    private function wonUnbooked(string $gatewayKey, CallbackEvent $event): ?array
+    {
+        $parents = $this->parents($gatewayKey, $event);
+
+        if ($parents === []) {
+            return $this->outcome($gatewayKey, 409, self::PAYMENT_NOT_BOOKED, $event->raw, $event->invoiceId);
+        }
+
+        try {
+            return DB::transaction(function () use ($gatewayKey, $event, $parents): ?array {
+                $parents = $this->lockParents($parents);
+
+                if ($this->chargeback->existing($gatewayKey, $event->txnId) !== null) {
+                    return null;
+                }
+
+                if ($this->disputeWon->existing($gatewayKey, $event->txnId) !== null) {
+                    return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $parents[0]->invoice_id);
+                }
+
+                $this->reversalRow($parents[0], TransactionType::ChargebackReversal, $event, __('Dispute won at the provider before a chargeback was booked here. No money moved.'));
+
+                return $this->outcome($gatewayKey, 200, self::DISPUTE_WON_UNBOOKED, $event->raw, $parents[0]->invoice_id);
+            });
+        } catch (UniqueConstraintViolationException) {
+            return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $parents[0]->invoice_id);
+        }
     }
 
     /**
