@@ -104,17 +104,24 @@ final class Redactor
     /** An `&` ends an unquoted value when the next pair, an entity, a space or the end follows (eSewa secrets hold `&`). */
     private const AMPERSAND_END = '/\G&(?:amp;|#|[A-Za-z_][A-Za-z0-9_.\-\[\]%]{0,254}+=|\s|$)/';
 
-    /** Labels whose value is a reference in free text (`Session: cs_live_… expired`, `hash: …`), not a credential. */
+    /** Labels that can introduce a reference in free text (`Session: cs_live_… expired`) as well as a credential. */
     private const REFERENCE_LABELS = ['session', 'hash'];
+
+    /**
+     * After a REFERENCE_LABELS label, the only values left readable: Stripe object ids (Checkout Session, PaymentIntent,
+     * charge, event, customer, invoice, subscription, refund, payment, SetupIntent) and a UUID (eSewa
+     * `transaction_uuid`, Khalti references). Anything else after the label is masked.
+     */
+    private const REFERENCE_ID_PATTERN = '/\G(?:(?:cs|pi|ch|evt|cus|in|sub|re|py|seti)_(?:live_|test_)?[A-Za-z0-9]{4,}+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?![A-Za-z0-9_$\/+=.-])/';
+
+    /** HTML void elements: they have no content, so a secret `name` on one (`<input name="password">`) masks nothing more. */
+    private const VOID_ELEMENTS = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'];
 
     /** Header names whose whole line is secret: every cookie on it (`Cookie: theme=dark; cpsession=…`). */
     private const WHOLE_LINE_KEYS = ['cookie', 'set-cookie'];
 
-    /** `curl -u user:password` and the proxy form: the credentials after the flag. */
-    private const CLI_CREDENTIAL_PATTERN = '/(?<![^\s])((?:-u|-U|--user|--proxy-user)(?:[ \t]++|=))[^\s"\':]*+:[^\s"\']++/';
-
-    /** End tags looked at after a secret start tag before it counts as unclosed; keeps the element search linear. */
-    private const END_TAG_LOOKAHEAD = 64;
+    /** `curl -u user:password` and the proxy form: the credentials after the flag, quoted or attached (`-uroot:pw`). */
+    private const CLI_CREDENTIAL_PATTERN = '/(?<![^\s])((?:-u|-U|--user|--proxy-user)(?:[ \t]++|=)?)(?:\'[^\']*+\'|"[^"]*+"|[^\s"\':]*+:[^\s"\']++)/';
 
     /** Attributes that name the element's field (OpenSRS `<item key="…">`, `<param name="…">`) rather than hold a value. */
     private const LABEL_ATTRIBUTES = ['key', 'name'];
@@ -371,7 +378,7 @@ final class Redactor
             if ($match[5][0] !== null) {
                 $output .= $match[0][0];
 
-                if ($this->isSecretPair((string) $match[5][0], (string) $match[6][0], $sensitiveKeys)) {
+                if ($this->isSecretPair((string) $match[5][0], (string) $match[6][0], $value, $end, $sensitiveKeys)) {
                     $valueEnd = in_array(strtolower((string) $match[5][0]), self::WHOLE_LINE_KEYS, true)
                         ? $end + strcspn($value, "\r\n", $end)
                         : $this->valueEnd($value, $end);
@@ -393,7 +400,13 @@ final class Redactor
                 continue;
             }
 
-            // The scan only moves forward, so one cursor over the end-tag offsets serves every element: linear overall.
+            if (in_array(strtolower((string) $match[3][0]), self::VOID_ELEMENTS, true)) {
+                continue;
+            }
+
+            // The end tag is searched forward through one index of `</` offsets. Found: the scan jumps past every end tag
+            // it looked at. Not found: the rest of the text is masked (fail closed) and the scan ends. Either way each
+            // end tag is looked at once, so the search is linear overall.
             $endTags ??= $this->endTagOffsets($value);
             $endTagCount = count($endTags);
 
@@ -401,17 +414,15 @@ final class Redactor
                 $endTagCursor++;
             }
 
-            $contentEnd = null;
+            $contentEnd = $length;
 
-            for ($index = $endTagCursor; $index < min($endTagCount, $endTagCursor + self::END_TAG_LOOKAHEAD); $index++) {
-                if ($this->endTagCloses($value, $endTags[$index], (string) $match[2][0])) {
-                    $contentEnd = $endTags[$index];
+            for (; $endTagCursor < $endTagCount; $endTagCursor++) {
+                if ($this->endTagCloses($value, $endTags[$endTagCursor], (string) $match[2][0])) {
+                    $contentEnd = $endTags[$endTagCursor];
 
                     break;
                 }
             }
-
-            $contentEnd ??= $this->unclosedContentEnd($value, $end);
 
             $content = substr($value, $end, $contentEnd - $end);
             $output .= trim($content) === '' ? $content : self::MASK;
@@ -422,21 +433,40 @@ final class Redactor
     }
 
     /**
-     * Whether a pair's value is secret. `Session:` and `hash:` written as a label in free text (unquoted name, a colon
-     * and a space) introduce a reference such as a Stripe Checkout Session id; as `session=` or a quoted key they stay
-     * secret.
+     * Whether a pair's value, starting at $valueStart, is secret. Two exceptions to the name rule:
+     * - `Session:` and `hash:` as an unquoted label followed by a space keep a value readable only when it is a known
+     *   reference id (REFERENCE_ID_PATTERN), such as a Stripe Checkout Session id; any other value stays secret.
+     * - An unquoted name whose separator runs past a line end has no value unless the next line is an indented
+     *   continuation that is not itself a pair, so an empty `Cookie:` or `password:` does not mask the next line.
+     *   A quoted name (pretty-printed JSON) takes its value from the next line.
      *
      * @param  list<string>  $sensitiveKeys
      */
-    private function isSecretPair(string $name, string $separator, array $sensitiveKeys): bool
+    private function isSecretPair(string $name, string $separator, string $value, int $valueStart, array $sensitiveKeys): bool
     {
         $name = rtrim($name, '[]');
 
-        if (in_array(strtolower($name), self::REFERENCE_LABELS, true) && preg_match('/^[ \t]*:\s/', $separator) === 1) {
+        if (! $this->isSensitiveKey($name, $sensitiveKeys)) {
             return false;
         }
 
-        return $this->isSensitiveKey($name, $sensitiveKeys);
+        $quoted = strpbrk($separator[0] ?? '', '"\'\\&') !== false;
+        $lineBreak = strrpos($separator, "\n");
+
+        if (! $quoted && $lineBreak !== false) {
+            $indented = $lineBreak + 1 < strlen($separator);
+
+            if (! $indented || preg_match('/\G[A-Za-z][A-Za-z0-9_.\-]*+[ \t]*+[:=]/', $value, $pair, 0, $valueStart) === 1) {
+                return false;
+            }
+        }
+
+        if (! $quoted && in_array(strtolower($name), self::REFERENCE_LABELS, true) && str_starts_with(ltrim($separator, " \t"), ':')
+            && preg_match(self::REFERENCE_ID_PATTERN, $value, $reference, 0, $valueStart) === 1) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -571,20 +601,6 @@ final class Redactor
         }
 
         return $length;
-    }
-
-    /** A secret element with no end tag (cut-off text): its CDATA section, or its text up to the next tag. */
-    private function unclosedContentEnd(string $value, int $start): int
-    {
-        if (substr_compare($value, '<![CDATA[', $start, 9) === 0) {
-            $close = strpos($value, ']]>', $start + 9);
-
-            return $close === false ? strlen($value) : $close + 3;
-        }
-
-        $next = strpos($value, '<', $start);
-
-        return $next === false ? strlen($value) : $next;
     }
 
     /** The mask in place of a value, keeping its quotes so JSON and attribute text keep their shape. */

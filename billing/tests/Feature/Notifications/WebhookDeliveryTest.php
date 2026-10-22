@@ -232,5 +232,5 @@ it('cuts a large receiver answer to its stored size before masking it (#252 B1)'
 
     expect((hrtime(true) - $started) / 1e9)->toBeLessThan(1.0)
         ->and(strlen((string) WebhookDelivery::query()->sole()->response_body))->toBeLessThanOrEqual(2048)
-        ->and(WebhookDelivery::query()->sole()->response_body)->toStartWith('<password0>[redacted]<password1>[redacted]');
+        ->and(WebhookDelivery::query()->sole()->response_body)->toBe('<password0>[redacted]');
 });
