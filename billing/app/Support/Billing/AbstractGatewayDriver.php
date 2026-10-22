@@ -54,11 +54,6 @@ abstract class AbstractGatewayDriver implements GatewayDriver
         throw new BadMethodCallException("{$this->key()} does not support refunds.");
     }
 
-    public function lookupRefund(GatewayConfig $gateway, RefundRequest $request): ChargeResult
-    {
-        throw new BadMethodCallException("{$this->key()} does not support refund lookups.");
-    }
-
     public function tokenDetails(GatewayConfig $gateway, string $token): ?CardToken
     {
         return null;

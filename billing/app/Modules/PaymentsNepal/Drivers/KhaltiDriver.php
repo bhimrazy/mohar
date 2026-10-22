@@ -253,13 +253,13 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
     public function refund(GatewayConfig $gateway, RefundRequest $request): ChargeResult
     {
         if ($request->amount->currency !== 'NPR' || $request->amount->amount <= 0) {
-            return new ChargeResult(ChargeResult::ERROR, declineReason: 'Khalti refunds must be a positive NPR amount');
+            return new ChargeResult(ChargeResult::DECLINED, declineReason: 'Khalti refunds must be a positive NPR amount');
         }
 
         // Defence in depth: Billing never asks for a partial refund without the capability, but an amount in an
         // unproven unit must never reach Khalti.
         if ($request->isPartial() && ! self::partialRefunds()) {
-            return new ChargeResult(ChargeResult::ERROR, declineReason: 'partial refunds through Khalti are turned off');
+            return new ChargeResult(ChargeResult::DECLINED, declineReason: 'partial refunds through Khalti are turned off');
         }
 
         $endpoint = ProviderHttp::endpoint($gateway, 'khalti.refund');

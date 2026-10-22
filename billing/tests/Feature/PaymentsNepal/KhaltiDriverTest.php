@@ -1,5 +1,7 @@
 <?php
 
+use App\Data\Billing\GatewayConfig;
+use App\Data\Billing\RefundRequest;
 use App\Events\Billing\InvoicePaid;
 use App\Modules\Billing\Actions\ConfigureGateway;
 use App\Modules\Billing\Actions\RefundTransaction;
@@ -21,6 +23,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\PaymentsNepal\Drivers\KhaltiDriver;
 use App\Modules\PaymentsNepal\Support\ProviderHttp;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Money;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Event;
@@ -270,6 +273,35 @@ test('with partial refunds turned on, the refund amount is sent in paisa', funct
         ->and($refunds[0][0]->header('Authorization'))->toBe(['Key '.KHALTI_SECRET])
         ->and($refunds[1][0]->data())->toBe(['amount' => 100_000])
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Refunded);
+});
+
+test('a Khalti server error or a timeout keeps the refund pending; the amount is held until staff settle it', function (Closure $response) {
+    [, , $attempt] = startKhalti();
+    Http::fake([
+        KHALTI_LOOKUP => Http::response(khaltiLookup('Completed')),
+        'https://dev.khalti.com/api/merchant-transaction/TXN-1/refund/' => $response,
+    ]);
+    $this->get(khaltiReturn($attempt));
+    $payment = Transaction::query()->where('gateway', KhaltiDriver::KEY)->sole();
+
+    $pending = app(RefundTransaction::class)->handle($payment, 150_000, RefundMode::Gateway);
+
+    expect($pending->status->value)->toBe('pending')->and($payment->fresh()->refundable_remaining)->toBe(0);
+    expect(fn () => app(RefundTransaction::class)->handle($payment->fresh(), 1, RefundMode::Gateway))->toThrow(BillingException::class);
+    expect(app(RefundTransaction::class)->resolve($pending, false)->status->value)->toBe('failed')
+        ->and($payment->fresh()->refundable_remaining)->toBe(150_000);
+})->with([
+    'server error' => [fn () => Http::response(['detail' => 'boom'], 500)],
+    'timeout' => [fn () => throw new ConnectionException('timed out')],
+]);
+
+test('a Khalti refund that never left (a non-NPR amount) is a definite decline', function () {
+    $result = app(KhaltiDriver::class)->refund(
+        new GatewayConfig(KhaltiDriver::KEY, 'Khalti'),
+        new RefundRequest('TXN-1', Money::of(100, 'USD'), Money::of(100, 'USD'), reference: '1'),
+    );
+
+    expect($result->status)->toBe('declined');
 });
 
 test('a declined refund leaves the payment refundable', function () {

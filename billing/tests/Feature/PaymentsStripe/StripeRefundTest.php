@@ -12,6 +12,7 @@ use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\PaymentsStripe\Drivers\StripeDriver;
 use App\Support\Money;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -63,7 +64,7 @@ test('staff refund part of a Stripe payment and then the rest, keyed and tagged 
     expect(Transaction::query()->where('type', TransactionType::Refund)->count())->toBe(2);
 });
 
-test('a refund webhook arriving while the refund action is still recording it is retried, then deduplicated', function () {
+test('a refund webhook arriving while the refund action is still recording it settles the row, and the action then books nothing more', function () {
     $payment = paidStripePayment();
     $during = null;
     Http::fake([
@@ -78,8 +79,8 @@ test('a refund webhook arriving while the refund action is still recording it is
 
     app(RefundTransaction::class)->handle($payment, 2_500, RefundMode::Gateway);
 
-    $during->assertStatus(409)->assertJson(['result' => 'refund still being recorded; retry expected']);
-    postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0009'))->assertOk();
+    $during->assertOk()->assertJson(['result' => 'refund recorded']);
+    postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0009'))->assertOk()->assertJson(['result' => 'duplicate']);
     expect(Transaction::query()->where('type', TransactionType::Refund)->sole())->status->toBe(TransactionStatus::Succeeded)->amount_out->toBe(2_500);
 });
 
@@ -141,21 +142,65 @@ test('a refund Stripe never answers, or answers with a server error, stays pendi
     'server error' => [fn () => Http::response(['error' => ['type' => 'api_error', 'message' => 'oops']], 500)],
 ]);
 
-test('a refund lookup finds our refund by its reference, and only a complete list without it says there is none', function (array $body, int $status, string $expected, ?string $id) {
+test('Check refund repeats the original request with the same idempotency key while Stripe still remembers it', function () {
+    $payment = paidStripePayment();
+    Http::fake([STRIPE_API.'refunds' => Http::sequence()->pushFailedConnection('timed out')->push(stripeFixture('refund', ['id' => 're_3MoharRefund0001', 'amount' => 1_000]))]);
+
+    $pending = app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
+    expect($pending->status)->toBe(TransactionStatus::Pending);
+
+    $settled = app(RefundTransaction::class)->check($pending);
+
+    $posts = Http::recorded(fn (Request $request) => $request->method() === 'POST' && $request->url() === STRIPE_API.'refunds')->map(fn (array $pair) => $pair[0])->values();
+    expect($posts)->toHaveCount(2)
+        ->and($posts[1]->header('Idempotency-Key')[0])->toBe($posts[0]->header('Idempotency-Key')[0])->toBe('mohar-refund-'.$pending->id)
+        ->and((string) $posts[1]['amount'])->toBe((string) $posts[0]['amount'])->and($posts[1]['metadata'])->toBe($posts[0]['metadata'])
+        ->and($settled)->status->toBe(TransactionStatus::Succeeded)->gateway_txn_id->toBe('re_3MoharRefund0001')
+        ->and(Transaction::query()->where('type', TransactionType::Refund)->count())->toBe(1);
+});
+
+test('Check refund keeps a refund pending while Stripe is still processing the first request, and releases one Stripe refuses', function (array $body, int $code, string $status, int $remaining) {
+    $payment = paidStripePayment();
+    Http::fake([STRIPE_API.'refunds' => Http::sequence()->pushFailedConnection('timed out')->push($body, $code)]);
+    $pending = app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
+
+    expect(app(RefundTransaction::class)->check($pending)->status->value)->toBe($status)
+        ->and($payment->fresh()->refundable_remaining)->toBe($remaining);
+})->with([
+    'first request still running (409)' => [['error' => ['type' => 'idempotency_error', 'message' => 'in use']], 409, 'pending', 1_500],
+    'server error' => [['error' => ['type' => 'api_error']], 500, 'pending', 1_500],
+    'charge already fully refunded elsewhere' => [stripeFixture('error_already_refunded'), 400, 'failed', 2_500],
+]);
+
+test('a refund lookup after the idempotency window lists the payment\'s refunds, and absence is "no such refund" only past 24 hours', function (array $body, int $status, int $hoursOld, string $expected, ?string $id) {
     $payment = paidStripePayment();
     Http::fake([STRIPE_API.'refunds*' => Http::response($body, $status)]);
 
     $result = app(StripeDriver::class)->lookupRefund(
         app(GatewayManager::class)->config(StripeDriver::KEY),
-        new RefundRequest($payment->gateway_txn_id, Money::of(1_000, 'USD'), Money::of(2_500, 'USD'), reference: '77'),
+        new RefundRequest($payment->gateway_txn_id, Money::of(1_000, 'USD'), Money::of(2_500, 'USD'), reference: '77', sentAt: CarbonImmutable::now()->subHours($hoursOld)),
     );
 
     expect($result->status)->toBe($expected)->and($result->txnId)->toBe($id);
-    Http::assertSent(fn (Request $request) => str_contains($request->url(), 'payment_intent='.$payment->gateway_txn_id));
+    Http::assertSent(fn (Request $request) => $request->method() === 'GET' && str_contains($request->url(), 'payment_intent='.$payment->gateway_txn_id));
 })->with([
-    'found' => [['data' => [['id' => 're_3MoharRefund0009', 'status' => 'succeeded', 'metadata' => ['mohar_refund' => '77']]], 'has_more' => false], 200, 'success', 're_3MoharRefund0009'],
-    'found but failed' => [['data' => [['id' => 're_3MoharRefund0009', 'status' => 'failed', 'metadata' => ['mohar_refund' => '77']]], 'has_more' => false], 200, 'declined', 're_3MoharRefund0009'],
-    'not in a complete list' => [['data' => [['id' => 're_3MoharRefund0008', 'status' => 'succeeded', 'metadata' => ['mohar_refund' => '12']]], 'has_more' => false], 200, 'declined', null],
-    'not in a partial list' => [['data' => [], 'has_more' => true], 200, 'error', null],
-    'server error' => [['error' => ['type' => 'api_error']], 500, 'error', null],
+    'found' => [['data' => [['id' => 're_3MoharRefund0009', 'status' => 'succeeded', 'amount' => 1_000, 'currency' => 'usd', 'metadata' => ['mohar_refund' => '77']]], 'has_more' => false], 200, 30, 'success', 're_3MoharRefund0009'],
+    'found but failed' => [['data' => [['id' => 're_3MoharRefund0009', 'status' => 'failed', 'amount' => 1_000, 'currency' => 'usd', 'metadata' => ['mohar_refund' => '77']]], 'has_more' => false], 200, 30, 'declined', 're_3MoharRefund0009'],
+    'found with another amount' => [['data' => [['id' => 're_3MoharRefund0009', 'status' => 'succeeded', 'amount' => 900, 'currency' => 'usd', 'metadata' => ['mohar_refund' => '77']]], 'has_more' => false], 200, 30, 'error', 're_3MoharRefund0009'],
+    'found in another currency' => [['data' => [['id' => 're_3MoharRefund0009', 'status' => 'succeeded', 'amount' => 1_000, 'currency' => 'eur', 'metadata' => ['mohar_refund' => '77']]], 'has_more' => false], 200, 30, 'error', 're_3MoharRefund0009'],
+    'absent past the window' => [['data' => [], 'has_more' => false], 200, 30, 'declined', null],
+    'absent inside the window edge' => [['data' => [], 'has_more' => false], 200, 23, 'error', null],
+    'absent from a partial list' => [['data' => [], 'has_more' => true], 200, 30, 'error', null],
+    'server error' => [['error' => ['type' => 'api_error']], 500, 30, 'error', null],
 ]);
+
+test('a refund that never left (no key, bad PaymentIntent) is a definite decline and releases the amount', function () {
+    $payment = paidStripePayment();
+    $payment->forceFill(['gateway_txn_id' => 'not-a-payment-intent'])->save();
+    Http::fake();
+
+    expect(fn () => app(RefundTransaction::class)->handle($payment->fresh(), 1_000, RefundMode::Gateway))->toThrow(BillingException::class);
+    expect($payment->fresh()->refundable_remaining)->toBe(2_500)
+        ->and(Transaction::query()->where('type', TransactionType::Refund)->sole()->status)->toBe(TransactionStatus::Failed);
+    Http::assertNothingSent();
+});

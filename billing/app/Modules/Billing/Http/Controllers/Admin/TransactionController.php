@@ -38,9 +38,10 @@ class TransactionController extends Controller
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date'],
             'review' => ['nullable', 'boolean'],
+            'waiting' => ['nullable', 'boolean'],
         ]);
 
-        $transactions = (($filters['review'] ?? false) ? Transaction::toReview() : Transaction::query())
+        $transactions = (($filters['review'] ?? false) ? Transaction::toReview() : (($filters['waiting'] ?? false) ? Transaction::refundsAwaitingProvider(0) : Transaction::query()))
             ->with(['client:id,first_name,last_name,company_name', 'invoice:id,number,proforma_number'])
             ->when($filters['search'] ?? null, fn ($query, $term) => $query->where(fn ($query) => $query->whereLike('gateway_txn_id', "%{$term}%")->orWhereLike('description', "%{$term}%")))
             ->when($filters['client'] ?? null, fn ($query, $client) => $query->where('client_id', $client))
@@ -125,7 +126,7 @@ class TransactionController extends Controller
     /**
      * Ask the provider about a refund that is waiting for it. Its answer settles or releases the same refund row.
      */
-    public function checkRefund(Request $request, Transaction $transaction, RefundTransaction $refund): RedirectResponse
+    public function checkRefund(Transaction $transaction, RefundTransaction $refund): RedirectResponse
     {
         $this->authorize('billing.refunds.manage');
         abort_unless($transaction->type === TransactionType::Refund && $transaction->status === TransactionStatus::Pending, 404);
@@ -136,24 +137,30 @@ class TransactionController extends Controller
         Inertia::flash('toast', match ($row->status) {
             TransactionStatus::Succeeded => ['type' => 'success', 'message' => __('The provider confirmed the refund.')],
             TransactionStatus::Failed => ['type' => 'success', 'message' => __('The provider has no such refund. The amount can be refunded again.')],
-            default => ['type' => 'info', 'message' => __('The provider has not confirmed the refund yet.')],
+            default => ['type' => 'info', 'message' => __('The provider has not confirmed the refund yet. Try again in a few minutes.')],
         });
 
         return back();
     }
 
     /**
-     * Staff settle a waiting refund by hand, for a provider that can't be asked: it was made there, or it was not.
+     * Staff settle a waiting refund by hand, for a provider that can't be asked: it was made there (with the
+     * provider's reference, which the books keep), or it was not.
      */
     public function resolveRefund(Request $request, Transaction $transaction, RefundTransaction $refund): RedirectResponse
     {
         $this->authorize('billing.refunds.manage');
         abort_unless($transaction->type === TransactionType::Refund && $transaction->status === TransactionStatus::Pending, 404);
-        $confirmed = $request->validate(['outcome' => ['required', 'in:confirmed,not_refunded']])['outcome'] === 'confirmed';
+        $data = $request->validate([
+            'outcome' => ['required', 'in:confirmed,not_refunded'],
+            'provider_reference' => ['required_if:outcome,confirmed', 'nullable', 'string', 'max:191'],
+        ]);
+        $confirmed = $data['outcome'] === 'confirmed';
 
-        $row = $refund->resolve($transaction, $confirmed);
-        $this->activity->log($confirmed ? 'Refund confirmed at the provider by staff' : 'Refund marked as not refunded by staff', $row, $row->client_id, [
+        $row = $refund->resolve($transaction, $confirmed, $data['provider_reference'] ?? null);
+        $this->activity->log($confirmed ? 'Refund confirmed at the provider by staff' : 'Refund released by staff', $row, $row->client_id, [
             'refund' => $row->id, 'amount' => $row->amount_out, 'gateway' => $row->gateway, 'status' => $row->status->value,
+            'provider_reference' => $confirmed ? $row->gateway_txn_id : null,
         ]);
         Inertia::flash('toast', ['type' => 'success', 'message' => $confirmed ? __('Refund recorded as made at the provider.') : __('Refund released. The amount can be refunded again.')]);
 

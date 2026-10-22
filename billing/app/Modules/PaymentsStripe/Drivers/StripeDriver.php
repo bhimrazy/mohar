@@ -5,6 +5,7 @@ namespace App\Modules\PaymentsStripe\Drivers;
 use App\Contracts\Billing\CancelsHostedPayment;
 use App\Contracts\Billing\ConnectionTester;
 use App\Contracts\Billing\HostedPaymentDriver;
+use App\Contracts\Billing\LooksUpRefunds;
 use App\Contracts\Billing\ResumesHostedPayment;
 use App\Contracts\Integrations\ProvidesLogo;
 use App\Data\Billing\AmountLimits;
@@ -47,12 +48,15 @@ use Throwable;
  * Refunds (full and partial) go through the Refunds API. A session left open after a declined card can be opened
  * again (resumeUrl) or expired (cancelSession) from the invoice (#123).
  */
-final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedPayment, ConnectionTester, HostedPaymentDriver, ProvidesLogo, ResumesHostedPayment
+final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedPayment, ConnectionTester, HostedPaymentDriver, LooksUpRefunds, ProvidesLogo, ResumesHostedPayment
 {
     public const KEY = 'stripe';
 
     /** metadata[mohar_origin] on refunds made from our admin, so their webhooks don't book them again. */
     public const REFUND_ORIGIN = 'admin';
+
+    /** Stripe forgets an idempotency key after 24 hours. */
+    private const IDEMPOTENCY_WINDOW_HOURS = 24;
 
     private const SESSION_CACHE = 'payments_stripe.session.';
 
@@ -76,7 +80,7 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
 
     public function capabilities(): array
     {
-        return [self::REDIRECT, self::LOOKUP, self::REFUND, self::PARTIAL_REFUND, self::REFUND_LOOKUP, self::WEBHOOK];
+        return [self::REDIRECT, self::LOOKUP, self::REFUND, self::PARTIAL_REFUND, self::WEBHOOK];
     }
 
     public function currencies(): array
@@ -272,7 +276,8 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
         $amount = StripeAmount::toStripe($request->amount);
 
         if (preg_match('/^pi_[A-Za-z0-9]{8,250}$/', $request->providerTxnId) !== 1 || $amount === null || $amount <= 0) {
-            return new ChargeResult(ChargeResult::ERROR, declineReason: 'Stripe refunds need a PaymentIntent and a positive amount');
+            // Nothing was sent: a definite no.
+            return new ChargeResult(ChargeResult::DECLINED, declineReason: 'Stripe refunds need a PaymentIntent and a positive amount');
         }
 
         try {
@@ -285,7 +290,8 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
             // The refund may still have gone through: it stays pending until Stripe's callback confirms it.
             return new ChargeResult(ChargeResult::ERROR, declineReason: 'no answer from Stripe; the refund stays pending until Stripe confirms it', raw: ['payment_intent' => $request->providerTxnId]);
         } catch (StripeException $exception) {
-            return new ChargeResult(ChargeResult::ERROR, declineReason: mb_substr($exception->getMessage(), 0, 150));
+            // Thrown before anything is sent (no key, wrong mode): a definite no.
+            return new ChargeResult(ChargeResult::DECLINED, declineReason: mb_substr($exception->getMessage(), 0, 150));
         }
 
         $status = $response->json('status');
@@ -299,8 +305,9 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
             'error' => $response->successful() ? null : StripeClient::errorSummary($response),
         ], fn (mixed $value): bool => $value !== null);
 
-        // A server error says nothing about whether the refund was made: indeterminate, like a timeout.
-        if ($response->serverError()) {
+        // A server error, a rate limit, or "the first request with this key is still running" (409) says nothing
+        // about whether the refund was made: indeterminate, like a timeout.
+        if ($response->serverError() || in_array($response->status(), [409, 429], true)) {
             return new ChargeResult(ChargeResult::ERROR, declineReason: mb_substr(StripeClient::errorSummary($response), 0, 150), raw: $raw);
         }
 
@@ -315,13 +322,23 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
     }
 
     /**
-     * Find the refund we sent by the reference tagged on it (metadata[mohar_refund]) among the payment's refunds.
-     * Only a complete, readable list that lacks it says "no such refund"; anything else is unknown.
+     * Ask Stripe about a refund we sent. Inside Stripe's 24-hour idempotency window the original request is repeated
+     * with the same key (our refund row id): Stripe answers with the original result, or makes the refund once if it
+     * never saw the request, so the answer is definite and maps as refund() maps it. After the window the key is
+     * forgotten and repeating would refund again, so the payment's refunds are listed for the one tagged with our
+     * reference. Absence counts as "no such refund" only when the list is complete and the refund is older than the
+     * window.
      */
     public function lookupRefund(GatewayConfig $gateway, RefundRequest $request): ChargeResult
     {
         if (preg_match('/^pi_[A-Za-z0-9]{8,250}$/', $request->providerTxnId) !== 1 || $request->reference === null) {
             return new ChargeResult(ChargeResult::ERROR, declineReason: 'Stripe refunds need a PaymentIntent and our refund reference');
+        }
+
+        $sentAt = $request->sentAt;
+
+        if ($sentAt !== null && $sentAt->gt(now()->subHours(self::IDEMPOTENCY_WINDOW_HOURS - 1))) {
+            return $this->refund($gateway, $request);
         }
 
         try {
@@ -337,19 +354,28 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
         }
 
         foreach ($list as $refund) {
-            if (is_array($refund) && ($refund['metadata']['mohar_refund'] ?? null) === $request->reference && is_string($refund['id'] ?? null)) {
-                $status = $refund['status'] ?? null;
-                $raw = ['refund' => $refund['id'], 'status' => is_string($status) ? $status : null, 'payment_intent' => $request->providerTxnId];
-
-                return in_array($status, ['succeeded', 'pending', 'requires_action'], true)
-                    ? new ChargeResult(ChargeResult::SUCCESS, $refund['id'], raw: $raw)
-                    : new ChargeResult(ChargeResult::DECLINED, $refund['id'], declineReason: 'Stripe refund '.(is_string($status) ? $status : 'not accepted'), raw: $raw);
+            if (! is_array($refund) || ($refund['metadata']['mohar_refund'] ?? null) !== $request->reference || ! is_string($refund['id'] ?? null)) {
+                continue;
             }
+
+            $status = $refund['status'] ?? null;
+            $currency = is_string($refund['currency'] ?? null) ? strtoupper($refund['currency']) : '';
+            $raw = ['refund' => $refund['id'], 'status' => is_string($status) ? $status : null, 'payment_intent' => $request->providerTxnId];
+
+            if (StripeAmount::fromStripe($refund['amount'] ?? null, $currency) !== $request->amount->amount || $currency !== $request->amount->currency) {
+                return new ChargeResult(ChargeResult::ERROR, $refund['id'], declineReason: 'the refund at Stripe has another amount or currency', raw: $raw);
+            }
+
+            return in_array($status, ['succeeded', 'pending', 'requires_action'], true)
+                ? new ChargeResult(ChargeResult::SUCCESS, $refund['id'], raw: $raw)
+                : new ChargeResult(ChargeResult::DECLINED, $refund['id'], declineReason: 'Stripe refund '.(is_string($status) ? $status : 'not accepted'), raw: $raw);
         }
 
-        return $response->json('has_more') === true
-            ? new ChargeResult(ChargeResult::ERROR, declineReason: 'Stripe lists more refunds than were read')
-            : new ChargeResult(ChargeResult::DECLINED, declineReason: 'Stripe has no refund with this reference', raw: ['payment_intent' => $request->providerTxnId]);
+        if ($response->json('has_more') === true || $sentAt === null || $sentAt->gt(now()->subHours(self::IDEMPOTENCY_WINDOW_HOURS))) {
+            return new ChargeResult(ChargeResult::ERROR, declineReason: 'Stripe has no refund with this reference yet, but may still receive it');
+        }
+
+        return new ChargeResult(ChargeResult::DECLINED, declineReason: 'Stripe has no refund with this reference', raw: ['payment_intent' => $request->providerTxnId]);
     }
 
     /**

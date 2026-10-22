@@ -134,12 +134,44 @@ class Transaction extends Model
         return $this->type->isIncome() && $this->status === TransactionStatus::Succeeded && $this->refundable_remaining > 0;
     }
 
+    /** Key in `raw` for what a gateway refund row remembers about its own request (ours; never a provider field). */
+    public const REFUND_STATE = 'mohar';
+
+    /** A pending refund older than this has outlived any provider call, so staff may check or settle it. */
+    public const REFUND_STALE_MINUTES = 10;
+
     /**
-     * A gateway refund the provider never confirmed (timeout, error or pending answer): the amount stays reserved
-     * until the provider's callback or a staff check settles it.
+     * A gateway refund that is not booked yet: its request is in flight, or the provider never confirmed it. The
+     * amount stays reserved until the provider's callback, a check or staff settle it.
      */
     public function awaitsProviderConfirmation(): bool
     {
-        return $this->type === TransactionType::Refund && $this->status === TransactionStatus::Pending && isset($this->raw['confirmation']);
+        return $this->type === TransactionType::Refund && $this->status === TransactionStatus::Pending;
+    }
+
+    /**
+     * Pending refunds the provider has not confirmed and whose request is no longer running: the answer was an
+     * error or pending, or the row is older than any call lasts.
+     */
+    public function canBeResolved(): bool
+    {
+        if (! $this->awaitsProviderConfirmation()) {
+            return false;
+        }
+
+        return isset($this->raw[self::REFUND_STATE]['answer']) || $this->created_at === null || $this->created_at->lte(now()->subMinutes(self::REFUND_STALE_MINUTES));
+    }
+
+    /**
+     * Gateway refunds the provider has not confirmed (the "Refunds waiting for the provider" to-do and filter),
+     * by default only those that have waited past the stale limit.
+     *
+     * @return Builder<Transaction>
+     */
+    public static function refundsAwaitingProvider(int $olderThanMinutes = self::REFUND_STALE_MINUTES): Builder
+    {
+        // Literals, so the planner can use the partial index transactions_refund_pending_index.
+        return self::query()->whereRaw("type = 'refund' and status = 'pending'")
+            ->when($olderThanMinutes > 0, fn ($query) => $query->where('created_at', '<=', now()->subMinutes($olderThanMinutes)));
     }
 }

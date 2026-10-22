@@ -37,6 +37,7 @@ class TransactionResource extends JsonResource
             'to_review' => $this->when($staff, $this->reviewed_at === null ? $this->review_amount : null),
             // A gateway refund the provider never confirmed: staff check it or resolve it by hand (staff only).
             'awaiting_confirmation' => $this->when($staff, $this->awaitsProviderConfirmation()),
+            'can_resolve' => $this->when($staff, $this->canBeResolved()),
             'description' => $this->description,
             'parent_transaction_id' => $this->parent_transaction_id,
             'invoice_id' => $this->invoice_id,

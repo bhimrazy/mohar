@@ -68,11 +68,12 @@ import {
     updateDetails,
 } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/InvoiceController';
 import { check as checkAttempt } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/PaymentAttemptController';
+import { refund } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/TransactionController';
 import {
-    checkRefund,
-    refund,
-    resolveRefund,
-} from '@/actions/App/Modules/Billing/Http/Controllers/Admin/TransactionController';
+    PendingRefundBanner,
+    TransactionStatusBadge,
+    releasedClass,
+} from '@/components/billing/pending-refund';
 import { show as showClient } from '@/actions/App/Modules/Core/Http/Controllers/Admin/ClientController';
 import { labelWithCurrency } from '@/lib/money';
 
@@ -89,64 +90,6 @@ type Props = {
 const PAYABLE = ['unpaid', 'payment_pending', 'collections'];
 
 const today = () => new Date().toISOString().slice(0, 10);
-
-/** A gateway refund the provider hasn't confirmed: ask the provider, or settle it by hand when it can't be asked. */
-function PendingRefundActions({
-    transaction,
-    gateways,
-}: {
-    transaction: Transaction;
-    gateways: GatewayOption[];
-}) {
-    const canAsk =
-        gateways.find((gateway) => gateway.value === transaction.gateway)
-            ?.refund_lookup ?? false;
-
-    return (
-        <div className="flex flex-wrap justify-end gap-1">
-            {canAsk && (
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                        router.post(
-                            checkRefund.url(transaction.id),
-                            {},
-                            { preserveScroll: true },
-                        )
-                    }
-                >
-                    Check refund
-                </Button>
-            )}
-            <ConfirmDialog
-                trigger={
-                    <Button variant="ghost" size="sm">
-                        Confirmed at the provider
-                    </Button>
-                }
-                title="Record this refund as made at the provider?"
-                description="Only do this after you saw the refund in the provider's portal. The refund is booked and can't be undone."
-                confirmLabel="Confirmed at the provider"
-                destructive={false}
-                action={resolveRefund(transaction.id)}
-                data={{ outcome: 'confirmed' }}
-            />
-            <ConfirmDialog
-                trigger={
-                    <Button variant="ghost" size="sm">
-                        Not refunded
-                    </Button>
-                }
-                title="The provider did not refund this?"
-                description="The amount becomes refundable again. If the provider refunded it anyway, its callback is booked and flagged for review."
-                confirmLabel="Not refunded"
-                action={resolveRefund(transaction.id)}
-                data={{ outcome: 'not_refunded' }}
-            />
-        </div>
-    );
-}
 
 function RefundDialog({
     transaction,
@@ -372,11 +315,16 @@ export default function InvoiceShow({
             ),
         },
         {
+            key: 'status',
+            header: 'Status',
+            cell: (txn) => <TransactionStatusBadge txn={txn} />,
+        },
+        {
             key: 'amount',
             header: 'Amount',
             align: 'right',
             cell: (txn) => (
-                <div>
+                <div className={releasedClass(txn)}>
                     <Money
                         amount={
                             txn.amount_out > 0 ? -txn.amount_out : txn.amount_in
@@ -401,15 +349,36 @@ export default function InvoiceShow({
             header: <span className="sr-only">Actions</span>,
             align: 'right',
             hideOnMobile: true,
-            cell: (txn) =>
-                can.refunds && txn.awaiting_confirmation ? (
-                    <PendingRefundActions
-                        transaction={txn}
-                        gateways={gateways}
-                    />
-                ) : can.refunds && txn.refundable ? (
+            cell: (txn) => {
+                if (!can.refunds) {
+                    return null;
+                }
+
+                // A refund waiting for the provider holds the payment's amount: say why Refund isn't available.
+                if (
+                    transactions.some(
+                        (other) =>
+                            other.parent_transaction_id === txn.id &&
+                            other.type === 'refund' &&
+                            other.status === 'pending',
+                    )
+                ) {
+                    return (
+                        <span className="inline-flex flex-col items-end gap-1">
+                            <Button variant="ghost" size="sm" disabled>
+                                Refund
+                            </Button>
+                            <span className="text-xs text-muted-foreground">
+                                A refund is waiting for the provider.
+                            </span>
+                        </span>
+                    );
+                }
+
+                return txn.refundable ? (
                     <RefundDialog transaction={txn} gateways={gateways} />
-                ) : null,
+                ) : null;
+            },
         },
     ];
 
@@ -730,6 +699,12 @@ export default function InvoiceShow({
                                 }
                             />
                         </SectionCard>
+
+                        <PendingRefundBanner
+                            transactions={transactions}
+                            gateways={gateways}
+                            canAct={can.refunds}
+                        />
 
                         <SectionCard title="Transactions" flush>
                             <DataTable

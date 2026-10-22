@@ -103,6 +103,15 @@ class BillingDashboard
             'hint' => 'Inquiries to answer, or not covered by payment or credit',
         ], 'billing.payments.manage', 15);
 
+        $dashboard->todo('admin', 'billing.refunds_waiting', fn (?User $user): array => [
+            'label' => 'Refunds waiting for the provider',
+            'count' => $user?->hasPermission('billing.transactions.view') ? Transaction::refundsAwaitingProvider()->count() : 0,
+            'href' => route('admin.billing.transactions.index', ['waiting' => 1]),
+            'tone' => 'warning',
+            'icon' => 'Clock',
+            'hint' => 'The amount stays held back until the provider confirms or staff settle it',
+        ], 'billing.refunds.manage', 17);
+
         $dashboard->todo('admin', 'billing.credit_owed', fn (?User $user): array => [
             'label' => 'Clients owing account credit',
             'count' => CreditLedgerEntry::owing()->distinct()->count('client_id'),

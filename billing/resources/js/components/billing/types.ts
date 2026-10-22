@@ -87,6 +87,7 @@ export type Transaction = {
     refundable: boolean;
     to_review?: number | null;
     awaiting_confirmation?: boolean;
+    can_resolve?: boolean;
     description: string | null;
     parent_transaction_id: number | null;
     invoice_id: number | null;
