@@ -72,6 +72,14 @@ test('a .np name the registry cannot issue is refused even when staff cleared th
         ->and($domain->fresh())->status->toBe(DomainStatus::Pending)->last_error->toBe($result->message);
 });
 
+test('a stored .np name with a trailing dot is refused the same way', function () {
+    $tld = Tld::factory()->extension('.np')->create(['registrar_key' => 'fake', 'registered_by_client' => false]);
+    $domain = npDomain($tld, 'ASHA.NP.');
+
+    expect(app(SubmitToRegistrar::class)->handle($domain)->success)->toBeFalse()
+        ->and($this->registrar->commands())->toBe([]);
+});
+
 test('a .com.np TLD that staff sell through a registrar is submitted, as the cart and DomainRegistry allow', function () {
     $tld = Tld::factory()->extension('.com.np')->create(['registrar_key' => 'fake', 'registered_by_client' => false]);
     $domain = npDomain($tld, 'asha.com.np');
