@@ -15,6 +15,9 @@
  * plain (#218): an invoice through Invoicer that applies no credit; <pause ms> is spent after the invoice row is inserted.
  * currency (#218): Client::updateDetails (the admin client edit) changing the client's currency to <amount>, a currency
  * code; <pause ms> is spent saving the client, after the lock and the check.
+ * server-import (#239): ImportServerAccounts::handle() of the confirmed server account import <id> (its own
+ * transactions, one per account; <amount> unused); <pause ms> is spent creating the first service, after the client's
+ * share lock and before the insert. Prints the report: {status: imported|not_imported, message, service_currency}.
  *
  * manual (importer B2): a staff credit movement of <amount> minor units (negative takes credit away) through
  * CreditLedgerService::post; <pause ms> is spent after the client lock, before the ledger row is inserted.
@@ -57,6 +60,9 @@ use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Models\Client;
 use App\Modules\Orders\Actions\PlaceOrder;
 use App\Modules\Orders\Data\CheckoutData;
+use App\Modules\Services\Actions\ImportServerAccounts;
+use App\Modules\Services\Models\ServerAccountImport;
+use App\Modules\Services\Models\Service;
 use App\Support\Migration\ImportRegistry;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
@@ -67,6 +73,7 @@ use Tests\Fakes\Orders\FakeGateways;
 use Tests\Fakes\Orders\FakePriceBook;
 use Tests\Fakes\Orders\FakeServiceRegistry;
 use Tests\Fakes\Orders\OrdersFakes;
+use Tests\Fakes\Services\FakePriceBook as ServicesPriceBook;
 
 [, $label, $mode, $database, $clientId, $amount, $delay, $pause] = $argv;
 $base = dirname(__DIR__, 4);
@@ -128,6 +135,12 @@ if ($mode === 'checkout') {
     });
 } elseif ($mode === 'opening' || $mode === 'opening-undo') {
     // Importer B2 probes: nothing to pause; the importer locks the client before it reads the ledger.
+} elseif ($mode === 'server-import') {
+    $pauseOnce = (int) $pause;
+    Service::creating(function () use (&$pauseOnce): void {
+        usleep($pauseOnce * 1000);
+        $pauseOnce = 0;
+    });
 } elseif ($mode === 'quote-convert') {
     // PR #237 probe: nothing to pause; convert locks the quote, then IssueInvoice locks the client.
 } else {
@@ -146,6 +159,24 @@ if ($mode === 'checkout') {
 }
 
 usleep((int) $delay * 1000);
+
+if ($mode === 'server-import') {
+    // No outer transaction: handle() commits each account on its own, as the queued job does.
+    try {
+        $import = ServerAccountImport::query()->with('server')->findOrFail((int) $clientId);
+        $groupId = (int) $import->server->groups()->value('server_groups.id');
+        app()->instance(PriceBook::class, $priceBook = new ServicesPriceBook);
+        $priceBook->addProduct(21, 'Basic hosting', ['monthly' => 1200], driver: 'cpanel', serverGroupId: $groupId);
+        [$line] = app(ImportServerAccounts::class)->handle($import->server, $import, null);
+        $currency = $line['service_id'] === null ? null : Service::query()->whereKey($line['service_id'])->value('currency');
+        $print(['status' => $line['imported'] ? 'imported' : 'not_imported', 'message' => $line['message'], 'service_currency' => $currency, 'ended' => microtime(true)]);
+        exit(0);
+    } catch (Throwable $e) {
+        $print(['error' => get_class($e).': '.$e->getMessage()]);
+        exit(1);
+    }
+}
+
 DB::beginTransaction();
 
 try {
