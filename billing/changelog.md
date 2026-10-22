@@ -39,6 +39,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   "PHP" check (a warning on an existing installation; it stops a first install in production), and in production the
   admin dashboard's System health card shows "PHP runtime" in red while PHP is vulnerable. `composer.json` still
   requires `^8.4`. FrankenPHP 1.13.2 is younger than the 7-day cooldown and is adopted through the security-exception path.
+- **Client import opening balances.** Account-credit entries gain the reason `import`; an import's entries carry the
+  reference `import` / `run:<run>:client:<client>` in the existing unique (`gateway`, `external_ref`) pair. Migration
+  `980310` adds `migration_records.entities` (expand only); applied rows now keep their undo snapshot per entity
+  (`{client: …, credit_balance: …}`). GSTINs with the codes 97 (Other Territory) and 99 (Centre Jurisdiction) are now
+  valid. No permission change. Kernel: `App\Contracts\Migration\RevertsImport`, `ImportAction::Reverted`,
+  `App\Contracts\Billing\TaxIdRules` with `App\Data\Billing\TaxIdNote` (Core binds a null default, Billing its rules).
 - **A client's currency is fixed once the client has records in it (#218).** Staff can no longer change the currency
   on Admin → Clients → Edit when the client has invoices, quotes, payments, account credit, services, orders or
   domains (deleted services and domains count). The form shows the currency disabled with the reason, for example
@@ -66,6 +72,40 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   old key in `APP_PREVIOUS_KEYS` when rotating, or stored images can no longer be read. `php artisan app:install`
   (or the upgrade's reference-data step) adds the new client email template `kyc.document_decided`; existing
   templates are untouched. Kernel: new event `App\Events\Kyc\DocumentDecided(clientId, documentId)`.
+- **Payment follow-ups (#232, #230, #221).**
+    - **A won Stripe dispute that was never booked as a chargeback is acknowledged (#232).** On a Stripe webhook
+      destination without `charge.dispute.funds_withdrawn`, an inquiry that escalated and was then won reached its
+      `charge.dispute.closed` with no chargeback booked, and Billing answered 409 until Stripe stopped retrying. When the
+      dispute's balance transactions show both the withdrawal and the reinstatement, Billing now answers 200 and moves
+      no money, with the gateway log result "dispute won with no chargeback booked; funds reinstated at the provider,
+      no money moved". It records the win as a zero-amount `chargeback_reversal` transaction ("Dispute won at the
+      provider before a chargeback was booked here. No money moved."), written under the payment's lock: a chargeback
+      for that dispute delivered later (a `funds_withdrawn` read before the win) is then answered "dispute already won;
+      nothing booked", and one that commits while the win waits for the lock is reversed as usual. The zero row is not
+      shown to the client (invoice page, PDF, account credit page), is never refundable and adds no ledger line or
+      income; staff see it on Billing → Transactions. A `charge.dispute.created` or `funds_withdrawn` retrieved after
+      the win is also ignored by the Stripe driver. The inquiry's to-do stays on "Disputes to review" for staff
+      to mark reviewed. Failed deliveries from before the upgrade are not replayed: resend them from the Stripe
+      Dashboard if you want them in the log.
+    - **The open-payment poller looks up every five minutes (#230).** As with the late sweep (#222), each lookup is
+      stamped when it finishes, so the next five-minute run skipped the attempt and pending hosted payments (eSewa,
+      Khalti) were looked up every ten minutes. A time-travel test showed the 10:05 run skipping it. The cut-off is
+      now taken once, when the run starts, with up to 60 seconds of slack (half the interval when
+      `billing.gateways.lookup_interval_minutes` is 1); the back-off after 12 lookups (every sixth interval) uses the
+      same cut-off. Each run is now bounded: at most `billing.gateways.lookups_per_run` lookups (new setting, default
+      200, 1 to 1,000), never-checked and least recently checked attempts first, and none
+      started after 4 minutes; the rest wait for the next run.
+    - **New outgoing webhooks `payment.reinstated` and `payment.reversed` (#221).** A won dispute fires the new event
+      `PaymentReinstated` once for each `PaymentReversed` its chargeback fired, with the same invoice and amount: one
+      per invoice for a combined charge, none for a dispute that took back only account credit (which fired no
+      `PaymentReversed` either). It fires also when the invoice still owes more or the money went to staff review
+      (`invoice.paid` still follows only when the win settles the invoice). Webhook endpoints can subscribe to
+      `payment.reinstated` (the `chargeback_reversal` transaction) and to `payment.reversed` (the chargeback, or a
+      refund with "reverse effects"), which was not offered before. An endpoint subscribed to all events (`*`) receives
+      both from the upgrade on; others only once staff add them on the endpoint's form (Admin → Webhooks).
+    - No migration and no permission change; one new setting (`billing.gateways.lookups_per_run`). Kernel: new event
+      `App\Events\Billing\PaymentReinstated`; new `CallbackEvent::$fundsReinstated`.
+
 - **Go-live payment fixes (#223, #212, #222, #224).**
     - **A refunded deposit takes its credit back (#223).** A provider refund (and a staff refund in any mode) of an
       add-funds payment now takes back the account credit the deposit placed: the refunded amount, after any
@@ -460,6 +500,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   listed by outcome (created, updated, unchanged, skipped, not imported) with a link to each client. The rows with
   errors download as CSV (row, column, reason and the original cells; formula-like cells prefixed with an apostrophe),
   generated on request and never stored; staff need `migration.runs.execute` and a recent password.
+- **Opening credit balances** (client-import spec §6.12): a column mapped to **Opening credit balance** (suggested for
+  headers such as Credit or Opening balance) is read as an amount in the client's currency, never as a float: plain
+  digits, western grouping (1,234,567) or lakh grouping (1,25,000), with at most two decimals after a point. A decimal
+  comma ("250,50"), loose grouping ("1,2,3"), a negative amount or a credit in another currency than the client's is a
+  row error. Billing posts the balance automatically only for a client the import creates ("Opening balance from
+  <source>", reason `import`, in the client's currency, under the client's row lock), and on a later run of the same
+  client only the difference, while its credit has not moved since the last import. Otherwise (an existing client
+  matched for the first time, or credit that moved) nothing is posted and the row says "Existing credit kept; post the
+  opening balance manually if it is still owed." The review asks Billing what apply would do, so a balance shows as a
+  change only when it would be posted, and the same file again comes out unchanged. Each run posts at most one entry
+  per client. Undo, when it is built (spec PR 5), takes back exactly what a run posted while the balance still covers
+  it. Without the Billing module the review warns that balances will not be imported.
+- **Tax-number notes** (client-import spec §6.6): Nepal PAN/VAT numbers that are not 9 digits, Indian GSTINs that are not
+  valid, and GSTINs registered in another state than the address (place of supply follows the GSTIN) are warnings
+  in the review; a Nepal business without a PAN gets a note, and an EU VAT ID that makes invoices reverse charge gets a
+  note. None of them blocks a row. Numbers are stored as invoices use them (spaces removed, uppercase, for Nepal, India
+  and the EU).
 - The client profile shows the columns an import kept, under **Imported fields**, with the import date and source.
 - Uploads that are never applied lose their rows after 7 days (`migration.staging_days`, housekeeping task "Purge
   expired client imports"); their counts stay. Applied imports keep row details for 7 days (`migration.undo_days`); an

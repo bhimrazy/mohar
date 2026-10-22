@@ -22,6 +22,9 @@ final class IndianStates
         'TG' => ['36', 'Telangana'], 'AP' => ['37', 'Andhra Pradesh'], 'LA' => ['38', 'Ladakh'],
     ];
 
+    /** GST codes that are valid in a GSTIN but are not states: Other Territory and Centre Jurisdiction. */
+    private const NON_STATE_GST_CODES = ['97', '99'];
+
     private const GSTIN = '/^(\d{2})[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/';
 
     /**
@@ -50,11 +53,12 @@ final class IndianStates
 
     public static function isValidGstin(?string $gstin): bool
     {
-        return $gstin !== null && preg_match(self::GSTIN, strtoupper(trim($gstin)), $matches) === 1 && self::byGstCode($matches[1]) !== null;
+        return $gstin !== null && preg_match(self::GSTIN, strtoupper(trim($gstin)), $matches) === 1
+            && (self::byGstCode($matches[1]) !== null || in_array($matches[1], self::NON_STATE_GST_CODES, true));
     }
 
     /**
-     * State of registration encoded in a GSTIN (first two digits), as ISO code.
+     * State of registration encoded in a GSTIN (first two digits), as ISO code; null for the non-state codes 97 and 99.
      */
     public static function stateFromGstin(?string $gstin): ?string
     {
