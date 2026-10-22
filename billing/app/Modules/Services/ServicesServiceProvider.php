@@ -32,6 +32,7 @@ use App\Modules\Services\Listeners\RecordOrderInvoice;
 use App\Modules\Services\Listeners\SyncCancelledInvoice;
 use App\Modules\Services\Models\CancellationRequest;
 use App\Modules\Services\Models\ModuleQueueItem;
+use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerAccountImport;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\EloquentCatalogUsage;
@@ -48,6 +49,8 @@ use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Security\EncryptedModel;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Services\ProvisioningDriverRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
@@ -76,6 +79,13 @@ class ServicesServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        // Encrypted casts, for `security:reencrypt` (ADR 0022).
+        $encrypted = $this->app->make(EncryptedStorage::class);
+        $encrypted->register('services_servers', new EncryptedModel(Server::class));
+        $encrypted->register('services_services', new EncryptedModel(Service::class));
+        $encrypted->register('services_module_queue', new EncryptedModel(ModuleQueueItem::class));
+        $encrypted->register('services_account_imports', new EncryptedModel(ServerAccountImport::class));
+
         $drivers = $this->app->make(ProvisioningDriverRegistry::class);
         $drivers->register('none', NoneDriver::class);
         $drivers->register('log', LogDriver::class);

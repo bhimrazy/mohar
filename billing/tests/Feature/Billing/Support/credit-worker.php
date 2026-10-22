@@ -28,6 +28,7 @@
  * currency change that is refused prints status "refused" and the reason as message.
  */
 
+use App\Contracts\Auth\ClientLoginInvitations;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Catalog\PriceBook;
@@ -43,6 +44,8 @@ use App\Data\Migration\ImportRecord;
 use App\Data\Services\ServiceDraft;
 use App\Enums\BillableType;
 use App\Enums\ImportAction;
+use App\Enums\InvitationOutcome;
+use App\Enums\InvitationPurpose;
 use App\Modules\Billing\Actions\ApplyPayment;
 use App\Modules\Billing\Actions\PaymentBatches;
 use App\Modules\Billing\Actions\Quotes;
@@ -58,6 +61,9 @@ use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\Settings;
+use App\Modules\Migration\Jobs\SendInvitations;
 use App\Modules\Orders\Actions\PlaceOrder;
 use App\Modules\Orders\Data\CheckoutData;
 use App\Modules\Services\Actions\ImportServerAccounts;
@@ -159,6 +165,40 @@ if ($mode === 'checkout') {
             return null;
         }
     });
+}
+
+if ($mode === 'invite') {
+    // PR #255 probe: one SendInvitations run with the production cache store (database locks); <pause ms> is spent
+    // before each invitation, so two senders overlap. The next job it dispatches is dropped (null queue).
+    config(['cache.default' => 'database', 'queue.connections.null' => ['driver' => 'null'], 'queue.default' => 'null']);
+    $real = app(ClientLoginInvitations::class);
+    $slow = new class($real, (int) $pause) implements ClientLoginInvitations
+    {
+        public function __construct(private ClientLoginInvitations $real, private int $pause) {}
+
+        public function problem(): ?string
+        {
+            return null;
+        }
+
+        public function invite(int $clientId, int $userId, InvitationPurpose $purpose = InvitationPurpose::LoginAdded, ?int $actorId = null): InvitationOutcome
+        {
+            usleep($this->pause * 1000);
+
+            return $this->real->invite($clientId, $userId, $purpose, $actorId);
+        }
+    };
+    usleep((int) $delay * 1000);
+
+    try {
+        $started = microtime(true);
+        (new SendInvitations)->handle($slow, app(Settings::class), app(ActivityLogger::class));
+        $print(['status' => 'done', 'issued' => $started, 'ended' => microtime(true)]);
+        exit(0);
+    } catch (Throwable $e) {
+        $print(['error' => get_class($e).': '.$e->getMessage()]);
+        exit(1);
+    }
 }
 
 usleep((int) $delay * 1000);

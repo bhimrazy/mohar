@@ -3,6 +3,7 @@
 namespace App\Modules\Core;
 
 use App\Contracts\Auth\AuthMailer;
+use App\Contracts\Auth\ClientLoginInvitations;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Billing\TaxIdRules;
@@ -26,6 +27,7 @@ use App\Modules\Core\Install\RegionalSettings;
 use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientInvitation;
+use App\Modules\Core\Models\InstallSecret;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\CachedCurrencyDirectory;
@@ -35,8 +37,10 @@ use App\Modules\Core\Support\CurrencyRollup;
 use App\Modules\Core\Support\DateFormats;
 use App\Modules\Core\Support\DefaultBrandProvider;
 use App\Modules\Core\Support\InMemoryMergeFieldRegistry;
+use App\Modules\Core\Support\InstallSecrets;
 use App\Modules\Core\Support\LaravelAuthMailer;
 use App\Modules\Core\Support\NullCatalogUsage;
+use App\Modules\Core\Support\NullClientLoginInvitations;
 use App\Modules\Core\Support\NullClientServiceDirectory;
 use App\Modules\Core\Support\NullEmailTemplates;
 use App\Modules\Core\Support\NullGatewayDirectory;
@@ -57,6 +61,9 @@ use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Queues;
 use App\Support\Search\GlobalSearch;
+use App\Support\Security\EncryptedColumn;
+use App\Support\Security\EncryptedModel;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Illuminate\Console\Scheduling\Schedule;
@@ -75,6 +82,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->scoped(CurrencyRollup::class);
 
         $this->app->singleton(Settings::class);
+        $this->app->singleton(InstallSecrets::class);
         $this->app->singleton(RegionalDefaults::class);
         // The company time zone (ADR 0013) follows the application's until staff set one; the settings form needs a value.
         config(['system.timezone' => config('system.timezone', config('app.timezone', 'UTC'))]);
@@ -94,6 +102,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->bindIf(EmailTemplates::class, NullEmailTemplates::class);
         $this->app->bindIf(AuthMailer::class, LaravelAuthMailer::class);
         $this->app->bindIf(SystemMailer::class, NullSystemMailer::class);
+        $this->app->bindIf(ClientLoginInvitations::class, NullClientLoginInvitations::class);
         $this->app->bindIf(TaxIdRules::class, NullTaxIdRules::class);
         $this->app->bindIf(ShopperSession::class, NullShopperSession::class);
         $this->app->bindIf(PublicHelpDirectory::class, NullPublicHelpDirectory::class);
@@ -117,6 +126,14 @@ class CoreServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        // Encrypted values without an encrypted cast, for `security:reencrypt`: secret settings (a JSON string with the
+        // "enc:v1:" prefix) and Fortify's two-factor secret and recovery codes (encrypted by Fortify itself).
+        $encrypted = $this->app->make(EncryptedStorage::class);
+        $encrypted->register('core_settings', new EncryptedColumn('settings', 'value', 'key', intKey: false, prefix: Settings::ENCRYPTED_PREFIX, json: true));
+        $encrypted->register('core_two_factor_secret', new EncryptedColumn('users', 'two_factor_secret'));
+        $encrypted->register('core_install_secrets', new EncryptedModel(InstallSecret::class));
+        $encrypted->register('core_two_factor_recovery_codes', new EncryptedColumn('users', 'two_factor_recovery_codes'));
+
         // One dev worker (composer dev) for every queue, in priority order, from the Queues constants (ADR 0014). The
         // automation connection keeps its own worker in Platform.
         DevCommands::artisan('queue:listen --queue='.implode(',', [Queues::PAYMENTS, Queues::PROVISIONING, Queues::REGISTRAR, Queues::NOTIFICATIONS, Queues::WEBHOOKS, Queues::DEFAULT, Queues::IMPORTS]).' --tries=1 --timeout=0', 'queue');
