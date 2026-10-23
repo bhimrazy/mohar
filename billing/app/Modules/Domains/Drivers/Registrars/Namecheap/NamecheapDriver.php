@@ -40,16 +40,23 @@ use SimpleXMLElement;
  * - no `ProvidesEppCode` capability (the client asks support; staff read the code in the panel);
  * - the host claims a submission before it is sent and settles an unknown outcome through findSubmission(), which
  *   never re-sends. Before a register or transfer is sent, the account is also read: a name already in it is adopted
- *   only when the host holds its domain id (our own earlier answer), and is a conflict for staff otherwise, so a name
- *   in the account can never be taken over by typing it. "Domain not available" after an unknown outcome is
- *   therefore never counted as a failure without this ownership check;
+ *   by register() only when the host holds its domain id (our own earlier answer), and is a conflict for staff
+ *   otherwise, so a name in the account can never be taken over by typing it. findSubmission() also adopts a name
+ *   created inside the submission's window (a day either side, dates carry no time) when no id can be held yet, after
+ *   a lost answer; an older one is a Conflict. "Domain not available" after an unknown outcome is therefore never
+ *   counted as a failure without this ownership check;
  * - ownership is decided by a name's presence in `domains.getList`, which lists this account only (`IsOwner` is not
- *   relied on), and confirmed with `domains.getInfo` when the list is ambiguous or paged past;
+ *   relied on). A name missing from the list is never taken as gone on that alone: `domains.getInfo` confirms every
+ *   miss, and only its "not in this account" errors (2016166, 2019166) say so. A list answer without its list or
+ *   paging element is unreadable (retryable), never "empty" (registrars.md §6);
  * - a renewal is sent only when the registry's expiry is the same date as OUR stored expiry (Namecheap takes no
  *   expiry parameter, so the driver is the guard). When Namecheap is ahead by a whole term the renewal already ran
  *   and nothing is ordered again;
  * - a registration that is real-time returns no expiry: it is computed from the term, and the next sync replaces it;
  * - premium names stay off (ADR 0009 Amendment 2): availability reports them as premium and the host hides them.
+ *   register() also checks the one name and refuses a premium one before creating it (Namecheap is expected to refuse
+ *   a create without `IsPremiumDomain` as well, which is unverified). renew() does not check: a premium name already
+ *   held is renewed at the price Namecheap applies.
  *
  * A register or transfer chain runs inside a time budget (REGISTER_BUDGET) that fits the host job's timeout, and the
  * client keeps its own request budget below Namecheap's rate limits.
@@ -219,6 +226,8 @@ final class NamecheapDriver implements ChecksAvailability, DeclaresTldAttributes
                 return new RegistrarResult('completed', $earlier['expires'], 'Already in the Namecheap account; not sent again.', remote: ['domain_id' => (int) $earlier['id']]);
             }
 
+            $this->refusePremium($config, $request->domain);
+
             $answer = $this->client->change($config, 'namecheap.domains.create', [
                 'DomainName' => $request->domain->name,
                 'Years' => $request->years,
@@ -241,6 +250,22 @@ final class NamecheapDriver implements ChecksAvailability, DeclaresTldAttributes
                 default => throw new RegistrarTimeout('Namecheap neither registered the domain nor queued it; check the account.'),
             };
         });
+    }
+
+    /**
+     * @throws RegistrarException when the name is premium, or when that could not be told
+     */
+    private function refusePremium(RegistrarConfig $config, DomainRef $domain): void
+    {
+        $check = $this->checkAvailability($config, $domain->sld, [$domain->tld])[0] ?? null;
+
+        if ($check === null || $check->status === 'unknown') {
+            throw new RegistrarException('Namecheap did not say whether '.$domain->name.' is a premium name, so it was not registered; try again.', retryable: true);
+        }
+
+        if ($check->isPremium) {
+            throw new RegistrarException($domain->name.' is a premium name, which this driver does not register; nothing was sent.');
+        }
     }
 
     public function transfer(RegistrarConfig $config, RegistrationRequest $request): RegistrarResult
@@ -606,15 +631,22 @@ final class NamecheapDriver implements ChecksAvailability, DeclaresTldAttributes
 
     /**
      * The name's entry in OUR account, or null. Presence in `domains.getList` (which lists this account only) is the
-     * proof; `IsOwner` is not read. The list is searched by the name and the exact name is picked from the rows. If the
-     * name is not on the pages read and the list is longer than those pages, `domains.getInfo` decides.
+     * proof that it is ours; `IsOwner` is not read. The list is searched by the name and the exact name is picked from
+     * the rows. A miss is never proof of absence (registrars.md §6): `domains.getInfo` confirms it, and only its
+     * "not in this account" errors return null. A list answer without its list or paging element is unreadable.
      *
      * @return array{id: string, created: CarbonImmutable|null, expires: CarbonImmutable|null, expired: bool}|null
+     *
+     * @throws RegistrarException retryable, when the list answer cannot be read
      */
     private function accountEntry(RegistrarConfig $config, DomainRef $domain): ?array
     {
         for ($page = 1; $page <= self::LIST_PAGES; $page++) {
             $list = $this->client->read($config, 'namecheap.domains.getList', ['SearchTerm' => $domain->name, 'PageSize' => self::LIST_ROWS, 'Page' => $page]);
+
+            if (! isset($list->DomainGetListResult) || ! isset($list->Paging->TotalItems)) {
+                throw new RegistrarException('Namecheap\'s domain list for '.$domain->name.' could not be read; nothing was changed.', retryable: true);
+            }
 
             foreach ($list->DomainGetListResult->Domain ?? [] as $row) {
                 if (strtolower((string) $row['Name']) === $domain->name) {
@@ -624,12 +656,11 @@ final class NamecheapDriver implements ChecksAvailability, DeclaresTldAttributes
                 }
             }
 
-            if ((int) ($list->Paging->TotalItems ?? 0) <= $page * self::LIST_ROWS) {
-                return null;
+            if ((int) $list->Paging->TotalItems <= $page * self::LIST_ROWS) {
+                break;
             }
         }
 
-        // Paged past: the list is longer than the pages read, so the absence is not proof.
         try {
             $details = $this->details($config, $domain);
         } catch (NamecheapRefusal $refusal) {

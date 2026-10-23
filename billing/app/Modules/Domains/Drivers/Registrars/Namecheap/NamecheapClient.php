@@ -207,6 +207,13 @@ final class NamecheapClient
         $numbers = array_column($errors, 0);
         $text = implode(' ', array_column($errors, 1));
 
+        // An ERROR with no reason says nothing about whether the work began: for a change that is unknown (§0).
+        if ($numbers === []) {
+            return $mutating
+                ? new RegistrarTimeout('Namecheap answered with an error but no reason; the request may have been carried out.')
+                : new RegistrarException('Namecheap answered with an error but no reason.', retryable: true);
+        }
+
         if (array_intersect($numbers, self::ALLOW_LIST_ERRORS) !== []) {
             return new RegistrarException('Namecheap does not accept requests from this server\'s IP address: add it to the API allow-list (Profile → Tools → API Access in Namecheap) and enter the same address as the client IP in the registrar settings.');
         }
@@ -260,27 +267,31 @@ final class NamecheapClient
     }
 
     /**
-     * Count one call against the local budget. A read stops WRITE_RESERVE calls before the limit, so changes still get
-     * through when lookups have used the rest; nothing is sent when the budget is spent.
+     * Count one call against the local budget. Each window is incremented first (atomically in the cache) and the new
+     * count compared, so workers running together cannot all pass one check. A read stops WRITE_RESERVE calls before
+     * the limit, so changes still get through when lookups have used the rest. A refused call gives its counts back,
+     * so it takes nothing from the reserve; nothing is sent when the budget is spent.
      *
      * @throws RegistrarException
      */
     private function spend(string $apiUser, bool $testMode, bool $mutating): void
     {
         $key = 'namecheap:'.($testMode ? 'sandbox:' : 'live:').sha1($apiUser);
+        $taken = [];
 
         foreach (self::BUDGET as $seconds => $limit) {
             $allowed = $mutating ? $limit : $limit - self::WRITE_RESERVE[$seconds];
+            $taken[] = $seconds;
 
-            if (RateLimiter::attempts($key.':'.$seconds) >= $allowed) {
+            if (RateLimiter::hit($key.':'.$seconds, $seconds) > $allowed) {
+                foreach ($taken as $window) {
+                    RateLimiter::decrement($key.':'.$window, $window);
+                }
+
                 throw new RegistrarException('The Namecheap request budget for this '.match ($seconds) {
                     60 => 'minute', 3600 => 'hour', default => 'day',
                 }.' is used up'.($mutating ? '' : ' (the rest is kept for registrations, renewals and other changes)').'; nothing was sent, try again later.', retryable: true);
             }
-        }
-
-        foreach (array_keys(self::BUDGET) as $seconds) {
-            RateLimiter::hit($key.':'.$seconds, $seconds);
         }
     }
 

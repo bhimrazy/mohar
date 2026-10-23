@@ -105,9 +105,20 @@ final class NamecheapContacts
         $typed = trim($typed);
 
         if (preg_match('/^\+(\d{1,3})[\s.\-]+(.+)$/', $typed, $match) === 1) {
-            $number = (string) preg_replace('/\D/', '', $match[2]);
+            return self::checked($match[1], (string) preg_replace('/\D/', '', $match[2]));
+        }
 
-            return self::checked($match[1], $number);
+        // `+9779841234567`: no separator, so the country code is the longest known one the digits start with.
+        if (str_starts_with($typed, '+')) {
+            $digits = (string) preg_replace('/\D/', '', $typed);
+
+            foreach ([3, 2, 1] as $length) {
+                if (in_array(substr($digits, 0, $length), self::CALLING_CODES, true)) {
+                    return self::checked(substr($digits, 0, $length), substr($digits, $length));
+                }
+            }
+
+            throw new RegistrarException('The contact phone number\'s country code is not recognised; write it with a dot after the code, for example +977.15550100.');
         }
 
         $code = self::CALLING_CODES[$country] ?? throw new RegistrarException('Enter the contact phone number with its country code, for example +977.15550100.');

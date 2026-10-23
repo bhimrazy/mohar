@@ -75,6 +75,11 @@ function ncFake(array $answers): void
 {
     $calls = [];
     ncResetBudget();
+    // What a name that is not in the account and not premium gets, unless a test says otherwise.
+    $answers += [
+        'namecheap.domains.getInfo' => ncXml('namecheap.domains.getInfo', errors: [2019166]),
+        'namecheap.domains.check' => fn (Request $request) => ncXml('namecheap.domains.check', collect(explode(',', $request['DomainList']))->map(fn (string $name): string => '<DomainCheckResult Domain="'.$name.'" Available="true" ErrorNo="0" IsPremiumName="false" />')->implode('')),
+    ];
 
     ncHttp(function (Request $request) use ($answers, &$calls) {
         $command = (string) ($request['Command'] ?? '');
@@ -281,7 +286,8 @@ test('the local request budget keeps a write reserve: reads stop first, nothing 
         ->and(fn () => ncDriver()->checkAvailability($config, 'a', ['.com']))->toThrow(function (RegistrarException $exception): void {
             expect($exception->retryable)->toBeTrue()->and($exception->getMessage())->toContain('kept for registrations');
         })
-        ->and(Http::recorded()->count())->toBe(30);
+        ->and(Http::recorded()->count())->toBe(30)
+        ->and(RateLimiter::attempts('namecheap:sandbox:'.sha1('sandbox-user').':60'))->toBe(30);
 
     // The reserve is for changes: 10 more pass, then they stop too.
     ncHttp(fn () => Http::response(ncXml('namecheap.domains.setRegistrarLock', '<DomainSetRegistrarLockResult Domain="asha-sim.com" IsSuccess="true" />')));
@@ -371,7 +377,7 @@ test('a name past the first list pages is confirmed with getInfo, and a name not
     expect(ncDriver()->sync(ncConfig(), ncRef())->transferredAway)->toBeTrue();
 });
 
-test('sync reads the list once; an expired name is not active; a name that is gone is judged by availability', function () {
+test('sync reads the list once; an expired name is not active; a name missing from the list is confirmed with getInfo before availability judges it', function () {
     $row = fn (string $expired) => ncXml('namecheap.domains.getList', '<DomainGetListResult><Domain ID="555" Name="asha-sim.com" Created="03/10/2020" Expires="03/10/2027" IsExpired="'.$expired.'" IsLocked="true" /></DomainGetListResult><Paging><TotalItems>1</TotalItems></Paging>');
 
     ncFake(['namecheap.domains.getList' => $row('false')]);
@@ -382,7 +388,7 @@ test('sync reads the list once; an expired name is not active; a name that is go
     expect(ncDriver()->sync(ncConfig(), ncRef())->active)->toBeFalse();
 
     foreach (['true' => [true, false], 'false' => [false, true]] as $available => [$cancelled, $away]) {
-        ncFake(['namecheap.domains.getList' => ncXml('namecheap.domains.getList', NC_EMPTY_LIST), 'namecheap.domains.check' => ncXml('namecheap.domains.check', '<DomainCheckResult Domain="asha-sim.com" Available="'.$available.'" ErrorNo="0" />')]);
+        ncFake(['namecheap.domains.getList' => ncXml('namecheap.domains.getList', NC_EMPTY_LIST), 'namecheap.domains.getInfo' => ncXml('namecheap.domains.getInfo', errors: [2016166]), 'namecheap.domains.check' => ncXml('namecheap.domains.check', '<DomainCheckResult Domain="asha-sim.com" Available="'.$available.'" ErrorNo="0" />')]);
         $gone = ncDriver()->sync(ncConfig(), ncRef());
 
         expect([$gone->cancelled, $gone->transferredAway])->toBe([$cancelled, $away]);
@@ -390,7 +396,71 @@ test('sync reads the list once; an expired name is not active; a name that is go
 
     ncFake(['namecheap.domains.getList' => ncXml('namecheap.domains.getList', NC_EMPTY_LIST)]);
     expect(ncDriver()->sync(ncConfig(), ncRef(['status' => 'pending_registration']))->active)->toBeFalse();
-    Http::assertSentCount(1);
+    Http::assertSentCount(2);
+});
+
+test('a name the list does not return but getInfo shows is still ours: no away, no cancel', function () {
+    ncFake(['namecheap.domains.getList' => ncXml('namecheap.domains.getList', NC_EMPTY_LIST), 'namecheap.domains.getInfo' => ncXml('namecheap.domains.getInfo', ncInfo('03/10/2027'))]);
+
+    $sync = ncDriver()->sync(ncConfig(), ncRef());
+
+    expect($sync->active)->toBeTrue()
+        ->and([$sync->cancelled, $sync->transferredAway])->toBe([false, false])
+        ->and($sync->expiryDate->toDateString())->toBe('2027-03-10')
+        ->and(Http::recorded(fn (Request $request): bool => $request['Command'] === 'namecheap.domains.check')->count())->toBe(0);
+});
+
+test('a list answer without its list or paging element is unreadable and retryable, never an empty account', function (string $body) {
+    ncFake(['namecheap.domains.getList' => ncXml('namecheap.domains.getList', $body)]);
+
+    foreach ([fn () => ncDriver()->sync(ncConfig(), ncRef()), fn () => ncDriver()->findSubmission(ncConfig(), ncRef(), 'register', CarbonImmutable::now())] as $call) {
+        try {
+            $call();
+            $thrown = null;
+        } catch (RegistrarException $exception) {
+            $thrown = $exception;
+        }
+
+        expect($thrown)->toBeInstanceOf(RegistrarException::class)->and($thrown->retryable)->toBeTrue();
+    }
+
+    expect(Http::recorded(fn (Request $request): bool => in_array($request['Command'], ['namecheap.domains.getInfo', 'namecheap.domains.check'], true))->count())->toBe(0);
+})->with([
+    'no list and no paging' => [''],
+    'paging without a list' => ['<Paging><TotalItems>0</TotalItems></Paging>'],
+    'a list without paging' => ['<DomainGetListResult />'],
+]);
+
+test('an ERROR answer with no reason is unknown for a change and retryable for a read', function () {
+    ncFake(['namecheap.domains.getInfo' => ncXml('namecheap.domains.getInfo', ncInfo()), 'namecheap.domains.renew' => '<ApiResponse Status="ERROR" xmlns="http://api.namecheap.com/xml.response"><Errors /></ApiResponse>']);
+
+    expect(fn () => ncDriver()->renew(ncConfig(), ncRef(), 1))->toThrow(RegistrarTimeout::class);
+
+    ncFake(['namecheap.domains.check' => '<ApiResponse Status="ERROR" xmlns="http://api.namecheap.com/xml.response"><Errors /></ApiResponse>']);
+
+    try {
+        ncDriver()->checkAvailability(ncConfig(), 'a', ['.com']);
+    } catch (RegistrarException $exception) {
+        expect($exception)->not->toBeInstanceOf(RegistrarTimeout::class)->and($exception->retryable)->toBeTrue();
+    }
+});
+
+test('a premium name is refused before it is created, and so is one whose premium status could not be told', function () {
+    $check = fn (string $attributes) => ncXml('namecheap.domains.check', '<DomainCheckResult Domain="asha-sim.com" '.$attributes.' />');
+    $answers = ['namecheap.domains.getList' => ncXml('namecheap.domains.getList', NC_EMPTY_LIST)];
+
+    ncFake([...$answers, 'namecheap.domains.check' => $check('Available="true" ErrorNo="0" IsPremiumName="true" PremiumRegistrationPrice="120.00"')]);
+    expect(fn () => ncDriver()->register(ncConfig(), ncRequest()))->toThrow(RegistrarException::class, 'premium name');
+
+    ncFake([...$answers, 'namecheap.domains.check' => $check('Available="false" ErrorNo="3031510"')]);
+
+    try {
+        ncDriver()->register(ncConfig(), ncRequest());
+    } catch (RegistrarException $exception) {
+        expect($exception->retryable)->toBeTrue()->and($exception->getMessage())->toContain('premium');
+    }
+
+    expect(Http::recorded(fn (Request $request): bool => $request['Command'] === 'namecheap.domains.create')->count())->toBe(0);
 });
 
 test('transfer sync maps every documented status: 5 completes, the cancelled set fails with the reason, the rest wait', function (int $status, string $expected) {
@@ -546,6 +616,9 @@ test('contacts Namecheap cannot take are refused before anything is sent, and ph
         ->and(NamecheapContacts::phone('+977 1-5550100', 'NP'))->toBe('+977.15550100')
         ->and(NamecheapContacts::phone('01-5550100', 'NP'))->toBe('+977.15550100')
         ->and(NamecheapContacts::phone('(415) 555-0100', 'US'))->toBe('+1.4155550100')
+        ->and(NamecheapContacts::phone('+9779841234567', 'NP'))->toBe('+977.9841234567')
+        ->and(NamecheapContacts::phone('+14155550100', 'US'))->toBe('+1.4155550100')
+        ->and(fn () => NamecheapContacts::phone('+0009841234567', 'NP'))->toThrow(RegistrarException::class, 'not recognised')
         ->and(fn () => NamecheapContacts::phone('555 0100', 'ZZ'))->toThrow(RegistrarException::class, 'country code')
         ->and(fn () => NamecheapContacts::phone('+977.12', 'NP'))->toThrow(RegistrarException::class, 'valid length');
 });
