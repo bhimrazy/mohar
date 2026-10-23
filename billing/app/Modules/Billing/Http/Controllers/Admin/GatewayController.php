@@ -12,6 +12,7 @@ use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Http\Requests\Admin\GatewayRequest;
 use App\Modules\Billing\Services\GatewayLogger;
 use App\Modules\Core\Models\Currency;
+use App\Support\Integrations\StoredSecrets;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -46,6 +47,8 @@ class GatewayController extends Controller
                 ]),
                 'secrets_set' => collect($fields)->filter(fn (SettingField $field): bool => $field->isSecret())
                     ->mapWithKeys(fn (SettingField $field): array => [$field->key => (string) $model->setting($field->key, '') !== '']),
+                // Keys only: stored secrets saved before the minimum length, which staff should replace.
+                'secrets_short' => StoredSecrets::tooShort($fields, $model->config ?? []),
             ],
             'fields' => array_map(fn (SettingField $field): array => $field->toArray(), $fields),
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->pluck('code'),

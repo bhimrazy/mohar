@@ -46,6 +46,7 @@ use App\Support\Currencies\PriceConverters;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Domains\RegistrarDriverRegistry;
 use App\Support\Domains\RegistrarException;
+use App\Support\Integrations\StoredSecrets;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
@@ -114,6 +115,17 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $encrypted->register('domains_registrar_accounts', new EncryptedModel(RegistrarAccount::class));
         $encrypted->register('domains_domains', new EncryptedModel(Domain::class));
         $encrypted->register('domains_registrar_refs', new EncryptedModel(RegistrarRefRecord::class));
+
+        // Stored registrar credentials checked against their minimum length (`integrations:short-secrets`).
+        $this->app->make(StoredSecrets::class)->register('registrars', function (): iterable {
+            $registrars = $this->app->make(RegistrarDriverRegistry::class);
+
+            foreach (RegistrarAccount::query()->orderBy('key')->get() as $account) {
+                if ($registrars->has($account->key)) {
+                    yield ['owner' => $registrars->get($account->key)->name(), 'fields' => $registrars->fields($account->key), 'values' => fn (): array => $account->settings ?? []];
+                }
+            }
+        });
 
         $this->registerListeners();
 
