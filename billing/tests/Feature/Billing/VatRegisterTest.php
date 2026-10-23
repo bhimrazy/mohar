@@ -11,6 +11,7 @@ use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Billing\Reports\RegisterDocuments;
 use App\Modules\Billing\Reports\RegisterPeriod;
+use App\Modules\Billing\Reports\RegisterSummary;
 use App\Modules\Billing\Services\TaxNoteIssuer;
 use App\Modules\Billing\Support\BikramSambat;
 use App\Modules\Core\Models\ActivityLog;
@@ -251,7 +252,7 @@ function awkwardRateRegisterFixture(): void
     onRegisterDay('2026-10-23', fn () => registerNote(NoteRequest::debit($invoices[4]->id, 3, true, 'price_correction', 'Rounding')));
 }
 
-function registerSummaryWith(?bool $sql, string $month = '2083-07'): App\Modules\Billing\Reports\RegisterSummary
+function registerSummaryWith(?bool $sql, string $month = '2083-07'): RegisterSummary
 {
     app()->forgetScopedInstances();
     $documents = app(RegisterDocuments::class);

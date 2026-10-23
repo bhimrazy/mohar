@@ -200,7 +200,13 @@ export default function VatRegister({
     // After a refused period the page shows the default month; the picker keeps what was asked for, beside its error.
     const asked = { ...filters, ...submitted };
     const [kind, setKind] = useState<Kind>(
-        submitted.year ? 'year' : submitted.from || submitted.to ? 'range' : submitted.month ? 'month' : period.kind,
+        submitted.year
+            ? 'year'
+            : submitted.from || submitted.to
+              ? 'range'
+              : submitted.month
+                ? 'month'
+                : period.kind,
     );
     const [month, setMonth] = useState(asked.month ?? options.lastClosed);
     const [year, setYear] = useState(
