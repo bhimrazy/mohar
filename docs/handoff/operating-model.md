@@ -113,7 +113,7 @@ On macOS, tests that need Linux tools (the simulators in `tools/simulators/tests
 
 CI is the full-suite runner on SQLite and PostgreSQL. Locally, engineers and reviewers run the tests they touched
 plus `tests/Arch`, on PostgreSQL too for queries and migrations: `eval "$($MOHAR_ROOT/scripts/pg.sh <slug>)"`
-gives a database on the shared server `mohar-pg` (in-memory, recreated on demand; `--stop`, `--prune`). No private
+gives a database on the shared server `mohar-pg` (in-memory, recreated on demand; `--stop` and `--prune` are for the CTO only). No private
 PostgreSQL containers. The full suite runs locally only to diagnose a CI failure.
 
 ## Repository visibility and CI
@@ -153,19 +153,19 @@ The owner switches the repository (`bhimrazy/mohar`) between public and private 
 
 The local machine is the owner's Mac (since 2026-10-22: 10 cores, 24 GB, Docker Desktop with 8 CPUs and 3.6 GB). It
 is also the owner's own machine: the agent budget above applies, `/tmp` survives reboots but is still not for work, and
-`storage-cleanup.sh` leaves Docker alone (other projects share it). The rules below apply on both.
+`storage-cleanup.sh` leaves Docker alone unless `STORAGE_DOCKER=1` (other projects share it). The rules below apply on both.
 
 - Codespace: 4 vCPU, 15 GB RAM, 32 GB disk shared by `/`, `/workspaces` and Docker (about 9 GB is the base image). `/tmp` is a
   separate disk wiped on restart: disposable caches only (the npm cache lives there), never work.
 - `scripts/heavy.sh` allows three heavy commands machine-wide at low priority. `scripts/resource-monitor.sh <log>`
   logs load, memory, disk and top processes every 30 s; start it each session.
 - Each worktree costs about 1 GB. `scripts/storage-cleanup.sh --apply` removes worktrees whose PR is merged and that
-  are clean and pushed, clears stale caches and dangling images; run it every 30 minutes in long sessions.
+  are clean and pushed, clears stale caches, and (on a codespace or with `STORAGE_DOCKER=1`) dangling images; run it every 30 minutes in long sessions.
 - Browser checks use Playwright only (CPU-heavy runs go through `scripts/heavy.sh`), never the owner's Chrome (no Chrome DevTools MCP for agents). Scratch files
   get a unique name per agent (`$SCRATCH/<agent-slug>/`), so agents never overwrite each other.
 - No `npx` for a tool outside the lockfile (`vp`, `tsc` and `playwright` are in it): it runs unvetted code.
 - Never stop, kill or remove a Docker container you didn't start (`docker kill`, `stop`, `rm`, `compose down`):
-  the shared test database `mohar-pg` and Mailpit serve every agent, and other projects share Docker. Restarting
+  the shared test database `mohar-pg` and Mailpit serve every agent. Restarting
   `mohar-pg` is the CTO's call.
 - Dev servers: each agent gets its own port range (8100–8299); port 8000 is the owner's preview and is never touched
   by agents. Stop servers by port PID; never `pkill -f`. Chain `cd` with `&&`; never run commands in the main

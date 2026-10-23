@@ -9,7 +9,7 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
   `docs/reviews/2026-10-22-ceo.md`; rubric in `docs/reviews/readme.md`; the round-3 score on 10-20 was 53). Merges
   after that review are not scored yet; the next CEO round scores them. CTO engineering score: 63/100
   (`docs/reviews/2026-10-22-cto.md`).
-- Merged on 2026-10-22 after 18:00 UTC: the ResellerClub simulator (#332) and driver (#335), a timed-out gateway
+- Merged on 2026-10-22, last (after 17:20 UTC): the ResellerClub simulator (#332) and driver (#335), a timed-out gateway
   refund kept pending (#336, closes #334), Khalti "Continue payment" (#328, #251), the Nepal-first demo seed (#330,
   #39), flaky-test fixes (#326, #331), the VAT register and credit-note spec (#327), ADR 0024/0025 and ADR 0013
   Amendment 1 (#329), registrar prep (#325), module-engineer on Sonnet (#333).
@@ -84,11 +84,13 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
 | #128           | Gateway expansion spec                                    | Draft. Owner questions in the PR.                                |
 | this PR        | Handoff docs update                                       | Open.                                                            |
 
-Follow-up issues from #321: #323 (a signed eSewa COMPLETE followed by NOT_FOUND is abandoned, not reviewed); #322 (flaky `UnlockRacesTest`) is fixed (#326).
+Follow-up issues from #321: #323 (a signed eSewa COMPLETE followed by NOT_FOUND is abandoned, not reviewed);
+#322 (flaky `UnlockRacesTest`) is fixed (#326).
 
 After each merge close the issue by hand (`develop` ignores closing keywords). When resolving Markdown conflicts, run
 `npx vp check --fix` before pushing (a hand-merged changelog failed CI on #252).
 
+- #280 stays open on purpose: TLD attributes (in flight) are its last part.
 - Queue, in order: VAT PRs 0b, 0c, 1a… after #337; #338 (link an existing ResellerClub order); an ADR for
   indeterminate provider outcomes (refunds, registrations) and ADR 0013 Amendment 2; issue triage (close stale follow-ups);
   #241 vite-plus 1.3.0 (from 10-23 06:00 UTC); #254 Redactor follow-ups and ADR 0023 (the CTO review's redesign
