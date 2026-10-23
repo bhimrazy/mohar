@@ -6,6 +6,7 @@ namespace LoadTest\Seed;
 
 use App\Modules\Billing\Services\DocumentNumbers;
 use App\Modules\Billing\Support\BillingSettings;
+use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -75,7 +76,7 @@ final class Verifier
                 default => '',
             };
             $next[$period] ??= 1;
-            $wrong += $numbers->format($format, $next[$period], $date) === $invoice->number ? 0 : 1;
+            $wrong += $numbers->format($format, $next[$period], CalendarDate::parse($date->toDateString())) === $invoice->number ? 0 : 1;
             $next[$period] += $increment;
         }
 

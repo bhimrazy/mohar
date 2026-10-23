@@ -108,3 +108,36 @@ test('dashboard figures are summed in the database: no query reads all rows of a
 
     expect($unbounded->all())->toBe([]);
 });
+
+test('past the fresh minute the dashboard serves its cached figures and refreshes them after the response (#441)', function () {
+    $this->travelTo('2026-10-18 12:00:00');
+    Currency::factory()->create();
+    $client = Client::factory()->create(['currency' => 'USD']);
+    actingAsStaff(['*', ...BillingServiceProvider::SENSITIVE_PERMISSIONS]);
+    payInvoice(issueInvoice($client, [10_000]), 10_000);
+    Cache::flush();
+    $history = [];
+    DB::listen(function ($query) use (&$history): void {
+        // The full-history aggregates: income per day (Billing) and the MRR points (Services).
+        if (preg_match('/sum\(amount_in\)|as point_0/', $query->sql)) {
+            $history[] = $query->sql;
+        }
+    });
+    $visit = function () use (&$history): array {
+        $history = [];
+        $widgets = collect($this->get(route('admin.dashboard'))->assertOk()->viewData('page')['props']['widgets'])->keyBy('key');
+
+        return [$widgets['billing.income']['money']['amount'], count($history)];
+    };
+
+    expect($visit())->toBe([10_000, 2]); // cold: computed while the visitor waits
+
+    payInvoice(issueInvoice($client, [5_000]), 5_000);
+    $this->travel(30)->seconds();
+    expect($visit())->toBe([10_000, 0]); // fresh
+
+    $this->travel(31)->seconds();
+    expect($visit())->toBe([10_000, 2]); // stale figures sent, then recomputed after the response
+
+    expect($visit())->toBe([15_000, 0]);
+});

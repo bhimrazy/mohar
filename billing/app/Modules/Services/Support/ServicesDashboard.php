@@ -24,8 +24,10 @@ class ServicesDashboard
     /** Month-end points on the MRR sparkline. */
     private const MONTHS = 12;
 
-    /** Seconds the MRR figures are cached (as BillingDashboard::CACHE_SECONDS). */
+    /** Seconds the MRR figures are fresh, then served stale while refreshed (as BillingDashboard). */
     public const CACHE_SECONDS = 60;
+
+    public const STALE_SECONDS = 600;
 
     /** Provisioning success rate below which the health check warns. */
     private const HEALTHY_RATE = 98.0;
@@ -54,10 +56,11 @@ class ServicesDashboard
 
         $points[] = $today->toDateString();
         $monthAgo = $today->subMonthNoOverflow()->toDateString();
-        ['series' => $series, 'previous' => $previous, 'count' => $count] = Cache::remember(
+        ['series' => $series, 'previous' => $previous, 'count' => $count] = Cache::flexible(
             'dashboard.services.mrr.'.$today->toDateString(),
-            self::CACHE_SECONDS,
+            [self::CACHE_SECONDS, self::STALE_SECONDS],
             fn (): array => $this->figures($today, $points, $monthAgo),
+            ['seconds' => 30],
         );
 
         $card = fn (array $points, int $before, int $services, string $currency): array => [

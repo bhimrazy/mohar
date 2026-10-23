@@ -31,7 +31,14 @@ use Illuminate\Support\Facades\DB;
  */
 class BillingDashboard
 {
+    /** Seconds the dataset is fresh. */
     public const CACHE_SECONDS = 60;
+
+    /**
+     * Seconds an older dataset is still served while the request that found it recomputes it after sending its
+     * response (Cache::flexible), so no visitor waits for the full-history aggregates once they have run (#441).
+     */
+    public const STALE_SECONDS = 600;
 
     /** Transaction types that make up net income (refunds and chargebacks are negative). */
     private const INCOME_TYPES = [TransactionType::Payment, TransactionType::ManualIncome, TransactionType::Refund, TransactionType::Chargeback];
@@ -595,11 +602,11 @@ class BillingDashboard
 
         /** @var array{income: array<string, array<string, int>>, receivables: array<string, array<string, mixed>>, tax: list<array{label: string, money: array{amount: int, currency: string}}>} */
         // The dataset is the same for every user (permissions apply per widget); the key follows the local day.
-        return Cache::remember('dashboard.billing.'.$this->calendar->timezone().'.'.$today->toDateString(), self::CACHE_SECONDS, fn (): array => [
+        return Cache::flexible('dashboard.billing.'.$this->calendar->timezone().'.'.$today->toDateString(), [self::CACHE_SECONDS, self::STALE_SECONDS], fn (): array => [
             'income' => $this->incomeByDay($this->calendar->dayBounds($today->startOfMonth()->subMonths(23))[0]),
             'receivables' => $this->receivables($today),
             'tax' => $this->taxCollected($this->calendar->dayBounds($today->startOfMonth())[0]),
-        ]);
+        ], ['seconds' => 30]);
     }
 
     /**
