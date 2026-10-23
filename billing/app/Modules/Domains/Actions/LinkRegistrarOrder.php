@@ -8,6 +8,7 @@ use App\Data\Domains\Registrar\RegistrarConfig;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Services\RegistrarGateway;
 use App\Modules\Domains\Support\DomainRegistrarLock;
 use App\Modules\Domains\Support\RemoteIds;
@@ -24,7 +25,13 @@ use Illuminate\Support\Facades\DB;
  *  - the registrar looks the order up by the id staff typed, and the driver refuses unless it is in our account, for
  *    exactly this name, still holding it, and under the customer this host uses for the client;
  *  - no other domain row (a deleted record counts) already holds that order id;
- *  - nothing is recorded while a registrar action runs for the domain, and the domain is read again under that lock.
+ *  - nothing is recorded while a registrar action runs for the domain, and the domain is read again under that lock;
+ *  - the registrar's answer must carry the order id that was typed.
+ *
+ * Locks (ADR 0021 §2, §3): the order's cache lock and the domain's registrar lock span the registrar call; both last
+ * longer than it can run. The record is written in one transaction that first locks, in id order, every row of this
+ * registrar with the same name (a deleted one too), because only those can compete for the order: the driver accepts
+ * an order of exactly the domain's name. The check "no other row holds the order" is repeated under that lock.
  *
  * The record and its audit entry are written together. Repeating the same link changes nothing and writes no second
  * entry; a different id for a linked domain is refused. One sync follows, so the expiry and status come from the order.
@@ -61,7 +68,7 @@ class LinkRegistrarOrder
             return ['linked' => false, 'sync' => $this->sync->handle($domain, staffId: $staffId)];
         }
 
-        $order = Cache::lock('domains:link-order:'.$domain->registrar_key.':'.$orderId, 15);
+        $order = Cache::lock('domains:link-order:'.$domain->registrar_key.':'.$orderId, DomainRegistrarLock::TTL);
 
         if (! $order->get()) {
             throw new RegistrarException("Order {$orderId} is being linked right now. Try again in a minute.");
@@ -103,8 +110,18 @@ class LinkRegistrarOrder
                 $staffId,
             );
 
+            if ((string) ($found->remote['order_id'] ?? '') !== $orderId) {
+                throw new RegistrarException('The registrar answered with a different order than order '.$orderId.'. Nothing was linked.');
+            }
+
             DB::transaction(function () use ($domain, $orderId, $found): void {
-                $row = Domain::query()->whereKey($domain->id)->lockForUpdate()->firstOrFail();
+                $row = Domain::withTrashed()
+                    ->where('registrar_key', $domain->registrar_key)
+                    ->where('name', $domain->name)
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get()
+                    ->firstWhere('id', $domain->id) ?? throw new RegistrarException("{$domain->name} is no longer available to link. Reload the page.");
                 $this->assertLinkable($row);
                 $this->assertUnused($row, $orderId);
 
@@ -126,6 +143,10 @@ class LinkRegistrarOrder
     {
         if ($domain->registrar_key === null || ! $this->drivers->supports($domain->registrar_key, RegistrarDriverRegistry::LINK_ORDER)) {
             throw new RegistrarException('This registrar does not support linking an existing order.');
+        }
+
+        if ($domain->loadMissing('tldModel')->tldModel->registered_by_client || Tld::registryLevelHint($domain->name) !== null) {
+            throw new RegistrarException(".np domains are registered by the client at the registry, not through a registrar, so {$domain->name} has no registrar order to link.");
         }
 
         if (! in_array($domain->status, self::LINKABLE, true)) {

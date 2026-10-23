@@ -457,7 +457,7 @@ final class ResellerClubDriver implements ChecksAvailability, LinksExistingOrder
         try {
             $details = (array) $this->client->get($config, 'domains/details.json', ['order-id' => $orderId, 'options' => ['OrderDetails']]);
         } catch (RegistrarException $refused) {
-            if ($refused->retryable || preg_match('/no (entity|domain|order)|not found|does not exist|invalid/i', $refused->getMessage()) !== 1) {
+            if ($refused->retryable || preg_match('/no (entity|domain|order)|not found|does not exist|invalid (order|entity)/i', $refused->getMessage()) !== 1) {
                 throw $refused;
             }
 
@@ -480,7 +480,7 @@ final class ResellerClubDriver implements ChecksAvailability, LinksExistingOrder
             throw new RegistrarException("Order {$orderId} is for ".($name === '' ? 'another name' : $name).", not {$domain->name}. The name must match exactly. Nothing was linked.");
         }
 
-        if (in_array($details['currentstatus'] ?? '', self::GONE, true)) {
+        if (in_array(strtolower((string) ($details['currentstatus'] ?? '')), array_map('strtolower', self::GONE), true)) {
             throw new RegistrarException("Order {$orderId} for {$domain->name} is {$details['currentstatus']} at ResellerClub and no longer holds the name. Nothing was linked.");
         }
 

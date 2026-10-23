@@ -6,6 +6,15 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Linking an existing registrar order (ADR 0009 Amendment 4, #365)
+
+- New capability interface `App\Contracts\Domains\Registrar\LinksExistingOrders` (detected with `instanceof`;
+  registry capability name `link_order`, `RegistrarDriverRegistry::LINK_ORDER`): `lookupOrder(RegistrarConfig,
+  DomainRef, string $orderId): LinkedOrder`. Read-only; throws a non-retryable `RegistrarException` with a plain
+  message when the order does not qualify. New DTO `App\Data\Domains\Registrar\LinkedOrder` (`remote`, `status`
+  `active|pending`, `expiryDate`, `toArray()`). Additive: drivers without the interface keep working and are not
+  offered the staff action. The test fakes opt in (`LinkingRegistrar`); the log driver implements it.
+
 ### Report registry and export pipeline (ADR 0025, VAT PR 0c)
 
 - New provider contract `App\Contracts\Reports\Report` (`key`, `label`, `category`, `filters`, `columns`, `rows`,

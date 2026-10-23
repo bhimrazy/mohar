@@ -1,9 +1,11 @@
 <?php
 
+use App\Data\Domains\Registrar\LinkedOrder;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarCommandLog;
+use App\Modules\Domains\Models\Tld;
 use App\Support\Domains\RegistrarException;
 use Tests\Fakes\Domains\DomainFixtures;
 use Tests\Fakes\Domains\FakeRegistrar;
@@ -140,4 +142,26 @@ test('the detail page offers the link only for an unlinked live domain, and show
     $domain->forceFill(['registrar_meta' => ['remote' => ['order_id' => 80000001]]])->save();
 
     $this->get(route('admin.domains.show', $domain))->assertInertia(fn ($page) => $page->where('domain.registrar_order_id', 80000001));
+});
+
+test('an answer for another order than the one typed is refused', function () {
+    actingAsStaff(['domains.*']);
+    confirmPassword();
+    $domain = ($this->imported)();
+    $this->registrar->will('link_order', new LinkedOrder(['order_id' => 80000002], 'active'));
+
+    $this->post(route('admin.domains.link-order', $domain), ['order_id' => '80000001'])->assertSessionHasErrors('order_id');
+
+    expect($domain->fresh()->registrar_meta)->toBeNull()->and(ActivityLog::query()->where('event', 'domain.order_linked')->exists())->toBeFalse();
+});
+
+test('a domain the client registers at the registry is refused by the host before the registrar is asked', function () {
+    actingAsStaff(['domains.*']);
+    confirmPassword();
+    $np = Tld::factory()->extension('.com.np')->priced()->create(['registrar_key' => 'fake', 'registered_by_client' => true]);
+    $domain = Domain::factory()->create(['tld_id' => $np->id, 'registrar_key' => 'fake', 'status' => DomainStatus::Active]);
+
+    $this->post(route('admin.domains.link-order', $domain), ['order_id' => '80000001'])->assertSessionHasErrors('order_id');
+
+    expect($this->registrar->calls)->toBe([])->and($domain->fresh()->registrar_meta)->toBeNull();
 });
