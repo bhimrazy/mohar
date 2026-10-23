@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Errors\BrandedErrorPage;
-use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Support\Facades\Route;
 use Inertia\Testing\AssertableInertia as Assert;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
@@ -66,8 +65,10 @@ test('an Inertia partial request gets the branded page too, without the exceptio
     config(['app.debug' => false]);
     Route::get('/client/_500x', fn () => throw new RuntimeException('select * from secrets'))->middleware('web');
     actingAsClient();
+    // The version a browser holds comes from a page it loaded; computed outside a request it can differ (CI got 409).
+    $version = (string) ($this->get(route('client.dashboard'), HTML)->viewData('page')['version'] ?? '');
 
-    $response = $this->get('/client/_500x', [...HTML, 'X-Inertia' => 'true', 'X-Inertia-Version' => app(HandleInertiaRequests::class)->version(request()), 'X-Inertia-Partial-Component' => 'client/dashboard', 'X-Inertia-Partial-Data' => 'client'])->assertStatus(500);
+    $response = $this->get('/client/_500x', [...HTML, 'X-Inertia' => 'true', 'X-Inertia-Version' => $version, 'X-Inertia-Partial-Component' => 'client/dashboard', 'X-Inertia-Partial-Data' => 'client'])->assertStatus(500);
 
     expect($response->getContent())->toContain('auth\/error')->not->toContain('select * from secrets');
 });
