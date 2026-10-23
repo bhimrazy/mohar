@@ -58,3 +58,5 @@ test('the scan recognises the writes it forbids', function (string $code) {
     'TaxNote::withoutEvents(fn () => 1);',
     '$notes = TaxNote::query()->where("id", 1);',
 ]);
+
+afterAll(fn () => releaseArchCache());
