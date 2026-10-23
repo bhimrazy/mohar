@@ -437,8 +437,10 @@ class BillingDashboard
         $total = [];
 
         foreach ($daily as $code => $days) {
+            $convert = $rollup->converter((string) $code);
+
             foreach ($days as $day => $amount) {
-                $total[$day] = ($total[$day] ?? 0) + ($rollup->toDefault($amount, $code) ?? 0);
+                $total[$day] = ($total[$day] ?? 0) + ($convert === null ? 0 : $convert($amount));
             }
         }
 

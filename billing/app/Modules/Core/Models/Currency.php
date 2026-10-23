@@ -152,13 +152,69 @@ class Currency extends Model
      */
     public function convertTo(int $amount, self $target): int
     {
-        $shift = $target->decimals - $this->decimals;
+        return ($this->converterTo($target))($amount);
+    }
 
-        // Exact decimal maths (no overflow, no floats), rounded half up once.
-        return (int) Decimal::divide(
-            Decimal::multiply(Decimal::multiply((string) $amount, (string) $target->exchange_rate), '1'.str_repeat('0', max(0, $shift))),
-            Decimal::multiply((string) $this->exchange_rate, '1'.str_repeat('0', max(0, -$shift))),
-            0,
-        );
+    /**
+     * convertTo() with the rate arithmetic done once: for converting many amounts (a daily series) between the same
+     * two currencies. Each call returns exactly what convertTo() would return with the decimal-string arithmetic
+     * (rounded half up, away from zero): the factors that do not depend on the amount are multiplied out first, and
+     * while the intermediate products fit in a PHP integer the division is done on integers, which is far cheaper.
+     *
+     * @return \Closure(int): int
+     */
+    public function converterTo(self $target): \Closure
+    {
+        $shift = $target->decimals - $this->decimals;
+        $numerator = Decimal::multiply((string) $target->exchange_rate, '1'.str_repeat('0', max(0, $shift)));
+        $denominator = Decimal::multiply((string) $this->exchange_rate, '1'.str_repeat('0', max(0, -$shift)));
+        $exact = fn (int $amount): int => (int) Decimal::divide(Decimal::multiply((string) $amount, $numerator), $denominator, 0);
+
+        // amount × (n / 10^a) ÷ (d / 10^b) = amount × (n × 10^b) ÷ (d × 10^a), with n, d, a, b whole numbers.
+        $n = self::wholeAndScale($numerator);
+        $d = self::wholeAndScale($denominator);
+
+        if ($n === null || $d === null || $d[0] === 0 || $n[1] + $d[1] > 15) {
+            return $exact;
+        }
+
+        $factor = $n[0] * 10 ** $d[1];
+        $divisor = $d[0] * 10 ** $n[1];
+
+        if ($factor <= 0 || $divisor <= 0 || $factor > intdiv(PHP_INT_MAX, 4)) {
+            return $exact;
+        }
+
+        $limit = intdiv(PHP_INT_MAX - $divisor, 2 * $factor);
+
+        return function (int $amount) use ($exact, $factor, $divisor, $limit): int {
+            $magnitude = abs($amount);
+
+            if ($magnitude > $limit) {
+                return $exact($amount);
+            }
+
+            $rounded = intdiv(2 * $magnitude * $factor + $divisor, 2 * $divisor);
+
+            return $amount < 0 ? -$rounded : $rounded;
+        };
+    }
+
+    /**
+     * A non-negative decimal string as [digits as an integer, number of decimals], or null when it has too many
+     * digits for an integer or is not a plain decimal.
+     *
+     * @return array{0: int, 1: int}|null
+     */
+    private static function wholeAndScale(string $value): ?array
+    {
+        if (preg_match('/^\+?(\d+)(?:\.(\d+))?$/', $value, $m) !== 1) {
+            return null;
+        }
+
+        $fraction = rtrim($m[2] ?? '', '0');
+        $digits = ltrim($m[1].$fraction, '0');
+
+        return strlen($digits) > 15 ? null : [(int) ($digits === '' ? '0' : $digits), strlen($fraction)];
     }
 }
