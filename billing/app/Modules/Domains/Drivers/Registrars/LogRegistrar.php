@@ -4,6 +4,7 @@ namespace App\Modules\Domains\Drivers\Registrars;
 
 use App\Contracts\Domains\Registrar\ChecksAvailability;
 use App\Contracts\Domains\Registrar\DeclaresTldAttributes;
+use App\Contracts\Domains\Registrar\LinksExistingOrders;
 use App\Contracts\Domains\Registrar\ManagesContacts;
 use App\Contracts\Domains\Registrar\ManagesIdProtection;
 use App\Contracts\Domains\Registrar\ManagesLock;
@@ -21,6 +22,7 @@ use App\Data\Domains\Registrar\ContactSet;
 use App\Data\Domains\Registrar\DomainInfo;
 use App\Data\Domains\Registrar\DomainRef;
 use App\Data\Domains\Registrar\EppCodeResult;
+use App\Data\Domains\Registrar\LinkedOrder;
 use App\Data\Domains\Registrar\RegistrarConfig;
 use App\Data\Domains\Registrar\RegistrarResult;
 use App\Data\Domains\Registrar\RegistrationRequest;
@@ -55,7 +57,7 @@ use InvalidArgumentException;
  *
  * The reference implementation: it implements every capability, so the contract dataset covers each of them.
  */
-class LogRegistrar implements ChecksAvailability, DeclaresTldAttributes, ManagesContacts, ManagesIdProtection, ManagesLock, ManagesNameservers, ProvidesEppCode, ReconcilesSubmissions, RegistrarDriver, RestoresDomains, SuggestsNames, SyncsDomains, TestsRegistrarConnection, TransfersDomains
+class LogRegistrar implements ChecksAvailability, DeclaresTldAttributes, LinksExistingOrders, ManagesContacts, ManagesIdProtection, ManagesLock, ManagesNameservers, ProvidesEppCode, ReconcilesSubmissions, RegistrarDriver, RestoresDomains, SuggestsNames, SyncsDomains, TestsRegistrarConnection, TransfersDomains
 {
     public function key(): string
     {
@@ -248,6 +250,17 @@ class LogRegistrar implements ChecksAvailability, DeclaresTldAttributes, Manages
         $base = $domain->expiryDate ?? CarbonImmutable::today();
 
         return new TransferSyncResult(completed: true, expiryDate: $base->addYearsNoOverflow(1));
+    }
+
+    public function lookupOrder(RegistrarConfig $config, DomainRef $domain, string $orderId): LinkedOrder
+    {
+        $this->log('link_order', ['domain' => $domain->name, 'order_id' => $orderId]);
+
+        if (str_contains($domain->sld, 'taken')) {
+            throw new RegistrarException("Order {$orderId} is for another name, not {$domain->name}. Nothing was linked.");
+        }
+
+        return new LinkedOrder(['order_id' => (int) $orderId], 'active', $domain->expiryDate);
     }
 
     public function findSubmission(RegistrarConfig $config, DomainRef $domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup

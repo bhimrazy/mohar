@@ -89,6 +89,12 @@ Dry runs read without locks and write nothing (ADR 0019).
 - **Identity documents (KYC):** client, then its `kyc_documents` rows. `StoreDocument` (upload or replace),
   `DecideDocument` (staff approve or decline), the retention listener and `kyc:reencode-images` (`StoredImageReencoder`,
   #287; race test `ReencodeStoredImagesRaceTest`) all lock the client first.
+- **Linking a registrar order to a domain (#365):** the order's cache lock (`domains:link-order:<registrar>:<id>`) and the
+  domain's registrar lock (`DomainRegistrarLock`) are taken first and span the registrar call, so both last as long as
+  `DomainRegistrarLock::TTL`. Inside the transaction, every `domains` row of the same registrar and name (deleted ones
+  included) is locked in one query in ascending id, then "no other row holds the order" is checked again and the order id
+  is written. Rows of one name are the only ones that can compete for an order, because the driver accepts an order of
+  exactly the domain's name. Test: `LinkOrderRaceTest` (two processes, PostgreSQL).
 - A new path that locks more than one table states its order in the action's docblock and is added to this list.
 
 ### 4. Test obligation
