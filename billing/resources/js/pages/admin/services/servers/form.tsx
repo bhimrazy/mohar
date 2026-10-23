@@ -411,6 +411,7 @@ export default function ServerForm({
                                         error={
                                             errorsByKey[`settings.${field.key}`]
                                         }
+                                        checkMinLength
                                     />
                                 ))}
                             {shows('username') && (
@@ -588,6 +589,14 @@ export default function ServerForm({
                                                         field.key
                                                     ]
                                                 }
+                                                secretShort={
+                                                    server?.driver ===
+                                                        data.driver &&
+                                                    server.settings.secrets_short.includes(
+                                                        field.key,
+                                                    )
+                                                }
+                                                checkMinLength
                                                 error={
                                                     errorsByKey[
                                                         `settings.${field.key}`

@@ -6,6 +6,8 @@ use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Services\Models\Server;
+use App\Support\Integrations\SecretMinimumLength;
+use App\Support\Integrations\StoredSecrets;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -113,6 +115,7 @@ class ServerSettings
                 default => ['string', 'max:2000'],
             },
             ...($field->key === self::CERTIFICATE_PIN ? ['regex:#^(sha256//)?[A-Za-z0-9+/]{43}=\z#'] : []),
+            ...($field->isSecret() ? [new SecretMinimumLength($field)] : []),
         ];
     }
 
@@ -209,9 +212,10 @@ class ServerSettings
     }
 
     /**
-     * Form values: non-secret settings, and for each secret only whether a value is stored.
+     * Form values: non-secret settings, for each secret only whether a value is stored, and the keys of stored
+     * secrets shorter than their minimum.
      *
-     * @return array{values: array<string, string>, secrets_set: array<string, bool>}
+     * @return array{values: array<string, string>, secrets_set: array<string, bool>, secrets_short: list<string>}
      */
     public function forForm(Server $server): array
     {
@@ -234,7 +238,7 @@ class ServerSettings
             };
         }
 
-        return ['values' => $values, 'secrets_set' => $set];
+        return ['values' => $values, 'secrets_set' => $set, 'secrets_short' => StoredSecrets::tooShort($this->fields($server->driver), $server->settings ?? [])];
     }
 
     private function cast(SettingField $field, mixed $value): mixed

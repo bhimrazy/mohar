@@ -1,6 +1,7 @@
 import { useForm } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import { PlugZap, Server } from 'lucide-react';
+import { useState } from 'react';
 import type { FormEvent } from 'react';
 import RegistrarController from '@/actions/App/Modules/Domains/Http/Controllers/Admin/RegistrarController';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
@@ -23,6 +24,10 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { capabilityLabel } from '@/components/domains/capabilities';
+import {
+    secretLengthError,
+    shortSecretHint,
+} from '@/components/app/setting-field';
 import type { SettingFieldData } from '@/components/app/setting-field';
 
 type Registrar = {
@@ -35,6 +40,8 @@ type Registrar = {
     schema: SettingFieldData[];
     settings: Record<string, string | number | boolean | null>;
     secrets_set: Record<string, boolean>;
+    /** Keys of stored secrets shorter than their minimum. */
+    secrets_short: string[];
     domains_count: number;
     tlds_count: number;
 };
@@ -46,6 +53,7 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
         settings: registrar.settings,
     });
     const errors = form.errors as Record<string, string | undefined>;
+    const [touched, setTouched] = useState<Record<string, boolean>>({});
 
     const setSetting = (key: string, value: string | boolean) =>
         form.setData('settings', { ...form.data.settings, [key]: value });
@@ -122,8 +130,12 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                 <div className="grid items-start gap-4 sm:grid-cols-2">
                     {registrar.schema.map((field) => {
                         const id = `${registrar.key}-${field.key}`;
-                        const error = errors[`settings.${field.key}`];
                         const value = form.data.settings[field.key];
+                        const error =
+                            errors[`settings.${field.key}`] ??
+                            (touched[field.key] && typeof value === 'string'
+                                ? secretLengthError(field, value)
+                                : undefined);
 
                         return (
                             <Field
@@ -134,7 +146,11 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                                 hint={
                                     field.secret &&
                                     registrar.secrets_set[field.key]
-                                        ? 'Saved. Leave empty to keep it.'
+                                        ? registrar.secrets_short.includes(
+                                              field.key,
+                                          )
+                                            ? shortSecretHint(field)
+                                            : 'Saved. Leave empty to keep it.'
                                         : (field.help ?? undefined)
                                 }
                             >
@@ -190,6 +206,12 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                                                 field.key,
                                                 event.target.value,
                                             )
+                                        }
+                                        onBlur={() =>
+                                            setTouched((current) => ({
+                                                ...current,
+                                                [field.key]: true,
+                                            }))
                                         }
                                         aria-invalid={!!error}
                                         aria-describedby={`${id}-description`}

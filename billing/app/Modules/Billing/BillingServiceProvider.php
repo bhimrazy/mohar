@@ -11,6 +11,7 @@ use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Billing\TaxIdRules;
 use App\Contracts\Core\CompanyClock;
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Data\Integrations\SettingField;
 use App\Enums\BillableType;
 use App\Events\Orders\OrderAccepted;
 use App\Models\User;
@@ -46,6 +47,7 @@ use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Install\ReferenceDataRegistry;
+use App\Support\Integrations\StoredSecrets;
 use App\Support\Migration\ImportRegistry;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Money;
@@ -104,6 +106,17 @@ class BillingServiceProvider extends ModuleServiceProvider
         $encrypted->register('billing_gateways', new EncryptedModel(Gateway::class));
         $encrypted->register('billing_pay_methods', new EncryptedModel(PayMethod::class));
         $encrypted->register('billing_payment_attempts', new EncryptedModel(PaymentAttempt::class));
+
+        // Stored gateway credentials checked against their minimum length (`integrations:short-secrets`).
+        $this->app->make(StoredSecrets::class)->register('gateways', function (): iterable {
+            $gateways = $this->app->make(GatewayManager::class);
+
+            foreach (Gateway::query()->orderBy('key')->get() as $gateway) {
+                if ($gateways->has($gateway->key)) {
+                    yield ['owner' => $gateway->display_name, 'fields' => array_map(SettingField::fromArray(...), $gateways->driver($gateway->key)->settingsFields()), 'values' => $gateway->config ?? []];
+                }
+            }
+        });
 
         $this->app->make(ReferenceDataRegistry::class)->register(RegionalTaxDefaults::KEY, RegionalTaxDefaults::class, order: 110);
 

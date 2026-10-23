@@ -41,10 +41,12 @@ use App\Modules\Services\Services\EloquentClientServiceDirectory;
 use App\Modules\Services\Services\EloquentServiceRegistry;
 use App\Modules\Services\Services\RegistryProvisioningDrivers;
 use App\Modules\Services\Support\ClientNameservers;
+use App\Modules\Services\Support\ServerSettings;
 use App\Modules\Services\Support\ServicesDashboard;
 use App\Support\Automation\Automation;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Integrations\StoredSecrets;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
@@ -91,6 +93,15 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $drivers->register('none', NoneDriver::class);
         $drivers->register('log', LogDriver::class);
         $drivers->register(CpanelDriver::KEY, CpanelDriver::class);
+
+        // Stored server settings checked against their minimum length (`integrations:short-secrets`).
+        $this->app->make(StoredSecrets::class)->register('servers', function (): iterable {
+            $settings = $this->app->make(ServerSettings::class);
+
+            foreach (Server::query()->whereNotNull('settings')->lazyById() as $server) {
+                yield ['owner' => "{$server->name} (#{$server->id})", 'fields' => $settings->fields($server->driver), 'values' => $server->settings ?? []];
+            }
+        });
 
         // A service's prices are stored in its client's currency (client-import spec §6.4); a deleted one still counts.
         $this->app->make(ClientCurrencyUsage::class)->register('services', fn (array $clientIds): array => Service::withTrashed()
