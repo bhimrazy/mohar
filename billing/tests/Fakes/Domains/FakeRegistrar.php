@@ -3,6 +3,7 @@
 namespace Tests\Fakes\Domains;
 
 use App\Contracts\Domains\Registrar\RegistrarDriver;
+use App\Contracts\Domains\Registrar\StandaloneRegistrar;
 use App\Contracts\Integrations\IntegrationDriver;
 use App\Data\Domains\Registrar\RegistrationRequest;
 use App\Data\Integrations\SettingField;
@@ -101,7 +102,7 @@ class FakeRegistrar
         $fixtures = [];
 
         foreach ([CoreOnlyRegistrar::class, SyncingRegistrar::class, NameserverRegistrar::class, NameserverEppRegistrar::class, NameserverSyncingRegistrar::class, FullRegistrar::class, FullWithoutAttributesRegistrar::class, ReconcilingRegistrar::class, LinkingRegistrar::class] as $class) {
-            $interfaces = array_values(array_diff((array) class_implements($class), [RegistrarDriver::class, IntegrationDriver::class]));
+            $interfaces = array_values(array_diff((array) class_implements($class), [RegistrarDriver::class, IntegrationDriver::class, StandaloneRegistrar::class]));
             sort($interfaces);
             $fixtures[implode(',', $interfaces)] = $class;
         }

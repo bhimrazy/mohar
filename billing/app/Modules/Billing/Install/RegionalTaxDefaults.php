@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Install;
 
+use App\Contracts\Install\InstallMarkers;
 use App\Contracts\Install\InstallsReferenceData;
 use App\Data\Install\ReferenceDataResult;
 use App\Modules\Billing\Models\TaxRule;
@@ -9,7 +10,7 @@ use App\Modules\Core\Support\Settings;
 
 /**
  * Tax and invoice defaults for a first install, following the country the Core installer stored (the marker setting
- * `core.regional_defaults`, written only on a first install). The seller's tax country becomes that country. For
+ * `InstallMarkers::REGIONAL_COUNTRY`, written only on a first install). The seller's tax country becomes that country. For
  * Nepal it also adds a VAT rule of 13% and numbers invoices INV-00001. Tax itself stays off until staff turn it on in
  * Settings → Billing → Tax: charging VAT depends on the company's registration. An installation without the marker,
  * or one that already stores a tax country, is left alone, and a rule staff deleted is not created again.
@@ -17,8 +18,6 @@ use App\Modules\Core\Support\Settings;
 final class RegionalTaxDefaults implements InstallsReferenceData
 {
     public const KEY = 'billing_regional_tax';
-
-    private const MARKER = 'core.regional_defaults';
 
     public function __construct(private Settings $settings) {}
 
@@ -34,7 +33,7 @@ final class RegionalTaxDefaults implements InstallsReferenceData
 
     public function install(): ReferenceDataResult
     {
-        $country = $this->settings->all()[self::MARKER] ?? null;
+        $country = $this->settings->all()[InstallMarkers::REGIONAL_COUNTRY] ?? null;
 
         if (! is_string($country) || $country === '' || array_key_exists('billing.tax.home_country', $this->settings->all())) {
             return new ReferenceDataResult(unchanged: 1);

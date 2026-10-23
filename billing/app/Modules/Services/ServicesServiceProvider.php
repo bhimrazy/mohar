@@ -11,6 +11,13 @@ use App\Contracts\Services\ServiceRegistry;
 use App\Events\Billing\InvoiceCancelled;
 use App\Events\Billing\InvoicePaid;
 use App\Events\Orders\OrderPlaced;
+use App\Events\Services\ServiceActivated;
+use App\Events\Services\ServiceCancelled;
+use App\Events\Services\ServiceRenewed;
+use App\Events\Services\ServiceSuspended;
+use App\Events\Services\ServiceTerminated;
+use App\Events\Services\ServiceUnsuspended;
+use App\Events\Services\ServiceUpgraded;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\RequestMemo;
@@ -46,6 +53,7 @@ use App\Modules\Services\Support\ServicesDashboard;
 use App\Support\Automation\Automation;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Events\WebhookEvents;
 use App\Support\Integrations\StoredSecrets;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
@@ -82,6 +90,15 @@ class ServicesServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $webhooks = $this->app->make(WebhookEvents::class);
+        $webhooks->register(ServiceActivated::class, 'service.activated', 'service', 'serviceId');
+        $webhooks->register(ServiceSuspended::class, 'service.suspended', 'service', 'serviceId');
+        $webhooks->register(ServiceUnsuspended::class, 'service.unsuspended', 'service', 'serviceId');
+        $webhooks->register(ServiceRenewed::class, 'service.renewed', 'service', 'serviceId');
+        $webhooks->register(ServiceUpgraded::class, 'service.upgraded', 'service', 'serviceId');
+        $webhooks->register(ServiceCancelled::class, 'service.cancelled', 'service', 'serviceId');
+        $webhooks->register(ServiceTerminated::class, 'service.terminated', 'service', 'serviceId');
+
         // Encrypted casts, for `security:reencrypt` (ADR 0022).
         $encrypted = $this->app->make(EncryptedStorage::class);
         $encrypted->register('services_servers', new EncryptedModel(Server::class));

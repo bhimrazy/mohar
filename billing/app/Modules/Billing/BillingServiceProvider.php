@@ -13,6 +13,16 @@ use App\Contracts\Core\CompanyClock;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Data\Integrations\SettingField;
 use App\Enums\BillableType;
+use App\Events\Billing\InvoiceCancelled;
+use App\Events\Billing\InvoiceCreated;
+use App\Events\Billing\InvoiceOverdue;
+use App\Events\Billing\InvoicePaid;
+use App\Events\Billing\InvoiceRefunded;
+use App\Events\Billing\PaymentFailed;
+use App\Events\Billing\PaymentReceived;
+use App\Events\Billing\PaymentReinstated;
+use App\Events\Billing\PaymentReversed;
+use App\Events\Billing\QuoteAccepted;
 use App\Events\Orders\OrderAccepted;
 use App\Models\User;
 use App\Modules\Billing\Drivers\Gateways\BankTransferDriver;
@@ -46,6 +56,7 @@ use App\Support\Automation\Automation;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Events\WebhookEvents;
 use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Integrations\StoredSecrets;
 use App\Support\Migration\ImportRegistry;
@@ -103,6 +114,18 @@ class BillingServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $webhooks = $this->app->make(WebhookEvents::class);
+        $webhooks->register(InvoiceCreated::class, 'invoice.created', 'invoice', 'invoiceId');
+        $webhooks->register(InvoicePaid::class, 'invoice.paid', 'invoice', 'invoiceId');
+        $webhooks->register(InvoiceOverdue::class, 'invoice.overdue', 'invoice', 'invoiceId');
+        $webhooks->register(InvoiceCancelled::class, 'invoice.cancelled', 'invoice', 'invoiceId');
+        $webhooks->register(InvoiceRefunded::class, 'invoice.refunded', 'invoice', 'invoiceId');
+        $webhooks->register(PaymentReceived::class, 'payment.received', 'transaction', 'transactionId');
+        $webhooks->register(PaymentFailed::class, 'payment.failed', 'invoice', 'invoiceId');
+        $webhooks->register(PaymentReversed::class, 'payment.reversed', 'transaction', 'transactionId');
+        $webhooks->register(PaymentReinstated::class, 'payment.reinstated', 'transaction', 'transactionId');
+        $webhooks->register(QuoteAccepted::class, 'quote.accepted', 'quote', 'quoteId');
+
         // Encrypted casts, for `security:reencrypt` (ADR 0022).
         $encrypted = $this->app->make(EncryptedStorage::class);
         $encrypted->register('billing_gateways', new EncryptedModel(Gateway::class));

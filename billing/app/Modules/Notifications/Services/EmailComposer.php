@@ -372,6 +372,26 @@ class EmailComposer
         ];
     }
 
+    /**
+     * The subject line of a template filled with sample data, for lists. Falls back to the source when it can't render.
+     *
+     * @param  array<string, mixed>  $context
+     */
+    public function sampleSubject(EmailTemplate $template, string $locale, array $context): ?string
+    {
+        $source = $template->hasFixedSubject() ? self::FIXED_SUPPORT_SUBJECT : $template->translationFor($locale, $this->defaultLocale())?->subject;
+
+        if ($source === null) {
+            return null;
+        }
+
+        try {
+            return $this->subjectLine($this->engine->render($source, SecretTemplatePolicy::neutraliseUntrusted(SecretTemplatePolicy::prepareContext($context)), false, $this->options($locale, $context))->output);
+        } catch (TemplateSyntaxError) {
+            return $source;
+        }
+    }
+
     private function subjectLine(string $rendered): string
     {
         return Str::limit(trim((string) preg_replace('/\s+/', ' ', $rendered)), 250, '');
