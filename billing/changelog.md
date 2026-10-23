@@ -8,6 +8,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **Simulators no longer fail to start at random (#370).** A scenario's `scenario.json` is now written to a temporary file and renamed into place. Rewriting it in place (after the processes were spawned) could let a starting process read it empty, which failed CI with "did not become ready". Test-only tooling; no app change.
+
+- **Report PDFs: long names wrap, headings line up, dates sit next to the next column (#357).** A long text cell (a legal
+  name) now wraps inside its column, and ends in an ellipsis once it would take more than four lines, instead of being
+  cut mid-word with no marker; the CSV always holds the full text. The cut never splits a character (a Devanagari
+  conjunct or an emoji sequence). Pages are planned from the printed height of each row, measured with the PDF font's
+  real glyph widths (so all-capital names, which are wider, still fit), and the header block, page totals and grand
+  totals count in that height, so the PDF has the pages the export planned; a page with tall rows holds fewer rows.
+  Numeric headings (quantity, amounts) are right-aligned like their figures; dates and times are left-aligned in a
+  narrow column. "Printed by ... at ..." shows the company time zone, as before (now covered by a test). A report with
+  its own PDF table view is paged as if it used the default column widths. No schema, permission or setting change.
 - **Services follows the company calendar (#344, ADR 0013 Amendment 1).** Services no longer reads the UTC date. For a Kathmandu company, between 00:00 and 05:45 local time, these used the previous day and now use the company day: when a service counts as overdue (the list flag, the overdue filter, the renewals widget and the unsuspend-on-payment check), the date of an immediate cancellation, a new add-on, a terminated service, an ordered service and an imported account (its registration date and default due date), the check that an import's next due date is not in the past, and the module-log prune cutoff. The upgrade and downgrade proration now starts a period at the company midnight, so a change applied in the first hours of the period's first day is counted in the quote. The Services dashboard's MRR history picked the wrong month ends on the 29th to the 31st of a month; it now uses the previous month, and its 12-month window compares timestamps with the company day start. Upgrade notes: no schema or permission change; stored dates are not rewritten. The UTC-date scan in `CompanyClockScanTest` now covers `app/Modules/Services`, and its timestamp-column check also matches table-qualified names such as `services.updated_at`. Known gap: the MRR query still takes the ended day of a service with `date(updated_at)` in SQL (the UTC date); it moves with the dashboards' `dayBounds()` migration.
 - **The storefront cart and checkout no longer scroll sideways on phones, and the checkout sidebar price stays inside its card (#353).** The two-column layout let long rows widen the page to 411-425 px at 390 px; the columns now shrink to the screen (checked at 360, 390 and 1440 px, light and dark). Domain names in the checkout summary and cart lines wrap instead of being cut off, so two domains that differ only by extension read differently. No schema, setting or permission change.
 
