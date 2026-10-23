@@ -102,7 +102,7 @@ final class EsewaApi
         }
 
         $booking = $this->booking($productCode.':'.$uuid);
-        $found = $booking !== null && (int) ($booking['settled'] ?? $booking['total']) === $asked && ! in_array($booking['status'], ['CANCELED', 'EXPIRED'], true);
+        $found = $booking !== null && (int) ($booking['settled'] ?? $booking['total']) === $asked && ! in_array($booking['status'], ['CANCELED', 'EXPIRED', 'NOT_FOUND'], true);
 
         // A JSON number that keeps its ".0", as eSewa's answers do (100.0).
         return new Response(200, ['Content-Type' => 'application/json'], (string) json_encode([
@@ -175,7 +175,8 @@ final class EsewaApi
 
     /**
      * What eSewa later does to a booking: `COMPLETE` (paid after the customer left the page), `EXPIRED` (the booking
-     * timed out), `AMBIGUOUS` (halted), `FULL_REFUND` or `PARTIAL_REFUND` (made in the merchant portal).
+     * timed out), `AMBIGUOUS` (halted), `NOT_FOUND` (the status check stops finding the booking, whatever it showed before:
+     * a paid one it no longer matches, or one that was halted), `FULL_REFUND` or `PARTIAL_REFUND` (made in the merchant portal).
      */
     public function settle(string $productCode, string $uuid, string $status): string
     {
@@ -183,6 +184,7 @@ final class EsewaApi
             $booking = $this->booking($productCode.':'.$uuid) ?? throw new \InvalidArgumentException("No booking {$uuid}.");
             $allowed = match ($status) {
                 'COMPLETE', 'EXPIRED', 'AMBIGUOUS' => in_array($booking['status'], ['PENDING', 'AMBIGUOUS'], true),
+                'NOT_FOUND' => in_array($booking['status'], ['PENDING', 'AMBIGUOUS', 'COMPLETE'], true),
                 'FULL_REFUND', 'PARTIAL_REFUND' => in_array($booking['status'], ['COMPLETE', 'PARTIAL_REFUND'], true),
                 default => false,
             };

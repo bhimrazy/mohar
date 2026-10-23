@@ -3,6 +3,7 @@
 use App\Contracts\Domains\DomainRegistry;
 use App\Contracts\Domains\TldAttributes;
 use App\Data\Domains\DomainDraft;
+use App\Data\Domains\Registrar\RegistrarResult;
 use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Events\Domains\RegistrarActionFailed;
@@ -353,6 +354,56 @@ test('an answer is masked however the registry regrouped, punctuated or re-cased
     'spaced and re-cased' => ['tm-abc-1234', 'Tm Abc 1234'],
     'separators dropped and re-cased' => ['tm-abc-1234', 'TMABC1234'],
 ]);
+
+test('an answer a registry echoes in the meta of a result, however regrouped, does not reach the command log; remote ids are kept as they are', function (string $typed, string $echoed) {
+    $domain = Domain::query()->findOrFail(app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P1', 'id' => $typed, 'warranty' => '1'])));
+    $this->registrar->will('register', new RegistrarResult(
+        'completed',
+        message: 'Registered.',
+        meta: ['registry_note' => "Nexus checked for {$echoed}", 'nested' => ['again' => [$echoed, 7, true]], 'order_total' => 12],
+        remote: ['order_id' => 9182, 'reference' => 'ref-9182'],
+    ));
+
+    app(SubmitToRegistrar::class)->handle($domain);
+
+    $response = (string) json_encode(RegistrarCommandLog::query()->where('command', 'register')->value('response'));
+
+    expect(leaksIn(['command log response' => $response], [$echoed]))->toBe([])
+        ->and($response)->toContain('Nexus checked for')->toContain('order_total')
+        ->and($domain->fresh()->registrar_meta['remote'])->toBe(['order_id' => 9182, 'reference' => 'ref-9182']);
+})->with([
+    'regrouped' => ['51 824 753 556', '518 247 535 56'],
+    'dashed' => ['51 824 753 556', '51-824-753-556'],
+    're-cased' => ['tm-abc-1234', 'Tm Abc 1234'],
+]);
+
+test('meta nested deeper than the cap is withheld whole, and an answer deeper than that never shows', function () {
+    $domain = Domain::query()->findOrFail(app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P1', 'id' => NEXUS_ID, 'warranty' => '1'])));
+    $deep = ['leaf' => '518 247 535 56'];
+
+    foreach (range(1, 12) as $ignored) {
+        $deep = ['down' => $deep];
+    }
+
+    $this->registrar->will('register', new RegistrarResult('completed', meta: ['shallow' => 'ok', 'deep' => $deep]));
+
+    app(SubmitToRegistrar::class)->handle($domain);
+
+    $response = (string) json_encode(RegistrarCommandLog::query()->where('command', 'register')->value('response'));
+
+    expect($response)->not->toContain('535')->toContain('shallow');
+});
+
+test('a four-character answer masks the same characters wherever they appear, in the message too', function () {
+    $domain = Domain::query()->findOrFail(app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P1', 'id' => '2026', 'warranty' => '1'])));
+    $this->registrar->will('register', new RegistrarResult('completed', message: 'Expires in 2026.', meta: ['year' => 'valid until 2026']));
+
+    app(SubmitToRegistrar::class)->handle($domain);
+
+    $response = (string) json_encode(RegistrarCommandLog::query()->where('command', 'register')->value('response'));
+
+    expect($response)->not->toContain('2026')->toContain('valid until');
+});
 
 test('a registry message with invalid UTF-8 keeps its words and still masks the answer', function () {
     $domain = Domain::query()->findOrFail(app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P1', 'id' => NEXUS_ID, 'warranty' => '1'])));

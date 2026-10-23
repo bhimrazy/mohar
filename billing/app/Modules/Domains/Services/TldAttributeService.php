@@ -11,6 +11,7 @@ use App\Enums\FieldType;
 use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\Tld;
 use App\Support\Domains\RegistrarDriverRegistry;
+use App\Support\Integrations\RedactionSet;
 use App\Support\Integrations\Redactor;
 use Closure;
 use Error;
@@ -37,6 +38,9 @@ class TldAttributeService implements TldAttributes
 
     /** Shortest free-text value the host masks in registrar errors (shorter ones would mask ordinary words). */
     private const MIN_MASKED = 4;
+
+    /** Nesting of `meta` and `remote` that is masked; anything deeper is replaced whole rather than shown unchecked. */
+    private const MAX_DEPTH = 8;
 
     /** Characters a registry may drop, add or move when it echoes an identifier: space, dash, dot, slash, underscore. */
     private const SEPARATORS = '[\\s\\-.\\/_]';
@@ -235,9 +239,10 @@ class TldAttributeService implements TldAttributes
     }
 
     /**
-     * Runs a registrar call and masks the free-text answers in what it raises or returns, however the registry
-     * echoed them: regrouped (`518 247 535 56`), dashed, dotted, slashed or in another case. The gateway then masks
-     * the exact forms again. The message of the exception and of each exception behind it is rewritten in place,
+     * Runs a registrar call and masks the free-text answers in what it raises or returns (the message and `meta` of a
+     * result; `remote` holds registrar ids and is never masked), however the registry echoed them (the kernel answer
+     * rules of RedactionSet: regrouped, any separators, percent-encoded, Devanagari digits, any case). The gateway then
+     * masks the exact forms again. The message of the exception and of each exception behind it is rewritten in place,
      * keeping its class and flags.
      *
      * @template T
@@ -248,9 +253,9 @@ class TldAttributeService implements TldAttributes
      */
     public function guard(string $tld, array $answers, Closure $call): mixed
     {
-        $patterns = $this->patterns($tld, $answers);
+        $set = RedactionSet::of([], $this->freeText($tld, $answers));
 
-        if ($patterns === []) {
+        if ($set->isEmpty()) {
             return $call();
         }
 
@@ -258,7 +263,7 @@ class TldAttributeService implements TldAttributes
             $result = $call();
         } catch (Throwable $exception) {
             for ($link = $exception, $hops = 0; $link !== null && $hops < 16; $link = $link->getPrevious(), $hops++) {
-                $masked = $this->maskText($patterns, $link->getMessage());
+                $masked = $set->mask($link->getMessage());
 
                 if ($masked !== $link->getMessage()) {
                     (new ReflectionProperty($link instanceof Exception ? Exception::class : Error::class, 'message'))->setValue($link, $masked);
@@ -268,40 +273,7 @@ class TldAttributeService implements TldAttributes
             throw $exception;
         }
 
-        return $result instanceof RegistrarResult && $result->message !== null ? $result->withMessage($this->maskText($patterns, $result->message)) : $result;
-    }
-
-    /**
-     * Invalid UTF-8 from the registry is scrubbed first: a `/u` pattern fails on it and would otherwise blank the whole
-     * message. If a pattern still fails, the message is withheld rather than shown unmasked.
-     *
-     * @param  list<string>  $patterns
-     */
-    private function maskText(array $patterns, string $text): string
-    {
-        return preg_replace($patterns, Redactor::MASK, mb_scrub($text, 'UTF-8')) ?? Redactor::MASK;
-    }
-
-    /**
-     * One case-insensitive pattern per free-text answer: its letters and digits in order, with any run of
-     * separators between them.
-     *
-     * @param  array<string, string>  $answers
-     * @return list<string>
-     */
-    private function patterns(string $tld, array $answers): array
-    {
-        $patterns = [];
-
-        foreach ($this->freeText($tld, $answers) as $value) {
-            $core = preg_split('//u', self::stripped($value), -1, PREG_SPLIT_NO_EMPTY) ?: [];
-
-            if (count($core) >= self::MIN_MASKED) {
-                $patterns[] = '/'.implode(self::SEPARATORS.'*', array_map(fn (string $char): string => preg_quote($char, '/'), $core)).'/iu';
-            }
-        }
-
-        return $patterns;
+        return $result instanceof RegistrarResult ? $result->mapText(fn (string $text): string => $set->mask($text), Redactor::MASK, self::MAX_DEPTH) : $result;
     }
 
     /**
@@ -350,12 +322,21 @@ class TldAttributeService implements TldAttributes
     }
 
     /**
-     * Capable registrars whose account exists and is switched off (no account counts as on, as in isActive()).
+     * Capable registrars that are switched off, or need an account and have none (as in RegistrarManager::isActive()).
      *
      * @return list<string>
      */
     private function disabledKeys(): array
     {
-        return $this->disabled ??= $this->capableKeys() === [] ? [] : array_values(array_map(strval(...), RegistrarAccount::query()->whereIn('key', $this->capableKeys())->where('is_active', false)->pluck('key')->all()));
+        if ($this->disabled !== null) {
+            return $this->disabled;
+        }
+
+        $accounts = $this->capableKeys() === [] ? collect() : RegistrarAccount::query()->whereIn('key', $this->capableKeys())->pluck('is_active', 'key');
+
+        return $this->disabled = array_values(array_filter(
+            $this->capableKeys(),
+            fn (string $key): bool => $accounts->has($key) ? ! $accounts->get($key) : $this->drivers->needsAccount($key),
+        ));
     }
 }

@@ -14,4 +14,6 @@ enum AdjustmentReason: string
     case WriteOff = 'write_off';
     case Chargeback = 'chargeback';
     case Manual = 'manual';
+    case CreditNote = 'credit_note';
+    case DebitNote = 'debit_note';
 }

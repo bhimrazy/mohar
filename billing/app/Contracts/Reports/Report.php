@@ -39,6 +39,10 @@ interface Report
      * Rows keyed by column key, produced lazily, in the order they are written. Use `lazyById()` or `lazy()`: on
      * PostgreSQL `cursor()` holds the whole result set in memory. The pipeline stops reading at its row limit.
      *
+     * When `$query->limit` is set, return only that page: skip `$query->offset` rows and yield at most `limit`. The
+     * order must be total (end with a unique key such as the id), or rows repeat or vanish between pages. `count()`
+     * is always called on a query without a page and counts all matching rows.
+     *
      * A `money` cell is a `Money`; a `date` cell is a date value (00:00 UTC on that date, like a `date` cast), so an
      * instant must go through `CompanyClock::localDate()` or use an `instant` column.
      *

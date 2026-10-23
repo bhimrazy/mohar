@@ -135,7 +135,7 @@ test('probe: a good typed filter is accepted and the end date may not precede th
     actingAsStaff(['reports.loose.export', 'reports.demo_sales.export']);
     app(ReportRegistry::class)->register('loose', Pr352LooseReport::class);
 
-    expect(app(ReportExporter::class)->query('loose', ['from' => '2026-10-01', 'client' => '1'], (int) auth()->id())->from)->toBe('2026-10-01');
+    expect(app(ReportExporter::class)->query('loose', ['from' => '2026-10-01', 'client' => '1'], (int) auth()->id())->from?->toString())->toBe('2026-10-01');
     expect(fn () => app(ReportExporter::class)->query('demo_sales', ['from' => '2026-10-31', 'to' => '2026-10-01'], (int) auth()->id()))->toThrow(ValidationException::class);
 });
 

@@ -35,6 +35,8 @@ class IssueRenewalInvoices
         Domain::query()
             ->withStatus(DomainStatus::Active)
             ->where('auto_renew', true)
+            // Renewed by the client at the registry: never invoiced here.
+            ->whereDoesntHave('tldModel', fn ($tld) => $tld->where('registered_by_client', true))
             ->whereDate('next_invoice_date', '<=', $today)
             ->chunkById(200, function ($domains) use ($invoicer, &$issued): void {
                 foreach ($domains as $domain) {

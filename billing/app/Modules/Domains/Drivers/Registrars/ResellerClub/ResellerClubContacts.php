@@ -7,6 +7,7 @@ use App\Data\Domains\Registrar\ContactSet;
 use App\Data\Domains\Registrar\DomainRef;
 use App\Data\Domains\Registrar\RegistrarConfig;
 use App\Data\Domains\Registrar\RegistrarRef;
+use App\Support\CallingCodes;
 use App\Support\Domains\RegistrarException;
 
 /**
@@ -32,9 +33,6 @@ final class ResellerClubContacts
     ];
 
     private const CONTACT_TYPES = ['ca' => 'CaContact', 'uk' => 'UkContact', 'eu' => 'EuContact', 'au' => 'AuContact'];
-
-    /** Calling codes for numbers typed without one, by ISO country; anything else must be typed with its +code. */
-    private const CALLING_CODES = ['NP' => '977', 'IN' => '91', 'BD' => '880', 'BT' => '975', 'LK' => '94', 'PK' => '92', 'CN' => '86', 'AE' => '971', 'SG' => '65', 'US' => '1', 'CA' => '1', 'GB' => '44', 'AU' => '61', 'NZ' => '64', 'DE' => '49', 'FR' => '33'];
 
     /** API parameter for each kernel role. */
     public const ROLE_PARAMS = ['registrant' => 'reg-contact-id', 'admin' => 'admin-contact-id', 'tech' => 'tech-contact-id', 'billing' => 'billing-contact-id'];
@@ -91,9 +89,7 @@ final class ResellerClubContacts
             throw new RegistrarException('ResellerClub did not return a customer id.');
         }
 
-        $this->refs->remember(new RegistrarRef(ResellerClubDriver::KEY, 'customer', 'client', $domain->clientId, $id));
-
-        return $id;
+        return $this->refs->remember(new RegistrarRef(ResellerClubDriver::KEY, 'customer', 'client', $domain->clientId, $id))->remoteId;
     }
 
     /**
@@ -200,9 +196,7 @@ final class ResellerClubContacts
             throw new RegistrarException('ResellerClub did not return a contact id.');
         }
 
-        $this->refs->remember(new RegistrarRef(ResellerClubDriver::KEY, 'contact', 'client', $domain->clientId, $id, $hash));
-
-        return $id;
+        return $this->refs->remember(new RegistrarRef(ResellerClubDriver::KEY, 'contact', 'client', $domain->clientId, $id, $hash))->remoteId;
     }
 
     /**
@@ -230,23 +224,27 @@ final class ResellerClubContacts
     }
 
     /**
-     * A typed phone number as ResellerClub's country code and number: `+977.15550100`, `+977 1-5550100`, or a local
-     * `01-5550100` with the contact's country.
+     * A typed phone number as ResellerClub's country code and number (CallingCodes::split()): `+977.15550100`,
+     * `+9779841234567`, or a local `01-5550100` with the contact's country. Anything split() refuses is refused here
+     * too, so an unsplit phone never reaches ResellerClub.
      *
      * @return array{0: string, 1: string}
+     *
+     * @throws RegistrarException
      */
     public static function phone(string $typed, string $country): array
     {
-        $typed = trim($typed);
+        $split = CallingCodes::split($typed, $country);
 
-        if (preg_match('/^\+(\d{1,3})[\s.\-]+(.+)$/', $typed, $match) === 1) {
-            return [$match[1], (string) preg_replace('/\D/', '', $match[2])];
+        if ($split !== null) {
+            return [$split['code'], $split['national']];
         }
 
-        $digits = (string) preg_replace('/\D/', '', $typed);
-        $code = self::CALLING_CODES[$country] ?? throw new RegistrarException('Enter the contact phone number with its country code, for example +977.15550100.');
+        if (preg_match('/^\s*(\+|00)/', $typed) === 1) {
+            throw new RegistrarException('The contact phone number\'s country code is not recognised or the number has no valid length; write it with its country code, for example +977.15550100.');
+        }
 
-        return [$code, ltrim($digits, '0')];
+        throw new RegistrarException('Enter the contact phone number with its country code, for example +977.15550100.');
     }
 
     /**

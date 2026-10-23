@@ -9,12 +9,14 @@ use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Services\DocumentNumbers;
+use App\Modules\Billing\Services\FiscalSnapshotWriter;
 use App\Modules\Billing\Services\InvoiceCalculator;
 use App\Modules\Billing\Services\InvoiceSettlement;
 use App\Modules\Billing\Services\SellerDetails;
 use App\Modules\Billing\Support\AfterCommit;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Models\Client;
+use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use LogicException;
@@ -32,6 +34,7 @@ class PublishInvoice
         private BillingSettings $settings,
         private SellerDetails $seller,
         private CompanyClock $clock,
+        private FiscalSnapshotWriter $fiscal,
     ) {}
 
     /**
@@ -72,9 +75,11 @@ class PublishInvoice
             $invoice->due_date ??= $today->addDays($this->settings->int('invoice_days_before_due', 14));
 
             if ($this->settings->bool('sequential_paid_numbering')) {
-                $invoice->proforma_number = $this->numbers->next(DocumentNumbers::PROFORMA, $invoice->issue_date);
+                $invoice->proforma_number = $this->numbers->next(DocumentNumbers::PROFORMA, CalendarDate::fromDateValue($invoice->issue_date));
             } else {
-                $invoice->number = $this->numbers->next(DocumentNumbers::INVOICE, $invoice->issue_date);
+                // The snapshot is read before the install-wide sequence row is locked (ADR 0024 §4: the sequence goes last).
+                $this->fiscal->stamp($invoice, $this->clock->now()->utc(), published: true);
+                $invoice->number = $this->numbers->next(DocumentNumbers::INVOICE, CalendarDate::fromDateValue($invoice->issue_date));
             }
 
             $invoice->seller_snapshot = $this->seller->snapshot();

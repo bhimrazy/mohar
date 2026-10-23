@@ -83,8 +83,29 @@ A note stores its own BS fields and **copies the invoice's `report_currency` and
 foreign-currency invoice therefore nets to zero in the reporting currency, and a later correction to the BS table
 moves no filed document from one period to another.
 
-**Backfill (PR 1a migration, not at mode enable).** The migration fills the snapshot for invoices already numbered.
-It runs in chunks and is tested on PostgreSQL.
+**Backfill (PR 1a command, not at mode enable and not in a migration).** `php artisan billing:fiscal-snapshot` fills the
+snapshot for invoices already numbered. A migration cannot be the last pass: the previous release keeps serving, and its
+workers keep draining for up to an hour, so it numbers invoices and writes value rows after any migration has run
+(`architecture.md` rule 1 also keeps backfills out of migrations). The command is capped (`--max`, default 5,000
+invoices; chunks of 200 that lock only their own rows), safe to repeat, scheduled every five minutes
+(`withoutOverlapping`, `onOneServer`) and run by `deploy/bin/deploy` after the switch. It is tested on PostgreSQL.
+
+- **Reconcile.** Each run also recomputes `credited_total` and `debited_total` from the value adjustments after
+  `numbered_at`, for invoices with an adjustment above a watermark. Ids are handed out at insert but rows become visible at commit, so
+  the watermark moves only over rows older than one hour (the drain bound), up to the first younger row; each run
+  scans everything above it again, and the recompute is absolute, so a repeat changes nothing. Invoices are
+  recomputed 200 at a time, each chunk in its own transaction. A row held uncommitted for more than an hour is not
+  covered. The previous release's
+  `adjust()` writes value rows without the caches. Every invoice it corrects goes on the review list as
+  `cached_totals_reconciled`.
+- **Residual risks.** Timestamps have one-second precision, so a previous-release row stamped in the second of
+  numbering cannot be told from a row folded into the snapshot: the check accepts any cache between "after" and "at or
+  after" `numbered_at`. A clock stepped back by more than a second just after numbering has the opposite effect (a
+  correct cache is lowered and its entry reopened). Both are rare; the review list and `mismatches()` are the
+  backstop, and no column records the last adjustment id at numbering.
+- **Reporting rate of old invoices.** A foreign-currency invoice takes the exchange rate of the payment that numbered it
+  when that payment was converted into the reporting currency; otherwise today's stored rate, listed as
+  `report_rate_estimated`.
 
 - `numbered_at` is backfilled from the first instant at which the number can be shown to exist:
     - **Numbered at publish** (`proforma_number` is null). A draft carries no adjustments, so every value adjustment
@@ -99,7 +120,7 @@ It runs in chunks and is tested on PostgreSQL.
       review list below.
 - The value is computed by the rule above. `credited_total` and `debited_total` are filled in the same pass, from the
   value adjustments after `numbered_at`.
-- Rows the migration cannot classify as taxable or exempt go on a **staff-review list**, and Nepal VAT mode cannot be
+- Rows the command cannot classify as taxable or exempt go on a **staff-review list**, and Nepal VAT mode cannot be
   enabled until staff have seen it. The list holds:
     - invoices whose numbering instant cannot be derived;
     - line-less rows;
@@ -125,6 +146,8 @@ It runs in chunks and is tested on PostgreSQL.
   The same holds for a line-less row (`cancellation`, `refund`, or an unmatched row on the review list). `CancelInvoice.php:55` and `RefundTransaction.php:187` store no tax split for these rows. For the
   invoice-level tax remainder only, their tax is prorated from the snapshot.
 - The register never reads old-style rows (§8).
+- A **debit note** adds at most the invoice's original value (`fiscal_total`). The bound is not in the spec; it stops a
+  mistyped amount and keeps the tax arithmetic in range.
 - Rounding is half up per line and per tax level. The note that brings a line's remainder to zero takes the exact
   remaining tax at each level. A fully credited invoice therefore nets to zero tax in minor units.
 
@@ -132,12 +155,14 @@ It runs in chunks and is tested on PostgreSQL.
 
 - Issuing a note follows ADR 0021 §1. The confirm carries the invoice `version` and a digest of the previewed
   allocation. The issuer recomputes both under the lock and refuses if either has changed.
-- **Lock order:** payments in id order, then the invoice, then the client, then the sequence row. A
+- **Lock order:** payments in id order, then the invoice, then the client, then the invoice's pending reservations, then the sequence row. A
   `billing_sequences` row is shared by every document of its sequence across the install, so it is taken last, just
   before the insert. A sibling module that calls `Invoicer::cancel` (§7) holds its own row lock in front of this
   chain. The order is added to ADR 0021 §3.
-- Reservation rows (`tax_note_reservations`, §5) are locked after the invoice and before the client:
-  payments → invoice → reservation → client → sequence.
+- Reservation rows (`tax_note_reservations`, §5) are locked after the client:
+  payments → invoice → client → reservation → sequence. The client comes before the sequence because a note's insert
+  takes a key-share lock on it, and the refund paths hold the client for update and then ask for the next number (a
+  deadlock the other way round; race test R4).
 - The provider refund callback already follows this order. `lockParents` (`GatewayCallbackHandler.php:453-460`)
   locks the payments, then their invoices, both in id order, before `reverseCredit` locks the client (`:654`). PR 4
   adds the reservation lock in its place and keeps the order. The deadlock race test below guards against a
@@ -285,7 +310,7 @@ final class CreditNoteIssued implements DomainEvent, ShouldDispatchAfterCommit
         public string $number,
         public int $invoiceId,
         public int $clientId,
-        public int $total,       // minor units, positive
+        public int $amount,      // minor units, positive (the note's gross total)
         public string $currency,
         public bool $automatic,  // issued by automation, a gateway callback or a sibling module
     ) {}
@@ -296,8 +321,7 @@ final class CreditNoteIssued implements DomainEvent, ShouldDispatchAfterCommit
 - **Dispatch:** the events implement `ShouldDispatchAfterCommit` (ADR 0011, as `PaymentReinstated` already does) and
   are dispatched with `event()`. They are **never** passed to `AfterCommit::dispatch`, which would defer them a
   second time.
-- Webhook types `credit_note.issued` and `debit_note.issued` go into `WebhookEventTypes::MAP` until the registration
-  method from ADR 0011 exists. They land together with the `tax_note` merge-field resolver (PR 5), so the first
+- Webhook types `credit_note.issued` and `debit_note.issued` are registered by Billing's provider with `WebhookEvents::register()`. They land together with the `tax_note` merge-field resolver (PR 5), so the first
   payload subscribers receive is the final snapshot, never the events' bare fields.
 - Existing events keep their meaning:
     - `InvoiceCancelled` fires after the cancelling note;
@@ -349,7 +373,9 @@ final class CreditNoteIssued implements DomainEvent, ShouldDispatchAfterCommit
 - Old paths read the mode with `FOR SHARE` on the same row, after their invoice lock. A transaction that read "mode
   off" therefore commits before the enabling check runs, and the register never holds an old-style row. This is the
   CTO decision on B6, also in `vat-register.md` §3 and §12. Enabling is also refused while the staff-review list from
-  §2 has not been seen, and while any refund row written by the old path (without a reservation) on a numbered
+  §2 has not been seen, while any numbered invoice still has no snapshot (`invoices_fiscal_pending_index` is not
+  empty: `FiscalBackfill::hasPending()`), while any cached credited/debited total differs from its value rows
+  (`FiscalBackfill::mismatches()`), and while any refund row written by the old path (without a reservation) on a numbered
   invoice is still pending.
 - **From enabling (before `enabled_from` too):**
     - the increment of every fiscal sequence is 1;
@@ -368,20 +394,20 @@ This table is the build order; `vat-register.md` §18 points here. Each PR is at
 hidden until PR 4 merges. The AC numbers are those of `vat-register.md` §13 as revised in the same round as this
 section.
 
-| PR       | Content                                                                                                                                                                                           | AC                           |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| 0a (CTO) | `CompanyClock` contract, Core implementation, Billing fiscal call sites, boundary tests at 18:14:59 and 18:15:00 UTC, widened arch scan (ADR 0013 Amendment 1)                                    | 48 (invoices)                |
-| 0b (CTO) | `CreditNoteIssued` and `DebitNoteIssued`                                                                                                                                                          | —                            |
-| 1a       | Schema incl. `numbered_at`, snapshot, `tax_note_reservations` and `tax_note_reservation_lines`; the backfill with the review list (§2); `FROZEN`; per-sequence `DocumentNumbers`; `rateDecimal()` | 7–10                         |
-| 1b       | Note issuer (allocation, caps with reservations, remainder, digest), lock order, race tests for notes                                                                                             | 1–6, 11, 12, 48 (notes)      |
-| 2        | Manual issue UI, settlement, step-up, permissions, notes panel, reversing note, recorded "Refund account credit"                                                                                  | 13–19, 20 (event)            |
-| 3        | Old paths, the six `Invoicer::cancel` callers, automation, enabling the mode (§8: BS-month start, one instant per transaction, locked refusal, locked settings)                                   | 21–27, 52                    |
-| 4        | Refund state machine (§5) incl. refunds crossing `enabled_from`, provider-initiated refunds, overpayment split, `RefundAccountCredit` (§5a), race tests (combined review, money)                  | 28–34, 49–51, 53, 54, 57     |
-| 5        | Note PDF, email, merge fields with the `tax_note` resolver, webhook delivery (the `MAP` entries), client area, `print_count`                                                                      | 35, 36, 55, 56, 20 (webhook) |
-| 0c (CTO) | Report registry, DTOs, `SafeCsv` with `ErrorsCsv` moved, synchronous CSV and PDF (ADR 0025). Lands just before PR 6                                                                               | 45                           |
-| 6        | `VatRegisterReport`, `TaxNoteRegisterReport`, screens                                                                                                                                             | 37–43                        |
-| 7        | `detail` and `ird` layouts, PDF, export permissions                                                                                                                                               | 44, 46, 47                   |
-| later    | Trigger (§9); `{BS_FY}` after D2; queued export with the Reports module (ADR 0025)                                                                                                                | 58                           |
+| PR       | Content                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | AC                           |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| 0a (CTO) | `CompanyClock` contract, Core implementation, Billing fiscal call sites, boundary tests at 18:14:59 and 18:15:00 UTC, widened arch scan (ADR 0013 Amendment 1)                                                                                                                                                                                                                                                                                                                                                                                                                                                                | 48 (invoices)                |
+| 0b (CTO) | `CreditNoteIssued` and `DebitNoteIssued`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | —                            |
+| 1a       | Schema incl. `numbered_at`, snapshot, `tax_note_reservations` and `tax_note_reservation_lines`; the backfill with the review list (§2); `FROZEN`; per-sequence `DocumentNumbers`; `rateDecimal()`                                                                                                                                                                                                                                                                                                                                                                                                                             | 7–10                         |
+| 1b       | Note issuer (allocation, caps with reservations, remainder, digest), lock order, race tests for notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | 1–6, 11, 12, 48 (notes)      |
+| 2        | Manual issue UI, settlement, step-up, permissions, notes panel, reversing note, recorded "Refund account credit"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | 13–19, 20 (event)            |
+| 3        | Old paths, the six `Invoicer::cancel` callers, automation, enabling the mode (§8: BS-month start, one instant per transaction, locked refusal, locked settings); the legacy `CancelInvoiceItems` path must count note lines on a line (or be refused once the line has a note), because it writes a full-line `item_cancellation` capped only by the balance; the late-fee debit note must also fire `LateFeeApplied` (the issuer fires `DebitNoteIssued` and `InvoiceModified` only); the architecture test that only the note issuer writes value adjustments on numbered invoices while the mode is on (vat-register §5.4) | 21–27, 52                    |
+| 4        | Refund state machine (§5) incl. refunds crossing `enabled_from`, provider-initiated refunds, overpayment split, `RefundAccountCredit` (§5a), race tests (combined review, money)                                                                                                                                                                                                                                                                                                                                                                                                                                              | 28–34, 49–51, 53, 54, 57     |
+| 5        | Note PDF, email, merge fields with the `tax_note` resolver, webhook delivery (the `MAP` entries), client area, `print_count`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 35, 36, 55, 56, 20 (webhook) |
+| 0c (CTO) | Report registry, DTOs, `SafeCsv` with `ErrorsCsv` moved, synchronous CSV and PDF (ADR 0025). Lands just before PR 6                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | 45                           |
+| 6        | `VatRegisterReport`, `TaxNoteRegisterReport`, screens                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | 37–43                        |
+| 7        | `detail` and `ird` layouts, PDF, export permissions                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | 44, 46, 47                   |
+| later    | Trigger (§9); `{BS_FY}` after D2; queued export with the Reports module (ADR 0025)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | 58                           |
 
 ## Open questions (accountant)
 
@@ -411,7 +437,9 @@ section.
 - **Numbering the note before the refund call, with a settlement field that can change.** This opens a window with a
   negative balance and breaks immutability. Rejected.
 - **Backfilling at mode enable.** This would write frozen columns after PR 1a, and an unattended enable would
-  silently classify old rows. Rejected in favour of the PR 1a migration with a review list.
+  silently classify old rows. Rejected in favour of the PR 1a command with a review list.
+- **Backfilling in a migration.** The previous release numbers invoices after it runs, and a long fill blocks the deploy.
+  Rejected (review of #369).
 - **Using `paid_at` as the numbering moment.** It is rewritten when a `Collections` invoice is paid again. Rejected;
   `numbered_at` is stored instead.
 - **One `TaxNoteIssued` event with a kind enum.** One class would then map to two webhook types. Rejected.

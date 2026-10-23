@@ -11,7 +11,18 @@ use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Billing\TaxIdRules;
 use App\Contracts\Core\CompanyClock;
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Data\Integrations\SettingField;
 use App\Enums\BillableType;
+use App\Events\Billing\InvoiceCancelled;
+use App\Events\Billing\InvoiceCreated;
+use App\Events\Billing\InvoiceOverdue;
+use App\Events\Billing\InvoicePaid;
+use App\Events\Billing\InvoiceRefunded;
+use App\Events\Billing\PaymentFailed;
+use App\Events\Billing\PaymentReceived;
+use App\Events\Billing\PaymentReinstated;
+use App\Events\Billing\PaymentReversed;
+use App\Events\Billing\QuoteAccepted;
 use App\Events\Orders\OrderAccepted;
 use App\Models\User;
 use App\Modules\Billing\Drivers\Gateways\BankTransferDriver;
@@ -36,6 +47,7 @@ use App\Modules\Billing\Services\InvoiceService;
 use App\Modules\Billing\Services\PaymentReconciler;
 use App\Modules\Billing\Services\Tax\BillingTaxIdRules;
 use App\Modules\Billing\Services\Tax\TaxEngine;
+use App\Modules\Billing\Support\BillingClientDashboard;
 use App\Modules\Billing\Support\BillingDashboard;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\InvoiceBsDates;
@@ -45,7 +57,9 @@ use App\Support\Automation\Automation;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Events\WebhookEvents;
 use App\Support\Install\ReferenceDataRegistry;
+use App\Support\Integrations\StoredSecrets;
 use App\Support\Migration\ImportRegistry;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Money;
@@ -62,8 +76,10 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Validator;
 
 class BillingServiceProvider extends ModuleServiceProvider
 {
@@ -99,11 +115,34 @@ class BillingServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $webhooks = $this->app->make(WebhookEvents::class);
+        $webhooks->register(InvoiceCreated::class, 'invoice.created', 'invoice', 'invoiceId');
+        $webhooks->register(InvoicePaid::class, 'invoice.paid', 'invoice', 'invoiceId');
+        $webhooks->register(InvoiceOverdue::class, 'invoice.overdue', 'invoice', 'invoiceId');
+        $webhooks->register(InvoiceCancelled::class, 'invoice.cancelled', 'invoice', 'invoiceId');
+        $webhooks->register(InvoiceRefunded::class, 'invoice.refunded', 'invoice', 'invoiceId');
+        $webhooks->register(PaymentReceived::class, 'payment.received', 'transaction', 'transactionId');
+        $webhooks->register(PaymentFailed::class, 'payment.failed', 'invoice', 'invoiceId');
+        $webhooks->register(PaymentReversed::class, 'payment.reversed', 'transaction', 'transactionId');
+        $webhooks->register(PaymentReinstated::class, 'payment.reinstated', 'transaction', 'transactionId');
+        $webhooks->register(QuoteAccepted::class, 'quote.accepted', 'quote', 'quoteId');
+
         // Encrypted casts, for `security:reencrypt` (ADR 0022).
         $encrypted = $this->app->make(EncryptedStorage::class);
         $encrypted->register('billing_gateways', new EncryptedModel(Gateway::class));
         $encrypted->register('billing_pay_methods', new EncryptedModel(PayMethod::class));
         $encrypted->register('billing_payment_attempts', new EncryptedModel(PaymentAttempt::class));
+
+        // Stored gateway credentials checked against their minimum length (`integrations:short-secrets`).
+        $this->app->make(StoredSecrets::class)->register('gateways', function (): iterable {
+            $gateways = $this->app->make(GatewayManager::class);
+
+            foreach (Gateway::query()->orderBy('key')->get() as $gateway) {
+                if ($gateways->has($gateway->key)) {
+                    yield ['owner' => $gateway->display_name, 'fields' => array_map(SettingField::fromArray(...), $gateways->driver($gateway->key)->settingsFields()), 'values' => fn (): array => $gateway->config ?? []];
+                }
+            }
+        });
 
         $this->app->make(ReferenceDataRegistry::class)->register(RegionalTaxDefaults::KEY, RegionalTaxDefaults::class, order: 110);
 
@@ -142,6 +181,8 @@ class BillingServiceProvider extends ModuleServiceProvider
         $schedule->command('billing:reconcile-payments --only=open')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
         // Closed attempts, for late payments (#130): hourly, on a lock of its own so it never delays the open ones.
         $schedule->command('billing:reconcile-payments --only=late')->hourly()->withoutOverlapping(30)->onOneServer();
+        // Fiscal snapshot of invoices numbered before it existed or by the previous release, and the cached totals (ADR 0024 §2).
+        $schedule->command('billing:fiscal-snapshot')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
     }
 
     private function registerAutomation(): void
@@ -189,38 +230,7 @@ class BillingServiceProvider extends ModuleServiceProvider
     {
         $dashboard = $this->app->make(Dashboard::class);
         $this->app->make(BillingDashboard::class)->register($dashboard);
-
-        $dashboard->card('client', 'billing.unpaid', function (?User $user, Client $client): array {
-            $unpaid = Invoice::query()->where('client_id', $client->id)->whereIn('status', InvoiceStatus::payable());
-
-            return [
-                'label' => 'Unpaid invoices',
-                ...self::moneyValue(Money::of((int) (clone $unpaid)->sum('balance'), $client->currency)),
-                'hint' => (clone $unpaid)->count().' to pay',
-                'href' => route('client.invoices.index', ['status' => 'unpaid']),
-                'icon' => 'Receipt',
-            ];
-        }, order: 10);
-
-        $dashboard->card('client', 'billing.credit', fn (?User $user, Client $client): array => [
-            'label' => 'Credit balance',
-            ...self::moneyValue($this->app->make(CreditLedgerService::class)->balance($client->id, $client->currency)),
-            'href' => route('client.credit.index'),
-            'icon' => 'Wallet',
-        ], order: 20);
-    }
-
-    /**
-     * Card value for money: a display string plus the raw minor units for the frontend's formatMoney().
-     *
-     * @return array{value: string, money: array{amount: int, currency: string}}
-     */
-    private static function moneyValue(Money $money): array
-    {
-        return [
-            'value' => app(MoneyFormatter::class)->format($money),
-            'money' => ['amount' => $money->amount, 'currency' => $money->currency],
-        ];
+        $this->app->make(BillingClientDashboard::class)->register($dashboard);
     }
 
     /**
@@ -259,11 +269,36 @@ class BillingServiceProvider extends ModuleServiceProvider
         ], sensitive: self::SENSITIVE_PERMISSIONS);
     }
 
+    /**
+     * The numbering settings of one note sequence. The two formats must differ, and a reset needs the period in the
+     * format, or the same number comes round again and the unique note number refuses every later note.
+     *
+     * @return list<SettingDefinition>
+     */
+    private function noteNumbering(string $kind, string $label, string $other): array
+    {
+        return [
+            new SettingDefinition("billing.{$kind}_note_format", "{$label} number format", help: 'Tokens: {NUMBER} {YEAR} {MONTH} {DAY}. Required, must contain {NUMBER} and differ from the other note format.', rules: ['required', 'max:40', 'regex:/\{NUMBER\}/', "different:billing.{$other}_note_format", "note_period_token:billing.{$kind}_note_reset"]),
+            new SettingDefinition("billing.{$kind}_note_padding", "{$label} number padding (digits)", 'integer', rules: ['min:0']),
+            new SettingDefinition("billing.{$kind}_note_reset", "Reset {$label} numbering", 'select', options: ['never' => 'Never', 'yearly' => 'Yearly', 'monthly' => 'Monthly']),
+        ];
+    }
+
     private function registerSettings(): void
     {
         $bool = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'boolean', $help);
         $int = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'integer', $help, rules: ['min:0']);
         $list = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'string', $help, rules: ['regex:/^\s*\d+(\s*,\s*\d+)*\s*$/']);
+
+        Validator::extend('note_period_token', function (string $attribute, mixed $value, array $parameters, \Illuminate\Validation\Validator $validator): bool {
+            $reset = Arr::get($validator->getData(), $parameters[0]);
+
+            return match ($reset) {
+                'yearly' => str_contains((string) $value, '{YEAR}'),
+                'monthly' => str_contains((string) $value, '{YEAR}') && str_contains((string) $value, '{MONTH}'),
+                default => true,
+            };
+        }, __('The number format needs {YEAR} when numbering resets yearly, and {YEAR} and {MONTH} when it resets monthly.'));
 
         $this->app->make(SettingsRegistry::class)->section('billing', 'Billing', [
             new SettingDefinition('billing.seller.legal_name', 'Seller legal name', help: 'Printed on invoices; defaults to the company name.', rules: ['max:200']),
@@ -282,6 +317,8 @@ class BillingServiceProvider extends ModuleServiceProvider
             new SettingDefinition('billing.proforma_format', 'Proforma number format', rules: ['max:40']),
             $bool('set_issue_date_on_payment', 'Set issue date on payment (proforma mode)'),
             new SettingDefinition('billing.quote_number_format', 'Quote number format', rules: ['max:40']),
+            ...$this->noteNumbering('credit', 'Credit note', 'debit'),
+            ...$this->noteNumbering('debit', 'Debit note', 'credit'),
             $int('invoice_days_before_due', 'Days until due for manual invoices'),
             $bool('credit.auto_apply_on_generate', 'Apply credit to generated invoices'),
             $bool('credit.tax_add_funds', 'Charge tax on add funds'),

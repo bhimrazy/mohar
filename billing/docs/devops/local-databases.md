@@ -5,7 +5,7 @@ Owner question: is there something lighter than a Docker container for PostgreSQ
 
 ## Short answer
 
-No option on the market today is both lighter than our tmpfs container and faithful enough to replace it.
+No option on the market today is both lighter than our Docker container and faithful enough to replace it.
 The two "embedded Postgres" projects that look lightest (PGlite and pgrust) are young, and neither can safely
 serve several PHP processes at once. A lighter route that is safe is **native PostgreSQL 18 binaries without
 Docker** (distro or PGDG packages, or a portable binary bundle). It is the same server, so fidelity is full.
@@ -127,16 +127,19 @@ Neon stack (Apache-2.0, 23k stars, last push 2026-08-31) means a pageserver, saf
 is heavier than one container. Branching is a real advantage for previews of production-sized data. It
 does not make anything lighter, and it would send data off the machine. Not a fit for (a) to (d).
 
-### 5. Docker PostgreSQL on tmpfs (what we have)
+### 5. Docker PostgreSQL with durability off (what we have)
 
 `scripts/pg.sh` runs one shared `postgres:18.6-alpine` (digest-pinned, the same image as CI and
-`compose.yaml`) on port 55432. It has a 4 GB tmpfs data directory, one database per worktree and
+`compose.yaml`) on port 55432. Its data lives in the Docker volume `mohar-pg-data` (deleted by `pg.sh --stop`), with
+one database per worktree and
 `max_locks_per_transaction=256`. A slug of up to 42 characters gives `billing_test_<slug>` unchanged. A longer slug
 becomes its first 46 bytes, `_`, and 8 hex digits of its SHA-256 (55 bytes in all), so the `_test_<n>` copies of parallel
 workers stay within PostgreSQL's 63-byte name limit. It runs with `fsync=off`, `full_page_writes=off`,
-`wal_level=minimal`, `max_wal_senders=0` and `max_wal_size=256MB`: on the earlier 2 GB tmpfs, write-ahead log was about
-half of what filled the disk and crashed the server (2026-10-23). Today
-it uses about 595 MiB (`docker stats`), and that includes the tmpfs data of every worktree's test databases.
+`wal_level=minimal`, `max_wal_senders=0` and `max_wal_size=256MB`: on the 2 GB tmpfs it used before, write-ahead log was about
+half of what filled the disk and crashed the server (2026-10-23). It moved to a volume the same day because a tmpfs is
+limited by the Docker VM's memory (3.58 GiB on this Mac, `docker info`), which was smaller than the data could grow.
+With durability off, a killed container or a VM crash can corrupt the volume: if the server won't start, run
+`pg.sh --stop` and start it again.
 It has full fidelity and is already approved.
 
 ### 6. Testcontainers
@@ -169,35 +172,35 @@ even with WAL.
 "Full" means it is the real PostgreSQL 18.6 server. Start times are typical figures, not measured here;
 memory comes from the cited source or `docker stats`.
 
-| Option                 | Works with pdo_pgsql      | Fidelity to PG 18         | Several sessions at once   | Start / memory                  | Licence       | Maturity (2026-10-20)                     |
-| ---------------------- | ------------------------- | ------------------------- | -------------------------- | ------------------------------- | ------------- | ----------------------------------------- |
-| Docker tmpfs (`pg.sh`) | yes                       | full                      | yes                        | a few s / ~600 MiB shared now   | PostgreSQL    | in use, pinned image                      |
-| Native PGDG packages   | yes                       | full                      | yes                        | ~1 s / tens of MiB idle         | PostgreSQL    | upstream, decades                         |
-| Portable bundles       | yes                       | full (contrib included)   | yes                        | ~1 s / tens of MiB idle         | Apache / PG   | zonky v18.6.0 2026-08-28; theseus 18.6.1  |
-| pg_tmp                 | yes (needs binaries)      | full                      | yes                        | fast with pre-init (unmeasured) | ISC-style     | v3.4, last commit 2026-06-25              |
-| PGlite + pglite-socket | through a Node proxy only | PG 18.6 core, single-user | **no**: one shared session | fast / not published            | Apache / PG   | "Alpha", 0.5.10 2026-10-14; open mux bugs |
-| pgrust                 | yes (wire compatible)     | claimed; "lots of bugs"   | yes (threads)              | 224 MiB idle, 3–4× PG (#137)    | **AGPL-3.0**  | v0.3.1 2026-10-19, one maintainer         |
-| Neon Local             | yes (to a cloud branch)   | Neon Postgres             | yes                        | Docker + network                | cloud service | needs a Neon account                      |
-| Testcontainers PHP     | yes                       | full (it's Docker)        | yes                        | same as Docker                  | MIT           | 1.1.0 2026-09-14                          |
-| SQLite                 | no (pdo_sqlite)           | none                      | one writer                 | instant / in-process            | public domain | mature                                    |
+| Option                           | Works with pdo_pgsql      | Fidelity to PG 18         | Several sessions at once   | Start / memory                  | Licence       | Maturity (2026-10-20)                     |
+| -------------------------------- | ------------------------- | ------------------------- | -------------------------- | ------------------------------- | ------------- | ----------------------------------------- |
+| Docker, durability off (`pg.sh`) | yes                       | full                      | yes                        | a few s / ~600 MiB shared now   | PostgreSQL    | in use, pinned image                      |
+| Native PGDG packages             | yes                       | full                      | yes                        | ~1 s / tens of MiB idle         | PostgreSQL    | upstream, decades                         |
+| Portable bundles                 | yes                       | full (contrib included)   | yes                        | ~1 s / tens of MiB idle         | Apache / PG   | zonky v18.6.0 2026-08-28; theseus 18.6.1  |
+| pg_tmp                           | yes (needs binaries)      | full                      | yes                        | fast with pre-init (unmeasured) | ISC-style     | v3.4, last commit 2026-06-25              |
+| PGlite + pglite-socket           | through a Node proxy only | PG 18.6 core, single-user | **no**: one shared session | fast / not published            | Apache / PG   | "Alpha", 0.5.10 2026-10-14; open mux bugs |
+| pgrust                           | yes (wire compatible)     | claimed; "lots of bugs"   | yes (threads)              | 224 MiB idle, 3–4× PG (#137)    | **AGPL-3.0**  | v0.3.1 2026-10-19, one maintainer         |
+| Neon Local                       | yes (to a cloud branch)   | Neon Postgres             | yes                        | Docker + network                | cloud service | needs a Neon account                      |
+| Testcontainers PHP               | yes                       | full (it's Docker)        | yes                        | same as Docker                  | MIT           | 1.1.0 2026-09-14                          |
+| SQLite                           | no (pdo_sqlite)           | none                      | one writer                 | instant / in-process            | public domain | mature                                    |
 
-| Option                 | (a) preview        | (b) local tests          | (c) CI             | (d) tiny install          |
-| ---------------------- | ------------------ | ------------------------ | ------------------ | ------------------------- |
-| Docker tmpfs / compose | **yes** (volume)   | **yes** (`pg.sh`)        | **yes** (service)  | **yes** (compose)         |
-| Native packages        | yes, if no Docker  | possible                 | no gain            | **yes** (bare metal)      |
-| Portable bundles       | possible           | spike candidate          | no gain            | no (use OS packages)      |
-| PGlite                 | no                 | no                       | no                 | no                        |
-| pgrust                 | no                 | no                       | no                 | no (immature, AGPL)       |
-| Neon Local             | no                 | no                       | no                 | no                        |
-| Testcontainers         | no                 | no (duplicates `pg.sh`)  | no                 | no                        |
-| SQLite                 | no (moving off it) | **yes** (fast loop only) | **yes** (as today) | no (install.md: dev only) |
+| Option                  | (a) preview        | (b) local tests          | (c) CI             | (d) tiny install          |
+| ----------------------- | ------------------ | ------------------------ | ------------------ | ------------------------- |
+| Docker volume / compose | **yes** (volume)   | **yes** (`pg.sh`)        | **yes** (service)  | **yes** (compose)         |
+| Native packages         | yes, if no Docker  | possible                 | no gain            | **yes** (bare metal)      |
+| Portable bundles        | possible           | spike candidate          | no gain            | no (use OS packages)      |
+| PGlite                  | no                 | no                       | no                 | no                        |
+| pgrust                  | no                 | no                       | no                 | no (immature, AGPL)       |
+| Neon Local              | no                 | no                       | no                 | no                        |
+| Testcontainers          | no                 | no (duplicates `pg.sh`)  | no                 | no                        |
+| SQLite                  | no (moving off it) | **yes** (fast loop only) | **yes** (as today) | no (install.md: dev only) |
 
 ## Recommendation
 
 - **(a) Preview.** Move it to the `postgres` service in `billing/compose.yaml`: the same digest pin as CI,
   data in the `postgres-data` named volume so it survives the codespace reboots, and a database of its own
-  (not the shared tmpfs server, which loses its data on every stop). Do not move it to `pg.sh`: it is test
-  data on tmpfs.
+  (not the shared test server, whose data `pg.sh --stop` deletes). Do not move it to `pg.sh`: it is throwaway
+  test data.
 - **(b) Local tests.** No change. SQLite stays the fast inner loop. `eval "$(scripts/pg.sh <slug>)"` plus
   `composer test:pgsql` runs before pushing anything that touches queries, locks or migrations.
 - **(c) CI.** Keep the pinned service container, which is the gate defined in ADR 0006. The PostgreSQL step

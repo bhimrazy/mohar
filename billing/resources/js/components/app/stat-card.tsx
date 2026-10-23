@@ -124,7 +124,7 @@ export function StatCard({
             {loading ? (
                 <Skeleton className="h-8 w-28" />
             ) : (
-                <div className="font-display font-numeric text-xl leading-tight sm:text-2xl">
+                <div className="font-display font-numeric text-lg leading-tight whitespace-nowrap sm:text-2xl">
                     {value}
                 </div>
             )}

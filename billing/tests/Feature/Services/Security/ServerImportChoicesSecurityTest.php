@@ -78,6 +78,8 @@ test('[S133-1] a visitor who registers with an account\'s contact email is not t
     $attacker = Client::query()->where('email', 'anna@alpha-books.com')->sole();
     // Unverified, the login can still move itself to an address the visitor controls (settings/profile needs no
     // verified email); the client's email stays the victim's.
+    // The owner knows the password: an email change needs step-up (#388).
+    confirmPassword();
     $this->patch(route('profile.update'), ['name' => 'Anna Alpha', 'email' => 'visitor@attacker.example'])->assertSessionHasNoErrors();
     expect($attacker->refresh()->email)->toBe('anna@alpha-books.com');
 

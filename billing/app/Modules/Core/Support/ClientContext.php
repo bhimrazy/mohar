@@ -21,10 +21,14 @@ class ClientContext
 
     private ?User $user = null;
 
+    /** @var array<string, array{is_owner: bool, areas: list<string>}|false> "userId:clientId" => access; false = not linked */
+    private array $access = [];
+
     public function set(Client $client, User $user): void
     {
         $this->client = $client;
         $this->user = $user;
+        $this->access = [];
     }
 
     public function client(): Client
@@ -52,18 +56,31 @@ class ClientContext
      */
     public function can(string $area): bool
     {
-        if ($this->client === null || $this->user === null) {
+        return $this->client !== null && $this->allows($this->user, $this->client, $area);
+    }
+
+    /**
+     * can() for a given user and account, e.g. in dashboard resolvers that receive both. Read once per request.
+     */
+    public function allows(?User $user, Client $client, string $area): bool
+    {
+        if ($user === null) {
             return false;
         }
 
-        $pivot = $this->user->clients()->whereKey($this->client->id)->first()?->pivot;
+        $key = $user->id.':'.$client->id;
 
-        if ($pivot === null) {
-            return false;
+        if (! array_key_exists($key, $this->access)) {
+            $pivot = $user->clients()->whereKey($client->id)->first()?->pivot;
+            $this->access[$key] = $pivot === null ? false : [
+                'is_owner' => (bool) $pivot->getAttribute('is_owner'),
+                'areas' => array_values(json_decode((string) $pivot->getAttribute('permissions'), true) ?: []),
+            ];
         }
 
-        return (bool) $pivot->getAttribute('is_owner')
-            || in_array($area, json_decode((string) $pivot->getAttribute('permissions'), true) ?: [], true);
+        $access = $this->access[$key];
+
+        return $access !== false && ($access['is_owner'] || in_array($area, $access['areas'], true));
     }
 
     /**

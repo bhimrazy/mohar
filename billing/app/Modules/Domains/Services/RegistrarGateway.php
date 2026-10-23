@@ -9,6 +9,7 @@ use App\Data\Domains\Registrar\SubmissionLookup;
 use App\Data\Domains\Registrar\TransferSyncResult;
 use App\Data\Integrations\ConnectionCheck;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\RegistrarCommandLog;
 use App\Support\Domains\CapabilityNotSupported;
 use App\Support\Domains\RegistrarDriverRegistry;
@@ -67,7 +68,11 @@ class RegistrarGateway
     public function call(string $registrarKey, string $capability, string $interface, Closure $call, ?Domain $domain = null, array $request = [], ?int $staffId = null, bool $logSuccess = true, array $secrets = []): mixed
     {
         if (! $this->accounts->isActive($registrarKey)) {
-            throw new RegistrarException("The {$this->drivers->get($registrarKey)->name()} registrar is disabled; enable it under Registrars first.");
+            $name = $this->drivers->get($registrarKey)->name();
+
+            throw new RegistrarException(RegistrarAccount::query()->where('key', $registrarKey)->exists()
+                ? "The {$name} registrar is disabled; enable it under Registrars first."
+                : "The {$name} registrar has no saved account; save its account under Registrars first.");
         }
 
         return $this->run($registrarKey, $capability, $interface, $call, $domain, $request, $staffId, $logSuccess, $secrets);

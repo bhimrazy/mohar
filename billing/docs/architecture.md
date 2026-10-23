@@ -86,7 +86,7 @@ Settings, connection checks, logos and log redaction are shared by every driver 
   word). The host calls it on what drivers return; drivers never call it. `excerpt()` makes raw provider output safe
   to show staff (redacted, 4 KB). Text (headers, query strings, form bodies, JSON or XML after a label) is masked in
   one linear pass. The rule is that anything storing or logging provider text, error messages included, goes
-  through it; the known gaps are tracked in #254.
+  through it; the known gaps are tracked in #254, and the redesign is ADR 0023.
 - `Support\Integrations\OutboundAddressGuard` checks every connection to a host a person typed in (SSRF, ADR 0015):
   resolve once, refuse non-public addresses under the install policy in `config/integrations.php`, pin the request to
   the checked IP and port (`CURLOPT_CONNECT_TO`), bypass proxies (`proxy: ''`), follow no redirects. Drivers call it before they connect and never choose the
@@ -96,7 +96,7 @@ Driver registries are kernel classes that extend `Support\Integrations\DriverReg
 `AppServiceProvider`, so a package registers a driver in its own `boot()` whether or not the consuming module is
 loaded. Registration is `register(key, class-string|Closure, replace: false)`, resolution is lazy, and the capability
 lists the UI shows are computed from the interfaces a driver implements. Kernel API changes are listed in
-`docs/architecture/kernel-changelog.md`.
+`docs/architecture/kernel-changelog.md`, through a fragment in `docs/architecture/kernel-changelog.d/`.
 
 Provisioning drivers implement `Contracts\Services\Provisioning\ProvisioningDriver` plus capability interfaces,
 receive `ProvisioningContext` snapshots (never models), and register with `Support\Services\ProvisioningDriverRegistry`.
@@ -128,13 +128,15 @@ prefix, suffix, number format incl. Indian lakh grouping) — `App\Support\Curre
 config from the shared `currencyFormats` prop. `Money::format()` ("24.99 USD") is for logs, audit and CLI only. Show an
 ISO code only where it identifies a currency (switchers, selects, settings, CSV columns, API, logs), not next to amounts.
 
-**Dates** — `CarbonImmutable` everywhere (`Date::use` is set). Store dates (`date`) for billing anchors
+**Dates** — `CarbonImmutable` for instants (`Date::use` is set). A company-calendar date in code is
+`App\Support\CalendarDate` (ADR 0013 Amendment (#410)): `CompanyClock::calendarDate()` gives today's, `CalendarDate::parse()`
+reads `Y-m-d`, and `CompanyClock::dayBounds()` is the only way to its instants. Store dates (`date`) for billing anchors
 (`next_due_date`), timestamps for events. Advance cycles with `BillingCycle::advance($date, anchorDay: $model->billing_anchor_day)` — store the
 original day-of-month as an anchor on recurring items to avoid drift. Query `date` columns with
 `whereDate()` (Eloquent stores date casts as `Y-m-d H:i:s`; exact matches break across databases).
 
 **Automation** — daily jobs are tasks in the central pipeline, never ad-hoc scheduler entries:
-`app(Automation::class)->task('services.suspensions', Automation::SUSPENSIONS, fn (CarbonImmutable $today) => $count)`.
+`app(Automation::class)->task('services.suspensions', Automation::SUSPENSIONS, fn (CalendarDate $today) => $count)`.
 Stages run in order EXCHANGE_RATES → RENEWALS → LATE_FEES → AUTO_CHARGE → REMINDERS → CANCELLATIONS → SUSPENSIONS →
 TERMINATIONS → SYNC → HOUSEKEEPING via `php artisan automation:run [--date=] [--only=]`; each task must be
 idempotent for its run date (recorded in `automation_runs`). Renewal invoicing must call
@@ -355,8 +357,12 @@ without CTO approval — `docs/devops/dependency-policy.md` (ADR 0007). CI desig
 
 - Integration branch: `develop` (`main` receives tagged releases). One branch per workstream: `feature/<module>`
   in its own worktree (`scripts/new-worktree.sh <module>`); Conventional Commits, small focused commits.
-- Before review: merge latest `develop`, all gates green; report CHANGELOG bullets and screenshots to the CTO
-  (the CTO maintains `changelog.md` and `docs/progress.md` to avoid merge conflicts).
+- Before review: merge latest `develop`, all gates green. Changelog entries go in a fragment,
+  `changelog.d/<branch-slug>.md`, never in `changelog.md` (CI fails a direct edit); a kernel API change also adds
+  `docs/architecture/kernel-changelog.d/<branch-slug>.md`. The CTO assembles them with `scripts/changelog-assemble.sh`
+  and maintains `docs/progress.md` (ADR 0027).
+- ADR amendments are keyed by the PR that writes them: `## Amendment (#<pr>) — <date>, <title>`, cited as
+  "ADR 0009 Amendment (#368)". Amendments numbered before ADR 0027 keep their numbers.
 - Every branch lands through a GitHub pull request into `develop` (`gh pr create --base develop`, template in
   `.github/pull_request_template.md`). Review gates, posted on the PR as review comments: Staff Engineer review →
   QA (runs the suite, adds missing tests) → AI-slop review → fixes by the author → CTO merge with a merge commit

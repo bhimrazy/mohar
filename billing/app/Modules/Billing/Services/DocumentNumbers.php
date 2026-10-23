@@ -4,12 +4,16 @@ namespace App\Modules\Billing\Services;
 
 use App\Modules\Billing\Models\BillingSequence;
 use App\Modules\Billing\Support\BillingSettings;
-use Carbon\CarbonImmutable;
+use App\Support\CalendarDate;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Gap-free document numbers (§3). The sequence row is locked FOR UPDATE inside the caller's transaction,
- * so numbers are only consumed when the publishing transaction commits.
+ * Gap-free document numbers (§3). Every sequence has its own format, padding, reset and increment: invoices, proformas
+ * and quotes read the shared `number_*` settings, and a credit or debit note reads `<sequence>_format`,
+ * `<sequence>_padding` and `<sequence>_reset`. The increment of a note sequence is always 1 (ADR 0024 §1).
+ *
+ * The sequence row is locked FOR UPDATE inside the caller's transaction, so numbers are only consumed when the
+ * publishing transaction commits.
  *
  * The row is locked first and created only when missing (the first number of a sequence and period). On PostgreSQL,
  * a concurrent first number waits on the winner's uncommitted row and then locks it, so numbers stay unique and
@@ -25,21 +29,27 @@ class DocumentNumbers
 
     public const QUOTE = 'quote';
 
+    public const CREDIT_NOTE = 'credit_note';
+
+    public const DEBIT_NOTE = 'debit_note';
+
+    /** Sequences of fiscal notes: own settings, increment fixed at 1. */
+    private const NOTES = [self::CREDIT_NOTE, self::DEBIT_NOTE];
+
     public function __construct(private BillingSettings $settings) {}
 
     /**
-     * @param  CarbonImmutable  $date  the document's company-calendar date (its yearly and monthly period and the
-     *                                 {YEAR}, {MONTH} and {DAY} fields); there is no default, so a caller can't fall back to UTC
+     * @param  CalendarDate  $date  the document's company-calendar date (its yearly and monthly period and the {YEAR},
+     *                              {MONTH} and {DAY} fields); there is no default, so a caller can't fall back to UTC
      */
-    public function next(string $sequence, CarbonImmutable $date): string
+    public function next(string $sequence, CalendarDate $date): string
     {
-        $reset = $sequence === self::QUOTE ? 'never' : $this->settings->string('number_reset', 'never');
-        $period = match ($reset) {
+        $period = match ($this->resetFor($sequence)) {
             'yearly' => $date->format('Y'),
             'monthly' => $date->format('Y-m'),
             default => '',
         };
-        $increment = max(1, $this->settings->int('number_increment', 1));
+        $increment = $this->incrementFor($sequence);
 
         $number = DB::transaction(function () use ($sequence, $period, $increment): int {
             $sequenceRow = fn () => BillingSequence::query()->where('sequence', $sequence)->where('period', $period)->lockForUpdate();
@@ -60,12 +70,12 @@ class DocumentNumbers
             return $number;
         });
 
-        return $this->format($this->formatFor($sequence), $number, $date);
+        return $this->format($this->formatFor($sequence), $number, $date, $this->paddingFor($sequence));
     }
 
-    public function format(string $format, int $number, CarbonImmutable $date): string
+    public function format(string $format, int $number, CalendarDate $date, ?int $padding = null): string
     {
-        $padded = str_pad((string) $number, max(0, $this->settings->int('number_padding')), '0', STR_PAD_LEFT);
+        $padded = str_pad((string) $number, max(0, $padding ?? $this->settings->int('number_padding')), '0', STR_PAD_LEFT);
 
         return strtr($format, [
             '{NUMBER}' => $padded,
@@ -75,9 +85,46 @@ class DocumentNumbers
         ]);
     }
 
+    private function resetFor(string $sequence): string
+    {
+        $reset = match (true) {
+            $sequence === self::QUOTE => 'never',
+            in_array($sequence, self::NOTES, true) => $this->settings->string($sequence.'_reset', 'never'),
+            default => $this->settings->string('number_reset', 'never'),
+        };
+
+        return in_array($reset, ['yearly', 'monthly'], true) ? $reset : 'never';
+    }
+
+    private function paddingFor(string $sequence): int
+    {
+        return in_array($sequence, self::NOTES, true) ? $this->settings->int($sequence.'_padding') : $this->settings->int('number_padding');
+    }
+
+    private function incrementFor(string $sequence): int
+    {
+        return in_array($sequence, self::NOTES, true) ? 1 : max(1, $this->settings->int('number_increment', 1));
+    }
+
+    /**
+     * A note format that is empty, or equal to the other kind's, falls back to the kind's default (CN-, DN-), so a credit
+     * and a debit note can never share a number (`tax_notes.number` is unique). The settings form refuses both already;
+     * this holds for a value stored any other way.
+     */
+    private function noteFormat(string $sequence): string
+    {
+        $defaults = [self::CREDIT_NOTE => 'CN-{NUMBER}', self::DEBIT_NOTE => 'DN-{NUMBER}'];
+        $other = $sequence === self::CREDIT_NOTE ? self::DEBIT_NOTE : self::CREDIT_NOTE;
+        $own = trim($this->settings->string($sequence.'_format', $defaults[$sequence]));
+        $theirs = trim($this->settings->string($other.'_format', $defaults[$other]));
+
+        return $own === '' || $own === $theirs ? $defaults[$sequence] : $own;
+    }
+
     private function formatFor(string $sequence): string
     {
         $format = match ($sequence) {
+            self::CREDIT_NOTE, self::DEBIT_NOTE => $this->noteFormat($sequence),
             self::PROFORMA => $this->settings->string('proforma_format', 'PF-{NUMBER}'),
             self::QUOTE => $this->settings->string('quote_number_format', 'Q-{NUMBER}'),
             default => $this->settings->string('number_format', '{NUMBER}'),

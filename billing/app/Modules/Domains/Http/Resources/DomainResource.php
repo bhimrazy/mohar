@@ -2,8 +2,8 @@
 
 namespace App\Modules\Domains\Http\Resources;
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Domains\Models\Domain;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -28,11 +28,12 @@ class DomainResource extends JsonResource
             'type' => $this->type,
             'status' => $this->status->value,
             'registrar_key' => $this->registrar_key,
+            'registered_by_client' => $this->isRegisteredByClient(),
             'registration_date' => $this->registration_date?->toDateString(),
             'expiry_date' => $this->expiry_date?->toDateString(),
             'next_due_date' => $this->next_due_date->toDateString(),
             'next_invoice_date' => $this->when($staff, fn (): string => $this->next_invoice_date->toDateString()),
-            'days_until_expiry' => $this->expiry_date === null ? null : (int) CarbonImmutable::today()->diffInDays($this->expiry_date, false),
+            'days_until_expiry' => $this->expiry_date === null ? null : (int) app(CompanyClock::class)->todayDate()->diffInDays($this->expiry_date, false),
             'period_years' => $this->period_years,
             'first_payment_amount' => $this->when($staff, $this->first_payment_amount),
             'recurring_amount' => $this->recurring_amount,

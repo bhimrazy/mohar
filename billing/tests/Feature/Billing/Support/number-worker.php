@@ -11,7 +11,7 @@
 
 use App\Modules\Billing\Models\BillingSequence;
 use App\Modules\Billing\Services\DocumentNumbers;
-use Carbon\CarbonImmutable;
+use App\Support\CalendarDate;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
 
@@ -35,11 +35,11 @@ usleep((int) $delay * 1000);
 DB::beginTransaction();
 
 try {
-    $number = app(DocumentNumbers::class)->next($sequence, CarbonImmutable::parse('2026-10-18'));
+    $number = app(DocumentNumbers::class)->next($sequence, CalendarDate::parse('2026-10-18'));
     $taken = microtime(true);
     usleep((int) $hold * 1000);
     $mode === 'rollback' ? DB::rollBack() : DB::commit();
-    fwrite(STDOUT, ((int) $number).' '.$taken.' '.microtime(true));
+    fwrite(STDOUT, ((int) preg_replace('/^\D+/', '', $number)).' '.$taken.' '.microtime(true));
 } catch (Throwable $e) {
     DB::rollBack();
     fwrite(STDOUT, 'error '.get_class($e).': '.$e->getMessage());
