@@ -9,11 +9,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Fixed
 
 - **Report PDFs: long names wrap, headings line up, dates sit next to the next column (#357).** A long text cell (a legal
-  name) now wraps inside its column onto up to four lines, and ends in an ellipsis when it is longer still, instead of
-  being cut mid-word with no marker; the CSV always holds the full text. Pages are split by lines, so a page with tall
-  rows holds fewer rows. Numeric headings (quantity, amounts) are right-aligned like their figures; dates and times are
-  left-aligned in a narrow column. "Printed by ... at ..." shows the company time zone, as before (now covered by a
-  test). No schema, permission or setting change.
+  name) now wraps inside its column, and ends in an ellipsis once it would take more than four lines, instead of being
+  cut mid-word with no marker; the CSV always holds the full text. The cut never splits a character (a Devanagari
+  conjunct or an emoji sequence). Pages are planned from the printed height of each row, measured with the PDF font's
+  real glyph widths (so all-capital names, which are wider, still fit), and the header block, page totals and grand
+  totals count in that height, so the PDF has the pages the export planned; a page with tall rows holds fewer rows.
+  Numeric headings (quantity, amounts) are right-aligned like their figures; dates and times are left-aligned in a
+  narrow column. "Printed by ... at ..." shows the company time zone, as before (now covered by a test). A report with
+  its own PDF table view is paged as if it used the default column widths. No schema, permission or setting change.
 
 - **Registrar jobs for one domain no longer overlap, and none is dropped while waiting (#14).** Registering, transferring, renewing and syncing a domain now share one lock per domain (before, the three jobs only excluded their own kind). A job that finds the domain busy goes back on the queue and tries again after 30 to 45 seconds. The jobs no longer use a fixed number of tries (every wait counts as an attempt in Laravel, so a paid renewal could have failed just by queuing behind another job): they fail after 3 real errors, timeouts or crashes, or if they have not run 24 hours after they were queued, and then alert staff in plain words as before (the registrar queue can be down for hours and still run paid work when it returns). A sync that meets a busy domain skips it (the next hourly run picks it up; **Sync now** says another registrar action is running). Name-server, contact, lock and EPP-code changes stay outside the lock. Upgrade notes: the cache store must support atomic locks (Redis or database); on the `sync` queue driver a job that meets the lock is dropped, so use a real queue driver; the lock must not be taken inside a database transaction (the database cache store aborts a surrounding PostgreSQL transaction when the lock is taken); queued register, transfer and renew jobs keep their unique lock for 25 hours instead of 1. No schema or permission change.
 

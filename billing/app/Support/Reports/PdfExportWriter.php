@@ -17,26 +17,37 @@ use Barryvdh\DomPDF\Facade\Pdf;
  * row limit (`reports.sync_pdf_max_rows`) keeps within the production memory limit. Totals are kept per currency and
  * never added across currencies: a page or document with several currencies gets one total line for each.
  *
- * Long text wraps inside its column (a legal name is never cut mid-word with nothing to show it) up to
- * MAX_CELL_LINES lines, then ends in an ellipsis. The writer knows each column's width, so it can count the lines a row
- * takes and split pages by lines, not by rows.
+ * Long text wraps inside its column (a legal name is never cut mid-word with nothing to show it), and text that would
+ * take more than MAX_CELL_LINES lines is cut and ends in an ellipsis. The page split is planned from the height each
+ * row will print at: its lines are counted with the real glyph widths of the PDF font (TextMeasure) in the column
+ * widths this writer gives the view, and the header block, the page totals and the grand totals count too. The
+ * widths are passed to the default table; a report's own `pdfView()` is not bound to them, so its pages are planned
+ * as if it used them.
  */
 final class PdfExportWriter implements ExportWriter
 {
-    /** Rows per printed page; the first page holds fewer, by the lines of the header block. */
-    private const ROWS_PER_PAGE = 24;
-
-    /** A long text cell wraps onto at most this many lines and then ends in an ellipsis, so a row has a known height. */
+    /** Most lines a text cell takes; longer text is cut and ends in an ellipsis. */
     private const MAX_CELL_LINES = 4;
 
-    /** Printable width of the A4 landscape page in CSS pixels, and a cautious width of one character at 9px. */
+    /** Printable width of the A4 landscape page in CSS pixels (1,122 less the 24px page margins). */
     private const PAGE_WIDTH = 1074;
 
-    private const CHAR_WIDTH = 5.0;
+    /** Left and right padding of a cell, and a pixel of slack so a line that only just fits is counted as full. */
+    private const CELL_PADDING = 7;
 
-    private const CELL_PADDING = 6;
+    /** Height of a table row beyond its text lines: padding and the rule. A total row adds the rule above it. */
+    private const ROW_EXTRA = 7;
 
-    public function __construct(private CellFormatter $cells, private BrandProvider $brand) {}
+    /**
+     * Height, in pixels, that the rows and page totals of one page may take. A4 landscape leaves about 730px, less the
+     * column headings and the page footer; the rest of it is slack for what the estimate cannot see (kerning).
+     */
+    private const PAGE_BUDGET = 500;
+
+    /** The title block and the gap above the table, on the first page only. */
+    private const FIRST_PAGE_FIXED = 60;
+
+    public function __construct(private CellFormatter $cells, private BrandProvider $brand, private TextMeasure $measure) {}
 
     public function format(): ExportFormat
     {
@@ -60,28 +71,34 @@ final class PdfExportWriter implements ExportWriter
 
     public function write(ExportContext $context, $stream): void
     {
+        $widths = $this->widths($context->columns);
+        $line = $this->measure->lineHeight();
+        $totalRow = $line + self::ROW_EXTRA + 1;
         $pages = [];
         $page = [];
         $allSums = new Sums;
         $pageSums = new Sums;
-        $capacity = max(8, self::ROWS_PER_PAGE - count($context->header));
-        $used = 0;
-        $widths = $this->widths($context->columns);
+        $currencies = [];
+        $used = 0.0;
+        $budget = self::PAGE_BUDGET - self::FIRST_PAGE_FIXED - $this->headerHeight($context, $line);
 
         foreach ($context->rows as $row) {
-            $line = $this->display($context, $row, $widths);
-            $height = $this->height($context, $line, $widths);
+            $cells = $this->display($context, $row, $widths);
+            $height = $this->height($context, $cells, $widths, $line);
+            $seen = array_values(array_unique([...$currencies, ...$this->currenciesOf($context, $row)]));
 
-            // A row that does not fit the rest of the page starts the next one.
-            if ($page !== [] && $used + $height > $capacity) {
+            // A row that does not leave room for its page's totals starts the next page.
+            if ($page !== [] && $used + $height + max(1, count($seen)) * $totalRow > $budget) {
                 $pages[] = ['rows' => $page, 'totals' => $this->sumLines($context, $pageSums, __('Page total'))];
                 $page = [];
                 $pageSums = new Sums;
-                $capacity = self::ROWS_PER_PAGE;
-                $used = 0;
+                $budget = self::PAGE_BUDGET;
+                $used = 0.0;
+                $seen = $this->currenciesOf($context, $row);
             }
 
-            $page[] = $line;
+            $currencies = $seen;
+            $page[] = $cells;
             $used += $height;
 
             foreach ($context->columns as $column) {
@@ -98,6 +115,11 @@ final class PdfExportWriter implements ExportWriter
             ? array_map(fn (array $row): array => $this->display($context, $row, $widths), $context->report->totals($context->query))
             : $this->sumLines($context, $allSums, __('Total'));
 
+        // The grand totals follow the last page's own totals; when they do not fit under it, they take a page.
+        if ($page !== [] && $used + (max(1, count($currencies)) + count($totals)) * $totalRow > $budget) {
+            $pages[] = ['rows' => [], 'totals' => []];
+        }
+
         fwrite($stream, Pdf::loadView('reports.pdf', [
             'brand' => $this->brand->brand()->name,
             'title' => $context->report->label(),
@@ -112,6 +134,19 @@ final class PdfExportWriter implements ExportWriter
             'right' => array_map(fn ($column): bool => ! in_array($column->type, [ColumnType::Text, ColumnType::Date, ColumnType::Instant], true), $context->columns),
             'widths' => array_map(fn (float $width): string => round($width / self::PAGE_WIDTH * 100, 2).'%', $widths),
         ])->setPaper('a4', 'landscape')->output());
+    }
+
+    /** The height of the header block, each value wrapped in the room the label column leaves it. */
+    private function headerHeight(ExportContext $context, float $line): float
+    {
+        if ($context->header === []) {
+            return 0.0;
+        }
+
+        $label = max(array_map(fn (array $entry): float => $this->measure->width((string) $entry[0]), $context->header));
+        $room = self::PAGE_WIDTH - $label - 12 - 2 * self::CELL_PADDING;
+
+        return 8.0 + array_sum(array_map(fn (array $entry): float => $this->measure->lines((string) $entry[1], $room, bold: true) * $line + 2, $context->header));
     }
 
     /**
@@ -137,12 +172,6 @@ final class PdfExportWriter implements ExportWriter
         return array_map(fn ($column): float => (float) ($fixed($column->type) ?? $share), $columns);
     }
 
-    /** How many characters of a text cell fit one line of its column. */
-    private function perLine(float $width): int
-    {
-        return max(6, (int) floor(($width - self::CELL_PADDING) / self::CHAR_WIDTH));
-    }
-
     /**
      * @param  array<string, mixed>  $row
      * @param  list<float>  $widths
@@ -154,70 +183,74 @@ final class PdfExportWriter implements ExportWriter
 
         foreach ($context->columns as $index => $column) {
             $text = $this->cells->display($column->type, $row[$column->key] ?? null);
-            $line[$column->key] = $column->type === ColumnType::Text ? $this->clip($text, $this->perLine($widths[$index])) : $text;
+            $line[$column->key] = $column->type === ColumnType::Text ? $this->clip($text, $widths[$index] - self::CELL_PADDING) : $text;
         }
 
         return $line;
     }
 
-    /** A text that would take more than MAX_CELL_LINES lines is cut to fit and ends in an ellipsis. */
-    private function clip(string $text, int $perLine): string
+    /** A text that would take more than MAX_CELL_LINES lines is cut, at a whole character, and ends in an ellipsis. */
+    private function clip(string $text, float $room): string
     {
-        if (mb_strlen($text) <= $perLine || $this->lines($text, $perLine) <= self::MAX_CELL_LINES) {
+        if ($this->measure->lines($text, $room) <= self::MAX_CELL_LINES) {
             return $text;
         }
 
-        $kept = mb_substr($text, 0, $perLine * self::MAX_CELL_LINES - 1);
+        // The longest start of the text that, with the ellipsis, still fits (the lines only grow with the text).
+        preg_match_all('/\X/u', $text, $matches);
+        $graphemes = $matches[0];
+        $low = 0;
+        $high = count($graphemes);
 
-        while ($kept !== '' && $this->lines(rtrim($kept).'…', $perLine) > self::MAX_CELL_LINES) {
-            $kept = mb_substr($kept, 0, -1);
-        }
+        while ($low < $high) {
+            $middle = intdiv($low + $high + 1, 2);
 
-        return rtrim($kept).'…';
-    }
-
-    /** Lines a text takes in a column of `$perLine` characters: words wrap, and a word longer than a line is broken. */
-    private function lines(string $text, int $perLine): int
-    {
-        $lines = 1;
-        $used = 0;
-
-        foreach (preg_split('/\s+/u', trim($text)) ?: [] as $word) {
-            $length = mb_strlen($word);
-
-            if ($length > $perLine) {
-                $lines += ($used > 0 ? 1 : 0) + intdiv($length - 1, $perLine);
-                $used = $length - intdiv($length - 1, $perLine) * $perLine;
-            } elseif ($used === 0) {
-                $used = $length;
-            } elseif ($used + 1 + $length <= $perLine) {
-                $used += 1 + $length;
+            if ($this->measure->lines(rtrim(implode('', array_slice($graphemes, 0, $middle))).'…', $room) <= self::MAX_CELL_LINES) {
+                $low = $middle;
             } else {
-                $lines++;
-                $used = $length;
+                $high = $middle - 1;
             }
         }
 
-        return $lines;
+        return rtrim(implode('', array_slice($graphemes, 0, $low))).'…';
     }
 
     /**
-     * The height of a row in lines: its tallest text cell.
+     * The height of a row: its tallest text cell.
      *
-     * @param  array<string, string>  $line
+     * @param  array<string, string>  $cells
      * @param  list<float>  $widths
      */
-    private function height(ExportContext $context, array $line, array $widths): int
+    private function height(ExportContext $context, array $cells, array $widths, float $line): float
     {
-        $height = 1;
+        $lines = 1;
 
         foreach ($context->columns as $index => $column) {
             if ($column->type === ColumnType::Text) {
-                $height = max($height, $this->lines($line[$column->key], $this->perLine($widths[$index])));
+                $lines = max($lines, $this->measure->lines($cells[$column->key], $widths[$index] - self::CELL_PADDING));
             }
         }
 
-        return $height;
+        return $lines * $line + self::ROW_EXTRA;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @return list<string>
+     */
+    private function currenciesOf(ExportContext $context, array $row): array
+    {
+        $codes = [];
+
+        foreach ($context->columns as $column) {
+            $value = $row[$column->key] ?? null;
+
+            if ($column->type === ColumnType::Money && $value instanceof Money) {
+                $codes[] = $value->currency;
+            }
+        }
+
+        return array_values(array_unique($codes));
     }
 
     /**
