@@ -302,7 +302,7 @@ Kernel shapes decided now:
 5. **Account state.** It decides whether the fields are shown and whether new orders are taken for the extension, not
    whether answers that were already collected are kept.
 
-## Amendment 4 — 2026-10-24, linking an existing order (PR #365)
+## Amendment 4 — 2026-10-23, linking an existing order (PR #365)
 
 1. **Capability `link_order`** (`RegistrarDriverRegistry::LINK_ORDER`), the interface `LinksExistingOrders` with
    `lookupOrder(RegistrarConfig, DomainRef, string $orderId): LinkedOrder`. It is read-only and runs only on a staff

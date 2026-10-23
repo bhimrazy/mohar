@@ -10,7 +10,7 @@ use Carbon\CarbonImmutable;
 final readonly class LinkedOrder
 {
     /**
-     * @param  array<string, string|int>  $remote  the registrar ids to record (order id)
+     * @param  array<string, string|int>  $remote  the registrar ids to record; must include `order_id`, equal to the order id asked for
      * @param  'active'|'pending'  $status  whether the registrar holds the registration as live
      */
     public function __construct(
