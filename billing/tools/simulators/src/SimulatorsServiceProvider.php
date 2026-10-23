@@ -18,6 +18,7 @@ use Mohar\Simulators\Providers\Namecheap\NamecheapSimulator;
 use Mohar\Simulators\Providers\ResellerClub\ResellerClubSimulator;
 use Mohar\Simulators\Providers\Stripe\StripeSimulator;
 use Mohar\Simulators\Providers\Whm\WhmSimulator;
+use Mohar\Simulators\Providers\Whmcs\WhmcsSimulator;
 
 /**
  * Registered by package discovery from require-dev only (ADR 0016 §5 guarantee 1). Outside `local` and `testing` it
@@ -49,7 +50,7 @@ final class SimulatorsServiceProvider extends ServiceProvider
      */
     public function simulators(): array
     {
-        return [WhmSimulator::class, StripeSimulator::class, KhaltiSimulator::class, EsewaSimulator::class, ResellerClubSimulator::class, NamecheapSimulator::class];
+        return [WhmSimulator::class, StripeSimulator::class, KhaltiSimulator::class, EsewaSimulator::class, ResellerClubSimulator::class, NamecheapSimulator::class, WhmcsSimulator::class];
     }
 
     public function boot(): void
