@@ -62,7 +62,11 @@ export default function TldsIndex({
                     {tld.is_spotlight && (
                         <Badge variant="secondary">Spotlight</Badge>
                     )}
-                    {tld.badge && <Badge variant="outline">{tld.badge}</Badge>}
+                    {tld.badge && (
+                        <Badge variant="outline" className="capitalize">
+                            {tld.badge}
+                        </Badge>
+                    )}
                 </span>
             ),
         },

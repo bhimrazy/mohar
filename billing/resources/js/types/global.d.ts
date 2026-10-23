@@ -22,6 +22,8 @@ declare module '@inertiajs/core' {
             sidebarOpen: boolean;
             /** Settings → Company → Date format, one of DATE_FORMATS in lib/date.ts. */
             dateFormat: string;
+            /** ISO 3166-1 alpha-2 codes a country can be chosen from (sent once per visit). */
+            countries: string[];
             area: 'admin' | 'client';
             navigation: ServerNavGroup[];
             quickActions: QuickAction[];

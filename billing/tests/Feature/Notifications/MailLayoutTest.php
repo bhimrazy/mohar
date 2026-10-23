@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\User;
+use App\Modules\Core\Notifications\LoginEmailNotice;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Enums\TemplateAudience;
 use App\Modules\Notifications\Mail\TemplatedMail;
@@ -31,6 +32,7 @@ const LAYOUT_MARKER = 'data-mail-layout="brand"';
 const COVERED_MAIL_CLASSES = [
     TemplatedMail::class,
     SecurityNotice::class,
+    LoginEmailNotice::class,
     StaffInvitationNotification::class,
     ClientInvitationNotification::class,
     SetPasswordNotification::class,
@@ -98,6 +100,7 @@ it('renders framework and module notifications with the branded layout', functio
     'password reset' => [fn (User $user) => new ResetPassword('token')],
     'email verification' => [fn (User $user) => new VerifyEmail],
     'security notice' => [fn (User $user) => new SecurityNotice('Your two-factor authentication was reset', ['An administrator reset it.'])],
+    'login email notice' => [fn (User $user) => new LoginEmailNotice('Your sign-in email was changed', ['It was changed to a***w@example.com.'])],
     'staff invitation' => [fn (User $user) => new StaffInvitationNotification(StaffInvitation::factory()->create(), 'token')],
     'client invitation' => [fn (User $user) => new ClientInvitationNotification('Acme Studio', url('/account-invitation/token'), now()->addWeek())],
 ]);
