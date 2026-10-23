@@ -61,3 +61,29 @@ test('a registrar that needs an account is not active until one is saved, a stan
 
     expect($manager->isActive('resellerclub'))->toBeTrue();
 });
+
+// Real concurrent sessions on one server database; skipped on SQLite, where one file cannot host the race.
+test('concurrent remember() calls from separate processes all get the same ref and leave one row (PostgreSQL)', function () {
+    if (DB::connection()->getDriverName() !== 'pgsql') {
+        $this->markTestSkipped('Needs separate committed sessions on one server database (PostgreSQL).');
+    }
+
+    require_once __DIR__.'/../Billing/Support/race.php';
+    $this->useSeededDatabase('refs267_race', function (): void {});
+    $database = DB::connection()->getDatabaseName();
+    $start = (string) ((int) (microtime(true) * 1000) + 2500);
+
+    $results = runRaceWorkers(array_combine(
+        ['a', 'b', 'c', 'd'],
+        array_map(fn (string $id): array => ['remember', $database, $id, $start], ['r-a', 'r-b', 'r-c', 'r-d']),
+    ), 60.0, __DIR__.'/Support/refs-race-worker.php');
+
+    $winners = collect($results)->pluck('remote_id')->unique();
+
+    expect($results)->each->not->toHaveKey('error')
+        ->and($winners)->toHaveCount(1)
+        ->and(DB::table('registrar_refs')->count())->toBe(1)
+        ->and(DB::table('registrar_refs')->value('remote_id'))->toBe($winners->first());
+
+    DB::table('registrar_refs')->delete();
+});

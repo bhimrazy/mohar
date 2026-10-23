@@ -9,6 +9,7 @@
   written for a store that keeps the first one.
 - Core binds a null `RegistrarRefs` (`bindIf`): installs without Domains resolve it; `find()` returns null and
   `remember()` returns the ref unstored.
-- `RegistrarDriverRegistry::needsAccount(string $key)` and `markStandalone(string $key)`: a driver with settings is
-  not active until staff save its account, unless marked standalone (the demo `log` driver). Before, a registered
-  driver without an account counted as active.
+- New marker interface `App\Contracts\Domains\Registrar\StandaloneRegistrar` and
+  `RegistrarDriverRegistry::needsAccount(string $key)`: a driver with settings that does not implement the marker is
+  not active until staff save its account. Before, a registered driver without an account counted as active. The log
+  driver and the test fakes implement the marker. Recorded in ADR 0009 (amendment #408).

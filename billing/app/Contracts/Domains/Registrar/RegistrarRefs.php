@@ -23,11 +23,15 @@ interface RegistrarRefs
      * even at the same moment, both receive the ref of whichever stored first. Use the returned `remoteId` and
      * `secret`, not the ones you passed.
      *
-     * Lock rule: remember() needs no lock; the store decides the winner atomically (a unique key, never a
-     * read-then-write). It cannot stop two workers from both creating the remote object before either remembers:
-     * the loser's object stays at the registrar unused. A driver that must not create duplicates holds a lock
-     * on the ref key (registrar, type, local record and payload hash) around find, create and remember, and
+     * Lock rule: the store itself needs none; a unique key decides the winner atomically, and a caller whose insert
+     * meets a concurrent uncommitted winner may block until that transaction ends. remember() cannot stop two workers
+     * from both creating the remote object before either remembers. A driver that must not create duplicates holds
+     * a cross-process lock (Cache::lock on a shared store, never the array driver) on the ref key (registrar, type,
+     * local record, payload hash) around find, create and remember, with a TTL longer than the registrar call, and
      * re-reads with find() after taking it. Do not hold a database transaction open across the registrar call.
+     *
+     * When the returned `remoteId` differs from the one passed, the caller's remote object is an orphan at the
+     * registrar: log it, and use the returned ref.
      */
     public function remember(RegistrarRef $ref): RegistrarRef;
 }

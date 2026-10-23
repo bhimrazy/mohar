@@ -13,6 +13,7 @@ use App\Contracts\Domains\Registrar\ProvidesEppCode;
 use App\Contracts\Domains\Registrar\ReconcilesSubmissions;
 use App\Contracts\Domains\Registrar\RegistrarDriver;
 use App\Contracts\Domains\Registrar\RestoresDomains;
+use App\Contracts\Domains\Registrar\StandaloneRegistrar;
 use App\Contracts\Domains\Registrar\SuggestsNames;
 use App\Contracts\Domains\Registrar\SyncsDomains;
 use App\Contracts\Domains\Registrar\TestsRegistrarConnection;
@@ -57,7 +58,7 @@ use InvalidArgumentException;
  *
  * The reference implementation: it implements every capability, so the contract dataset covers each of them.
  */
-class LogRegistrar implements ChecksAvailability, DeclaresTldAttributes, LinksExistingOrders, ManagesContacts, ManagesIdProtection, ManagesLock, ManagesNameservers, ProvidesEppCode, ReconcilesSubmissions, RegistrarDriver, RestoresDomains, SuggestsNames, SyncsDomains, TestsRegistrarConnection, TransfersDomains
+class LogRegistrar implements ChecksAvailability, DeclaresTldAttributes, LinksExistingOrders, ManagesContacts, ManagesIdProtection, ManagesLock, ManagesNameservers, ProvidesEppCode, ReconcilesSubmissions, RegistrarDriver, RestoresDomains, StandaloneRegistrar, SuggestsNames, SyncsDomains, TestsRegistrarConnection, TransfersDomains
 {
     public function key(): string
     {

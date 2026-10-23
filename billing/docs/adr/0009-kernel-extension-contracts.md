@@ -311,3 +311,15 @@ Kernel shapes decided now:
    domain's client; it refuses with a plain message otherwise. The host records `remote.order_id` only when the answer
    carries the order id that was typed, and itself refuses `.np` and other self-registered names. Nothing is ever
    linked by searching for a name or by an email address. `LinkedOrder` carries `remote`, `status` and `expiryDate`.
+
+## Amendment (#408) — 2026-10-23, registrar refs are first-writer-wins
+
+1. `RegistrarRefs::remember(RegistrarRef): RegistrarRef` returns the stored ref and never replaces one: for a key
+   (registrar, type, local record, payload hash) the first writer wins, and every concurrent caller receives that
+   ref. A wrong ref cannot be overwritten; correcting one needs a staff-facing path (follow-up).
+2. Lock rule: the store needs no lock (unique key). A driver that must not create duplicate remote objects holds a
+   cross-process lock on the ref key around find, create and remember, with a TTL longer than the registrar call. A
+   returned `remoteId` different from the one passed means the caller's object is an orphan at the registrar.
+3. Core binds a null `RegistrarRefs` for installs without Domains.
+4. A driver is active without a saved account only if it implements the marker `StandaloneRegistrar` or declares no
+   settings (`RegistrarDriverRegistry::needsAccount`). Other drivers are inactive until staff save the account.

@@ -13,6 +13,7 @@ use App\Contracts\Domains\Registrar\ProvidesEppCode;
 use App\Contracts\Domains\Registrar\ReconcilesSubmissions;
 use App\Contracts\Domains\Registrar\RegistrarDriver;
 use App\Contracts\Domains\Registrar\RestoresDomains;
+use App\Contracts\Domains\Registrar\StandaloneRegistrar;
 use App\Contracts\Domains\Registrar\SuggestsNames;
 use App\Contracts\Domains\Registrar\SyncsDomains;
 use App\Contracts\Domains\Registrar\TestsRegistrarConnection;
@@ -71,9 +72,6 @@ final class RegistrarDriverRegistry extends DriverRegistry
 
     public const TLD_ATTRIBUTES = 'tld_attributes';
 
-    /** @var array<string, true> */
-    private array $standalone = [];
-
     protected function contract(): string
     {
         return RegistrarDriver::class;
@@ -122,19 +120,10 @@ final class RegistrarDriverRegistry extends DriverRegistry
     }
 
     /**
-     * Declare that the driver registered as $key works without a saved account (the demo log driver). Any other
-     * driver that has settings is not active until staff save its account: without one it has no credentials.
-     */
-    public function markStandalone(string $key): void
-    {
-        $this->standalone[$key] = true;
-    }
-
-    /**
      * Whether $key must have a saved account before it can be used.
      */
     public function needsAccount(string $key): bool
     {
-        return ! isset($this->standalone[$key]) && $this->fields($key) !== [];
+        return ! $this->get($key) instanceof StandaloneRegistrar && $this->fields($key) !== [];
     }
 }

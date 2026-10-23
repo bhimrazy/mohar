@@ -94,7 +94,6 @@ class DomainsServiceProvider extends ModuleServiceProvider
     protected function bootModule(): void
     {
         $this->app->make(RegistrarDriverRegistry::class)->register('log', LogRegistrar::class);
-        $this->app->make(RegistrarDriverRegistry::class)->markStandalone('log');
         $this->app->make(RegistrarDriverRegistry::class)->register(ResellerClubDriver::KEY, ResellerClubDriver::class);
 
         // Kernel registrar exceptions know nothing about HTTP (ADR 0009 §4): a failed staff or client action goes back
