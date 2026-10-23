@@ -37,6 +37,9 @@ class InvoiceFiscalReview extends Model
 
     public const LINES_MISMATCH = 'lines_do_not_match_totals';
 
+    /** The cached credited/debited totals were wrong (written past by the previous release) and were recomputed. */
+    public const CACHED_TOTALS = 'cached_totals_reconciled';
+
     protected function casts(): array
     {
         return ['seen_at' => 'datetime'];

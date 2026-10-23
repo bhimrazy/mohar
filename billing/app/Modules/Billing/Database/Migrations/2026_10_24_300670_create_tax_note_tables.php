@@ -45,7 +45,7 @@ return new class extends Migration
             $table->string('bs_period', 7);
             $table->string('bs_fiscal_year', 8);
             $table->boolean('automatic')->default(false);
-            $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignId('created_by')->nullable()->index()->constrained('users')->nullOnDelete();
             $table->unsignedInteger('print_count')->default(0);
             $table->string('cbms_status', 20)->nullable();
             $table->string('cbms_reference', 100)->nullable();
@@ -80,7 +80,7 @@ return new class extends Migration
             $table->string('reason_code', 30);
             $table->string('reason_text', 500)->nullable();
             $table->string('digest', 64);
-            $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignId('created_by')->nullable()->index()->constrained('users')->nullOnDelete();
             $table->string('status', 12)->default('pending'); // pending|finalised|released
             $table->foreignId('tax_note_id')->nullable()->constrained()->restrictOnDelete();
             $table->timestamps();
@@ -112,7 +112,7 @@ return new class extends Migration
             $table->string('subject', 40)->default('invoice'); // "invoice", or "adjustment:<id>"
             $table->text('detail')->nullable();
             $table->timestamp('seen_at')->nullable();
-            $table->foreignId('seen_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignId('seen_by')->nullable()->index()->constrained('users')->nullOnDelete();
             $table->timestamps();
             $table->unique(['invoice_id', 'reason', 'subject']);
             $table->index('seen_at');
@@ -121,8 +121,8 @@ return new class extends Migration
 
     public function down(): void
     {
-        foreach (['invoice_fiscal_reviews', 'tax_note_reservation_lines', 'tax_note_reservations', 'tax_note_lines', 'tax_notes'] as $table) {
-            Schema::dropIfExists($table);
+        foreach (['invoice_fiscal_reviews' => 'invoices', 'tax_note_reservation_lines' => 'invoice_items', 'tax_note_reservations' => 'transactions', 'tax_note_lines' => 'invoice_items', 'tax_notes' => 'invoices'] as $table => $locks) {
+            LockTimeout::run($locks, fn () => Schema::dropIfExists($table));
         }
     }
 

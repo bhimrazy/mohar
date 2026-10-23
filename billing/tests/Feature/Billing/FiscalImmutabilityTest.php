@@ -65,7 +65,8 @@ test('the cached credited and debited totals, the due date and the notes stay wr
     $invoice = issueInvoice(billingClient(['currency' => 'NPR']), [10_000])->fresh();
     $invoice->forceFill(['credited_total' => 5, 'debited_total' => 7, 'due_date' => '2026-12-01', 'notes' => 'Thanks'])->save();
 
-    expect($invoice->fresh())->credited_total->toBe(5)->debited_total->toBe(7);
+    expect($invoice->fresh())->credited_total->toBe(5)->debited_total->toBe(7)->notes->toBe('Thanks')
+        ->and($invoice->fresh()->due_date->toDateString())->toBe('2026-12-01');
 });
 
 test('a proforma is allowed exactly one transition: the payment that assigns its number', function () {

@@ -25,6 +25,9 @@ use OutOfRangeException;
  */
 class FiscalSnapshotWriter
 {
+    /** @var array{report: string|null, rates: array<string, string|null>}|null */
+    private ?array $memo = null;
+
     public function __construct(
         private FiscalSnapshotCalculator $calculator,
         private CurrencyConverter $converter,
@@ -33,7 +36,7 @@ class FiscalSnapshotWriter
     ) {}
 
     /**
-     * Set the snapshot attributes on a invoice that is being numbered; the caller saves it. Add-funds invoices are
+     * Set the snapshot attributes on an invoice that is being numbered; the caller saves it. Add-funds invoices are
      * deposits, not supplies, and get none. Every value adjustment already on the invoice counts as before numbering,
      * because the caller holds the invoice lock and may have written some in this transaction. `$published` says the
      * invoice was a draft a moment ago, which carries no adjustments, so they are not read.
@@ -43,6 +46,8 @@ class FiscalSnapshotWriter
         if ($invoice->kind === InvoiceKind::AddFunds) {
             return;
         }
+
+        $this->memo = null;
 
         $snapshot = $this->calculator->compute(
             ['total' => $invoice->total, 'subtotal' => $invoice->subtotal, 'tax1_amount' => $invoice->tax1_amount, 'tax2_amount' => $invoice->tax2_amount, 'tax_inclusive' => $invoice->tax_inclusive],
@@ -63,13 +68,15 @@ class FiscalSnapshotWriter
      */
     public function attributes(FiscalSnapshot $snapshot, string $currency, ?string $issueDate, CarbonInterface $at, array &$reviews): array
     {
-        $reportCurrency = $this->reportCurrency();
+        $reportCurrency = $this->memo !== null ? $this->memo['report'] : $this->reportCurrency();
         $rate = null;
 
-        try {
-            $rate = $reportCurrency !== null ? $this->converter->rateDecimal($currency, $reportCurrency) : null;
-        } catch (BillingException) {
-            $reviews[] = ['reason' => InvoiceFiscalReview::REPORT_RATE, 'subject' => 'invoice', 'detail' => "No stored exchange rate from {$currency} to {$reportCurrency}."];
+        if ($reportCurrency !== null) {
+            $rate = $this->memo !== null && array_key_exists($currency, $this->memo['rates']) ? $this->memo['rates'][$currency] : $this->rate($currency, $reportCurrency);
+
+            if ($rate === null) {
+                $reviews[] = ['reason' => InvoiceFiscalReview::REPORT_RATE, 'subject' => 'invoice', 'detail' => "No stored exchange rate from {$currency} to {$reportCurrency}."];
+            }
         }
 
         $bs = null;
@@ -94,6 +101,32 @@ class FiscalSnapshotWriter
             'bs_period' => $bs !== null ? BikramSambat::period($bs) : null,
             'bs_fiscal_year' => $bs !== null ? BikramSambat::fiscalYear($bs) : null,
         ];
+    }
+
+    /**
+     * Resolve the reporting currency and the rates of these currencies once, so a backfill chunk does not repeat the
+     * lookups per invoice while its rows are locked. Call it before the chunk's transaction, and flush() after.
+     *
+     * @param  list<string>  $currencies
+     */
+    public function warm(array $currencies): void
+    {
+        $report = $this->reportCurrency();
+        $this->memo = ['report' => $report, 'rates' => $report === null ? [] : array_combine($currencies, array_map(fn (string $code): ?string => $this->rate($code, $report), $currencies))];
+    }
+
+    public function flush(): void
+    {
+        $this->memo = null;
+    }
+
+    private function rate(string $from, string $to): ?string
+    {
+        try {
+            return $this->converter->rateDecimal($from, $to);
+        } catch (BillingException) {
+            return null;
+        }
     }
 
     /**

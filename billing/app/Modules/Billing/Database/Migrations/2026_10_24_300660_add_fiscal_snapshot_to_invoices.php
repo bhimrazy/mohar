@@ -9,10 +9,10 @@ use Illuminate\Support\Facades\Schema;
 /**
  * Expand only (VAT PR 1a, ADR 0024 §2): the tax-invoice value snapshot an invoice stores when it gets its legal number,
  * and the moment of numbering. Every column is nullable or defaulted, so the previous release keeps working against
- * the new schema. The values of existing invoices are filled by the next migration, in chunks.
+ * the new schema. The values of existing invoices are filled by `billing:fiscal-snapshot` (scheduled), not by a migration.
  *
- * The partial index lists the numbered invoices that still have no snapshot, in id order. It serves the backfill and
- * the "is anything left" check, and shrinks to nothing once the backfill is done. Built CONCURRENTLY on PostgreSQL.
+ * The partial index lists the numbered invoices that still have no snapshot, in id order. It serves the command and
+ the "is anything left" check, and shrinks to nothing once it is done. Built CONCURRENTLY on PostgreSQL.
  */
 return new class extends Migration
 {

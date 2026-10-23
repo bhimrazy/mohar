@@ -4,6 +4,8 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\InvoiceFiscalReview;
 use App\Modules\Billing\Services\FiscalBackfill;
 use App\Modules\Core\Models\Currency;
+use Illuminate\Console\Scheduling\Event as ScheduledEvent;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\DB;
 
 require_once __DIR__.'/helpers.php';
@@ -57,10 +59,10 @@ function legacyPayment(int $invoiceId, int $clientId, int $amount, string $creat
     ]);
 }
 
-/** The migration itself, as `php artisan migrate` runs it. */
-function runBackfillMigration(): void
+/** What the scheduler and the deploy run. */
+function runBackfill(int $chunk = 200, int $max = 0): array
 {
-    (require base_path('app/Modules/Billing/Database/Migrations/2026_10_24_300680_backfill_fiscal_snapshot_of_numbered_invoices.php'))->up();
+    return app(FiscalBackfill::class)->run($chunk, $max);
 }
 
 function reviewsOf(int $invoiceId): array
@@ -75,7 +77,7 @@ test('a publish-numbered invoice gets numbered_at = created_at and a snapshot eq
     legacyAdjustment($id, 'debit', 'late_fee', 565, '2026-08-20 05:00:00', 500, 65, 'Late payment fee');
     $number = Invoice::query()->findOrFail($id)->number;
 
-    runBackfillMigration();
+    runBackfill();
     $invoice = Invoice::query()->findOrFail($id);
 
     expect($invoice->number)->toBe($number)
@@ -96,7 +98,7 @@ test('a payment-numbered invoice gets the created_at of its numbering payment, n
     legacyPayment($id, $this->client->id, 11_865, '2026-09-10 07:00:00', '2026-09-01 00:00:00');
     legacyAdjustment($id, 'credit', 'refund', 1_000, '2026-09-20 05:00:00');
 
-    runBackfillMigration();
+    runBackfill();
     $invoice = Invoice::query()->findOrFail($id);
 
     expect($invoice->numbered_at->toDateTimeString())->toBe('2026-09-10 07:00:00')
@@ -122,7 +124,7 @@ test('an invoice without one identifiable numbering payment is listed and gets i
     legacyLine($partial, 10_000, 1_300);
     legacyPayment($partial, $this->client->id, 6_000, '2026-09-10 07:00:00', '2026-09-10 07:00:00');
 
-    runBackfillMigration();
+    runBackfill();
 
     foreach ([[$two, '2026-09-15 08:00:00'], [$credit, '2026-09-16 08:00:00'], [$partial, '2026-09-17 08:00:00']] as [$id, $paidAt]) {
         expect(Invoice::query()->findOrFail($id)->numbered_at->toDateTimeString())->toBe($paidAt)
@@ -143,7 +145,7 @@ test('a cancelled line stored with its net as taxable on an untaxed line, and an
     legacyAdjustment($plain, 'credit', 'item_cancellation', 2_000, '2026-08-10 05:00:00', 2_000, 0, 'Cancelled line: Domain');
     legacyAdjustment($plain, 'credit', 'cancellation', 100, '2026-08-11 05:00:00');
 
-    runBackfillMigration();
+    runBackfill();
 
     expect(Invoice::query()->findOrFail($id)->credited_total)->toBe(2_300)
         ->and(reviewsOf($id))->toBe([InvoiceFiscalReview::ITEM_CANCELLATION, InvoiceFiscalReview::ITEM_CANCELLATION])
@@ -151,7 +153,7 @@ test('a cancelled line stored with its net as taxable on an untaxed line, and an
         ->and(reviewsOf($plain))->toBe([]);
 });
 
-test('the backfill is chunked, repeatable and never rewrites a number, a snapshot or a seen entry', function () {
+test('the backfill is capped per run, chunked, repeatable and never rewrites a number, a snapshot or a seen entry', function () {
     $ids = [];
 
     foreach (range(1, 5) as $i) {
@@ -161,12 +163,12 @@ test('the backfill is chunked, repeatable and never rewrites a number, a snapsho
     }
 
     $numbers = Invoice::query()->whereIn('id', $ids)->orderBy('id')->pluck('number')->all();
-    $first = app(FiscalBackfill::class)->run(2);
+    $first = runBackfill(2);
     $before = DB::table('invoices')->whereIn('id', $ids)->orderBy('id')->get()->map(fn ($row) => (array) $row)->all();
     InvoiceFiscalReview::query()->update(['seen_at' => '2026-10-24 10:00:00']);
-    $second = app(FiscalBackfill::class)->run(2);
+    $second = runBackfill(2);
 
-    expect($first['filled'])->toBe(5)->and($second)->toBe(['filled' => 0, 'reviews' => 0])
+    expect($first['filled'])->toBe(5)->and($second)->toBe(['filled' => 0, 'reviews' => 0, 'reconciled' => 0])
         ->and(Invoice::query()->whereIn('id', $ids)->orderBy('id')->pluck('number')->all())->toBe($numbers)
         ->and(DB::table('invoices')->whereIn('id', $ids)->orderBy('id')->get()->map(fn ($row) => (array) $row)->all())->toBe($before)
         ->and(InvoiceFiscalReview::query()->count())->toBe($first['reviews'])
@@ -178,16 +180,16 @@ test('add-funds invoices, drafts and invoices already filled are left alone', fu
     $draft = legacyInvoice($this->client->id, ['number' => null, 'status' => 'draft']);
     $done = legacyInvoice($this->client->id, ['numbered_at' => '2026-07-01 00:00:00', 'fiscal_total' => 1]);
 
-    runBackfillMigration();
+    runBackfill();
 
     expect(Invoice::query()->find($deposit)->numbered_at)->toBeNull()
         ->and(Invoice::query()->find($draft)->numbered_at)->toBeNull()
         ->and(Invoice::query()->find($done))->numbered_at->toDateTimeString()->toBe('2026-07-01 00:00:00')->fiscal_total->toBe(1)
-        ->and(app(FiscalBackfill::class)->remaining())->toBe(0);
+        ->and(app(FiscalBackfill::class)->hasPending())->toBeFalse();
 });
 
 test('an invoice the previous release numbered after the migration is filled by the command, and the list shows its entries', function () {
-    runBackfillMigration();
+    runBackfill();
     $id = legacyInvoice($this->client->id);
     legacyLine($id, 10_000, 1_300);
     legacyAdjustment($id, 'credit', 'refund', 500, '2026-08-05 05:00:00');
@@ -202,7 +204,59 @@ test('a date outside the Bikram Sambat table leaves the BS fields empty and does
     $id = legacyInvoice($this->client->id, ['issue_date' => '1930-01-01']);
     legacyLine($id, 10_000, 1_300);
 
-    runBackfillMigration();
+    runBackfill();
 
     expect(Invoice::query()->findOrFail($id))->numbered_at->not->toBeNull()->bs_issue_date->toBeNull()->bs_period->toBeNull()->bs_fiscal_year->toBeNull();
+});
+
+test('a run fills at most --max invoices and the next run continues', function () {
+    array_map(fn () => legacyLine(legacyInvoice($this->client->id), 10_000, 1_300), range(1, 5));
+
+    expect(runBackfill(2, 3)['filled'])->toBe(3)
+        ->and(app(FiscalBackfill::class)->hasPending())->toBeTrue()
+        ->and(runBackfill(2, 3)['filled'])->toBe(2)
+        ->and(app(FiscalBackfill::class)->hasPending())->toBeFalse();
+});
+
+test('a value row the previous release wrote past the caches is recomputed, listed and reopened (probe D1)', function () {
+    $id = legacyInvoice($this->client->id);
+    legacyLine($id, 10_000, 1_300);
+    runBackfill();
+    expect(Invoice::query()->findOrFail($id)->debited_total)->toBe(0);
+
+    // The previous release's adjust() writes the row and knows no caches.
+    legacyAdjustment($id, 'debit', 'late_fee', 565, '2026-10-01 05:00:00', 500, 65);
+    legacyAdjustment($id, 'credit', 'overpayment', 9, '2026-10-01 05:00:00');
+    $before = DB::table('invoices')->where('id', $id)->first();
+
+    expect(app(FiscalBackfill::class)->mismatches())->toBe(1)
+        ->and(runBackfill()['reconciled'])->toBe(1)
+        ->and(Invoice::query()->findOrFail($id))->debited_total->toBe(565)->credited_total->toBe(0)
+        ->and(reviewsOf($id))->toBe([InvoiceFiscalReview::CACHED_TOTALS])
+        ->and(app(FiscalBackfill::class)->mismatches())->toBe(0)
+        ->and(runBackfill()['reconciled'])->toBe(0)
+        // The fiscal snapshot itself is untouched.
+        ->and(DB::table('invoices')->where('id', $id)->value('fiscal_total'))->toBe($before->fiscal_total);
+
+    InvoiceFiscalReview::query()->update(['seen_at' => now()]);
+    legacyAdjustment($id, 'credit', 'refund', 100, '2026-10-02 05:00:00');
+    runBackfill();
+
+    expect(Invoice::query()->findOrFail($id)->credited_total)->toBe(100)->and(InvoiceFiscalReview::query()->unseen()->count())->toBe(1);
+});
+
+test('rows the new release counted itself are not touched by the reconcile pass', function () {
+    $id = legacyInvoice($this->client->id);
+    legacyLine($id, 10_000, 1_300);
+    runBackfill();
+    DB::table('invoices')->where('id', $id)->update(['debited_total' => 565]);
+    legacyAdjustment($id, 'debit', 'late_fee', 565, '2026-10-01 05:00:00', 500, 65);
+
+    expect(runBackfill()['reconciled'])->toBe(0)->and(app(FiscalBackfill::class)->mismatches())->toBe(0);
+});
+
+test('the command is scheduled every five minutes, on one server and never overlapping', function () {
+    $event = collect(app(Schedule::class)->events())->first(fn (ScheduledEvent $event): bool => str_contains((string) $event->command, 'billing:fiscal-snapshot'));
+
+    expect($event)->expression->toBe('*/5 * * * *')->withoutOverlapping->toBeTrue()->onOneServer->toBeTrue();
 });

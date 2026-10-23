@@ -8,27 +8,31 @@ use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 
-#[Signature('billing:fiscal-snapshot {--list : Show the staff-review list instead of filling snapshots} {--all : With --list, include entries staff have seen} {--chunk=200 : Invoices per transaction} {--limit=200 : Most review rows to list}')]
-#[Description('Fill the tax-invoice snapshot of numbered invoices that have none (safe to repeat), or list the entries staff must review')]
+#[Signature('billing:fiscal-snapshot {--list : Show the staff-review list instead of filling snapshots} {--all : With --list, include entries staff have seen} {--chunk=200 : Invoices per transaction} {--max=5000 : Most invoices to fill in this run (0 = all)} {--limit=200 : Most review rows to list}')]
+#[Description('Fill the tax-invoice snapshot of numbered invoices that have none, reconcile the cached credit/debit totals (safe to repeat), or list the entries staff must review')]
 class BackfillFiscalSnapshot extends Command
 {
-    /** Run again after a deploy: invoices the previous release numbered meanwhile have no snapshot yet. */
+    /** Scheduled every five minutes and run after each deploy switch: the previous release numbers invoices and writes value rows without caches while it drains. */
     public function handle(FiscalBackfill $backfill): int
     {
         if ($this->option('list')) {
             return $this->list();
         }
 
-        $result = $backfill->run(max(1, (int) $this->option('chunk')), fn (int $filled) => $this->output->isVerbose() ? $this->line("{$filled} invoices filled") : null);
-        $this->components->info("{$result['filled']} invoices filled, {$result['reviews']} review entries written.");
+        $result = $backfill->run(max(1, (int) $this->option('chunk')), max(0, (int) $this->option('max')), fn (int $filled) => $this->output->isVerbose() ? $this->line("{$filled} invoices filled") : null);
+        $this->components->info("{$result['filled']} invoices filled, {$result['reviews']} review entries written, {$result['reconciled']} invoices' cached totals corrected.");
 
-        $left = $backfill->remaining();
+        if ($backfill->hasPending()) {
+            $this->components->warn('Invoices are still waiting for a snapshot; the next scheduled run continues.');
+        }
+
         $unseen = InvoiceFiscalReview::query()->unseen()->count();
+
         if ($unseen > 0) {
             $this->components->warn("{$unseen} entries on the staff-review list are unseen: php artisan billing:fiscal-snapshot --list");
         }
 
-        return $left === 0 ? self::SUCCESS : self::FAILURE;
+        return self::SUCCESS;
     }
 
     private function list(): int

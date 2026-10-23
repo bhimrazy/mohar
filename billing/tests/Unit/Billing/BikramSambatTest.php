@@ -113,7 +113,7 @@ test('the fiscal year starts on 1 Shrawan and is written the way the tax office 
     'Kartik 2083' => [[2083, 7, 1], '2083.084'],
     'last day of Chaitra 2083' => [[2083, 12, 30], '2083.084'],
     '1 Baisakh 2084 is still 2083/84' => [[2084, 1, 1], '2083.084'],
-    'a fiscal year ending in 2099' => [[2099, 4, 1], '2099.100'],
+    'a year starting in 2099 (arithmetic only, past the table)' => [[2099, 4, 1], '2099.100'],
 ]);
 
 test('the VAT period is the BS month and sorts in date order', function () {

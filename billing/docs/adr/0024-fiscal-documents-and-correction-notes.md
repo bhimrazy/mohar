@@ -83,8 +83,17 @@ A note stores its own BS fields and **copies the invoice's `report_currency` and
 foreign-currency invoice therefore nets to zero in the reporting currency, and a later correction to the BS table
 moves no filed document from one period to another.
 
-**Backfill (PR 1a migration, not at mode enable).** The migration fills the snapshot for invoices already numbered.
-It runs in chunks and is tested on PostgreSQL.
+**Backfill (PR 1a command, not at mode enable and not in a migration).** `php artisan billing:fiscal-snapshot` fills the
+snapshot for invoices already numbered. A migration cannot be the last pass: the previous release keeps serving, and its
+workers keep draining for up to an hour, so it numbers invoices and writes value rows after any migration has run
+(`architecture.md` rule 1 also keeps backfills out of migrations). The command is capped (`--max`, default 5,000
+invoices; chunks of 200 that lock only their own rows), safe to repeat, scheduled every five minutes
+(`withoutOverlapping`, `onOneServer`) and run by `deploy/bin/deploy` after the switch. It is tested on PostgreSQL.
+
+- **Reconcile.** Each run also recomputes `credited_total` and `debited_total` from the value adjustments after
+  `numbered_at`, for invoices with an adjustment past a watermark (adjustment ids only grow). The previous release's
+  `adjust()` writes value rows without the caches. Every invoice it corrects goes on the review list as
+  `cached_totals_reconciled`.
 
 - `numbered_at` is backfilled from the first instant at which the number can be shown to exist:
     - **Numbered at publish** (`proforma_number` is null). A draft carries no adjustments, so every value adjustment
@@ -99,7 +108,7 @@ It runs in chunks and is tested on PostgreSQL.
       review list below.
 - The value is computed by the rule above. `credited_total` and `debited_total` are filled in the same pass, from the
   value adjustments after `numbered_at`.
-- Rows the migration cannot classify as taxable or exempt go on a **staff-review list**, and Nepal VAT mode cannot be
+- Rows the command cannot classify as taxable or exempt go on a **staff-review list**, and Nepal VAT mode cannot be
   enabled until staff have seen it. The list holds:
     - invoices whose numbering instant cannot be derived;
     - line-less rows;
@@ -349,7 +358,9 @@ final class CreditNoteIssued implements DomainEvent, ShouldDispatchAfterCommit
 - Old paths read the mode with `FOR SHARE` on the same row, after their invoice lock. A transaction that read "mode
   off" therefore commits before the enabling check runs, and the register never holds an old-style row. This is the
   CTO decision on B6, also in `vat-register.md` §3 and §12. Enabling is also refused while the staff-review list from
-  §2 has not been seen, and while any refund row written by the old path (without a reservation) on a numbered
+  §2 has not been seen, while any numbered invoice still has no snapshot (`invoices_fiscal_pending_index` is not
+  empty: `FiscalBackfill::hasPending()`), while any cached credited/debited total differs from its value rows
+  (`FiscalBackfill::mismatches()`), and while any refund row written by the old path (without a reservation) on a numbered
   invoice is still pending.
 - **From enabling (before `enabled_from` too):**
     - the increment of every fiscal sequence is 1;
@@ -411,7 +422,9 @@ section.
 - **Numbering the note before the refund call, with a settlement field that can change.** This opens a window with a
   negative balance and breaks immutability. Rejected.
 - **Backfilling at mode enable.** This would write frozen columns after PR 1a, and an unattended enable would
-  silently classify old rows. Rejected in favour of the PR 1a migration with a review list.
+  silently classify old rows. Rejected in favour of the PR 1a command with a review list.
+- **Backfilling in a migration.** The previous release numbers invoices after it runs, and a long fill blocks the deploy.
+  Rejected (review of #369).
 - **Using `paid_at` as the numbering moment.** It is rewritten when a `Collections` invoice is paid again. Rejected;
   `numbered_at` is stored instead.
 - **One `TaxNoteIssued` event with a kind enum.** One class would then map to two webhook types. Rejected.

@@ -22,15 +22,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   These fields are frozen with the number, and a numbered invoice cannot be deleted. New tables hold notes, note
   lines, refund reservations and the staff-review list. Credit and debit notes get gap-free sequences of their own
   (`CN-{NUMBER}`, `DN-{NUMBER}`; settings `credit_note_*` and `debit_note_*` for format, padding, reset; increment
-  always 1). Upgrade notes: **three expand-only migrations run on deploy.** The last fills the snapshot of every
-  invoice that already has a number, in chunks of 200 that lock only their own rows (20,000 invoices took 40 seconds
-  on PostgreSQL); numbers are never rewritten and deposit invoices are skipped. `numbered_at` is the creation time of an
-  invoice numbered at publish, and of one numbered on payment the creation time of the one payment that brought its
-  balance to zero (not the payment date, which staff can backdate). Invoices with no such single payment, and rows with no
-  usable tax split (refunds, cancellations), go on the **staff-review list** with an estimate: read it with
-  `php artisan billing:fiscal-snapshot --list`. Run `php artisan billing:fiscal-snapshot` once after the deploy has
-  switched servers (safe to repeat): it fills invoices the previous release numbered meanwhile. Nepal VAT mode (a later
-  release) cannot be enabled while the list is unseen. Rollback drops the new tables and columns.
+  always 1). Upgrade notes: **two expand-only migrations run on deploy; none fills data.** The snapshot of invoices
+  that already have a number is filled by `php artisan billing:fiscal-snapshot`, which the scheduler runs every five
+  minutes (5,000 invoices per run, chunks of 200 that lock only their own rows; about 2 ms an invoice) and
+  `deploy/bin/deploy` runs once after the switch. It is safe to repeat, never writes a number and skips deposit
+  invoices. `numbered_at` is the creation time of an invoice numbered at publish, and of one numbered on payment the
+  creation time of the one payment that brought its balance to zero (not the payment date, which staff can backdate).
+  Invoices with no such single payment, and rows with no usable tax split (refunds, cancellations), go on the
+  **staff-review list** with an estimate (`php artisan billing:fiscal-snapshot --list`). During the switch the previous
+  release keeps serving and can number an invoice or write a late fee or cancellation without updating the new
+  `credited_total`/`debited_total`: every run recomputes these two caches from the value rows and lists each invoice it
+  corrected. Nepal VAT mode (a later release) cannot be enabled while invoices wait for a snapshot, the list is unseen
+  or a cache differs from its rows. Staff cannot delete an invoice that has a review entry (the previous release gets a
+  foreign-key error). Rollback drops the new tables and columns.
 
 - **Report registry and one export pipeline (ADR 0025, VAT PR 0c).** Modules and packages can now register reports
   (`ReportRegistry`) and export them as CSV or PDF through one path that checks the permission, limits the size, and

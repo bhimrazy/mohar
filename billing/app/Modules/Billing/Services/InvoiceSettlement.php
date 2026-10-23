@@ -84,14 +84,15 @@ class InvoiceSettlement
 
         if ($invoice->number === null && $this->settings->bool('sequential_paid_numbering')) {
             $today = $this->clock->today();
-            $invoice->number = $this->numbers->next(DocumentNumbers::INVOICE, $today);
 
             if ($this->settings->bool('set_issue_date_on_payment')) {
                 $invoice->issue_date = $today;
             }
 
-            // The snapshot is written once, in this transaction, with every adjustment written so far (ADR 0024 §2).
+            // The snapshot is written once, in this transaction, with every adjustment written so far (ADR 0024 §2),
+            // and before the sequence row is locked (§4).
             $this->fiscal->stamp($invoice, $at);
+            $invoice->number = $this->numbers->next(DocumentNumbers::INVOICE, $today);
         }
 
         $invoice->save();
