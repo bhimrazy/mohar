@@ -383,7 +383,8 @@ final class ResellerClubDriver implements ChecksAvailability, LinksExistingOrder
         return new RegistrarResult(
             self::status($answer),
             message: (string) (((array) $answer)['actionstatusdesc'] ?? ''),
-            meta: $locked ? ['transfer_lock_until' => CarbonImmutable::today()->addDays(60)->toDateString()] : [],
+            // A relative hint: the host dates it from the company calendar (a driver reads no settings).
+            meta: $locked ? ['transfer_lock_days' => 60] : [],
         );
     }
 

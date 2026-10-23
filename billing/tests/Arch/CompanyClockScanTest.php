@@ -21,11 +21,11 @@ const UTC_DATE_FORMS = [
 ];
 
 /** Modules that have moved onto the company clock. */
-const SCANNED_MODULES = ['Billing', 'Services', 'Notifications', 'Platform'];
+const SCANNED_MODULES = ['Billing', 'Services', 'Notifications', 'Platform', 'Domains'];
 
 /**
- * The one UTC read left on purpose, as "file" => code. MailDates falls back to the UTC date when the company clock
- * itself is unavailable (no settings table yet); the scan removes exactly this text from that file before matching.
+ * The UTC reads left on purpose, as "file" => code. MailDates falls back to the UTC date when the company clock itself
+ * is unavailable (no settings table yet). The scan removes exactly this text from that file before matching.
  */
 const SCAN_EXCEPTIONS = [
     'Modules/Notifications/Support/MailDates.php' => "CarbonImmutable::now('UTC')->toDateString()",
@@ -114,18 +114,18 @@ test('the scan sees every form it forbids', function (string $label, string $cod
     ['the UTC date of an instant column', '$invoice->paid_at?->toDateString()'],
 ]);
 
-test('the MailDates fallback is the only allowed UTC read, and only in that form', function () {
-    $file = 'Modules/Notifications/Support/MailDates.php';
-    $fallback = SCAN_EXCEPTIONS[$file];
+test('a scan exception allows only its own text in its own file', function (string $file, string $allowed) {
+    $module = explode('/', $file)[1];
     $hits = fn (string $code): array => array_keys(array_filter(UTC_DATE_FORMS, fn (string $pattern): bool => preg_match($pattern, $code) === 1));
+    $code = billingDocumentCode($module)[$file];
 
-    // The exception names code that exists in the file, and the form is one the scan would otherwise flag.
-    expect(billingDocumentCode('Notifications')[$file])->toContain($fallback)
-        ->and($hits($fallback))->not->toBe([])
-        ->and($hits(str_replace($fallback, '', billingDocumentCode('Notifications')[$file])))->toBe([])
-        // Any other form in the same file, or the same form elsewhere, is still caught.
-        ->and($hits(str_replace($fallback, '', "{$fallback}; now()->toDateString();")))->not->toBe([]);
-});
+    // The exception names code that exists in the file and that the scan would flag; without it the file is clean.
+    expect($code)->toContain($allowed)
+        ->and($hits($allowed))->not->toBe([])
+        ->and($hits(str_replace($allowed, '', $code)))->toBe([])
+        // Any other UTC form in the same file is still caught.
+        ->and($hits(str_replace($allowed, '', "{$allowed}; now()->toDateString();")))->not->toBe([]);
+})->with(fn (): array => array_map(fn (string $file, string $code): array => [$file, $code], array_keys(SCAN_EXCEPTIONS), SCAN_EXCEPTIONS));
 
 test('the scan allows the company clock and plain date handling', function () {
     foreach (ALLOWED_DATE_CODE as $allowed) {
@@ -147,7 +147,6 @@ const HAND_CONVERSIONS = [
  */
 const HAND_CONVERSION_BASELINE = [
     'Modules/Billing/Database/Seeders/BillingHistorySeeder.php: an instant method on the run date' => 1,
-    'Modules/Domains/DomainsServiceProvider.php: a timestamp column compared with the run date' => 1,
     'Modules/Orders/Actions/CancelStalePendingOrders.php: a timestamp column compared with the run date' => 1,
 ];
 

@@ -2,6 +2,7 @@
 
 namespace App\Modules\Domains\Services;
 
+use App\Contracts\Core\CompanyClock;
 use App\Enums\BillingCycle;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Models\Domain;
@@ -13,7 +14,13 @@ use Carbon\CarbonImmutable;
  */
 class DomainDates
 {
-    public function __construct(private Settings $settings) {}
+    public function __construct(private Settings $settings, private CompanyClock $clock) {}
+
+    /** The company date as a date value (ADR 0013). */
+    public function companyDate(): CarbonImmutable
+    {
+        return $this->clock->todayDate();
+    }
 
     public function leadDays(): int
     {
@@ -46,7 +53,7 @@ class DomainDates
      */
     public function extend(Domain $domain, int $years, ?CarbonImmutable $today = null): CarbonImmutable
     {
-        $base = $domain->expiry_date ?? ($today ?? CarbonImmutable::today());
+        $base = $domain->expiry_date ?? ($today ?? $this->companyDate());
 
         return BillingCycle::Annually->advance($base, $years, $domain->billing_anchor_day ?? $base->day);
     }
