@@ -147,7 +147,7 @@ export default function Checkout({
 
             <form
                 onSubmit={submit}
-                className="mx-auto grid w-full max-w-6xl gap-8 px-4 py-8 md:px-6 lg:grid-cols-[1fr_22rem] lg:py-12"
+                className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-8 px-4 py-8 md:px-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:py-12"
             >
                 <div className="flex min-w-0 flex-col gap-6">
                     <header>
@@ -192,10 +192,10 @@ export default function Checkout({
                                     />
                                 </span>
                                 <div className="min-w-0">
-                                    <p className="truncate font-medium">
+                                    <p className="font-medium [overflow-wrap:anywhere]">
                                         {account.name}
                                     </p>
-                                    <p className="truncate text-sm text-muted-foreground">
+                                    <p className="text-sm [overflow-wrap:anywhere] text-muted-foreground">
                                         {account.email} · billed in{' '}
                                         {account.currency}
                                     </p>
@@ -403,21 +403,21 @@ export default function Checkout({
                     )}
                 </div>
 
-                <aside className="flex flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
+                <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
                     <section
                         aria-label="Items"
                         className="rounded-xl border bg-card p-5 shadow-xs"
                     >
-                        <ul className="grid gap-2 text-sm">
+                        <ul className="grid grid-cols-1 gap-2 text-sm">
                             {cart.items.map((item) => (
                                 <li key={item.key}>
                                     <div className="flex justify-between gap-4">
-                                        <span className="min-w-0 truncate">
-                                            {item.title}
+                                        <span className="min-w-0">
+                                            <span className="block">
+                                                {item.title}
+                                            </span>
                                             {(item.domain ?? item.subtitle) && (
-                                                <span className="text-muted-foreground">
-                                                    {' '}
-                                                    ·{' '}
+                                                <span className="block [overflow-wrap:anywhere] text-muted-foreground">
                                                     {item.domain ??
                                                         item.subtitle}
                                                 </span>
@@ -426,6 +426,7 @@ export default function Checkout({
                                         <Money
                                             amount={item.due_today}
                                             currency={cart.currency}
+                                            className="shrink-0"
                                         />
                                     </div>
                                     <ItemDetails details={item.details} />
