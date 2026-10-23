@@ -1,4 +1,4 @@
-### Dashboard registry: hidden widgets, `notice` type, list dates (#PR)
+### Dashboard registry: hidden widgets, `notice` type, list dates (#424)
 
 - A widget resolver may return `null`: the widget is left out of `resolve()` and `resolveWidgets()` for that request.
   Additive: resolvers that always return an array are unaffected.
