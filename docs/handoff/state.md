@@ -32,6 +32,7 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
       not found goes to staff review (#362); flaky KYC test (#387).
     - Earlier merges: `billing/docs/progress.md`.
 - Owner decisions in force:
+    - 2026-10-24: PRs squash-merge by default; a merge commit only when another open PR is based on the branch (#446).
     - 2026-10-23 (`requirements.md`): #406 waits for the FrankenPHP 1.13.2 cooldown on 10-28. Product standards: error
       pages carry the host's brand, and a country is chosen by name. Cautious release defaults (#412, #415): no
       `attest-build-provenance`, images from the default branch only, no heartbeat setting, the first release run

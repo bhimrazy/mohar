@@ -27,6 +27,9 @@ for item in "$@"; do
     fi
     ci "$n" || { echo "$n CI failed or timed out; stopping"; exit 1; }
     [ "$(gh pr view "$n" --repo $R --json headRefOid -q .headRefOid)" = "$h" ] || { echo "$n head moved; stopping"; exit 1; }
-    gh pr merge "$n" --repo $R --merge >/dev/null && echo "$n MERGED" || { echo "$n merge refused; stopping"; exit 1; }
+    # Squash unless another open PR is based on this branch (operating model, step 7).
+    b=$(gh pr view "$n" --repo $R --json headRefName -q .headRefName)
+    [ -n "$(gh pr list --repo $R --base "$b" --json number -q '.[].number')" ] && how=--merge || how=--squash
+    gh pr merge "$n" --repo $R $how --match-head-commit "$h" >/dev/null && echo "$n MERGED ($how)" || { echo "$n merge refused; stopping"; exit 1; }
     [ -n "${issue:-}" ] && gh issue close "$issue" --repo $R --comment "Fixed by #$n." >/dev/null && echo "closed $issue"
 done
