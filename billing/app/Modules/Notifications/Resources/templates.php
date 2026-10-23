@@ -80,6 +80,20 @@ This link works once, for {{ auth.expires_in }}: until {{ auth.expires_at }}. If
 
 If you weren't expecting this, you can ignore this email. If this wasn't you, contact {{ support.email }}.
 MD),
+    $client('auth.email_changed', 'general', 'Sign-in email changed', 'The sign-in email for your {{ company.name }} account was changed', <<<'MD'
+# Your sign-in email was changed
+
+The sign-in email for your account is now {{ notice.new_email }}. This address no longer receives password resets.
+
+| From | {{ notice.old_email }} |
+|---|---|
+| To | {{ notice.new_email }} |
+| Date | {{ system.today | date }} |
+
+If you didn't make this change, contact us straight away{% if support.email %} at {{ support.email }}{% endif %} so we can secure your account.
+
+[Open the client area]({{ system.client_area_url }})
+MD),
     $client('auth.new_login_alert', 'general', 'New login alert', 'New login to your {{ company.name }} account', <<<'MD'
 # New login to your account
 
@@ -830,6 +844,7 @@ $preheaders = [
     'auth.password_changed' => 'Changed on {{ system.today | date }}. If this wasn\'t you, reset your password now.',
     'auth.email_verification' => 'One click confirms this address, so your invoices and service details reach you.',
     'auth.user_invitation' => 'Accept within {{ auth.expires_in }} to choose your password and see this account\'s invoices, services and tickets.',
+    'auth.email_changed' => 'Changed on {{ system.today | date }}. Not you? Contact us straight away.',
     'auth.new_login_alert' => 'From {{ auth.ip }} on {{ system.today | date }}. Not you? Change your password now.',
     'auth.login_added' => '{{ notice.email }} can now log in to {{ notice.account }}. Not expected? Remove the login.',
     'auth.access_granted' => 'Log in as usual to see {{ notice.account }}.',

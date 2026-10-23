@@ -19,9 +19,15 @@ type PageProps = {
 export default function Profile({
     mustVerifyEmail,
     status,
+    hasPassword,
+    setPasswordUrl,
 }: {
     mustVerifyEmail: boolean;
     status?: string;
+    /** Changing the email needs a password confirmation, so a login without one must set it first. */
+    hasPassword: boolean;
+    /** The set-password action, when this install has it. */
+    setPasswordUrl: string | null;
 }) {
     const { auth } = usePage<PageProps>().props;
 
@@ -78,7 +84,18 @@ export default function Profile({
                                     required
                                     autoComplete="username"
                                     placeholder="Email address"
+                                    readOnly={!hasPassword}
+                                    aria-describedby="email-help"
                                 />
+
+                                <p
+                                    id="email-help"
+                                    className="text-sm text-muted-foreground"
+                                >
+                                    {hasPassword
+                                        ? "To change it, you'll confirm your password. We tell your current address, and the new one must be verified."
+                                        : 'Set a password first: changing the email needs a password confirmation, and your account has no password yet.'}
+                                </p>
 
                                 <InputError
                                     className="mt-2"
@@ -123,6 +140,20 @@ export default function Profile({
                     )}
                 </Form>
             </div>
+
+            {!hasPassword && setPasswordUrl && (
+                <Form action={setPasswordUrl} method="post">
+                    {({ processing }) => (
+                        <Button
+                            variant="outline"
+                            disabled={processing}
+                            data-test="set-password-button"
+                        >
+                            Set a password
+                        </Button>
+                    )}
+                </Form>
+            )}
 
             <DeleteUser />
         </>

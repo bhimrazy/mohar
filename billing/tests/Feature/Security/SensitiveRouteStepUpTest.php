@@ -339,3 +339,50 @@ test('probe L1: server-group changes need a recent password confirmation', funct
 
     expect(ServerGroup::query()->count())->toBe(1);
 });
+
+/**
+ * Every route that can change users.email (#388), with its request body less the email. Found by searching app/ for writes
+ * to a login's email; account creation (registration, invitations, imports) sets an email and changes none.
+ *
+ * @return array<string, Closure(): array{0: User, 1: User, 2: string, 3: array<string, mixed>}> actor, target, url, body
+ */
+function emailChangingRoutes(): array
+{
+    return [
+        'profile.update' => function (): array {
+            $user = User::factory()->create();
+
+            return [$user, $user, route('profile.update'), ['name' => $user->name]];
+        },
+        'admin.platform.staff.update' => function (): array {
+            $admin = User::factory()->staff(['*'])->create();
+            $staff = User::factory()->staff(['core.clients.view'])->create();
+
+            return [$admin, $staff, route('admin.platform.staff.update', $staff), ['name' => $staff->name, 'role_id' => $staff->role_id, 'is_active' => true]];
+        },
+    ];
+}
+
+test('every route that changes a login\'s email refuses without a recent password, over Inertia and JSON', function () {
+    Notification::fake();
+    Mail::fake();
+
+    foreach (emailChangingRoutes() as $name => $make) {
+        [$actor, $target, $url, $body] = $make();
+        // A new address per route, so one route's change never blocks the next as taken.
+        $body['email'] = Str::slug($name).'@example.com.np';
+        $method = collect(Route::getRoutes()->getByName($name)->methods())->first(fn (string $method): bool => ! in_array($method, ['GET', 'HEAD'], true));
+        $original = $target->email;
+        $this->flushSession();
+        $this->actingAs($actor);
+
+        expect(refusedForStepUp($this->call($method, $url, $body, [], [], ['HTTP_REFERER' => url('/')])))->toBeTrue("{$name} (Inertia)")
+            ->and($this->json($method, $url, $body)->status())->toBe(423, "{$name} (JSON)")
+            ->and($target->fresh()->email)->toBe($original, $name);
+
+        // Vacuity guard: with a recent password the same request does change the email.
+        confirmPassword();
+        $this->call($method, $url, $body);
+        expect($target->fresh()->email)->toBe($body['email'], "{$name} (confirmed)");
+    }
+});

@@ -1,0 +1,41 @@
+<?php
+
+namespace App\Modules\Core\Notifications;
+
+use Illuminate\Bus\Queueable;
+use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Notifications\Notification;
+
+/**
+ * The notice to the old address after a sign-in email change, when no template system takes it (SystemMailer
+ * returned Unavailable). The editable version is the auth.email_changed template.
+ */
+class LoginEmailNotice extends Notification
+{
+    use Queueable;
+
+    /**
+     * @param  list<string>  $lines
+     */
+    public function __construct(public string $subject, public array $lines) {}
+
+    /**
+     * @return list<string>
+     */
+    public function via(object $notifiable): array
+    {
+        return ['mail'];
+    }
+
+    public function toMail(object $notifiable): MailMessage
+    {
+        $message = (new MailMessage)->subject($this->subject)->markdown('notifications::email', ['security' => true]);
+
+        foreach ($this->lines as $line) {
+            // Lines are parsed as Markdown and hold addresses the user typed: escape them so they render literally.
+            $message->line((string) preg_replace('/([\\\\`*_{}\[\]()#+\-.!|<>~=:])/u', '\\\\$1', (string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $line)));
+        }
+
+        return $message;
+    }
+}

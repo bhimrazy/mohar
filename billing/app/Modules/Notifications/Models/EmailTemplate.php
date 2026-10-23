@@ -97,7 +97,7 @@ class EmailTemplate extends Model
     public const ALWAYS_SENT = [
         'auth.password_reset', 'auth.email_verification', 'staff.password_reset', 'auth.user_invitation', 'staff.invitation',
         'client.migration_invitation', 'auth.login_added', 'auth.access_granted', 'auth.owner_changed', 'auth.two_factor_reset', 'staff.two_factor_reset',
-        'staff.email_changed', 'staff.settings_changed',
+        'staff.email_changed', 'staff.settings_changed', 'auth.email_changed',
     ];
 
     public function isAlwaysSent(): bool
