@@ -12,6 +12,7 @@ use LogicException;
 use Tests\Fakes\Domains\Registrars\CoreOnlyRegistrar;
 use Tests\Fakes\Domains\Registrars\FullRegistrar;
 use Tests\Fakes\Domains\Registrars\FullWithoutAttributesRegistrar;
+use Tests\Fakes\Domains\Registrars\LinkingRegistrar;
 use Tests\Fakes\Domains\Registrars\NameserverEppRegistrar;
 use Tests\Fakes\Domains\Registrars\NameserverRegistrar;
 use Tests\Fakes\Domains\Registrars\NameserverSyncingRegistrar;
@@ -27,7 +28,7 @@ use Throwable;
  */
 class FakeRegistrar
 {
-    /** @var list<string> every capability except `reconcile`, which tests opt into (it replaces the info check) */
+    /** @var list<string> every capability except `reconcile` (it replaces the info check) and `link_order`, which tests opt into */
     public array $capabilities = [];
 
     /** @var list<array{command: string, domain: string|null}> */
@@ -38,7 +39,7 @@ class FakeRegistrar
 
     public function __construct()
     {
-        $this->capabilities = array_values(array_diff(array_keys(app(RegistrarDriverRegistry::class)->capabilities()), ['reconcile']));
+        $this->capabilities = array_values(array_diff(array_keys(app(RegistrarDriverRegistry::class)->capabilities()), ['reconcile', 'link_order']));
     }
 
     /** @var array<string, list<SettingField>> extension => the fields a driver with `tld_attributes` declares */
@@ -99,7 +100,7 @@ class FakeRegistrar
     {
         $fixtures = [];
 
-        foreach ([CoreOnlyRegistrar::class, SyncingRegistrar::class, NameserverRegistrar::class, NameserverEppRegistrar::class, NameserverSyncingRegistrar::class, FullRegistrar::class, FullWithoutAttributesRegistrar::class, ReconcilingRegistrar::class] as $class) {
+        foreach ([CoreOnlyRegistrar::class, SyncingRegistrar::class, NameserverRegistrar::class, NameserverEppRegistrar::class, NameserverSyncingRegistrar::class, FullRegistrar::class, FullWithoutAttributesRegistrar::class, ReconcilingRegistrar::class, LinkingRegistrar::class] as $class) {
             $interfaces = array_values(array_diff((array) class_implements($class), [RegistrarDriver::class, IntegrationDriver::class]));
             sort($interfaces);
             $fixtures[implode(',', $interfaces)] = $class;
