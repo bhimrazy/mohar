@@ -8,6 +8,7 @@ use App\Contracts\Support\PublicHelpDirectory;
 use App\Data\Notifications\SensitiveValue;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\RequestMemo;
 use App\Modules\Support\Actions\AutoCloseTickets;
 use App\Modules\Support\Actions\PruneAttachments;
@@ -179,12 +180,32 @@ class SupportServiceProvider extends ModuleServiceProvider
             'icon' => 'Activity',
         ], 'support.network.manage', 22);
 
-        $dashboard->card('client', 'support.open', fn (?User $user, Client $client): array => [
+        $dashboard->card('client', 'support.open', fn (?User $user, Client $client): ?array => app(ClientContext::class)->allows($user, $client, 'support') ? [
             'label' => 'Open tickets',
             'value' => Ticket::query()->notMerged()->where('client_id', $client->id)->where('status', '!=', TicketStatus::Closed->value)->count(),
             'href' => route('client.support.tickets.index'),
             'icon' => 'LifeBuoy',
-        ], order: 60);
+        ] : null, order: 60);
+
+        $dashboard->widget('client', 'support.tickets', 'list', fn (?User $user, Client $client): ?array => app(ClientContext::class)->allows($user, $client, 'support') ? [
+            'title' => 'Support',
+            // Tickets staff answered (awaiting the client) first, then the latest activity.
+            'items' => Ticket::query()->notMerged()->where('client_id', $client->id)->where('status', '!=', TicketStatus::Closed->value)
+                ->orderByRaw('case when status = ? then 0 else 1 end', [TicketStatus::Answered->value])
+                ->orderByDesc('last_reply_at')->orderByDesc('id')
+                ->limit(3)
+                ->get(['id', 'number', 'subject', 'status', 'last_reply_at'])
+                ->map(fn (Ticket $ticket): array => [
+                    'title' => $ticket->subject,
+                    'subtitle' => '#'.$ticket->number,
+                    'href' => route('client.support.tickets.show', $ticket->number),
+                    'status' => $ticket->status === TicketStatus::Answered ? 'awaiting-you' : $ticket->status->value,
+                    'meta' => $ticket->last_reply_at?->toIso8601String(),
+                ])->values()->all(),
+            'href' => route('client.support.tickets.index'),
+            'empty' => 'No open tickets. We are here if you need help.',
+            'emptyAction' => ['label' => 'Open a ticket', 'href' => route('client.support.tickets.create')],
+        ] : null, order: 30);
     }
 
     /**

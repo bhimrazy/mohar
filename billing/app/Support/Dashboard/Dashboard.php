@@ -19,12 +19,17 @@ use Closure;
  * Other widgets — type + payload shape:
  *   'list'  => ['title' => 'Recent orders', 'items' => [['title', 'subtitle'?, 'href'?, 'meta'?, 'money'?, 'status'?]], 'href'? (view all),
  *               'empty'?, 'group'? + 'groupTitle'? (lists sharing a group render as tabs of one card)]
+ *               An item may add 'date' + 'dateLabel' ("Renews", "Due"), shown after its subtitle; a list may add
+ *               'emptyAction' => ['label', 'href'].
  *   'chart' => ['title' => 'Income', 'kind' => 'line'|'bar', 'currency'?, 'stacked'?, 'description'?, 'xFormat'? ('month'|'day'|'dayOfMonth'|'week'),
  *               'series' => [['name', 'compare'? (drawn as the neutral baseline), 'points' => [['x' => '2026-10-01', 'y' => 1234]]]],
  *               'summary'? => ['money'|'value', 'label', 'trend'?], 'ranges'? => ['12m' => ['label', 'series', 'summary'?, 'xFormat'?]], 'href'?]
  *   'breakdown' => ['title', 'description'?, 'rows' => [['key', 'label', 'code'?, 'money'|'value', 'share' (0–100)]],
  *               'notes'? => [['label', 'money']], 'notesTitle'?, 'empty'?]
+ *   'notice' => ['title', 'body'?, 'tone' => 'warning'|'danger'|'info', 'actions' => [['label', 'href', 'primary'?]]]  (a banner)
  *   $dashboard->widget('admin', 'orders.recent', 'list', fn ($user) => [...], 'orders.orders.view', order: 30, size: 'md');
+ *
+ * A resolver that returns null hides its widget for this request (nothing to show, or the viewer may not see it).
  *
  * Currency variants (any money widget): 'variants' => ['all' => [...partial payload], 'USD' => [...], 'INR' => [...]]. The page's
  * reporting-currency switch merges the selected variant over the base payload; widgets without variants ignore the switch.
@@ -40,7 +45,7 @@ use Closure;
  */
 class Dashboard
 {
-    public const TYPES = ['stat', 'list', 'chart', 'breakdown'];
+    public const TYPES = ['stat', 'list', 'chart', 'breakdown', 'notice'];
 
     public const SIZES = ['sm', 'md', 'lg'];
 
@@ -118,13 +123,18 @@ class Dashboard
             ->filter(fn (array $widget): bool => $withMirrors || ! $widget['mirrorsTodo'])
             ->filter(fn (array $widget): bool => $this->allowed($widget['permission'], $user))
             ->sortBy('order')
-            ->map(fn (array $widget): array => [
-                'key' => $widget['key'],
-                'type' => $widget['type'],
-                'size' => $widget['size'],
-                ...($widget['mirrorsTodo'] ? ['mirrorsTodo' => true] : []),
-                ...($widget['resolver'])($user, ...$arguments),
-            ])
+            ->map(function (array $widget) use ($user, $arguments): ?array {
+                $payload = ($widget['resolver'])($user, ...$arguments);
+
+                return $payload === null ? null : [
+                    'key' => $widget['key'],
+                    'type' => $widget['type'],
+                    'size' => $widget['size'],
+                    ...($widget['mirrorsTodo'] ? ['mirrorsTodo' => true] : []),
+                    ...$payload,
+                ];
+            })
+            ->filter()
             ->all());
     }
 

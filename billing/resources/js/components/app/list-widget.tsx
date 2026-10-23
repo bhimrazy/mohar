@@ -20,6 +20,9 @@ export type ListWidgetItem = {
     money?: { amount: number; currency: string };
     /** A name shown as initials in front of the row (when no `leading` is given). */
     avatar?: string;
+    /** ISO date shown after the subtitle, prefixed with `dateLabel` ("Renews", "Due"). */
+    date?: string | null;
+    dateLabel?: string;
 };
 
 type ListWidgetProps = {
@@ -138,9 +141,9 @@ export function ListRows({
     return (
         <>
             {items.length === 0 ? (
-                <p className="border-t px-(--stat-p) py-8 text-center text-sm text-muted-foreground">
+                <div className="border-t px-(--stat-p) py-8 text-center text-sm text-muted-foreground">
                     {empty}
-                </p>
+                </div>
             ) : (
                 <ul className="divide-y border-t">
                     {items.map((item, index) => {
@@ -154,9 +157,21 @@ export function ListRows({
                                     <div className="truncate text-sm font-medium">
                                         {item.title}
                                     </div>
-                                    {item.subtitle && (
+                                    {(item.subtitle || item.date) && (
                                         <div className="truncate text-xs text-muted-foreground">
                                             {item.subtitle}
+                                            {item.subtitle &&
+                                                item.date &&
+                                                ' · '}
+                                            {item.date && (
+                                                <>
+                                                    {item.dateLabel &&
+                                                        `${item.dateLabel} `}
+                                                    <DateTime
+                                                        value={item.date}
+                                                    />
+                                                </>
+                                            )}
                                         </div>
                                     )}
                                 </div>
