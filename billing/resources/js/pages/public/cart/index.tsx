@@ -69,9 +69,9 @@ function CartItemCard({
 
             <ItemDetails details={item.details} />
 
-            <ul className="mt-3 grid gap-1 text-sm">
+            <ul className="mt-3 grid grid-cols-1 gap-1 text-sm">
                 {item.lines.map((line) => (
-                    <li key={line.key} className="grid gap-0.5">
+                    <li key={line.key} className="grid grid-cols-1 gap-0.5">
                         {line.kind === 'product' &&
                             line.breakdown.length > 1 &&
                             line.breakdown.map((part, index) => (
@@ -306,7 +306,7 @@ export default function CartPage({ cart }: Props) {
                         className="mt-8"
                     />
                 ) : (
-                    <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_22rem]">
+                    <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
                         <div className="flex min-w-0 flex-col gap-4">
                             <ul className="divide-y overflow-hidden rounded-xl border bg-card shadow-xs">
                                 {cart.items.map((item) => (
@@ -331,7 +331,7 @@ export default function CartPage({ cart }: Props) {
                             </div>
                         </div>
 
-                        <aside className="flex flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
+                        <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
                             <div className="rounded-xl border bg-card p-5 shadow-xs">
                                 <PromotionForm cart={cart} />
                             </div>

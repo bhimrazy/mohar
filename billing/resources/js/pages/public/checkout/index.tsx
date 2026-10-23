@@ -147,7 +147,7 @@ export default function Checkout({
 
             <form
                 onSubmit={submit}
-                className="mx-auto grid w-full max-w-6xl gap-8 px-4 py-8 md:px-6 lg:grid-cols-[1fr_22rem] lg:py-12"
+                className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-8 px-4 py-8 md:px-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:py-12"
             >
                 <div className="flex min-w-0 flex-col gap-6">
                     <header>
@@ -403,12 +403,12 @@ export default function Checkout({
                     )}
                 </div>
 
-                <aside className="flex flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
+                <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
                     <section
                         aria-label="Items"
                         className="rounded-xl border bg-card p-5 shadow-xs"
                     >
-                        <ul className="grid gap-2 text-sm">
+                        <ul className="grid grid-cols-1 gap-2 text-sm">
                             {cart.items.map((item) => (
                                 <li key={item.key}>
                                     <div className="flex justify-between gap-4">
