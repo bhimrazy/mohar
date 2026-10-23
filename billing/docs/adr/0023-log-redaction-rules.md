@@ -78,7 +78,7 @@
 3. **Other sinks.** `failed_jobs.exception` is a sink: the kernel decorates the `queue.failer` binding so that the
    exception is passed through `maskThrowable()` (shape rules and any attached set) before it is stored. An
    error-tracking service, if one is added, takes exceptions only after the same call. Code outside tests never
-   writes to `error_log()`, `syslog()`, `STDERR` or `php://stderr`, and never builds a logger with `Log::build()`
+   writes to `error_log()`, `syslog()`, `openlog()`, `STDERR` or `php://stderr`, and never builds a logger with `Log::build()`
    (§6, step 4).
 4. **One exception helper.** `Redactor::maskThrowable(Throwable, ?RedactionSet): Throwable` masks the message of the
    exception and of up to 16 exceptions behind it, in place. It keeps the class, code, flags, trace and `previous`.
