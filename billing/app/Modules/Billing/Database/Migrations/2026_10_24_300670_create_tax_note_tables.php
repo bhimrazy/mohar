@@ -45,7 +45,8 @@ return new class extends Migration
             $table->string('bs_period', 7);
             $table->string('bs_fiscal_year', 8);
             $table->boolean('automatic')->default(false);
-            $table->foreignId('created_by')->nullable()->index()->constrained('users')->nullOnDelete();
+            // A filed note names its issuer for good: deleting the user is refused, not silently blanked.
+            $table->foreignId('created_by')->nullable()->index()->constrained('users')->restrictOnDelete();
             $table->unsignedInteger('print_count')->default(0);
             $table->string('cbms_status', 20)->nullable();
             $table->string('cbms_reference', 100)->nullable();

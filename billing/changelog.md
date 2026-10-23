@@ -28,6 +28,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **Credit and debit note issuer (VAT PR 1b, ADR 0024; stacks on PR 1a).** `TaxNoteIssuer` plans and issues numbered credit and debit
+  notes against a numbered invoice; nothing in the screens or the existing cancel, refund and late-fee paths calls it
+  yet, so behaviour does not change until the next VAT releases. A credit note is allocated to invoice lines (named
+  lines, or one amount spread over them), with the tax of each line taken from the invoice's own stored values, never
+  the current rules, and the note that takes the last of a line takes its exact remaining net and taxes. Caps are checked
+  under the invoice lock: per line and per invoice, counting earlier notes, pending refund reservations and old
+  item cancellations. The confirm is bound to the invoice version and a digest of the plan; if either changed it is
+  refused with "The invoice changed; review the note again." A note writes its number (own gap-free sequence), lines,
+  one value adjustment carrying the note id, and the cached totals, and fires `CreditNoteIssued` or `DebitNoteIssued`
+  after commit. A credit note above the open balance is refused until settlement to account credit or refund exists;
+  invoices with discount lines are refused for now. Settings `credit_note_*` and `debit_note_*` are on the Billing
+  settings page; saving is refused when both formats are equal, or when a yearly or monthly reset has no `{YEAR}`
+  (and `{MONTH}`) in the format. Filed notes cannot be written through the query builder (architecture test), and
+  `tax_notes.created_by` now blocks deleting the staff user who issued a note. Fiscal backfill: a line is taxable by
+  its `taxable` flag on an invoice that carries tax, and an old cancellation is matched to its line by its exact text.
+  Upgrade: one expand-only migration (`invoice_adjustments.tax_note_id`, `invoice_item_id`, both nullable). Because
+  PR 1a's `tax_notes` table has no rows yet, its `created_by` key changed in place; a database that already ran PR 1a
+  needs `migrate:fresh` or the key altered by hand.
+
 - **Tax-invoice snapshot and numbering groundwork for Nepal VAT credit and debit notes (VAT PR 1a, ADR 0024).** Schema
   and numbering rules only: no screen changes and no note can be issued yet. An invoice that gets its legal number now
   stores, in the same transaction, `numbered_at`, its tax-invoice value (taxable, exempt, two taxes, total, including late

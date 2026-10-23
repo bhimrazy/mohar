@@ -26,7 +26,7 @@ final class FiscalSnapshotCalculator
 
     /**
      * @param  array{total: int, subtotal: int, tax1_amount: int, tax2_amount: int, tax_inclusive: bool}  $invoice
-     * @param  list<array{id: int, description: string, amount: int, tax_amount: int, cancelled: bool}>  $items  every line, cancelled ones too
+     * @param  list<array{id: int, description: string, amount: int, tax_amount: int, taxable: bool, cancelled: bool}>  $items  every line, cancelled ones too
      * @param  list<array{id: int, kind: string, reason: string, amount: int, taxable_amount: int, tax_amount: int, description: string|null}>  $folded  value adjustments up to and including numbering, in id order
      * @param  list<array{id: int, kind: string, reason: string, amount: int, taxable_amount: int, tax_amount: int, description: string|null}>  $after  value adjustments after numbering, listed for review only
      */
@@ -38,7 +38,7 @@ final class FiscalSnapshotCalculator
         $tax2 = $invoice['tax2_amount'];
         $parts = [$taxable, $exempt, $tax1, $tax2];
         $hasTax = $tax1 + $tax2 !== 0;
-        $taxedLines = array_filter($items, fn (array $item): bool => $item['tax_amount'] !== 0) !== [];
+        $taxedLines = $hasTax && array_filter($items, fn (array $item): bool => $item['taxable']) !== [];
         $used = [];
 
         foreach ([...$folded, ...$after] as $index => $row) {
@@ -68,7 +68,7 @@ final class FiscalSnapshotCalculator
      * totals the split is estimated from the totals and listed.
      *
      * @param  array{total: int, subtotal: int, tax1_amount: int, tax2_amount: int, tax_inclusive: bool}  $invoice
-     * @param  list<array{id: int, description: string, amount: int, tax_amount: int, cancelled: bool}>  $items
+     * @param  list<array{id: int, description: string, amount: int, tax_amount: int, taxable: bool, cancelled: bool}>  $items
      * @param  list<array{reason: string, subject: string, detail: string}>  $reviews
      * @return array{0: int, 1: int}
      */
@@ -78,7 +78,8 @@ final class FiscalSnapshotCalculator
 
         foreach ($items as $item) {
             $net = $invoice['tax_inclusive'] ? $item['amount'] - $item['tax_amount'] : $item['amount'];
-            $item['tax_amount'] !== 0 ? $taxable += $net : $exempt += $net;
+            // A line is taxable by its flag, on an invoice that carries tax; a taxable line can be allocated no tax.
+            $item['taxable'] && $invoice['tax1_amount'] + $invoice['tax2_amount'] !== 0 ? $taxable += $net : $exempt += $net;
             $lineTax += $item['tax_amount'];
         }
 
@@ -97,7 +98,7 @@ final class FiscalSnapshotCalculator
     /**
      * @param  array{id: int, kind: string, reason: string, amount: int, taxable_amount: int, tax_amount: int, description: string|null}  $row
      * @param  array{total: int, subtotal: int, tax1_amount: int, tax2_amount: int, tax_inclusive: bool}  $invoice
-     * @param  list<array{id: int, description: string, amount: int, tax_amount: int, cancelled: bool}>  $items
+     * @param  list<array{id: int, description: string, amount: int, tax_amount: int, taxable: bool, cancelled: bool}>  $items
      * @param  list<int>  $used  line ids already matched by an earlier cancellation
      * @return array{parts: array{int, int, int, int}|null, review: array{reason: string, subject: string, detail: string}|null}
      */
@@ -120,7 +121,7 @@ final class FiscalSnapshotCalculator
         if ($line !== null) {
             $used[] = $line['id'];
 
-            if ($line['tax_amount'] === 0) {
+            if (! $line['taxable'] || ! $hasTax) {
                 // The row stores the net of an untaxed line as `taxable_amount`; the line says it is exempt.
                 $review = $taxedLines ? ['reason' => InvoiceFiscalReview::ITEM_CANCELLATION, 'subject' => $subject, 'detail' => 'The cancellation stored its net as taxable on an untaxed line; classified as exempt.'] : null;
 
@@ -140,13 +141,23 @@ final class FiscalSnapshotCalculator
     }
 
     /**
-     * The cancelled line a row refers to: its description ends with the line's description (the text is translated, the
-     * line's description is not) and its gross amount is at least the row's, which is capped at the balance.
+     * @return list<string>
+     */
+    private function texts(string $description): array
+    {
+        $line = mb_substr($description, 0, self::DESCRIPTION_LENGTH);
+
+        return [__('Cancelled line: :line', ['line' => $line]), 'Cancelled line: '.$line];
+    }
+
+    /**
+     * The cancelled line a row refers to: the row's text is exactly what the old path wrote for the line (in this language
+     * or in English), and the line's gross amount is at least the row's, which is capped at the balance.
      *
      * @param  array{id: int, kind: string, reason: string, amount: int, taxable_amount: int, tax_amount: int, description: string|null}  $row
-     * @param  list<array{id: int, description: string, amount: int, tax_amount: int, cancelled: bool}>  $items
+     * @param  list<array{id: int, description: string, amount: int, tax_amount: int, taxable: bool, cancelled: bool}>  $items
      * @param  list<int>  $used
-     * @return array{id: int, description: string, amount: int, tax_amount: int, cancelled: bool}|null
+     * @return array{id: int, description: string, amount: int, tax_amount: int, taxable: bool, cancelled: bool}|null
      */
     private function matchLine(array $row, array $items, bool $inclusive, array $used): ?array
     {
@@ -156,7 +167,7 @@ final class FiscalSnapshotCalculator
             $gross = abs($inclusive ? $item['amount'] : $item['amount'] + $item['tax_amount']);
 
             if (! $item['cancelled'] || in_array($item['id'], $used, true) || $gross < $row['amount']
-                || ! str_ends_with((string) $row['description'], mb_substr($item['description'], 0, self::DESCRIPTION_LENGTH))) {
+                || ! in_array((string) $row['description'], $this->texts($item['description']), true)) {
                 continue;
             }
 
