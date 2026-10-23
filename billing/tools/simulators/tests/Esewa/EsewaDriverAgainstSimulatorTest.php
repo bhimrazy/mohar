@@ -166,7 +166,7 @@ test('a payment settled for another amount is not found under ours: a signed COM
 
     // The return was signed COMPLETE, so the attempt is reviewed at once, with the evidence, and never abandoned.
     expect($attempt->fresh())->status->toBe(AttemptStatus::Ambiguous)->amount->toBe(113_055)
-        ->review_reason->toContain('Provider signed a paid return of 1,000.0')
+        ->review_reason->toContain('Provider signed a paid return of 1000.00 NPR')
         ->and($attempt->fresh()->raw['signed_return'])->toMatchArray(['status' => 'COMPLETE', 'total_amount' => '1,000.0']);
 
     $this->travel(70)->minutes();

@@ -16,6 +16,7 @@ use App\Modules\Billing\Services\GatewayLogger;
 use App\Modules\Billing\Services\PaymentReconciler;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -44,6 +45,9 @@ class SettlePaymentAttempt
 
     /** Key in the attempt's raw for the provider-signed paid return (status, amount, code, time). */
     public const SIGNED_RETURN = 'signed_return';
+
+    /** The review reason of an attempt staff closed as not paid: final, no lookup reopens it. */
+    public const STAFF_CLOSED_REASON = 'Closed by staff: no payment found at the provider';
 
     /** The provider's answer to the last lookup this instance made (null when it made none). */
     public ?LookupResult $lastResult = null;
@@ -105,7 +109,7 @@ class SettlePaymentAttempt
                     // Paid after it closed, then partly refunded before we saw it: the provider kept the rest.
                     LookupResult::PARTIALLY_REFUNDED => $this->review($attempt, 'Paid after the attempt closed and partly refunded at the provider'),
                     // Closed, but the provider once signed a paid return: its money may be somewhere we can't see.
-                    LookupResult::NOT_FOUND => $signed !== null ? $this->signedNotFound($attempt, $signed, reopened: true) : $this->closeLookups($attempt, $result),
+                    LookupResult::NOT_FOUND => $signed !== null && $attempt->lookups_closed_at === null ? $this->signedNotFound($attempt, $signed, reopened: true) : $this->closeLookups($attempt, $result),
                     // Anything else leaves it closed; a session the provider says can never be paid is not swept again.
                     default => $this->closeLookups($attempt, $result),
                 };
@@ -149,7 +153,7 @@ class SettlePaymentAttempt
         DB::transaction(function () use ($attempt, $returnHint): void {
             $locked = PaymentAttempt::query()->lockForUpdate()->findOrFail($attempt->id);
 
-            if ($locked->status === AttemptStatus::Succeeded) {
+            if ($locked->status === AttemptStatus::Succeeded || $locked->lookups_closed_at !== null) {
                 return;
             }
 
@@ -236,9 +240,13 @@ class SettlePaymentAttempt
 
     /**
      * Staff saw the payment in the provider's portal: book it once, through the same guards as a lookup that says
-     * paid (our amount, the provider reference unused by another attempt). Nothing is kept when a guard refuses.
+     * paid. The amount they read there must equal ours exactly (a part or over payment is recorded as a payment on the
+     * invoice, not here), and the reference must not be on any booked transaction yet. Nothing is kept when a guard
+     * refuses; the audit entry is written in the same transaction as the booking.
+     *
+     * @param  int  $receivedAmount  minor units the portal shows, in the attempt's currency
      */
-    public function resolvePaid(PaymentAttempt $attempt, string $providerReference): PaymentAttempt
+    public function resolvePaid(PaymentAttempt $attempt, string $providerReference, int $receivedAmount): PaymentAttempt
     {
         $providerReference = trim($providerReference);
 
@@ -246,9 +254,31 @@ class SettlePaymentAttempt
             throw new BillingException(__('Enter the provider\'s reference for this payment.'));
         }
 
-        return DB::transaction(function () use ($attempt, $providerReference): PaymentAttempt {
+        return DB::transaction(function () use ($attempt, $providerReference, $receivedAmount): PaymentAttempt {
             $locked = $this->lockedForReview($attempt);
-            $result = new LookupResult(LookupResult::SUCCEEDED, $providerReference, $locked->amount, $locked->currency, raw: ['resolved_by_staff' => true]);
+
+            if ($receivedAmount !== $locked->amount) {
+                throw new BillingException(__('The portal shows :seen but this payment is for :expected. Record what was actually received with Add payment on the invoice, and refund or credit the difference.', [
+                    'seen' => Money::of($receivedAmount, $locked->currency)->format(),
+                    'expected' => $locked->money()->format(),
+                ]));
+            }
+
+            $booked = $this->applyPayment->existing(new PaymentData(amount: $locked->document_amount, gateway: $locked->gateway, gatewayTxnId: $providerReference));
+
+            if ($booked !== null) {
+                $on = $booked->invoice_id !== null ? Invoice::query()->find($booked->invoice_id)?->displayNumber() : null;
+
+                throw new BillingException($on !== null
+                    ? __('That reference is already recorded on invoice :number. Check the reference in the portal.', ['number' => $on])
+                    : __('That reference is already recorded as a payment. Check the reference in the portal.'));
+            }
+
+            $signed = $locked->raw[self::SIGNED_RETURN] ?? null;
+            $result = new LookupResult(LookupResult::SUCCEEDED, $providerReference, $locked->amount, $locked->currency, raw: [
+                'resolved_by_staff' => true,
+                'return_transaction_code' => is_array($signed) && is_string($signed['transaction_code'] ?? null) ? $signed['transaction_code'] : null,
+            ]);
             $locked->late_payment_at !== null ? $this->late($locked, $result) : $this->succeed($locked, $result);
 
             if ($locked->status !== AttemptStatus::Succeeded) {
@@ -257,27 +287,38 @@ class SettlePaymentAttempt
 
             self::forgetResumeUrl($locked);
             $locked->save();
+            $this->resolved($locked, 'paid', $providerReference);
 
             return $locked;
         });
     }
 
     /**
-     * Staff found no payment in the provider's portal: the attempt is closed for good (lookups too, so a replayed
-     * return cannot reopen it) and the invoice can be paid again.
+     * Staff found no payment in the provider's portal: the attempt is closed for good (lookups too, so neither a
+     * replayed return nor a lookup answering "not found" reopens it) and the invoice can be paid again. A lookup that
+     * finds the payment later still books it as a late payment.
      */
     public function resolveNotPaid(PaymentAttempt $attempt): PaymentAttempt
     {
         return DB::transaction(function () use ($attempt): PaymentAttempt {
             $locked = $this->lockedForReview($attempt);
             $locked->status = AttemptStatus::Failed;
-            $locked->review_reason = 'Closed by staff: no payment found at the provider';
+            $locked->review_reason = self::STAFF_CLOSED_REASON;
             $locked->lookups_closed_at = now();
             self::forgetResumeUrl($locked);
             $locked->save();
+            $this->resolved($locked, 'not_paid', null);
 
             return $locked;
         });
+    }
+
+    private function resolved(PaymentAttempt $attempt, string $outcome, ?string $providerReference): void
+    {
+        $this->activity->log($outcome === 'paid' ? 'Gateway payment marked as paid by staff' : 'Gateway payment closed as not paid by staff', $attempt, $attempt->client_id, [
+            'reference' => $attempt->reference, 'gateway' => $attempt->gateway, 'amount' => $attempt->amount, 'currency' => $attempt->currency,
+            'outcome' => $outcome, 'provider_reference' => $providerReference,
+        ], 'billing.payment.resolved');
     }
 
     private function lockedForReview(PaymentAttempt $attempt): PaymentAttempt
@@ -339,6 +380,14 @@ class SettlePaymentAttempt
             exchangeRate: $converted && $attempt->fx_rate !== null ? (float) $attempt->fx_rate : null,
             fromGateway: true,
         ));
+        // The provider transaction id was already booked on another invoice: that is not this payment.
+        if ($transaction->invoice_id !== null && $transaction->invoice_id !== $invoice->id) {
+            $this->review($attempt, 'Provider transaction already booked on another invoice');
+            $attempt->provider_txn_id = null;
+
+            return null;
+        }
+
         $attempt->transaction_id = $transaction->id;
         $attempt->provider_txn_id = $result->providerTxnId;
         $attempt->status = AttemptStatus::Succeeded;
@@ -436,7 +485,8 @@ class SettlePaymentAttempt
             $attempt->late_payment_at ??= now();
         }
 
-        $paid = is_string($signed['total_amount'] ?? null) ? ' of '.$signed['total_amount'] : '';
+        $total = is_string($signed['total_amount'] ?? null) ? str_replace(',', '', $signed['total_amount']) : null;
+        $paid = $total !== null && is_numeric($total) ? ' of '.Money::fromDecimal($total, $attempt->currency)->format() : '';
         $code = is_string($signed['transaction_code'] ?? null) ? ' (code '.$signed['transaction_code'].')' : '';
         $this->review($attempt, "Provider signed a paid return{$paid}{$code}, but its status check can't find it under our amount ".$attempt->money()->format().': check the provider portal');
         $attempt->lookups_closed_at = null;

@@ -566,7 +566,16 @@ merchants).
   invoice. The evidence is also kept when the return route skips the lookup (its one-minute floor). Staff settle it on
   Payment attempts: **Mark as paid** (provider reference required, deduped on `provider_txn_id`, booked through the
   normal settle path) or **Not paid** (`Failed`, `lookups_closed_at` set); both under `billing.payments.manage` with a
-  recent password and logged as `billing.payment.resolved`.
+  recent password and logged as `billing.payment.resolved` inside the booking transaction. Mark as paid also asks for
+  the amount shown in the portal and refuses unless it equals the attempt's amount (a part or over payment is recorded
+  with Add payment), and refuses a reference already on a booked transaction (it names the invoice). Not paid is final:
+  lookups reopen nothing once `lookups_closed_at` is set, but a found payment still books late.
+  The blocking lasts while the attempt is within the 14 days of `PaymentInProgress::attempt()` (and of the open poller):
+  after that it stays on the review list and no longer blocks a new payment.
+  **Identifier.** The status check stores `ref_id` as `provider_txn_id`, which is what the dedupe compares; the signed
+  return carries `transaction_code` (kept in `raw.signed_return`, and on the booking as `return_transaction_code`).
+  eSewa's documents do not say the two are equal, so the form asks for the portal's reference ID and shows the return's
+  code beside it; whether they match in production is not verified.
   Still open (#217 N4): more REA captures of confirmed cancels and of the status after the booking expires.
 - **Booking window (UAT capture, 2026-10-21).** eSewa's `product_details` for a fresh booking carries
   `bookingExpiryTime`, 50 minutes after the form post, in every capture. The docs' "15 minutes after login" does not

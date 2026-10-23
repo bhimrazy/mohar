@@ -187,9 +187,10 @@ test('staff mark an attempt in review as paid: booked once with the eSewa refere
     confirmPassword();
     $url = route('admin.billing.payment-attempts.resolve', $attempt);
 
-    $this->post($url, ['outcome' => 'paid'])->assertSessionHasErrors('provider_reference');
-    $this->post($url, ['outcome' => 'paid', 'provider_reference' => ' 000ABCD '])->assertSessionHasNoErrors();
-    $this->post($url, ['outcome' => 'paid', 'provider_reference' => '000ABCD'])->assertSessionHasErrors('billing');
+    $this->post($url, ['outcome' => 'paid', 'amount' => '1130.50'])->assertSessionHasErrors('provider_reference');
+    $this->post($url, ['outcome' => 'paid', 'provider_reference' => '000ABCD'])->assertSessionHasErrors('amount');
+    $this->post($url, ['outcome' => 'paid', 'amount' => '1,130.50', 'provider_reference' => ' 000ABCD '])->assertSessionHasNoErrors();
+    $this->post($url, ['outcome' => 'paid', 'amount' => '1,130.50', 'provider_reference' => '000ABCD'])->assertSessionHasErrors('billing');
 
     expect($attempt->fresh())->status->toBe(AttemptStatus::Succeeded)->provider_txn_id->toBe('000ABCD')
         ->and(Transaction::query()->where('gateway', EsewaDriver::KEY)->sole())->amount_in->toBe(113_050)->gateway_txn_id->toBe('000ABCD')
@@ -212,8 +213,8 @@ test('marking as paid with a reference another attempt already used books nothin
 
     billingStaff();
     confirmPassword();
-    $this->post(route('admin.billing.payment-attempts.resolve', $first), ['outcome' => 'paid', 'provider_reference' => 'DUP-1'])->assertSessionHasNoErrors();
-    $this->post(route('admin.billing.payment-attempts.resolve', $second), ['outcome' => 'paid', 'provider_reference' => 'DUP-1'])->assertSessionHasErrors('billing');
+    $this->post(route('admin.billing.payment-attempts.resolve', $first), ['outcome' => 'paid', 'amount' => '1,130.50', 'provider_reference' => 'DUP-1'])->assertSessionHasNoErrors();
+    $this->post(route('admin.billing.payment-attempts.resolve', $second), ['outcome' => 'paid', 'amount' => '1,130.50', 'provider_reference' => 'DUP-1'])->assertSessionHasErrors('billing');
 
     expect($second->fresh()->status)->toBe(AttemptStatus::Ambiguous)
         ->and(Transaction::query()->count())->toBe(1)
@@ -229,7 +230,7 @@ test('staff close an attempt in review as not paid: the invoice can be paid agai
 
     $this->post($url, ['outcome' => 'not_paid'])->assertSessionHasNoErrors();
     $this->post($url, ['outcome' => 'not_paid'])->assertSessionHasErrors('billing');
-    $this->post($url, ['outcome' => 'paid', 'provider_reference' => 'LATE-1'])->assertSessionHasErrors('billing');
+    $this->post($url, ['outcome' => 'paid', 'amount' => '1,130.50', 'provider_reference' => 'LATE-1'])->assertSessionHasErrors('billing');
 
     expect($attempt->fresh())->status->toBe(AttemptStatus::Failed)->lookups_closed_at->not->toBeNull()
         ->and(ActivityLog::query()->where('event', 'billing.payment.resolved')->count())->toBe(1);
@@ -249,7 +250,7 @@ test('resolving an attempt in review needs the payments permission', function ()
     actingAsStaff(['billing.invoices.view']);
     confirmPassword();
 
-    $this->post(route('admin.billing.payment-attempts.resolve', $attempt), ['outcome' => 'paid', 'provider_reference' => 'X-1'])->assertForbidden();
+    $this->post(route('admin.billing.payment-attempts.resolve', $attempt), ['outcome' => 'paid', 'amount' => '1,130.50', 'provider_reference' => 'X-1'])->assertForbidden();
     $this->post(route('admin.billing.payment-attempts.resolve', $attempt), ['outcome' => 'not_paid'])->assertForbidden();
 
     expect($attempt->fresh()->status)->toBe(AttemptStatus::Ambiguous)->and(Transaction::query()->count())->toBe(0);
@@ -265,4 +266,109 @@ test('a signed return inside the lookup floor is kept, so the next NOT_FOUND is 
 
     expect($attempt->fresh())->status->toBe(AttemptStatus::Pending)->lookup_count->toBe(1)->raw->toHaveKey('signed_return');
     Http::assertSentCount(1);
+});
+
+test('Q1 mark as paid refuses a reference already on another invoice, naming it, and books nothing', function () {
+    [$invoice, $attempt] = rbInReview();
+    $other = issueInvoice(Client::query()->findOrFail($invoice->client_id), [50_000]);
+    app(ApplyPayment::class)->handle($other, new PaymentData(amount: 50_000, gateway: EsewaDriver::KEY, gatewayTxnId: 'TAKEN-1'));
+    billingStaff();
+    confirmPassword();
+
+    $this->post(route('admin.billing.payment-attempts.resolve', $attempt), ['outcome' => 'paid', 'amount' => '1130.50', 'provider_reference' => 'TAKEN-1'])
+        ->assertSessionHasErrors(['billing' => 'That reference is already recorded on invoice '.$other->displayNumber().'. Check the reference in the portal.']);
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Ambiguous)->transaction_id->toBeNull()
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid)
+        ->and(Transaction::query()->count())->toBe(1)
+        ->and(ActivityLog::query()->where('event', 'billing.payment.resolved')->count())->toBe(0);
+});
+
+test('a lookup that finds a transaction already booked on another invoice does not close the attempt as paid', function () {
+    [$invoice, $attempt] = rbStart();
+    $other = issueInvoice(Client::query()->findOrFail($invoice->client_id), [50_000]);
+    app(ApplyPayment::class)->handle($other, new PaymentData(amount: 50_000, gateway: EsewaDriver::KEY, gatewayTxnId: 'TAKEN-2'));
+    Http::fake([RB_STATUS => Http::response(rbStatus($attempt, 'COMPLETE', refId: 'TAKEN-2'))]);
+
+    $this->get(rbSuccess($attempt));
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Ambiguous)->transaction_id->toBeNull()
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
+});
+
+test('Q2 resolving without a recent password changes nothing', function () {
+    [, $attempt] = rbInReview();
+    billingStaff();
+
+    $this->post(route('admin.billing.payment-attempts.resolve', $attempt), ['outcome' => 'not_paid'])->assertRedirect();
+
+    expect($attempt->fresh()->status)->toBe(AttemptStatus::Ambiguous);
+});
+
+test('Q3 mark as paid refuses an amount other than ours and points to Add payment', function (string $seen) {
+    [$invoice, $attempt] = rbStart();
+    Http::fake([RB_STATUS => Http::response(rbStatus($attempt, 'NOT_FOUND', refId: null))]);
+    $this->get(rbSuccess($attempt, '1,000.0'));
+    billingStaff();
+    confirmPassword();
+
+    $this->post(route('admin.billing.payment-attempts.resolve', $attempt), ['outcome' => 'paid', 'amount' => $seen, 'provider_reference' => '000ABCD'])
+        ->assertSessionHasErrors('billing');
+
+    expect(session('errors')->first('billing'))->toContain('Add payment')
+        ->and($attempt->fresh()->status)->toBe(AttemptStatus::Ambiguous)
+        ->and(Transaction::query()->count())->toBe(0)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
+})->with(['less' => '1000.00', 'more' => '1130.51']);
+
+test('Q4 resolving a pending attempt is refused', function () {
+    [, $attempt] = rbStart();
+    billingStaff();
+    confirmPassword();
+
+    $this->post(route('admin.billing.payment-attempts.resolve', $attempt), ['outcome' => 'not_paid'])->assertSessionHasErrors('billing');
+
+    expect($attempt->fresh()->status)->toBe(AttemptStatus::Pending);
+});
+
+test('Q6 after Not paid, neither Check now nor a lookup in flight reopens the attempt, but a found payment still books late', function () {
+    [$invoice, $attempt] = rbInReview();
+    billingStaff();
+    confirmPassword();
+    $this->post(route('admin.billing.payment-attempts.resolve', $attempt), ['outcome' => 'not_paid'])->assertSessionHasNoErrors();
+
+    $this->travel(2)->minutes();
+    $this->post(route('admin.billing.payment-attempts.check', $attempt));
+    $this->get(rbSuccess($attempt));
+    $this->artisan('billing:reconcile-payments');
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Failed)->lookups_closed_at->not->toBeNull()
+        ->and(ActivityLog::query()->where('event', 'billing.payment.unmatched')->count())->toBe(1);
+
+    $this->actingAs(Client::query()->findOrFail($invoice->client_id)->users()->firstOrFail());
+    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => EsewaDriver::KEY])->assertSessionHasNoErrors();
+});
+
+test('a payment eSewa finds after Not paid is still booked as a late payment', function () {
+    [$invoice, $attempt] = rbStart();
+    Http::fake([RB_STATUS => Http::sequence()->push(rbStatus($attempt, 'NOT_FOUND', refId: null))->whenEmpty(Http::response(rbStatus($attempt, 'COMPLETE')))]);
+    $this->get(rbSuccess($attempt));
+    billingStaff();
+    confirmPassword();
+    $this->post(route('admin.billing.payment-attempts.resolve', $attempt), ['outcome' => 'not_paid'])->assertSessionHasNoErrors();
+
+    $this->post(route('admin.billing.payment-attempts.check', $attempt));
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Succeeded)->late_payment_at->not->toBeNull()
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
+});
+
+test('Q5 the review blocks for 14 days: after that the attempt stays on the review list but a new payment is allowed', function () {
+    [$invoice, $attempt] = rbInReview();
+    $this->travel(13)->days();
+    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => EsewaDriver::KEY])->assertSessionHasErrors('billing');
+
+    $this->travel(2)->days();
+    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => EsewaDriver::KEY])->assertSessionHasNoErrors();
+    expect($attempt->fresh()->status)->toBe(AttemptStatus::Ambiguous);
 });

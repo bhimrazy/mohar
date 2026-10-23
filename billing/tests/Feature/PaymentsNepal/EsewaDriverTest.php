@@ -558,7 +558,7 @@ test('a signed COMPLETE return followed by NOT_FOUND goes to staff review with t
     $this->get(esewaSuccess($attempt, '1,130.5'));
 
     expect($attempt->fresh())->status->toBe(AttemptStatus::Ambiguous)->lookups_closed_at->toBeNull()
-        ->review_reason->toContain('Provider signed a paid return of 1,130.5 (code 000ABCD)')->toContain('1130.50 NPR')
+        ->review_reason->toContain('Provider signed a paid return of 1130.50 NPR (code 000ABCD)')->toContain('1130.50 NPR')
         ->and($attempt->fresh()->raw['signed_return'])->toMatchArray(['status' => 'COMPLETE', 'total_amount' => '1,130.5', 'transaction_code' => '000ABCD'])
         ->and(Transaction::query()->count())->toBe(0)
         ->and(ActivityLog::query()->where('event', 'billing.payment.unmatched')->sole()->properties)->toMatchArray(['amount' => 113_050, 'currency' => 'NPR'])
