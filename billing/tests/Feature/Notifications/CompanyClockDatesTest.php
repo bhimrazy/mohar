@@ -1,6 +1,11 @@
 <?php
 
 use App\Contracts\Core\CompanyClock;
+use App\Events\Billing\PaymentReceived;
+use App\Modules\Core\Models\Client;
+use App\Modules\Notifications\Listeners\SendEventEmails;
+use App\Modules\Notifications\Support\MailDates;
+use Illuminate\Support\Facades\Mail;
 use App\Modules\Notifications\Actions\PruneNotificationLogs;
 use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Enums\WebhookDeliveryStatus;
@@ -15,6 +20,8 @@ use Carbon\CarbonImmutable;
  * company midnight: 23:59:59 and 00:00:00 in Asia/Kathmandu (UTC+5:45) and in America/New_York (UTC-4 in October).
  * `[zone, instant before midnight, instant at midnight, the company date before, the company date after]`
  */
+require_once __DIR__.'/helpers.php';
+
 afterEach(fn () => CarbonImmutable::setTestNow());
 
 dataset('company midnight', [
@@ -54,7 +61,7 @@ it('runs the manual prune command on the company date', function (string $zone, 
 
     $this->artisan('notifications:prune')->assertSuccessful();
 
-    expect(WebhookDelivery::query()->pluck('id')->all())->toBe([$kept->id])->and($old->id)->not->toBe($kept->id);
+    expect(WebhookDelivery::query()->pluck('id')->all())->toBe([$kept->id]);
 })->with('company midnight');
 
 it('dates the sample previews from the company today', function (string $zone, string $before, string $at, string $dayBefore, string $dayAfter) {
@@ -69,5 +76,21 @@ it('dates the sample previews from the company today', function (string $zone, s
             ->and($sample['domain']['expiry_date'])->toBe($day->addYear()->toDateString())
             ->and($sample['domains'][0]['expiry_date'])->toBe($day->addDays(30)->toDateString())
             ->and($sample['domains'][1]['expiry_date'])->toBe($day->addDays(14)->toDateString());
+    }
+})->with('company midnight');
+
+it('dates a payment confirmation without a transaction date on the company day', function (string $zone, string $before, string $at, string $dayBefore, string $dayAfter) {
+    Mail::fake();
+    inCompanyTimezone($zone);
+    seedEmailTemplates();
+    fakeMergeFields(['invoice' => ['number' => 'INV-1', 'status' => 'Paid', 'total' => '$10.00', 'balance' => '', 'due_date' => '2026-11-01', 'url' => 'https://billing.test/i/1'], 'transaction' => ['reference' => 'TXN-1']]);
+    $client = Client::factory()->create(['email' => 'owner@example.test']);
+
+    foreach ([[$before, $dayBefore], [$at, $dayAfter]] as [$instant, $date]) {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse($instant, 'UTC'));
+        app(SendEventEmails::class)->paymentReceived(new PaymentReceived(1, 10, $client->id, 1_000, 'USD', 'manual'));
+
+        $body = (string) EmailMessage::query()->latest('id')->firstOrFail()->body_text;
+        expect($body)->toMatch('/^Date\s+'.preg_quote((string) MailDates::date($date), '/').'$/m');
     }
 })->with('company midnight');

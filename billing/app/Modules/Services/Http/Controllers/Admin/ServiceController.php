@@ -16,7 +16,6 @@ use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\ServicePresenter;
 use App\Modules\Services\Support\ServiceSettings;
-use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -30,7 +29,7 @@ class ServiceController extends Controller
     {
         $this->authorize('services.services.view');
 
-        $today = CarbonImmutable::today();
+        $today = app(CompanyClock::class)->todayDate();
         $services = Service::query()
             ->with(['client', 'server'])
             ->search($request->string('search')->toString())

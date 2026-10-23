@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Services;
 
+use App\Contracts\Core\CompanyClock;
 use App\Data\Services\Provisioning\DriverResult;
 use App\Events\Services\ServiceActivated;
 use App\Events\Services\ServiceCancelled;
@@ -24,7 +25,7 @@ use Carbon\CarbonImmutable;
  */
 class CommandEffects
 {
-    public function __construct(private AddonLifecycle $addons, private ActivityLogger $activity) {}
+    public function __construct(private AddonLifecycle $addons, private ActivityLogger $activity, private CompanyClock $clock) {}
 
     /**
      * Target status of a command for the given args (terminate may end as cancelled).
@@ -46,7 +47,7 @@ class CommandEffects
      */
     public function apply(Service $service, ModuleCommandName $command, array $args, DriverResult $result): array
     {
-        $today = CarbonImmutable::today();
+        $today = $this->clock->todayDate();
         $events = [];
 
         switch ($command) {

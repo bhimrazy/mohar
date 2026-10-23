@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Actions;
 
+use App\Contracts\Core\CompanyClock;
 use App\Data\Billing\InvoiceLineData;
 use App\Enums\BillableType;
 use App\Events\Services\ServiceRenewed;
@@ -40,6 +41,7 @@ class ApplyInvoicePayment
         private Catalog $catalog,
         private AddonLifecycle $addons,
         private ApplyServiceChange $applyChange,
+        private CompanyClock $clock,
     ) {}
 
     /**
@@ -187,7 +189,7 @@ class ApplyInvoicePayment
             }
 
             if ($addon->status === ServiceStatus::Suspended && in_array($addon->suspension_reason, self::PAYMENT_REASONS, true)
-                && $this->settings->unsuspendOnPayment() && $this->overdue->daysOverdue($addon, CarbonImmutable::today()) === null) {
+                && $this->settings->unsuspendOnPayment() && $this->overdue->daysOverdue($addon, $this->clock->todayDate()) === null) {
                 $this->addons->transition($addon, ServiceStatus::Active);
             }
 
@@ -211,7 +213,7 @@ class ApplyInvoicePayment
             return;
         }
 
-        $today = CarbonImmutable::today();
+        $today = $this->clock->todayDate();
 
         if ($this->overdue->daysOverdue($service, $today) !== null) {
             return;

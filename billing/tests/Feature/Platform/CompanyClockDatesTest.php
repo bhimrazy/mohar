@@ -32,7 +32,7 @@ it('prunes invitations before the start of the company day the retention reaches
 
     $this->artisan('automation:run', ['--only' => 'platform.prune_invitations', '--date' => $dayAfter])->assertSuccessful();
 
-    expect(StaffInvitation::query()->orderBy('id')->pluck('id')->all())->toBe([$keptExpired->id, $keptUsed->id])->and($oldExpired->id)->not->toBe($oldUsed->id);
+    expect(StaffInvitation::query()->orderBy('id')->pluck('id')->all())->toBe([$keptExpired->id, $keptUsed->id]);
 })->with('company midnight');
 
 it('prunes the activity log before the start of the company day the retention reaches', function (string $zone, string $before, string $at, string $dayBefore, string $dayAfter) {

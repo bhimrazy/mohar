@@ -188,6 +188,7 @@ function stepUpStringParameter(RoutingRoute $route, string $name): ?string
         'kind' => 'mark',
         'template' => 'client.welcome',
         'converter' => 'products',
+        'notice' => 'company_time_settings',
     ][$name] ?? null;
 }
 

@@ -26,7 +26,7 @@ final class MailDates
     public static function companyDate(): string
     {
         // Without the clock (no settings table yet) the date is UTC, the ADR's documented fallback.
-        return rescue(fn (): string => app(CompanyClock::class)->todayDate()->toDateString(), CarbonImmutable::now('UTC')->isoFormat('YYYY-MM-DD'), report: false);
+        return rescue(fn (): string => app(CompanyClock::class)->todayDate()->toDateString(), CarbonImmutable::now('UTC')->toDateString(), report: false);
     }
 
     public static function date(mixed $value, ?string $format = null, string $locale = 'en'): ?string

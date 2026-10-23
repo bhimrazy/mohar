@@ -3,7 +3,7 @@
 /*
  * Billing's document paths take their dates from the company clock (ADR 0013 Amendment 1), never from the UTC calendar.
  * The arch plugin can't see static calls, so this scans the code (comments left out) for the forms that read a UTC date.
- * Factories and seeders (`Database/`) build demo data and are not document paths. The other modules join the scan as
+ * Factories and seeders (`Database/`) build demo data and are not document paths. Services has joined; the other modules join as
  * each one moves.
  */
 
@@ -21,7 +21,15 @@ const UTC_DATE_FORMS = [
 ];
 
 /** Modules that have moved onto the company clock. */
-const SCANNED_MODULES = ['Billing', 'Notifications', 'Platform'];
+const SCANNED_MODULES = ['Billing', 'Services', 'Notifications', 'Platform'];
+
+/**
+ * The one UTC read left on purpose, as "file" => code. MailDates falls back to the UTC date when the company clock
+ * itself is unavailable (no settings table yet); the scan removes exactly this text from that file before matching.
+ */
+const SCAN_EXCEPTIONS = [
+    'Modules/Notifications/Support/MailDates.php' => "CarbonImmutable::now('UTC')->toDateString()",
+];
 
 /** Code the scan must not flag. */
 const ALLOWED_DATE_CODE = [
@@ -64,6 +72,8 @@ test('document paths of the moved modules read no UTC calendar date', function (
 
     foreach (SCANNED_MODULES as $module) {
         foreach (billingDocumentCode($module) as $path => $code) {
+            $code = str_replace(SCAN_EXCEPTIONS[$path] ?? "\0", '', $code);
+
             foreach (UTC_DATE_FORMS as $label => $pattern) {
                 if (preg_match($pattern, $code) === 1) {
                     $found[] = "{$path}: {$label}";
@@ -104,6 +114,19 @@ test('the scan sees every form it forbids', function (string $label, string $cod
     ['the UTC date of an instant column', '$invoice->paid_at?->toDateString()'],
 ]);
 
+test('the MailDates fallback is the only allowed UTC read, and only in that form', function () {
+    $file = 'Modules/Notifications/Support/MailDates.php';
+    $fallback = SCAN_EXCEPTIONS[$file];
+    $hits = fn (string $code): array => array_keys(array_filter(UTC_DATE_FORMS, fn (string $pattern): bool => preg_match($pattern, $code) === 1));
+
+    // The exception names code that exists in the file, and the form is one the scan would otherwise flag.
+    expect(billingDocumentCode('Notifications')[$file])->toContain($fallback)
+        ->and($hits($fallback))->not->toBe([])
+        ->and($hits(str_replace($fallback, '', billingDocumentCode('Notifications')[$file])))->toBe([])
+        // Any other form in the same file, or the same form elsewhere, is still caught.
+        ->and($hits(str_replace($fallback, '', "{$fallback}; now()->toDateString();")))->not->toBe([]);
+});
+
 test('the scan allows the company clock and plain date handling', function () {
     foreach (ALLOWED_DATE_CODE as $allowed) {
         expect(array_keys(array_filter(UTC_DATE_FORMS, fn (string $pattern): bool => preg_match($pattern, $allowed) === 1)))->toBe([], $allowed);
@@ -114,7 +137,7 @@ const HAND_CONVERSIONS = [
     'shiftTimezone(' => '/shiftTimezone\s*\(/',
     // A chain such as `$today->subDays(3)->endOfDay()` is the same conversion.
     'an instant method on the run date' => '/\$today(\s*->\s*\w+\([^)]*\))*\s*->\s*(setTime|setTimeFrom|endOfDay|isToday|isSameDay|utc|setTimezone)\s*\(/',
-    'a timestamp column compared with the run date' => '/[\x27"]\w+_at[\x27"]\s*,\s*[\x27"][<>]=?[\x27"]\s*,\s*\$today\b/',
+    'a timestamp column compared with the run date' => '/[\x27"](\w+\.)?\w+_at[\x27"]\s*,\s*[\x27"][<>]=?[\x27"]\s*,\s*\$today\b/',
 ];
 
 /**
@@ -126,8 +149,6 @@ const HAND_CONVERSION_BASELINE = [
     'Modules/Billing/Database/Seeders/BillingHistorySeeder.php: an instant method on the run date' => 1,
     'Modules/Domains/DomainsServiceProvider.php: a timestamp column compared with the run date' => 1,
     'Modules/Orders/Actions/CancelStalePendingOrders.php: a timestamp column compared with the run date' => 1,
-    'Modules/Services/Actions/PruneModuleLog.php: a timestamp column compared with the run date' => 1,
-    'Modules/Services/Database/Seeders/ServicesSeeder.php: an instant method on the run date' => 1,
 ];
 
 test('no module converts the run date by hand beyond the baseline', function () {
@@ -165,10 +186,12 @@ test('the hand-conversion patterns see what they ban', function (string $label, 
     ['an instant method on the run date', '$today->addDay()->setTimeFrom(now())'],
     ['a timestamp column compared with the run date', "->where('captured_at', '>=', \$today)"],
     ['a timestamp column compared with the run date', "->where('created_at', '<', \$today->subDays(3))"],
+    ['a timestamp column compared with the run date', "->orWhere('services.updated_at', '>=', \$today->subMonths(12)->startOfMonth())"],
 ]);
 
-test('the scan reads the Billing module', function () {
-    expect(array_keys(billingDocumentCode()))->toContain('Modules/Billing/Actions/PublishInvoice.php')->not->toContain('Modules/Billing/Database/Factories/InvoiceFactory.php');
+test('the scan reads the moved modules but not their factories', function () {
+    expect(array_keys(billingDocumentCode()))->toContain('Modules/Billing/Actions/PublishInvoice.php')->not->toContain('Modules/Billing/Database/Factories/InvoiceFactory.php')
+        ->and(array_keys(billingDocumentCode('Services')))->toContain('Modules/Services/Actions/PruneModuleLog.php')->not->toContain('Modules/Services/Database/Factories/ServiceFactory.php');
 });
 
 afterAll(fn () => releaseArchCache());

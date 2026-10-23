@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Actions;
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Exceptions\ServiceActionException;
@@ -19,7 +20,7 @@ use Illuminate\Support\Facades\DB;
  */
 class SetServiceStatus
 {
-    public function __construct(private ActivityLogger $activity, private ServiceSettings $settings) {}
+    public function __construct(private ActivityLogger $activity, private ServiceSettings $settings, private CompanyClock $clock) {}
 
     /**
      * @throws ServiceActionException when a module command for the service is running
@@ -49,7 +50,7 @@ class SetServiceStatus
             } elseif ($target === ServiceStatus::Suspended) {
                 $attributes += ['suspended_at' => CarbonImmutable::now(), 'suspension_reason' => 'staff:'.($note ?: 'status changed')];
             } elseif (in_array($target, [ServiceStatus::Terminated, ServiceStatus::Cancelled], true)) {
-                $attributes += ['termination_date' => CarbonImmutable::today(), 'do_not_renew' => true];
+                $attributes += ['termination_date' => $this->clock->todayDate(), 'do_not_renew' => true];
             }
 
             $locked->update($attributes);

@@ -13,6 +13,8 @@ import type { TodoItem } from '@/components/app/needs-attention';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { QuickCreate } from '@/components/quick-create';
+import { StaffNotices } from '@/components/app/staff-notices';
+import type { StaffNoticeItem } from '@/components/app/staff-notices';
 import { formatDate } from '@/lib/date';
 import { dashboard } from '@/routes/admin';
 
@@ -21,6 +23,7 @@ import { dashboard } from '@/routes/admin';
  * attention), then `deferredWidgets` and `health` (system health) in one deferred request.
  */
 type DashboardProps = {
+    notices: StaffNoticeItem[];
     widgets: DashboardWidget[];
     deferredWidgets?: DashboardWidget[];
     todos: TodoItem[];
@@ -38,6 +41,7 @@ function greeting(): string {
 }
 
 export default function AdminDashboard({
+    notices,
     widgets,
     deferredWidgets,
     todos,
@@ -66,6 +70,8 @@ export default function AdminDashboard({
                                 </>
                             }
                         />
+
+                        <StaffNotices notices={notices} />
 
                         <DashboardWidgets
                             widgets={widgets}
