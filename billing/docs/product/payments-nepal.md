@@ -569,7 +569,7 @@ merchants).
   recent password and logged as `billing.payment.resolved` inside the booking transaction. Mark as paid also asks for
   the amount shown in the portal and refuses unless it equals the attempt's amount (a part or over payment is recorded
   with Add payment), and refuses a reference already on a booked transaction (it names the invoice). Not paid is final:
-  lookups reopen nothing once `lookups_closed_at` is set, but a found payment still books late.
+  once `lookups_closed_at` is set, no lookup reopens or books it; a payment the gateway settles later is recorded with Add payment.
   The blocking lasts while the attempt is within the 14 days of `PaymentInProgress::attempt()` (and of the open poller):
   after that it stays on the review list and no longer blocks a new payment.
   **Identifier.** The status check stores `ref_id` as `provider_txn_id`, which is what the dedupe compares; the signed

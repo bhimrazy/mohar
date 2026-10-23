@@ -88,7 +88,7 @@ class PaymentAttemptController extends Controller
         $data = $request->validate([
             'outcome' => ['required', 'in:paid,not_paid'],
             'provider_reference' => ['required_if:outcome,paid', 'nullable', 'string', 'max:191'],
-            'amount' => ['required_if:outcome,paid', 'nullable', 'string', 'regex:/^\d{1,3}(,?\d{3})*(\.\d{1,2})?$/'],
+            'amount' => ['required_if:outcome,paid', 'nullable', 'string', 'regex:/^\d{1,3}(,?\d{3}){0,3}(\.\d{1,2})?$/'],
         ], ['amount.regex' => __('Enter the amount as the portal shows it, for example 1130.50.')]);
         $paid = $data['outcome'] === 'paid';
 

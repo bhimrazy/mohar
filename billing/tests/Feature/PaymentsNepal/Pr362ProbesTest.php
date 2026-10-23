@@ -372,3 +372,14 @@ test('Q5 the review blocks for 14 days: after that the attempt stays on the revi
     $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => EsewaDriver::KEY])->assertSessionHasNoErrors();
     expect($attempt->fresh()->status)->toBe(AttemptStatus::Ambiguous);
 });
+
+test('Mark as paid refuses an amount longer than 12 digits before the decimal point, books nothing', function (string $amount) {
+    [$invoice, $attempt] = rbInReview();
+    billingStaff();
+    confirmPassword();
+
+    $this->post(route('admin.billing.payment-attempts.resolve', $attempt), ['outcome' => 'paid', 'amount' => $amount, 'provider_reference' => '000ABCD'])
+        ->assertSessionHasErrors('amount');
+
+    expect($attempt->fresh()->status)->toBe(AttemptStatus::Ambiguous);
+})->with(['184467440737099612.16', '92233720368547758.07', '1,000,000,000,000.00']);

@@ -135,7 +135,7 @@ function ResolveButtons({ attempt }: { attempt: Attempt }) {
                         <Field
                             htmlFor={`attempt-ref-${attempt.id}`}
                             label={`${name} reference ID`}
-                            hint={`The reference ID the portal shows for this payment.${attempt.return_code ? ` The customer's return from ${name} named it ${attempt.return_code}.` : ''}`}
+                            hint={`The reference ID the portal shows for this payment.${attempt.return_code ? ` The customer's return from ${name} showed the transaction code ${attempt.return_code}, which may differ from the reference ID.` : ''}`}
                             error={form.errors.provider_reference}
                         >
                             <Input
