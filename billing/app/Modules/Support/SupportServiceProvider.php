@@ -11,6 +11,7 @@ use App\Events\Support\TicketOpened;
 use App\Events\Support\TicketReplied;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\RequestMemo;
 use App\Modules\Support\Actions\AutoCloseTickets;
 use App\Modules\Support\Actions\PruneAttachments;
@@ -25,6 +26,7 @@ use App\Modules\Support\Services\SupportPublicHelp;
 use App\Modules\Support\Services\SupportSettings;
 use App\Modules\Support\Services\TicketAccess;
 use App\Support\Automation\Automation;
+use App\Support\CalendarDate;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Events\WebhookEvents;
 use App\Support\Modules\ModuleServiceProvider;
@@ -35,7 +37,6 @@ use App\Support\Search\GlobalSearch;
 use App\Support\Seo\SitemapRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
-use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Builder;
@@ -188,12 +189,37 @@ class SupportServiceProvider extends ModuleServiceProvider
             'icon' => 'Activity',
         ], 'support.network.manage', 22);
 
-        $dashboard->card('client', 'support.open', fn (?User $user, Client $client): array => [
+        $dashboard->card('client', 'support.open', fn (?User $user, Client $client): ?array => app(ClientContext::class)->allows($user, $client, 'support') ? [
             'label' => 'Open tickets',
             'value' => Ticket::query()->notMerged()->where('client_id', $client->id)->where('status', '!=', TicketStatus::Closed->value)->count(),
             'href' => route('client.support.tickets.index'),
             'icon' => 'LifeBuoy',
-        ], order: 60);
+        ] : null, order: 60);
+
+        $dashboard->widget('client', 'support.tickets', 'list', fn (?User $user, Client $client): ?array => app(ClientContext::class)->allows($user, $client, 'support') ? [
+            'title' => 'Support',
+            // Tickets staff answered (awaiting the client) first, then the latest activity.
+            'items' => Ticket::query()->notMerged()->where('client_id', $client->id)->where('status', '!=', TicketStatus::Closed->value)
+                ->orderByRaw('case when status = ? then 0 else 1 end', [TicketStatus::Answered->value])
+                ->orderByDesc('last_reply_at')->orderByDesc('id')
+                ->limit(3)
+                ->get(['id', 'number', 'subject', 'status', 'last_reply_at'])
+                ->map(fn (Ticket $ticket): array => [
+                    'title' => $ticket->subject,
+                    'subtitle' => '#'.$ticket->number,
+                    'href' => route('client.support.tickets.show', $ticket->number),
+                    // The client's view of who is waiting: staff answered → them; they replied → us.
+                    'status' => match ($ticket->status) {
+                        TicketStatus::Answered => 'awaiting-you',
+                        TicketStatus::CustomerReply => 'waiting-for-us',
+                        default => $ticket->status->value,
+                    },
+                    'meta' => $ticket->last_reply_at?->toIso8601String(),
+                ])->values()->all(),
+            'href' => route('client.support.tickets.index'),
+            'empty' => 'No open tickets. We are here if you need help.',
+            'emptyAction' => ['label' => 'Open a ticket', 'href' => route('client.support.tickets.create')],
+        ] : null, order: 30);
     }
 
     /**
@@ -344,8 +370,8 @@ class SupportServiceProvider extends ModuleServiceProvider
     private function registerAutomation(): void
     {
         $automation = $this->app->make(Automation::class);
-        $automation->task('support.auto_close', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(AutoCloseTickets::class)->handle($today->toDateString() === app(CompanyClock::class)->today()->toDateString() ? null : app(CompanyClock::class)->dayBounds($today)[1]), label: 'Close idle tickets', description: 'Closes tickets that have waited on the customer longer than the auto-close period.');
-        $automation->task('support.purge_inbound_raw', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PurgeInboundRaw::class)->handle(app(CompanyClock::class)->dayBounds($today)[0]), label: 'Purge raw inbound emails', description: 'Deletes stored raw inbound email payloads older than the retention period.');
-        $automation->task('support.prune_attachments', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneAttachments::class)->handle(app(CompanyClock::class)->dayBounds($today)[0]), label: 'Delete old ticket attachments', description: 'Deletes attachment files from tickets closed longer than the configured months (details stay).');
+        $automation->task('support.auto_close', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(AutoCloseTickets::class)->handle($today->equals(app(CompanyClock::class)->calendarDate()) ? null : app(CompanyClock::class)->dayBounds($today)[1]), label: 'Close idle tickets', description: 'Closes tickets that have waited on the customer longer than the auto-close period.');
+        $automation->task('support.purge_inbound_raw', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(PurgeInboundRaw::class)->handle(app(CompanyClock::class)->dayBounds($today)[0]), label: 'Purge raw inbound emails', description: 'Deletes stored raw inbound email payloads older than the retention period.');
+        $automation->task('support.prune_attachments', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(PruneAttachments::class)->handle(app(CompanyClock::class)->dayBounds($today)[0]), label: 'Delete old ticket attachments', description: 'Deletes attachment files from tickets closed longer than the configured months (details stay).');
     }
 }

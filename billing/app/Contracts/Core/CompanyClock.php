@@ -2,6 +2,7 @@
 
 namespace App\Contracts\Core;
 
+use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 
@@ -26,18 +27,22 @@ interface CompanyClock
     public function today(): CarbonImmutable;
 
     /**
-     * The company date today as a date value: 00:00 UTC on that date, the same shape as a `date` cast and as the run
-     * date tasks receive. Compare it only with date columns and other date values; to get instants use dayBounds().
+     * The company date today as a Carbon date value: 00:00 UTC on that date, the same shape as a `date` cast. Compare
+     * it only with date columns and other date values; to get instants use dayBounds(). New code uses calendarDate().
      */
     public function todayDate(): CarbonImmutable;
 
+    /** The company date today (ADR 0013 Amendment (#410)). */
+    public function calendarDate(): CalendarDate;
+
     /**
-     * The UTC instants that bound one company-calendar day: [start, end), for querying timestamp columns. A
-     * CarbonInterface is read by its own Y-m-d (a calendar date), not converted: pass an instant through localDate().
+     * The UTC instants that bound one company-calendar day: [start, end), for querying timestamp columns. The only way
+     * a CalendarDate becomes an instant. A CarbonInterface is read by its own Y-m-d (a calendar date), not converted:
+     * pass an instant through localDate().
      *
      * @return array{0: CarbonImmutable, 1: CarbonImmutable}
      */
-    public function dayBounds(string|CarbonInterface $date): array;
+    public function dayBounds(string|CarbonInterface|CalendarDate $date): array;
 
     /** True when the stored company time zone is not valid and dates use UTC (fiscal documents must refuse then). */
     public function isFallback(): bool;

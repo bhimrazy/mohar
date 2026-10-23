@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { search } from '@/routes/domains';
 import type { ResourcePaginated } from '@/types/app';
-import { expiryHint } from '@/types/domains';
+import { MANAGED_AT_REGISTRY, domainStatus, expiryHint } from '@/types/domains';
 import type { Domain } from '@/types/domains';
 
 type Props = {
@@ -35,7 +35,7 @@ const columns: DataTableColumn<Domain>[] = [
     {
         key: 'status',
         header: 'Status',
-        cell: (domain) => <StatusBadge status={domain.status} />,
+        cell: (domain) => <StatusBadge status={domainStatus(domain)} />,
     },
     {
         key: 'expiry',
@@ -53,20 +53,25 @@ const columns: DataTableColumn<Domain>[] = [
                 </span>
             ) : (
                 <span className="text-muted-foreground">
-                    {domain.type === 'transfer'
-                        ? 'After the transfer'
-                        : 'After registration'}
+                    {domain.registered_by_client
+                        ? MANAGED_AT_REGISTRY
+                        : domain.type === 'transfer'
+                          ? 'After the transfer'
+                          : 'After registration'}
                 </span>
             ),
     },
     {
         key: 'auto_renew',
         header: 'Auto-renew',
-        cell: (domain) => (
-            <Badge variant={domain.auto_renew ? 'secondary' : 'outline'}>
-                {domain.auto_renew ? 'On' : 'Off'}
-            </Badge>
-        ),
+        cell: (domain) =>
+            domain.registered_by_client ? (
+                <span className="text-muted-foreground">At the registry</span>
+            ) : (
+                <Badge variant={domain.auto_renew ? 'secondary' : 'outline'}>
+                    {domain.auto_renew ? 'On' : 'Off'}
+                </Badge>
+            ),
     },
 ];
 
