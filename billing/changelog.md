@@ -34,6 +34,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **Namecheap simulator (dev only).** `php artisan simulate:start namecheap` runs a local Namecheap XML API (check, register, async registration, transfer with EPP code, renew, reactivate, info and list, name servers, lock, privacy, contacts, errors inside HTTP 200, the address allow-list, and an unknown-outcome error that still runs the change). It is for the coming Namecheap registrar driver and changes nothing in production; the simulator `Route` gained an optional `when` test so one URL can serve many commands.
 - **Tax-invoice snapshot and numbering groundwork for Nepal VAT credit and debit notes (VAT PR 1a, ADR 0024).** Schema
   and numbering rules only: no screen changes and no note can be issued yet. An invoice that gets its legal number now
   stores, in the same transaction, `numbered_at`, its tax-invoice value (taxable, exempt, two taxes, total, including late
