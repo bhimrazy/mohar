@@ -1,18 +1,18 @@
 <?php
 
 use App\Contracts\Core\CompanyClock;
+use App\Contracts\Domains\DomainRegistry;
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Data\Domains\DomainDraft;
 use App\Data\Domains\Registrar\RegistrarResult;
 use App\Data\Domains\Registrar\TransferSyncResult;
 use App\Modules\Core\Models\Client;
 use App\Modules\Domains\Actions\SyncDomains;
-use App\Contracts\Domains\DomainRegistry;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarCommandLog;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Services\DomainPricingService;
-use App\Data\Domains\DomainDraft;
 use Carbon\CarbonImmutable;
 use Tests\Fakes\Domains\DomainFixtures;
 use Tests\Fakes\Domains\FakeInvoicer;
@@ -142,7 +142,7 @@ it('prunes the registrar log before the start of the company day the retention r
     expect(RegistrarCommandLog::query()->pluck('id')->all())->toBe([$kept->id]);
 })->with('company midnight');
 
-it('dates a log-registrar registration, transfer and renewal from the company day, with the due dates in step', function (string $zone, string $before, string $at, string $dayBefore, string $dayAfter) {
+it('dates a log-registrar registration and transfer from the company day, with the due dates in step', function (string $zone, string $before, string $at, string $dayBefore, string $dayAfter) {
     $tld = Tld::factory()->extension('.net')->priced(register: 1500)->create(['registrar_key' => 'log']);
     $client = Client::factory()->create();
     $registry = app(DomainRegistry::class);

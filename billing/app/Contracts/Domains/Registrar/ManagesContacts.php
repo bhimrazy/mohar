@@ -9,7 +9,8 @@ use App\Data\Domains\Registrar\RegistrarResult;
 
 /**
  * Capability `contacts`. A registrant change can start a registry lock; report it in RegistrarResult::$meta
- * (`contact_change_pending`, `transfer_lock_days` (the host turns it into the lock's end date)). Never edit a contact other domains share: create a new one.
+ * (`contact_change_pending`, `transfer_lock_days`; the host dates the lock). Never edit a contact other domains share:
+ * create a new one.
  */
 interface ManagesContacts
 {
