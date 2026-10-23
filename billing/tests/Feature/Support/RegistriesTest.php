@@ -27,12 +27,12 @@ test('admin and client navigation include the Support group', function () {
 
 test('dashboard cards count tickets for staff and clients', function () {
     $department = Department::factory()->create();
-    [, $client] = actingAsClient();
+    [$user, $client] = actingAsClient();
     clientTicket($client, $department);
     $staff = supportStaff([$department]);
 
     $admin = collect(app(Dashboard::class)->resolve('admin', $staff))->keyBy('key');
-    $customer = collect(app(Dashboard::class)->resolve('client', null, $client))->keyBy('key');
+    $customer = collect(app(Dashboard::class)->resolve('client', $user, $client))->keyBy('key');
 
     expect($admin['support.open']['value'])->toBe(1)
         ->and($admin['support.awaiting']['value'])->toBe(1)

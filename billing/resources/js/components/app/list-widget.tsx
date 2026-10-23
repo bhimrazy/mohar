@@ -3,6 +3,7 @@ import { ArrowRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { DateTime } from '@/components/app/date';
 import { StatusBadge } from '@/components/app/status-badge';
+import { Button } from '@/components/ui/button';
 import { formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 
@@ -20,6 +21,11 @@ export type ListWidgetItem = {
     money?: { amount: number; currency: string };
     /** A name shown as initials in front of the row (when no `leading` is given). */
     avatar?: string;
+    /** ISO date shown after the subtitle, prefixed with `dateLabel` ("Renews", "Due"). */
+    date?: string | null;
+    dateLabel?: string;
+    /** A button after the row's link ("Pay"); a sibling of the link, never nested in it. */
+    action?: { label: string; href: string } | null;
 };
 
 type ListWidgetProps = {
@@ -138,9 +144,9 @@ export function ListRows({
     return (
         <>
             {items.length === 0 ? (
-                <p className="border-t px-(--stat-p) py-8 text-center text-sm text-muted-foreground">
+                <div className="border-t px-(--stat-p) py-8 text-center text-sm text-muted-foreground">
                     {empty}
-                </p>
+                </div>
             ) : (
                 <ul className="divide-y border-t">
                     {items.map((item, index) => {
@@ -154,9 +160,25 @@ export function ListRows({
                                     <div className="truncate text-sm font-medium">
                                         {item.title}
                                     </div>
-                                    {item.subtitle && (
+                                    {item.subtitle && !item.date && (
                                         <div className="truncate text-xs text-muted-foreground">
                                             {item.subtitle}
+                                        </div>
+                                    )}
+                                    {item.date && (
+                                        // The date gets its own line on phones so truncation never hides it.
+                                        <div className="text-xs text-muted-foreground sm:truncate">
+                                            {item.subtitle && (
+                                                <span className="block truncate sm:inline">
+                                                    {item.subtitle}
+                                                    <span className="hidden sm:inline">
+                                                        {' · '}
+                                                    </span>
+                                                </span>
+                                            )}
+                                            {item.dateLabel &&
+                                                `${item.dateLabel} `}
+                                            <DateTime value={item.date} />
                                         </div>
                                     )}
                                 </div>
@@ -185,19 +207,43 @@ export function ListRows({
                             'flex items-center gap-3 px-(--stat-p) py-(--cell-py)';
 
                         return (
-                            <li key={index}>
+                            <li
+                                key={index}
+                                className={cn(
+                                    item.action && 'flex items-center',
+                                )}
+                            >
                                 {item.href ? (
                                     <Link
                                         href={item.href}
                                         className={cn(
                                             rowClass,
+                                            item.action && 'min-w-0 flex-1',
                                             'transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none',
                                         )}
                                     >
                                         {content}
                                     </Link>
                                 ) : (
-                                    <div className={rowClass}>{content}</div>
+                                    <div
+                                        className={cn(
+                                            rowClass,
+                                            item.action && 'min-w-0 flex-1',
+                                        )}
+                                    >
+                                        {content}
+                                    </div>
+                                )}
+                                {item.action && (
+                                    <Button
+                                        asChild
+                                        size="sm"
+                                        className="mr-(--stat-p) shrink-0"
+                                    >
+                                        <Link href={item.action.href}>
+                                            {item.action.label}
+                                        </Link>
+                                    </Button>
                                 )}
                             </li>
                         );

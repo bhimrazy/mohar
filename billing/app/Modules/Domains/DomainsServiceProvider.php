@@ -22,6 +22,7 @@ use App\Events\Services\ServiceUnsuspended;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ChunkedDelete;
+use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Actions\ApplyExpiryLifecycle;
 use App\Modules\Domains\Actions\ConvertTldPrices;
@@ -255,21 +256,46 @@ class DomainsServiceProvider extends ModuleServiceProvider
 
         $dashboard->health('admin', 'domains.registrars', fn (?User $user): array => $this->registrarHealth(), 'domains.domains.view', 50);
 
-        $dashboard->todo('client', 'domains.renew', fn (?User $user, Client $client): array => [
-            'label' => 'Domains to renew',
-            'count' => Domain::query()->where('client_id', $client->id)
-                ->where(fn ($query) => $query->expiringWithin(30)->orWhere(fn ($query) => $query->withStatus([DomainStatus::Grace, DomainStatus::Redemption])))
-                ->count(),
-            'href' => route('client.domains.index'),
-            'tone' => 'warning',
-        ], null, 30);
+        $canSee = fn (?User $user, Client $client): bool => app(ClientContext::class)->allows($user, $client, 'domains');
 
-        $dashboard->card('client', 'domains.expiring', fn (?User $user, Client $client): array => [
+        $dashboard->card('client', 'domains.expiring', fn (?User $user, Client $client): ?array => $canSee($user, $client) ? [
             'label' => 'Domains expiring soon',
             'value' => Domain::query()->where('client_id', $client->id)->expiringWithin(30)->count(),
             'href' => route('client.domains.index'),
             'icon' => 'Globe',
-        ], null, 30);
+        ] : null, null, 30);
+
+        $dashboard->widget('client', 'domains.list', 'list', function (?User $user, Client $client) use ($canSee): ?array {
+            if (! $canSee($user, $client)) {
+                return null;
+            }
+
+            $today = app(CompanyClock::class)->todayDate();
+            $soon = $today->addDays(30);
+
+            return [
+                'title' => 'Domains',
+                'items' => Domain::query()->where('client_id', $client->id)->withStatus(DomainStatus::nonTerminal())
+                    ->orderByRaw('case when expiry_date is null then 1 else 0 end')->orderBy('expiry_date')->orderBy('id')
+                    ->limit(5)
+                    ->get(['id', 'name_unicode', 'status', 'expiry_date', 'auto_renew'])
+                    ->map(fn (Domain $domain): array => [
+                        'title' => $domain->name_unicode,
+                        'subtitle' => $domain->auto_renew ? 'Auto-renew on' : 'Auto-renew off',
+                        'href' => route('client.domains.show', $domain->id),
+                        'status' => $domain->status === DomainStatus::Active && $domain->expiry_date?->lte($soon) ? 'expiring' : $domain->status->value,
+                        'date' => $domain->expiry_date?->toDateString(),
+                        'dateLabel' => match (true) {
+                            (bool) $domain->expiry_date?->lt($today) => 'Expired',
+                            $domain->auto_renew => 'Renews',
+                            default => 'Expires',
+                        },
+                    ])->values()->all(),
+                'href' => route('client.domains.index'),
+                'empty' => 'You have no domains yet.',
+                'emptyAction' => ['label' => 'Register a domain', 'href' => route('domains.search')],
+            ];
+        }, null, 40);
     }
 
     private function registerPermissionsAndSettings(): void
