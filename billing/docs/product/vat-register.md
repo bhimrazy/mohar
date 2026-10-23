@@ -92,14 +92,15 @@ Out of scope: §16. Kernel prerequisites (§18): PR 0a, the `CompanyClock` contr
 
 ### 4.1 Tax-invoice value snapshot on `invoices` (written once, at numbering)
 
-Columns added to `invoices` in PR 1a and frozen with the number:
+Columns added to `invoices` in PR 1a. All but the last two are frozen with the number:
 
 - `numbered_at`;
 - `fiscal_taxable`, `fiscal_exempt`, `fiscal_tax1`, `fiscal_tax2`, `fiscal_total`;
 - `report_currency`, `report_rate`;
 - `supply_class`;
 - `bs_issue_date`, `bs_period`, `bs_fiscal_year`;
-- `credited_total`, `debited_total`.
+- `credited_total`, `debited_total`: caches of the value adjustments after `numbered_at`, kept by
+  `InvoiceSettlement::adjust` and recomputed by `billing:fiscal-snapshot` (ADR 0024 §2). They are not frozen.
 
 What each holds, how it is computed at numbering, and how existing invoices are backfilled (including the
 staff-review list) is ADR 0024 §2. The caps they feed are ADR 0024 §3. Criteria: AC 7–10. **MUST**
@@ -107,7 +108,7 @@ staff-review list) is ADR 0024 §2. The caps they feed are ADR 0024 §3. Criteri
 - `billing.tax.report_currency` names the reporting currency: NPR for a Nepal seller, INR later for India. Which rate
   a host must use is open (D6). Until D6 names an export rule, no document is `export`.
 - `Invoice::FROZEN` gains `number`, `numbered_at`, `issue_date`, `client_snapshot`, `seller_snapshot` and the columns
-  above. The one change allowed is the proforma → numbered transition inside `settle`. **MUST**
+  above, except the two caches. The one change allowed is the proforma → numbered transition inside `settle`. **MUST**
 
 ### 4.2 `tax_notes` (credit and debit notes)
 
@@ -501,13 +502,14 @@ MUST:
    `collections` and is paid again, then `paid_at` changes and `numbered_at`, the number and the snapshot do not.
 8. Given a proforma with a 500 taxable late fee, and one line cancelled in the same `CancelInvoiceItems` call that
    settles it, then `fiscal_*` equal the totals plus the fee minus the cancelled line, each with its tax.
-9. Given the PR 1a migration on a database with legacy invoices, then:
+9. Given `billing:fiscal-snapshot` run on a database with legacy invoices, then:
     - a publish-numbered invoice gets `numbered_at` = its `created_at` and a snapshot equal to its own totals;
     - a payment-numbered invoice gets `numbered_at` = the `created_at` of its numbering payment row, even when that
       payment's `occurred_at` was backdated;
     - an invoice without one identifiable numbering payment, a line-less row and a misclassified row all appear on
       the staff-review list;
-    - `credited_total` and `debited_total` equal the value adjustments after `numbered_at`.
+    - `credited_total` and `debited_total` equal the value adjustments after `numbered_at`, also after a value row
+      written by the previous release, which the command corrects and lists.
 10. Given a numbered note or invoice, when any model path changes a frozen field, deletes the note, or deletes its
     invoice, then the change is refused.
 11. Given a preview, when the invoice changes before confirm (a payment, another note), then the confirm is refused

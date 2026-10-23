@@ -61,6 +61,20 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property array<string, string>|null $reminder_log
  * @property CarbonImmutable|null $late_fee_applied_at
  * @property CarbonImmutable|null $overdue_notified_at
+ * @property CarbonImmutable|null $numbered_at the instant the legal number was assigned; frozen with it
+ * @property int|null $fiscal_taxable tax-invoice value at numbering: taxable, exempt, taxes, total (ADR 0024 §2)
+ * @property int|null $fiscal_exempt
+ * @property int|null $fiscal_tax1
+ * @property int|null $fiscal_tax2
+ * @property int|null $fiscal_total
+ * @property string|null $report_currency
+ * @property string|null $report_rate decimal string, 12 places
+ * @property string|null $supply_class taxable|exempt|export
+ * @property string|null $bs_issue_date
+ * @property string|null $bs_period
+ * @property string|null $bs_fiscal_year
+ * @property int $credited_total value credited after numbering; written only by InvoiceSettlement::adjust
+ * @property int $debited_total
  * @property int $version
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
@@ -84,6 +98,15 @@ class Invoice extends Model
     /** Columns frozen once an invoice has been issued (§2: issued invoices are immutable). */
     private const FROZEN = ['client_id', 'currency', 'subtotal', 'discount_total', 'tax1_name', 'tax1_rate', 'tax1_amount',
         'tax2_name', 'tax2_rate', 'tax2_amount', 'tax_compound', 'tax_inclusive', 'total'];
+
+    /**
+     * Frozen with the number (ADR 0024 §1): once `numbered_at` is set none of these changes. The one change allowed is
+     * the transition that assigns the number (`numbered_at` still empty). `credited_total` and `debited_total` are
+     * caches that InvoiceSettlement::adjust keeps, so they are not listed.
+     */
+    private const FROZEN_WITH_NUMBER = ['number', 'numbered_at', 'issue_date', 'client_snapshot', 'seller_snapshot',
+        'fiscal_taxable', 'fiscal_exempt', 'fiscal_tax1', 'fiscal_tax2', 'fiscal_total', 'report_currency', 'report_rate',
+        'supply_class', 'bs_issue_date', 'bs_period', 'bs_fiscal_year'];
 
     /** Bookkeeping columns that do not change the rendered document (no PDF version bump). */
     private const UNVERSIONED = ['version', 'updated_at', 'last_capture_attempt_at', 'capture_attempts',
@@ -116,6 +139,15 @@ class Invoice extends Model
             'last_capture_attempt_at' => 'datetime',
             'first_capture_failure_on' => 'date',
             'late_fee_applied_at' => 'datetime',
+            'numbered_at' => 'datetime',
+            'fiscal_taxable' => 'integer',
+            'fiscal_exempt' => 'integer',
+            'fiscal_tax1' => 'integer',
+            'fiscal_tax2' => 'integer',
+            'fiscal_total' => 'integer',
+            'report_rate' => 'decimal:12',
+            'credited_total' => 'integer',
+            'debited_total' => 'integer',
             'overdue_notified_at' => 'datetime',
             'subtotal' => 'integer',
             'discount_total' => 'integer',
@@ -140,8 +172,18 @@ class Invoice extends Model
                 throw ImmutableInvoiceException::make();
             }
 
+            if ($invoice->getOriginal('numbered_at') !== null && $invoice->isDirty(self::FROZEN_WITH_NUMBER)) {
+                throw ImmutableInvoiceException::numbered();
+            }
+
             if (array_diff(array_keys($invoice->getDirty()), self::UNVERSIONED) !== []) {
                 $invoice->version = $invoice->version + 1;
+            }
+        });
+
+        static::deleting(function (Invoice $invoice): void {
+            if ($invoice->numbered_at !== null || $invoice->number !== null) {
+                throw ImmutableInvoiceException::numbered();
             }
         });
     }

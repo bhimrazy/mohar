@@ -39,7 +39,7 @@ try {
     $taken = microtime(true);
     usleep((int) $hold * 1000);
     $mode === 'rollback' ? DB::rollBack() : DB::commit();
-    fwrite(STDOUT, ((int) $number).' '.$taken.' '.microtime(true));
+    fwrite(STDOUT, ((int) preg_replace('/^\D+/', '', $number)).' '.$taken.' '.microtime(true));
 } catch (Throwable $e) {
     DB::rollBack();
     fwrite(STDOUT, 'error '.get_class($e).': '.$e->getMessage());
