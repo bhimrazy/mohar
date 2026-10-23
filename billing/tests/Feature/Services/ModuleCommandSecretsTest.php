@@ -3,6 +3,7 @@
 use App\Data\Services\Provisioning\DriverResult;
 use App\Data\Services\Provisioning\ProvisioningContext;
 use App\Modules\Services\Drivers\Provisioning\LogDriver;
+use App\Modules\Services\Models\ModuleCommand;
 use App\Modules\Services\Models\Service;
 use Illuminate\Support\Facades\Exceptions;
 use Tests\Fakes\Services\ServicesTestKit;
@@ -30,5 +31,7 @@ test('a driver exception during a password change is reported without the new pa
     $this->post(route('client.services.password', $service->id), ['password' => 'Str0ngPassword', 'password_confirmation' => 'Str0ngPassword']);
 
     Exceptions::assertReported(fn (RuntimeException $e): bool => str_contains($e->getMessage(), 'panel refused password'));
-    Exceptions::assertNotReported(fn (RuntimeException $e): bool => str_contains($e->getMessage(), 'Str0ngPassword'));
+    expect(collect(Exceptions::reported())->map(fn (Throwable $e): string => (string) $e)->filter(fn (string $e): bool => str_contains($e, 'Str0ngPassword')))->toBeEmpty()
+        ->and(ModuleCommand::query()->where('service_id', $service->id)->whereNotNull('error')->exists())->toBeTrue()
+        ->and(ModuleCommand::query()->where('service_id', $service->id)->pluck('error')->filter(fn (?string $e): bool => str_contains((string) $e, 'Str0ngPassword')))->toBeEmpty();
 });
