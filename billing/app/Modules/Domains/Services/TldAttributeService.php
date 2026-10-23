@@ -238,7 +238,7 @@ class TldAttributeService implements TldAttributes
     }
 
     /**
-     * Runs a registrar call and masks the free-text answers in what it raises or returns (the message, `meta` and `remote` of a result), however the registry
+     * Runs a registrar call and masks the free-text answers in what it raises or returns (the message and `meta` of a result; `remote` holds registrar ids and is never masked), however the registry
      * echoed them: regrouped (`518 247 535 56`), dashed, dotted, slashed or in another case. The gateway then masks
      * the exact forms again. The message of the exception and of each exception behind it is rewritten in place,
      * keeping its class and flags.

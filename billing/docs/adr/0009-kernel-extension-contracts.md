@@ -301,3 +301,11 @@ Kernel shapes decided now:
    Client erasure, when it is built, must clear them with the domain contacts.
 5. **Account state.** It decides whether the fields are shown and whether new orders are taken for the extension, not
    whether answers that were already collected are kept.
+
+## Amendment 5 — 2026-10-24, masking a registrar result (PR #368)
+
+**`RegistrarResult::mapText(Closure $mask, string $withheld, int $maxDepth = 8)`** returns a copy with the message and
+everything in `meta` masked: string values and string keys, arrays walked. Anything it cannot check is replaced by the
+withheld marker: a branch nested deeper than `$maxDepth`, an object or other non-scalar value, and a branch whose key the
+mask changed. `remote` is never masked: its values are the registrar ids that prove ownership and later calls need, and
+a mask would change one. The host uses it to mask a customer's free-text TLD answers (Amendment 3, item 4).

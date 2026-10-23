@@ -355,24 +355,22 @@ test('an answer is masked however the registry regrouped, punctuated or re-cased
     'separators dropped and re-cased' => ['tm-abc-1234', 'TMABC1234'],
 ]);
 
-test('an answer a registry echoes in the meta or remote of a result, however regrouped, reaches neither the command log nor registrar_meta', function (string $typed, string $echoed) {
+test('an answer a registry echoes in the meta of a result, however regrouped, does not reach the command log; remote ids are kept as they are', function (string $typed, string $echoed) {
     $domain = Domain::query()->findOrFail(app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P1', 'id' => $typed, 'warranty' => '1'])));
     $this->registrar->will('register', new RegistrarResult(
         'completed',
         message: 'Registered.',
         meta: ['registry_note' => "Nexus checked for {$echoed}", 'nested' => ['again' => [$echoed, 7, true]], 'order_total' => 12],
-        remote: ['order_id' => 9182, 'reference' => "ref {$echoed}"],
+        remote: ['order_id' => 9182, 'reference' => 'ref-9182'],
     ));
 
     app(SubmitToRegistrar::class)->handle($domain);
 
     $response = (string) json_encode(RegistrarCommandLog::query()->where('command', 'register')->value('response'));
-    $stored = (string) json_encode($domain->fresh()->registrar_meta);
 
-    expect(leaksIn(['command log response' => $response, 'registrar_meta' => $stored], [$echoed]))->toBe([])
+    expect(leaksIn(['command log response' => $response], [$echoed]))->toBe([])
         ->and($response)->toContain('Nexus checked for')->toContain('order_total')
-        ->and($domain->fresh()->registrar_meta['remote'])->toMatchArray(['order_id' => 9182])
-        ->and($stored)->toContain('ref ');
+        ->and($domain->fresh()->registrar_meta['remote'])->toBe(['order_id' => 9182, 'reference' => 'ref-9182']);
 })->with([
     'regrouped' => ['51 824 753 556', '518 247 535 56'],
     'dashed' => ['51 824 753 556', '51-824-753-556'],
