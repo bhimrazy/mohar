@@ -6,13 +6,13 @@
  * finalise (locks the client, waits 400 ms, then takes a credit note number, as the PR 4 refund finalise will)
  */
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Billing\Actions\ApplyLateFee;
 use App\Modules\Billing\Data\NoteRequest;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Services\DocumentNumbers;
 use App\Modules\Billing\Services\FiscalBackfill;
 use App\Modules\Billing\Services\TaxNoteIssuer;
-use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
 
@@ -46,7 +46,7 @@ try {
             DB::table('clients')->where('id', Invoice::query()->findOrFail((int) $invoiceId)->client_id)->lockForUpdate()->first();
             usleep(400_000);
 
-            return app(DocumentNumbers::class)->next(DocumentNumbers::CREDIT_NOTE, CarbonImmutable::now());
+            return app(DocumentNumbers::class)->next(DocumentNumbers::CREDIT_NOTE, app(CompanyClock::class)->calendarDate());
         });
         $print(['outcome' => 'finalised', 'number' => $number]);
 

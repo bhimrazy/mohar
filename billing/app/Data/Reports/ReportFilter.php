@@ -41,7 +41,8 @@ final readonly class ReportFilter
     public function validationRules(): array
     {
         $own = match ($this->type) {
-            FilterType::Date => ['string', 'date_format:Y-m-d'],
+            // The floor is the first year CalendarDate holds.
+            FilterType::Date => ['string', 'date_format:Y-m-d', 'after_or_equal:0001-01-01'],
             FilterType::Select => ['string', Rule::in(array_map('strval', array_keys($this->options)))],
             FilterType::Boolean => ['boolean'],
             FilterType::Text => ['string', 'max:255'],

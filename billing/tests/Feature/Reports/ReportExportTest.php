@@ -1,11 +1,15 @@
 <?php
 
 use App\Contracts\Reports\Report;
+use App\Enums\ColumnType;
 use App\Enums\ExportFormat;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Support\Settings;
+use App\Support\CalendarDate;
 use App\Support\Csv\SafeCsv;
+use App\Support\Csv\Verbatim;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Reports\CellFormatter;
 use App\Support\Reports\ReportExporter;
 use App\Support\Reports\ReportRegistry;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -288,10 +292,20 @@ test('filters are validated and the period is resolved on the company calendar',
     app(Settings::class)->set('system.timezone', 'Asia/Kathmandu');
 
     expect(fn () => app(ReportExporter::class)->query('demo_sales', ['from' => '2026-10-31', 'to' => '2026-10-01'], auth()->id()))->toThrow(ValidationException::class);
+    // A year CalendarDate can't hold is a validation error, not a 500.
+    expect(fn () => app(ReportExporter::class)->query('demo_sales', ['from' => '0000-01-01'], auth()->id()))->toThrow(ValidationException::class);
 
     $query = app(ReportExporter::class)->query('demo_sales', ['from' => '2026-10-01', 'to' => '2026-10-31'], auth()->id());
 
     // Kathmandu is UTC+05:45, so the company day starts at 18:15 UTC the day before.
     expect($query->startsAt->toIso8601String())->toBe('2026-09-30T18:15:00+00:00')
         ->and($query->endsAt->toIso8601String())->toBe('2026-10-31T18:15:00+00:00');
+});
+
+test('a Date column takes a CalendarDate as its typed value', function () {
+    $cells = app(CellFormatter::class);
+
+    expect($cells->csv(ColumnType::Date, CalendarDate::parse('2026-10-19')))->toEqual(new Verbatim('2026-10-19'))
+        ->and($cells->display(ColumnType::Date, CalendarDate::parse('2026-10-19')))->toBe('2026-10-19')
+        ->and($cells->display(ColumnType::Text, CalendarDate::parse('2026-10-19')))->toBe('2026-10-19');
 });

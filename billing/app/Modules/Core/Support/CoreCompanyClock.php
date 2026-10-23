@@ -3,6 +3,7 @@
 namespace App\Modules\Core\Support;
 
 use App\Contracts\Core\CompanyClock;
+use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use DateTimeZone;
@@ -85,9 +86,18 @@ final class CoreCompanyClock implements CompanyClock
         return CarbonImmutable::parse($this->today()->toDateString(), 'UTC');
     }
 
-    public function dayBounds(string|CarbonInterface $date): array
+    public function calendarDate(): CalendarDate
     {
-        $day = $date instanceof CarbonInterface ? $date->format('Y-m-d') : CarbonImmutable::parse($date)->format('Y-m-d');
+        return CalendarDate::parse($this->now()->toDateString());
+    }
+
+    public function dayBounds(string|CarbonInterface|CalendarDate $date): array
+    {
+        $day = match (true) {
+            $date instanceof CalendarDate => $date->toString(),
+            $date instanceof CarbonInterface => $date->format('Y-m-d'),
+            default => CarbonImmutable::parse($date)->format('Y-m-d'),
+        };
         $start = CarbonImmutable::parse($day, $this->timezone());
 
         return [$start->utc(), $start->addDay()->utc()];
