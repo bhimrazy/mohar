@@ -23,8 +23,8 @@ class RegisterDomain implements ShouldBeUnique, ShouldQueue
     /** Seconds: above the drivers' HTTP timeouts (10 s connect + 90 s), below the registrar pool's 200 s (ADR 0017 §3). */
     public int $timeout = 180;
 
-    /** Seconds a queued duplicate is refused (released as soon as the job finishes). */
-    public int $uniqueFor = 3600;
+    /** Seconds a queued duplicate is refused (released as soon as the job finishes); above retryUntil (24 h). */
+    public int $uniqueFor = 90000;
 
     public function __construct(public int $domainId, public ?int $staffId = null)
     {
@@ -58,7 +58,7 @@ class RegisterDomain implements ShouldBeUnique, ShouldQueue
         $domain = Domain::query()->find($this->domainId);
 
         if ($domain !== null) {
-            app(SubmitToRegistrar::class)->failed($domain, $domain->type, $exception->getMessage());
+            app(SubmitToRegistrar::class)->failed($domain, $domain->type, $this->failureText($exception));
         }
     }
 }

@@ -30,16 +30,13 @@ use Carbon\CarbonImmutable;
 
 /**
  * Reconcile one domain with its registrar (spec §9): transfer sync for pending transfers, status and
- * expiry sync for active / pending registrations. Runs under the domain's registrar lock (the one the register,
- * transfer and renew jobs hold) and, when that is taken, does nothing and answers BUSY. Returns the differences found; in notify-only mode
- * nothing is changed. Expiry never moves backwards by more than a year without staff review, and
+ * expiry sync for active / pending registrations. Returns the differences found; in notify-only mode
+ * nothing is changed. It runs under the domain's registrar lock (the one the register, transfer and renew jobs hold);
+ * when that is taken it does nothing and answers `busy` with a message. Expiry never moves backwards by more than a year without staff review, and
  * next_due_date is only moved when no renewal invoice is open.
  */
 class SyncDomain
 {
-    /** The error of a sync that did not run because a registrar job holds the domain; nothing was changed. */
-    public const BUSY = 'A registrar job is running for this domain. Try again in a minute.';
-
     public function __construct(
         private RegistrarGateway $gateway,
         private DomainStateMachine $states,
@@ -49,14 +46,14 @@ class SyncDomain
     ) {}
 
     /**
-     * @return array{changes: list<array{domain_id: int, domain: string, field: string, from: string|null, to: string|null, applied: bool}>, error: string|null}
+     * @return array{changes: list<array{domain_id: int, domain: string, field: string, from: string|null, to: string|null, applied: bool}>, error: string|null, busy?: true}
      */
     public function handle(Domain $domain, bool $notifyOnly = false, ?int $staffId = null): array
     {
         $lock = DomainRegistrarLock::for($domain->id);
 
         if (! $lock->get()) {
-            return ['changes' => [], 'error' => self::BUSY];
+            return ['changes' => [], 'error' => __('Another registrar action is running for this domain. Try again in a minute.'), 'busy' => true];
         }
 
         try {

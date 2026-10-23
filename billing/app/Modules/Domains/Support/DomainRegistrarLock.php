@@ -11,10 +11,14 @@ use Illuminate\Support\Facades\Cache;
  *
  * TTL is above the longest holder (a job's 180 s timeout; a staff sync is bounded by two driver calls) so a crashed
  * worker cannot hold it for long, and a holder never outlives it, so the lock cannot expire under a running call.
+ *
+ * Never take it inside a database transaction: on the database cache store with PostgreSQL, a lock that is already
+ * taken makes the failed insert abort the surrounding transaction. No caller does (jobs, SyncDomain and the bulk
+ * sync all run outside one).
  */
 final class DomainRegistrarLock
 {
-    /** Seconds: above every holder's runtime cap (the registrar jobs' 180 s timeout), below the queue's retry_after. */
+    /** Seconds: above every holder's runtime cap (the registrar jobs' 180 s timeout), below the queue's default retry_after (240 s). */
     public const TTL = 220;
 
     public static function for(int $domainId): Lock

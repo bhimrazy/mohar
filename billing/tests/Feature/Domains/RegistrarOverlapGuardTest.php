@@ -100,7 +100,7 @@ test('waiting for the lock never uses up the attempts of a paid job', function (
     expect(array_count_values($this->registrar->commands())[$type])->toBe(1)->and(DB::table('jobs')->count())->toBe(0);
 })->with(['registration' => ['register'], 'transfer' => ['transfer']]);
 
-test('real errors still end the job after three, and a job that waits too long fails visibly instead of vanishing', function () {
+test('real errors still end the job after three', function () {
     $this->registrar->will('register', new RegistrarException('registrar busy', retryable: true));
     $domain = pendingRegistration($this);
     RegisterDomain::dispatch($domain->id);
@@ -111,21 +111,29 @@ test('real errors still end the job after three, and a job that waits too long f
     }
 
     expect(DB::table('failed_jobs')->count())->toBe(1)->and(DB::table('jobs')->count())->toBe(0);
+});
 
-    DB::table('failed_jobs')->delete();
-    $other = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id, 'registrar_key' => 'fake']);
-    $holder = DomainRegistrarLock::for($other->id);
-    $holder->get();
-    RenewDomain::dispatch($other->id, 1, '2027-01-31');
-    $this->travel(31)->minutes();
-    $holder->release();
-    DomainRegistrarLock::for($other->id)->get();
+test('a job held behind the lock for 24 hours fails with plain words and never reaches the registrar', function () {
+    $domain = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id, 'registrar_key' => 'fake']);
+    RenewDomain::dispatch($domain->id, 1, '2027-01-31');
+    $hold = fn () => DomainRegistrarLock::for($domain->id)->get(); // another holder keeps taking it
 
+    $hold();
+    $this->travel(23)->hours();
+    $hold();
     runRegistrarWorker();
 
+    expect(DB::table('jobs')->count())->toBe(1)->and(DB::table('failed_jobs')->count())->toBe(0);
+
+    $this->travel(2)->hours();
+    $hold();
+    runRegistrarWorker();
+
+    $error = $domain->fresh()->last_error;
     expect(DB::table('failed_jobs')->count())->toBe(1)
-        ->and($this->registrar->commands())->not->toContain('renew')
-        ->and($other->fresh()->status)->toBe(DomainStatus::Active);
+        ->and($this->registrar->commands())->toBe([])
+        ->and($error)->toContain('waited too long')->not->toContain('App\\')->not->toContain('attempted too many times')
+        ->and($domain->fresh()->expiry_date->toDateString())->toBe('2027-01-31');
 });
 
 test('jobs of different domains do not block each other', function () {
@@ -148,7 +156,7 @@ test('a sync does not run against a domain a registrar job holds, and a bulk syn
     $single = app(SyncDomain::class)->handle($domain);
     $bulk = app(SyncDomains::class)->handle();
 
-    expect($single['error'])->toBe(SyncDomain::BUSY)
+    expect($single)->toMatchArray(['busy' => true])->and($single['error'])->toContain('Another registrar action')
         ->and($bulk)->toBe(['synced' => 0, 'changes' => 0, 'errors' => 0])
         ->and($this->registrar->commands())->toBe([])
         ->and($domain->fresh()->last_synced_at)->toBeNull();
@@ -165,7 +173,8 @@ test('every registrar job guards the domain with the same lock and holds it long
 
         expect($middleware)->toHaveCount(1)->and($middleware[0])->toBeInstanceOf(OnePerDomain::class)
             ->and($job->timeout)->toBeLessThan(DomainRegistrarLock::TTL)
-            ->and($job->retryUntil()->getTimestamp())->toBeGreaterThan(now()->addMinutes(10)->getTimestamp())
+            ->and($job->retryUntil()->getTimestamp())->toBeGreaterThan(now()->addHours(23)->getTimestamp())
+            ->and($job->uniqueFor)->toBeGreaterThan(24 * 3600)
             ->and($job->tries ?? null)->toBeNull();
     }
 });

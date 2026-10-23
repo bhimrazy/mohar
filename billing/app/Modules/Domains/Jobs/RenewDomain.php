@@ -24,7 +24,7 @@ class RenewDomain implements ShouldBeUnique, ShouldQueue
     /** Seconds: above the drivers' HTTP timeouts (10 s connect + 90 s), below the registrar pool's 200 s (ADR 0017 §3). */
     public int $timeout = 180;
 
-    public int $uniqueFor = 3600;
+    public int $uniqueFor = 90000;
 
     public function __construct(
         public int $domainId,
@@ -63,7 +63,7 @@ class RenewDomain implements ShouldBeUnique, ShouldQueue
         $domain = Domain::query()->find($this->domainId);
 
         if ($domain !== null) {
-            app(PerformRenewal::class)->failed($domain, $exception->getMessage());
+            app(PerformRenewal::class)->failed($domain, $this->failureText($exception));
         }
     }
 }
