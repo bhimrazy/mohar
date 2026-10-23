@@ -15,7 +15,7 @@ class UpdateExchangeRatesCommand extends Command
 {
     public function handle(ExchangeRateTask $task, CompanyClock $clock): int
     {
-        $date = $this->option('date') ? CarbonImmutable::parse((string) $this->option('date'))->startOfDay() : $clock->today()->shiftTimezone('UTC');
+        $date = $this->option('date') ? CarbonImmutable::parse((string) $this->option('date'))->startOfDay() : $clock->todayDate();
         $result = $task->scheduled($date, (bool) $this->option('force'));
 
         $this->components->twoColumnDetail(ExchangeRateTask::KEY, $result['summary']);

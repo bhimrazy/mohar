@@ -53,7 +53,6 @@ final class CoreCompanyClock implements CompanyClock
         return 'UTC';
     }
 
-    /** True when the stored company time zone is not valid and dates use UTC. */
     public function isFallback(): bool
     {
         return $this->resolve(trim((string) ($this->settings->get('system.timezone') ?: config('app.timezone', 'UTC')))) === null;
@@ -79,6 +78,11 @@ final class CoreCompanyClock implements CompanyClock
     public function today(): CarbonImmutable
     {
         return $this->now()->startOfDay();
+    }
+
+    public function todayDate(): CarbonImmutable
+    {
+        return CarbonImmutable::parse($this->today()->toDateString(), 'UTC');
     }
 
     public function dayBounds(string|CarbonInterface $date): array

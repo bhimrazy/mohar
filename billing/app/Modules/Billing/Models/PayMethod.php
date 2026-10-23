@@ -67,7 +67,7 @@ class PayMethod extends Model
             return false;
         }
 
-        $today ??= app(CompanyClock::class)->today()->shiftTimezone('UTC');
+        $today ??= app(CompanyClock::class)->todayDate();
 
         return CarbonImmutable::create($this->expiry_year, $this->expiry_month, 1)->endOfMonth()->lt($today);
     }

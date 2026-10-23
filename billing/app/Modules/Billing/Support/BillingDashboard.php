@@ -51,7 +51,7 @@ class BillingDashboard
     /** The company date as a date value (00:00 UTC), like the date columns the widgets compare it with. */
     private function companyDate(): CarbonImmutable
     {
-        return $this->calendar->today()->shiftTimezone('UTC');
+        return $this->calendar->todayDate();
     }
 
     public function register(Dashboard $dashboard): void

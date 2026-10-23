@@ -30,6 +30,27 @@ it('reads the company date from a frozen UTC instant at the Kathmandu midnight b
     'five minutes after local midnight' => ['2026-10-18 18:20:00', '2026-10-19', '00:05:00 +05:45'],
 ]);
 
+it('names the company date as a date value, apart from the instant', function (string $utc, string $date) {
+    inCompanyTimezone('Asia/Kathmandu');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse($utc, 'UTC'));
+    $clock = app(CompanyClock::class);
+
+    expect($clock->todayDate()->toDateString())->toBe($date)
+        ->and($clock->todayDate()->utc()->toDateTimeString())->toBe("{$date} 00:00:00")
+        ->and($clock->today()->utc()->toDateTimeString())->not->toBe($clock->todayDate()->toDateTimeString());
+})->with([
+    ['2026-10-18 18:14:59', '2026-10-18'],
+    ['2026-10-18 18:15:00', '2026-10-19'],
+]);
+
+it('exposes the fallback on the contract', function () {
+    expect(app(CompanyClock::class)->isFallback())->toBeFalse();
+
+    app(Settings::class)->set('system.timezone', 'Mars/Olympus');
+
+    expect(app(CompanyClock::class)->isFallback())->toBeTrue();
+});
+
 it('gives the UTC bounds of a company day, from a string or an instant', function () {
     inCompanyTimezone('Asia/Kathmandu');
     [$start, $end] = app(CompanyClock::class)->dayBounds('2026-10-19');

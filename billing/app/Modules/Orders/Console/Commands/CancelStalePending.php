@@ -14,7 +14,7 @@ class CancelStalePending extends Command
 {
     public function handle(CancelStalePendingOrders $cancel, CompanyClock $clock): int
     {
-        $this->info("Cancelled {$cancel->handle($clock->today())} stale orders.");
+        $this->info("Cancelled {$cancel->handle($clock->todayDate())} stale orders.");
 
         return self::SUCCESS;
     }

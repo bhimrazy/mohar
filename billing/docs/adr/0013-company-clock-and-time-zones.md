@@ -34,12 +34,15 @@ For a Kathmandu company, an invoice paid at 01:00 local time on the 5th counts a
     ```php
     public function timezone(): string;
     public function now(): CarbonImmutable;               // now, in the company time zone
-    public function today(): CarbonImmutable;             // company-local midnight (a calendar date)
+    public function today(): CarbonImmutable;             // 00:00 in the company zone: a real instant (Amendment 1)
+    public function todayDate(): CarbonImmutable;         // the company date as a date value: 00:00 UTC (Amendment 1)
+    public function isFallback(): bool;                   // the stored zone is invalid and dates use UTC (Amendment 1)
     public function dayBounds(string|CarbonInterface $date): array; // [startUtc, endUtc) instants for querying timestamps
     public function localDate(CarbonInterface $instant): string;     // Y-m-d of an instant on the company calendar
     ```
 
-    Orders' `CompanyClock` is replaced by the contract.
+    Orders' `CompanyClock` is replaced by the contract. **Never compare an instant with a date value** (a `date`
+    cast, a run date, `todayDate()`): compare date strings, or convert a date to instants through `dayBounds()`.
 
 4. **Calendar dates** are company-calendar dates without a time zone: `next_due_date`, invoice `date`/`due_date`,
    `run_date`, promotion start and end, report periods. They are produced only by `CompanyClock::today()` or by
@@ -139,7 +142,9 @@ numbers fiscal documents on the UTC calendar.
 
     **CTO decision, 2026-10-23: the three local clocks are deleted in 0a.** Orders, Kyc, Platform and Notifications
     moved only their clock imports (their own `today()` and `now()` calls are unchanged); Notifications' `MailClock`
-    keeps its date formatting as `MailDates`. The remaining `CarbonImmutable::today()` and `now()->toDateString()`
+    keeps its date formatting as `MailDates`. Orders' `today()` changed kind (it was a 00:00 UTC date value, it is
+    now an instant); its consumers are unchanged in behaviour because they use `toDateString()`, read `day` in the
+    company zone, or store through `date` casts. The remaining `CarbonImmutable::today()` and `now()->toDateString()`
     calls move module by module, as in the Rollout above, each with a Kathmandu test: Services (13 files), Domains
     (9), Notifications (6), Platform (`ExchangeRateStatus`) and the retention cutoffs that use a date as an instant
     (Orders `CancelStalePendingOrders`, Notifications `PruneNotificationLogs`, the Platform, Domains and Services
@@ -149,6 +154,11 @@ numbers fiscal documents on the UTC calendar.
       timestamp column. Automation tasks still receive the run date as a date value (00:00 UTC of the company
       date, like a date column), so that code which compares it with date columns keeps working. A task that compares
       it with a timestamp converts it with `dayBounds()`.
+    - **`todayDate()`** names the date value (00:00 UTC of the company date, the shape of a `date` cast and of the run
+      date that tasks receive: see the `Automation` docblock). The Arch scan bans hand conversions (`shiftTimezone(`,
+      `setTime*`, `endOfDay`, `isToday`, `isSameDay`, `utc`, `setTimezone` on `$today`, and a `*_at` column compared
+      with `$today`) over `app/Modules`, with a baseline of existing hits that may only shrink. A distinct
+      `CalendarDate` value object for task signatures is deferred to Amendment 2.
     - **Invalid zone**: backward-compatible names (`Asia/Katmandu`, `Asia/Calcutta`) are accepted and mapped to their
       canonical zones. A real fallback to UTC is reported and shown as a dashboard warning. A VAT note must refuse
       to be issued while the clock is in fallback (`CoreCompanyClock::isFallback()`, used from PR 4).

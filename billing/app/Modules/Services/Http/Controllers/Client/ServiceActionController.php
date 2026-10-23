@@ -50,7 +50,7 @@ class ServiceActionController extends Controller
     public function change(ServiceChangeRequest $request, int $service, OrderServiceChange $order, CompanyClock $clock): RedirectResponse
     {
         $model = $this->owned($service);
-        $today = $clock->today()->shiftTimezone('UTC'); // a date value, as OrderServiceChange expects
+        $today = $clock->todayDate();
 
         $change = $this->attempt(fn () => $order->handle($model, $request->integer('product_id'), $request->cycle(), $today), 'product_id');
 

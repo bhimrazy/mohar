@@ -16,7 +16,7 @@ const UTC_DATE_FORMS = [
     'whereDate() against now()' => '/whereDate\s*\([^;)]*?(?<!->)\bnow\s*\(/',
     'CURRENT_DATE in SQL' => '/\b(current_date|curdate|current_timestamp)\b|date\(\s*["\x27]now["\x27]/i',
     'a relative date string' => '/\b(parse|create|createFromFormat|new\s+\w+)\s*\(\s*["\x27](today|now|yesterday|tomorrow|midnight)["\x27]/',
-    'date() of the current time' => '/\bdate\s*\(\s*["\x27][^"\x27]*["\x27]\s*\)/',
+    'date() of the current time' => '/(?<![>:$\w])date\s*\(\s*["\x27][^"\x27]*["\x27]\s*\)/',
     'the UTC date of an instant column' => '/_at\s*\??->\s*toDateString\s*\(/',
 ];
 
@@ -30,19 +30,20 @@ const ALLOWED_DATE_CODE = [
     'now()->subDays(14)',
     "->whereDate('due_date', '<', \$clock->today()->toDateString())",
     '$clock->localDate($transaction->occurred_at)',
+    "\$request->date('valid_until')",
 ];
 
 /**
  * @return array<string, string> file => code without comments
  */
-function billingDocumentCode(): array
+function billingDocumentCode(string $module = 'Billing', bool $withDatabase = false): array
 {
     $files = [];
 
-    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(dirname(__DIR__, 2).'/app/Modules/Billing', FilesystemIterator::SKIP_DOTS)) as $file) {
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(dirname(__DIR__, 2).'/app/Modules'.($module === '' ? '' : "/{$module}"), FilesystemIterator::SKIP_DOTS)) as $file) {
         $path = $file->getPathname();
 
-        if ($file->getExtension() !== 'php' || str_contains($path, '/Billing/Database/')) {
+        if ($file->getExtension() !== 'php' || (! $withDatabase && str_contains($path, '/Billing/Database/'))) {
             continue;
         }
 
@@ -103,6 +104,56 @@ test('the scan allows the company clock and plain date handling', function () {
         expect(array_keys(array_filter(UTC_DATE_FORMS, fn (string $pattern): bool => preg_match($pattern, $allowed) === 1)))->toBe([], $allowed);
     }
 });
+
+const HAND_CONVERSIONS = [
+    'shiftTimezone(' => '/shiftTimezone\s*\(/',
+    'an instant method on the run date' => '/\$today\s*->\s*(setTime|setTimeFrom|endOfDay|isToday|isSameDay|utc|setTimezone)\s*\(/',
+    'a timestamp column compared with the run date' => '/[\x27"]\w+_at[\x27"]\s*,\s*[\x27"][<>]=?[\x27"]\s*,\s*\$today\b/',
+];
+
+/**
+ * Hits that exist today, as "file: form". The list may only shrink: each module PR removes its own entries. A hit that
+ * is not listed fails (use todayDate() and dayBounds()); a listed hit that is gone fails until it is removed here.
+ * The run date is a date value (CompanyClock::todayDate()); a CalendarDate type is deferred to ADR 0013 Amendment 2.
+ */
+const HAND_CONVERSION_BASELINE = [
+    'Modules/Domains/DomainsServiceProvider.php: a timestamp column compared with the run date',
+    'Modules/Notifications/Actions/PruneNotificationLogs.php: a timestamp column compared with the run date',
+    'Modules/Orders/Actions/CancelStalePendingOrders.php: a timestamp column compared with the run date',
+    'Modules/Platform/PlatformServiceProvider.php: a timestamp column compared with the run date',
+    'Modules/Services/Actions/PruneModuleLog.php: a timestamp column compared with the run date',
+    'Modules/Services/Database/Seeders/ServicesSeeder.php: an instant method on the run date',
+];
+
+test('no module converts the run date by hand beyond the baseline', function () {
+    $found = [];
+
+    foreach (billingDocumentCode('', true) as $path => $code) {
+        foreach (HAND_CONVERSIONS as $label => $pattern) {
+            if (preg_match($pattern, $code) === 1) {
+                $found[] = "{$path}: {$label}";
+            }
+        }
+    }
+
+    sort($found);
+    $baseline = HAND_CONVERSION_BASELINE;
+    sort($baseline);
+
+    expect(array_values(array_diff($found, $baseline)))->toBe([], 'New hand conversion: use CompanyClock::todayDate() and dayBounds().')
+        ->and(array_values(array_diff($baseline, $found)))->toBe([], 'A baselined hit is gone: remove it from HAND_CONVERSION_BASELINE.');
+});
+
+test('the hand-conversion patterns see what they ban', function (string $label, string $code) {
+    expect(preg_match(HAND_CONVERSIONS[$label], $code))->toBe(1, "{$label}: {$code}");
+})->with([
+    ['shiftTimezone(', "\$d->shiftTimezone('UTC')"],
+    ['an instant method on the run date', '$today->endOfDay()'],
+    ['an instant method on the run date', '$today->setTimeFrom(now())'],
+    ['an instant method on the run date', '$today->isToday()'],
+    ['a timestamp column compared with the run date', "->where('captured_at', '>=', \$today)"],
+    ['a timestamp column compared with the run date', "->where('created_at', '<', \$today->subDays(3))"],
+]);
 
 test('the scan reads the Billing module', function () {
     expect(array_keys(billingDocumentCode()))->toContain('Modules/Billing/Actions/PublishInvoice.php')->not->toContain('Modules/Billing/Database/Factories/InvoiceFactory.php');

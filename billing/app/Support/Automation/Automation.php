@@ -13,7 +13,9 @@ use Closure;
  *
  * Staff-facing screens show the label and description, never the key (the key stays as secondary text).
  *
- * Tasks receive the run date and return a short summary (int count or string) for the run log.
+ * Tasks receive the run date as a date value (the shape of `CompanyClock::todayDate()`: 00:00 UTC on the company date,
+ * like a `date` cast). Turn it into instants only with `CompanyClock::dayBounds()`; never `startOfDay()`, `endOfDay()`,
+ * `setTime*()`, `isToday()` or `isSameDay()` on it. Tasks return a short summary (int count or string) for the run log.
  * A task must be safe to re-run for the same date (it may be retried after a failure).
  */
 class Automation
