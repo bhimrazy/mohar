@@ -14,6 +14,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **Namecheap simulator (dev only).** `php artisan simulate:start namecheap` runs a local Namecheap XML API (check, register, async registration, transfer with EPP code, renew, reactivate, info and list, name servers, lock, privacy, contacts, errors inside HTTP 200, the address allow-list, and an unknown-outcome error that still runs the change). It is for the coming Namecheap registrar driver and changes nothing in production; the simulator `Route` gained an optional `when` test so one URL can serve many commands.
+
 - **Report registry and one export pipeline (ADR 0025, VAT PR 0c).** Modules and packages can now register reports
   (`ReportRegistry`) and export them as CSV or PDF through one path that checks the permission, limits the size, and
   writes a `report.exported` entry to the activity log (report, layout, format, filters, row count). Each report
