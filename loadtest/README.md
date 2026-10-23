@@ -117,6 +117,10 @@ least 7 days old, and `composer deps:check` verifies it. The mix of virtual user
 Each virtual user loads its first page as full HTML and then navigates with Inertia JSON requests, as a browser
 does. Think time is 1 to 3 seconds per page, so a virtual user is roughly one active person.
 
+Each virtual user arrives at a random moment in the first 20 seconds of a level (`--start-spread`, 0 for all at once),
+then signs in once. Before issue #205 they all started together, and that burst of sign-ins on the 2 vCPU host made
+most of the multi-second p95 the runner reported for the dashboards, the store and sign-in (`sizing.md`).
+
 Each request is tagged with its page, so the summary has p50, p95 and p99 per page. Errors are non-2xx answers (or
 non-redirects for forms). Answers of 429 from a rate limiter are counted separately: all virtual users share the
 load generator's single IP address, which a real crowd would not.

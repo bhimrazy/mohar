@@ -14,7 +14,8 @@
 # Options: --profile small|medium|large, --volume tiny|small|medium|large, --levels "N N ..." and
 # --level-duration 2m (default: the profile's), --warmup 60s, --image <tag> (skip the build), --keep (leave the
 # stack running; the command to remove it is printed), --require-fit (stop before building when the host has fewer
-# CPUs or less memory than the profile, so a too-small runner does not spend minutes on numbers that mean little).
+# CPUs or less memory than the profile, so a too-small runner does not spend minutes on numbers that mean little),
+# --start-spread 20 (seconds over which each level's virtual users arrive; 0 starts them all at once).
 set -euo pipefail
 
 self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
@@ -29,6 +30,7 @@ warmup=60s
 image=""
 keep=0
 require_fit=0
+start_spread=20
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -40,7 +42,8 @@ while [ $# -gt 0 ]; do
         --image) image="$2"; shift 2 ;;
         --keep) keep=1; shift ;;
         --require-fit) require_fit=1; shift ;;
-        -h|--help) sed -n '2,17p' "$self" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --start-spread) start_spread="$2"; shift 2 ;;
+        -h|--help) sed -n '2,18p' "$self" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown option $1" >&2; exit 2 ;;
     esac
 done
@@ -48,6 +51,7 @@ done
 profile_file="loadtest/profiles/${profile}.env"
 [ -f "$profile_file" ] || { echo "no profile $profile_file" >&2; exit 2; }
 case "$volume" in tiny|small|medium|large) ;; *) echo "unknown volume $volume" >&2; exit 2 ;; esac
+[[ "$start_spread" =~ ^[0-9]+$ ]] || { echo "--start-spread is whole seconds, for example 20" >&2; exit 2; }
 
 run_id="${profile}-${volume}-$(date -u +%Y%m%dT%H%M%SZ)"
 results="${LOADTEST_RESULTS_DIR:-$root/loadtest/results/$run_id}"
@@ -288,7 +292,7 @@ k6() {
     local vus="$1" duration="$2" out="$3"
     local rc=0
     "${compose[@]}" --profile loadgen run --rm -T \
-        -e BASE_URL="https://${domain}" -e VUS="$vus" -e DURATION="$duration" -e CLIENTS="$clients" -e STAFF="$staff" \
+        -e BASE_URL="https://${domain}" -e VUS="$vus" -e DURATION="$duration" -e START_SPREAD="$start_spread" -e CLIENTS="$clients" -e STAFF="$staff" \
         -e LOADTEST_PASSWORD="$password" -e OUT="/results/${out}" \
         k6 run --quiet /scripts/main.js > "$results/${out%.json}.log" 2>&1 || rc=$?
     # 99: a threshold was crossed (the error-rate threshold is reported, not enforced).
@@ -371,7 +375,7 @@ sampler_pid=""
 python3 - "$results/meta.json" <<PY
 import json, sys
 json.dump({
-    "run": "${run_id}", "project": "${project}", "profile": "${profile}", "volume": "${volume}", "levels": "${levels}".split(), "level_duration": "${level_duration}",
+    "run": "${run_id}", "project": "${project}", "profile": "${profile}", "volume": "${volume}", "levels": "${levels}".split(), "level_duration": "${level_duration}", "start_spread_s": int("${start_spread}"),
     "host_cpus": ${host_cpus}, "host_memory_mb": ${host_memory_mb}, "profile_cpus": float("${PROFILE_CPUS}"), "profile_memory": "${PROFILE_MEMORY}",
     "runner_smaller_than_profile": "${capped_by_host}" == "true", "cpu_limits_lowered": "${clamped[*]:-}".split(),
     "host_cap": "${host_cap}", "cgroup_driver": "${driver}", "php_threads": int("${PHP_THREADS}"),
