@@ -6,6 +6,13 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Masking a registrar result (ADR 0009 Amendment 5, #368)
+
+- New `App\Data\Domains\Registrar\RegistrarResult::mapText(Closure $mask, string $withheld, int $maxDepth = 8): static`
+  (like `ConnectionCheck::mapText`): a copy with the message and every string value and string key of `meta` masked;
+  a branch deeper than `$maxDepth`, a non-scalar value (object) and a branch whose key changed are replaced by `$withheld`.
+  `remote` is returned unchanged. Additive.
+
 ### `ReturnHint::$signedPaid` (#323)
 
 - `App\Data\Billing\ReturnHint` has a new last constructor parameter `bool $signedPaid = false`: the customer's return
