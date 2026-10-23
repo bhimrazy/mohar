@@ -222,6 +222,14 @@ final class ResellerClubClient
     }
 
     /**
+     * The reseller id this account's calls are made as (the demo one in test mode).
+     */
+    public static function resellerId(RegistrarConfig $config): string
+    {
+        return self::credentials($config)[0];
+    }
+
+    /**
      * The reseller id and API key for the account's mode: the demo pair in test mode, the live pair otherwise.
      *
      * @return array{0: string, 1: string}

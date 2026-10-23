@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
  * Gap-free document number sequence per (sequence, reset period).
  *
  * @property int $id
- * @property string $sequence invoice|proforma|quote
+ * @property string $sequence invoice|proforma|quote|credit_note|debit_note
  * @property string $period "" (never resets), "2026" (yearly) or "2026-10" (monthly)
  * @property int $next_number
  */

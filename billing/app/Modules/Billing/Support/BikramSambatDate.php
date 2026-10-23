@@ -14,6 +14,12 @@ final readonly class BikramSambatDate
         return BikramSambat::MONTHS[$this->month - 1];
     }
 
+    /** "2082-09-28", the sortable form stored on fiscal documents. */
+    public function toIso(): string
+    {
+        return sprintf('%d-%02d-%02d', $this->year, $this->month, $this->day);
+    }
+
     /** "28 Poush 2082 BS". */
     public function format(): string
     {

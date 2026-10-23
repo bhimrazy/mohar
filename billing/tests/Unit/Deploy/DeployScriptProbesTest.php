@@ -119,6 +119,17 @@ afterEach(function () {
     }
 });
 
+test('a deploy fills the fiscal snapshots once the workers have moved', function () {
+    $this->sandbox = $dir = d3Sandbox();
+
+    expect(d3Deploy($dir, ['--image', 'img:1']))->toBe(0);
+    $calls = array_values(array_filter(explode("\n", (string) file_get_contents("{$dir}/calls"))));
+    $fill = array_keys(array_filter($calls, fn (string $call): bool => str_contains($call, 'billing:fiscal-snapshot')));
+    $workers = array_keys(array_filter($calls, fn (string $call): bool => str_contains($call, 'worker-automation-blue')));
+
+    expect($fill)->toHaveCount(1)->and($workers)->not->toBeEmpty()->and($fill[0])->toBeGreaterThan(max($workers));
+});
+
 test('deploys and rollbacks never run two schedulers or two automation workers, and the live colour runs both', function () {
     $this->sandbox = $dir = d3Sandbox();
 

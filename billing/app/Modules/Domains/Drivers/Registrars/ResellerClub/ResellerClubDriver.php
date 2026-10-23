@@ -3,6 +3,7 @@
 namespace App\Modules\Domains\Drivers\Registrars\ResellerClub;
 
 use App\Contracts\Domains\Registrar\ChecksAvailability;
+use App\Contracts\Domains\Registrar\LinksExistingOrders;
 use App\Contracts\Domains\Registrar\ManagesContacts;
 use App\Contracts\Domains\Registrar\ManagesIdProtection;
 use App\Contracts\Domains\Registrar\ManagesLock;
@@ -20,6 +21,7 @@ use App\Data\Domains\Registrar\ContactSet;
 use App\Data\Domains\Registrar\DomainInfo;
 use App\Data\Domains\Registrar\DomainRef;
 use App\Data\Domains\Registrar\EppCodeResult;
+use App\Data\Domains\Registrar\LinkedOrder;
 use App\Data\Domains\Registrar\RegistrarConfig;
 use App\Data\Domains\Registrar\RegistrarResult;
 use App\Data\Domains\Registrar\RegistrationRequest;
@@ -52,7 +54,7 @@ use Carbon\CarbonImmutable;
  * Every order read is tied to the domain: by the order id the host holds, or else by the client's customer.
  * A register or transfer chain runs inside a time budget (REGISTER_BUDGET) that fits the host job's timeout.
  */
-final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, ManagesIdProtection, ManagesLock, ManagesNameservers, ProvidesEppCode, ReconcilesSubmissions, RegistrarDriver, RestoresDomains, SyncsDomains, TestsRegistrarConnection, TransfersDomains, ValidatesTldAttributes
+final class ResellerClubDriver implements ChecksAvailability, LinksExistingOrders, ManagesContacts, ManagesIdProtection, ManagesLock, ManagesNameservers, ProvidesEppCode, ReconcilesSubmissions, RegistrarDriver, RestoresDomains, SyncsDomains, TestsRegistrarConnection, TransfersDomains, ValidatesTldAttributes
 {
     public const KEY = 'resellerclub';
 
@@ -436,6 +438,65 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
                 : new SubmissionLookup(ReconcileStatus::Conflict, message: 'The name is registered, but not in the ResellerClub account.'),
             default => new SubmissionLookup(ReconcileStatus::Unknown, message: 'The registry did not answer the availability check.'),
         };
+    }
+
+    /**
+     * Staff-requested link of an existing order (registrars.md §3). The order is read by the id staff typed, in our own
+     * reseller account (a call made as another reseller's order id is refused by ResellerClub itself, and a returned
+     * reseller id must be ours). The name must be the domain's exactly, the order must still hold its name, and its
+     * customer must be the one this host uses for the domain's client. A name is never searched for here.
+     */
+    public function lookupOrder(RegistrarConfig $config, DomainRef $domain, string $orderId): LinkedOrder
+    {
+        self::refuseSelfRegistered($domain);
+
+        if (preg_match('/^[1-9]\d{0,11}$/', $orderId) !== 1) {
+            throw new RegistrarException('Enter the ResellerClub order id as digits only, as shown in the ResellerClub panel.');
+        }
+
+        try {
+            $details = (array) $this->client->get($config, 'domains/details.json', ['order-id' => $orderId, 'options' => ['OrderDetails']]);
+        } catch (RegistrarException $refused) {
+            if ($refused->retryable || preg_match('/no (entity|domain|order)|not found|does not exist|invalid (order|entity)/i', $refused->getMessage()) !== 1) {
+                throw $refused;
+            }
+
+            throw new RegistrarException("ResellerClub has no order {$orderId} in this reseller account. Check the order id in the ResellerClub panel.", previous: $refused);
+        }
+
+        if ((string) ($details['orderid'] ?? '') !== $orderId) {
+            throw new RegistrarException("ResellerClub has no order {$orderId} in this reseller account. Check the order id in the ResellerClub panel.");
+        }
+
+        $reseller = $details['resellerid'] ?? null;
+
+        if (is_scalar($reseller) && (string) $reseller !== ResellerClubClient::resellerId($config)) {
+            throw new RegistrarException("Order {$orderId} belongs to another ResellerClub reseller account, not this one. Nothing was linked.");
+        }
+
+        $name = strtolower((string) ($details['domainname'] ?? $details['description'] ?? ''));
+
+        if ($name !== $domain->name) {
+            throw new RegistrarException("Order {$orderId} is for ".($name === '' ? 'another name' : $name).", not {$domain->name}. The name must match exactly. Nothing was linked.");
+        }
+
+        if (in_array(strtolower((string) ($details['currentstatus'] ?? '')), array_map('strtolower', self::GONE), true)) {
+            throw new RegistrarException("Order {$orderId} for {$domain->name} is {$details['currentstatus']} at ResellerClub and no longer holds the name. Nothing was linked.");
+        }
+
+        $customer = $this->contacts->knownCustomerId($config, $domain);
+
+        if ($customer === null) {
+            throw new RegistrarException($config->setting('customer_mode', 'default_customer') === 'per_client'
+                ? 'This client has no ResellerClub customer recorded yet, so an order cannot be checked against it. Nothing was linked.'
+                : 'Enter the ResellerClub default customer id in the registrar settings first, so the order can be checked against it.');
+        }
+
+        if ((string) ($details['customerid'] ?? '') !== $customer) {
+            throw new RegistrarException("Order {$orderId} belongs to a different ResellerClub customer than the one used for this client. Nothing was linked.");
+        }
+
+        return new LinkedOrder(['order_id' => (int) $orderId], ($details['currentstatus'] ?? null) === 'Active' ? 'active' : 'pending', self::epoch($details['endtime'] ?? null));
     }
 
     public function testConnection(RegistrarConfig $config): ConnectionCheck

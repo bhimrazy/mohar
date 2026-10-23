@@ -166,10 +166,12 @@ is also the owner's own machine: the agent budget above applies, `/tmp` survives
 - No `npx` for a tool outside the lockfile (`vp`, `tsc` and `playwright` are in it): it runs unvetted code.
 - Never stop, kill or remove a Docker container you didn't start (`docker kill`, `stop`, `rm`, `compose down`):
   the shared test database `mohar-pg` and Mailpit serve every agent. Restarting
-  `mohar-pg` is the CTO's call. It has a 4 GB tmpfs with a small write-ahead log (#375); each agent drops its own
-  databases when done.
+  `mohar-pg` is the CTO's call. Its data is on the Docker volume `mohar-pg-data` with a small write-ahead log (#375,
+  #394); each agent drops its own databases when done.
 - Never use `git stash`: the stash stack is shared by every worktree, so one agent can pop another's work. Set work
   aside with a temporary commit instead.
+- `.claude/settings.json` denies these Docker commands, `git stash` (all forms, including `push -m`), `npx -y`
+  and Chrome, so an agent cannot run them by mistake.
 - Dev servers: each agent gets its own port range (8100–8299); port 8000 is the owner's preview and is never touched
   by agents. Stop servers by port PID; never `pkill -f`. Chain `cd` with `&&`; never run commands in the main
   checkout from an agent.

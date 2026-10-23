@@ -1,4 +1,4 @@
-import { router } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
 import type { FormEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import ConfirmablePasswordController from '@/actions/Laravel/Fortify/Http/Controllers/ConfirmablePasswordController';
@@ -15,6 +15,10 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
+import {
+    SetPasswordButton,
+    xsrfToken,
+} from '@/components/app/set-password-button';
 import { STEP_UP_DOWNLOAD_EVENT } from '@/components/app/step-up-download-link';
 import type { HttpMethod } from '@/types/app';
 
@@ -24,13 +28,9 @@ type PendingVisit = {
     data: Record<string, unknown>;
     /** A file: after confirming, the browser navigates to it instead of an Inertia visit. */
     download?: boolean;
+    /** The login has no password: offer "Set a password" instead of the password field. */
+    noPassword?: boolean;
 };
-
-function xsrfToken(): string {
-    const match = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
-
-    return match ? decodeURIComponent(match[1]) : '';
-}
 
 /**
  * Step-up authentication for sensitive actions. When the server answers a visit with a
@@ -38,6 +38,8 @@ function xsrfToken(): string {
  * confirm it with Fortify, then repeat the original request once.
  */
 export function PasswordConfirmationGate() {
+    const { auth } = usePage().props;
+    const hasPassword = auth.user?.has_password !== false;
     const lastVisit = useRef<PendingVisit | null>(null);
     const [pending, setPending] = useState<PendingVisit | null>(null);
     const [password, setPassword] = useState('');
@@ -64,7 +66,12 @@ export function PasswordConfirmationGate() {
             ) {
                 setPassword('');
                 setError(null);
-                setPending(lastVisit.current);
+                setPending({
+                    ...lastVisit.current,
+                    noPassword:
+                        event.detail.errors.step_up_reason ===
+                        'password_not_set',
+                });
             }
         });
 
@@ -72,11 +79,15 @@ export function PasswordConfirmationGate() {
             event.preventDefault();
             setPassword('');
             setError(null);
+            const { url, noPassword } = (
+                event as CustomEvent<{ url: string; noPassword?: boolean }>
+            ).detail;
             setPending({
-                url: (event as CustomEvent<{ url: string }>).detail.url,
+                url,
                 method: 'get',
                 data: {},
                 download: true,
+                noPassword,
             });
         };
         window.addEventListener(STEP_UP_DOWNLOAD_EVENT, onDownload);
@@ -147,52 +158,81 @@ export function PasswordConfirmationGate() {
         }
     };
 
+    // The server's answer wins; the page prop can be stale (a password set in another window).
+    const noPassword = pending?.noPassword ?? !hasPassword;
+
     return (
         <Dialog
             open={pending !== null}
             onOpenChange={(open) => !open && !processing && setPending(null)}
         >
             <DialogContent className="sm:max-w-md">
-                <form onSubmit={confirm} className="grid gap-4">
-                    <DialogHeader>
-                        <DialogTitle>Confirm your password</DialogTitle>
-                        <DialogDescription>
-                            This is a sensitive action. Enter your password to
-                            continue; you won't be asked again for 15 minutes.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="grid gap-2">
-                        <Label htmlFor="step-up-password">Password</Label>
-                        <PasswordInput
-                            id="step-up-password"
-                            autoFocus
-                            autoComplete="current-password"
-                            value={password}
-                            onChange={(event) =>
-                                setPassword(event.target.value)
-                            }
-                            aria-invalid={Boolean(error)}
-                        />
-                        <InputError message={error ?? undefined} />
+                {noPassword ? (
+                    <div className="grid gap-4">
+                        <DialogHeader>
+                            <DialogTitle>
+                                Set a password to continue
+                            </DialogTitle>
+                            <DialogDescription>
+                                This is a sensitive action and your account has
+                                no password yet, so it can't be confirmed. We
+                                can email you a link to set one; then try again.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setPending(null)}
+                            >
+                                Cancel
+                            </Button>
+                            <SetPasswordButton />
+                        </DialogFooter>
                     </div>
-                    <DialogFooter>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setPending(null)}
-                            disabled={processing}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            type="submit"
-                            disabled={processing || password === ''}
-                        >
-                            {processing && <Spinner />}
-                            Confirm and continue
-                        </Button>
-                    </DialogFooter>
-                </form>
+                ) : (
+                    <form onSubmit={confirm} className="grid gap-4">
+                        <DialogHeader>
+                            <DialogTitle>Confirm your password</DialogTitle>
+                            <DialogDescription>
+                                This is a sensitive action. Enter your password
+                                to continue; you won't be asked again for 15
+                                minutes.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-2">
+                            <Label htmlFor="step-up-password">Password</Label>
+                            <PasswordInput
+                                id="step-up-password"
+                                autoFocus
+                                autoComplete="current-password"
+                                value={password}
+                                onChange={(event) =>
+                                    setPassword(event.target.value)
+                                }
+                                aria-invalid={Boolean(error)}
+                            />
+                            <InputError message={error ?? undefined} />
+                        </div>
+                        <DialogFooter>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setPending(null)}
+                                disabled={processing}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                type="submit"
+                                disabled={processing || password === ''}
+                            >
+                                {processing && <Spinner />}
+                                Confirm and continue
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                )}
             </DialogContent>
         </Dialog>
     );

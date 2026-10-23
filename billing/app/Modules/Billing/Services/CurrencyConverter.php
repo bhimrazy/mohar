@@ -11,10 +11,17 @@ use App\Support\Currencies\Decimal;
  */
 class CurrencyConverter
 {
-    public function rate(string $from, string $to): float
+    /**
+     * The cross rate as a decimal string with twelve decimals (Currency::RATE_SCALE), read from the stored rates and
+     * never from the remote rate source. Fiscal documents store this string (ADR 0024 §2); the float of rate() would
+     * lose digits.
+     *
+     * @throws BillingException when a currency has no positive rate
+     */
+    public function rateDecimal(string $from, string $to): string
     {
         if (strtoupper($from) === strtoupper($to)) {
-            return 1.0;
+            return Decimal::divide('1', '1', Currency::RATE_SCALE);
         }
 
         $rates = Currency::query()->whereIn('code', [strtoupper($from), strtoupper($to)])->pluck('exchange_rate', 'code');
@@ -26,7 +33,12 @@ class CurrencyConverter
         }
 
         // Cross rate via the default currency, exact to twelve decimals (stored on the transaction as is).
-        return (float) Decimal::divide($target, $source, Currency::RATE_SCALE);
+        return Decimal::divide($target, $source, Currency::RATE_SCALE);
+    }
+
+    public function rate(string $from, string $to): float
+    {
+        return (float) $this->rateDecimal($from, $to);
     }
 
     public function convert(int $amount, float $rate): int

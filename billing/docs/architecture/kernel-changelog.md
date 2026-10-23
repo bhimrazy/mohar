@@ -6,6 +6,36 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Set-a-password mail (ADR 0018 §4, #274)
+
+- `App\Contracts\Auth\AuthMailer` gains `sendPasswordSet(User $user, string $token): void`: the link to the signed-in
+  set-password page for a login without a password. Core's `LaravelAuthMailer` sends `App\Notifications\SetPasswordNotification`;
+  Notifications' `TemplatedAuthMailer` sends the secret-bearing template `auth.password_set` and falls back to that
+  notification when no message could be queued, like the reset mail. Both in-repo implementers are updated.
+
+### Masking a registrar result (ADR 0009 Amendment 5, #368)
+
+- New `App\Data\Domains\Registrar\RegistrarResult::mapText(Closure $mask, string $withheld, int $maxDepth = 8): static`
+  (like `ConnectionCheck::mapText`): a copy with the message and every string value and string key of `meta` masked;
+  a branch deeper than `$maxDepth`, a non-scalar value (object) and a branch whose key changed are replaced by `$withheld`.
+  `remote` is returned unchanged. Additive.
+
+### `ReturnHint::$signedPaid` (#323)
+
+- `App\Data\Billing\ReturnHint` has a new last constructor parameter `bool $signedPaid = false`: the customer's return
+  carries the provider's own valid signature over a paid status (eSewa COMPLETE). It is still only a hint for settling,
+  but Billing keeps it as evidence, so a later "not found" goes to staff review instead of ending the attempt.
+  Additive: existing implementers (Khalti, Stripe, sandbox) leave it false and need no change.
+
+### Linking an existing registrar order (ADR 0009 Amendment 4, #365)
+
+- New capability interface `App\Contracts\Domains\Registrar\LinksExistingOrders` (detected with `instanceof`;
+  registry capability name `link_order`, `RegistrarDriverRegistry::LINK_ORDER`): `lookupOrder(RegistrarConfig,
+  DomainRef, string $orderId): LinkedOrder`. Read-only; throws a non-retryable `RegistrarException` with a plain
+  message when the order does not qualify. New DTO `App\Data\Domains\Registrar\LinkedOrder` (`remote`, `status`
+  `active|pending`, `expiryDate`, `toArray()`). Additive: drivers without the interface keep working and are not
+  offered the staff action. The test fakes opt in (`LinkingRegistrar`); the log driver implements it.
+
 ### Report registry and export pipeline (ADR 0025, VAT PR 0c)
 
 - New provider contract `App\Contracts\Reports\Report` (`key`, `label`, `category`, `filters`, `columns`, `rows`,
