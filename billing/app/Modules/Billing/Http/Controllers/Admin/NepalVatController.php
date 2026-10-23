@@ -18,6 +18,7 @@ class NepalVatController extends Controller
     public function edit(NepalVatMode $mode): Response
     {
         $this->authorize('billing.tax.manage');
+        $mode->ensureRow();
 
         $rules = TaxRule::query()->orderBy('level')->orderBy('country')->orderBy('id')->get(['id', 'name', 'level', 'country', 'rate']);
         $current = $mode->current();

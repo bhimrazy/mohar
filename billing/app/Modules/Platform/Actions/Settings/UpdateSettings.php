@@ -106,10 +106,11 @@ class UpdateSettings
         $guards = $this->locks->guards($keys);
 
         if ($guards !== []) {
-            Setting::query()->insertOrIgnore(array_map(fn (string $key): array => ['key' => $key, 'value' => 'null'], $guards));
             Setting::query()->whereIn('key', $guards)->sharedLock()->get();
         }
 
+        // The lock state may have changed while this save waited for the guard row.
+        $this->locks->flush();
         $errors = [];
 
         foreach ($keys as $key) {

@@ -62,8 +62,8 @@ class TaxRuleController extends Controller
     {
         $mode = app(NepalVatMode::class);
 
-        if (in_array($taxRule->id, [...$mode->vatRules(), $mode->exportRule()], true) && (float) $request->validated('rate') !== (float) $taxRule->rate) {
-            Inertia::flash('toast', ['type' => 'error', 'message' => __('This rule is used by Nepal VAT mode, so its rate cannot change. Add a new rule and choose it there.')]);
+        if (in_array($taxRule->id, [...$mode->vatRules(), $mode->exportRule()], true) && $this->changesWhatItCovers($request->validated(), $taxRule)) {
+            Inertia::flash('toast', ['type' => 'error', 'message' => __('This rule is used by Nepal VAT mode, so its rate, level, country and scope cannot change. Add a new rule and choose it there.')]);
 
             return back();
         }
@@ -93,5 +93,14 @@ class TaxRuleController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Tax rule deleted.')]);
 
         return back();
+    }
+
+    /**
+     * @param  array<string, mixed>  $input
+     */
+    private function changesWhatItCovers(array $input, TaxRule $rule): bool
+    {
+        return (float) $input['rate'] !== (float) $rule->rate || (int) $input['level'] !== $rule->level
+            || ($input['country'] ?? null) !== $rule->country || ($input['scope'] ?? null) !== $rule->scope;
     }
 }

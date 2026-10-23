@@ -8,6 +8,7 @@ use Illuminate\Contracts\Routing\UrlRoutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Routing\Route as RoutingRoute;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -227,6 +228,11 @@ function refusedForStepUp(TestResponse $response): bool
  */
 function scanSensitiveRoutes(): array
 {
+    // A feature-gated route answers 404 first; switch every flag on so the scan sees it.
+    foreach (array_keys(Arr::dot(config('features'))) as $flag) {
+        config(['features.'.$flag => true]);
+    }
+
     Queue::fake();
     Mail::fake();
     Notification::fake();

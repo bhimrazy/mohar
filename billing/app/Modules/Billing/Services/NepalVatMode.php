@@ -199,10 +199,8 @@ class NepalVatMode
     public function apply(User $actor, array $input): bool
     {
         $changed = DB::transaction(function () use ($actor, $input): bool {
-            if (Setting::query()->whereKey(self::ENABLED)->lockForUpdate()->first() === null) {
-                Setting::query()->insertOrIgnore(['key' => self::ENABLED, 'value' => 'false']);
-                Setting::query()->whereKey(self::ENABLED)->lockForUpdate()->firstOrFail();
-            }
+            $this->ensureRow();
+            Setting::query()->whereKey(self::ENABLED)->lockForUpdate()->firstOrFail();
 
             // Decide on what is committed now, not on what this request read before it got the lock.
             $before = $this->stored();
@@ -235,6 +233,18 @@ class NepalVatMode
         $this->settings->forgetCached();
 
         return $changed;
+    }
+
+    /**
+     * Make sure the `enabled` row exists: the Billing settings save locks it (SettingLocks guard) and enabling takes it
+     * FOR UPDATE. The one place that creates it; the settings page calls it too.
+     */
+    public function ensureRow(): void
+    {
+        if (Setting::query()->whereKey(self::ENABLED)->doesntExist()) {
+            Setting::query()->insertOrIgnore(['key' => self::ENABLED, 'value' => 'false']);
+            $this->settings->forgetCached();
+        }
     }
 
     /** Why the numbering settings are fixed, read from the database (a save asks under its lock); null when the mode is off. */

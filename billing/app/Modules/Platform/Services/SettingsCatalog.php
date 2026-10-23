@@ -62,6 +62,8 @@ class SettingsCatalog
      */
     public function fields(string $section): array
     {
+        $this->locks->flush();
+
         return array_map(function (SettingDefinition $definition): array {
             $value = $this->settings->get($definition->key);
 

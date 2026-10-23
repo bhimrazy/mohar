@@ -341,9 +341,12 @@ test('a tax rule the mode uses cannot have its rate changed, other rules can', f
 
     $this->put(route('admin.billing.tax-rules.update', $this->export), $body($this->export, '13.000'))->assertRedirect();
     $this->put(route('admin.billing.tax-rules.update', $this->vat), $body($this->vat, '15.000'))->assertRedirect();
+    $this->put(route('admin.billing.tax-rules.update', $this->vat), [...$body($this->vat, '13.000'), 'country' => 'IN'])->assertRedirect();
+    $this->put(route('admin.billing.tax-rules.update', $this->vat), [...$body($this->vat, '13.000'), 'level' => 2])->assertRedirect();
     $this->put(route('admin.billing.tax-rules.update', $this->gst), $body($this->gst, '12.000'))->assertRedirect();
 
-    expect((float) $this->export->fresh()->rate)->toBe(0.0)->and((float) $this->vat->fresh()->rate)->toBe(13.0)->and((float) $this->gst->fresh()->rate)->toBe(12.0);
+    expect((float) $this->export->fresh()->rate)->toBe(0.0)->and((float) $this->vat->fresh()->rate)->toBe(13.0)->and($this->vat->fresh())->country->toBe('NP')->level->toBe(1)
+        ->and((float) $this->gst->fresh()->rate)->toBe(12.0);
 });
 
 test('the split classifies an export-rule invoice as export and keeps a renamed rule by its id', function () {
@@ -369,4 +372,14 @@ test('turning the feature flag off after enabling hides the page but the mode st
 
     expect(app(NepalVatMode::class)->enabled())->toBeTrue()->and($invoice)->supply_class->toBe('taxable')->fiscal_tax1_is_vat->toBeTrue()
         ->and(collect(app(SettingsCatalog::class)->fields('billing'))->firstWhere('key', 'billing.number_format')['locked_reason'])->not->toBeNull();
+});
+
+test('a Billing settings save does not create the mode row; the settings page and enabling do', function () {
+    app(UpdateSettings::class)->handle('billing', ['billing' => ['number_padding' => 3]]);
+    expect(DB::table('settings')->where('key', 'billing.nepal_vat.enabled')->exists())->toBeFalse();
+
+    actingAsStaff(['billing.tax.manage']);
+    $this->get(route('admin.billing.vat-mode.edit'))->assertOk();
+
+    expect(DB::table('settings')->where('key', 'billing.nepal_vat.enabled')->exists())->toBeTrue()->and(app(NepalVatMode::class)->enabled())->toBeFalse();
 });
