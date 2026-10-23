@@ -58,3 +58,13 @@ test('rb368 U: invalid UTF-8 in a meta string keeps its words and masks the answ
     ['log' => $log] = ($this->submit)('51824753556', new RegistrarResult('completed', meta: ['note' => "bad \xB1 byte, nexus 518 247 535 56"]));
     expect($log)->toContain('bad')->not->toContain('518 247 535 56');
 });
+
+test('rr368 N: a digits-only answer as a key of meta, which PHP stores as an integer key', function () {
+    ['log' => $log] = ($this->submit)('51824753556', new RegistrarResult('completed', meta: ['checks' => ['51824753556' => 'nexus ok']]));
+    expect($log)->not->toContain('51824753556');
+});
+
+test('rr368 N2: a regrouped answer as a key is masked without clobbering an existing [redacted] key', function () {
+    ['log' => $log] = ($this->submit)('51824753556', new RegistrarResult('completed', meta: ['checks' => ['51-824-753-556' => 'ok', '[redacted]' => 'kept']]));
+    expect($log)->not->toContain('51-824-753-556')->toContain('kept');
+});

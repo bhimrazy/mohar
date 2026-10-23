@@ -42,8 +42,8 @@ final readonly class RegistrarResult
     }
 
     /**
-     * A copy with the message and everything in `meta` passed through $mask: string values and string keys, arrays
-     * walked. Whatever cannot be checked is replaced by $withheld: a branch nested deeper than $maxDepth, an object or
+     * A copy with the message and everything in `meta` passed through $mask: string values and keys (an integer key
+     * as its digits), arrays walked. Whatever cannot be checked is replaced by $withheld: a branch nested deeper than $maxDepth, an object or
      * other non-scalar value, and a branch whose key the mask changed (its key becomes $withheld too). Numbers,
      * booleans and null are kept.
      *
@@ -65,7 +65,7 @@ final readonly class RegistrarResult
                     default => $withheld,
                 };
 
-                if (is_string($key) && $mask($key) !== $key) {
+                if ($mask((string) $key) !== (string) $key) {
                     $kept = $withheld;
 
                     for ($name = $withheld, $n = 2; array_key_exists($name, $masked) || array_key_exists($name, $values); $n++) {
