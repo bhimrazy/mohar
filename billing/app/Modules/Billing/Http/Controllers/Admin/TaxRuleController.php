@@ -5,6 +5,7 @@ namespace App\Modules\Billing\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Http\Requests\Admin\TaxRuleRequest;
 use App\Modules\Billing\Models\TaxRule;
+use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Support\ActivityLogger;
 use Illuminate\Http\RedirectResponse;
@@ -59,6 +60,14 @@ class TaxRuleController extends Controller
 
     public function update(TaxRuleRequest $request, TaxRule $taxRule): RedirectResponse
     {
+        $mode = app(NepalVatMode::class);
+
+        if (in_array($taxRule->id, [...$mode->vatRules(), $mode->exportRule()], true) && $this->changesWhatItCovers($request->validated(), $taxRule)) {
+            Inertia::flash('toast', ['type' => 'error', 'message' => __('This rule is used by Nepal VAT mode, so its rate, level, country and scope cannot change. Add a new rule and choose it there.')]);
+
+            return back();
+        }
+
         $before = $taxRule->only(['name', 'level', 'country', 'state', 'scope', 'rate', 'priority', 'effective_from']);
         $taxRule->update([...$request->validated(), 'priority' => $request->integer('priority')]);
         $this->activity->log('Tax rule updated', $taxRule, properties: ['from' => $before, 'to' => $taxRule->only(array_keys($before))]);
@@ -70,10 +79,28 @@ class TaxRuleController extends Controller
     public function destroy(TaxRule $taxRule): RedirectResponse
     {
         $this->authorize('billing.tax.manage');
+
+        $mode = app(NepalVatMode::class);
+
+        if (in_array($taxRule->id, [...$mode->vatRules(), $mode->exportRule()], true)) {
+            Inertia::flash('toast', ['type' => 'error', 'message' => __('This rule is used by Nepal VAT mode. Choose another rule there first.')]);
+
+            return back();
+        }
+
         $this->activity->log('Tax rule deleted', $taxRule, properties: ['rule' => $taxRule->only(['name', 'level', 'country', 'state', 'scope', 'rate'])]);
         $taxRule->delete();
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Tax rule deleted.')]);
 
         return back();
+    }
+
+    /**
+     * @param  array<string, mixed>  $input
+     */
+    private function changesWhatItCovers(array $input, TaxRule $rule): bool
+    {
+        return (float) $input['rate'] !== (float) $rule->rate || (int) $input['level'] !== $rule->level
+            || ($input['country'] ?? null) !== $rule->country || ($input['scope'] ?? null) !== $rule->scope;
     }
 }

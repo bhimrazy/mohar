@@ -140,3 +140,13 @@ by the event class, and the public webhook type is the second argument, `registe
   (kernel-owned): it throws `LogicException`. Replacing a package-owned type is allowed and logged at warning with the
   previous and new event class. Other registries keep the general rule above.
 - Types must be registered in a provider's `boot()`: the consuming listeners attach after all providers have booted.
+
+## Amendment (#432) — 2026-10-23, `SettingLocks`
+
+- A kernel-owned registry next to `SettingsRegistry`: `lock(keys, reason, guard)` and `reason(key)`. A module registers the
+  settings it fixes while a state holds (Billing: the numbering settings while Nepal VAT mode is on). Platform's catalog shows
+  them locked with the reason and its save refuses a change, under a shared lock on the module's guard row. It holds no request
+  state: the reason closure reads the database. `SettingDefinition` stays plain data.
+- The guard row is created by the module, never by Platform: the save only locks it. A row that reads the same as "unset"
+  is fine; a JSON-null row would make `Settings::get()` return null instead of the config default and would skip the
+  settings cache, so Platform does not write one. Reasons are remembered per request until `flush()`.

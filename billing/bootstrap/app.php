@@ -4,6 +4,7 @@ use App\Http\Errors\BrandedErrorPage;
 use App\Http\Middleware\ClearHistoryOnSignOut;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\RequireFeature;
 use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Core\Http\Middleware\EnsureStaff;
 use App\Modules\Core\Http\Middleware\ResolveClientContext;
@@ -38,6 +39,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'client.area' => ResolveClientContext::class,
             // Step-up for sensitive mutations; here, not in a module, so it resolves with any module set (#81).
             'password.recent' => RequireRecentPasswordConfirmation::class,
+            // 404 unless a config/features.php flag is on; put it first on a route so nothing else runs.
+            'feature' => RequireFeature::class,
         ]);
 
         // Global (not only "web") so 404s, auth redirects and error pages carry the headers too.

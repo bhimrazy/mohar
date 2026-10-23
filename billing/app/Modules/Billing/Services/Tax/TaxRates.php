@@ -5,7 +5,8 @@ namespace App\Modules\Billing\Services\Tax;
 use App\Modules\Billing\Enums\TaxExemptReason;
 
 /**
- * The tax context of one document: up to two levels with rates in thousandths of a percent (20% = 20000).
+ * The tax context of one document: up to two levels with rates in thousandths of a percent (20% = 20000). `rule1` and
+ * `rule2` are the ids of the tax rules that won each level, kept even at rate 0 (an export rule is a 0% rule).
  */
 final readonly class TaxRates
 {
@@ -19,6 +20,8 @@ final readonly class TaxRates
         public bool $perInvoice = false,
         public string $rounding = 'half_up',
         public ?TaxExemptReason $exemptReason = null,
+        public ?int $rule1 = null,
+        public ?int $rule2 = null,
     ) {}
 
     public static function none(?TaxExemptReason $reason = null): self
