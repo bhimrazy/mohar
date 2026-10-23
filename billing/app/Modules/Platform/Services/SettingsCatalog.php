@@ -4,6 +4,7 @@ namespace App\Modules\Platform\Services;
 
 use App\Models\User;
 use App\Modules\Core\Support\Settings;
+use App\Support\Countries;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
@@ -57,7 +58,7 @@ class SettingsCatalog
     }
 
     /**
-     * @return list<array{key: string, label: string, type: string, help: ?string, options: list<array{value: string, label: string}>, secret: bool, value: mixed, is_set: bool}>
+     * @return list<array{key: string, label: string, type: string, help: ?string, options: list<array{value: string, label: string}>, secret: bool, required: bool, value: mixed, is_set: bool}>
      */
     public function fields(string $section): array
     {
@@ -75,6 +76,7 @@ class SettingsCatalog
                     array_values($definition->options),
                 ),
                 'secret' => $definition->secret,
+                'required' => in_array('required', $definition->rules, true),
                 'value' => $definition->secret ? null : $value,
                 'is_set' => $value !== null && $value !== '',
             ];
@@ -95,6 +97,7 @@ class SettingsCatalog
                 'integer' => ['integer'],
                 'boolean' => ['boolean'],
                 'select' => [Rule::in(array_map('strval', array_keys($definition->options)))],
+                'country' => ['string', fn (string $attribute, mixed $value, \Closure $fail) => is_string($value) && Countries::exists($value) ? null : $fail(__('Choose a country from the list.'))],
                 'email' => ['string', 'email', 'max:255'],
                 'text' => ['string', 'max:10000'],
                 default => ['string', 'max:255'],
@@ -116,6 +119,7 @@ class SettingsCatalog
         return match ($definition->type) {
             'integer' => (int) $value,
             'boolean' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
+            'country' => $value === null || $value === '' ? null : strtoupper((string) $value),
             default => $value === null ? null : (string) $value,
         };
     }

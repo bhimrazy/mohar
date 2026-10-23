@@ -11,6 +11,8 @@ type CountrySelectProps = {
     onValueChange?: (value: string) => void;
     invalid?: boolean;
     disabled?: boolean;
+    /** Adds a first option that submits an empty value, for optional fields. */
+    emptyLabel?: string;
 };
 
 /** Country picker that shows names ("Nepal") and submits the ISO code ("NP"). */
@@ -42,6 +44,7 @@ export function CountrySelect({
             defaultValue={defaultValue?.toUpperCase()}
             value={value?.toUpperCase()}
             placeholder="Choose a country"
+            searchable
         />
     );
 }
