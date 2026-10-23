@@ -23,6 +23,7 @@ use Laravel\Fortify\Actions\PrepareAuthenticatedSession;
 use Laravel\Fortify\Contracts\FailedPasswordResetLinkRequestResponse;
 use Laravel\Fortify\Contracts\FailedPasswordResetResponse;
 use Laravel\Fortify\Contracts\PasswordConfirmedResponse as PasswordConfirmedResponseContract;
+use Laravel\Fortify\Contracts\RedirectsIfTwoFactorAuthenticatable;
 use Laravel\Fortify\Contracts\SuccessfulPasswordResetLinkRequestResponse;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
@@ -34,6 +35,8 @@ class FortifyServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // Fortify binds this contract to RedirectIfTwoFactorAuthenticatable; ours is that class plus one remembered user.
+        $this->app->scoped(RedirectsIfTwoFactorAuthenticatable::class, fn ($app) => $app->make(RememberValidatedLogin::class));
         // Known and unknown addresses get the same response on POST /forgot-password.
         $this->app->bind(SuccessfulPasswordResetLinkRequestResponse::class, PasswordResetLinkRequestedResponse::class);
         $this->app->bind(FailedPasswordResetLinkRequestResponse::class, PasswordResetLinkRequestedResponse::class);
@@ -60,11 +63,12 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
         Fortify::createUsersUsing(CreateNewUser::class);
 
-        // Fortify's default sign-in pipeline, with the password verified once instead of twice (see the two classes).
+        // Fortify's default sign-in pipeline (a test compares them) with AttemptToAuthenticate swapped, so the password is
+        // verified once instead of twice; the two-factor step is swapped through its contract in register().
         Fortify::authenticateThrough(fn (): array => array_filter([
             config('fortify.limiters.login') ? null : EnsureLoginIsNotThrottled::class,
             config('fortify.lowercase_usernames') ? CanonicalizeUsername::class : null,
-            Features::enabled(Features::twoFactorAuthentication()) ? RememberValidatedLogin::class : null,
+            Features::enabled(Features::twoFactorAuthentication()) ? RedirectsIfTwoFactorAuthenticatable::class : null,
             SignInValidatedUser::class,
             PrepareAuthenticatedSession::class,
         ]));

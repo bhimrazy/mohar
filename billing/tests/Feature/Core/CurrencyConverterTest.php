@@ -42,5 +42,30 @@ test('a prepared converter returns exactly what convertTo returns, including hal
     'small rate' => ['0.00750000', '1.00000000', 2, 2],
     'zero-decimal target' => ['1', '157.5', 2, 0],
     'three-decimal source' => ['0.31', '1', 3, 2],
+    'cross rate, divisor overflows' => ['25000.123456789', '1.123456', 2, 2],
+    'cross rate, twice the divisor overflows' => ['5000.123456789', '1.123456', 2, 2],
+    'cross rate from the currency form limits' => ['42105.26315', '0.0075187969', 2, 2],
+    'cross rate with a zero-decimal source' => ['671802583.87', '0.66118443', 0, 3],
     'rates too long for integers' => ['1.12345678901234567890', '98765.43210987654321', 2, 2],
 ]);
+
+test('random rate pairs, with neither side the default, never throw and match the decimal formula', function () {
+    mt_srand(374);
+    $rate = function (): string {
+        $places = mt_rand(0, 12);
+        $whole = (string) mt_rand(0, [1, 9, 999, 99_999, 999_999_999][mt_rand(0, 4)]);
+        $value = $whole.($places === 0 ? '' : '.'.str_pad((string) mt_rand(0, 10 ** $places - 1), $places, '0', STR_PAD_LEFT));
+
+        return Decimal::compare($value, '0') > 0 ? $value : '1';
+    };
+
+    for ($case = 0; $case < 500; $case++) {
+        $from = rateCurrency('AAA', $rate(), [0, 2, 3][mt_rand(0, 2)]);
+        $to = rateCurrency('BBB', $rate(), [0, 2, 3][mt_rand(0, 2)]);
+        $convert = $from->converterTo($to);
+
+        foreach ([0, 1, -1, 50, -149, 150, mt_rand(-10_000_000, 10_000_000), mt_rand(), -mt_rand(), PHP_INT_MAX >> 30] as $amount) {
+            expect($convert($amount))->toBe(referenceConversion($amount, $from, $to), "{$amount} at {$from->exchange_rate}/{$from->decimals} -> {$to->exchange_rate}/{$to->decimals}");
+        }
+    }
+});
