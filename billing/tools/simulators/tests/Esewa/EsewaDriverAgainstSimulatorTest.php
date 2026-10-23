@@ -155,23 +155,42 @@ test('a session left PENDING that expires at eSewa closes the attempt without pa
         ->and(Transaction::query()->count())->toBe(0);
 });
 
-test('a payment settled for another amount is not found under ours: the attempt is abandoned, nothing booked', function () {
+test('a payment settled for another amount is not found under ours: a signed COMPLETE return goes to staff review, nothing booked (#323)', function () {
     [$invoice, $attempt] = esewaStart();
     $status = fn (string $amount): array => esewaBrowser()->get($this->scenario->apiUrl().'/api/epay/transaction/status/', ['product_code' => 'EPAYTEST', 'total_amount' => $amount, 'transaction_uuid' => $attempt->reference])->json();
 
     // eSewa matches the status check on the amount, so a check for ours answers NOT_FOUND; only the settled one is COMPLETE.
     $this->get($this->scenario->simulator()->actions()['pay'](['transaction_uuid' => $attempt->reference, 'settled_amount' => '1,000.00'], $this->scenario)['redirect']);
     expect($status('1130.55')['status'])->toBe('NOT_FOUND')
-        ->and($status('1000')['status'])->toBe('COMPLETE')
-        ->and($attempt->fresh()->status)->toBe(AttemptStatus::Pending);
+        ->and($status('1000')['status'])->toBe('COMPLETE');
 
-    // What Billing does today: NOT_FOUND past 5 minutes abandons the attempt, with no staff review, although the return
-    // was a validly signed COMPLETE (follow-up issue on whether that should go to review instead).
-    $this->travel(6)->minutes();
+    // The return was signed COMPLETE, so the attempt is reviewed at once, with the evidence, and never abandoned.
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Ambiguous)->amount->toBe(113_055)
+        ->review_reason->toContain('Provider signed a paid return of 1,000.0')
+        ->and($attempt->fresh()->raw['signed_return'])->toMatchArray(['status' => 'COMPLETE', 'total_amount' => '1,000.0']);
+
+    $this->travel(70)->minutes();
     $this->artisan('billing:reconcile-payments', ['--only' => 'open'])->assertSuccessful();
     expect($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid)
         ->and(Transaction::query()->count())->toBe(0)
-        ->and($attempt->fresh())->status->toBe(AttemptStatus::Expired)->review_reason->toBe('Abandoned: the provider has no payable session');
+        ->and($attempt->fresh()->status)->toBe(AttemptStatus::Ambiguous);
+});
+
+test('a halted session that eSewa later stops finding stays in review past the grace period, not expired (#217)', function () {
+    // The lookup puts the halted booking in review; eSewa later stops finding it altogether.
+    [, $halted, , $bookedHalted] = esewaStart();
+    $settle = fn (PaymentAttempt $attempt, string $status) => $this->scenario->simulator()->actions()['settle'](['transaction_uuid' => $attempt->reference, 'status' => $status], $this->scenario);
+    $this->get(esewaChoose($bookedHalted, 'leave'));
+    $settle($halted, 'AMBIGUOUS');
+    $this->travel(6)->minutes();
+    $this->artisan('billing:reconcile-payments', ['--only' => 'open'])->assertSuccessful();
+    expect($halted->fresh()->status)->toBe(AttemptStatus::Ambiguous);
+
+    $settle($halted, 'NOT_FOUND');
+    $this->travel(61 + 121)->minutes();
+    $this->artisan('billing:reconcile-payments', ['--only' => 'open'])->assertSuccessful();
+
+    expect($halted->fresh())->status->toBe(AttemptStatus::Ambiguous)->lookup_count->toBeGreaterThan(1);
 });
 
 test('a forged return is not trusted: the status check of our own amount decides', function (string $variant) {

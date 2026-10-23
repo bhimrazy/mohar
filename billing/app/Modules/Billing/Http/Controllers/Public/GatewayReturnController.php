@@ -51,7 +51,7 @@ class GatewayReturnController extends Controller
         $floor = $cancelReturn && $attempt->status === AttemptStatus::Pending ? now()->subSeconds(10) : now()->subMinute();
         $status = $attempt->last_lookup_at !== null && $attempt->last_lookup_at->gt($floor)
             ? $attempt->status
-            : $settle->handle($attempt, interactive: true, cancelReturn: $cancelReturn);
+            : $settle->handle($attempt, interactive: true, cancelReturn: $cancelReturn, returnHint: $hint);
 
         Inertia::flash('toast', match ($status) {
             AttemptStatus::Succeeded => ['type' => 'success', 'message' => __('Payment received. Thank you.')],

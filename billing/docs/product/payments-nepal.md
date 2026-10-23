@@ -555,6 +555,14 @@ merchants).
   Below that (including 0, the sweep off) the attempt stays pending and polled as before. The return route lets a cancel
   return for a pending attempt look again 10 seconds after the last lookup instead of one minute. eSewa also sends
   real failures to `failure_url`; one that answers `NOT_FOUND` is treated, and worded, as a cancel.
+- **A signed COMPLETE return is evidence (#323).** The driver marks a return whose signature is valid and whose status is
+  COMPLETE as `ReturnHint::$signedPaid`, and the return route passes it to Billing, which keeps it on the attempt
+  (`raw.signed_return`: status, amount, code, time; it survives later lookups). If the status check then answers
+  `NOT_FOUND` (eSewa matches on the amount, so a payment settled for another amount looks like this), the attempt goes
+  to staff review (Ambiguous, `billing.payment.unmatched` in the activity log) instead of being abandoned, open and
+  blocking new payments, and still books if a later lookup says COMPLETE for our amount. A closed attempt is reopened for
+  review the same way. An attempt already in review is never expired by `NOT_FOUND` past the grace period (#217 N5).
+  Still open (#217 N4): more REA captures of confirmed cancels and of the status after the booking expires.
 - **Booking window (UAT capture, 2026-10-21).** eSewa's `product_details` for a fresh booking carries
   `bookingExpiryTime`, 50 minutes after the form post, in every capture. The docs' "15 minutes after login" does not
   end the booking (the login limit itself was not tested). An eSewa attempt therefore lives 60 minutes (`attempt_ttl_minutes`, never below
