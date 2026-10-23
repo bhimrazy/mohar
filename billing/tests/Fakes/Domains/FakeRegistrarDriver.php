@@ -3,6 +3,7 @@
 namespace Tests\Fakes\Domains;
 
 use App\Contracts\Domains\Registrar\RegistrarDriver;
+use App\Contracts\Domains\Registrar\StandaloneRegistrar;
 use App\Data\Domains\Registrar\AvailabilityResult;
 use App\Data\Domains\Registrar\ContactSet;
 use App\Data\Domains\Registrar\DomainInfo;
@@ -25,7 +26,7 @@ use Carbon\CarbonImmutable;
  * Every registrar method, answered by the FakeRegistrar script. It implements only the core interface; the
  * fixture classes in tests/Fakes/Domains/Registrars add the capability interfaces.
  */
-class FakeRegistrarDriver implements RegistrarDriver
+class FakeRegistrarDriver implements RegistrarDriver, StandaloneRegistrar
 {
     public function __construct(private FakeRegistrar $script, private string $key) {}
 

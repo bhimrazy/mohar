@@ -10,6 +10,7 @@ use App\Contracts\Billing\TaxIdRules;
 use App\Contracts\Branding\BrandProvider;
 use App\Contracts\Core\CompanyClock;
 use App\Contracts\Currencies\CurrencyDirectory;
+use App\Contracts\Domains\Registrar\RegistrarRefs;
 use App\Contracts\Notifications\EmailTemplates;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Notifications\SystemMailer;
@@ -52,6 +53,7 @@ use App\Modules\Core\Support\NullInvoiceQueries;
 use App\Modules\Core\Support\NullPaymentGuard;
 use App\Modules\Core\Support\NullProvisioningDrivers;
 use App\Modules\Core\Support\NullPublicHelpDirectory;
+use App\Modules\Core\Support\NullRegistrarRefs;
 use App\Modules\Core\Support\NullShopperSession;
 use App\Modules\Core\Support\NullSystemMailer;
 use App\Modules\Core\Support\NullTaxIdRules;
@@ -113,6 +115,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->bindIf(TaxIdRules::class, NullTaxIdRules::class);
         $this->app->bindIf(ShopperSession::class, NullShopperSession::class);
         $this->app->bindIf(PublicHelpDirectory::class, NullPublicHelpDirectory::class);
+        $this->app->bindIf(RegistrarRefs::class, NullRegistrarRefs::class);
     }
 
     protected function schedule(Schedule $schedule): void
