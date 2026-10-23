@@ -45,6 +45,8 @@ export type Domain = {
     type: 'register' | 'transfer';
     status: DomainStatus;
     registrar_key: string | null;
+    /** Staff only: the order recorded at the registrar, or null when none is linked. */
+    registrar_order_id?: string | number | null;
     registration_date: string | null;
     expiry_date: string | null;
     next_due_date: string;
