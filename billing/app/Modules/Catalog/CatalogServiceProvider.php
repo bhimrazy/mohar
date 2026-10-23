@@ -16,6 +16,7 @@ use App\Modules\Catalog\Models\Product;
 use App\Modules\Catalog\Services\CatalogPriceBook;
 use App\Modules\Core\Support\Settings;
 use App\Support\Automation\Automation;
+use App\Support\CalendarDate;
 use App\Support\Currencies\PriceConverters;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
@@ -26,7 +27,6 @@ use App\Support\Security\EncryptedModel;
 use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
-use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Event;
 
@@ -67,7 +67,7 @@ class CatalogServiceProvider extends ModuleServiceProvider
 
         $this->app->make(PriceConverters::class)->register(ConvertPrices::class);
 
-        $this->app->make(Automation::class)->task('catalog.convert-prices', Automation::SYNC, function (CarbonImmutable $today): int|string {
+        $this->app->make(Automation::class)->task('catalog.convert-prices', Automation::SYNC, function (CalendarDate $today): int|string {
             return $this->app->make(Settings::class)->get('catalog.auto_convert_prices', false)
                 ? $this->app->make(ConvertPrices::class)->handle()
                 : 'disabled';

@@ -8,6 +8,7 @@ use App\Contracts\Services\CatalogUsage;
 use App\Contracts\Services\ClientServiceDirectory;
 use App\Contracts\Services\ProvisioningDrivers;
 use App\Contracts\Services\ServiceRegistry;
+use App\Enums\BillingCycle;
 use App\Events\Billing\InvoiceCancelled;
 use App\Events\Billing\InvoicePaid;
 use App\Events\Orders\OrderPlaced;
@@ -20,6 +21,7 @@ use App\Events\Services\ServiceUnsuspended;
 use App\Events\Services\ServiceUpgraded;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\RequestMemo;
 use App\Modules\Services\Actions\CompleteLimitedServices;
 use App\Modules\Services\Actions\ExpireUnpaidChanges;
@@ -71,6 +73,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 
 class ServicesServiceProvider extends ModuleServiceProvider
 {
@@ -263,14 +266,16 @@ class ServicesServiceProvider extends ModuleServiceProvider
             ];
         }, 'services.services.view', 54, 'md');
 
-        $dashboard->card('client', 'services.active', fn (?User $user, Client $client): array => [
+        $canSee = fn (?User $user, Client $client): bool => app(ClientContext::class)->allows($user, $client, 'services');
+
+        $dashboard->card('client', 'services.active', fn (?User $user, Client $client): ?array => $canSee($user, $client) ? [
             'label' => 'Active services',
             'value' => Service::query()->where('client_id', $client->id)->where('status', ServiceStatus::Active->value)->count(),
             'href' => route('client.services.index'),
             'icon' => 'Server',
-        ], order: 10);
+        ] : null, order: 10);
 
-        $dashboard->card('client', 'services.renewing', fn (?User $user, Client $client): array => [
+        $dashboard->card('client', 'services.renewing', fn (?User $user, Client $client): ?array => $canSee($user, $client) ? [
             'label' => 'Renewing in 30 days',
             'value' => Service::query()->where('client_id', $client->id)
                 ->whereIn('status', [ServiceStatus::Active->value, ServiceStatus::Suspended->value])
@@ -280,7 +285,49 @@ class ServicesServiceProvider extends ModuleServiceProvider
                 ->count(),
             'href' => route('client.services.index'),
             'icon' => 'Receipt',
-        ], order: 11);
+        ] : null, order: 11);
+
+        $dashboard->widget('client', 'services.list', 'list', fn (?User $user, Client $client): ?array => $canSee($user, $client) ? [
+            'title' => 'Your services',
+            // Suspended and pending first (they need the client), then the next renewal.
+            'items' => Service::query()->where('client_id', $client->id)
+                ->whereIn('status', [ServiceStatus::Suspended->value, ServiceStatus::Pending->value, ServiceStatus::Active->value])
+                ->orderByRaw('case status when ? then 0 when ? then 1 else 2 end', [ServiceStatus::Suspended->value, ServiceStatus::Pending->value])
+                ->orderByRaw('next_due_date is null')->orderBy('next_due_date')->orderBy('id')
+                ->limit(4)
+                ->get(['id', 'product_name', 'domain', 'status', 'cycle', 'recurring_amount', 'currency', 'next_due_date', 'do_not_renew'])
+                ->map(fn (Service $service): array => [
+                    'title' => $service->product_name ?? 'Service',
+                    'subtitle' => implode(' · ', array_filter([$service->domain, self::cycleLabel($service->cycle)])),
+                    'href' => route('client.services.show', $service->id),
+                    ...($service->cycle->isRecurring() ? ['money' => ['amount' => $service->recurring_amount, 'currency' => $service->currency]] : []),
+                    'status' => $service->status->value,
+                    // A pending service has not started, so it has no renewal date yet.
+                    'date' => $service->cycle->isRecurring() && $service->status !== ServiceStatus::Pending ? $service->next_due_date?->toDateString() : null,
+                    'dateLabel' => match (true) {
+                        $service->do_not_renew => 'Ends',
+                        (bool) $service->next_due_date?->lt(app(CompanyClock::class)->todayDate()) => 'Was due',
+                        default => 'Renews',
+                    },
+                ])->values()->all(),
+            'href' => route('client.services.index'),
+            'empty' => 'You have no services yet.',
+            'emptyAction' => Route::has('store.index') ? ['label' => 'Browse the store', 'href' => route('store.index')] : null,
+        ] : null, order: 10);
+    }
+
+    private static function cycleLabel(BillingCycle $cycle): string
+    {
+        return match ($cycle) {
+            BillingCycle::Monthly => 'Monthly',
+            BillingCycle::Quarterly => 'Quarterly',
+            BillingCycle::SemiAnnually => 'Every 6 months',
+            BillingCycle::Annually => 'Yearly',
+            BillingCycle::Biennially => 'Every 2 years',
+            BillingCycle::Triennially => 'Every 3 years',
+            BillingCycle::OneTime => 'One-time',
+            BillingCycle::Free => 'Free',
+        };
     }
 
     private function registerPermissions(): void

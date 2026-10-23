@@ -4,6 +4,7 @@ namespace App\Support\Reports;
 
 use App\Contracts\Core\CompanyClock;
 use App\Enums\ColumnType;
+use App\Support\CalendarDate;
 use App\Support\Csv\Verbatim;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Money;
@@ -65,7 +66,11 @@ final class CellFormatter
                 is_string($value) => preg_match('/^-?\d+(\.\d+)?$/D', $value) === 1 ? $value : null,
                 default => null,
             },
-            ColumnType::Date => $value instanceof CarbonInterface ? $value->format('Y-m-d') : null,
+            ColumnType::Date => match (true) {
+                $value instanceof CalendarDate => $value->toString(),
+                $value instanceof CarbonInterface => $value->format('Y-m-d'),
+                default => null,
+            },
             ColumnType::Instant => $value instanceof CarbonInterface ? $value->setTimezone($this->clock->timezone())->toIso8601String() : null,
             ColumnType::Text => null,
         };
@@ -77,6 +82,7 @@ final class CellFormatter
             is_bool($value) => $value ? '1' : '0',
             $value instanceof Money => $value->toDecimal(),
             $value instanceof CarbonInterface => $value->toIso8601String(),
+            $value instanceof CalendarDate => $value->toString(),
             is_scalar($value) => (string) $value,
             default => '',
         };
