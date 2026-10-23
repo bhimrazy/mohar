@@ -62,7 +62,7 @@ class DemoReport implements ProvidesHeaderBlock, ProvidesLayouts, ProvidesTotals
 
     public function rows(ReportQuery $query): iterable
     {
-        yield from self::$rows;
+        yield from $query->limit === null ? self::$rows : array_slice(self::$rows, $query->offset, $query->limit);
     }
 
     public function count(ReportQuery $query): int
