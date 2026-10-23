@@ -22,6 +22,7 @@ final readonly class CartItem
      * @param  array<int, string>  $customFields  field id => value
      * @param  list<int>  $addonIds
      * @param  list<string>  $nameservers
+     * @param  array<string, string>  $tldAttributes  the registrar's extension details (personal data, encrypted at rest)
      */
     public function __construct(
         public string $key,
@@ -37,6 +38,7 @@ final readonly class CartItem
         public int $years = 1,
         public bool $idProtection = false,
         public array $nameservers = [],
+        public array $tldAttributes = [],
     ) {}
 
     public static function newKey(): string
@@ -93,11 +95,12 @@ final readonly class CartItem
             years: max(1, (int) ($data['years'] ?? 1)),
             idProtection: (bool) ($data['id_protection'] ?? false),
             nameservers: array_values(array_map(strval(...), (array) ($data['nameservers'] ?? []))),
+            tldAttributes: self::decryptMap($data['tld_attributes'] ?? null),
         );
     }
 
     /**
-     * Storage form; the EPP code is encrypted at rest.
+     * Storage form; the EPP code and the extension details are encrypted at rest.
      *
      * @return array<string, mixed>
      */
@@ -117,7 +120,26 @@ final readonly class CartItem
             'years' => $this->years,
             'id_protection' => $this->idProtection,
             'nameservers' => $this->nameservers,
+            'tld_attributes' => $this->tldAttributes === [] ? null : Crypt::encryptString(json_encode($this->tldAttributes, JSON_THROW_ON_ERROR)),
         ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private static function decryptMap(mixed $stored): array
+    {
+        if (! is_string($stored) || $stored === '') {
+            return [];
+        }
+
+        try {
+            $map = json_decode(Crypt::decryptString($stored), true);
+        } catch (DecryptException) {
+            return [];
+        }
+
+        return is_array($map) ? array_map(strval(...), array_filter($map, is_scalar(...))) : [];
     }
 
     /**

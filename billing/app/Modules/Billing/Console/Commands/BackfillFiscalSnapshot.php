@@ -12,11 +12,7 @@ use Illuminate\Console\Command;
 #[Description('Fill the tax-invoice snapshot of numbered invoices that have none (safe to repeat), or list the entries staff must review')]
 class BackfillFiscalSnapshot extends Command
 {
-    /**
-     * The upgrade migration runs this once. Run it again after a deploy: invoices the previous release numbered while the
-     * new schema was already live have a number but no snapshot, and Nepal VAT mode cannot start while any remain.
-     * An issued number is never written.
-     */
+    /** Run again after a deploy: invoices the previous release numbered meanwhile have no snapshot yet. */
     public function handle(FiscalBackfill $backfill): int
     {
         if ($this->option('list')) {

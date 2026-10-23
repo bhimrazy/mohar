@@ -3,6 +3,7 @@
 namespace App\Modules\Domains\Drivers\Registrars;
 
 use App\Contracts\Domains\Registrar\ChecksAvailability;
+use App\Contracts\Domains\Registrar\DeclaresTldAttributes;
 use App\Contracts\Domains\Registrar\ManagesContacts;
 use App\Contracts\Domains\Registrar\ManagesIdProtection;
 use App\Contracts\Domains\Registrar\ManagesLock;
@@ -54,7 +55,7 @@ use InvalidArgumentException;
  *
  * The reference implementation: it implements every capability, so the contract dataset covers each of them.
  */
-class LogRegistrar implements ChecksAvailability, ManagesContacts, ManagesIdProtection, ManagesLock, ManagesNameservers, ProvidesEppCode, ReconcilesSubmissions, RegistrarDriver, RestoresDomains, SuggestsNames, SyncsDomains, TestsRegistrarConnection, TransfersDomains
+class LogRegistrar implements ChecksAvailability, DeclaresTldAttributes, ManagesContacts, ManagesIdProtection, ManagesLock, ManagesNameservers, ProvidesEppCode, ReconcilesSubmissions, RegistrarDriver, RestoresDomains, SuggestsNames, SyncsDomains, TestsRegistrarConnection, TransfersDomains
 {
     public function key(): string
     {
@@ -72,6 +73,16 @@ class LogRegistrar implements ChecksAvailability, ManagesContacts, ManagesIdProt
             new SettingField('api_key', 'API key', FieldType::Secret, help: 'Any value works; "invalid" fails the connection test.'),
             new SettingField('simulate', 'Simulate failures', FieldType::Select, options: ['none' => 'Never fail', 'error' => 'Reject every command', 'timeout' => 'Time out every command']),
         ];
+    }
+
+    /**
+     * The reference driver asks for nothing.
+     *
+     * @return list<SettingField>
+     */
+    public function tldAttributeFields(string $tld): array
+    {
+        return [];
     }
 
     public function checkAvailability(RegistrarConfig $config, string $sld, array $tlds): array

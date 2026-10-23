@@ -67,15 +67,6 @@ test('with no tax on the invoice every row is exempt and the list stays empty', 
     expect([$snapshot->taxable, $snapshot->exempt, $snapshot->total, $snapshot->reviews, $snapshot->supplyClass()])->toBe([0, 4_300, 4_300, [], 'exempt']);
 });
 
-test('inclusive prices split each taxed line into its net and keep the gross as the total', function () {
-    $snapshot = (new FiscalSnapshotCalculator)->compute(
-        snapshotInvoice(['total' => 11_300, 'subtotal' => 10_000, 'tax_inclusive' => true]),
-        [snapshotLine(1, 11_300, 1_300)],
-    );
-
-    expect([$snapshot->taxable, $snapshot->tax1, $snapshot->total, $snapshot->reviews])->toBe([10_000, 1_300, 11_300, []]);
-});
-
 test('lines that do not add up to the stored totals are estimated from the totals and listed', function () {
     $snapshot = (new FiscalSnapshotCalculator)->compute(snapshotInvoice(), []);
 

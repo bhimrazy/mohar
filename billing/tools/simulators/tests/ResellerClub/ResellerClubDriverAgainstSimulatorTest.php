@@ -5,6 +5,7 @@ use App\Data\Domains\Registrar\DomainRef;
 use App\Data\Domains\Registrar\RegistrarConfig;
 use App\Data\Domains\Registrar\RegistrationRequest;
 use App\Enums\ReconcileStatus;
+use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Domains\Actions\BuildDomainContacts;
 use App\Modules\Domains\Actions\PerformRenewal;
@@ -447,3 +448,37 @@ function rcDefaultCustomer(): string
         'city' => 'Lalitpur', 'state' => 'Bagmati', 'country' => 'NP', 'zipcode' => '44700', 'phone-cc' => '977', 'phone' => '15550199', 'lang-pref' => 'en',
     ]);
 }
+
+test('extension details travel as numbered attribute pairs and the order records them; undeclared keys are never sent', function () {
+    $domain = rcDomain('asha-nexus', '.us');
+    $domain->update(['additional_fields' => ['tld_attributes' => ['purpose' => 'P3', 'category' => 'C11', 'injected' => 'x']]]);
+
+    $result = app(SubmitToRegistrar::class)->handle($domain->fresh());
+
+    expect($result->success)->toBeTrue()
+        ->and(rcOrderOf('asha-nexus.us')['attributes'])->toBe(['purpose' => 'P3', 'category' => 'C11']);
+
+    $au = rcDomain('asha-au', '.com.au');
+    $au->update(['additional_fields' => ['tld_attributes' => ['id-type' => 'ABN', 'id' => '51 824 753 556', 'policyReason' => '1', 'isAUWarranty' => 'true']]]);
+    app(SubmitToRegistrar::class)->handle($au->fresh());
+
+    expect(rcOrderOf('asha-au.com.au')['attributes'])->toBe(['id-type' => 'ABN', 'id' => '51 824 753 556', 'policyReason' => '1', 'isAUWarranty' => 'true']);
+});
+
+test('a registration the registry would refuse for missing details stays pending with the reason, and the values are not logged', function () {
+    $missing = rcDomain('asha-bare', '.us');
+    app(SubmitToRegistrar::class)->handle($missing);
+
+    $leak = 'LEAK-'.str_repeat('9', 70);
+    $secret = rcDomain('asha-leak', '.com.au');
+    $secret->update(['additional_fields' => ['tld_attributes' => ['id-type' => 'Other', 'id' => $leak, 'policyReason' => '1', 'isAUWarranty' => 'true']]]);
+    app(SubmitToRegistrar::class)->handle($secret->fresh());
+
+    expect($missing->fresh()->status)->toBe(DomainStatus::Pending)
+        ->and($missing->fresh()->last_error)->toContain('extra detail')
+        ->and(rcOrderOf('asha-bare.us'))->toBeNull()
+        ->and($secret->fresh()->status)->toBe(DomainStatus::Pending)
+        ->and($secret->fresh()->last_error)->toContain('extra detail id')->not->toContain('LEAK-')
+        ->and((string) json_encode(RegistrarCommandLog::query()->get(['request', 'response', 'error'])))->not->toContain('LEAK-')
+        ->and((string) json_encode(ActivityLog::query()->get()->toArray()))->not->toContain('LEAK-');
+});

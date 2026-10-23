@@ -14,28 +14,38 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
-- **Tax-invoice snapshot and numbering groundwork for Nepal VAT credit and debit notes (VAT PR 1a, ADR 0024).** Nothing
-  in the screens changes yet, and no credit or debit note can be issued; this is the schema and the numbering rules the
-  notes build on. Every invoice that gets its legal number now stores, in the same transaction, `numbered_at` (the
-  instant of numbering), its tax-invoice value (taxable, exempt, two taxes and total, including any late fee or
-  cancelled line written before the number), the reporting currency and rate (a decimal string from the stored
-  exchange rates; the remote rate source is never called), its supply class and its Bikram Sambat date, month and
-  fiscal year (`2083.084`). These fields are frozen with the number: the model refuses a later change, and refuses
-  deleting a numbered invoice. New tables for credit and debit notes, their lines, refund reservations and the staff-review
-  list; credit and debit notes get their own gap-free sequences (`CN-{NUMBER}`, `DN-{NUMBER}`) with their own format,
-  padding and reset (settings `credit_note_format`, `credit_note_padding`, `credit_note_reset`, and the same for
-  `debit_note_*`; the increment is always 1). `CurrencyConverter::rateDecimal()` returns the cross rate as an exact
-  string. Upgrade notes: **three migrations run on deploy, all expand-only**. The last one fills the snapshot of every
-  invoice that already has a number, in chunks of 200 invoices that lock only their own rows (about 2 ms per invoice:
-  20,000 invoices took 40 seconds on PostgreSQL); an issued number is never rewritten, and a deposit (add-funds) invoice
-  is skipped. `numbered_at` of an invoice numbered at publish is its creation time; of one numbered on payment, the
-  creation time of the one payment that brought its balance to zero (never the payment date staff can backdate). Where no
-  single payment can be named (several payments, credit applied, a line cancelled), or a refund, cancellation or
-  untaxed-line cancellation stores no usable tax split, the invoice goes on the **staff-review list** and gets an
-  estimate (its `paid_at`). Read the list with `php artisan billing:fiscal-snapshot --list`. Run
-  `php artisan billing:fiscal-snapshot` once more after the deploy has switched servers: it is safe to repeat and fills any
-  invoice the previous release numbered in between. Nepal VAT mode (a later release) cannot be enabled while the list
-  is unseen. Downgrade: rolling back the three migrations drops the new tables and columns; nothing else reads them.
+- **Tax-invoice snapshot and numbering groundwork for Nepal VAT credit and debit notes (VAT PR 1a, ADR 0024).** Schema
+  and numbering rules only: no screen changes and no note can be issued yet. An invoice that gets its legal number now
+  stores, in the same transaction, `numbered_at`, its tax-invoice value (taxable, exempt, two taxes, total, including late
+  fees and cancelled lines written before the number), the reporting currency and rate (a decimal string from stored
+  rates; the remote rate source is never called), its supply class and its Bikram Sambat date, month and fiscal year.
+  These fields are frozen with the number, and a numbered invoice cannot be deleted. New tables hold notes, note
+  lines, refund reservations and the staff-review list. Credit and debit notes get gap-free sequences of their own
+  (`CN-{NUMBER}`, `DN-{NUMBER}`; settings `credit_note_*` and `debit_note_*` for format, padding, reset; increment
+  always 1). Upgrade notes: **three expand-only migrations run on deploy.** The last fills the snapshot of every
+  invoice that already has a number, in chunks of 200 that lock only their own rows (20,000 invoices took 40 seconds
+  on PostgreSQL); numbers are never rewritten and deposit invoices are skipped. `numbered_at` is the creation time of an
+  invoice numbered at publish, and of one numbered on payment the creation time of the one payment that brought its
+  balance to zero (not the payment date, which staff can backdate). Invoices with no such single payment, and rows with no
+  usable tax split (refunds, cancellations), go on the **staff-review list** with an estimate: read it with
+  `php artisan billing:fiscal-snapshot --list`. Run `php artisan billing:fiscal-snapshot` once after the deploy has
+  switched servers (safe to repeat): it fills invoices the previous release numbered meanwhile. Nepal VAT mode (a later
+  release) cannot be enabled while the list is unseen. Rollback drops the new tables and columns.
+
+- **Report registry and one export pipeline (ADR 0025, VAT PR 0c).** Modules and packages can now register reports
+  (`ReportRegistry`) and export them as CSV or PDF through one path that checks the permission, limits the size, and
+  writes a `report.exported` entry to the activity log (report, layout, format, filters, row count). Each report
+  adds `reports.<key>.view` and `reports.<key>.export` to the role editor under "Reports"; an export that carries
+  tax or personal identifiers in bulk needs a recent password confirmation. CSV files are UTF-8, optionally with a
+  byte order mark so Excel on Windows reads Nepali names (new settings **Reports**: `reports.csv_bom`, default off,
+  `reports.sync_export_max_rows`, default 5,000, and `reports.sync_pdf_max_rows`, default 1,000, because a PDF is
+  built in memory; a larger export is refused with its row count and a request to narrow the filters; a file is
+  never written past its limit). A cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return is stored as text with a leading apostrophe,
+  while amounts, counts and dates are written from their values, so a negative amount stays a number a spreadsheet
+  can sum. PDFs are A4 landscape with the brand, amounts in the currency's display (`Rs 1,23,456.00`), a page total after each page, totals kept per currency, grand totals and "Printed by ... at
+  ..." in company time. The client-import errors file now uses the same CSV writer (no change in its content). The activity entry lists only filters that are safe to log (not free text). Devanagari text typed by users does not render in PDFs (use the CSV). No
+  report is registered yet (the VAT register follows), so nothing new is visible in menus. Queued exports and XLSX are
+  deferred. Upgrade notes: no schema change; new permissions appear only when a report is registered.
 
 - **Credit and debit note events (VAT PR 0b).** Two new kernel events, `CreditNoteIssued` and `DebitNoteIssued`, for the VAT credit-note work (ADR 0024 §6). Nothing emits them yet, so behaviour is unchanged. No schema or permission change.
 
@@ -58,6 +68,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   windows, so the next run takes what the skipped one would have. To run a skipped date, use `php artisan
   automation:run --date=YYYY-MM-DD`. Core's `BusinessCalendar`, Orders' `CompanyClock` and Notifications' `MailClock`
   are replaced by the `CompanyClock` contract. No schema or permission change.
+
+- **Extension details for registrars.** When a domain is ordered, the registrar can now ask for the extra details a
+  registry requires for that extension, and they are asked for where the domain is ordered: the domain search, the
+  product page ("Register a new domain") and the staff order form. The details are checked on the server (required,
+  one of the listed options, no stray values), kept in the cart encrypted, stored with the pending domain
+  (`domains.additional_fields`, no schema change) and sent with the registration; a transfer sends none. They are never
+  written to the activity log, the registrar command log or an error message. ResellerClub asks for the purpose and
+  who is registering for `.us`, and for the identification, policy reason and eligibility confirmation for `.com.au`;
+  other extensions are unchanged; an ABN or ACN is checked for its length before payment. Each field says who qualifies,
+  the cart and checkout show what was entered (ID numbers shortened to their last 3 characters), and staff see the stored
+  details, with labels, on the domain page (read-only). Answers that a registry's error message repeats are masked. These
+  ResellerClub attribute names are verified against the simulator only. Upgrade
+  notes: no migration, no new permission; drivers without the capability behave as before; a domain ordered before
+  this release has no details stored.
 
 - **ResellerClub registrar (#280).** Hosts can register, transfer, renew and restore domains through ResellerClub:
   Admin → Domains → Registrars → ResellerClub takes the reseller id and API key (and separate demo credentials for

@@ -30,6 +30,7 @@ class StaffOrderRequest extends FormRequest
             'domain_mode' => ['nullable', 'string', 'in:register,transfer,existing'],
             'domain_name' => ['nullable', 'string', 'max:253'],
             'epp_code' => ['nullable', 'string', 'max:100'],
+            'tld_attributes' => ['nullable', 'array'],
             'price_override' => ['nullable', PromotionRequest::DECIMAL],
             'promotion_code' => ['nullable', 'string', 'max:50'],
             'payment_gateway' => ['required', 'string', 'max:50'],

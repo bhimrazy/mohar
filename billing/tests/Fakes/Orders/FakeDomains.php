@@ -24,6 +24,9 @@ class FakeDomains implements DomainPricing, DomainRegistry
     /** @var array<int, string> */
     public array $cancelled = [];
 
+    /** @var \Throwable|null thrown by createPending() when set */
+    public ?\Throwable $createFails = null;
+
     private int $nextId = 500;
 
     /** @var list<?int> client ids passed to price() */
@@ -66,6 +69,10 @@ class FakeDomains implements DomainPricing, DomainRegistry
 
     public function createPending(DomainDraft $draft): int
     {
+        if ($this->createFails !== null) {
+            throw $this->createFails;
+        }
+
         $id = $this->nextId++;
         $this->created[$id] = $draft;
 

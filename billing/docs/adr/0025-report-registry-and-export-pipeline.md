@@ -1,6 +1,6 @@
 # ADR 0025 — Report registry and one export pipeline
 
-- Status: Proposed · 2026-10-22 · Owner: Principal architect.
+- Status: Accepted · 2026-10-23 (amended in PR #352 after review; first Proposed 2026-10-22) · Owner: Principal architect.
 - Related: `billing/docs/product/reports.md` §6–§7, `billing/docs/product/vat-register.md` (PR #327), ADR 0001
   (modules), ADR 0004 (objects disk), ADR 0010 (public API), ADR 0012 (capability interfaces and registries), ADR 0014
   (queues), ADR 0018 (step-up), ADR 0024 (fiscal documents).
@@ -46,17 +46,32 @@ a second one.
     }
     ```
 
-- Optional capabilities follow ADR 0012:
+- Optional capabilities follow ADR 0012 (one capability per interface, detected with `instanceof`):
+    - `HasSensitiveExport`: a marker with no methods (§4). It is a fact about the class, so the registry reads it
+      without building the report;
+    - `ProvidesCsvOptions`: `csvBom(): bool`, the report's own BOM default (§3);
     - `ProvidesTotals`: footer and "return figures" rows;
     - `ProvidesHeaderBlock`: PAN, legal name, period;
     - `ProvidesLayouts`: named column sets, such as `detail` and `ird` with the template's Nepali headings;
     - `ProvidesPdfView`: a custom Blade view.
+- `rows()` is lazy, and reports use `lazyById()` or `lazy()` (on PostgreSQL `cursor()` holds the whole result in
+  memory). A `money` cell is a `Money`; a `date` cell is a date value (00:00 UTC on that date, like a `date` cast), so
+  an instant goes through `CompanyClock::localDate()` or uses an `instant` column.
 - The DTOs live in `App\Data\Reports`: `ReportColumn` (key, label, `ColumnType` enum), `ReportFilter` and
   `ReportQuery` (validated filters, the acting user id, and the company period resolved with `CompanyClock`).
-  `ColumnType` is a closed kernel enum: `text`, `money`, `integer`, `decimal`, `date`, `instant`.
-- `App\Support\Reports\ReportRegistry` is `final` and bound in `AppServiceProvider`. Owners call
-  `app(ReportRegistry::class)->register(VatRegisterReport::class)` from their service provider. A report whose owner
-  module is filtered out (`MODULES=`) does not exist. Keys are unique; a duplicate key fails at boot.
+  `ColumnType` is a closed kernel enum: `text`, `money`, `integer`, `decimal`, `date`, `instant`. `FilterType` is an
+  open enum: `date`, `text`, `select`, `boolean`. The pipeline derives each filter's base rules from its type (a
+  date parses as Y-m-d, a select is one of its options, a text is a string of at most 255 characters, no value is an
+  array) and refuses an unknown filter key, an unknown layout or an unknown report with a validation error. A
+  `ReportFilter` declares whether its value may be written to the activity log (`loggable`; false for text).
+- `App\Support\Reports\ReportRegistry` is `final`, bound in `AppServiceProvider`, and follows ADR 0012:
+  `register(string $key, class-string|Closure $report, bool $replace = false)`, `has()`, `keys()` and `get()`.
+  Owners call `app(ReportRegistry::class)->register('vat_register', VatRegisterReport::class)` from their service
+  provider. `register()` builds nothing; it adds the two permission keys (§4) at once, with labels resolved when the
+  permission list is read (so they are translated). `get()` builds the report on first use and checks that `key()`
+  equals the registered key. A duplicate key throws unless `replace: true` (logged); a report whose owner module is
+  filtered out (`MODULES=`) does not exist. A report with `HasSensitiveExport` is registered by class name, because a
+  Closure cannot be inspected before it is built (`get()` refuses the mismatch).
 
 ### 2. Who renders what
 
@@ -82,14 +97,25 @@ a second one.
     - The guard applies to **text cells only**. Money, integer, decimal and date cells are formatted by the pipeline
       from typed values (money as a decimal string plus a currency column, ISO-8601 dates), so a negative amount is
       never prefixed.
+    - A `money` cell is the decimal string only (`-1300.00`). The pipeline never adds a currency column, because
+      fixed layouts such as `ird` follow the IRD template exactly; a report that can mix currencies declares its own
+      currency column.
     - A report may default its own BOM. The VAT register does, so Excel reads Nepali names. `reports.csv_bom` applies
       otherwise.
 - **PDF.** A kernel view (`resources/views/reports/pdf.blade.php`), rendered through the dompdf dependency already
   installed. A4 landscape. It shows the header block, page totals and grand totals, "Printed by <staff> at <company
-  time>", and the brand from `BrandProvider`. `ProvidesPdfView` replaces only the table part of the page.
+  time>", and the brand from `BrandProvider`. Amounts print through `MoneyFormatter` in the currency's configured
+  display (`Rs 1,23,456.00` for NPR). Totals are kept per currency and never added across currencies: a page or
+  document with several currencies gets one total line for each. `ProvidesPdfView` replaces only the table part of the page.
 - **Sync now, queued later.**
-    - Up to `reports.sync_export_max_rows` (5,000 by default, from `count()`), the export is streamed in the response
-      from a lazy cursor. This is the only delivery path in PR 0c (CTO decision 7).
+    - Up to `reports.sync_export_max_rows` (5,000 by default, bound 100 to 50,000; from `count()`), a CSV is streamed
+      in the response from a lazy cursor with constant memory. This is the only delivery path in PR 0c (CTO decision 7).
+      The limit is hard: the row stream is wrapped in a counting generator that stops at the limit and logs a
+      warning (report, counted, written), so a wrong `count()` cannot write past it.
+    - A PDF is built in memory (about 70 KB a row; 500 rows measured +40 MB, 5,000 rows +303 MB against the 256 MB
+      production `memory_limit`). It has its own limit, `reports.sync_pdf_max_rows` (default 1,000, bound 100 to
+      2,000), refused with the same "narrow the filters" message, which also points to the CSV. The file is built
+      completely before the response starts, so a failure is an error response, not a broken 200.
     - Until queued delivery exists, a larger export is refused with the row count and a request to narrow the
       filters. A monthly VAT register is far below the limit.
     - **Deferred to the Reports workstream.** The queued path below is decided now, so that it fits without changing
@@ -110,20 +136,35 @@ a second one.
     There is no second naming scheme: the VAT register uses `reports.vat_register.view` and
     `reports.vat_register.export`, not `billing.vat_register.*`.
 
-- A report can mark its export **sensitive**, which requires step-up (ADR 0018), when the export carries personal or
+- A report marks its export **sensitive** with the `HasSensitiveExport` marker (read from the class once, at registration), which requires step-up (ADR 0018), when the export carries personal or
   tax identifiers in bulk. The VAT register's export is sensitive.
 - The seeded roles grant report permissions through the owner's seeder. Full Administrator holds them all.
 
 ### 5. Audit
 
 The pipeline writes one `report.exported` activity entry per export, sync or queued, through Core's `ActivityLogger`.
-The entry records the key, layout, format, filters and row count. Viewing a report is not logged.
+The entry records the key, layout, format, row count and the filters that are loggable (other filter values are
+replaced by `[not logged]`). Viewing a report is not logged.
+
+- A CSV entry is written before the first byte is streamed, so an attempted export of tax data is on record even if
+  the connection drops. It records `min(count, limit)`, the most that can be written (the activity log is
+  append-only, so it cannot be corrected afterwards).
+- A PDF entry is written after the file is built and records the rows actually written. A failed build writes no
+  entry and returns an error.
 
 ### 6. Public surface
 
 The contract, its capabilities, the DTOs, `ColumnType`, the registry's `register()` and `SafeCsv` (`@api`) are public
 under ADR 0010. A package can therefore ship a report without editing core, which closes the extension-model gap for
 reports ("Report modules" in `billing/docs/parity/developer-architecture.md`).
+
+## Known limitations
+
+- **Devanagari in PDF exports.** dompdf's bundled fonts have no Devanagari glyphs and dompdf does no OpenType
+  shaping. Labels, headings, amounts and dates that Mohar prints are English or digits and are unaffected, but
+  Devanagari text typed by users (a client name) shows as boxes in a PDF. It is a known limitation, decided by the
+  owner on 2026-10-23 (no font and no PDF-engine change): use the CSV, which round-trips Devanagari (UTF-8, with a
+  BOM for Excel). Layouts keep their PDF.
 
 ## Open questions
 

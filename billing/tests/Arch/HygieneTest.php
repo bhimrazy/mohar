@@ -20,6 +20,11 @@ foreach (['App', 'Tests'] as $codeRoot) {
         ->not->toUse(['eval']);
 }
 
+// SafeCsv is the one CSV writer (ADR 0025): the formula guard lives there.
+arch('fputcsv is used only by the SafeCsv writer')
+    ->expect('fputcsv')
+    ->toOnlyBeUsedIn('App\Support\Csv');
+
 test('every arch target in this file matches at least one class', function () {
     expect(archTargetsWithoutClasses(['App\Modules\*\Http\Controllers', 'App', 'Tests']))->toBe([]);
 });

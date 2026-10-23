@@ -62,6 +62,8 @@ type Props = {
     domain: Domain;
     contacts: DomainContacts;
     capabilities: string[];
+    /** What the customer told the registry (read-only), with labels, never codes. */
+    registryDetails: { label: string; value: string }[];
     registrars: string[];
     registrarNames: Record<string, string>;
     statuses: string[];
@@ -142,6 +144,7 @@ export default function DomainShow({
     domain,
     contacts,
     capabilities,
+    registryDetails,
     registrars,
     registrarNames,
     statuses,
@@ -556,6 +559,17 @@ export default function DomainShow({
                                         },
                                     ]}
                                 />
+                                {registryDetails.length > 0 && (
+                                    <div className="grid gap-2 border-t pt-3">
+                                        <h3 className="text-sm font-medium">
+                                            Registry details
+                                        </h3>
+                                        <DescriptionList
+                                            columns={1}
+                                            items={registryDetails}
+                                        />
+                                    </div>
+                                )}
                             </div>
                         </SectionCard>
 

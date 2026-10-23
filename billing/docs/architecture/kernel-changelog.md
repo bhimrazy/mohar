@@ -6,6 +6,34 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Report registry and export pipeline (ADR 0025, VAT PR 0c)
+
+- New provider contract `App\Contracts\Reports\Report` (`key`, `label`, `category`, `filters`, `columns`, `rows`,
+  `count`) with optional capabilities `ProvidesTotals`, `ProvidesHeaderBlock`, `ProvidesLayouts`, `ProvidesPdfView`,
+  `ProvidesCsvOptions` (`csvBom()`) and the marker `HasSensitiveExport`, detected with `instanceof`. Rows are keyed by
+  column key; a money cell is a `Money`.
+- New DTOs `App\Data\Reports\ReportColumn`, `ReportFilter` (typed by `FilterType`; `loggable` says whether its
+  value may be written to the activity log) and `ReportQuery` (validated filters, acting user id, and the period
+  resolved with `CompanyClock::dayBounds()`), and enums `App\Enums\ColumnType` (closed: text, money, integer,
+  decimal, date, instant), `ExportFormat` (open: csv, pdf) and `FilterType` (open: date, text, select, boolean).
+- New `App\Support\Reports\ReportRegistry` (ADR 0012 shape: `register(string $key, class-string|Closure $report,
+  bool $replace = false)`, `has`, `keys`, `get`; singleton in `AppServiceProvider`). Registration builds nothing; a
+  duplicate key throws unless `replace`; it registers `reports.{key}.view` and `reports.{key}.export` with
+  `PermissionRegistry` (the export is sensitive when the class implements `HasSensitiveExport`).
+- `PermissionRegistry::register()` accepts a Closure as a label, called when `all()` is read (translated labels).
+- New `App\Support\Reports\ReportExporter` (`query()` validates typed filters and refuses unknown keys, `export()`
+  returns a response): permission check, step-up for sensitive exports, row limits (CSV `reports.sync_export_max_rows`,
+  PDF `reports.sync_pdf_max_rows`) enforced on the stream as well as on `count()`, one `report.exported` entry (loggable
+  filters only). Unknown report, layout or filter is a `ValidationException`. Writers implement `ExportWriter`; CSV
+  and PDF ship. PDF totals are per currency and amounts use `MoneyFormatter`. New kernel view
+  `resources/views/reports/pdf.blade.php`.
+- New `App\Support\Csv\SafeCsv` and `Verbatim`: the formula guard moved here from Migration's `ErrorsCsv` (which now
+  uses it) and also covers text after leading white space and the full-width `＝＋－＠`. The guard covers text cells
+  only. An arch rule keeps `fputcsv` inside `App\Support\Csv`.
+- Kernel `App\Support` services may use Core services (`docs/architecture.md`, dependency rules).
+- New config `reports.csv_bom` (false), `reports.sync_export_max_rows` (5000) and `reports.sync_pdf_max_rows`
+  (1000), exposed as Settings, Reports. Additive; no schema change.
+
 ### Credit and debit note events (ADR 0024 §6, VAT PR 0b)
 
 - New `App\Events\Billing\CreditNoteIssued` and `DebitNoteIssued` (`taxNoteId`, `number`, `invoiceId`, `clientId`,
@@ -32,6 +60,29 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 - `isFallback()` is on the contract: true when the stored zone is not a valid time zone and dates
   use UTC (reported once; shown as a dashboard warning). Backward-compatible names such as `Asia/Katmandu` are accepted.
 - Billing's `DocumentNumbers::next()` now requires the document date (module code, not kernel API).
+
+### TLD attributes for registrar drivers (ADR 0009 Amendment 2)
+
+- New capability `App\Contracts\Domains\Registrar\DeclaresTldAttributes` (detected with `instanceof`; registry
+  capability name `tld_attributes`, `RegistrarDriverRegistry::TLD_ATTRIBUTES`): `tldAttributeFields(string $tld):
+  list<SettingField>`, `$tld` with its leading dot, no network call. Fields are never secret and never
+  `optionsSource: remote` (the host filters them out). Orders renders the fields (from `TldAttributes::fieldsByTld()`);
+  Domains declares, validates (required, options, type) and stores the answers per domain. Optional refinement
+  interface `ValidatesTldAttributes` (rules between fields, not a separate capability name).
+- `App\Data\Domains\Registrar\RegistrationRequest` gains `array<string, string> $tldAttributes = []` (last
+  parameter, `#[\SensitiveParameter]`): the answers keyed by the field keys the driver declared. `toArray()` lists the
+  keys only, so the command log never holds the values. Existing drivers and callers are unchanged. The host fills it
+  for a registration, not for a transfer.
+- ADR 0009 Amendment 3 (so Orders can reach the feature without importing Domains): `App\Data\Domains\DomainDraft`
+  gains `array<string, string> $tldAttributes = []` (last parameter, `#[\SensitiveParameter]`; `$eppCode` is now
+  `#[\SensitiveParameter]` too), and a new Domains-implemented contract `App\Contracts\Domains\TldAttributes`
+  (`fieldsByTld()`, `clean($tld, $input)` throwing `ValidationException` keyed `tld_attributes.<key>` or `tld_attributes`
+  when the registrar account is disabled, `describe()` for display). `TldAttributeInput` in Orders resolves nothing
+  from Domains until used, so without an implementation no extension has fields.
+- The host masks the free-text answers (not selects or booleans) in the registrar errors of a registration, so a
+  registry message that repeats a value never reaches `last_error`, the logs, activity or staff mail.
+- Behaviour note: the test fakes' default capability set now includes `tld_attributes`; a registrar fake without it is
+  `FullWithoutAttributesRegistrar`.
 
 ### Refund lookup for unconfirmed gateway refunds (#334)
 

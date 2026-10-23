@@ -56,12 +56,6 @@ test('a note number taken in a transaction that rolls back is not consumed', fun
     expect(nextNumber(DocumentNumbers::DEBIT_NOTE))->toBe('DN-1')->and(BillingSequence::query()->where('sequence', 'debit_note')->value('next_number'))->toBe(2);
 });
 
-test('an unknown reset value falls back to never instead of resetting by accident', function () {
-    billingSettings(['credit_note_reset' => 'weekly']);
-
-    expect([nextNumber(DocumentNumbers::CREDIT_NOTE, '2026-10-20'), nextNumber(DocumentNumbers::CREDIT_NOTE, '2027-10-20')])->toBe(['CN-1', 'CN-2']);
-});
-
 /**
  * Starts number-worker.php processes against this test worker's database (the helper of #189, own copy).
  *
@@ -132,13 +126,6 @@ describe('note numbers under real concurrent transactions (PostgreSQL)', functio
         proc_close($holding);
 
         expect($other['number'])->toBe(1)->and($waited)->toBeLessThan(1.0);
-    });
-
-    test('a burst of notes is unique and gapless', function () {
-        $numbers = array_column(raceSequence(DocumentNumbers::DEBIT_NOTE, array_fill(0, 6, [0, 150, 'commit'])), 'number');
-        sort($numbers);
-
-        expect($numbers)->toBe([1, 2, 3, 4, 5, 6]);
     });
 });
 

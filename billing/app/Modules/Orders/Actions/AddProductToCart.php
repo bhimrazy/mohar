@@ -12,6 +12,7 @@ use App\Modules\Orders\Models\Cart;
 use App\Modules\Orders\Pricing\CartPricer;
 use App\Modules\Orders\Services\CustomFieldRules;
 use App\Modules\Orders\Services\DomainGuard;
+use App\Modules\Orders\Services\TldAttributeInput;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -25,10 +26,11 @@ class AddProductToCart
         private CartPricer $pricer,
         private CustomFieldRules $customFieldRules,
         private Settings $settings,
+        private TldAttributeInput $tldAttributes,
     ) {}
 
     /**
-     * @param  array{product_id: int, cycle: string, config_options?: array<int|string, mixed>, custom_fields?: array<int|string, mixed>, domain_mode?: ?string, domain_name?: ?string, epp_code?: ?string, addon_ids?: list<int|string>}  $input
+     * @param  array{product_id: int, cycle: string, config_options?: array<int|string, mixed>, custom_fields?: array<int|string, mixed>, domain_mode?: ?string, domain_name?: ?string, epp_code?: ?string, addon_ids?: list<int|string>, tld_attributes?: mixed}  $input
      *
      * @throws ValidationException
      */
@@ -66,6 +68,7 @@ class AddProductToCart
             domainName: ($name = trim((string) ($input['domain_name'] ?? ''))) === '' ? null : strtolower($name),
             eppCode: ($input['domain_mode'] ?? null) === 'transfer' ? $this->eppCode($input) : null,
             addonIds: $this->addonIds($productId, $cart->currency, $input['addon_ids'] ?? []),
+            tldAttributes: ($input['domain_mode'] ?? null) === 'register' ? $this->tldAttributes->clean($input['domain_name'] ?? null, $input['tld_attributes'] ?? null, 'domain_name') : [],
         );
 
         $priced = $this->pricer->price([$item], $cart->currency, null, $client)->items[0];

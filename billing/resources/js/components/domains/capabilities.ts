@@ -16,6 +16,7 @@ const CAPABILITY_LABELS: Record<string, string> = {
     transfer_sync: 'Transfer sync',
     reconcile: 'Reconcile lost submissions',
     test_connection: 'Connection test',
+    tld_attributes: 'Extension details',
 };
 
 export function capabilityLabel(capability: string): string {

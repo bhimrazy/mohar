@@ -33,10 +33,8 @@ class InvoiceFiscalReview extends Model
     /** An item cancellation that stored its net as `taxable_amount` on an untaxed line, or matches no line. */
     public const ITEM_CANCELLATION = 'item_cancellation_unclassified';
 
-    /** The currency has no stored rate to the reporting currency, so `report_rate` is empty. */
     public const REPORT_RATE = 'report_rate_unknown';
 
-    /** The invoice's lines do not add up to its stored totals, so the split is estimated from the totals. */
     public const LINES_MISMATCH = 'lines_do_not_match_totals';
 
     protected function casts(): array

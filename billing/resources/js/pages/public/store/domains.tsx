@@ -1,4 +1,10 @@
 import { Form, usePage } from '@inertiajs/react';
+import {
+    TldAttributeFields,
+    tldFieldsFor,
+    tldMatch,
+    type TldAttributeFieldMap,
+} from '@/components/orders/tld-attribute-fields';
 import { Head } from '@/components/app/head';
 import { ArrowRightLeft, Globe, Plus, Search } from 'lucide-react';
 import { useState } from 'react';
@@ -34,46 +40,51 @@ type Props = {
     search: string;
     results: Result[];
     currency: string;
+    tld_attribute_fields: TldAttributeFieldMap;
 };
 
 function DomainRow({
     result,
     currency,
     transfer,
+    tldAttributeFields,
 }: {
     result: Result;
     currency: string;
     transfer: boolean;
+    tldAttributeFields: TldAttributeFieldMap;
 }) {
     const [action, setAction] = useState<'register' | 'transfer'>(
         transfer && result.transfer !== null ? 'transfer' : 'register',
     );
+    const [details, setDetails] = useState<Record<string, string>>({});
+    const detailFields =
+        action === 'register'
+            ? tldFieldsFor(tldAttributeFields, result.domain)
+            : [];
     const price = action === 'register' ? result.register : result.transfer;
 
+    const addButton = (processing: boolean) => (
+        <Button type="submit" disabled={processing || price === null}>
+            {processing ? (
+                <Spinner />
+            ) : action === 'transfer' ? (
+                <ArrowRightLeft />
+            ) : (
+                <Plus />
+            )}
+            Add
+        </Button>
+    );
+
     return (
-        <li className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-            <div className="min-w-0">
-                <p className="truncate text-base font-medium">
-                    {result.domain}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                    {result.renew !== null ? (
-                        <>
-                            Renews at{' '}
-                            <Money amount={result.renew} currency={currency} />
-                            /yr
-                        </>
-                    ) : (
-                        'Renewal price on request'
-                    )}
-                </p>
-            </div>
+        <li className="p-4 sm:px-5">
             <Form
                 {...CartController.storeDomain.form()}
                 options={{ preserveScroll: true }}
-                className="flex flex-col gap-2 sm:items-end"
+                className="grid gap-4"
             >
-                {({ processing, errors }) => (
+                {({ processing, errors, clearErrors }) => (
                     <>
                         <input
                             type="hidden"
@@ -81,93 +92,128 @@ function DomainRow({
                             value={result.domain}
                         />
                         <input type="hidden" name="action" value={action} />
-                        <div className="flex flex-wrap items-center gap-2">
-                            <Select
-                                value={action}
-                                onValueChange={(next) =>
-                                    setAction(next as 'register' | 'transfer')
-                                }
-                            >
-                                <SelectTrigger
-                                    aria-label={`Action for ${result.domain}`}
-                                    className="w-36"
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="min-w-0">
+                                <p className="truncate text-base font-medium">
+                                    {result.domain}
+                                </p>
+                                <p className="text-sm text-muted-foreground">
+                                    {result.renew !== null ? (
+                                        <>
+                                            Renews at{' '}
+                                            <Money
+                                                amount={result.renew}
+                                                currency={currency}
+                                            />
+                                            /yr
+                                        </>
+                                    ) : (
+                                        'Renewal price on request'
+                                    )}
+                                </p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Select
+                                    value={action}
+                                    onValueChange={(next) =>
+                                        setAction(
+                                            next as 'register' | 'transfer',
+                                        )
+                                    }
                                 >
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem
-                                        value="register"
-                                        disabled={result.register === null}
+                                    <SelectTrigger
+                                        aria-label={`Action for ${result.domain}`}
+                                        className="w-36"
                                     >
-                                        Register
-                                    </SelectItem>
-                                    <SelectItem
-                                        value="transfer"
-                                        disabled={result.transfer === null}
-                                    >
-                                        Transfer in
-                                    </SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <Select
-                                key={action}
-                                name="years"
-                                defaultValue={String(
-                                    (action === 'register'
-                                        ? result.register_terms
-                                        : result.transfer_terms)[0] ?? 1,
-                                )}
-                            >
-                                <SelectTrigger
-                                    aria-label={`Years for ${result.domain}`}
-                                    className="w-28"
-                                >
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {(action === 'register'
-                                        ? result.register_terms
-                                        : result.transfer_terms
-                                    ).map((years) => (
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
                                         <SelectItem
-                                            key={years}
-                                            value={String(years)}
+                                            value="register"
+                                            disabled={result.register === null}
                                         >
-                                            {years}{' '}
-                                            {years === 1 ? 'year' : 'years'}
+                                            Register
                                         </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            {action === 'transfer' && (
-                                <Input
-                                    name="epp_code"
-                                    placeholder="EPP code"
-                                    aria-label="EPP code"
-                                    className="w-32"
-                                    autoComplete="off"
-                                />
-                            )}
-                            <span className="w-24 text-right font-semibold tabular-nums">
-                                <Money amount={price} currency={currency} />
-                                <span className="text-xs font-normal text-muted-foreground">
-                                    /yr
-                                </span>
-                            </span>
-                            <Button
-                                type="submit"
-                                disabled={processing || price === null}
-                            >
-                                {processing ? (
-                                    <Spinner />
-                                ) : action === 'transfer' ? (
-                                    <ArrowRightLeft />
-                                ) : (
-                                    <Plus />
+                                        <SelectItem
+                                            value="transfer"
+                                            disabled={result.transfer === null}
+                                        >
+                                            Transfer in
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <Select
+                                    key={action}
+                                    name="years"
+                                    defaultValue={String(
+                                        (action === 'register'
+                                            ? result.register_terms
+                                            : result.transfer_terms)[0] ?? 1,
+                                    )}
+                                >
+                                    <SelectTrigger
+                                        aria-label={`Years for ${result.domain}`}
+                                        className="w-28"
+                                    >
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {(action === 'register'
+                                            ? result.register_terms
+                                            : result.transfer_terms
+                                        ).map((years) => (
+                                            <SelectItem
+                                                key={years}
+                                                value={String(years)}
+                                            >
+                                                {years}{' '}
+                                                {years === 1 ? 'year' : 'years'}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                {action === 'transfer' && (
+                                    <Input
+                                        name="epp_code"
+                                        placeholder="EPP code"
+                                        aria-label="EPP code"
+                                        className="w-32"
+                                        autoComplete="off"
+                                    />
                                 )}
-                                Add
-                            </Button>
+                                <span className="text-right font-semibold tabular-nums">
+                                    <Money amount={price} currency={currency} />
+                                    <span className="text-xs font-normal text-muted-foreground">
+                                        /yr
+                                    </span>
+                                </span>
+                                {detailFields.length === 0 &&
+                                    addButton(processing)}
+                            </div>
                         </div>
+                        {detailFields.length > 0 && (
+                            <>
+                                <TldAttributeFields
+                                    extension={
+                                        tldMatch(
+                                            tldAttributeFields,
+                                            result.domain,
+                                        ) ?? ''
+                                    }
+                                    fields={detailFields}
+                                    values={details}
+                                    onChange={setDetails}
+                                    errors={errors}
+                                    onClearError={clearErrors}
+                                    idPrefix={`${result.domain}-detail`}
+                                    className="grid gap-4 rounded-lg border bg-muted/30 p-4"
+                                    nativeInputs
+                                />
+                                <div className="flex justify-end">
+                                    {addButton(processing)}
+                                </div>
+                            </>
+                        )}
                         <InputError
                             message={
                                 errors.domain ?? errors.epp_code ?? errors.years
@@ -180,7 +226,12 @@ function DomainRow({
     );
 }
 
-export default function Domains({ search, results, currency }: Props) {
+export default function Domains({
+    search,
+    results,
+    currency,
+    tld_attribute_fields: tldAttributeFields,
+}: Props) {
     // "Transfer a domain" links here with ?transfer=1: transfer is preselected on each result.
     const transfer =
         new URL(usePage().url, 'http://localhost').searchParams.get(
@@ -268,6 +319,7 @@ export default function Domains({ search, results, currency }: Props) {
                                     result={result}
                                     currency={currency}
                                     transfer={transfer}
+                                    tldAttributeFields={tldAttributeFields}
                                 />
                             ))}
                         </ul>

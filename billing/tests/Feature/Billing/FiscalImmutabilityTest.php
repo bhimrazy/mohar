@@ -1,6 +1,5 @@
 <?php
 
-use App\Modules\Billing\Enums\TaxNoteKind;
 use App\Modules\Billing\Exceptions\ImmutableInvoiceException;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\TaxNote;
@@ -26,7 +25,7 @@ beforeEach(function () {
 function taxNoteFor(Invoice $invoice): TaxNote
 {
     return TaxNote::query()->create([
-        'kind' => TaxNoteKind::Credit, 'number' => 'CN-1', 'invoice_id' => $invoice->id, 'client_id' => $invoice->client_id, 'currency' => $invoice->currency,
+        'kind' => 'credit', 'number' => 'CN-1', 'invoice_id' => $invoice->id, 'client_id' => $invoice->client_id, 'currency' => $invoice->currency,
         'issue_date' => '2026-10-20', 'issued_at' => '2026-10-20 06:00:00', 'invoice_number' => (string) $invoice->number, 'reason_code' => 'goodwill',
         'reason_text' => 'Goodwill', 'taxable_amount' => 1_000, 'tax1_amount' => 130, 'total' => 1_130, 'supply_class' => 'taxable',
         'bs_issue_date' => '2083-07-03', 'bs_period' => '2083-07', 'bs_fiscal_year' => '2083.084',
@@ -99,7 +98,7 @@ test('a numbered note changes only its print count and CBMS columns, and is neve
     $note->update(['print_count' => 2, 'cbms_status' => 'queued', 'cbms_reference' => 'R-1']);
     expect($note->fresh())->print_count->toBe(2)->cbms_status->toBe('queued');
 
-    foreach (['number' => 'CN-2', 'total' => 1, 'reason_text' => 'Changed', 'bs_period' => '2083-01', 'report_rate' => '3.000000000000', 'kind' => TaxNoteKind::Debit] as $field => $value) {
+    foreach (['number' => 'CN-2', 'total' => 1, 'reason_text' => 'Changed', 'bs_period' => '2083-01', 'report_rate' => '3.000000000000', 'kind' => 'debit'] as $field => $value) {
         expect(fn () => $note->fresh()->update([$field => $value]))->toThrow(ImmutableInvoiceException::class);
     }
 

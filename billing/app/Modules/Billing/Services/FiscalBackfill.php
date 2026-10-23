@@ -14,10 +14,9 @@ use Illuminate\Support\Facades\DB;
  * Fills the tax-invoice snapshot of invoices numbered before PR 1a (ADR 0024 §2). Run by the migration and by
  * `billing:fiscal-snapshot`, which also finds invoices numbered by the previous release while a deploy was switching.
  *
- * Safe to run again: it touches only numbered invoices without `numbered_at`, each update repeats that condition, and an
- * issued number is never written. Work is in chunks of invoices in id order, each chunk in its own short transaction
- * that locks only its own invoices (ADR 0021: invoices in id order). The partial index `invoices_fiscal_pending_index`
- * serves the lookup. Add-funds invoices are deposits, not fiscal documents, and are left alone.
+ * Safe to run again: it touches only numbered invoices without `numbered_at`, each update repeats that condition, and a
+ * number is never written. Chunks run in id order, each in its own short transaction that locks only its invoices
+ * (ADR 0021). Index: `invoices_fiscal_pending_index`. Add-funds invoices are deposits and are left alone.
  *
  * `numbered_at` is the first instant at which the number can be shown to exist:
  *  - numbered at publish (no proforma number): the invoice's `created_at`, never later than publishing; every adjustment
@@ -57,7 +56,6 @@ class FiscalBackfill
         return ['filled' => $filled, 'reviews' => $reviews];
     }
 
-    /** Numbered invoices (deposits excluded) that have no snapshot yet. */
     public function remaining(): int
     {
         return $this->query()->count();

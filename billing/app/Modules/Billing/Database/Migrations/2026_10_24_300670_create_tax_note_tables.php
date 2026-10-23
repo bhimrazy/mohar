@@ -59,7 +59,6 @@ return new class extends Migration
         $this->create('invoice_items', 'tax_note_lines', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('tax_note_id')->constrained()->restrictOnDelete();
-            // Null only for a late-fee debit note, which belongs to no invoice line.
             $table->foreignId('invoice_item_id')->nullable()->constrained()->restrictOnDelete();
             $table->string('description');
             $table->integer('quantity')->default(1);
@@ -77,7 +76,6 @@ return new class extends Migration
         $this->create('transactions', 'tax_note_reservations', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('invoice_id')->constrained()->restrictOnDelete();
-            // The pending refund row; its id is the reference sent to the provider. One reservation per refund row.
             $table->foreignId('transaction_id')->unique()->constrained()->restrictOnDelete();
             $table->string('reason_code', 30);
             $table->string('reason_text', 500)->nullable();
@@ -106,8 +104,7 @@ return new class extends Migration
             $table->index('invoice_item_id');
         });
 
-        // The staff-review list of the fiscal backfill. Nepal VAT mode cannot be enabled until staff have seen it.
-        // (invoice, reason, subject) is the key, so a repeated run finds its rows instead of adding them again.
+        // Staff-review list of the backfill; (invoice, reason, subject) is the key, so a repeated run adds nothing twice.
         $this->create('invoices', 'invoice_fiscal_reviews', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('invoice_id')->constrained()->restrictOnDelete();

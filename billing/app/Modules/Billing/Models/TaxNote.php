@@ -3,10 +3,8 @@
 namespace App\Modules\Billing\Models;
 
 use App\Models\User;
-use App\Modules\Billing\Enums\TaxNoteKind;
 use App\Modules\Billing\Exceptions\ImmutableInvoiceException;
 use App\Modules\Core\Models\Client;
-use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
@@ -19,37 +17,16 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * the model refuses every other change and every delete. A mistaken note is reversed by an opposite note.
  *
  * @property int $id
- * @property TaxNoteKind $kind
+ * @property string $kind credit|debit
  * @property string $number
  * @property int $invoice_id
  * @property int $client_id
- * @property string $currency
- * @property CarbonImmutable $issue_date
- * @property CarbonImmutable $issued_at
- * @property string $invoice_number
- * @property string|null $invoice_bs_issue_date
- * @property string $reason_code
- * @property string $reason_text
- * @property int $taxable_amount
- * @property int $exempt_amount
- * @property int $tax1_amount
- * @property int $tax2_amount
  * @property int $total minor units, positive; the kind gives the direction
- * @property string|null $report_currency
  * @property string|null $report_rate
- * @property string $supply_class
- * @property array<string, string|null>|null $seller_snapshot
- * @property array<string, mixed>|null $buyer_snapshot
- * @property string $bs_issue_date
  * @property string $bs_period
- * @property string $bs_fiscal_year
- * @property bool $automatic
- * @property int|null $created_by
  * @property int $print_count
  * @property string|null $cbms_status
  * @property string|null $cbms_reference
- * @property CarbonImmutable|null $created_at
- * @property CarbonImmutable|null $updated_at
  * @property-read Invoice $invoice
  * @property-read Client $client
  * @property-read User|null $creator
@@ -69,7 +46,6 @@ class TaxNote extends Model
     protected function casts(): array
     {
         return [
-            'kind' => TaxNoteKind::class,
             'issue_date' => 'date',
             'issued_at' => 'datetime',
             'report_rate' => 'decimal:12',

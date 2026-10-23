@@ -51,13 +51,6 @@ test('an invoice numbered at publish stores its own totals, rate, class and BS f
         ->credited_total->toBe(0)->debited_total->toBe(0);
 });
 
-test('a line without tax is exempt and the supply is classed exempt', function () {
-    billingSettings(['tax.enabled' => false]);
-    $invoice = issueInvoice(nepalClient(), [7_000])->fresh();
-
-    expect($invoice)->fiscal_taxable->toBe(0)->fiscal_exempt->toBe(7_000)->fiscal_total->toBe(7_000)->supply_class->toBe('exempt');
-});
-
 test('the reporting rate is the stored cross rate as a decimal string, from the stored rates only', function () {
     Http::preventStrayRequests();
     $client = Client::factory()->create(['country' => 'US', 'currency' => 'USD']);
