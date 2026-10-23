@@ -174,11 +174,11 @@ Built from the public developer reference only (pages used: the API overview, ge
 - **Control actions.**
     - `seed_clients` {count, overrides}: append clients; overrides are stored fields (`firstname`, `email`, `status`, `created_at` and `lastlogin_at` as UTC epoch seconds, ...).
     - `update_client` {id, fields}, `remove_client` {id}.
-    - `schedule_change` {at_call, add_count, overrides, remove_ids}: applied as the Nth `GetClients` call arrives, before it is answered (a client added or removed mid-walk).
+    - `schedule_change` {at_call, add_count, overrides, remove_ids}: applied as the Nth `GetClients` call arrives, before it is answered (a client added or removed mid-walk). Calls refused for credentials or IP count too.
     - `configure` {timezone, ip_restricted, access_key, denied_actions, single_item_as_object, stringify_numbers}: `ip_restricted` refuses every call unless `accesskey` matches `access_key`; `denied_actions` stands for an API role that lacks an action; the last two switch on response shapes a connector has to normalise.
     - `reset`.
 - **Assumptions, not facts.** The reference does not state these; each is a guess to confirm against a real installation:
-    - Success and error are both HTTP 200 with `result` and, on error, `message`. The message texts (`Authentication Failed`, `Invalid IP <address>`, `Invalid Permissions: ...`, `Client Not Found`, ...) are ours.
+    - Success and error are both HTTP 200 with `result` and, on error, `message`. The message texts (`Authentication Failed`, `Invalid IP <address>`, `Invalid Permissions: ...`, ...) are ours, except the two the `GetClientsDetails` reference documents: clientid or email required, and client not found.
     - The IP check comes before the credential check, and a wrong `accesskey` falls back to the IP check.
     - Only JSON is answered, whatever `responsetype` says.
     - `limitnum` of 0 or less means the default 25; there is no upper cap; an unknown `orderby` means `id`; a `status` outside Active, Inactive and Closed matches nothing; an empty page is `clients.client: []`.
