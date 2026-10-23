@@ -18,6 +18,7 @@ use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\FiscalSnapshotCalculator;
 use App\Support\CalendarDate;
 use App\Support\Money;
+use Carbon\CarbonInterface;
 
 /**
  * Balance bookkeeping shared by every money action: adjustments (credit/debit notes) and the transition to paid.
@@ -44,8 +45,9 @@ class InvoiceSettlement
         int $taxableAmount = 0,
         int $taxAmount = 0,
         ?int $taxNoteId = null,
+        ?CarbonInterface $at = null,
     ): InvoiceAdjustment {
-        $adjustment = $invoice->adjustments()->create([
+        $adjustment = $invoice->adjustments()->make([
             'kind' => $kind,
             'reason' => $reason,
             'amount' => $amount,
@@ -56,6 +58,8 @@ class InvoiceSettlement
             'created_by' => $userId,
             'tax_note_id' => $taxNoteId,
         ]);
+        // The caller's one instant dates every row of its transaction; a second now() would not (ADR 0024 §8).
+        $adjustment->forceFill($at !== null ? ['created_at' => $at, 'updated_at' => $at] : [])->save();
 
         $invoice->adjustments_total += $adjustment->signedAmount();
 

@@ -31,7 +31,7 @@ class MarkOrderFraud
         $this->flag($order);
 
         if ($cancelInvoice && $order->invoice_id !== null) {
-            $this->invoicer->cancel($order->invoice_id);
+            $this->invoicer->cancel($order->invoice_id, __('Cancelled by :module', ['module' => 'Orders']));
         }
 
         $this->activity->log("Order {$order->number} marked as fraud", $order, $order->client_id);

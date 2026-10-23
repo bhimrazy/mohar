@@ -10,6 +10,7 @@ use App\Enums\BillableType;
 use App\Modules\Billing\Actions\CancelInvoice;
 use App\Modules\Billing\Actions\IssueInvoice;
 use App\Modules\Billing\Enums\InvoiceStatus;
+use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\ClientFlag;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\InvoiceItem;
@@ -68,12 +69,19 @@ class InvoiceService implements Invoicer
         );
     }
 
-    public function cancel(int $invoiceId): void
+    public function cancel(int $invoiceId, ?string $reason = null): void
     {
         $invoice = Invoice::query()->find($invoiceId);
 
-        if ($invoice !== null) {
-            $this->cancel->handle($invoice, strict: false);
+        if ($invoice === null) {
+            return;
+        }
+
+        try {
+            $this->cancel->handle($invoice, note: $reason, strict: false);
+        } catch (BillingException $exception) {
+            // The caller is cancelling an order or a renewal; a tax invoice that cannot take its credit note stays open for staff.
+            report($exception);
         }
     }
 

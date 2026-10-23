@@ -20,8 +20,13 @@ interface Invoicer
 
     /**
      * Cancel an unpaid/draft invoice. Dispatches InvoiceCancelled. No-op if already paid/cancelled.
+     *
+     * With Nepal VAT mode on, cancelling a numbered tax invoice issues a credit note for its open balance, so a caller can
+     * create a legal document; `$reason` is the text printed on it ("Cancelled by Orders"). Callers hold their own row locks
+     * before Billing's invoice lock. A cancellation Billing cannot write (for example a discount line blocks the note) is
+     * reported and leaves the invoice open.
      */
-    public function cancel(int $invoiceId): void;
+    public function cancel(int $invoiceId, ?string $reason = null): void;
 
     /**
      * Whether an unpaid or draft invoice already contains a line for this billable item.

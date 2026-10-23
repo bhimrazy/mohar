@@ -48,7 +48,7 @@ class CancelOpenRenewals
                     continue;
                 }
 
-                $this->billing->invoicer()->cancel((int) $invoiceId);
+                $this->billing->invoicer()->cancel((int) $invoiceId, __('Cancelled by :module', ['module' => 'Services']));
             }
 
             $this->links->cancelInvoice((int) $invoiceId);

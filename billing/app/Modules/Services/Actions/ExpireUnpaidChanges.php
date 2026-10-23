@@ -42,7 +42,7 @@ class ExpireUnpaidChanges
                     $locked->update(['status' => ChangeStatus::Expired]);
 
                     if ($billable) {
-                        $this->billing->invoicer()->cancel((int) $locked->invoice_id);
+                        $this->billing->invoicer()->cancel((int) $locked->invoice_id, __('Cancelled by :module', ['module' => 'Services']));
                     }
 
                     return true;

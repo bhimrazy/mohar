@@ -280,6 +280,8 @@ export default function InvoiceShow({
         | 'payment'
         | 'details'
         | 'cancel'
+        | 'cancelLines'
+        | 'cancelLinesPlain'
         | 'markPaid'
         | 'capture'
         | 'credit'
@@ -661,30 +663,20 @@ export default function InvoiceShow({
                                 can.manage &&
                                 isPayable &&
                                 selectedLines.length > 0 ? (
-                                    <ConfirmDialog
-                                        trigger={
-                                            <Button variant="outline" size="sm">
-                                                Cancel {selectedLines.length}{' '}
-                                                {selectedLines.length === 1
-                                                    ? 'line'
-                                                    : 'lines'}
-                                            </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() =>
+                                            notes_enabled
+                                                ? setDialog('cancelLines')
+                                                : setDialog('cancelLinesPlain')
                                         }
-                                        title="Cancel the selected lines?"
-                                        description="A credit note for the selected lines is added to this invoice. The lines stay visible, struck through."
-                                        confirmLabel="Cancel lines"
-                                        onConfirm={() =>
-                                            router.post(
-                                                cancelLines.url(invoice.id),
-                                                { items: selectedLines },
-                                                {
-                                                    preserveScroll: true,
-                                                    onSuccess: () =>
-                                                        setSelectedLines([]),
-                                                },
-                                            )
-                                        }
-                                    />
+                                    >
+                                        Cancel {selectedLines.length}{' '}
+                                        {selectedLines.length === 1
+                                            ? 'line'
+                                            : 'lines'}
+                                    </Button>
                                 ) : undefined
                             }
                         >
@@ -1253,7 +1245,7 @@ export default function InvoiceShow({
             )}
 
             <ConfirmDialog
-                open={dialog === 'cancel'}
+                open={dialog === 'cancel' && !(notes_enabled && !isDraft)}
                 onOpenChange={close}
                 title={
                     isDraft
@@ -1267,6 +1259,85 @@ export default function InvoiceShow({
                 }
                 confirmLabel={isDraft ? 'Delete draft' : 'Cancel invoice'}
                 action={isDraft ? destroy(invoice.id) : cancel(invoice.id)}
+            />
+
+            <FormDialog
+                open={dialog === 'cancel' && notes_enabled && !isDraft}
+                onOpenChange={close}
+                title={`Cancel invoice ${invoice.number}?`}
+                description="A credit note for the open balance is issued and the client can no longer pay the invoice. The reason is printed on the credit note and the client sees it."
+                submitLabel="Cancel invoice"
+                destructive
+                action={cancel(invoice.id)}
+                initial={{ note: '' }}
+            >
+                {(form) => (
+                    <Field
+                        className="content-start"
+                        htmlFor="cancel-note"
+                        label="Reason"
+                        error={form.errors.note}
+                    >
+                        <Textarea
+                            id="cancel-note"
+                            required
+                            maxLength={500}
+                            value={form.data.note}
+                            onChange={(event) =>
+                                form.setData('note', event.target.value)
+                            }
+                        />
+                    </Field>
+                )}
+            </FormDialog>
+
+            <FormDialog
+                open={dialog === 'cancelLines'}
+                onOpenChange={close}
+                title="Cancel the selected lines?"
+                description="A credit note for the selected lines is issued. The lines stay visible, struck through. The reason is printed on the credit note and the client sees it."
+                submitLabel="Cancel lines"
+                destructive
+                action={cancelLines(invoice.id)}
+                initial={{ note: '' }}
+                transform={(data) => ({ ...data, items: selectedLines })}
+            >
+                {(form) => (
+                    <Field
+                        className="content-start"
+                        htmlFor="cancel-lines-note"
+                        label="Reason"
+                        error={form.errors.note}
+                    >
+                        <Textarea
+                            id="cancel-lines-note"
+                            required
+                            maxLength={500}
+                            value={form.data.note}
+                            onChange={(event) =>
+                                form.setData('note', event.target.value)
+                            }
+                        />
+                    </Field>
+                )}
+            </FormDialog>
+
+            <ConfirmDialog
+                open={dialog === 'cancelLinesPlain'}
+                onOpenChange={close}
+                title="Cancel the selected lines?"
+                description="A credit note for the selected lines is added to this invoice. The lines stay visible, struck through."
+                confirmLabel="Cancel lines"
+                onConfirm={() =>
+                    router.post(
+                        cancelLines.url(invoice.id),
+                        { items: selectedLines },
+                        {
+                            preserveScroll: true,
+                            onSuccess: () => setSelectedLines([]),
+                        },
+                    )
+                }
             />
 
             <ConfirmDialog

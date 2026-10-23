@@ -76,7 +76,7 @@ class RenewalInvoices
         $cancelled = 0;
 
         foreach ($this->open($domain) as $invoice) {
-            $this->invoicer()->cancel($invoice->invoice_id);
+            $this->invoicer()->cancel($invoice->invoice_id, __('Cancelled by :module', ['module' => 'Domains']));
             $invoice->update(['status' => 'cancelled']);
             $cancelled++;
         }

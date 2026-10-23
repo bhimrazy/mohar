@@ -47,7 +47,7 @@ class FakeInvoicer implements Invoicer
         return new InvoiceResult($id, 'INV-'.$id, $status, $draft->currency, $total, 0, $total);
     }
 
-    public function cancel(int $invoiceId): void
+    public function cancel(int $invoiceId, ?string $reason = null): void
     {
         if (isset($this->invoices[$invoiceId]) && in_array($this->invoices[$invoiceId]['status'], ['unpaid', 'draft'], true)) {
             $this->invoices[$invoiceId]['status'] = 'cancelled';

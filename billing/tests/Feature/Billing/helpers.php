@@ -14,6 +14,7 @@ use App\Modules\Billing\BillingServiceProvider;
 use App\Modules\Billing\Data\PaymentData;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
@@ -69,4 +70,12 @@ function sandboxGateway(string $secret = 'whsec_test'): Gateway
 function billingStaff(): User
 {
     return actingAsStaff(['billing.*', ...BillingServiceProvider::SENSITIVE_PERMISSIONS]);
+}
+
+/** Switch Nepal VAT mode on (started long ago) with this rule as the Nepal VAT rule, so invoices numbered after are classified. */
+function useNepalVatRule(TaxRule $rule): TaxRule
+{
+    billingSettings(['nepal_vat.enabled' => true, 'nepal_vat.enabled_from' => '2026-01-01', 'nepal_vat.vat_rules' => [$rule->id]]);
+
+    return $rule;
 }

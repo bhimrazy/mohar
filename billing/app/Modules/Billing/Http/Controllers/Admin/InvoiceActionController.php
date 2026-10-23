@@ -129,8 +129,8 @@ class InvoiceActionController extends Controller
     public function cancelLines(Request $request, Invoice $invoice, CancelInvoiceItems $cancel): RedirectResponse
     {
         $this->authorize('billing.invoices.manage');
-        $data = $request->validate(['items' => ['required', 'array', 'min:1'], 'items.*' => ['integer']]);
-        $cancel->handle($invoice, array_values(array_map('intval', $data['items'])), $request->user()?->id);
+        $data = $request->validate(['items' => ['required', 'array', 'min:1'], 'items.*' => ['integer'], 'note' => ['nullable', 'string', 'max:500']]);
+        $cancel->handle($invoice, array_values(array_map('intval', $data['items'])), $request->user()?->id, $data['note'] ?? null);
         $this->activity->log('Invoice lines cancelled', $invoice, $invoice->client_id, ['items' => $data['items']]);
 
         return $this->done(__('Selected lines cancelled.'));

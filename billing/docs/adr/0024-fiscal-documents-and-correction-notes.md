@@ -385,8 +385,8 @@ final class CreditNoteIssued implements DomainEvent, ShouldDispatchAfterCommit
 - Switching the mode off is refused once a note exists.
 - **Built in VAT PR 3a (Amendment #432).** The settings page, the rule mapping and the classification are specified in
   Amendment #432 below. The refusals that have helpers (no snapshot pending, review list seen, no VAT split pending, no
-  cached-total drift, no old-style row on or after the start) run under the settings row lock, on the rows read there. The
-  pending-refund refusal and the `FOR SHARE` read on the old paths belong to 3b.
+  cached-total drift, no old-style row on or after the start) run under the settings row lock, on the rows read there. 3b
+  added the pending-refund refusal and the `FOR SHARE` read on the old paths (Amendment #432, "3b").
 
 ### 9. Database triggers
 
@@ -488,3 +488,27 @@ Single source for these rules; `vat-register.md` §3 refers here. They extend §
   while any numbered invoice carrying tax or a rule has NULL flags. Notes issued before the split keep the `supply_class` they
   copied; notes will copy their invoice's flags when issued (a follow-up in #429).
 - **Rule changes later** do not reclassify issued documents.
+
+### 3b: the old paths (VAT PR 3b)
+
+- **One instant, one read.** Each old path (cancel, cancel lines, late fee, reopen) takes `$at = CompanyClock::now()` once,
+  after its invoice lock, and decides with `NepalVatMode::inEffectLocked($at)`: the mode read from the database under a
+  `FOR SHARE` lock on the `enabled` row. Enabling takes the same row `FOR UPDATE`, so it waits for those transactions and its
+  old-style-row check sees what they wrote. `$at` dates every row the transaction creates (`InvoiceSettlement::adjust(at:)`,
+  the note, its adjustment, `cancelled_at`), so a transaction that found the mode off writes only rows dated before
+  `enabled_from`, even across midnight.
+- **In effect, on a numbered invoice** (not add-funds): staff cancel and `Invoicer::cancel` issue one `invoice_cancelled`
+  credit note for the open balance (applied credit is returned first and is not in the note); cancel lines issues one
+  `lines_cancelled` note with a line per line, or, when the selection is every open line, the single `invoice_cancelled`
+  note; the late fee is a `late_fee` debit note and `LateFeeApplied` still fires; reopen is refused. Staff must give a reason
+  (it is printed on the note); automatic callers pass theirs: auto-cancel its overdue text, modules "Cancelled by <module>"
+  through the new trailing `Invoicer::cancel(int $invoiceId, ?string $reason = null)` (ADR 0010: compatible addition,
+  kernel-changelog entry). A discount line is cancelled with the line it discounts, never on its own. A cancellation a module
+  asks for that Billing cannot write as a note (for example a discount line blocks it) is reported and leaves the invoice open.
+- **Not in effect, or not numbered** (proforma, add-funds, before `enabled_from`): the old path runs as before. A numbered
+  invoice before `enabled_from` takes no note: the issuer refuses.
+- **The legacy `CancelInvoiceItems` path** needs no note counting: a line can have a note only after the mode is in effect, and
+  from then the numbered invoice takes the note branch; the old branch is unreachable for it.
+- **Arch test.** `tests/Arch/ValueAdjustmentWritersTest.php`: every file that writes an old-style value adjustment reads
+  `inEffectLocked()`, except the refund path, which VAT PR 4 replaces (listed in the test).
+- **Enable-time refusal added:** a refund recorded the old way (pending, no reservation) on a numbered invoice.
