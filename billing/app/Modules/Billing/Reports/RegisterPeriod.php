@@ -8,7 +8,7 @@ use App\Data\Reports\ReportQuery;
 use App\Enums\FilterType;
 use App\Modules\Billing\Support\BikramSambat;
 use App\Modules\Core\Support\DateFormats;
-use Carbon\CarbonImmutable;
+use App\Support\CalendarDate;
 use Closure;
 use DateTimeImmutable;
 use Illuminate\Contracts\Validation\DataAwareRule;
@@ -61,7 +61,7 @@ final readonly class RegisterPeriod
     public static function of(ReportQuery $query, CompanyClock $clock): self
     {
         if ($query->from !== null && $query->to !== null) {
-            return new self('range', $query->from, $query->to, null, null);
+            return new self('range', $query->from->toString(), $query->to->toString(), null, null);
         }
 
         if (is_string($year = $query->filter('year')) && $year !== '') {
@@ -94,7 +94,7 @@ final readonly class RegisterPeriod
         return $this->firstMonth !== null
             ? $query->whereBetween("{$table}.bs_period", [$this->firstMonth, $this->lastMonth])
             : $query->where("{$table}.issue_date", '>=', $this->from)
-                ->where("{$table}.issue_date", '<', CarbonImmutable::parse($this->to, 'UTC')->addDay()->format('Y-m-d'));
+                ->where("{$table}.issue_date", '<', CalendarDate::parse($this->to)->addDays(1)->toString());
     }
 
     /**
@@ -127,7 +127,7 @@ final readonly class RegisterPeriod
         return match ($this->kind) {
             'month' => array_values($this->monthKeys())[0].' (month '.(int) substr((string) $this->firstMonth, 5, 2).')',
             'year' => 'Fiscal year '.$this->fiscalYear(),
-            default => CarbonImmutable::parse($this->from, 'UTC')->format($format).' – '.CarbonImmutable::parse($this->to, 'UTC')->format($format),
+            default => CalendarDate::parse($this->from)->format($format).' – '.CalendarDate::parse($this->to)->format($format),
         };
     }
 
@@ -222,7 +222,7 @@ final readonly class RegisterPeriod
                     return;
                 }
 
-                if (rescue(fn (): bool => CarbonImmutable::parse($from, 'UTC')->diffInDays(CarbonImmutable::parse($value, 'UTC')) >= RegisterPeriod::MAX_RANGE_DAYS, false, report: false)) {
+                if (rescue(fn (): bool => CalendarDate::parse($from)->daysUntil(CalendarDate::parse($value)) >= RegisterPeriod::MAX_RANGE_DAYS, false, report: false)) {
                     $fail(__('Choose a date range of one year or less, or pick a BS fiscal year.'));
                 }
             }

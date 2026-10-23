@@ -247,7 +247,9 @@ function awkwardRateRegisterFixture(): void
         DB::table('invoices')->where('id', $invoice->id)->update(['report_rate' => $rates[$i]]);
     }
 
-    DB::table('invoices')->where('id', $invoices[3]->id)->update(['supply_class' => 'export', 'fiscal_exempt' => 3]);
+    // Odd taxable and exempt parts at 2.5 each end in .5: rounding them separately is one paisa more than rounding
+    // the export value once.
+    DB::table('invoices')->where('id', $invoices[3]->id)->update(['supply_class' => 'export', 'fiscal_taxable' => 12_345, 'fiscal_exempt' => 3]);
     onRegisterDay('2026-10-22', fn () => array_map(fn (int $i) => registerNote(NoteRequest::creditAmount($invoices[$i]->id, 5, 'goodwill', 'Rounding')), [0, 1, 2]));
     onRegisterDay('2026-10-23', fn () => registerNote(NoteRequest::debit($invoices[4]->id, 3, true, 'price_correction', 'Rounding')));
 }
@@ -272,6 +274,36 @@ test('the totals equal the sum of the rows, on awkward rates and both signs', fu
     expect($rows)->toHaveCount(9)
         ->and([$net['total_sales'], $net['taxable'], $net['exempt'], $net['vat'], $net['export_value']])
         ->toBe([$sum('total_sales'), $sum('taxable'), $sum('exempt'), $sum('vat'), $sum('export_value')]);
+});
+
+test('an export value is rounded once, as taxable plus exempt', function () {
+    awkwardRateRegisterFixture();
+    actingAsStaff(['reports.vat_register.view']);
+
+    $export = collect(registerRows('vat_register', ['month' => '2083-07']))->first(fn (array $row): bool => $row['export_value']?->amount !== 0 && $row['export_value'] !== null);
+
+    // (12,345 + 3) × 2.5 = 30,870; rounding the parts separately would give 30,863 + 8 = 30,871.
+    expect($export['export_value']->amount)->toBe(30_870)
+        ->and(registerSummaryWith(null)->net()['export_value'])->toBe(30_870);
+});
+
+test('a document with no stored rate has blank amounts, export value included', function () {
+    $client = Client::factory()->create(['country' => 'NP', 'currency' => 'USD']);
+    $invoice = onRegisterDay('2026-10-20', fn () => issueInvoice($client, [10_000]));
+    DB::table('invoices')->where('id', $invoice->id)->update(['report_rate' => null]);
+    actingAsStaff(['reports.vat_register.view']);
+
+    $row = registerRows('vat_register', ['month' => '2083-07'])[0];
+
+    expect([$row['total_sales'], $row['taxable'], $row['exempt'], $row['vat'], $row['export_value']])->toBe([null, null, null, null, null]);
+});
+
+test('a page past the last shows the last page', function () {
+    kartikRegisterFixture();
+    actingAsStaff(['reports.vat_register.view']);
+
+    $this->get(route('admin.billing.vat-register.index', ['month' => '2083-07', 'page' => 999]))->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->where('rows.current_page', 1)->has('rows.data', 4));
 });
 
 test('on PostgreSQL the SQL conversion equals the per-document PHP conversion', function () {
