@@ -24,4 +24,3 @@ test('every feature: route middleware names an existing features.* key', functio
         expect(Arr::has(config('features'), $flag))->toBeTrue("feature:{$flag} is not a key of config/features.php");
     }
 });
-
