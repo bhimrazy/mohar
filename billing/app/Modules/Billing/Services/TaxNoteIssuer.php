@@ -241,15 +241,16 @@ class TaxNoteIssuer
         }
 
         $dueDate = ! $credit && $invoice->status === InvoiceStatus::Paid && $balanceAfter > 0 ? $this->reopenDueDate() : null;
+        $creditAfter = $request->reverses !== null ? $this->credit->balance($invoice->client_id, $invoice->currency)->amount - $toCredit : null;
         $net = fn (bool $taxable): int => array_sum(array_map(fn (array $part): int => $part['net'], array_filter($parts, fn (array $part): bool => $part['taxable'] === $taxable)));
         $tax1 = array_sum(array_column($parts, 'tax1'));
         $tax2 = array_sum(array_column($parts, 'tax2'));
 
         return new NotePreview(
             $request->kind, $parts, $total, $net(true), $net(false), $tax1, $tax2, $balanceAfter, $invoice->version,
-            hash('sha256', (string) json_encode([$request->kind, $invoice->id, $request->reasonCode, $total, $parts, $toCredit, $request->reverses, $dueDate])),
+            hash('sha256', (string) json_encode([$request->kind, $invoice->id, $request->reasonCode, $total, $parts, $toCredit, $request->reverses, $dueDate, $creditAfter])),
             $toCredit > 0 ? 'credit' : 'balance', $toCredit, $dueDate,
-            $request->reverses !== null ? $this->credit->balance($invoice->client_id, $invoice->currency)->amount - $toCredit : null,
+            $creditAfter,
         );
     }
 
@@ -395,7 +396,7 @@ class TaxNoteIssuer
         $items = DB::table('invoice_items')->where('invoice_id', $invoice->id)->orderBy('id')->get();
 
         if ($items->contains(fn (\stdClass $item): bool => (int) $item->amount < 0)) {
-            throw new BillingException(__('This invoice has a discount line, and a credit note is allocated to lines without one. To correct it, cancel the invoice and raise a new one.'));
+            throw new BillingException(__('This invoice has a discount line, so no credit note can be issued on it. To correct it, cancel the invoice and raise a new one.'));
         }
 
         $items = $items->values();

@@ -87,7 +87,7 @@ type Props = {
     payment_in_progress: PaymentInProgressData | null;
     gateways: GatewayOption[];
     pay_methods: PayMethod[];
-    tax_notes: TaxNote[];
+    tax_notes: TaxNote[] | null;
     notes_enabled: boolean;
     creditable: Creditable | null;
     note_blocked: { credit: string | null; debit: string | null } | null;

@@ -35,7 +35,8 @@ class TaxNotePanel
         $notes = $invoice->numbered_at !== null ? $this->notes($invoice) : [];
 
         return [
-            'tax_notes' => ($user?->hasPermission('billing.tax_notes.view') ?? false) ? $notes : [],
+            // Null hides the panel for staff who may not see notes.
+            'tax_notes' => ($user?->hasPermission('billing.tax_notes.view') ?? false) ? $notes : null,
             'notes_enabled' => $enabled,
             'creditable' => $enabled ? ['total' => $this->issuer->creditable($invoice), 'lines' => $this->issuer->creditableLines($invoice)] : null,
             'note_blocked' => $enabled ? ['credit' => $this->issuer->creditBlocked($invoice), 'debit' => $this->issuer->debitBlocked($invoice)] : null,

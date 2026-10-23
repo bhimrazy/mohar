@@ -110,7 +110,8 @@ const ALL_REASONS: Record<string, string> = {
 type PanelProps = {
     invoiceId: number;
     currency: string;
-    notes: TaxNote[];
+    /** Null when the staff member may not see notes: the panel is hidden. */
+    notes: TaxNote[] | null;
     creditable: Creditable | null;
     enabled: boolean;
     canIssue: boolean;
@@ -136,7 +137,7 @@ export function TaxNotesPanel({
     const creditBlocked = blocked?.credit ?? null;
     const debitBlocked = blocked?.debit ?? null;
 
-    if (!enabled && notes.length === 0) {
+    if (notes === null || (!enabled && notes.length === 0)) {
         return null;
     }
 
