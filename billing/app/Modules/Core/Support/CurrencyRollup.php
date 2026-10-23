@@ -56,6 +56,21 @@ final class CurrencyRollup
     }
 
     /**
+     * toDefault() for many amounts of one currency, with the rate arithmetic done once. Null when the currency is
+     * not configured (its amounts are left out of totals).
+     *
+     * @return (\Closure(int): int)|null
+     */
+    public function converter(string $code): ?\Closure
+    {
+        if ($code === $this->default->code) {
+            return fn (int $amount): int => $amount;
+        }
+
+        return ($this->currencies[$code] ?? null)?->converterTo($this->default);
+    }
+
+    /**
      * @param  array<string, int>  $byCurrency
      */
     public function total(array $byCurrency): int
