@@ -88,6 +88,13 @@ class Domain extends Model
 
     protected static function booted(): void
     {
+        // A name renewed at the registry has nothing to auto-renew; an explicit value is kept.
+        static::creating(function (Domain $domain): void {
+            if (! array_key_exists('auto_renew', $domain->getAttributes()) && Tld::query()->whereKey($domain->tld_id)->where('registered_by_client', true)->exists()) {
+                $domain->auto_renew = false;
+            }
+        });
+
         static::saving(function (Domain $domain): void {
             $domain->active_name = $domain->status->isTerminal() ? null : $domain->name;
         });
@@ -176,6 +183,15 @@ class Domain extends Model
     public function commandLog(): HasMany
     {
         return $this->hasMany(RegistrarCommandLog::class);
+    }
+
+    /**
+     * Whether the client registered the name at the registry themselves (.np): never registered, renewed or
+     * expired here, so no expiry or auto-renew is tracked for it.
+     */
+    public function isRegisteredByClient(): bool
+    {
+        return $this->tldModel->registered_by_client;
     }
 
     public function isFree(): bool

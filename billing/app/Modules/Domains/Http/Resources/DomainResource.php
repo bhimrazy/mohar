@@ -28,6 +28,7 @@ class DomainResource extends JsonResource
             'type' => $this->type,
             'status' => $this->status->value,
             'registrar_key' => $this->registrar_key,
+            'registered_by_client' => $this->isRegisteredByClient(),
             'registration_date' => $this->registration_date?->toDateString(),
             'expiry_date' => $this->expiry_date?->toDateString(),
             'next_due_date' => $this->next_due_date->toDateString(),

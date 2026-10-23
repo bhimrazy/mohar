@@ -132,6 +132,10 @@ class DomainActionController extends Controller
         }
 
         if ($command === 'renew') {
+            if ($domain->isRegisteredByClient()) {
+                throw new DomainActionNotAllowed('This name is renewed by the client at the registry, so there is nothing to renew here.');
+            }
+
             if (! in_array($domain->status, [DomainStatus::Active, DomainStatus::Grace, DomainStatus::Redemption, DomainStatus::Expired], true)) {
                 throw new DomainActionNotAllowed("A {$domain->status->label()} domain cannot be renewed.");
             }

@@ -88,7 +88,7 @@ class SampleContext
             ],
             'cancellation' => ['type' => 'end_of_billing_period', 'reason' => 'Moving to a larger plan'],
             'domain' => [
-                'id' => 77, 'domain' => 'example.com', 'registration_date' => $today, 'expiry_date' => $nextYear,
+                'id' => 77, 'domain' => 'example.com', 'status_label' => 'Active', 'registered_by_client' => false, 'expiry_label' => null, 'registration_date' => $today, 'expiry_date' => $nextYear,
                 'next_due_date' => $nextYear, 'days_until_expiry' => 365, 'period_years' => 1,
                 'nameservers' => ['ns1.example.net', 'ns2.example.net'], 'renew_url' => url('/client/domains/77'),
                 'transfer_failure_reason' => 'Invalid authorisation code',
