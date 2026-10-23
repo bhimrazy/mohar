@@ -20,6 +20,7 @@ use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\PaymentInProgress;
+use App\Modules\Billing\Support\TaxNotePanel;
 use App\Modules\Core\Models\Client;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -91,7 +92,7 @@ class InvoiceController extends Controller
         return to_route('admin.billing.invoices.show', $invoice);
     }
 
-    public function show(Request $request, Invoice $invoice, CreditLedgerService $credit, PaymentInProgress $inProgress): Response
+    public function show(Request $request, Invoice $invoice, CreditLedgerService $credit, PaymentInProgress $inProgress, TaxNotePanel $notes): Response
     {
         $this->authorize('billing.invoices.view');
 
@@ -106,10 +107,12 @@ class InvoiceController extends Controller
             'gateways' => $this->gatewayOptions(),
             'pay_methods' => PayMethodResource::collection(PayMethod::query()->where('client_id', $invoice->client_id)->usable()->orderByDesc('is_default')->orderBy('id')->get()
                 ->filter(fn (PayMethod $method): bool => $method->isUsable() && $this->gateways->supports($method->gateway, GatewayDriver::CAPTURE))->values()),
+            ...$notes->props($invoice, $user),
             'can' => [
                 'manage' => $user?->hasPermission('billing.invoices.manage') ?? false,
                 'payments' => $user?->hasPermission('billing.payments.manage') ?? false,
                 'refunds' => $user?->hasPermission('billing.refunds.manage') ?? false,
+                'notes' => $user?->hasPermission('billing.tax_notes.issue') ?? false,
             ],
         ]);
     }

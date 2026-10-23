@@ -82,5 +82,5 @@ test('every GET route behind step-up is a download this fix covers', function ()
         ->filter(fn ($route) => in_array('GET', $route->methods(), true) && collect($route->gatherMiddleware())->contains(fn ($middleware) => is_string($middleware) && (str_starts_with($middleware, 'password.recent') || str_starts_with($middleware, RequireRecentPasswordConfirmation::class))))
         ->map(fn ($route) => $route->getName())->sort()->values()->all();
 
-    expect($routes)->toBe(['admin.migration.imports.errors']);
+    expect($routes)->toBe(['admin.billing.vat-register.export', 'admin.migration.imports.errors']);
 });

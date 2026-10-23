@@ -47,12 +47,27 @@ final readonly class ReportQuery
 
     public function page(int $limit, int $offset): self
     {
-        return new self($this->filters, $this->userId, $this->from, $this->to, $this->startsAt, $this->endsAt, $limit, $offset);
+        return $this->with(limit: $limit, offset: $offset);
     }
 
     public function unpaged(): self
     {
-        return new self($this->filters, $this->userId, $this->from, $this->to, $this->startsAt, $this->endsAt);
+        return $this->with(limit: null, offset: 0);
+    }
+
+    /** A copy with the page changed; every other field is carried over by name. */
+    private function with(?int $limit, int $offset): self
+    {
+        return new self(
+            filters: $this->filters,
+            userId: $this->userId,
+            from: $this->from,
+            to: $this->to,
+            startsAt: $this->startsAt,
+            endsAt: $this->endsAt,
+            limit: $limit,
+            offset: $offset,
+        );
     }
 
     /**

@@ -210,7 +210,7 @@ def markdown(s):
         f"## Load test: {meta.get('profile')} profile, {meta.get('volume')} volume ({meta.get('run')})",
         '',
         f"Runner {meta.get('host_cpus')} CPU / {meta.get('host_memory_mb')} MB; profile {meta.get('profile_cpus')} vCPU / {meta.get('profile_memory')}; "
-        f"host cap: {meta.get('host_cap')}; PHP threads {meta.get('php_threads')}; commit {meta.get('git_sha')}."
+        f"host cap: {meta.get('host_cap')}; PHP threads {meta.get('php_threads')}; virtual users arrive over {fmt(meta.get('start_spread_s'), ' s')}; commit {meta.get('git_sha')}."
         + (' **The runner is smaller than this profile: these numbers are for the runner, not the profile.**' if meta.get('runner_smaller_than_profile') else ''),
         '',
         f"Seeded {fmt(seed.get('clients'))} clients, {fmt(seed.get('services'))} services, {fmt(seed.get('invoices'))} invoices, "

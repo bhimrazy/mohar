@@ -94,3 +94,10 @@ test('a spread by amount never allocates more than asked, even when a line is al
 
     expect(array_sum(array_column($parts, 'gross')))->toBe(1_000)->and(array_column($parts, 'item_id'))->not->toContain(1);
 });
+
+test('a line whose gross is not net plus tax is refused before anything is allocated (#396 N2)', function (array $line) {
+    expect(fn () => (new NoteAllocator)->byLines([$line], [1 => 100], 'NPR'))->toThrow(InvalidArgumentException::class, 'gross must equal net plus tax');
+})->with([
+    'its value' => [['gross' => 11_301] + allocLine(1, 10_000, 1_300)],
+    'what is used' => [['used_gross' => 1_000, 'used_net' => 1_000, 'used_tax1' => 130] + allocLine(1, 10_000, 1_300)],
+]);
