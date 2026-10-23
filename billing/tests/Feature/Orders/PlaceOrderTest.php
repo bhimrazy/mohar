@@ -499,6 +499,7 @@ it('refuses an order whose client currency changed after the checkout was priced
 });
 
 it('shows extension details the registrar refuses at checkout on the cart, naming the domain', function () {
+    $this->fakes->catalog->addProduct(1, 'Starter Hosting', ['monthly' => [1000, 0]]);
     $this->fakes->domains->createFails = ValidationException::withMessages(['tld_attributes.purpose' => 'Choose what the domain is for.']);
 
     try {
