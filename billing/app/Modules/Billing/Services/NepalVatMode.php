@@ -9,6 +9,7 @@ use App\Modules\Billing\Models\InvoiceFiscalReview;
 use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Billing\Support\BikramSambat;
+use App\Modules\Billing\Support\BikramSambatDate;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Models\Setting;
 use App\Modules\Core\Support\ActivityLogger;
@@ -122,7 +123,7 @@ class NepalVatMode
 
     private function isVatByName(?string $name, string $rate): bool
     {
-        $this->named ??= TaxRule::query()->whereIn('id', $this->vatRules())->get(['name', 'rate'])->map(fn (TaxRule $rule): string => $rule->name.'|'.(float) $rule->rate)->all();
+        $this->named ??= array_values(TaxRule::query()->whereIn('id', $this->vatRules())->get(['name', 'rate'])->map(fn (TaxRule $rule): string => $rule->name.'|'.(float) $rule->rate)->all());
 
         return $name !== null && in_array($name.'|'.(float) $rate, $this->named, true);
     }
@@ -295,7 +296,7 @@ class NepalVatMode
     /**
      * The start day must be the first day of the current BS month or of a later one (ADR 0024 §8).
      *
-     * @param  array<string, string>  $errors
+     * @param  array<string, mixed>  $errors
      */
     private function validStart(?string $from, array &$errors): ?string
     {
@@ -303,10 +304,11 @@ class NepalVatMode
             $date = $from !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) === 1 ? BikramSambat::fromAd(CarbonImmutable::parse($from, 'UTC')) : null;
             $today = BikramSambat::fromAd($this->clock->todayDate());
         } catch (OutOfRangeException) {
-            $date = $today = null;
+            $date = null;
+            $today = new BikramSambatDate(0, 0, 0);
         }
 
-        if ($date === null || $today === null || $date->day !== 1 || $date->year * 100 + $date->month < $today->year * 100 + $today->month) {
+        if ($date === null || $date->day !== 1 || $date->year * 100 + $date->month < $today->year * 100 + $today->month) {
             $errors['enabled_from'] = __('Pick the first day of the current Nepali (BS) month or of a later one.');
 
             return null;

@@ -45,6 +45,17 @@ type Props = {
 
 const NO_EXPORT = 'none';
 
+function day(value: string | null): string {
+    return value
+        ? new Date(`${value}T00:00:00Z`).toLocaleDateString('en-GB', {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+              timeZone: 'UTC',
+          })
+        : '';
+}
+
 function describe(rule: Rule): string {
     return `${rule.rate}% · level ${rule.level} · ${rule.country ?? 'all countries'}`;
 }
@@ -116,7 +127,7 @@ export default function VatModeEdit({
                             <StatusBadge
                                 status="scheduled"
                                 tone="warning"
-                                label={`Starts ${mode.enabled_from}`}
+                                label={`Starts ${day(mode.enabled_from)}`}
                             />
                         )
                     }

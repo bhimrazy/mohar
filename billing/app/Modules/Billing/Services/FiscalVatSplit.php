@@ -35,6 +35,7 @@ class FiscalVatSplit
         while ($max === 0 || $done < $max) {
             $limit = $max === 0 ? $chunk : min($chunk, $max - $done);
             $ids = $this->pending()->where('id', '>', $after)->orderBy('id')->limit($limit)->pluck('id')->map(fn (mixed $id): int => (int) $id)->all();
+            $ids = array_values($ids);
 
             if ($ids === []) {
                 break;

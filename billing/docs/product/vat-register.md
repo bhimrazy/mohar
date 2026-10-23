@@ -80,6 +80,16 @@ Out of scope: §16. Kernel prerequisites (§18): PR 0a, the `CompanyClock` contr
   mode turns proforma mode on (`sequential_paid_numbering` and `set_issue_date_on_payment` true; Mohar already
   implements both in `InvoiceSettlement::settle`), and the settings lock of ADR 0024 §8 keeps it on. Unpaid invoices carry a proforma
   number. **MUST**
+- **Which tax is Nepal VAT (VAT PR 3, #430).** The mode names the tax rules that are Nepal VAT and the one 0% rule that marks an
+  export (`billing.nepal_vat.vat_rules`, `.export_rule`; Admin → Settings → Nepal VAT, `billing.tax.manage` and a recent
+  password for every change). An invoice stores the rule of each tax level (`tax1_rule_id`, `tax2_rule_id`, kept at 0%).
+  At numbering, with the mode on, the snapshot flags each level `fiscal_tax1_is_vat` / `fiscal_tax2_is_vat` and sets
+  `supply_class`: `export` only when the invoice used the export rule (D6), else `taxable` when a Nepal VAT level carries tax,
+  else `exempt`. A document carrying only other tax (India GST, a foreign sales tax) is therefore `exempt`: its tax stays in
+  `fiscal_tax1`/`fiscal_tax2` but is not Nepal VAT. The register's VAT figure is the flagged levels only; a note takes the flags
+  of its invoice. Invoices numbered earlier have no rule ids: `billing:fiscal-vat-split` flags a level by matching its name and
+  rate to a Nepal VAT rule (none becomes an export), and enabling is refused until it has run. Changing the rules later does
+  not reclassify issued documents. **MUST**
 - Rule used everywhere below: a **tax invoice** is an invoice with a legal `number`. Drafts and proforma invoices are
   not. Only tax invoices appear in the register and only they take notes. **MUST**
 - Consequence of D1: a tax invoice is normally paid, so cancel, cancel lines, late fees and reopen (which act only on

@@ -382,6 +382,10 @@ final class CreditNoteIssued implements DomainEvent, ShouldDispatchAfterCommit
     - `number_format`, `number_reset`, `number_padding`, `number_increment`, the note formats,
       `sequential_paid_numbering` and `set_issue_date_on_payment` are locked, and the settings page says why.
 - Switching the mode off is refused once a note exists.
+- **Built in VAT PR 3 (settings).** The page, the rule mapping and the classification are in `vat-register.md` §3. The
+  enable-time refusals that exist as helpers are enforced under the settings row lock: no snapshot pending, review list seen,
+  no VAT split pending, no cached-total drift, no old-style row on or after the start. The pending-refund refusal and the
+  `FOR SHARE` read on the old paths wait for the PR that changes those paths.
 
 ### 9. Database triggers
 

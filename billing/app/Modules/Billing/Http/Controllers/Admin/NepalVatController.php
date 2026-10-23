@@ -43,9 +43,9 @@ class NepalVatController extends Controller
         $input = $request->validated();
         $changed = $mode->apply($request->user(), [
             'enabled' => (bool) $input['enabled'],
-            'enabled_from' => $input['enabled_from'] ?? null,
-            'vat_rules' => array_map('intval', $input['vat_rules']),
-            'export_rule' => $input['export_rule'] ?? null,
+            'enabled_from' => isset($input['enabled_from']) ? (string) $input['enabled_from'] : null,
+            'vat_rules' => array_values(array_map('intval', $input['vat_rules'])),
+            'export_rule' => isset($input['export_rule']) ? (int) $input['export_rule'] : null,
         ]);
 
         Inertia::flash('toast', $changed ? ['type' => 'success', 'message' => __('Nepal VAT settings saved.')] : ['type' => 'info', 'message' => __('No changes to save.')]);
