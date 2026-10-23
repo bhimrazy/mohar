@@ -29,6 +29,8 @@ export type PricedItem = {
     years: number;
     lines: PricedLine[];
     errors: string[];
+    /** The registrar's extension details as the customer typed them (ID numbers shortened). */
+    details?: { label: string; value: string }[];
     due_today: number;
 };
 

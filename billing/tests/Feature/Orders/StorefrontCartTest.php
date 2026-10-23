@@ -9,6 +9,8 @@ use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\OrderItem;
 use App\Modules\Orders\Models\Promotion;
 use App\Modules\Orders\Services\CartManager;
+use App\Modules\Orders\Services\TldAttributeInput;
+use Illuminate\Container\Container;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Orders\OrdersFakes;
 
@@ -351,4 +353,12 @@ describe('rate limits', function () {
 
         expect(Cart::query()->sole()->promotion_code)->toBeNull();
     });
+});
+
+it('asks for no extension details, and resolves nothing from Domains, when Domains is not installed', function () {
+    $input = new TldAttributeInput(new Container);
+
+    expect($input->props())->toBe([])
+        ->and($input->clean('acme.us', ['purpose' => 'P1']))->toBe([])
+        ->and($input->describe('acme.us', ['purpose' => 'P1']))->toBe([]);
 });

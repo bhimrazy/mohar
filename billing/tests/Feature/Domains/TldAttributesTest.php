@@ -5,26 +5,34 @@ use App\Contracts\Domains\TldAttributes;
 use App\Data\Domains\DomainDraft;
 use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
+use App\Events\Domains\RegistrarActionFailed;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Domains\Actions\SubmitToRegistrar;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\RegistrarCommandLog;
 use App\Modules\Domains\Models\Tld;
+use App\Modules\Domains\Services\TldAttributeService;
 use App\Modules\Orders\Models\Cart;
+use App\Support\Domains\RegistrarException;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Validation\ValidationException;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Domains\FakeRegistrar;
 
 const NEXUS_NOTE = 'ABN-SECRET-77';
+const NEXUS_ID = '51824753556';
 
 beforeEach(function () {
     Currency::factory()->create();
     $this->registrar = FakeRegistrar::install();
     $this->registrar->tldFields['.us'] = [
-        new SettingField('purpose', 'What the domain is for', FieldType::Select, required: true, options: ['P1' => 'Business', 'P3' => 'Personal']),
+        new SettingField('purpose', 'What the domain is for', FieldType::Select, required: true, help: 'Pick the closest use.', options: ['P1' => 'Business', 'P3' => 'Personal']),
         new SettingField('note', 'Registration note', required: false),
+        new SettingField('id', 'Identification number', required: false),
         new SettingField('warranty', 'I am eligible', FieldType::Boolean, required: true),
     ];
     $this->us = Tld::factory()->extension('.us')->priced()->create(['registrar_key' => 'fake']);
@@ -37,29 +45,37 @@ function usDraft(Client $client, array $attributes, string $action = 'register')
     return new DomainDraft($client->id, $action === 'transfer' ? 'asha-in.us' : 'asha.us', $action, 1, 'USD', 1400, 1200, null, $action === 'transfer' ? 'AUTH-1' : null, [], false, $attributes);
 }
 
+function cartErrors(array $attributes, string $domain = 'asha.us'): array
+{
+    $response = test()->post(route('store.cart.domains.store'), ['domain' => $domain, 'action' => 'register', 'years' => 1, 'tld_attributes' => $attributes]);
+
+    return app('session.store')->get('errors')['default']['messages'] ?? [];
+}
+
 test('the fields come from the driver, only for the extensions it declares them for', function () {
     $fields = app(TldAttributes::class)->fieldsByTld();
 
     expect(array_keys($fields))->toBe(['.us'])
-        ->and(array_map(fn (SettingField $field): string => $field->key, $fields['.us']))->toBe(['purpose', 'note', 'warranty']);
+        ->and(array_map(fn (SettingField $field): string => $field->key, $fields['.us']))->toBe(['purpose', 'note', 'id', 'warranty']);
 });
 
-test('a registrar without the capability, or a disabled one, asks for nothing', function () {
+test('a registrar without the capability asks for nothing, and a client-registered extension too', function () {
     $this->registrar->capabilities = array_values(array_diff($this->registrar->capabilities, ['tld_attributes']));
+    app()->forgetScopedInstances();
 
-    expect(app(TldAttributes::class)->fieldsByTld())->toBe([]);
+    expect(app(TldAttributes::class)->fieldsByTld())->toBe([])
+        ->and(app(TldAttributes::class)->clean('.us', []))->toBe([]);
 
     $this->registrar->capabilities[] = 'tld_attributes';
     $this->us->update(['registered_by_client' => true]);
+    app()->forgetScopedInstances();
 
     expect(app(TldAttributes::class)->fieldsByTld())->toBe([]);
 });
 
 test('answers are checked against the same field list', function (array $input, array $errors) {
-    $check = fn () => app(TldAttributes::class)->clean('.us', $input);
-
     try {
-        $check();
+        app(TldAttributes::class)->clean('.us', $input);
         $thrown = [];
     } catch (ValidationException $exception) {
         $thrown = array_keys($exception->errors());
@@ -70,30 +86,93 @@ test('answers are checked against the same field list', function (array $input, 
     'nothing sent' => [[], ['tld_attributes.purpose', 'tld_attributes.warranty']],
     'an option the form never offered' => [['purpose' => 'P9', 'warranty' => '1'], ['tld_attributes.purpose']],
     'a required confirmation left off' => [['purpose' => 'P1', 'warranty' => '0'], ['tld_attributes.warranty']],
-    'a value with control characters' => [['purpose' => 'P1', 'warranty' => '1', 'note' => "a\x00b"], ['tld_attributes.note']],
+    'a newline' => [['purpose' => 'P1', 'warranty' => '1', 'note' => "a\nb"], ['tld_attributes.note']],
+    'a line separator' => [['purpose' => 'P1', 'warranty' => '1', 'note' => "a\u{2028}b"], ['tld_attributes.note']],
+    'a C1 control' => [['purpose' => 'P1', 'warranty' => '1', 'note' => "a\u{0085}b"], ['tld_attributes.note']],
+    'a bidi override' => [['purpose' => 'P1', 'warranty' => '1', 'note' => "a\u{202E}b"], ['tld_attributes.note']],
+    'invalid UTF-8' => [['purpose' => 'P1', 'warranty' => '1', 'note' => "ab\xFFcd"], ['tld_attributes.note']],
+    'a value over 255 characters' => [['purpose' => 'P1', 'warranty' => '1', 'note' => str_repeat('a', 256)], ['tld_attributes.note']],
     'a valid set' => [['purpose' => 'P3', 'warranty' => 'on'], []],
 ]);
+
+test('every refusal names the field by its label, never by its key', function () {
+    $messages = [];
+
+    foreach ([[], ['purpose' => 'P9', 'warranty' => '0', 'note' => str_repeat('a', 256)], ['purpose' => 'P1', 'warranty' => '1', 'note' => "ab\xFF"]] as $input) {
+        try {
+            app(TldAttributes::class)->clean('.us', $input);
+        } catch (ValidationException $exception) {
+            $messages = [...$messages, ...array_merge(...array_values($exception->errors()))];
+        }
+    }
+
+    expect($messages)->toContain('Choose what the domain is for.')
+        ->toContain('Tick the box to confirm.')
+        ->toContain('Registration note can be up to 255 characters.')
+        ->and(implode(' ', $messages))->not->toContain('tld_attributes')->not->toContain('purpose');
+});
 
 test('unknown keys are dropped and a boolean is delivered as true or false', function () {
     expect(app(TldAttributes::class)->clean('.us', ['purpose' => ' P3 ', 'warranty' => '1', 'injected' => 'x']))->toBe(['purpose' => 'P3', 'warranty' => 'true'])
         ->and(app(TldAttributes::class)->clean('.com', ['anything' => 'x']))->toBe([]);
 });
 
-test('the domain search page and the staff order form receive the fields', function () {
+test('the domain search page and the staff order form receive the fields, with their help', function () {
     $this->get(route('store.domains', ['domain' => 'asha.us']))
         ->assertInertia(fn (Assert $page) => $page
             ->component('public/store/domains')
-            ->where('tld_attribute_fields', fn ($fields) => array_keys($fields->all()) === ['.us'] && $fields['.us'][0]['key'] === 'purpose'));
+            ->where('tld_attribute_fields', fn ($fields) => array_keys($fields->all()) === ['.us'] && $fields['.us'][0]['key'] === 'purpose' && $fields['.us'][0]['help'] === 'Pick the closest use.'));
 
     actingAsStaff(['orders.*']);
     $this->get(route('admin.orders.create'))
         ->assertInertia(fn (Assert $page) => $page->where('tld_attribute_fields', fn ($fields) => $fields['.us'][1]['key'] === 'note'));
 });
 
+test('the extension fields cost a fixed number of queries however many extensions there are', function () {
+    $count = function (): int {
+        app()->forgetScopedInstances();
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        app(TldAttributes::class)->fieldsByTld();
+        $queries = count(DB::getQueryLog());
+        DB::disableQueryLog();
+
+        return $queries;
+    };
+
+    $before = $count();
+
+    foreach (range(1, 50) as $i) {
+        Tld::factory()->extension(".x{$i}")->priced()->create(['registrar_key' => 'fake']);
+        $this->registrar->tldFields[".x{$i}"] = [new SettingField('purpose', 'Purpose', required: true)];
+    }
+
+    expect($before)->toBeLessThanOrEqual(2)->and($count())->toBe($before)->and(count(app(TldAttributes::class)->fieldsByTld()))->toBe(51);
+
+    $this->get(route('store.domains', ['domain' => 'asha.us']))->assertOk();
+    app()->forgetScopedInstances();
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    $this->get(route('store.domains', ['domain' => 'asha.us']))->assertOk();
+    $page = count(DB::getQueryLog());
+    DB::disableQueryLog();
+
+    foreach (range(51, 100) as $i) {
+        Tld::factory()->extension(".x{$i}")->priced()->create(['registrar_key' => 'fake']);
+        $this->registrar->tldFields[".x{$i}"] = [new SettingField('purpose', 'Purpose', required: true)];
+    }
+
+    app()->forgetScopedInstances();
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    $this->get(route('store.domains', ['domain' => 'asha.us']))->assertOk();
+
+    expect(count(DB::getQueryLog()))->toBe($page);
+});
+
 test('the cart refuses a registration without the details, and keeps the details encrypted', function () {
-    $this->post(route('store.cart.domains.store'), ['domain' => 'asha.us', 'action' => 'register', 'years' => 1, 'tld_attributes' => ['warranty' => '1']])
-        ->assertSessionHasErrors(['tld_attributes.purpose']);
-    expect(Cart::query()->count())->toBe(0);
+    expect(cartErrors(['warranty' => '1']))->toHaveKey('tld_attributes.purpose')
+        ->and(Cart::query()->count())->toBe(0);
 
     $this->post(route('store.cart.domains.store'), ['domain' => 'asha.us', 'action' => 'register', 'years' => 1, 'tld_attributes' => ['purpose' => 'P3', 'note' => NEXUS_NOTE, 'warranty' => '1']])
         ->assertSessionHasNoErrors();
@@ -103,6 +182,26 @@ test('the cart refuses a registration without the details, and keeps the details
         ->and($cart->cartItems()[0]->tldAttributes)->toBe(['purpose' => 'P3', 'note' => NEXUS_NOTE, 'warranty' => 'true']);
 });
 
+test('invalid UTF-8 or an over-long value at the cart is a field error, not a 500 or a silent drop', function () {
+    expect(cartErrors(['purpose' => 'P1', 'warranty' => '1', 'note' => "ab\xFFcd"]))->toHaveKey('tld_attributes.note');
+
+    $errors = cartErrors(['purpose' => 'P1', 'warranty' => '1', 'note' => str_repeat('a', 300)]);
+
+    expect($errors['tld_attributes.note'][0])->toBe('Registration note can be up to 255 characters.')
+        ->and(Cart::query()->count())->toBe(0);
+});
+
+test('the cart and the checkout read the entered details back, ID numbers shortened', function () {
+    $this->post(route('store.cart.domains.store'), ['domain' => 'asha.us', 'action' => 'register', 'years' => 1, 'tld_attributes' => ['purpose' => 'P3', 'id' => NEXUS_ID, 'warranty' => '1']]);
+
+    $this->get(route('store.cart'))->assertInertia(fn (Assert $page) => $page
+        ->where('cart.items.0.details', [
+            ['label' => 'What the domain is for', 'value' => 'Personal'],
+            ['label' => 'Identification number', 'value' => '••••••••556'],
+            ['label' => 'I am eligible', 'value' => 'Yes'],
+        ]));
+});
+
 test('an extension without fields takes no details and a transfer sends none', function () {
     $this->post(route('store.cart.domains.store'), ['domain' => 'asha.com', 'action' => 'register', 'years' => 1, 'tld_attributes' => ['purpose' => 'P3']])
         ->assertSessionHasNoErrors();
@@ -110,6 +209,26 @@ test('an extension without fields takes no details and a transfer sends none', f
         ->assertSessionHasNoErrors();
 
     expect(array_map(fn ($item) => $item->tldAttributes, Cart::query()->sole()->cartItems()))->toBe([[], []]);
+});
+
+test('a disabled registrar account hides the form and refuses the order at the cart in plain words', function () {
+    RegistrarAccount::query()->create(['key' => 'fake', 'is_active' => false, 'settings' => []]);
+    app()->forgetScopedInstances();
+
+    $errors = cartErrors(['purpose' => 'P3', 'warranty' => '1']);
+
+    expect(app(TldAttributes::class)->fieldsByTld())->toBe([])
+        ->and($errors['domain'][0])->toBe('We cannot take .us registrations right now. Please try again later.')
+        ->and(Cart::query()->count())->toBe(0);
+});
+
+test('answers already collected are kept when the account is disabled before the domain is created', function () {
+    RegistrarAccount::query()->create(['key' => 'fake', 'is_active' => true, 'settings' => []]);
+    $draft = usDraft($this->client, ['purpose' => 'P1', 'warranty' => '1']);
+    RegistrarAccount::query()->where('key', 'fake')->update(['is_active' => false]);
+    app()->forgetScopedInstances();
+
+    expect(fn () => app(DomainRegistry::class)->createPending($draft))->toThrow(ValidationException::class, 'We cannot take .us registrations right now');
 });
 
 test('a pending domain stores the details, and checks them again whoever built the draft', function () {
@@ -122,6 +241,11 @@ test('a pending domain stores the details, and checks them again whoever built t
         ->and($transfer->additional_fields)->toBeNull();
 });
 
+test('invalid UTF-8 on a draft built outside the cart is a validation error, not a server error', function () {
+    expect(fn () => app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P1', 'warranty' => '1', 'note' => "ab\xFFcd"])))
+        ->toThrow(ValidationException::class);
+});
+
 test('the registrar receives the details, and they reach no log or activity text', function () {
     $domain = Domain::query()->findOrFail(app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P3', 'note' => NEXUS_NOTE, 'warranty' => '1'])));
 
@@ -132,4 +256,58 @@ test('the registrar receives the details, and they reach no log or activity text
         ->and(json_encode(RegistrarCommandLog::query()->get()->toArray()))->not->toContain(NEXUS_NOTE)
         ->and(json_encode(ActivityLog::query()->get()->toArray()))->not->toContain(NEXUS_NOTE)
         ->and(json_encode(ActivityLog::query()->get()->toArray()))->toContain('Domain register created');
+});
+
+test('a registry message that repeats an answer is masked in every place an error goes', function () {
+    Event::fake([RegistrarActionFailed::class]);
+    $domain = Domain::query()->findOrFail(app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P1', 'id' => NEXUS_ID, 'note' => NEXUS_NOTE, 'warranty' => '1'])));
+    $this->registrar->will('register', new RegistrarException('The registry refused: invalid value '.NEXUS_ID.' for id, also seen as 518 2475 3556 and '.NEXUS_NOTE.'.'));
+
+    app(SubmitToRegistrar::class)->handle($domain);
+
+    $leaks = [
+        'last_error' => $domain->fresh()->last_error,
+        'command_log' => json_encode(RegistrarCommandLog::query()->get()->toArray()),
+        'activity' => json_encode(ActivityLog::query()->get()->toArray()),
+    ];
+    Event::assertDispatched(RegistrarActionFailed::class, function (RegistrarActionFailed $event) use (&$leaks): bool {
+        $leaks['event'] = $event->error;
+
+        return true;
+    });
+
+    foreach ($leaks as $where => $text) {
+        expect((string) $text)->not->toContain(NEXUS_ID, $where)->not->toContain(NEXUS_NOTE, $where);
+    }
+
+    expect($domain->fresh()->last_error)->toContain('invalid value')->toContain('for id');
+
+    actingAsStaff(['domains.*']);
+    $this->get(route('admin.domains.show', $domain))->assertInertia(fn (Assert $page) => $page
+        ->where('commandLog', fn ($log) => ! str_contains(json_encode($log), NEXUS_ID) && ! str_contains(json_encode($log), NEXUS_NOTE)));
+});
+
+test('select and boolean answers are not masked, so ordinary words in an error survive', function () {
+    $service = app(TldAttributeService::class);
+
+    expect($service->maskable('.us', ['purpose' => 'P1', 'warranty' => 'true', 'note' => 'abc', 'id' => '5182 4753']))->toBe(['5182 4753', '51824753']);
+});
+
+test('staff see the stored details on the domain page with labels, not codes', function () {
+    $domain = Domain::query()->findOrFail(app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P1', 'id' => NEXUS_ID, 'warranty' => '1'])));
+    actingAsStaff(['domains.*']);
+
+    $this->get(route('admin.domains.show', $domain))->assertInertia(fn (Assert $page) => $page->where('registryDetails', [
+        ['label' => 'What the domain is for', 'value' => 'Business'],
+        ['label' => 'Identification number', 'value' => NEXUS_ID],
+        ['label' => 'I am eligible', 'value' => 'Yes'],
+    ]));
+});
+
+test('the details live in the domain row, so deleting the domain removes them', function () {
+    $domain = Domain::query()->findOrFail(app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P1', 'warranty' => '1'])));
+
+    $domain->delete();
+
+    expect(Domain::query()->whereKey($domain->id)->exists())->toBeFalse();
 });

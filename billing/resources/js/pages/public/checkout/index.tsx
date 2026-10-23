@@ -15,6 +15,7 @@ import { Field } from '@/components/app/field';
 import { Money } from '@/components/app/money';
 import { SectionCard } from '@/components/app/section-card';
 import InputError from '@/components/input-error';
+import { ItemDetails } from '@/components/orders/item-details';
 import { OrderSummary } from '@/components/orders/order-summary';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -409,23 +410,25 @@ export default function Checkout({
                     >
                         <ul className="grid gap-2 text-sm">
                             {cart.items.map((item) => (
-                                <li
-                                    key={item.key}
-                                    className="flex justify-between gap-4"
-                                >
-                                    <span className="min-w-0 truncate">
-                                        {item.title}
-                                        {(item.domain ?? item.subtitle) && (
-                                            <span className="text-muted-foreground">
-                                                {' '}
-                                                · {item.domain ?? item.subtitle}
-                                            </span>
-                                        )}
-                                    </span>
-                                    <Money
-                                        amount={item.due_today}
-                                        currency={cart.currency}
-                                    />
+                                <li key={item.key}>
+                                    <div className="flex justify-between gap-4">
+                                        <span className="min-w-0 truncate">
+                                            {item.title}
+                                            {(item.domain ?? item.subtitle) && (
+                                                <span className="text-muted-foreground">
+                                                    {' '}
+                                                    ·{' '}
+                                                    {item.domain ??
+                                                        item.subtitle}
+                                                </span>
+                                            )}
+                                        </span>
+                                        <Money
+                                            amount={item.due_today}
+                                            currency={cart.currency}
+                                        />
+                                    </div>
+                                    <ItemDetails details={item.details} />
                                 </li>
                             ))}
                         </ul>

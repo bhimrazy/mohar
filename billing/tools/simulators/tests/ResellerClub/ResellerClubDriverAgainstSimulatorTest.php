@@ -5,6 +5,7 @@ use App\Data\Domains\Registrar\DomainRef;
 use App\Data\Domains\Registrar\RegistrarConfig;
 use App\Data\Domains\Registrar\RegistrationRequest;
 use App\Enums\ReconcileStatus;
+use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Domains\Actions\BuildDomainContacts;
 use App\Modules\Domains\Actions\PerformRenewal;
@@ -468,13 +469,16 @@ test('a registration the registry would refuse for missing details stays pending
     $missing = rcDomain('asha-bare', '.us');
     app(SubmitToRegistrar::class)->handle($missing);
 
-    $secret = rcDomain('asha-leak', '.us');
-    $secret->update(['additional_fields' => ['tld_attributes' => ['purpose' => 'P3', 'category' => 'C99-PRIVATE-NOTE']]]);
+    $leak = 'LEAK-'.str_repeat('9', 70);
+    $secret = rcDomain('asha-leak', '.com.au');
+    $secret->update(['additional_fields' => ['tld_attributes' => ['id-type' => 'Other', 'id' => $leak, 'policyReason' => '1', 'isAUWarranty' => 'true']]]);
     app(SubmitToRegistrar::class)->handle($secret->fresh());
 
     expect($missing->fresh()->status)->toBe(DomainStatus::Pending)
         ->and($missing->fresh()->last_error)->toContain('extra detail')
         ->and(rcOrderOf('asha-bare.us'))->toBeNull()
         ->and($secret->fresh()->status)->toBe(DomainStatus::Pending)
-        ->and((string) json_encode(RegistrarCommandLog::query()->get(['request', 'response', 'error'])))->not->toContain('C99-PRIVATE-NOTE');
+        ->and($secret->fresh()->last_error)->toContain('extra detail id')->not->toContain('LEAK-')
+        ->and((string) json_encode(RegistrarCommandLog::query()->get(['request', 'response', 'error'])))->not->toContain('LEAK-')
+        ->and((string) json_encode(ActivityLog::query()->get()->toArray()))->not->toContain('LEAK-');
 });

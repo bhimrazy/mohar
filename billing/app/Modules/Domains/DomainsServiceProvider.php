@@ -81,7 +81,8 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $this->app->scoped(DomainPricingService::class);
         $this->app->scoped(DomainPricing::class, fn ($app) => $app->make(DomainPricingService::class));
         $this->app->bind(DomainRegistry::class, DomainRegistryService::class);
-        $this->app->bind(TldAttributes::class, TldAttributeService::class);
+        $this->app->scoped(TldAttributeService::class);
+        $this->app->scoped(TldAttributes::class, fn ($app) => $app->make(TldAttributeService::class));
         $this->app->bind(RegistrarRefs::class, EloquentRegistrarRefs::class);
     }
 

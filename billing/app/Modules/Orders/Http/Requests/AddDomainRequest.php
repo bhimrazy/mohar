@@ -29,8 +29,7 @@ class AddDomainRequest extends FormRequest
             'years' => ['required', 'integer', 'min:1', 'max:10'],
             'epp_code' => ['nullable', 'string', 'max:100'],
             'id_protection' => ['boolean'],
-            'tld_attributes' => ['nullable', 'array', 'max:20'],
-            'tld_attributes.*' => ['nullable', 'string', 'max:255'],
+            'tld_attributes' => ['nullable', 'array'],
         ];
     }
 

@@ -10,8 +10,10 @@ use App\Data\Integrations\SettingField;
  * the domain is ordered, validates the answers from the same list and stores them per domain; the driver receives
  * them as `RegistrationRequest::$tldAttributes`, keyed by the field keys it declared here.
  *
- * The field list is static knowledge of the driver: no network call, no account settings. The values can be
- * personal data, so a driver never logs them or puts them in an error message.
+ * The field list is static knowledge of the driver: no network call, no account settings. Fields are never secret
+ * and never take remote options. The values can be personal data, so a driver never logs them or puts them in an
+ * error message (the host also masks the free-text ones in whatever a call returns). A field's `help` is shown to the
+ * person ordering, also while an error shows: say who qualifies for the extension in plain words.
  */
 interface DeclaresTldAttributes
 {

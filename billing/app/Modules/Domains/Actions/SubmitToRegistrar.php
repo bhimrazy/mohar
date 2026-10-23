@@ -25,6 +25,7 @@ use App\Modules\Domains\Services\DomainDates;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\DomainStateMachine;
 use App\Modules\Domains\Services\RegistrarGateway;
+use App\Modules\Domains\Services\TldAttributeService;
 use App\Modules\Domains\Support\Nameservers;
 use App\Modules\Domains\Support\RemoteIds;
 use App\Support\Domains\RegistrarException;
@@ -60,6 +61,7 @@ class SubmitToRegistrar
         private BuildDomainContacts $contacts,
         private ActivityLogger $activity,
         private Settings $settings,
+        private TldAttributeService $tldAttributes,
     ) {}
 
     /**
@@ -90,10 +92,12 @@ class SubmitToRegistrar
             tldAttributes: $domain->type === 'transfer' ? [] : self::tldAttributes($domain),
         );
 
+        $secrets = [...$request->secrets(), ...$this->tldAttributes->maskable($domain->tld, $request->tldAttributes)];
+
         try {
             $result = $capability === 'transfer'
-                ? $this->gateway->forDomain($domain, 'transfer', TransfersDomains::class, fn (TransfersDomains $registrar, RegistrarConfig $config): RegistrarResult => $registrar->transfer($config, $request), $request->toArray(), $staffId, $request->secrets())
-                : $this->gateway->forDomain($domain, 'register', RegistrarDriver::class, fn (RegistrarDriver $registrar, RegistrarConfig $config): RegistrarResult => $registrar->register($config, $request), $request->toArray(), $staffId, $request->secrets());
+                ? $this->gateway->forDomain($domain, 'transfer', TransfersDomains::class, fn (TransfersDomains $registrar, RegistrarConfig $config): RegistrarResult => $registrar->transfer($config, $request), $request->toArray(), $staffId, $secrets)
+                : $this->gateway->forDomain($domain, 'register', RegistrarDriver::class, fn (RegistrarDriver $registrar, RegistrarConfig $config): RegistrarResult => $registrar->register($config, $request), $request->toArray(), $staffId, $secrets);
         } catch (RegistrarTimeout $timeout) {
             return $this->unknownOutcome($domain, $timeout->getMessage());
         } catch (RegistrarException $exception) {

@@ -1,6 +1,7 @@
 import {
     TldAttributeFields,
     tldFieldsFor,
+    tldMatch,
     type TldAttributeFieldMap,
 } from '@/components/orders/tld-attribute-fields';
 import { Link, router, useForm } from '@inertiajs/react';
@@ -375,6 +376,15 @@ export default function CreateOrder({
                                     )}
                                     {tldFields.length > 0 && (
                                         <TldAttributeFields
+                                            extension={
+                                                tldMatch(
+                                                    tldAttributeFields,
+                                                    form.data.domain_name,
+                                                ) ?? ''
+                                            }
+                                            onClearError={(name) =>
+                                                form.clearErrors(name as never)
+                                            }
                                             fields={tldFields}
                                             values={form.data.tld_attributes}
                                             onChange={(values) =>

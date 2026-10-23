@@ -26,7 +26,17 @@ interface TldAttributes
      * @param  string  $tld  extension with its leading dot
      * @return array<string, string>
      *
-     * @throws ValidationException errors keyed `tld_attributes.<field key>`
+     * @throws ValidationException errors keyed `tld_attributes.<field key>`; when the registrar cannot take orders
+     *                             for the extension now (its account is disabled), one error keyed `domain`
      */
     public function clean(string $tld, mixed $input): array;
+
+    /**
+     * The answers as a person reads them: field label and the chosen option's label, a yes for a ticked box, and a
+     * free-text value (an identification number) shortened to its last three characters when $mask is set.
+     *
+     * @param  array<string, string>  $answers  as returned by clean()
+     * @return list<array{label: string, value: string}>
+     */
+    public function describe(string $tld, array $answers, bool $mask = true): array;
 }

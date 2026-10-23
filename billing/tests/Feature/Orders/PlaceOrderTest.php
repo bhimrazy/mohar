@@ -497,3 +497,18 @@ it('refuses an order whose client currency changed after the checkout was priced
         ->toThrow(ValidationException::class, 'The account currency changed while this order was placed.');
     expect(Order::query()->where('client_id', $this->client->id)->exists())->toBeFalse();
 });
+
+it('shows extension details the registrar refuses at checkout on the cart, naming the domain', function () {
+    $this->fakes->domains->createFails = ValidationException::withMessages(['tld_attributes.purpose' => 'Choose what the domain is for.']);
+
+    try {
+        app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1, domain: 'acme.com', mode: 'register')]));
+        $thrown = null;
+    } catch (ValidationException $exception) {
+        $thrown = $exception->errors();
+    }
+
+    expect($thrown)->toHaveKey('cart')
+        ->and($thrown['cart'][0])->toContain('acme.com')->toContain('Choose what the domain is for.')
+        ->and(Order::query()->count())->toBe(0);
+});

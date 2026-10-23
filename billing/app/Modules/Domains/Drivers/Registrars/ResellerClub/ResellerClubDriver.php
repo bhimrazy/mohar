@@ -3,7 +3,6 @@
 namespace App\Modules\Domains\Drivers\Registrars\ResellerClub;
 
 use App\Contracts\Domains\Registrar\ChecksAvailability;
-use App\Contracts\Domains\Registrar\DeclaresTldAttributes;
 use App\Contracts\Domains\Registrar\ManagesContacts;
 use App\Contracts\Domains\Registrar\ManagesIdProtection;
 use App\Contracts\Domains\Registrar\ManagesLock;
@@ -15,6 +14,7 @@ use App\Contracts\Domains\Registrar\RestoresDomains;
 use App\Contracts\Domains\Registrar\SyncsDomains;
 use App\Contracts\Domains\Registrar\TestsRegistrarConnection;
 use App\Contracts\Domains\Registrar\TransfersDomains;
+use App\Contracts\Domains\Registrar\ValidatesTldAttributes;
 use App\Data\Domains\Registrar\AvailabilityResult;
 use App\Data\Domains\Registrar\ContactSet;
 use App\Data\Domains\Registrar\DomainInfo;
@@ -52,7 +52,7 @@ use Carbon\CarbonImmutable;
  * Every order read is tied to the domain: by the order id the host holds, or else by the client's customer.
  * A register or transfer chain runs inside a time budget (REGISTER_BUDGET) that fits the host job's timeout.
  */
-final class ResellerClubDriver implements ChecksAvailability, DeclaresTldAttributes, ManagesContacts, ManagesIdProtection, ManagesLock, ManagesNameservers, ProvidesEppCode, ReconcilesSubmissions, RegistrarDriver, RestoresDomains, SyncsDomains, TestsRegistrarConnection, TransfersDomains
+final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, ManagesIdProtection, ManagesLock, ManagesNameservers, ProvidesEppCode, ReconcilesSubmissions, RegistrarDriver, RestoresDomains, SyncsDomains, TestsRegistrarConnection, TransfersDomains, ValidatesTldAttributes
 {
     public const KEY = 'resellerclub';
 
@@ -113,15 +113,33 @@ final class ResellerClubDriver implements ChecksAvailability, DeclaresTldAttribu
     {
         return match (ltrim(strtolower($tld), '.')) {
             'us' => [
-                new SettingField('purpose', 'What the domain is for', FieldType::Select, required: true, options: ['P1' => 'Business for profit', 'P2' => 'Non-profit, club, association or religious group', 'P3' => 'Personal use', 'P4' => 'Education', 'P5' => 'Government']),
-                new SettingField('category', 'Who is registering it', FieldType::Select, required: true, options: ['C11' => 'A citizen of the United States', 'C12' => 'A permanent resident of the United States', 'C21' => 'An organization formed in the United States'], help: 'The .us registry only allows people and organizations with a connection to the United States.'),
+                new SettingField('purpose', 'What the domain will be used for', FieldType::Select, required: true, help: 'Choose the use that fits best. The .us registry checks it.', options: ['P1' => 'Business or other for-profit use', 'P2' => 'Non-profit, club, association or religious group', 'P3' => 'Personal use', 'P4' => 'Education', 'P5' => 'Government']),
+                new SettingField('category', 'Who is registering the name', FieldType::Select, required: true, help: 'Only people and organizations with a connection to the United States can register .us names. If that is not you, choose another extension.', options: ['C11' => 'A United States citizen', 'C12' => 'A permanent resident of the United States or its territories', 'C21' => 'An organization formed in the United States (a company, club or government body)']),
             ],
             'com.au' => [
-                new SettingField('id-type', 'Type of identification', FieldType::Select, required: true, options: ['ACN' => 'Australian Company Number', 'ABN' => 'Australian Business Number', 'TM' => 'Australian trademark', 'Other' => 'Other']),
-                new SettingField('id', 'Identification number', required: true),
-                new SettingField('policyReason', 'Why the name suits the registrant', FieldType::Select, required: true, options: ['1' => 'It matches the registrant\'s name, abbreviation or trading name', '2' => 'It is closely and substantially connected to the registrant']),
-                new SettingField('isAUWarranty', 'The registrant is eligible for a .com.au name', FieldType::Boolean, required: true),
+                new SettingField('id-type', 'Type of identification', FieldType::Select, required: true, help: 'Only Australian businesses can register .com.au names. Use the business\'s ABN or ACN; an Australian trademark number is also accepted.', options: ['ABN' => 'ABN (11 digits)', 'ACN' => 'ACN (9 digits)', 'TM' => 'Australian trademark', 'Other' => 'Other registered identifier']),
+                new SettingField('id', 'Identification number', required: true, help: 'The number of the business that will own the name.'),
+                new SettingField('policyReason', 'Why this name suits the business', FieldType::Select, required: true, help: 'The .com.au registry requires one of these reasons.', options: ['1' => 'It matches the business name, its abbreviation or acronym', '2' => 'It is closely and substantially connected to the business']),
+                new SettingField('isAUWarranty', 'I confirm the business is Australian and eligible for a .com.au name', FieldType::Boolean, required: true),
             ],
+            default => [],
+        };
+    }
+
+    /**
+     * An ABN has 11 digits and an ACN 9 (spaces allowed), so a typo is caught before the order is paid.
+     */
+    public function validateTldAttributes(string $tld, array $answers): array
+    {
+        if (ltrim(strtolower($tld), '.') !== 'com.au') {
+            return [];
+        }
+
+        $digits = (string) preg_replace('/\s+/', '', $answers['id'] ?? '');
+
+        return match ($answers['id-type'] ?? null) {
+            'ABN' => preg_match('/^\d{11}$/', $digits) === 1 ? [] : ['id' => __('Enter the 11-digit ABN of the business.')],
+            'ACN' => preg_match('/^\d{9}$/', $digits) === 1 ? [] : ['id' => __('Enter the 9-digit ACN of the business.')],
             default => [],
         };
     }

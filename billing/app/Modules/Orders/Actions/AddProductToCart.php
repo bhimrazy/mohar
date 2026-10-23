@@ -68,7 +68,7 @@ class AddProductToCart
             domainName: ($name = trim((string) ($input['domain_name'] ?? ''))) === '' ? null : strtolower($name),
             eppCode: ($input['domain_mode'] ?? null) === 'transfer' ? $this->eppCode($input) : null,
             addonIds: $this->addonIds($productId, $cart->currency, $input['addon_ids'] ?? []),
-            tldAttributes: ($input['domain_mode'] ?? null) === 'register' ? $this->tldAttributes->clean($input['domain_name'] ?? null, $input['tld_attributes'] ?? null) : [],
+            tldAttributes: ($input['domain_mode'] ?? null) === 'register' ? $this->tldAttributes->clean($input['domain_name'] ?? null, $input['tld_attributes'] ?? null, 'domain_name') : [],
         );
 
         $priced = $this->pricer->price([$item], $cart->currency, null, $client)->items[0];

@@ -228,7 +228,9 @@ final class ResellerClubApi
 
         foreach (self::TLDS[$tld]['attributes'] ?? [] as $attribute => $pattern) {
             if (preg_match($pattern, $attributes[$attribute] ?? '') !== 1) {
-                return self::error('The .'.$tld.' registry needs the extra detail '.$attribute.' for this order.');
+                $given = $attributes[$attribute] ?? '';
+
+                return self::error('The .'.$tld.' registry needs the extra detail '.$attribute.' for this order'.($given === '' ? '.' : ': "'.$given.'" is not accepted.'));
             }
         }
 

@@ -10,16 +10,22 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 - New capability `App\Contracts\Domains\Registrar\DeclaresTldAttributes` (detected with `instanceof`; registry
   capability name `tld_attributes`, `RegistrarDriverRegistry::TLD_ATTRIBUTES`): `tldAttributeFields(string $tld):
-  list<SettingField>`, `$tld` with its leading dot, no network call. Domains renders, validates (required, options,
-  type) and stores the answers per domain.
+  list<SettingField>`, `$tld` with its leading dot, no network call. Fields are never secret and never
+  `optionsSource: remote` (the host filters them out). Orders renders the fields (from `TldAttributes::fieldsByTld()`);
+  Domains declares, validates (required, options, type) and stores the answers per domain. Optional refinement
+  interface `ValidatesTldAttributes` (rules between fields, not a separate capability name).
 - `App\Data\Domains\Registrar\RegistrationRequest` gains `array<string, string> $tldAttributes = []` (last
   parameter, `#[\SensitiveParameter]`): the answers keyed by the field keys the driver declared. `toArray()` lists the
   keys only, so the command log never holds the values. Existing drivers and callers are unchanged. The host fills it
   for a registration, not for a transfer.
-- Beyond the ADR text, needed so Orders can reach the feature without importing Domains: `App\Data\Domains\DomainDraft`
-  gains `array<string, string> $tldAttributes = []` (last parameter), and a new Domains-implemented contract
-  `App\Contracts\Domains\TldAttributes` (`fieldsByTld()`, `clean($tld, $input)`, throws `ValidationException` keyed
-  `tld_attributes.<key>`). Orders works when nothing implements it.
+- ADR 0009 Amendment 3 (so Orders can reach the feature without importing Domains): `App\Data\Domains\DomainDraft`
+  gains `array<string, string> $tldAttributes = []` (last parameter, `#[\SensitiveParameter]`; `$eppCode` is now
+  `#[\SensitiveParameter]` too), and a new Domains-implemented contract `App\Contracts\Domains\TldAttributes`
+  (`fieldsByTld()`, `clean($tld, $input)` throwing `ValidationException` keyed `tld_attributes.<key>` or `domain`
+  when the registrar account is disabled, `describe()` for display). `TldAttributeInput` in Orders resolves nothing
+  from Domains until used, so without an implementation no extension has fields.
+- The host masks the free-text answers (not selects or booleans) in the registrar errors of a registration, so a
+  registry message that repeats a value never reaches `last_error`, the logs, activity or staff mail.
 - Behaviour note: the test fakes' default capability set now includes `tld_attributes`; a registrar fake without it is
   `FullWithoutAttributesRegistrar`.
 

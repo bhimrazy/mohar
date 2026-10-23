@@ -18,9 +18,9 @@ final readonly class DomainDraft
         public int $recurringAmount,
         public int $firstPaymentAmount,
         public ?int $orderId = null,
-        public ?string $eppCode = null,
+        #[\SensitiveParameter] public ?string $eppCode = null,
         public array $nameservers = [],
         public bool $idProtection = false,
-        public array $tldAttributes = [],
+        #[\SensitiveParameter] public array $tldAttributes = [],
     ) {}
 }

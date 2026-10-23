@@ -120,7 +120,7 @@ final readonly class CartItem
             'years' => $this->years,
             'id_protection' => $this->idProtection,
             'nameservers' => $this->nameservers,
-            'tld_attributes' => $this->tldAttributes === [] ? null : Crypt::encryptString((string) json_encode($this->tldAttributes)),
+            'tld_attributes' => $this->tldAttributes === [] ? null : Crypt::encryptString(json_encode($this->tldAttributes, JSON_THROW_ON_ERROR)),
         ];
     }
 

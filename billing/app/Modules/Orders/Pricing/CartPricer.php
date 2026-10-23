@@ -17,6 +17,7 @@ use App\Modules\Orders\Services\CompanyClock;
 use App\Modules\Orders\Services\CurrencyConverter;
 use App\Modules\Orders\Services\CustomFieldRules;
 use App\Modules\Orders\Services\DomainGuard;
+use App\Modules\Orders\Services\TldAttributeInput;
 
 /**
  * Re-quotes cart items through PriceBook/DomainPricing (the cart never trusts stored prices), applies
@@ -36,6 +37,7 @@ class CartPricer
         private Settings $settings,
         private DomainGuard $domainGuard,
         private CustomFieldRules $customFieldRules,
+        private TldAttributeInput $tldAttributes,
     ) {}
 
     /**
@@ -47,9 +49,11 @@ class CartPricer
         $cart = new PricedCart(strtoupper($currency));
 
         foreach ($items as $item) {
-            $cart->items[] = $item->kind === CartItemKind::Product
+            $priced = $item->kind === CartItemKind::Product
                 ? $this->priceProduct($item, $cart->currency, $priceOverrides[$item->key] ?? null, $client?->id)
                 : $this->priceDomainItem($item, $cart->currency, $client?->id);
+            $priced->details = $this->tldAttributes->describe($item->domain(), $item->tldAttributes);
+            $cart->items[] = $priced;
         }
 
         $this->applyPromotion($cart, $promotionCode, $client);

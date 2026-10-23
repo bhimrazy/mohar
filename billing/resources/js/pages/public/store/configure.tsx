@@ -2,6 +2,7 @@ import { Link, useForm, useHttp } from '@inertiajs/react';
 import {
     TldAttributeFields,
     tldFieldsFor,
+    tldMatch,
     type TldAttributeFieldMap,
 } from '@/components/orders/tld-attribute-fields';
 import { Head } from '@/components/app/head';
@@ -510,6 +511,15 @@ export default function Configure({
                                 )}
                                 {tldFields.length > 0 && (
                                     <TldAttributeFields
+                                        extension={
+                                            tldMatch(
+                                                tldAttributeFields,
+                                                form.data.domain_name,
+                                            ) ?? ''
+                                        }
+                                        onClearError={(name) =>
+                                            form.clearErrors(name as never)
+                                        }
                                         fields={tldFields}
                                         values={form.data.tld_attributes}
                                         onChange={(values) =>

@@ -145,7 +145,7 @@ class OrderController extends Controller
             domainMode: $request->input('domain_mode') ?: null,
             domainName: $request->filled('domain_name') ? $request->string('domain_name')->lower()->toString() : null,
             eppCode: $request->input('epp_code') ?: null,
-            tldAttributes: $request->input('domain_mode') === 'register' ? $tldAttributes->clean($request->input('domain_name'), $request->input('tld_attributes')) : [],
+            tldAttributes: $request->input('domain_mode') === 'register' ? $tldAttributes->clean($request->input('domain_name'), $request->input('tld_attributes'), 'domain_name') : [],
         );
 
         $placed = $placeOrder->handle(new CheckoutData(

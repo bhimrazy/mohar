@@ -19,7 +19,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   (`domains.additional_fields`, no schema change) and sent with the registration; a transfer sends none. They are never
   written to the activity log, the registrar command log or an error message. ResellerClub asks for the purpose and
   who is registering for `.us`, and for the identification, policy reason and eligibility confirmation for `.com.au`;
-  other extensions are unchanged. These ResellerClub attribute names are verified against the simulator only. Upgrade
+  other extensions are unchanged; an ABN or ACN is checked for its length before payment. Each field says who qualifies,
+  the cart and checkout show what was entered (ID numbers shortened to their last 3 characters), and staff see the stored
+  details, with labels, on the domain page (read-only). Answers that a registry's error message repeats are masked. These
+  ResellerClub attribute names are verified against the simulator only. Upgrade
   notes: no migration, no new permission; drivers without the capability behave as before; a domain ordered before
   this release has no details stored.
 

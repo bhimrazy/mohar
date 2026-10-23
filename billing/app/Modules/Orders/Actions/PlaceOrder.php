@@ -406,7 +406,7 @@ class PlaceOrder
                 $this->orderItem($order, OrderItemType::Addon, $addonId, $line, ['addon_id' => $line->addonId, 'parent_id' => $serviceItem?->id]);
                 $ids[$line->key] = $addonId;
             } elseif ($line->kind === 'domain' && $line->domain !== null) {
-                $domainId = $this->domains->createPending(new DomainDraft(
+                $domainId = $this->createDomain(new DomainDraft(
                     clientId: $client->id,
                     domain: $line->domain,
                     action: $line->domainAction === 'transfer' ? 'transfer' : 'register',
@@ -427,6 +427,25 @@ class PlaceOrder
         }
 
         return $ids;
+    }
+
+    /**
+     * Creates the pending domain. Extension details that no longer fit the registrar's fields (they changed after
+     * the item was added) are shown on the checkout page, naming the domain, since the cart cannot edit them.
+     */
+    private function createDomain(DomainDraft $draft): int
+    {
+        try {
+            return $this->domains->createPending($draft);
+        } catch (ValidationException $exception) {
+            $message = collect($exception->errors())->first(fn (array $messages, string $key): bool => str_starts_with($key, 'tld_attributes.'));
+
+            if ($message === null) {
+                throw $exception;
+            }
+
+            throw ValidationException::withMessages(['cart' => __(':domain: :problem Remove it from your cart and add it again.', ['domain' => $draft->domain, 'problem' => $message[0]])]);
+        }
     }
 
     /**
