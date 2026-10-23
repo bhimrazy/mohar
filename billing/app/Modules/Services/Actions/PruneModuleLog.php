@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Actions;
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Core\Support\ChunkedDelete;
 use App\Modules\Services\Models\ModuleCommand;
 use App\Modules\Services\Support\ServiceSettings;
@@ -12,10 +13,10 @@ use Carbon\CarbonImmutable;
  */
 class PruneModuleLog
 {
-    public function __construct(private ServiceSettings $settings) {}
+    public function __construct(private ServiceSettings $settings, private CompanyClock $clock) {}
 
     public function handle(CarbonImmutable $today): int
     {
-        return ChunkedDelete::run(ModuleCommand::query()->where('created_at', '<', $today->subDays($this->settings->moduleLogRetentionDays())));
+        return ChunkedDelete::run(ModuleCommand::query()->where('created_at', '<', $this->clock->dayBounds($today->subDays($this->settings->moduleLogRetentionDays()))[0]));
     }
 }
