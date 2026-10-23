@@ -361,8 +361,8 @@ jobs:
 
             - name: Pest (PostgreSQL)
               env:
-                  # The suite is round-trip bound on PostgreSQL (workers mostly wait on the database), so it runs more
-                  # workers than the 2 vCPUs; each stays under the 1 GB memory_limit in phpunit.xml.
+                  # Round-trip bound (workers mostly wait on the database): 4 workers even on a 2-vCPU private-repository
+                  # runner; each stays under the 1 GB memory_limit in phpunit.xml.
                   PEST_PROCESSES: '4'
                   SHARD: ${{ matrix.shard }}/3
               run: |

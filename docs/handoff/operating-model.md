@@ -106,23 +106,35 @@ npx tsc --noEmit
 npx vp check                                         # Vite+ lint + format
 npm test                                             # Vitest
 $H npm run build
-$H php artisan test --compact tests/Arch <touched suites>
+$MOHAR_ROOT/scripts/test.sh --changed                # tests related to the branch's changes, SQLite
+$MOHAR_ROOT/scripts/test.sh --changed --pgsql        # the same on PostgreSQL, for queries and migrations
 ```
 
-On macOS, tests that need Linux tools (the simulators in `tools/simulators/tests` use `setsid`) run through
-`$MOHAR_ROOT/scripts/linux.sh <command>` from the worktree's `billing/`, in the production base image.
+Tests run through `scripts/test.sh`, not hand-picked directories (agents kept missing `tests/Feature/Security` and
+`tests/Feature/Migration`, which catch breakage across PRs). It takes a `scripts/heavy.sh` slot itself and runs
+`pest --parallel` with a worker count picked from the load (`TEST_LOAD_CEILING`, default 8, minus the 1-minute load,
+2–4 for the whole suite; `TEST_PROCESSES` overrides).
 
-CI is the full-suite runner on SQLite and PostgreSQL. Locally, engineers and reviewers run the tests they touched
-plus `tests/Arch`, on PostgreSQL too for queries and migrations: `eval "$($MOHAR_ROOT/scripts/pg.sh <slug>)"`
-gives a database on the shared server `mohar-pg` (in-memory, recreated on demand; `--stop` and `--prune` are for the CTO only). No private
-PostgreSQL containers. The full suite runs locally only to diagnose a CI failure.
+- `--changed`: against `origin/develop` (fetch first), plus uncommitted and untracked files: the changed test files,
+  `tests/Feature/<M>` and `tests/Unit/<M>` for a change in `app/Modules/<M>`, and always `tests/Arch`,
+  `tests/Extensions`, `tests/Feature/Security`, `tests/Feature/Migration` and `tests/Feature/TestHarness`. A change to
+  shared code (kernel, config, routes, migrations outside modules, `tests/Pest.php`, …) runs the whole suite.
+  `--list` prints the selection.
+- No option: the whole suite on SQLite (about 2 minutes with 4 workers on the Mac). `--pgsql`: on PostgreSQL via
+  `scripts/pg.sh <worktree slug>`, without Unit and Arch, as CI does. Paths and `-- <pest options>` narrow a run.
+- On macOS without `setsid` the simulator tests (`tools/simulators/tests`) run once through `scripts/linux.sh`, in
+  the production base image on SQLite (Docker must be running).
+
+`eval "$($MOHAR_ROOT/scripts/pg.sh <slug>)"` gives a database on the shared server `mohar-pg` (in-memory, recreated
+on demand; `--stop` and `--prune` are for the CTO only); `test.sh --pgsql` calls it. No private PostgreSQL
+containers. CI runs the whole suite on SQLite and PostgreSQL on every ready PR.
 
 ## Repository visibility and CI
 
 The owner switches the repository (`bhimrazy/mohar`) between public and private as needed.
 
-- **Public (current, since 2026-10-20 evening):** Actions minutes are free. CI (`.github/workflows/ci.yml`, one job,
-  about 10 minutes) runs on every non-draft PR and builds `develop` on every push (#319); the E2E simulator job
+- **Public (current, since 2026-10-20 evening):** Actions minutes are free. CI (`.github/workflows/ci.yml`: a checks
+  job, then sharded SQLite and PostgreSQL jobs and the build in parallel, under the one required check; about 5 minutes) runs on every non-draft PR and builds `develop` on every push (#319); the E2E simulator job
   runs only on pushes to `main`; drafts run only with the `ci`
   label; the docs fast path runs only `vp check`. Deploy smoke (`deploy-smoke` label), load test (`load-test` label, once
   #108 merges) and the E2E simulator job (`e2e` label) run only on an explicit CTO decision. Before each switch to public,
