@@ -159,6 +159,7 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
             claimedStatus: is_string($payload['status'] ?? null) ? mb_substr($payload['status'], 0, 40) : null,
             signatureValid: $valid,
             raw: [...$raw, 'signature_valid' => $valid],
+            signedPaid: $valid && ($payload['status'] ?? null) === 'COMPLETE',
         );
     }
 

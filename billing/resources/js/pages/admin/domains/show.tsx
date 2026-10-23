@@ -31,6 +31,7 @@ import { NameserversForm } from '@/components/domains/nameservers-form';
 import {
     DetailsForm,
     ForceStatusDialog,
+    LinkOrderDialog,
     MoveDialog,
 } from '@/components/domains/admin-domain-forms';
 import { SettingSwitch } from '@/components/domains/setting-switch';
@@ -157,13 +158,27 @@ export default function DomainShow({
     billingAvailable,
 }: Props) {
     const [dialog, setDialog] = useState<
-        'status' | 'move' | 'renew' | 'submit' | 'delete' | 'invoice' | null
+        | 'status'
+        | 'move'
+        | 'renew'
+        | 'submit'
+        | 'delete'
+        | 'invoice'
+        | 'link'
+        | null
     >(null);
     const supports = (capability: string) => capabilities.includes(capability);
     const isPending = domain.status === 'pending';
     const isManual = domain.registrar_key === null;
     const isLive = ['active', 'grace', 'redemption'].includes(domain.status);
     const canRenewAtRegistrar = isLive || domain.status === 'expired';
+    const canLinkOrder =
+        can.update &&
+        can.commands &&
+        !isManual &&
+        supports('link_order') &&
+        canRenewAtRegistrar &&
+        !domain.registrar_order_id;
 
     return (
         <>
@@ -257,6 +272,15 @@ export default function DomainShow({
                                                         : 's'}
                                                 </DropdownMenuItem>
                                             )}
+                                        {canLinkOrder && (
+                                            <DropdownMenuItem
+                                                onSelect={() =>
+                                                    setDialog('link')
+                                                }
+                                            >
+                                                Link {registrar?.name} order…
+                                            </DropdownMenuItem>
+                                        )}
                                         {can.update && (
                                             <>
                                                 <DropdownMenuItem
@@ -549,6 +573,18 @@ export default function DomainShow({
                                                         : 'No'
                                                     : 'Not applicable',
                                         },
+                                        ...(supports('link_order')
+                                            ? [
+                                                  {
+                                                      label: `${registrar?.name ?? 'Registrar'} order`,
+                                                      value: domain.registrar_order_id
+                                                          ? String(
+                                                                domain.registrar_order_id,
+                                                            )
+                                                          : 'Not linked',
+                                                  },
+                                              ]
+                                            : []),
                                         {
                                             label: 'Capabilities',
                                             value: capabilities.length
@@ -674,6 +710,12 @@ export default function DomainShow({
                         onOpenChange={(open) =>
                             setDialog(open ? 'status' : null)
                         }
+                    />
+                    <LinkOrderDialog
+                        domain={domain}
+                        registrarName={registrar?.name ?? 'registrar'}
+                        open={dialog === 'link'}
+                        onOpenChange={(open) => setDialog(open ? 'link' : null)}
                     />
                     <MoveDialog
                         domain={domain}

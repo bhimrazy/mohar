@@ -6,6 +6,22 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### `ReturnHint::$signedPaid` (#323)
+
+- `App\Data\Billing\ReturnHint` has a new last constructor parameter `bool $signedPaid = false`: the customer's return
+  carries the provider's own valid signature over a paid status (eSewa COMPLETE). It is still only a hint for settling,
+  but Billing keeps it as evidence, so a later "not found" goes to staff review instead of ending the attempt.
+  Additive: existing implementers (Khalti, Stripe, sandbox) leave it false and need no change.
+
+### Linking an existing registrar order (ADR 0009 Amendment 4, #365)
+
+- New capability interface `App\Contracts\Domains\Registrar\LinksExistingOrders` (detected with `instanceof`;
+  registry capability name `link_order`, `RegistrarDriverRegistry::LINK_ORDER`): `lookupOrder(RegistrarConfig,
+  DomainRef, string $orderId): LinkedOrder`. Read-only; throws a non-retryable `RegistrarException` with a plain
+  message when the order does not qualify. New DTO `App\Data\Domains\Registrar\LinkedOrder` (`remote`, `status`
+  `active|pending`, `expiryDate`, `toArray()`). Additive: drivers without the interface keep working and are not
+  offered the staff action. The test fakes opt in (`LinkingRegistrar`); the log driver implements it.
+
 ### Report registry and export pipeline (ADR 0025, VAT PR 0c)
 
 - New provider contract `App\Contracts\Reports\Report` (`key`, `label`, `category`, `filters`, `columns`, `rows`,

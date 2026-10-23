@@ -555,6 +555,28 @@ merchants).
   Below that (including 0, the sweep off) the attempt stays pending and polled as before. The return route lets a cancel
   return for a pending attempt look again 10 seconds after the last lookup instead of one minute. eSewa also sends
   real failures to `failure_url`; one that answers `NOT_FOUND` is treated, and worded, as a cancel.
+- **A signed COMPLETE return is evidence (#323).** The driver marks a return whose signature is valid and whose status is
+  COMPLETE as `ReturnHint::$signedPaid`, and the return route passes it to Billing, which keeps it on the attempt
+  (`raw.signed_return`: status, amount, code, time; it survives later lookups). If the status check then answers
+  `NOT_FOUND` (eSewa matches on the amount, so a payment settled for another amount looks like this), the attempt goes
+  to staff review (Ambiguous, `billing.payment.unmatched` in the activity log) instead of being abandoned, open and
+  blocking new payments, and still books if a later lookup says COMPLETE for our amount. A closed attempt is reopened for
+  review the same way. An attempt already in review is never expired by `NOT_FOUND` past the grace period (#217 N5).
+  The review attempt stops expiring (`expires_at` null, as for a processing payment), so it keeps blocking a new payment for the
+  invoice. The evidence is also kept when the return route skips the lookup (its one-minute floor). Staff settle it on
+  Payment attempts: **Mark as paid** (provider reference required, deduped on `provider_txn_id`, booked through the
+  normal settle path) or **Not paid** (`Failed`, `lookups_closed_at` set); both under `billing.payments.manage` with a
+  recent password and logged as `billing.payment.resolved` inside the booking transaction. Mark as paid also asks for
+  the amount shown in the portal and refuses unless it equals the attempt's amount (a part or over payment is recorded
+  with Add payment), and refuses a reference already on a booked transaction (it names the invoice). Not paid is final:
+  once `lookups_closed_at` is set, no lookup reopens or books it; a payment the gateway settles later is recorded with Add payment.
+  The blocking lasts while the attempt is within the 14 days of `PaymentInProgress::attempt()` (and of the open poller):
+  after that it stays on the review list and no longer blocks a new payment.
+  **Identifier.** The status check stores `ref_id` as `provider_txn_id`, which is what the dedupe compares; the signed
+  return carries `transaction_code` (kept in `raw.signed_return`, and on the booking as `return_transaction_code`).
+  eSewa's documents do not say the two are equal, so the form asks for the portal's reference ID and shows the return's
+  code beside it; whether they match in production is not verified.
+  Still open (#217 N4): more REA captures of confirmed cancels and of the status after the booking expires.
 - **Booking window (UAT capture, 2026-10-21).** eSewa's `product_details` for a fresh booking carries
   `bookingExpiryTime`, 50 minutes after the form post, in every capture. The docs' "15 minutes after login" does not
   end the booking (the login limit itself was not tested). An eSewa attempt therefore lives 60 minutes (`attempt_ttl_minutes`, never below

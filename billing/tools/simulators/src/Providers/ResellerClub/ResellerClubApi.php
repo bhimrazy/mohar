@@ -477,6 +477,55 @@ final class ResellerClubApi
     }
 
     /**
+     * GET domains/details.json?order-id= with `options` groups, as details-by-name but for an order id. An order of
+     * another reseller is reported as missing, as the real API does for ids outside the caller's account.
+     */
+    public function detailsById(Request $request): Response
+    {
+        $order = $this->order((string) ($request->input()['order-id'] ?? ''));
+        $options = $request->values('options');
+
+        if ($order === null || ($order['resellerid'] ?? ResellerClubSimulator::RESELLER_ID) !== ResellerClubSimulator::RESELLER_ID) {
+            return self::error('No domain order exists with order id '.($request->input()['order-id'] ?? '').' in this account.');
+        }
+
+        if ($options === [] || array_diff($options, ['All', 'OrderDetails']) !== []) {
+            return self::error('{options=Choose from All or OrderDetails}');
+        }
+
+        return Response::json([
+            'orderid' => $order['orderid'], 'entityid' => $order['orderid'], 'domainname' => $order['domainname'], 'description' => $order['domainname'],
+            'currentstatus' => $order['currentstatus'], 'resellerid' => ResellerClubSimulator::RESELLER_ID, 'customerid' => $order['customerid'],
+            'creationtime' => $order['creationtime'], 'endtime' => $order['endtime'], 'productkey' => self::TLDS[$order['tld']]['key'],
+            'domsecret' => $order['domsecret'], 'isprivacyprotected' => $order['privacy'] ? 'true' : 'false',
+        ]);
+    }
+
+    /**
+     * An order that already exists in the account (control action `add_order`), not placed through the API.
+     *
+     * @return array<string, mixed>
+     */
+    public function importOrder(string $name, string $customerId, string $status, string $resellerId, int $expiresInDays): array
+    {
+        [, $tld] = self::split($name);
+
+        if ($tld === null || ! in_array($status, self::STATUSES, true) || $customerId === '') {
+            throw new \InvalidArgumentException('Give a domain with an offered extension, a customer_id and a known status.');
+        }
+
+        $order = [
+            'orderid' => (string) (80_000_000 + $this->scenario->state()->increment('ids', 'order')), 'domainname' => $name, 'tld' => $tld, 'kind' => 'register',
+            'customerid' => $customerId, 'resellerid' => $resellerId, 'contacts' => ['reg' => '0', 'admin' => '0', 'tech' => '0', 'billing' => '0'], 'ns' => [],
+            'currentstatus' => $status, 'creationdt' => (string) time(), 'creationtime' => (string) time(), 'endtime' => (string) (time() + $expiresInDays * 86_400),
+            'transferlock' => false, 'privacy' => false, 'domainstatus' => [], 'domsecret' => self::authCode(), 'transfer_stage' => null,
+        ];
+        $this->saveOrder($order);
+
+        return $order;
+    }
+
+    /**
      * GET domains/orderid.json?domain-name=: the order id as a bare number.
      *
      * @param  array<array-key, mixed>  $input

@@ -4,9 +4,11 @@ namespace App\Modules\Billing\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\SettlePaymentAttempt;
+use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Support\Money;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -18,7 +20,7 @@ use Inertia\Response;
  */
 class PaymentAttemptController extends Controller
 {
-    public function index(Request $request): Response
+    public function index(Request $request, GatewayManager $gateways): Response
     {
         $this->authorize('billing.payments.manage');
         $filters = $request->validate([
@@ -40,6 +42,7 @@ class PaymentAttemptController extends Controller
                     'id' => $attempt->id,
                     'reference' => $attempt->reference,
                     'gateway' => $attempt->gateway,
+                    'gateway_name' => $gateways->has($attempt->gateway) ? $gateways->gateway($attempt->gateway)->display_name : $attempt->gateway,
                     'status' => $attempt->status->value,
                     'amount' => $attempt->amount,
                     'currency' => $attempt->currency,
@@ -55,6 +58,9 @@ class PaymentAttemptController extends Controller
                     'late_checked_at' => $attempt->late_checked_at?->toIso8601String(),
                     'check_reason' => $attempt->check_reason,
                     'needs_check' => $attempt->needsCheck(),
+                    'can_resolve' => $attempt->status === AttemptStatus::Ambiguous,
+                    'staff_closed' => $attempt->review_reason === SettlePaymentAttempt::STAFF_CLOSED_REASON,
+                    'return_code' => is_string($attempt->raw[SettlePaymentAttempt::SIGNED_RETURN]['transaction_code'] ?? null) ? $attempt->raw[SettlePaymentAttempt::SIGNED_RETURN]['transaction_code'] : null,
                 ]),
             'filters' => (object) array_filter($filters),
             'statuses' => array_map(fn (AttemptStatus $status): array => ['value' => $status->value, 'label' => ucfirst($status->value)], AttemptStatus::cases()),
@@ -67,6 +73,29 @@ class PaymentAttemptController extends Controller
         // Staff are waiting on this request: one quick provider try, like the customer's return.
         $status = $settle->handle($attempt, interactive: true);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Attempt :reference is :status.', ['reference' => $attempt->reference, 'status' => $status->value])]);
+
+        return back();
+    }
+
+    /**
+     * Staff settle an attempt in review by hand, after looking in the provider's portal: it was paid (the amount they
+     * read there must match, and the provider's reference is booked once) or it was not (closed for good, the invoice
+     * can be paid again). The audit entry is written by the action, inside its transaction.
+     */
+    public function resolve(Request $request, PaymentAttempt $attempt, SettlePaymentAttempt $settle): RedirectResponse
+    {
+        $this->authorize('billing.payments.manage');
+        $data = $request->validate([
+            'outcome' => ['required', 'in:paid,not_paid'],
+            'provider_reference' => ['required_if:outcome,paid', 'nullable', 'string', 'max:191'],
+            'amount' => ['required_if:outcome,paid', 'nullable', 'string', 'regex:/^\d{1,3}(,?\d{3}){0,3}(\.\d{1,2})?$/'],
+        ], ['amount.regex' => __('Enter the amount as the portal shows it, for example 1130.50.')]);
+        $paid = $data['outcome'] === 'paid';
+
+        $paid
+            ? $settle->resolvePaid($attempt, $data['provider_reference'] ?? '', Money::fromDecimal(str_replace(',', '', $data['amount'] ?? '0'), $attempt->currency)->amount)
+            : $settle->resolveNotPaid($attempt);
+        Inertia::flash('toast', ['type' => 'success', 'message' => $paid ? __('Payment recorded.') : __('Closed as not paid. The invoice can be paid again.')]);
 
         return back();
     }
