@@ -1,4 +1,4 @@
-### Report page totals and paging rules (#PR, closes #403)
+### Report page totals and paging rules (#428, closes #403)
 
 - `App\Data\Reports\ReportPage` has a new last constructor parameter `array $totals = []`. `ReportViewer::page()`
   fills it from `ProvidesTotals::totals()`, called with the unpaged query, so a screen never calls the report itself.

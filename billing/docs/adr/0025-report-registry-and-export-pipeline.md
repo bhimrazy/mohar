@@ -1,6 +1,6 @@
 # ADR 0025 — Report registry and one export pipeline
 
-- Status: Accepted · 2026-10-23 (amended in PR #352 after review; first Proposed 2026-10-22; Amendment (#PR) on screen
+- Status: Accepted · 2026-10-23 (amended in PR #352 after review; first Proposed 2026-10-22; Amendment (#428) on screen
   paging) · Owner: Principal architect.
 - Related: `billing/docs/product/reports.md` §6–§7, `billing/docs/product/vat-register.md` (PR #327), ADR 0001
   (modules), ADR 0004 (objects disk), ADR 0010 (public API), ADR 0012 (capability interfaces and registries), ADR 0014
@@ -80,7 +80,7 @@ a second one.
   reports that span modules (income, top clients), reading through other modules' models as `architecture.md` allows.
   Every report, whoever owns it, goes through the same registry and pipeline.
 - Until the Reports module exists, the owner also renders the report's screen (for example Billing → VAT register),
-  reading it through `ReportViewer::page()` (Amendment (#PR) below).
+  reading it through `ReportViewer::page()` (Amendment (#428) below).
 - When the Reports module arrives, it adds the library page, saved filters and the dashboard links on top of the same
   registry. Owners do not change.
 
@@ -199,7 +199,7 @@ reports ("Report modules" in `billing/docs/parity/developer-architecture.md`).
   export would copy it again, `-` rule included. Rejected.
 - **Laravel Excel for every format:** one library, but a new dependency for CSV, which needs none. Deferred: XLSX comes only once the IRD portal requires an upload (D4).
 
-## Amendment (#PR) — 2026-10-23, on-screen paging: view versus export
+## Amendment (#428) — 2026-10-23, on-screen paging: view versus export
 
 Paging (#355, K3) added a second way to read a report's rows. This amendment states how it relates to exports, and
 replaces the §2 text that has the owner render the screen "using the registry's rows and columns".
