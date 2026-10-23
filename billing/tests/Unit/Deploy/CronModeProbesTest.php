@@ -63,12 +63,18 @@ function d4Dockerfile(): string
     return file_get_contents(dirname(__DIR__, 4).'/deploy/Dockerfile');
 }
 
+/** The text without whole-line comments, so a probe cannot pass on a comment that mentions the thing. */
+function d4WithoutComments(string $text): string
+{
+    return preg_replace('/^\s*#.*$/m', '', $text);
+}
+
 /** The instructions of one build stage, from its FROM line to the next FROM. */
 function d4Stage(string $name): string
 {
     preg_match('/^FROM (\S+) AS '.preg_quote($name, '/').'\n(.*?)(?=^FROM |\z)/ms', d4Dockerfile(), $m) || throw new RuntimeException("no stage {$name}");
 
-    return $m[1]."\n".$m[2];
+    return d4WithoutComments($m[1]."\n".$m[2]);
 }
 
 test('the release target is built from the same stages as the prod image and contains only the app tree and the built assets', function () {
@@ -132,10 +138,13 @@ test('the release tarball excludes .env, tests, docs, node_modules and dev vendo
 
 test('the draft release job is the only write-capable job besides the GHCR push, and runs only from the default branch for the built tag', function () {
     $workflow = file_get_contents(dirname(__DIR__, 4).'/.github/workflows/build-image.yml');
-    preg_match('/^    release:\n(.*)\z/ms', $workflow, $m) || throw new RuntimeException('no release job');
-    $job = $m[1];
+    preg_match('/^    release:\n(.*?)(?=^    \S+:\n|\z)/ms', $workflow, $m) || throw new RuntimeException('no release job');
+    $job = d4WithoutComments($m[1]);
+    $workflow = d4WithoutComments($workflow);
 
     expect($workflow)->toContain("permissions:\n    contents: read\n")
+        ->and($workflow)->toContain("format('refs/tags/{0}', inputs.release_tag)")
+        ->and($job)->toContain('-- "$RELEASE_TAG"')
         ->and($job)->toContain('contents: write')
         ->and($job)->toContain("github.ref == format('refs/heads/{0}', github.event.repository.default_branch)")
         ->and($job)->toContain('inputs.release_tag == inputs.ref')
