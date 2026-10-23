@@ -80,6 +80,10 @@ Out of scope: §16. Kernel prerequisites (§18): PR 0a, the `CompanyClock` contr
   mode turns proforma mode on (`sequential_paid_numbering` and `set_issue_date_on_payment` true; Mohar already
   implements both in `InvoiceSettlement::settle`), and the settings lock of ADR 0024 §8 keeps it on. Unpaid invoices carry a proforma
   number. **MUST**
+- **Which tax is Nepal VAT (VAT PR 3a, #430).** Staff choose the Nepal VAT tax rules and the one 0% export rule on Admin →
+  Setup → Nepal VAT (`billing.tax.manage` and a recent password for every change). The snapshot flags each tax level as
+  Nepal VAT or not and sets `supply_class` from those rules; the register's VAT figure is the flagged levels only. The rules
+  are in ADR 0024, Amendment #432. **MUST**
 - Rule used everywhere below: a **tax invoice** is an invoice with a legal `number`. Drafts and proforma invoices are
   not. Only tax invoices appear in the register and only they take notes. **MUST**
 - Consequence of D1: a tax invoice is normally paid, so cancel, cancel lines, late fees and reopen (which act only on

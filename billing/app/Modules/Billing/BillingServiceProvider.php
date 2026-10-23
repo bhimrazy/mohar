@@ -49,6 +49,7 @@ use App\Modules\Billing\Services\BillingDirectory;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\DocumentNumbers;
 use App\Modules\Billing\Services\InvoiceService;
+use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Billing\Services\PaymentReconciler;
 use App\Modules\Billing\Services\Tax\BillingTaxIdRules;
 use App\Modules\Billing\Services\Tax\TaxEngine;
@@ -76,6 +77,7 @@ use App\Support\Search\GlobalSearch;
 use App\Support\Security\EncryptedModel;
 use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
+use App\Support\Settings\SettingLocks;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -225,6 +227,9 @@ class BillingServiceProvider extends ModuleServiceProvider
         $navigation->add('admin', new NavItem('Quotes', 'admin.billing.quotes.index', 'ClipboardList', 'Billing', 30, 'billing.quotes.view', 'admin.billing.quotes.*'));
         $navigation->add('admin', new NavItem('Account credit', 'admin.billing.credit.index', 'Wallet', 'Billing', 40, 'billing.credit.manage', 'admin.billing.credit.*'));
         $navigation->add('admin', new NavItem('Gateways', 'admin.billing.gateways.index', 'CreditCard', 'Setup', 40, 'billing.gateways.manage', 'admin.billing.gateways.*'));
+        if (config('features.billing.nepal_vat_mode')) {
+            $navigation->add('admin', new NavItem('Nepal VAT', 'admin.billing.vat-mode.edit', 'FileText', 'Setup', 44, 'billing.tax.manage', 'admin.billing.vat-mode.*'));
+        }
         $navigation->add('admin', new NavItem('Tax rules', 'admin.billing.tax-rules.index', 'Percent', 'Setup', 41, 'billing.tax.manage', 'admin.billing.tax-rules.*'));
         $navigation->add('admin', new NavItem('VAT register', 'admin.billing.vat-register.index', 'BookOpen', 'Billing', 45, 'reports.vat_register.view', 'admin.billing.vat-register.*'));
         $navigation->add('admin', new NavItem('Payment attempts', 'admin.billing.payment-attempts.index', 'Activity', 'Billing', 50, 'billing.payments.manage', 'admin.billing.payment-attempts.*'));
@@ -328,6 +333,8 @@ class BillingServiceProvider extends ModuleServiceProvider
                 default => true,
             };
         }, __('The number format needs {YEAR} when numbering resets yearly, and {YEAR} and {MONTH} when it resets monthly.'));
+
+        $this->app->make(SettingLocks::class)->lock(NepalVatMode::LOCKED, fn (): ?string => app(NepalVatMode::class)->lockReason(), NepalVatMode::ENABLED);
 
         $this->app->make(SettingsRegistry::class)->section('billing', 'Billing', [
             new SettingDefinition('billing.seller.legal_name', 'Seller legal name', help: 'Printed on invoices; defaults to the company name.', rules: ['max:200']),

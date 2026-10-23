@@ -24,6 +24,7 @@ use App\Support\Security\EncryptedStorage;
 use App\Support\Security\PasswordPolicy;
 use App\Support\Seo\SitemapRegistry;
 use App\Support\Services\ProvisioningDriverRegistry;
+use App\Support\Settings\SettingLocks;
 use App\Support\Settings\SettingsRegistry;
 use App\Support\Themes\ThemeRegistry;
 use Carbon\CarbonImmutable;
@@ -54,6 +55,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(PermissionRegistry::class);
         $this->app->singleton(ReportRegistry::class);
         $this->app->singleton(SettingsRegistry::class);
+        $this->app->singleton(SettingLocks::class);
         $this->app->singleton(GlobalSearch::class);
         $this->app->singleton(Automation::class);
         $this->app->singleton(ThemeRegistry::class);

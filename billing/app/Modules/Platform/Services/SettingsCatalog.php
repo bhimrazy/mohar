@@ -7,6 +7,7 @@ use App\Modules\Core\Support\Settings;
 use App\Support\Countries;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Settings\SettingDefinition;
+use App\Support\Settings\SettingLocks;
 use App\Support\Settings\SettingsRegistry;
 use Illuminate\Validation\Rule;
 
@@ -19,7 +20,7 @@ class SettingsCatalog
     /** Permission for sections registered without their own permission. */
     public const DEFAULT_PERMISSION = 'core.settings.update';
 
-    public function __construct(private SettingsRegistry $registry, private Settings $settings, private PermissionRegistry $permissions) {}
+    public function __construct(private SettingsRegistry $registry, private Settings $settings, private PermissionRegistry $permissions, private SettingLocks $locks) {}
 
     /**
      * Sections guarded by a sensitive permission need a recent password confirmation to change.
@@ -58,10 +59,12 @@ class SettingsCatalog
     }
 
     /**
-     * @return list<array{key: string, label: string, type: string, help: ?string, options: list<array{value: string, label: string}>, secret: bool, required: bool, value: mixed, is_set: bool}>
+     * @return list<array{key: string, label: string, type: string, help: ?string, options: list<array{value: string, label: string}>, secret: bool, required: bool, value: mixed, is_set: bool, locked_reason: ?string}>
      */
     public function fields(string $section): array
     {
+        $this->locks->flush();
+
         return array_map(function (SettingDefinition $definition): array {
             $value = $this->settings->get($definition->key);
 
@@ -70,6 +73,7 @@ class SettingsCatalog
                 'label' => $definition->label,
                 'type' => $definition->type,
                 'help' => $definition->help,
+                'locked_reason' => $this->locks->reason($definition->key),
                 'options' => array_map(
                     fn (string|int $value, string $label): array => ['value' => (string) $value, 'label' => $label],
                     array_keys($definition->options),

@@ -76,6 +76,8 @@ class TaxEngine implements TaxCalculator
             inclusive: $this->settings->string('tax.mode', 'exclusive') === 'inclusive',
             perInvoice: $this->settings->string('tax.calculation', 'per_line') === 'per_invoice',
             rounding: $this->settings->string('tax.rounding', 'half_up'),
+            rule1: $level1?->id,
+            rule2: $level2?->id,
         );
     }
 
