@@ -92,9 +92,9 @@ test('registrar settings: integers are validated and stored as numbers, selects 
 
     $this->put($route, ['is_active' => true, 'test_mode' => false, 'settings' => ['sla_days' => 'abc', 'mode' => 'bogus']])
         ->assertSessionHasErrors(['settings.sla_days', 'settings.mode']);
-    $this->put($route, ['is_active' => true, 'test_mode' => false, 'settings' => ['api_key' => 'k-1', 'sla_days' => '7', 'mode' => 'test']])
+    $this->put($route, ['is_active' => true, 'test_mode' => false, 'settings' => ['api_key' => 'key-0001', 'sla_days' => '7', 'mode' => 'test']])
         ->assertSessionHasNoErrors();
 
     expect(RegistrarAccount::query()->where('key', 'probe')->sole()->settings)
-        ->toBe(['api_key' => 'k-1', 'sla_days' => 7, 'mode' => 'test']);
+        ->toBe(['api_key' => 'key-0001', 'sla_days' => 7, 'mode' => 'test']);
 });

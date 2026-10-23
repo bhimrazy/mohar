@@ -41,3 +41,21 @@ test('a secret cannot ship a default, and only a select takes remote options', f
     expect(fn () => new SettingField('api_key', 'API key', FieldType::Secret, default: 'sk_live'))->toThrow(InvalidArgumentException::class, 'cannot have a default')
         ->and(fn () => new SettingField('plan', 'Plan', optionsSource: SettingField::OPTIONS_REMOTE))->toThrow(InvalidArgumentException::class, 'Only a select');
 });
+
+test('a secret field needs 8 bytes unless it declares a shorter known format of at least 4', function () {
+    $key = new SettingField('api_key', 'API key', FieldType::Secret);
+    $pin = SettingField::fromArray(['key' => 'pin', 'label' => 'PIN', 'type' => 'secret', 'min_length' => 6]);
+
+    expect($key->minimumSecretLength())->toBe(8)
+        ->and($key->isTooShort(' 1234567 '))->toBeTrue()
+        ->and($key->isTooShort('12345678'))->toBeFalse()
+        ->and($key->isTooShort(''))->toBeFalse()
+        ->and($pin->isTooShort('12345'))->toBeTrue()
+        ->and($pin->isTooShort('123456'))->toBeFalse()
+        ->and($pin->toArray()['min_length'])->toBe(6)
+        ->and($key->toArray()['min_length'])->toBe(8)
+        ->and((new SettingField('region', 'Region'))->toArray()['min_length'])->toBeNull()
+        ->and((new SettingField('region', 'Region'))->isTooShort('eu'))->toBeFalse()
+        ->and(fn () => new SettingField('pin', 'PIN', FieldType::Secret, minLength: 3))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => new SettingField('region', 'Region', minLength: 6))->toThrow(InvalidArgumentException::class);
+});

@@ -6,6 +6,21 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Short stored secrets (ADR 0023 step 3c)
+
+- `App\Data\Integrations\SettingField` has a new last constructor parameter `?int $minLength = null` (array key
+  `min_length`), allowed only on a secret field and only from 4 (`MIN_SECRET_FLOOR`); otherwise the constructor throws.
+  New `minimumSecretLength()` (the declared value, or `MIN_SECRET_BYTES` = 8) and `isTooShort(mixed)` (a non-empty
+  trimmed secret under the minimum). `toArray()` gains `min_length`: the effective minimum for a secret, null
+  otherwise. Additive: existing fields and drivers need no change.
+- New rule `App\Support\Integrations\SecretMinimumLength` (a `ValidationRule` over one `SettingField`; an empty
+  value passes, since it keeps the stored one).
+- New registry `App\Support\Integrations\StoredSecrets` (singleton in `AppServiceProvider`): `register(string $key,
+  Closure $source)` (key `[a-z0-9_]{1,50}`, once), `findTooShort()` and the static `tooShort(array $fields, array
+  $values)`. A source yields `owner`, `fields` and decrypted `values` for each configured integration; findings carry
+  names and the minimum, never values. Billing (`gateways`), Domains (`registrars`) and Services (`servers`) register
+  sources; `integrations:short-secrets` (Core) prints them.
+
 ### `ReturnHint::$signedPaid` (#323)
 
 - `App\Data\Billing\ReturnHint` has a new last constructor parameter `bool $signedPaid = false`: the customer's return
