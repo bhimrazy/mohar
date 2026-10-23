@@ -156,13 +156,13 @@ class FiscalSnapshotWriter
 
     /**
      * @param  Collection<int, \stdClass>  $rows
-     * @return list<array{id: int, description: string, amount: int, tax_amount: int, cancelled: bool}>
+     * @return list<array{id: int, description: string, amount: int, tax_amount: int, taxable: bool, cancelled: bool}>
      */
     public function itemRows(Collection $rows): array
     {
         return array_values($rows->map(fn (\stdClass $row): array => [
             'id' => (int) $row->id, 'description' => (string) $row->description, 'amount' => (int) $row->amount,
-            'tax_amount' => (int) $row->tax_amount, 'cancelled' => $row->cancelled_at !== null,
+            'tax_amount' => (int) $row->tax_amount, 'taxable' => (bool) $row->taxable, 'cancelled' => $row->cancelled_at !== null,
         ])->all());
     }
 

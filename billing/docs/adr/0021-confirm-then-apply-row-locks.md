@@ -64,6 +64,7 @@ Dry runs read without locks and write nothing (ADR 0019).
   `ApplyRun::claim`, `MergeClients`, `RecordDisputeWon` and the reversal path in `GatewayCallbackHandler`.
 - **Money:** payment (`transactions`), then invoice, then client (the credit ledger). Payments, credit, refunds and
   reversals all follow it. A reversal locks its payments and their invoices before it takes any credit back.
+- **Notes (ADR 0024 §4):** payments, invoice, client, the invoice's pending reservations, then the `billing_sequences` row, last. The client precedes the sequence because inserting a note takes a key-share lock on it.
 - **Client first for new rows.** A transaction that inserts a row referencing a client, and may then lock that client
   `FOR UPDATE`, locks the client before the insert: `IssueInvoice` when the invoice may take credit, and `PlaceOrder`
   for an existing client before the order row. This does not contradict the money order: the new invoice is not yet

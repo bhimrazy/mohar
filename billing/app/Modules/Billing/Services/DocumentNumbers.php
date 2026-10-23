@@ -106,11 +106,25 @@ class DocumentNumbers
         return in_array($sequence, self::NOTES, true) ? 1 : max(1, $this->settings->int('number_increment', 1));
     }
 
+    /**
+     * A note format that is empty, or equal to the other kind's, falls back to the kind's default (CN-, DN-), so a credit
+     * and a debit note can never share a number (`tax_notes.number` is unique). The settings form refuses both already;
+     * this holds for a value stored any other way.
+     */
+    private function noteFormat(string $sequence): string
+    {
+        $defaults = [self::CREDIT_NOTE => 'CN-{NUMBER}', self::DEBIT_NOTE => 'DN-{NUMBER}'];
+        $other = $sequence === self::CREDIT_NOTE ? self::DEBIT_NOTE : self::CREDIT_NOTE;
+        $own = trim($this->settings->string($sequence.'_format', $defaults[$sequence]));
+        $theirs = trim($this->settings->string($other.'_format', $defaults[$other]));
+
+        return $own === '' || $own === $theirs ? $defaults[$sequence] : $own;
+    }
+
     private function formatFor(string $sequence): string
     {
         $format = match ($sequence) {
-            self::CREDIT_NOTE => $this->settings->string('credit_note_format', 'CN-{NUMBER}'),
-            self::DEBIT_NOTE => $this->settings->string('debit_note_format', 'DN-{NUMBER}'),
+            self::CREDIT_NOTE, self::DEBIT_NOTE => $this->noteFormat($sequence),
             self::PROFORMA => $this->settings->string('proforma_format', 'PF-{NUMBER}'),
             self::QUOTE => $this->settings->string('quote_number_format', 'Q-{NUMBER}'),
             default => $this->settings->string('number_format', '{NUMBER}'),
