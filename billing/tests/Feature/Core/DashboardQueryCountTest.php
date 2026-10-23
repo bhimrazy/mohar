@@ -10,6 +10,7 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\OrderItem;
 use App\Modules\Services\Models\Service;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
@@ -162,4 +163,23 @@ test('cached dashboard widgets say when their figures were computed, in the comp
     $this->travel(30)->seconds();
     expect(collect($this->get(route('admin.dashboard'))->viewData('page')['props']['widgets'])->keyBy('key')['billing.income']['asOf'])
         ->toBe('2026-10-18T17:45:00+05:45');
+});
+
+test('figures cached by the release before #441 have no computed time and still render, without a caption (#445)', function () {
+    $this->travelTo('2026-10-18 12:00:00');
+    Currency::factory()->create();
+    app(Settings::class)->set('system.timezone', 'Asia/Kathmandu');
+    actingAsStaff(['*', ...BillingServiceProvider::SENSITIVE_PERMISSIONS]);
+    Cache::flush();
+    $this->get(route('admin.dashboard'))->assertOk();
+
+    foreach (['dashboard.billing.Asia/Kathmandu.2026-10-18', 'dashboard.services.mrr.2026-10-18'] as $key) {
+        expect(Cache::get($key))->toHaveKey('computed_at');
+        Cache::put($key, Arr::except(Cache::get($key), 'computed_at'), 600);
+    }
+
+    $widgets = collect($this->get(route('admin.dashboard'))->assertOk()->viewData('page')['props']['widgets'])->keyBy('key');
+
+    expect($widgets['billing.income']['asOf'])->toBeNull()
+        ->and($widgets['services.mrr']['asOf'])->toBeNull();
 });

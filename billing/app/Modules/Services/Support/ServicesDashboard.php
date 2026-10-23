@@ -89,7 +89,7 @@ class ServicesDashboard
             'href' => route('admin.services.index', ['status' => 'active']),
             'icon' => 'Repeat',
             'primary' => true,
-            'asOf' => $figures['computed_at'],
+            'asOf' => $figures['computed_at'] ?? null,
             'variants' => $variants === [] ? (object) [] : $variants,
         ];
     }
@@ -99,7 +99,7 @@ class ServicesDashboard
      * currency) and cached briefly like Billing's dashboard dataset.
      *
      * @param  list<string>  $points  month ends, oldest first, then today
-     * @return array{series: array<string, list<int>>, previous: array<string, int>, count: array<string, int>, computed_at: string}
+     * @return array{series: array<string, list<int>>, previous: array<string, int>, count: array<string, int>, computed_at?: string}
      */
     private function figures(CarbonImmutable $today, array $points, string $monthAgo): array
     {

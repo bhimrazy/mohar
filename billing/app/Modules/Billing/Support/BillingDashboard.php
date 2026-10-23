@@ -170,7 +170,7 @@ class BillingDashboard
             $data['income'],
             $this->consolidateDaily($data['income']),
             $view,
-            ['href' => route('admin.billing.transactions.index'), 'icon' => 'TrendingUp', 'primary' => true, 'asOf' => $data['computed_at']],
+            ['href' => route('admin.billing.transactions.index'), 'icon' => 'TrendingUp', 'primary' => true, 'asOf' => $data['computed_at'] ?? null],
         );
     }
 
@@ -193,7 +193,7 @@ class BillingDashboard
             $data['receivables'],
             $this->consolidateBooks($data['receivables']),
             $view,
-            ['href' => route('admin.billing.invoices.index', ['status' => 'unpaid']), 'icon' => 'Receipt', 'primary' => true, 'asOf' => $data['computed_at']],
+            ['href' => route('admin.billing.invoices.index', ['status' => 'unpaid']), 'icon' => 'Receipt', 'primary' => true, 'asOf' => $data['computed_at'] ?? null],
             self::EMPTY_BOOK,
         );
     }
@@ -224,7 +224,7 @@ class BillingDashboard
                 $data['receivables'],
                 $this->consolidateBooks($data['receivables']),
                 $view,
-                ['href' => route('admin.billing.invoices.index', ['status' => 'overdue']), 'icon' => 'AlertTriangle', 'tone' => 'danger', 'primary' => true, 'asOf' => $data['computed_at']],
+                ['href' => route('admin.billing.invoices.index', ['status' => 'overdue']), 'icon' => 'AlertTriangle', 'tone' => 'danger', 'primary' => true, 'asOf' => $data['computed_at'] ?? null],
                 self::EMPTY_BOOK,
             ),
             'count' => array_sum(array_column($data['receivables'], 'overdue_count')),
@@ -267,7 +267,7 @@ class BillingDashboard
             'xFormat' => 'month',
             'href' => route('admin.billing.transactions.index'),
             'empty' => 'No income recorded yet. Payments you record appear here.',
-            'asOf' => $data['computed_at'],
+            'asOf' => $data['computed_at'] ?? null,
             ...$view($consolidated, $rollup->defaultCode()),
             'variants' => array_combine($codes, array_map(fn (string $code): array => $view($data['income'][$code] ?? [], $code), $codes)) ?: (object) [],
         ];
@@ -302,7 +302,7 @@ class BillingDashboard
             'description' => 'This month, in each currency as received; shares at today\'s rates',
             'href' => route('admin.billing.transactions.index'),
             'empty' => 'No income this month yet.',
-            'asOf' => $data['computed_at'],
+            'asOf' => $data['computed_at'] ?? null,
             'rows' => array_map(fn (string $code): array => [
                 'key' => $code,
                 'code' => $code,
@@ -601,13 +601,13 @@ class BillingDashboard
      * - tax: tax collected on invoices paid this month, per tax name and currency;
      * - computed_at: when it was computed, ISO 8601 in the company's time zone.
      *
-     * @return array{income: array<string, array<string, int>>, receivables: array<string, array<string, mixed>>, tax: list<array{label: string, money: array{amount: int, currency: string}}>, computed_at: string}
+     * @return array{income: array<string, array<string, int>>, receivables: array<string, array<string, mixed>>, tax: list<array{label: string, money: array{amount: int, currency: string}}>, computed_at?: string}
      */
     private function dataset(): array
     {
         $today = $this->companyDate();
 
-        /** @var array{income: array<string, array<string, int>>, receivables: array<string, array<string, mixed>>, tax: list<array{label: string, money: array{amount: int, currency: string}}>, computed_at: string} */
+        /** @var array{income: array<string, array<string, int>>, receivables: array<string, array<string, mixed>>, tax: list<array{label: string, money: array{amount: int, currency: string}}>, computed_at?: string} */
         // The dataset is the same for every user (permissions apply per widget); the key follows the local day.
         return Cache::flexible('dashboard.billing.'.$this->calendar->timezone().'.'.$today->toDateString(), [self::CACHE_SECONDS, self::STALE_SECONDS], fn (): array => [
             'income' => $this->incomeByDay($this->calendar->dayBounds($today->startOfMonth()->subMonths(23))[0]),
