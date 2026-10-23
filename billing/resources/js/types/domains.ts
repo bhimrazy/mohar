@@ -45,6 +45,8 @@ export type Domain = {
     type: 'register' | 'transfer';
     status: DomainStatus;
     registrar_key: string | null;
+    /** The client registered it at the registry (e.g. .np): no registrar, no expiry or renewal tracked here. */
+    registered_by_client: boolean;
     /** Staff only: the order recorded at the registrar, or null when none is linked. */
     registrar_order_id?: string | number | null;
     registration_date: string | null;
@@ -138,3 +140,14 @@ export function expiryHint(daysLeft: number | null): string | null {
 
     return `in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`;
 }
+
+/** What the status badge shows: an active domain the client registered at the registry is not "Active" here. */
+export function domainStatus(
+    domain: Pick<Domain, 'status' | 'registered_by_client'>,
+): string {
+    return domain.registered_by_client && domain.status === 'active'
+        ? 'self-registered'
+        : domain.status;
+}
+
+export const MANAGED_AT_REGISTRY = 'At the registry';

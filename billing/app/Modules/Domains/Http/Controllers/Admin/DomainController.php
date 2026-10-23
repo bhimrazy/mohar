@@ -30,7 +30,7 @@ class DomainController extends Controller
         $this->authorize('domains.domains.view');
 
         $domains = Domain::query()
-            ->with('client:id,first_name,last_name,company_name')
+            ->with(['client:id,first_name,last_name,company_name', 'tldModel:id,registered_by_client'])
             ->search($request->string('search')->toString())
             ->when($request->filled('status'), fn (Builder $query) => $query->where('status', $request->string('status')->toString()))
             ->when($request->filled('registrar'), fn (Builder $query) => $request->string('registrar')->toString() === 'manual'
@@ -58,7 +58,7 @@ class DomainController extends Controller
     public function show(Request $request, Domain $domain, RegistrarDriverRegistry $registrars, RegistrarManager $accounts, TldAttributeService $tldAttributes): Response
     {
         $this->authorize('domains.domains.view');
-        $domain->load(['client:id,first_name,last_name,company_name', 'contacts']);
+        $domain->load(['client:id,first_name,last_name,company_name', 'contacts', 'tldModel:id,registered_by_client']);
 
         return Inertia::render('admin/domains/show', [
             'domain' => new DomainResource($domain),

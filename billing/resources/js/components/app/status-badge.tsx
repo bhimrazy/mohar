@@ -59,6 +59,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
 
     // In motion / informational
     refunded: 'info',
+    'self-registered': 'info',
     delivered: 'info',
     'in-progress': 'info',
     investigating: 'info',
@@ -123,6 +124,10 @@ export function statusTone(status: string): StatusTone {
 
 /** "customer-reply" → "Customer reply" */
 export function statusLabel(status: string): string {
+    if (normalizeStatus(status) === 'self-registered') {
+        return 'Self-registered';
+    }
+
     const words = normalizeStatus(status).replace(/-/g, ' ');
 
     return words.charAt(0).toUpperCase() + words.slice(1);
