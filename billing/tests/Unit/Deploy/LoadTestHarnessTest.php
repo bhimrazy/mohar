@@ -106,6 +106,22 @@ test('the storefront scenario names its domains per scenario run, so levels do n
     expect(loadtestFile('loadtest/k6/scenarios/storefront.js'))->toContain('lt-${exec.scenario.startTime}-${exec.vu.idInTest}');
 });
 
+test('every scenario arrives spread over START_SPREAD, and bin/run passes it to k6', function () {
+    // Issue #205: with every virtual user starting in the same second, their sign-ins saturated the 2 vCPU host and
+    // made most of the multi-second p95. A scenario exported without arriving() would bring that burst back.
+    $main = loadtestFile('loadtest/k6/main.js');
+    preg_match('/^const MIX = \{(.*?)\};$/m', $main, $mix);
+    preg_match_all('/(\w+): [0-9.]+/', $mix[1] ?? '', $names);
+    expect($names[1])->not->toBeEmpty();
+    foreach ($names[1] as $name) {
+        expect($main)->toContain("export const {$name} = arriving({$name}Scenario);");
+    }
+    expect($main)->toContain("parseFloat(__ENV.START_SPREAD || '20')")
+        ->and(loadtestFile('loadtest/bin/run'))->toContain('start_spread=20')
+        ->and(loadtestFile('loadtest/bin/run'))->toContain('-e START_SPREAD="$start_spread"')
+        ->and(loadtestFile('loadtest/bin/run'))->toContain('[ "$start_spread" -ge "$(seconds "$d")" ]');
+});
+
 test('every docs/devops page the load-test docs point at exists', function () {
     $pages = [];
     foreach (['loadtest/README.md', 'billing/docs/devops/ci.md', '.github/workflows/load-test.yml'] as $doc) {
