@@ -12,6 +12,10 @@ use App\Support\Money;
  * `totals()` always receives the unpaged query (no limit or offset): ReportViewer passes it with each screen page and
  * the exporter with each file, so the footer covers every row that matches the filters.
  *
+ * Like `Report::count()`, it runs uncached on every screen page, so it must stay bounded: aggregate queries served by
+ * an index on the filtered columns, a fixed number of them, and no walk through the sorted rows or OFFSET pages. A
+ * report whose filters allow an unbounded period must cap the period (the VAT registers allow at most one year).
+ *
  * @api
  */
 interface ProvidesTotals

@@ -9,10 +9,12 @@ use App\Modules\Billing\Data\NoteRequest;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Billing\Models\TaxRule;
+use App\Modules\Billing\Reports\RegisterDocuments;
 use App\Modules\Billing\Reports\RegisterPeriod;
 use App\Modules\Billing\Services\TaxNoteIssuer;
 use App\Modules\Billing\Support\BikramSambat;
 use App\Modules\Core\Models\ActivityLog;
+use App\Modules\Core\Support\DateFormats;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Support\Permissions\PermissionRegistry;
@@ -111,7 +113,7 @@ test('the Kartik register lists the invoices and notes of the month from their s
         ->and(registerAmounts($rows[0]))->toBe(['total_sales' => 15_000, 'exempt' => 0, 'taxable' => 15_000, 'vat' => 1_950, 'export_value' => 0])
         ->and($rows[1]['pan'])->toBeNull()
         ->and(registerAmounts($rows[1]))->toBe(['total_sales' => 14_000, 'exempt' => 4_000, 'taxable' => 10_000, 'vat' => 1_300, 'export_value' => 0])
-        ->and($rows[2]['reference'])->toBe($a->number.' (2083-07-03 BS)')
+        ->and($rows[2])->toMatchArray(['reference' => $a->number, 'reference_bs_date' => '2083-07-03'])
         ->and(registerAmounts($rows[2]))->toBe(['total_sales' => -1_000, 'exempt' => 0, 'taxable' => -1_000, 'vat' => -130, 'export_value' => 0])
         ->and(registerAmounts($rows[3]))->toBe(['total_sales' => 2_000, 'exempt' => 0, 'taxable' => 2_000, 'vat' => 260, 'export_value' => 0])
         ->and($rows[0]['total_sales']->currency)->toBe('NPR');
@@ -161,7 +163,8 @@ test('a USD invoice is converted with its stored rate, per document, and a full 
 
     expect($invoice->report_rate)->toBe('134.250000000000')
         ->and($rows[0]['total_sales']->amount)->toBe(1_342_634) // 10,001 × 134.25 = 1,342,634.25, half up per document
-        ->and($rows[0]['foreign'])->toBe('USD 100.01 at 134.250000000000')
+        ->and($rows[0])->toMatchArray(['currency' => 'USD', 'rate' => '134.250000'])
+        ->and($rows[0]['original_amount']->amount)->toBe(10_001)
         ->and($rows[1]['total_sales']->amount)->toBe(-1_342_634)
         ->and(registerAmounts($net))->toBe(['total_sales' => 0, 'exempt' => 0, 'taxable' => 0, 'vat' => 0, 'export_value' => 0]);
 });
@@ -195,18 +198,65 @@ test('the default period is the last closed BS month on the company calendar (AC
     expect(RegisterPeriod::lastClosedMonth(app(CompanyClock::class))->firstMonth)->toBe('2083-06');
 });
 
-test('a period filter is validated: one kind at a time, inside the BS table', function (array $filters, string $field) {
+test('a period filter is validated in plain words: one kind at a time, inside the BS table, a year at most', function (array $filters, string $field, ?string $message) {
     actingAsStaff(['reports.vat_register.view']);
 
     expect(fn () => app(ReportExporter::class)->query('vat_register', $filters, auth()->id()))
-        ->toThrow(fn (ValidationException $e) => expect($e->errors())->toHaveKey($field));
+        ->toThrow(fn (ValidationException $e) => expect($e->errors())->toHaveKey($field)
+            ->and($message === null || $e->errors()[$field][0] === $message)->toBeTrue());
 })->with([
-    'month and year' => [['month' => '2083-07', 'year' => '2083.084'], 'month'],
-    'month 13' => [['month' => '2083-13'], 'month'],
-    'outside the table' => [['month' => '2099-01'], 'month'],
-    'year halves disagree' => [['year' => '2083.090'], 'year'],
-    'open range' => [['from' => '2026-10-01'], 'to'],
+    'month and year' => [['month' => '2083-07', 'year' => '2083.084'], 'month', null],
+    'month 13' => [['month' => '2083-13'], 'month', 'Choose a BS month from the list.'],
+    'outside the table' => [['month' => '2099-01'], 'month', 'Choose a BS month from the list.'],
+    'year halves disagree' => [['year' => '2083.090'], 'year', 'Choose a BS fiscal year from the list.'],
+    'open range' => [['from' => '2026-10-01'], 'to', null],
+    'range over a year' => [['from' => '2025-10-01', 'to' => '2026-10-02'], 'to', 'Choose a date range of one year or less, or pick a BS fiscal year.'],
 ]);
+
+test('an AD range of one year is accepted and titled in the app date format', function () {
+    actingAsStaff(['reports.vat_register.view']);
+    $query = app(ReportExporter::class)->query('vat_register', ['from' => '2025-10-01', 'to' => '2026-10-01'], auth()->id());
+
+    expect(RegisterPeriod::of($query, app(CompanyClock::class))->label())->toBe(CarbonImmutable::parse('2025-10-01')->format(DateFormats::current()).' – '.CarbonImmutable::parse('2026-10-01')->format(DateFormats::current()));
+});
+
+test('only a Nepal buyer has a PAN, and only Nepal business buyers without one are warned about', function () {
+    $india = Client::factory()->create(['country' => 'IN', 'currency' => 'NPR', 'company_name' => 'Pune Cloud LLP', 'tax_id' => '27AAPFU0939F1ZV']);
+    $usa = Client::factory()->create(['country' => 'US', 'currency' => 'NPR', 'company_name' => 'Northwind Labs', 'tax_id' => null]);
+    onRegisterDay('2026-10-20', fn () => [issueInvoice($india, [10_000]), issueInvoice($usa, [10_000])]);
+    actingAsStaff(['reports.vat_register.view']);
+
+    $query = app(ReportExporter::class)->query('vat_register', ['month' => '2083-07'], auth()->id());
+
+    expect(array_column(registerRows('vat_register', ['month' => '2083-07']), 'pan'))->toBe([null, null])
+        ->and(app(ReportRegistry::class)->get('vat_register')->summary($query)->withoutPan)->toBe(0);
+});
+
+test('the totals cost a fixed number of queries, whatever the size of the period, and never page with OFFSET', function () {
+    $client = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']);
+    actingAsStaff(['reports.vat_register.view']);
+    $queries = [];
+    DB::listen(function ($query) use (&$queries): void {
+        $queries[] = $query->sql;
+    });
+    // A fresh source each time: the summary is kept for the request.
+    $summaryQueries = function () use (&$queries): array {
+        $period = RegisterPeriod::of(app(ReportExporter::class)->query('vat_register', ['month' => '2083-07'], auth()->id()), app(CompanyClock::class));
+        $queries = [];
+        app()->make(RegisterDocuments::class, [])->summary($period, false);
+        app()->forgetScopedInstances();
+
+        return $queries;
+    };
+
+    onRegisterDay('2026-10-20', fn () => issueInvoice($client, [10_000]));
+    $small = $summaryQueries();
+    onRegisterDay('2026-10-21', fn () => array_map(fn () => issueInvoice($client, [10_000]), range(1, 12)));
+    $large = $summaryQueries();
+
+    expect(count($large))->toBe(count($small))
+        ->and(collect($large)->filter(fn (string $sql): bool => str_contains(strtolower($sql), 'offset'))->all())->toBe([]);
+});
 
 test('the screen shows the register with totals, header and warnings, and refuses without the view permission', function () {
     kartikRegisterFixture();
@@ -230,7 +280,8 @@ test('the screen shows the register with totals, header and warnings, and refuse
 
 test('the export needs the export permission and a recent password, and writes one report.exported entry', function () {
     kartikRegisterFixture();
-    $url = route('admin.billing.vat-register.export', ['month' => '2083-07']);
+    CarbonImmutable::setTestNow('2026-11-20 06:00:00');
+    $url = route('admin.billing.vat-register.export');
 
     actingAsStaff(['reports.vat_register.view']);
     confirmPassword();
@@ -246,7 +297,8 @@ test('the export needs the export permission and a recent password, and writes o
     $csv = $response->streamedContent();
 
     expect($csv)->toStartWith("\u{FEFF}")->toContain('Everest Treks Pvt. Ltd.')->toContain(',-10.00,')->toContain('Kartik 2083 (month 7)')
-        ->and(ActivityLog::query()->where('event', 'report.exported')->count())->toBe(1);
+        ->and($response->headers->get('Content-Disposition'))->toContain('vat-register-2083-07-kartik.csv')
+        ->and(ActivityLog::query()->where('event', 'report.exported')->sole()->properties['filters'] ?? null)->toBe(['month' => '2083-07']);
 });
 
 test('the screen is rate-limited per staff member', function () {

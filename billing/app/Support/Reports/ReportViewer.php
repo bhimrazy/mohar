@@ -14,7 +14,7 @@ use Illuminate\Validation\ValidationException;
  * returns the page without ever holding more than `limit` rows, whatever the report yields. A report that provides
  * totals gets them on the page, computed on the unpaged query, so a screen never calls the report itself.
  *
- * Paging on screen is not an export (ADR 0025, Amendment 1): it needs only the view permission, so it has no step-up,
+ * Paging on screen is not an export (ADR 0025, Amendment (#428)): it needs only the view permission, so it has no step-up,
  * row cap or `report.exported` entry. The screen's route is rate-limited instead.
  *
  * @api

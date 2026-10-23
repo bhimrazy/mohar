@@ -141,12 +141,12 @@ class BillingServiceProvider extends ModuleServiceProvider
         // Invoices, quotes, payments and credit are stored in the client's currency (client-import spec §6.4).
         $this->app->make(ClientCurrencyUsage::class)->register('billing', fn (array $clientIds): array => $this->app->make(BillingDirectory::class)->clientsWithDocuments($clientIds));
 
-        // Each client pay request may open a provider session (Khalti initiate) with the merchant's key: cap it per
-        // signed-in user so one account can't get the key throttled or flagged at the provider.
-        // Paging a register needs only the view permission (ADR 0025 Amendment 1), so cap how fast one user can page.
+        // Paging a register needs only the view permission (ADR 0025 Amendment (#428)), so cap how fast one user can page.
         RateLimiter::for('billing-registers', fn (Request $request): Limit => Limit::perMinute(self::REGISTER_REQUESTS_PER_MINUTE)
             ->by('billing-registers|'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
 
+        // Each client pay request may open a provider session (Khalti initiate) with the merchant's key: cap it per
+        // signed-in user so one account can't get the key throttled or flagged at the provider.
         RateLimiter::for('billing-pay', fn (Request $request): Limit => Limit::perMinute(self::PAY_REQUESTS_PER_MINUTE)
             ->by('billing-pay|'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
 

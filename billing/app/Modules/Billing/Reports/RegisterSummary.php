@@ -17,7 +17,7 @@ final class RegisterSummary
     /** @var array<string, array<string, int>> BS period key => figure => sum */
     public array $byMonth = [];
 
-    /** Business buyers (a company name) without a PAN. */
+    /** Nepal business buyers (a company name, country NP) without a PAN. */
     public int $withoutPan = 0;
 
     /** Documents with no stored rate into the register currency, left out of the sums. */
@@ -30,33 +30,32 @@ final class RegisterSummary
         }
     }
 
-    public function add(RegisterDocument $document): void
+    /**
+     * Add one document or one group of documents, already signed and in the register currency. An export's value is
+     * export value, not taxable or exempt sales.
+     */
+    public function addAmounts(string $kind, ?string $month, bool $export, int $taxable, int $exempt, int $tax): void
     {
-        if ($document->business && $document->pan === null) {
-            $this->withoutPan++;
-        }
-
-        if (! $document->converted()) {
-            $this->unconverted++;
-
-            return;
-        }
-
         $figures = [
-            'total_sales' => (int) $document->totalSales(),
-            'exempt' => (int) $document->exempt,
-            'taxable' => (int) $document->taxable,
-            'vat' => (int) $document->tax,
-            'export_value' => (int) $document->exportValue,
-            'total' => (int) $document->totalSales() + (int) $document->tax,
+            'total_sales' => $taxable + $exempt,
+            'exempt' => $export ? 0 : $exempt,
+            'taxable' => $export ? 0 : $taxable,
+            'vat' => $tax,
+            'export_value' => $export ? $taxable + $exempt : 0,
+            'total' => $taxable + $exempt + $tax,
         ];
-        $month = $document->bsDate !== null ? substr($document->bsDate, 0, 7) : null;
         $this->byMonth[(string) $month] ??= array_fill_keys(self::FIGURES, 0);
 
         foreach ($figures as $figure => $amount) {
-            $this->byKind[$document->kind][$figure] += $amount;
+            $this->byKind[$kind][$figure] += $amount;
             $this->byMonth[(string) $month][$figure] += $amount;
         }
+    }
+
+    /** Whether any document in the period has export value: the screen shows the export columns only then. */
+    public function hasExport(): bool
+    {
+        return collect($this->byKind)->contains(fn (array $figures): bool => $figures['export_value'] !== 0);
     }
 
     /** @return array<string, int> figure => net sum over every kind */

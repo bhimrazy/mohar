@@ -54,9 +54,11 @@ final readonly class RegisterDocument
     {
         $sign = $row->kind === 'credit' ? -1 : 1;
         $buyer = is_string($row->buyer) ? (array) json_decode($row->buyer, true) : (array) $row->buyer;
-        $rate = $row->report_rate === null ? null : (is_float($row->report_rate) ? sprintf('%.12F', $row->report_rate) : (string) $row->report_rate);
+        $rate = $row->report_rate === null ? null : self::rate($row->report_rate);
         $company = trim((string) ($buyer['company'] ?? ''));
-        $pan = trim((string) ($buyer['tax_id'] ?? ''));
+        $nepal = ($buyer['country'] ?? null) === 'NP';
+        // Only a Nepal buyer's tax ID is a PAN; a GSTIN or a foreign tax number is not shown as one.
+        $pan = $nepal ? trim((string) ($buyer['tax_id'] ?? '')) : '';
 
         $convert = match (true) {
             $row->report_currency === $registerCurrency && $rate !== null => fn (int $amount): int => RegisterDocuments::convert($sign * $amount, $rate),
@@ -74,13 +76,13 @@ final readonly class RegisterDocument
             refBsDate: $row->ref_bs_date,
             buyer: $company !== '' ? $company : trim((string) ($buyer['name'] ?? '')),
             pan: $pan !== '' ? $pan : null,
-            business: $company !== '',
+            business: $nepal && $company !== '',
             country: isset($buyer['country']) ? (string) $buyer['country'] : null,
             currency: (string) $row->currency,
             original: Money::of($sign * (int) $row->total, (string) $row->currency),
             rate: $rate,
-            taxable: $export ? 0 : $convert((int) $row->taxable),
-            exempt: $export ? 0 : $convert((int) $row->exempt),
+            taxable: $export && $convert(0) !== null ? 0 : $convert((int) $row->taxable),
+            exempt: $export && $convert(0) !== null ? 0 : $convert((int) $row->exempt),
             tax: $convert((int) $row->tax),
             exportValue: $export ? $convert((int) $row->taxable + (int) $row->exempt) : 0,
             registerCurrency: $registerCurrency,
@@ -91,6 +93,12 @@ final readonly class RegisterDocument
             settlement: $detail['settlement'] ?? [],
             creator: $detail['creator'] ?? null,
         );
+    }
+
+    /** A stored rate as a decimal string: SQLite returns a decimal column as a float. */
+    public static function rate(mixed $value): string
+    {
+        return is_float($value) ? sprintf('%.12F', $value) : (string) $value;
     }
 
     /** False when the document has no rate into the register currency: its amounts are left out of the totals. */
@@ -123,9 +131,9 @@ final readonly class RegisterDocument
         return $this->lines === [] ? null : array_sum(array_column($this->lines, 'quantity'));
     }
 
-    /** Currency, amount and rate, for a document not in the register currency. */
-    public function foreign(): ?string
+    /** Whether the document is in another currency than the register. */
+    public function foreign(): bool
     {
-        return $this->currency === $this->registerCurrency ? null : trim($this->currency.' '.$this->original->toDecimal().($this->rate !== null ? ' at '.$this->rate : ''));
+        return $this->currency !== $this->registerCurrency;
     }
 }

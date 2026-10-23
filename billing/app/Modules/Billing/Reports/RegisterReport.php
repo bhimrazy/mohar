@@ -143,8 +143,12 @@ abstract class RegisterReport implements HasSensitiveExport, ProvidesCsvOptions,
         $row = [$this->labelColumn() => $label];
         $keys = array_map(fn (ReportColumn $column): string => $column->key, array_filter($this->columns(new ReportQuery([], null)), fn (ReportColumn $column): bool => $column->type === ColumnType::Money));
 
+        $figures = $this->figures($figures);
+
         foreach ($keys as $key) {
-            $row[$key] = Money::of($this->figures($figures)[$key] ?? 0, $currency);
+            if (isset($figures[$key])) {
+                $row[$key] = Money::of($figures[$key], $currency);
+            }
         }
 
         return $row;

@@ -5,6 +5,7 @@ namespace App\Modules\Billing\Reports;
 use App\Data\Reports\ReportColumn;
 use App\Data\Reports\ReportQuery;
 use App\Enums\ColumnType;
+use App\Support\Currencies\Decimal;
 
 /**
  * The VAT sales register (vat-register §6.1, §6.2): every tax invoice, credit note and debit note dated in the period,
@@ -31,6 +32,7 @@ class VatRegisterReport extends RegisterReport
             new ReportColumn('type', __('Document')),
             new ReportColumn('number', __('Number')),
             new ReportColumn('reference', __('Reference invoice')),
+            new ReportColumn('reference_bs_date', __('Reference date (BS)')),
             new ReportColumn('buyer', __('Buyer')),
             new ReportColumn('pan', __('Buyer PAN')),
             new ReportColumn('goods', __('Goods or service')),
@@ -43,7 +45,9 @@ class VatRegisterReport extends RegisterReport
             new ReportColumn('export_value', __('Export value'), ColumnType::Money),
             new ReportColumn('export_country', __('Export country')),
             new ReportColumn('export_declaration', __('Export declaration')),
-            new ReportColumn('foreign', __('Currency, amount, rate')),
+            new ReportColumn('currency', __('Document currency')),
+            new ReportColumn('original_amount', __('Document amount'), ColumnType::Money),
+            new ReportColumn('rate', __('Rate'), ColumnType::Decimal),
         ];
     }
 
@@ -65,6 +69,7 @@ class VatRegisterReport extends RegisterReport
             'buyer' => $document->buyer,
             'pan' => $document->pan,
             'goods' => $document->goods(),
+            // Every line is a service (lines carry no unit yet), so the lines always share one unit (§6.2 col 9).
             'quantity' => $document->quantity(),
             'unit' => $document->lines === [] ? null : self::text('service'),
             'total_sales' => $document->money($document->totalSales()),
@@ -76,8 +81,12 @@ class VatRegisterReport extends RegisterReport
             'export_declaration' => null,
             'ad_date' => $document->issueDate,
             'type' => self::text(RegisterDocument::KINDS[$document->kind]),
-            'reference' => $document->refNumber === null ? null : trim($document->refNumber.' '.($document->refBsDate !== null ? '('.$document->refBsDate.' BS)' : '')),
-            'foreign' => $document->foreign(),
+            'reference' => $document->refNumber,
+            'reference_bs_date' => $document->refBsDate,
+            // Columns 18 (§6.2): filled only for a document not in the register currency; the rate to 6 decimals.
+            'currency' => $document->foreign() ? $document->currency : null,
+            'original_amount' => $document->foreign() ? $document->original : null,
+            'rate' => $document->foreign() && $document->rate !== null ? Decimal::round($document->rate, 6) : null,
         ];
     }
 }

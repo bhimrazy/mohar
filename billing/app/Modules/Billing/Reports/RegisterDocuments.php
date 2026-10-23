@@ -77,22 +77,80 @@ class RegisterDocuments
     /**
      * Totals of every document in the period, per kind and per BS month, and the counts the screen warns about.
      * Kept for the request, because the screen and its totals footer read the same period.
+     *
+     * Each table is summed on its own through its period index, never through the sorted union. A document whose
+     * conversion is the identity (in the register currency, rate 1 or none) is summed in SQL, which is exact for
+     * integers. A document converted with another rate is read with lazyById() and converted one by one, so half-up
+     * rounding stays per document. Query budget: a fixed number of queries per table, plus one per 1,000 converted
+     * documents (tests/Feature/Billing/VatRegisterTest).
      */
     public function summary(RegisterPeriod $period, bool $notesOnly): RegisterSummary
     {
-        $key = serialize([$period, $notesOnly, $this->currency()]);
+        $currency = $this->currency();
+        $key = serialize([$period, $notesOnly, $currency]);
 
         if (isset($this->summaries[$key])) {
             return $this->summaries[$key];
         }
 
-        $summary = new RegisterSummary($this->currency());
+        $summary = new RegisterSummary($currency);
 
-        foreach ($this->documents($period, $notesOnly, withDetail: false) as $document) {
-            $summary->add($document);
+        foreach ($notesOnly ? ['tax_notes'] : ['invoices', 'tax_notes'] as $table) {
+            $this->sum($summary, $table, $period, $currency);
         }
 
         return $this->summaries[$key] = $summary;
+    }
+
+    private function sum(RegisterSummary $summary, string $table, RegisterPeriod $period, string $currency): void
+    {
+        $notes = $table === 'tax_notes';
+        $kind = $notes ? 'tax_notes.kind' : "'invoice'";
+        $amounts = $notes
+            ? 'tax_notes.taxable_amount as taxable, tax_notes.exempt_amount as exempt, tax_notes.tax1_amount + tax_notes.tax2_amount as tax'
+            : 'coalesce(invoices.fiscal_taxable, 0) as taxable, coalesce(invoices.fiscal_exempt, 0) as exempt, coalesce(invoices.fiscal_tax1, 0) + coalesce(invoices.fiscal_tax2, 0) as tax';
+        $buyer = $notes ? 'tax_notes.buyer_snapshot' : 'invoices.client_snapshot';
+        $hasRate = fn (Builder $q): Builder => $q->where("{$table}.report_currency", $currency)->whereNotNull("{$table}.report_rate");
+        $noRate = fn (Builder $q): Builder => $q->whereNull("{$table}.report_currency")->orWhere("{$table}.report_currency", '<>', $currency)->orWhereNull("{$table}.report_rate");
+
+        // In the register currency with an identity conversion: exact in SQL.
+        $exact = DB::query()->fromSub($this->base($table, $period)->where("{$table}.currency", $currency)
+            ->where(fn (Builder $q): Builder => $noRate($q)->orWhere("{$table}.report_rate", 1))
+            ->selectRaw("{$kind} as kind, {$table}.bs_period as month, {$table}.supply_class as supply_class, {$amounts}"), 'docs')
+            ->selectRaw('kind, month, supply_class, sum(taxable) as taxable, sum(exempt) as exempt, sum(tax) as tax')
+            ->groupBy('kind', 'month', 'supply_class')->get();
+
+        foreach ($exact as $group) {
+            $sign = $group->kind === 'credit' ? -1 : 1;
+            $summary->addAmounts((string) $group->kind, $group->month, $group->supply_class === 'export', $sign * (int) $group->taxable, $sign * (int) $group->exempt, $sign * (int) $group->tax);
+        }
+
+        // Converted with a stored rate other than 1: per document, half up.
+        $this->base($table, $period)->where($hasRate)->where(fn (Builder $q): Builder => $q->where("{$table}.currency", '<>', $currency)->orWhere("{$table}.report_rate", '<>', 1))
+            ->selectRaw("{$table}.id, {$kind} as kind, {$table}.bs_period as month, {$table}.supply_class as supply_class, {$table}.report_rate as rate, {$amounts}")
+            ->lazyById(1000, "{$table}.id", 'id')
+            ->each(function (stdClass $row) use ($summary): void {
+                $rate = RegisterDocument::rate($row->rate);
+                $sign = $row->kind === 'credit' ? -1 : 1;
+                $summary->addAmounts((string) $row->kind, $row->month, $row->supply_class === 'export', self::convert($sign * (int) $row->taxable, $rate), self::convert($sign * (int) $row->exempt, $rate), self::convert($sign * (int) $row->tax, $rate));
+            });
+
+        $summary->unconverted += $this->base($table, $period)->where("{$table}.currency", '<>', $currency)->where($noRate)->count();
+        $summary->withoutPan += $this->base($table, $period)->where("{$buyer}->country", 'NP')
+            ->whereNotNull("{$buyer}->company")->where("{$buyer}->company", '<>', '')
+            ->where(fn (Builder $q): Builder => $q->whereNull("{$buyer}->tax_id")->orWhere("{$buyer}->tax_id", ''))
+            ->count();
+    }
+
+    /** The register's documents of one table in the period, through its period index. */
+    private function base(string $table, RegisterPeriod $period): Builder
+    {
+        if ($table === 'tax_notes') {
+            return $period->scope(TaxNote::query()->toBase(), 'tax_notes');
+        }
+
+        return $period->scope(Invoice::query()->toBase(), 'invoices')
+            ->whereNotNull('invoices.numbered_at')->whereNotNull('invoices.number')->where('invoices.kind', '<>', 'add_funds');
     }
 
     /** Minor units converted with a stored rate (a decimal string), half up. */
@@ -103,7 +161,7 @@ class RegisterDocuments
 
     private function union(RegisterPeriod $period, bool $notesOnly): Builder
     {
-        $notes = $period->scope(TaxNote::query()->toBase(), 'tax_notes')->selectRaw(
+        $notes = $this->base('tax_notes', $period)->selectRaw(
             'tax_notes.kind as kind, 1 as kind_rank, tax_notes.id as doc_id, tax_notes.issue_date, tax_notes.issued_at as numbered_at, '
             .'tax_notes.bs_issue_date, tax_notes.number, tax_notes.invoice_number as ref_number, tax_notes.invoice_bs_issue_date as ref_bs_date, '
             .'tax_notes.buyer_snapshot as buyer, tax_notes.currency, tax_notes.report_currency, tax_notes.report_rate, tax_notes.supply_class, '
@@ -115,8 +173,7 @@ class RegisterDocuments
             return $notes;
         }
 
-        return $period->scope(Invoice::query()->toBase(), 'invoices')
-            ->whereNotNull('invoices.numbered_at')->whereNotNull('invoices.number')->where('invoices.kind', '<>', 'add_funds')
+        return $this->base('invoices', $period)
             ->selectRaw(
                 "'invoice' as kind, 0 as kind_rank, invoices.id as doc_id, invoices.issue_date, invoices.numbered_at, "
                 .'invoices.bs_issue_date, invoices.number, null as ref_number, null as ref_bs_date, '

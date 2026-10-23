@@ -7,9 +7,12 @@ use App\Data\Reports\ReportFilter;
 use App\Data\Reports\ReportQuery;
 use App\Enums\FilterType;
 use App\Modules\Billing\Support\BikramSambat;
+use App\Modules\Core\Support\DateFormats;
 use Carbon\CarbonImmutable;
 use Closure;
 use DateTimeImmutable;
+use Illuminate\Contracts\Validation\DataAwareRule;
+use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Database\Query\Builder;
 use OutOfRangeException;
 
@@ -36,14 +39,22 @@ final readonly class RegisterPeriod
         public ?string $lastMonth,
     ) {}
 
-    /** @return list<ReportFilter> */
+    /** The longest AD range, so a register screen's totals stay bounded: a BS year has at most 366 days. */
+    public const MAX_RANGE_DAYS = 366;
+
+    /**
+     * The period filters. Every value is written to the `report.exported` entry; the screen passes the default month
+     * explicitly, so an export always records the period it covers.
+     *
+     * @return list<ReportFilter>
+     */
     public static function filters(): array
     {
         return [
-            new ReportFilter('month', 'BS month', FilterType::Text, rules: ['nullable', 'prohibits:year,from,to', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/', self::inTable(fn (string $v): array => [(int) substr($v, 0, 4)])], loggable: true),
-            new ReportFilter('year', 'BS fiscal year', FilterType::Text, rules: ['nullable', 'prohibits:from,to', 'regex:/^\d{4}\.\d{3}$/', self::inTable(fn (string $v): array => [(int) substr($v, 0, 4), (int) substr($v, 0, 4) + 1])], loggable: true),
-            new ReportFilter('from', 'From (AD)', FilterType::Date, rules: ['nullable', 'required_with:to']),
-            new ReportFilter('to', 'To (AD)', FilterType::Date, rules: ['nullable', 'required_with:from']),
+            new ReportFilter('month', 'BS month', FilterType::Text, rules: ['nullable', 'prohibits:year,from,to', self::inTable('/^(\d{4})-(0[1-9]|1[0-2])$/', __('Choose a BS month from the list.'))], loggable: true),
+            new ReportFilter('year', 'BS fiscal year', FilterType::Text, rules: ['nullable', 'prohibits:from,to', self::inTable('/^(\d{4})\.(\d{3})$/', __('Choose a BS fiscal year from the list.'))], loggable: true),
+            new ReportFilter('from', 'From (AD)', FilterType::Date, rules: ['nullable', 'required_with:to'], loggable: true),
+            new ReportFilter('to', 'To (AD)', FilterType::Date, rules: ['nullable', 'required_with:from', self::withinYear()], loggable: true),
         ];
     }
 
@@ -108,30 +119,43 @@ final readonly class RegisterPeriod
         return $keys;
     }
 
-    /** "Kartik 2083 (month 7)", "Fiscal year 2083/84" or "2026-10-01 to 2026-10-31". */
+    /** "Kartik 2083 (month 7)", "Fiscal year 2083/84" or "1 Oct 2026 – 31 Oct 2026" in the app's date format. */
     public function label(): string
     {
+        $format = DateFormats::current();
+
         return match ($this->kind) {
             'month' => array_values($this->monthKeys())[0].' (month '.(int) substr((string) $this->firstMonth, 5, 2).')',
-            'year' => sprintf('Fiscal year %d/%02d', $start = (int) substr((string) $this->firstMonth, 0, 4), ($start + 1) % 100),
-            default => "{$this->from} to {$this->to}",
+            'year' => 'Fiscal year '.$this->fiscalYear(),
+            default => CarbonImmutable::parse($this->from, 'UTC')->format($format).' – '.CarbonImmutable::parse($this->to, 'UTC')->format($format),
         };
     }
 
-    /** The BS fiscal year(s) the period falls in, "2083.084", or two joined by " – " for an AD range across years. */
+    /** The BS fiscal year(s) the period falls in, "2083/84", or two joined by " – " for an AD range across years. */
     public function fiscalYear(): string
     {
         $years = [];
 
         foreach ([$this->from, $this->to] as $date) {
             try {
-                $years[] = BikramSambat::fiscalYear(BikramSambat::fromAd(new DateTimeImmutable($date)));
+                $start = (int) substr(BikramSambat::fiscalYear(BikramSambat::fromAd(new DateTimeImmutable($date))), 0, 4);
+                $years[] = sprintf('%d/%02d', $start, ($start + 1) % 100);
             } catch (OutOfRangeException) {
                 $years[] = '—';
             }
         }
 
         return implode(' – ', array_unique($years));
+    }
+
+    /** For a file name: "2083-06-asoj", "fy-2083-84" or "2026-10-01-to-2026-10-31". */
+    public function slug(): string
+    {
+        return match ($this->kind) {
+            'month' => $this->firstMonth.'-'.strtolower(BikramSambat::MONTHS[(int) substr((string) $this->firstMonth, 5, 2) - 1]),
+            'year' => 'fy-'.str_replace('/', '-', $this->fiscalYear()),
+            default => "{$this->from}-to-{$this->to}",
+        };
     }
 
     /**
@@ -152,23 +176,54 @@ final readonly class RegisterPeriod
     }
 
     /**
-     * A validation rule: the BS years the value names are in the calendar table, and a fiscal year's second part
-     * follows its first ("2083.084").
-     *
-     * @param  Closure(string): list<int>  $years
+     * A validation rule: the value has the pattern (BS year in group 1), its years are in the calendar table, and a
+     * fiscal year's second part follows its first ("2083.084"). Any failure gives the one plain message.
      */
-    private static function inTable(Closure $years): Closure
+    private static function inTable(string $pattern, string $message): Closure
     {
-        return function (string $attribute, mixed $value, Closure $fail) use ($years): void {
-            if (! is_string($value) || preg_match('/^\d{4}([-.]\d{2,3})$/', $value) !== 1) {
+        return function (string $attribute, mixed $value, Closure $fail) use ($pattern, $message): void {
+            if (! is_string($value) || preg_match($pattern, $value, $match) !== 1) {
+                $fail($message);
+
                 return;
             }
 
-            $named = $years($value);
-            $outside = array_filter($named, fn (int $year): bool => $year < BikramSambat::FIRST_YEAR || $year > BikramSambat::LAST_YEAR);
+            $year = (int) $match[1];
+            $last = str_contains($value, '.') ? $year + 1 : $year;
 
-            if ($outside !== [] || (str_contains($value, '.') && (int) substr($value, 5) !== ($named[0] + 1) % 1000)) {
-                $fail(__('Choose a period between :first and :last BS.', ['first' => BikramSambat::FIRST_YEAR, 'last' => BikramSambat::LAST_YEAR]));
+            if ($year < BikramSambat::FIRST_YEAR || $last > BikramSambat::LAST_YEAR || (str_contains($value, '.') && (int) $match[2] !== $last % 1000)) {
+                $fail($message);
+            }
+        };
+    }
+
+    /** A validation rule on `to`: the range is at most MAX_RANGE_DAYS long. */
+    private static function withinYear(): ValidationRule&DataAwareRule
+    {
+        return new class implements DataAwareRule, ValidationRule
+        {
+            /** @var array<string, mixed> */
+            private array $data = [];
+
+            public function setData(array $data): static
+            {
+                $this->data = $data;
+
+                return $this;
+            }
+
+            public function validate(string $attribute, mixed $value, Closure $fail): void
+            {
+                $from = $this->data['from'] ?? null;
+
+                // A malformed date is reported by the filter's own date rule.
+                if (! is_string($from) || ! is_string($value)) {
+                    return;
+                }
+
+                if (rescue(fn (): bool => CarbonImmutable::parse($from, 'UTC')->diffInDays(CarbonImmutable::parse($value, 'UTC')) >= RegisterPeriod::MAX_RANGE_DAYS, false, report: false)) {
+                    $fail(__('Choose a date range of one year or less, or pick a BS fiscal year.'));
+                }
             }
         };
     }

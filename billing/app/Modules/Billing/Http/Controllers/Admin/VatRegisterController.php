@@ -20,6 +20,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -41,7 +42,7 @@ class VatRegisterController extends Controller
         $key = self::TABS[$tab];
         $this->authorize("reports.{$key}.view");
 
-        $input = $this->filters($request);
+        $input = $this->filters($request, $clock);
         $errors = [];
 
         try {
@@ -49,12 +50,13 @@ class VatRegisterController extends Controller
         } catch (ValidationException $e) {
             // A bad period is shown beside the picker; the page falls back to the last closed month.
             $errors = array_map(fn (array $messages): string => $messages[0], $e->errors());
-            $input = [];
-            $query = $exporter->query($key, [], $request->user()?->getAuthIdentifier());
+            $input = $this->filters(new Request, $clock);
+            $query = $exporter->query($key, $input, $request->user()?->getAuthIdentifier());
         }
 
-        $current = max(1, (int) $request->query('page', '1'));
-        $page = $viewer->page($key, $query, self::PER_PAGE, min(($current - 1) * self::PER_PAGE, ReportQuery::MAX_OFFSET));
+        $lastPage = intdiv(ReportQuery::MAX_OFFSET, self::PER_PAGE) + 1;
+        $current = min(max(1, (int) $request->query('page', '1')), $lastPage);
+        $page = $viewer->page($key, $query, self::PER_PAGE, ($current - 1) * self::PER_PAGE);
 
         /** @var RegisterReport $report */
         $report = $reports->get($key);
@@ -66,13 +68,15 @@ class VatRegisterController extends Controller
             'tab' => $tab,
             'tabs' => array_values(array_filter(array_keys(self::TABS), fn (string $name): bool => (bool) $user?->hasPermission('reports.'.self::TABS[$name].'.view'))),
             'columns' => array_map(fn (ReportColumn $column): array => ['key' => $column->key, 'label' => $column->label, 'type' => $column->type->value], $page->columns),
-            'rows' => (new LengthAwarePaginator(array_map($this->cells(...), $page->rows), $page->total, self::PER_PAGE, $current, [
+            // Pages beyond the viewer's offset limit are not offered; the page says to narrow the period instead.
+            'rows' => (new LengthAwarePaginator(array_map($this->cells(...), $page->rows), min($page->total, $lastPage * self::PER_PAGE), self::PER_PAGE, $current, [
                 'path' => $request->url(),
                 'query' => $request->except('page'),
             ]))->toArray(),
             'totals' => array_map($this->cells(...), $page->totals),
             'header' => $report->headerBlock($query),
             'period' => ['kind' => $period->kind, 'label' => $period->label(), 'from' => $period->from, 'to' => $period->to, 'months' => count($period->kind === 'year' ? $period->monthKeys() : [])],
+            'documents' => ['total' => $page->total, 'pageable' => $lastPage * self::PER_PAGE, 'hasExport' => $summary->hasExport(), 'currency' => $summary->currency],
             'filters' => (object) $input,
             'filterErrors' => (object) $errors,
             'options' => $this->options($clock),
@@ -81,12 +85,19 @@ class VatRegisterController extends Controller
         ]);
     }
 
-    public function export(Request $request, ReportExporter $exporter): StreamedResponse
+    public function export(Request $request, ReportExporter $exporter, ReportRegistry $reports, CompanyClock $clock): StreamedResponse
     {
         $key = self::TABS[$this->tab($request)];
         $this->authorize("reports.{$key}.export");
 
-        return $exporter->export($key, $exporter->query($key, $this->filters($request), $request->user()?->getAuthIdentifier()), ExportFormat::Csv);
+        $query = $exporter->query($key, $this->filters($request, $clock), $request->user()?->getAuthIdentifier());
+        $response = $exporter->export($key, $query, ExportFormat::Csv);
+        /** @var RegisterReport $report */
+        $report = $reports->get($key);
+        $name = str_replace('_', '-', $key).'-'.$report->period($query)->slug().'.csv';
+        $response->headers->set('Content-Disposition', HeaderUtils::makeDisposition(HeaderUtils::DISPOSITION_ATTACHMENT, $name, $name));
+
+        return $response;
     }
 
     private function tab(Request $request): string
@@ -97,13 +108,15 @@ class VatRegisterController extends Controller
     }
 
     /**
-     * The period filters that were filled in.
+     * The period filters that were filled in, or the last closed BS month, so an export always records its period.
      *
      * @return array<string, string>
      */
-    private function filters(Request $request): array
+    private function filters(Request $request, CompanyClock $clock): array
     {
-        return array_filter(array_map(fn (mixed $value): string => is_string($value) ? trim($value) : '', $request->only(self::FILTERS)), fn (string $value): bool => $value !== '');
+        $filters = array_filter(array_map(fn (mixed $value): string => is_string($value) ? trim($value) : '', $request->only(self::FILTERS)), fn (string $value): bool => $value !== '');
+
+        return $filters !== [] ? $filters : ['month' => (string) RegisterPeriod::lastClosedMonth($clock)->firstMonth];
     }
 
     /**

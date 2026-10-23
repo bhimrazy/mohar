@@ -1,7 +1,7 @@
 import { Link, router } from '@inertiajs/react';
 import { AlertTriangle, BookOpen, Download } from 'lucide-react';
 import { useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { DataTable } from '@/components/app/data-table';
 import { humanize } from '@/components/billing/types';
 import type { DataTableColumn } from '@/components/app/data-table';
@@ -26,6 +26,7 @@ import {
     TooltipContent,
     TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { currencySymbol, formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import {
     exportMethod,
@@ -64,6 +65,12 @@ type Props = {
         years: SelectOption[];
         lastClosed: string;
     };
+    documents: {
+        total: number;
+        pageable: number;
+        hasExport: boolean;
+        currency: string;
+    };
     warnings: { withoutPan: number; unconverted: number };
     can: { export: boolean };
 };
@@ -87,9 +94,6 @@ const BS_MONTHS = [
     'Falgun',
     'Chaitra',
 ];
-
-/** Columns shown together in the date cell, or left for the export because they are blank for services. */
-const MERGED = ['ad_date', 'invoice_bs_date', 'export_declaration'];
 
 /** "2083-07-03" → "3 Kartik 2083". */
 function bsDate(value: Cell): string {
@@ -119,6 +123,39 @@ const KIND_OPTIONS: SelectOption[] = [
     { value: 'year', label: 'BS fiscal year' },
     { value: 'range', label: 'AD date range' },
 ];
+
+/** A main value with a smaller secondary line under it. */
+function Stack({ main, sub }: { main: ReactNode; sub?: ReactNode }) {
+    return (
+        <span className="block">
+            {main}
+            {sub ? (
+                <span className="block text-xs text-muted-foreground">
+                    {sub}
+                </span>
+            ) : null}
+        </span>
+    );
+}
+
+/** "$20.69 · $1 = Rs 151.94": a document in another currency, the rate to at most 4 decimals. */
+function foreign(row: Row, register: string): string | null {
+    if (!isMoney(row.original_amount) || !row.currency) {
+        return null;
+    }
+
+    const amount = formatMoney(
+        row.original_amount.amount,
+        row.original_amount.currency,
+    );
+    const rate = Number(text(row.rate)).toLocaleString('en', {
+        maximumFractionDigits: 4,
+    });
+
+    return row.rate
+        ? `${amount} · ${currencySymbol(text(row.currency))}1 = ${currencySymbol(register)} ${rate}`
+        : amount;
+}
 
 function isMoney(cell: Cell): cell is MoneyValue {
     return typeof cell === 'object' && cell !== null && 'amount' in cell;
@@ -151,6 +188,7 @@ export default function VatRegister({
     filters,
     filterErrors,
     options,
+    documents,
     warnings,
     can,
 }: Props) {
@@ -182,62 +220,161 @@ export default function VatRegister({
     const monthRows = totals.slice(0, period.months);
     const kindRows = totals.slice(period.months);
     const labelKey = tab === 'register' ? 'bs_date' : 'number';
-    const shown = columns.filter((column) => !MERGED.includes(column.key));
+    const money = (key: string, header: string, mobile = false) => ({
+        key,
+        header,
+        align: 'right' as const,
+        hideOnMobile: !mobile,
+        className: 'whitespace-nowrap',
+        cell: (row: Row) => <MoneyCell cell={row[key]} />,
+    });
+    const date: DataTableColumn<Row> = {
+        key: 'date',
+        header: 'Date (BS / AD)',
+        cell: (row) => (
+            <Stack
+                main={bsDate(row.bs_date)}
+                sub={<DateTime value={text(row.ad_date)} />}
+            />
+        ),
+    };
+    const buyer: DataTableColumn<Row> = {
+        key: 'buyer',
+        header: 'Buyer',
+        cell: (row) => (
+            <Stack
+                main={<TextCell cell={row.buyer} />}
+                sub={row.pan ? `PAN ${text(row.pan)}` : null}
+            />
+        ),
+    };
+    // Secondary facts sit under the main one, so Total, Taxable and VAT stay on screen at 1440 px; the CSV keeps
+    // every column.
+    const tableColumns: DataTableColumn<Row>[] =
+        tab === 'register'
+            ? [
+                  date,
+                  {
+                      key: 'number',
+                      header: 'Document',
+                      primary: true,
+                      cell: (row) => (
+                          <Stack
+                              main={text(row.number)}
+                              sub={
+                                  text(row.type) +
+                                  (row.reference
+                                      ? ` · against ${text(row.reference)} (${bsDate(row.reference_bs_date)})`
+                                      : '')
+                              }
+                          />
+                      ),
+                  },
+                  buyer,
+                  {
+                      key: 'goods',
+                      header: 'Goods or service',
+                      hideOnMobile: true,
+                      cell: (row) => (
+                          <Stack
+                              main={<TextCell cell={row.goods} />}
+                              sub={
+                                  row.quantity !== null
+                                      ? `${text(row.quantity)} × ${text(row.unit)}`
+                                      : null
+                              }
+                          />
+                      ),
+                  },
+                  {
+                      ...money('total_sales', 'Total sales', true),
+                      cell: (row) => (
+                          <Stack
+                              main={<MoneyCell cell={row.total_sales} />}
+                              sub={foreign(row, documents.currency)}
+                          />
+                      ),
+                  },
+                  money('exempt', 'Exempt'),
+                  money('taxable', 'Taxable'),
+                  money('vat', 'VAT', true),
+                  ...(documents.hasExport
+                      ? [
+                            {
+                                ...money('export_value', 'Export'),
+                                cell: (row: Row) => (
+                                    <Stack
+                                        main={
+                                            <MoneyCell
+                                                cell={row.export_value}
+                                            />
+                                        }
+                                        sub={
+                                            row.export_country
+                                                ? text(row.export_country)
+                                                : null
+                                        }
+                                    />
+                                ),
+                            },
+                        ]
+                      : []),
+              ]
+            : [
+                  {
+                      key: 'number',
+                      header: 'Note',
+                      primary: true,
+                      cell: (row) => (
+                          <Stack main={text(row.number)} sub={text(row.type)} />
+                      ),
+                  },
+                  date,
+                  {
+                      key: 'invoice',
+                      header: 'Invoice',
+                      cell: (row) => (
+                          <Stack
+                              main={text(row.invoice)}
+                              sub={bsDate(row.invoice_bs_date)}
+                          />
+                      ),
+                  },
+                  buyer,
+                  {
+                      key: 'reason',
+                      header: 'Reason',
+                      hideOnMobile: true,
+                      cell: (row) => (
+                          <Stack
+                              main={humanize(text(row.reason_code))}
+                              sub={text(row.reason)}
+                          />
+                      ),
+                  },
+                  money('taxable', 'Taxable'),
+                  money('exempt', 'Exempt'),
+                  money('vat', 'VAT', true),
+                  money('total', 'Total', true),
+                  {
+                      key: 'settlement',
+                      header: 'Settlement',
+                      hideOnMobile: true,
+                      cell: (row) => (
+                          <Stack
+                              main={<TextCell cell={row.settlement} />}
+                              sub={row.created_by ? text(row.created_by) : null}
+                          />
+                      ),
+                  },
+              ];
 
-    const tableColumns: DataTableColumn<Row>[] = shown.map((column) => ({
-        key: column.key,
-        header: column.key === 'bs_date' ? 'Date (BS / AD)' : column.label,
-        align:
-            column.type === 'money' || column.type === 'integer'
-                ? 'right'
-                : 'left',
-        primary: column.key === 'number',
-        hideOnMobile: ![
-            'bs_date',
-            'number',
-            'type',
-            'buyer',
-            'vat',
-            'total_sales',
-            'total',
-        ].includes(column.key),
-        className: column.type === 'money' ? 'whitespace-nowrap' : undefined,
-        cell: (row: Row) => {
-            if (column.key === 'bs_date') {
-                return (
-                    <span className="whitespace-nowrap">
-                        {bsDate(row.bs_date)}
-                        <span className="block text-xs text-muted-foreground">
-                            <DateTime value={row.ad_date as string} />
-                        </span>
-                    </span>
-                );
-            }
-
-            if (column.key === 'invoice' && row.invoice_bs_date) {
-                return (
-                    <span className="whitespace-nowrap">
-                        {text(row.invoice)}
-                        <span className="block text-xs text-muted-foreground">
-                            {bsDate(row.invoice_bs_date)}
-                        </span>
-                    </span>
-                );
-            }
-
-            if (column.key === 'reason_code') {
-                return <TextCell cell={humanize(text(row.reason_code))} />;
-            }
-
-            return column.type === 'money' ? (
-                <MoneyCell cell={row[column.key]} />
-            ) : (
-                <TextCell cell={row[column.key]} />
-            );
-        },
-    }));
-
-    const moneyColumns = columns.filter((column) => column.type === 'money');
+    const moneyColumns = columns.filter(
+        (column) =>
+            column.type === 'money' &&
+            column.key !== 'original_amount' &&
+            (documents.hasExport || column.key !== 'export_value'),
+    );
     const notices = [
         warnings.withoutPan > 0 &&
             `${plural(warnings.withoutPan)} to a business buyer without a PAN. Their PAN column is blank; add the PAN to the client for later documents.`,
@@ -458,7 +595,21 @@ export default function VatRegister({
                         />
                     }
                     footer={
-                        <Pagination paginator={rows} itemLabel="documents" />
+                        <>
+                            <Pagination
+                                paginator={rows}
+                                itemLabel="documents"
+                            />
+                            {documents.total > documents.pageable && (
+                                <p className="px-4 pb-3 text-xs text-muted-foreground">
+                                    Only the first{' '}
+                                    {documents.pageable.toLocaleString('en')} of{' '}
+                                    {documents.total.toLocaleString('en')}{' '}
+                                    documents can be paged here. Choose a
+                                    shorter period, or export the CSV.
+                                </p>
+                            )}
+                        </>
                     }
                 />
 
@@ -492,56 +643,84 @@ function TotalsTable({
     boldLast?: boolean;
 }) {
     return (
-        <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-                <thead>
-                    <tr className="border-b text-muted-foreground">
-                        <th
-                            className="px-4 py-2 text-left font-medium"
-                            scope="col"
-                        >
-                            <span className="sr-only">Row</span>
-                        </th>
+        <>
+            {/* Phones: one block per row, so no column is cut off. */}
+            <div className="divide-y md:hidden">
+                {rows.map((row, i) => (
+                    <dl
+                        key={text(row[labelKey])}
+                        className={cn(
+                            'grid grid-cols-2 gap-x-4 gap-y-1 px-4 py-3 text-sm',
+                            boldLast && i === rows.length - 1 && 'font-medium',
+                        )}
+                    >
+                        <dt className="col-span-2 font-medium">
+                            {text(row[labelKey])}
+                        </dt>
                         {columns.map((column) => (
+                            <div key={column.key} className="contents">
+                                <dt className="text-muted-foreground">
+                                    {column.label}
+                                </dt>
+                                <dd className="text-right">
+                                    <MoneyCell cell={row[column.key]} />
+                                </dd>
+                            </div>
+                        ))}
+                    </dl>
+                ))}
+            </div>
+            <div className="hidden overflow-x-auto md:block">
+                <table className="w-full text-sm">
+                    <thead>
+                        <tr className="border-b text-muted-foreground">
                             <th
-                                key={column.key}
-                                className="px-4 py-2 text-right font-medium whitespace-nowrap"
+                                className="px-4 py-2 text-left font-medium"
                                 scope="col"
                             >
-                                {column.label}
-                            </th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows.map((row, i) => (
-                        <tr
-                            key={text(row[labelKey])}
-                            className={cn(
-                                'border-b last:border-0',
-                                boldLast &&
-                                    i === rows.length - 1 &&
-                                    'font-medium',
-                            )}
-                        >
-                            <th
-                                className="px-4 py-2 text-left font-medium whitespace-nowrap"
-                                scope="row"
-                            >
-                                {text(row[labelKey])}
+                                <span className="sr-only">Row</span>
                             </th>
                             {columns.map((column) => (
-                                <td
+                                <th
                                     key={column.key}
-                                    className="px-4 py-2 text-right"
+                                    className="px-4 py-2 text-right font-medium whitespace-nowrap"
+                                    scope="col"
                                 >
-                                    <MoneyCell cell={row[column.key]} />
-                                </td>
+                                    {column.label}
+                                </th>
                             ))}
                         </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
+                    </thead>
+                    <tbody>
+                        {rows.map((row, i) => (
+                            <tr
+                                key={text(row[labelKey])}
+                                className={cn(
+                                    'border-b last:border-0',
+                                    boldLast &&
+                                        i === rows.length - 1 &&
+                                        'font-medium',
+                                )}
+                            >
+                                <th
+                                    className="px-4 py-2 text-left font-medium whitespace-nowrap"
+                                    scope="row"
+                                >
+                                    {text(row[labelKey])}
+                                </th>
+                                {columns.map((column) => (
+                                    <td
+                                        key={column.key}
+                                        className="px-4 py-2 text-right"
+                                    >
+                                        <MoneyCell cell={row[column.key]} />
+                                    </td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </>
     );
 }

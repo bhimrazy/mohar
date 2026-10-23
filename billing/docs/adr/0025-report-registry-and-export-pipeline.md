@@ -218,5 +218,8 @@ replaces the §2 text that has the owner render the screen "using the registry's
   at machine speed. The VAT registers allow 60 requests a minute (`billing-registers`).
 - **Every report pages conformantly.** A report that ignores `limit` and `offset` would show page 1 again as page 2;
   the viewer caps the row count but cannot detect the repeat. `tests/Support/Reports/ReportConformance` checks the
-  pages against the unpaged rows, and `tests/Arch/ReportsTest.php` requires a test calling it for every report in
-  `app/`. `count()` runs on every page without a cache, so it must be served by an index.
+  pages against the unpaged rows. `tests/Arch/ReportsTest.php` finds each report in `app/` and requires another test
+  file to pass that report's registry key to `ReportConformance::assertPages()`.
+- **Count and totals are bounded.** `count()` and `ProvidesTotals::totals()` run on every page without a cache. Both
+  must be aggregate queries served by an index, a fixed number of them, never a walk through the sorted rows. A report
+  whose filters allow an open-ended period caps it: the VAT registers accept an AD range of at most one year.
