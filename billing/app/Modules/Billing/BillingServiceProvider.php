@@ -113,7 +113,7 @@ class BillingServiceProvider extends ModuleServiceProvider
 
             foreach (Gateway::query()->orderBy('key')->get() as $gateway) {
                 if ($gateways->has($gateway->key)) {
-                    yield ['owner' => $gateway->display_name, 'fields' => array_map(SettingField::fromArray(...), $gateways->driver($gateway->key)->settingsFields()), 'values' => $gateway->config ?? []];
+                    yield ['owner' => $gateway->display_name, 'fields' => array_map(SettingField::fromArray(...), $gateways->driver($gateway->key)->settingsFields()), 'values' => fn (): array => $gateway->config ?? []];
                 }
             }
         });

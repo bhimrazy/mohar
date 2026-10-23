@@ -4,6 +4,7 @@ namespace App\Modules\Services\Http\Resources;
 
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Support\ServerSettings;
+use App\Support\Integrations\StoredSecrets;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -30,6 +31,8 @@ class ServerResource extends JsonResource
             'has_password' => $this->password !== null,
             'has_api_token' => $this->api_token !== null,
             'has_access_hash' => $this->access_hash !== null,
+            // Keys only: stored credentials saved before the minimum length, which staff should replace.
+            'credentials_short' => StoredSecrets::tooShort(app(ServerSettings::class)->credentialFields(), app(ServerSettings::class)->credentials($this->resource)),
             'secure' => $this->secure,
             'port' => $this->port,
             'max_accounts' => $this->max_accounts,

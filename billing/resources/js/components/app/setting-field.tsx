@@ -50,11 +50,11 @@ export function secretLengthError(
 }
 
 /** Hint for a stored secret saved before its minimum existed. */
-export function shortSecretHint(field: SettingFieldData) {
+export function shortSecretHint(minLength: number | null) {
     return (
         <span className="text-warning-text">
             The saved value is too short to keep out of logs. Replace it with
-            one of at least {field.min_length} characters.
+            one of at least {minLength} characters.
         </span>
     );
 }
@@ -181,7 +181,7 @@ export function SettingFieldInput({
             optional={!field.required && field.type !== 'boolean'}
             hint={
                 secretStored && secretShort
-                    ? shortSecretHint(field)
+                    ? shortSecretHint(field.min_length)
                     : secretStored
                       ? 'Stored encrypted. Leave blank to keep it.'
                       : (field.help ?? undefined)

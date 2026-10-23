@@ -68,6 +68,31 @@ class ServerSettings
         }));
     }
 
+    /**
+     * The server row's own credentials as secret fields, so they get the same minimum length as secret settings
+     * (ADR 0023 §2).
+     *
+     * @return list<SettingField>
+     */
+    public function credentialFields(): array
+    {
+        return [
+            new SettingField('password', __('Password'), FieldType::Secret),
+            new SettingField('api_token', __('API token'), FieldType::Secret),
+            new SettingField('access_hash', __('Access hash'), FieldType::SecretText),
+        ];
+    }
+
+    /**
+     * The server's stored credentials, decrypted.
+     *
+     * @return array<string, string|null>
+     */
+    public function credentials(Server $server): array
+    {
+        return array_combine(Server::CREDENTIALS, array_map(fn (string $credential): ?string => $server->getAttribute($credential), Server::CREDENTIALS));
+    }
+
     public function declares(string $driverKey, string $key): bool
     {
         return collect($this->fields($driverKey))->contains(fn (SettingField $field): bool => $field->key === $key);

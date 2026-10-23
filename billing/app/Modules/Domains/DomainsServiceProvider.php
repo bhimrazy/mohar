@@ -119,7 +119,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
 
             foreach (RegistrarAccount::query()->orderBy('key')->get() as $account) {
                 if ($registrars->has($account->key)) {
-                    yield ['owner' => $registrars->get($account->key)->name(), 'fields' => $registrars->fields($account->key), 'values' => $account->settings ?? []];
+                    yield ['owner' => $registrars->get($account->key)->name(), 'fields' => $registrars->fields($account->key), 'values' => fn (): array => $account->settings ?? []];
                 }
             }
         });

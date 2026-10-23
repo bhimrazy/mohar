@@ -4,18 +4,20 @@ namespace App\Support\Integrations;
 
 use App\Data\Integrations\SettingField;
 use Closure;
+use Illuminate\Contracts\Encryption\DecryptException;
 use InvalidArgumentException;
 use LogicException;
 
 /**
  * Finds stored secret settings shorter than their field's minimum (ADR 0023 §2), so staff can replace them: such a
- * value was saved before the minimum existed, and under 4 bytes the Redactor does not match it. Each module that
- * stores integration settings registers a source in bootModule():
+ * value was saved before the minimum existed, and the Redactor does not match a very short value. Each module that
+ * stores integration secrets registers a source in bootModule():
  *
  *   app(StoredSecrets::class)->register('gateways', fn (): iterable => ...);
  *
- * A source yields one entry per configured integration: a label for staff, its fields and its decrypted settings. The
- * values never leave this class; a finding names the setting by key and label only.
+ * A source yields one entry per stored record: a label for staff, its fields, and a closure that decrypts its values.
+ * The closure is called here, so a record that cannot be decrypted (a missing key, ADR 0022) is reported as unreadable
+ * and the check goes on. Values never leave this class; a finding names the setting by key and label only.
  *
  * @api
  */
@@ -23,11 +25,11 @@ class StoredSecrets
 {
     private const KEY_PATTERN = '/^[a-z0-9_]{1,50}$/';
 
-    /** @var array<string, Closure(): iterable<array{owner: string, fields: list<SettingField>, values: array<array-key, mixed>}>> */
+    /** @var array<string, Closure(): iterable<array{owner: string, fields: list<SettingField>, values: Closure(): array<array-key, mixed>}>> */
     private array $sources = [];
 
     /**
-     * @param  Closure(): iterable<array{owner: string, fields: list<SettingField>, values: array<array-key, mixed>}>  $source
+     * @param  Closure(): iterable<array{owner: string, fields: list<SettingField>, values: Closure(): array<array-key, mixed>}>  $source
      */
     public function register(string $key, Closure $source): void
     {
@@ -58,24 +60,34 @@ class StoredSecrets
     }
 
     /**
-     * Every stored secret setting below its minimum, across the registered sources.
+     * Every stored secret setting below its minimum, and every record that could not be decrypted, across the
+     * registered sources.
      *
-     * @return list<array{source: string, owner: string, key: string, label: string, minimum: int}>
+     * @return array{short: list<array{source: string, owner: string, key: string, label: string, minimum: int}>, unreadable: list<array{source: string, owner: string}>}
      */
-    public function findTooShort(): array
+    public function check(): array
     {
-        $found = [];
+        $short = [];
+        $unreadable = [];
 
         foreach ($this->sources as $source => $entries) {
             foreach ($entries() as $entry) {
+                try {
+                    $values = ($entry['values'])();
+                } catch (DecryptException) {
+                    $unreadable[] = ['source' => $source, 'owner' => $entry['owner']];
+
+                    continue;
+                }
+
                 foreach ($entry['fields'] as $field) {
-                    if ($field->isTooShort($entry['values'][$field->key] ?? null)) {
-                        $found[] = ['source' => $source, 'owner' => $entry['owner'], 'key' => $field->key, 'label' => $field->label, 'minimum' => $field->minimumSecretLength()];
+                    if ($field->isTooShort($values[$field->key] ?? null)) {
+                        $short[] = ['source' => $source, 'owner' => $entry['owner'], 'key' => $field->key, 'label' => $field->label, 'minimum' => $field->minimumSecretLength()];
                     }
                 }
             }
         }
 
-        return $found;
+        return ['short' => $short, 'unreadable' => $unreadable];
     }
 }

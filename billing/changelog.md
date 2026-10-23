@@ -149,14 +149,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
-- **A new integration secret must be at least 8 characters (ADR 0023 §2).** The gateway, registrar and server
-  settings forms refuse a new secret setting (API key, webhook secret, reseller password) shorter than 8 bytes, with
-  "<label> must be at least 8 characters" under the field; the browser shows the same message when the field loses
-  focus. A driver whose credential has a shorter known format declares it (`SettingField::$minLength`, at least 4),
-  for example a 6-digit PIN. Leaving a secret blank still keeps the stored one. A secret stored before this change
-  still loads and works; its form marks it "too short to keep out of logs, replace it". Product-level driver
-  settings and the server's own password, API token and access hash are not checked.
-
 - **Nepal-first demo data (#39).** The demo is now a Nepal install: NPR is the default currency, the company time zone is
   Asia/Kathmandu, dates read "22 Oct 2026" and Bikram Sambat dates show beside invoice dates. The showcase client is a
   Lalitpur company (Sujata Shrestha, Himal Labs Pvt. Ltd.) with a buyer PAN, NPR invoices at 13% VAT at the catalogue
@@ -188,12 +180,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Two time-boundary tests no longer fail on a second tick (#310, #322).** The auth throttle test and the KYC unlock-seconds test now freeze time, so Retry-After and the seconds left are measured from one instant. Tests only; no product, schema or permission change.
 
 ### Upgrade notes
-
-- **List stored secrets that are too short (ADR 0023 §2).** Run `php artisan integrations:short-secrets` after
-  upgrading. It is read-only and lists each gateway, registrar and server secret setting shorter than its minimum by
-  integration and setting name, never by value, and exits 1 when it finds one. Replace each on its settings form: once
-  the Redactor's 4-byte match minimum (ADR 0023 step 3a) is in, a secret under 4 bytes is masked in logs only where
-  its setting name appears.
 
 - **Re-encode identity images stored before #286 (#287).** Run `php artisan kyc:reencode-images` once after upgrading,
   off-peak (`--dry-run` first). It re-encodes the images of documents uploaded before #286 through the same sanitiser

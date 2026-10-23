@@ -149,7 +149,7 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                                         ? registrar.secrets_short.includes(
                                               field.key,
                                           )
-                                            ? shortSecretHint(field)
+                                            ? shortSecretHint(field.min_length)
                                             : 'Saved. Leave empty to keep it.'
                                         : (field.help ?? undefined)
                                 }

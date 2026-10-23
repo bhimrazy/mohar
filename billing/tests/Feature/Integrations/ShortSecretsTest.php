@@ -112,7 +112,24 @@ test('integrations:short-secrets lists stored short secrets by name across gatew
     expect($output)->toContain('Sandbox card')->toContain('Webhook signing secret (webhook_secret)')
         ->toContain('Reseller PIN (pin)')->toContain('Demo panel')->toContain('Webhook secret (demo) (webhook_secret)')
         ->not->toContain('q7z')->not->toContain('12345')->not->toContain('w4v')->not->toContain('API key');
-    expect(collect(app(StoredSecrets::class)->findTooShort())->pluck('minimum', 'key')->all())->toBe(['webhook_secret' => 8, 'pin' => 6]);
+    expect(collect(app(StoredSecrets::class)->check()['short'])->pluck('minimum', 'key')->all())->toBe(['webhook_secret' => 8, 'pin' => 6]);
+});
+
+test('the server form refuses a short password, API token or access hash, flags a stored one by key, and a blank keeps it', function () {
+    Currency::factory()->create(['code' => 'NPR']);
+    $payload = [...shortSecretServerPayload('hook-08!'), 'password' => 'pw-7!ab', 'api_token' => 'tok', 'access_hash' => 'h4sh'];
+
+    $this->post(route('admin.services.servers.store'), $payload)
+        ->assertSessionHasErrors(['password' => 'Password must be at least 8 characters. A shorter secret cannot be kept out of logs.', 'api_token', 'access_hash']);
+    expect(json_encode(session()->all()))->not->toContain('pw-7!ab')->and(Server::query()->count())->toBe(0);
+
+    $server = Server::factory()->create(['driver' => 'log', 'name' => 'Old box', 'password' => 'abc', 'api_token' => 'long-enough-token']);
+
+    $this->get(route('admin.services.servers.edit', $server))->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->where('server.credentials_short', ['password'])->where('server.has_password', true));
+
+    $this->put(route('admin.services.servers.update', $server), [...shortSecretServerPayload(''), 'hostname' => $server->hostname, 'password' => ''])->assertSessionHasNoErrors();
+    expect($server->fresh()->password)->toBe('abc');
 });
 
 test('a stored secrets source key is checked and registered once', function () {

@@ -5,6 +5,7 @@ namespace App\Modules\Services\Http\Requests;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Support\ServerSettings;
 use App\Support\Integrations\KeepsSecretsOutOfOldInput;
+use App\Support\Integrations\SecretMinimumLength;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -41,6 +42,8 @@ class ServerRequest extends FormRequest
      */
     public function rules(): array
     {
+        $credentials = collect(app(ServerSettings::class)->credentialFields())->keyBy('key');
+
         return [
             'name' => ['required', 'string', 'max:255'],
             'hostname' => ['required', 'string', 'max:255', 'regex:/^[a-z0-9.-]+$/'],
@@ -49,9 +52,9 @@ class ServerRequest extends FormRequest
             'assigned_ips.*' => ['ip'],
             'driver' => ['required', 'string', Rule::in(app(ProvisioningDriverRegistry::class)->keys())],
             'username' => ['nullable', 'string', 'max:255'],
-            'password' => ['nullable', 'string', 'max:1000'],
-            'api_token' => ['nullable', 'string', 'max:4000'],
-            'access_hash' => ['nullable', 'string', 'max:10000'],
+            'password' => ['nullable', 'string', 'max:1000', new SecretMinimumLength($credentials['password'])],
+            'api_token' => ['nullable', 'string', 'max:4000', new SecretMinimumLength($credentials['api_token'])],
+            'access_hash' => ['nullable', 'string', 'max:10000', new SecretMinimumLength($credentials['access_hash'])],
             'secure' => ['boolean'],
             'port' => ['nullable', 'integer', 'between:1,65535', Rule::notIn($this->refusedPorts())],
             'max_accounts' => ['required', 'integer', 'min:0', 'max:1000000'],

@@ -122,6 +122,8 @@ export type ServerRow = {
     has_password: boolean;
     has_api_token: boolean;
     has_access_hash: boolean;
+    /** Stored credentials (password, api_token, access_hash) shorter than the minimum. */
+    credentials_short: string[];
     secure: boolean;
     port: number | null;
     max_accounts: number;

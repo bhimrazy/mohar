@@ -8,7 +8,8 @@ use Illuminate\Contracts\Validation\ValidationRule;
 
 /**
  * Refuses a new secret setting value shorter than its field's minimum (SettingField::minimumSecretLength(), bytes once
- * trimmed). An empty value passes: on a settings form it keeps the stored one.
+ * trimmed). An empty value passes: on a settings form it keeps the stored one. The message says "characters" while
+ * bytes are counted, as the Redactor matches them: they differ only for non-ASCII values, which pass sooner.
  *
  * @api
  */

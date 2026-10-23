@@ -94,12 +94,15 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $drivers->register('log', LogDriver::class);
         $drivers->register(CpanelDriver::KEY, CpanelDriver::class);
 
-        // Stored server settings checked against their minimum length (`integrations:short-secrets`).
+        // Stored server credentials and settings checked against their minimum length (`integrations:short-secrets`).
         $this->app->make(StoredSecrets::class)->register('servers', function (): iterable {
             $settings = $this->app->make(ServerSettings::class);
 
-            foreach (Server::query()->whereNotNull('settings')->lazyById() as $server) {
-                yield ['owner' => "{$server->name} (#{$server->id})", 'fields' => $settings->fields($server->driver), 'values' => $server->settings ?? []];
+            foreach (Server::query()->lazyById() as $server) {
+                $owner = "{$server->name} (#{$server->id})";
+
+                yield ['owner' => $owner, 'fields' => $settings->credentialFields(), 'values' => fn (): array => $settings->credentials($server)];
+                yield ['owner' => $owner, 'fields' => $settings->fields($server->driver), 'values' => fn (): array => $server->settings ?? []];
             }
         });
 
