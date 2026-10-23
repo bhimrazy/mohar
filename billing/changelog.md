@@ -14,6 +14,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **Tax-invoice snapshot and numbering groundwork for Nepal VAT credit and debit notes (VAT PR 1a, ADR 0024).** Nothing
+  in the screens changes yet, and no credit or debit note can be issued; this is the schema and the numbering rules the
+  notes build on. Every invoice that gets its legal number now stores, in the same transaction, `numbered_at` (the
+  instant of numbering), its tax-invoice value (taxable, exempt, two taxes and total, including any late fee or
+  cancelled line written before the number), the reporting currency and rate (a decimal string from the stored
+  exchange rates; the remote rate source is never called), its supply class and its Bikram Sambat date, month and
+  fiscal year (`2083.084`). These fields are frozen with the number: the model refuses a later change, and refuses
+  deleting a numbered invoice. New tables for credit and debit notes, their lines, refund reservations and the staff-review
+  list; credit and debit notes get their own gap-free sequences (`CN-{NUMBER}`, `DN-{NUMBER}`) with their own format,
+  padding and reset (settings `credit_note_format`, `credit_note_padding`, `credit_note_reset`, and the same for
+  `debit_note_*`; the increment is always 1). `CurrencyConverter::rateDecimal()` returns the cross rate as an exact
+  string. Upgrade notes: **four migrations run on deploy, all expand-only**. The last one fills the snapshot of every
+  invoice that already has a number, in chunks of 200 invoices that lock only their own rows (about 2 ms per invoice:
+  20,000 invoices took 40 seconds on PostgreSQL); an issued number is never rewritten, and a deposit (add-funds) invoice
+  is skipped. `numbered_at` of an invoice numbered at publish is its creation time; of one numbered on payment, the
+  creation time of the one payment that brought its balance to zero (never the payment date staff can backdate). Where no
+  single payment can be named (several payments, credit applied, a line cancelled), or a refund, cancellation or
+  untaxed-line cancellation stores no usable tax split, the invoice goes on the **staff-review list** and gets an
+  estimate (its `paid_at`). Read the list with `php artisan billing:fiscal-snapshot --list`. Run
+  `php artisan billing:fiscal-snapshot` once more after the deploy has switched servers: it is safe to repeat and fills any
+  invoice the previous release numbered in between. Nepal VAT mode (a later release) cannot be enabled while the list
+  is unseen. Downgrade: rolling back the four migrations drops the new tables and columns; nothing else reads them.
+
 - **Credit and debit note events (VAT PR 0b).** Two new kernel events, `CreditNoteIssued` and `DebitNoteIssued`, for the VAT credit-note work (ADR 0024 §6). Nothing emits them yet, so behaviour is unchanged. No schema or permission change.
 
 - **Documents are dated on the company's calendar (ADR 0013 Amendment 1).** Invoice issue and due dates, document

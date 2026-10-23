@@ -113,8 +113,12 @@ describe('note numbers under real concurrent transactions (PostgreSQL)', functio
     test('two notes of one kind are numbered one after the other: no duplicate, no gap, even after a rollback', function () {
         [$first, $second, $third] = raceSequence(DocumentNumbers::CREDIT_NOTE, [[0, 1_500, 'rollback'], [300, 0, 'commit'], [600, 0, 'commit']]);
 
-        expect([$first['number'], $second['number'], $third['number']])->toBe([1, 1, 2])
-            ->and($second['taken'])->toBeGreaterThanOrEqual($first['ended'] - 0.05);
+        // The rolled-back number is handed out again, and the two waiting transactions take 1 and 2 in either order.
+        $waiting = [$second['number'], $third['number']];
+        sort($waiting);
+
+        expect([$first['number'], ...$waiting])->toBe([1, 1, 2])
+            ->and(min($second['taken'], $third['taken']))->toBeGreaterThanOrEqual($first['ended'] - 0.05);
     });
 
     test('a credit note does not wait for a debit note: they hold different sequence rows', function () {
