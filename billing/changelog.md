@@ -610,7 +610,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   GHSA-p458-7748-mcp3 (moderate: Vitest browser and UI servers misapplied `server.fs.deny` and could serve `.env`,
   keys and `.git`; dev and test only, nothing in the production image). 1.3.0 is the first fixed release and was
   adopted after the 7-day cooldown (#241); `npm audit` is clean again (it reported 5 moderate findings). Brings
-  Vitest 5.0.5, Oxlint 1.88.0, Oxlint-tsgolint 7.0.2004, Oxfmt 0.73.0 and Rolldown 1.2.14; the Yuku parser moves
+  Vitest 5.0.5, Oxlint 1.88.0, Oxlint-tsgolint 7.0.2004, Oxfmt 0.73.0 and the Rolldown bundled in vite-plus-core; the Yuku parser moves
   0.9.5 → 0.19.0. No source or formatting change (`vp check --fix` leaves the tree unchanged). Developers run
   `npm ci` in `billing/` after pulling.
 - Log redaction (#278): an unclosed void-named container with a secret name (`<param name="password"><value>…`, a
