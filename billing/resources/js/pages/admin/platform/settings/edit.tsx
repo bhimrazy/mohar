@@ -7,6 +7,7 @@ import { Field } from '@/components/app/field';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
+import { CountrySelect } from '@/components/app/country-select';
 import { SelectField } from '@/components/app/select-field';
 import { SwitchField } from '@/components/app/switch-field';
 import PasswordInput from '@/components/password-input';
@@ -22,12 +23,21 @@ const SEARCHABLE = new Set(['system.timezone']);
 type SettingField = {
     key: string;
     label: string;
-    type: 'string' | 'text' | 'integer' | 'boolean' | 'select' | 'email';
+    type:
+        | 'string'
+        | 'text'
+        | 'integer'
+        | 'boolean'
+        | 'select'
+        | 'email'
+        | 'country';
     help: string | null;
     options: { value: string; label: string }[];
     secret: boolean;
+    required: boolean;
     value: unknown;
     is_set: boolean;
+    locked_reason: string | null;
 };
 
 type Props = {
@@ -164,6 +174,13 @@ export default function SettingsEdit({ sections, section }: Props) {
                                     const id = `setting-${field.key.replace(/\./g, '-')}`;
                                     const error = errors[field.key];
                                     const value = values[field.key];
+                                    const locked = field.locked_reason !== null;
+                                    const off = disabled || locked;
+                                    const help = locked
+                                        ? [field.locked_reason, field.help]
+                                              .filter(Boolean)
+                                              .join(' ')
+                                        : field.help;
 
                                     if (field.type === 'boolean') {
                                         return (
@@ -172,12 +189,10 @@ export default function SettingsEdit({ sections, section }: Props) {
                                                 id={id}
                                                 label={field.label}
                                                 description={
-                                                    error ??
-                                                    field.help ??
-                                                    undefined
+                                                    error ?? help ?? undefined
                                                 }
                                                 checked={value === true}
-                                                disabled={disabled}
+                                                disabled={off}
                                                 onCheckedChange={(checked) =>
                                                     set(field.key, checked)
                                                 }
@@ -195,12 +210,26 @@ export default function SettingsEdit({ sections, section }: Props) {
                                                 field.secret
                                                     ? field.is_set
                                                         ? 'A value is saved. Leave blank to keep it.'
-                                                        : (field.help ??
-                                                          'Not set.')
-                                                    : (field.help ?? undefined)
+                                                        : (help ?? 'Not set.')
+                                                    : (help ?? undefined)
                                             }
                                         >
-                                            {field.type === 'select' ? (
+                                            {field.type === 'country' ? (
+                                                <CountrySelect
+                                                    id={id}
+                                                    value={String(value)}
+                                                    onValueChange={(next) =>
+                                                        set(field.key, next)
+                                                    }
+                                                    emptyLabel={
+                                                        field.required
+                                                            ? undefined
+                                                            : 'Not set'
+                                                    }
+                                                    disabled={disabled}
+                                                    invalid={Boolean(error)}
+                                                />
+                                            ) : field.type === 'select' ? (
                                                 <SelectField
                                                     id={id}
                                                     value={String(value)}
@@ -211,7 +240,7 @@ export default function SettingsEdit({ sections, section }: Props) {
                                                     searchable={SEARCHABLE.has(
                                                         field.key,
                                                     )}
-                                                    disabled={disabled}
+                                                    disabled={off}
                                                     invalid={Boolean(error)}
                                                 />
                                             ) : field.type === 'text' ? (
@@ -225,7 +254,7 @@ export default function SettingsEdit({ sections, section }: Props) {
                                                             event.target.value,
                                                         )
                                                     }
-                                                    disabled={disabled}
+                                                    disabled={off}
                                                     aria-invalid={Boolean(
                                                         error,
                                                     )}
@@ -246,7 +275,7 @@ export default function SettingsEdit({ sections, section }: Props) {
                                                             event.target.value,
                                                         )
                                                     }
-                                                    disabled={disabled}
+                                                    disabled={off}
                                                     aria-invalid={Boolean(
                                                         error,
                                                     )}
@@ -269,7 +298,7 @@ export default function SettingsEdit({ sections, section }: Props) {
                                                             event.target.value,
                                                         )
                                                     }
-                                                    disabled={disabled}
+                                                    disabled={off}
                                                     aria-invalid={Boolean(
                                                         error,
                                                     )}

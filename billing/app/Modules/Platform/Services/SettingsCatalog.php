@@ -4,8 +4,10 @@ namespace App\Modules\Platform\Services;
 
 use App\Models\User;
 use App\Modules\Core\Support\Settings;
+use App\Support\Countries;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Settings\SettingDefinition;
+use App\Support\Settings\SettingLocks;
 use App\Support\Settings\SettingsRegistry;
 use Illuminate\Validation\Rule;
 
@@ -18,7 +20,7 @@ class SettingsCatalog
     /** Permission for sections registered without their own permission. */
     public const DEFAULT_PERMISSION = 'core.settings.update';
 
-    public function __construct(private SettingsRegistry $registry, private Settings $settings, private PermissionRegistry $permissions) {}
+    public function __construct(private SettingsRegistry $registry, private Settings $settings, private PermissionRegistry $permissions, private SettingLocks $locks) {}
 
     /**
      * Sections guarded by a sensitive permission need a recent password confirmation to change.
@@ -57,10 +59,12 @@ class SettingsCatalog
     }
 
     /**
-     * @return list<array{key: string, label: string, type: string, help: ?string, options: list<array{value: string, label: string}>, secret: bool, value: mixed, is_set: bool}>
+     * @return list<array{key: string, label: string, type: string, help: ?string, options: list<array{value: string, label: string}>, secret: bool, required: bool, value: mixed, is_set: bool, locked_reason: ?string}>
      */
     public function fields(string $section): array
     {
+        $this->locks->flush();
+
         return array_map(function (SettingDefinition $definition): array {
             $value = $this->settings->get($definition->key);
 
@@ -69,13 +73,15 @@ class SettingsCatalog
                 'label' => $definition->label,
                 'type' => $definition->type,
                 'help' => $definition->help,
+                'locked_reason' => $this->locks->reason($definition->key),
                 'options' => array_map(
                     fn (string|int $value, string $label): array => ['value' => (string) $value, 'label' => $label],
                     array_keys($definition->options),
                     array_values($definition->options),
                 ),
                 'secret' => $definition->secret,
-                'value' => $definition->secret ? null : $value,
+                'required' => $this->isRequired($definition),
+                'value' => $definition->secret ? null : ($definition->type === 'country' && is_string($value) && $value !== '' ? Countries::normalize($value) : $value),
                 'is_set' => $value !== null && $value !== '',
             ];
         }, $this->section($section)['settings'] ?? []);
@@ -95,20 +101,42 @@ class SettingsCatalog
                 'integer' => ['integer'],
                 'boolean' => ['boolean'],
                 'select' => [Rule::in(array_map('strval', array_keys($definition->options)))],
+                'country' => ['string', $this->countryRule($definition)],
                 'email' => ['string', 'email', 'max:255'],
                 'text' => ['string', 'max:10000'],
                 default => ['string', 'max:255'],
             };
-            $presence = in_array($definition->type, ['integer', 'boolean', 'select'], true) || in_array('required', $definition->rules, true)
-                ? 'required'
-                : 'nullable';
+            $extra = array_values(array_filter($definition->rules, fn (mixed $rule): bool => $rule !== 'required'));
+            $presence = $this->isRequired($definition) ? 'required' : 'nullable';
 
             $rules[$definition->key] = $definition->secret
-                ? ['nullable', ...$base, ...array_values(array_diff($definition->rules, ['required']))]
-                : [$presence, ...$base, ...array_values(array_diff($definition->rules, ['required']))];
+                ? ['nullable', ...$base, ...$extra]
+                : [$presence, ...$base, ...$extra];
         }
 
         return $rules;
+    }
+
+    /** Whether the server refuses a blank for this setting (the form marks the field required). */
+    private function isRequired(SettingDefinition $definition): bool
+    {
+        return in_array($definition->type, ['integer', 'boolean', 'select'], true) || in_array('required', $definition->rules, true);
+    }
+
+    /**
+     * A country setting takes a known code. A code already stored (an import or an older record) is accepted as it is
+     * so it cannot block saving the rest of the section.
+     */
+    private function countryRule(SettingDefinition $definition): \Closure
+    {
+        return function (string $attribute, mixed $value, \Closure $fail) use ($definition): void {
+            $stored = $this->settings->get($definition->key);
+            $unchanged = is_string($value) && is_string($stored) && strcasecmp(trim($value), $stored) === 0;
+
+            if (! $unchanged && ! (is_string($value) && Countries::exists($value))) {
+                $fail(__('The :attribute must be a country from the list.'));
+            }
+        };
     }
 
     public function cast(SettingDefinition $definition, mixed $value): mixed
@@ -116,6 +144,7 @@ class SettingsCatalog
         return match ($definition->type) {
             'integer' => (int) $value,
             'boolean' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
+            'country' => $value === null || $value === '' ? null : Countries::normalize((string) $value),
             default => $value === null ? null : (string) $value,
         };
     }

@@ -73,6 +73,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $bs_issue_date
  * @property string|null $bs_period
  * @property string|null $bs_fiscal_year
+ * @property int|null $tax1_rule_id the tax rule that won each level when the invoice was calculated (kept at rate 0)
+ * @property int|null $tax2_rule_id
+ * @property bool|null $fiscal_tax1_is_vat whether that level is Nepal VAT; null = not classified (VAT mode off, or numbered before it)
+ * @property bool|null $fiscal_tax2_is_vat
  * @property int $credited_total value credited after numbering; written only by InvoiceSettlement::adjust
  * @property int $debited_total
  * @property int $version
@@ -87,7 +91,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable([
     'client_id', 'number', 'proforma_number', 'status', 'kind', 'source', 'currency', 'issue_date', 'due_date',
     'paid_at', 'cancelled_at', 'subtotal', 'discount_total', 'tax1_name', 'tax1_rate', 'tax1_amount', 'tax2_name',
-    'tax2_rate', 'tax2_amount', 'tax_compound', 'tax_inclusive', 'tax_exempt_reason', 'total', 'amount_paid',
+    'tax2_rate', 'tax2_amount', 'tax_compound', 'tax_inclusive', 'tax_exempt_reason', 'tax1_rule_id', 'tax2_rule_id', 'total', 'amount_paid',
     'credit_applied', 'adjustments_total', 'balance', 'payment_gateway', 'client_snapshot', 'seller_snapshot', 'notes', 'admin_notes',
 ])]
 class Invoice extends Model
@@ -106,7 +110,7 @@ class Invoice extends Model
      */
     private const FROZEN_WITH_NUMBER = ['number', 'numbered_at', 'issue_date', 'client_snapshot', 'seller_snapshot',
         'fiscal_taxable', 'fiscal_exempt', 'fiscal_tax1', 'fiscal_tax2', 'fiscal_total', 'report_currency', 'report_rate',
-        'supply_class', 'bs_issue_date', 'bs_period', 'bs_fiscal_year'];
+        'supply_class', 'bs_issue_date', 'bs_period', 'bs_fiscal_year', 'fiscal_tax1_is_vat', 'fiscal_tax2_is_vat'];
 
     /** Bookkeeping columns that do not change the rendered document (no PDF version bump). */
     private const UNVERSIONED = ['version', 'updated_at', 'last_capture_attempt_at', 'capture_attempts',
@@ -132,6 +136,8 @@ class Invoice extends Model
             'tax1_rate' => 'decimal:3',
             'tax2_rate' => 'decimal:3',
             'tax_compound' => 'boolean',
+            'fiscal_tax1_is_vat' => 'boolean',
+            'fiscal_tax2_is_vat' => 'boolean',
             'tax_inclusive' => 'boolean',
             'client_snapshot' => 'array',
             'seller_snapshot' => 'array',

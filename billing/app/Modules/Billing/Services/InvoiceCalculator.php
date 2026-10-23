@@ -75,6 +75,8 @@ class InvoiceCalculator
             'tax_inclusive' => $rates->inclusive,
             'tax_exempt_reason' => $rates->exemptReason,
             'total' => $result->total,
+            'tax1_rule_id' => $rates->rule1,
+            'tax2_rule_id' => $rates->rule2,
         ]);
         $invoice->recalculateBalance();
         $invoice->save();
@@ -92,6 +94,8 @@ class InvoiceCalculator
             rate2: TaxRates::toMilli($invoice->tax2_rate),
             compound: $invoice->tax_compound,
             inclusive: $invoice->tax_inclusive,
+            rule1: $invoice->tax1_rule_id,
+            rule2: $invoice->tax2_rule_id,
         );
     }
 }

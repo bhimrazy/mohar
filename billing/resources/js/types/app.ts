@@ -20,6 +20,8 @@ export type Href = string | RouteAction;
 export type SelectOption<TValue extends string = string> = {
     value: TValue;
     label: string;
+    /** Extra words a searchable select also matches, e.g. a code or an alias. */
+    keywords?: string;
 };
 
 /** Money as sent by the backend: integer minor units + ISO 4217 code. */

@@ -63,10 +63,14 @@ class ProfileController extends Controller
         $user->forceFill(['name' => $request->validated('name')])->save();
 
         if ($changing) {
-            $told = $emails->change($user, $email);
-            Inertia::flash('toast', $told
-                ? ['type' => 'success', 'message' => __('Email changed. We sent a verification link to :email.', ['email' => $user->email])]
-                : ['type' => 'warning', 'message' => __('Email changed. We sent a verification link to :email, but we couldn\'t email your previous address about the change.', ['email' => $user->email])]);
+            $result = $emails->change($user, $email);
+            $args = ['email' => $user->email];
+            Inertia::flash('toast', match (true) {
+                $result->verificationSent && $result->oldAddressTold => ['type' => 'success', 'message' => __('Email changed. We sent a verification link to :email.', $args)],
+                $result->oldAddressTold => ['type' => 'warning', 'message' => __('Email changed to :email, but the verification email could not be sent. Use "Click here to re-send the verification email" below once mail works again.', $args)],
+                $result->verificationSent => ['type' => 'warning', 'message' => __('Email changed. We sent a verification link to :email, but we couldn\'t email your previous address about the change.', $args)],
+                default => ['type' => 'warning', 'message' => __('Email changed to :email, but neither the verification email nor the notice to your previous address could be sent. Use "Click here to re-send the verification email" below once mail works again.', $args)],
+            });
         } else {
             Inertia::flash('toast', ['type' => 'success', 'message' => __('Profile updated.')]);
         }

@@ -23,8 +23,25 @@ final class Countries
         'VN', 'VU', 'WF', 'WS', 'YE', 'YT', 'ZA', 'ZM', 'ZW',
     ];
 
+    /** European Union member states (VAT home country choices). */
+    public const EU = [
+        'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL',
+        'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE',
+    ];
+
+    /** Codes used in the EU and by older records that are not ISO 3166-1: UK for the United Kingdom, EL for Greece. */
+    private const LEGACY = ['UK' => 'GB', 'EL' => 'GR'];
+
+    /** The ISO code for a stored or typed code, mapping the legacy ones; upper-cased. */
+    public static function normalize(string $code): string
+    {
+        $code = strtoupper(trim($code));
+
+        return self::LEGACY[$code] ?? $code;
+    }
+
     public static function exists(string $code): bool
     {
-        return in_array(strtoupper($code), self::CODES, true);
+        return in_array(self::normalize($code), self::CODES, true);
     }
 }

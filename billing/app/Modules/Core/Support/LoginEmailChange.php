@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use Throwable;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 /**
  * A login changing its own sign-in email after step-up (#388). The old address is told, with the new one masked,
@@ -37,12 +37,12 @@ final class LoginEmailChange
     /**
      * Changes the email under a lock, mails the new address a verification link, then tells the old address.
      *
-     * @return bool false when the old address could not be told (the template system refused or suppressed the
-     *              notice, or the fallback mail failed); the activity log records it and the caller warns the person
+     * Mail is sent after the commit, and a mail transport failure (server down) is reported, not thrown: it must not
+     * turn a saved change into an error page. The result says which mail did not go, so the caller can tell the person.
      *
      * @throws ValidationException when another login took the address meanwhile
      */
-    public function change(User $user, string $newEmail): bool
+    public function change(User $user, string $newEmail): LoginEmailChanged
     {
         $newEmail = mb_strtolower(trim($newEmail));
         $taken = ValidationException::withMessages(['email' => __('The email has already been taken.')]);
@@ -72,12 +72,28 @@ final class LoginEmailChange
         }
 
         if ($old === null) {
-            return true;
+            return new LoginEmailChanged(verificationSent: true, oldAddressTold: true);
         }
 
-        $user->sendEmailVerificationNotification();
+        return new LoginEmailChanged($this->sendVerification($user), $this->noticeToOldAddress($user, $old));
+    }
 
-        return $this->noticeToOldAddress($user, $old);
+    /**
+     * Mails the verification link; false (reported) when the mail transport failed. The person can resend it from
+     * Settings → Profile.
+     */
+    public function sendVerification(User $user): bool
+    {
+        try {
+            $user->sendEmailVerificationNotification();
+
+            return true;
+        } catch (TransportExceptionInterface $e) {
+            report($e);
+            $this->activity->log('Verification email not sent', $user, properties: ['email' => $user->email, 'reason' => $e::class], event: 'auth.email_verification_failed');
+
+            return false;
+        }
     }
 
     private function noticeToOldAddress(User $user, string $old): bool
@@ -98,7 +114,7 @@ final class LoginEmailChange
                 ]));
 
                 return true;
-            } catch (Throwable $e) {
+            } catch (TransportExceptionInterface $e) {
                 // The change is committed: a down mail server must not turn it into an error page.
                 report($e);
                 $outcome = SystemMailOutcome::Refused;

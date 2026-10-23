@@ -4,6 +4,7 @@ use App\Http\Errors\BrandedErrorPage;
 use App\Http\Middleware\ClearHistoryOnSignOut;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\RequireFeature;
 use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Core\Http\Middleware\EnsureStaff;
 use App\Modules\Core\Http\Middleware\ResolveClientContext;
@@ -13,6 +14,8 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -38,6 +41,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'client.area' => ResolveClientContext::class,
             // Step-up for sensitive mutations; here, not in a module, so it resolves with any module set (#81).
             'password.recent' => RequireRecentPasswordConfirmation::class,
+            // 404 unless a config/features.php flag is on; put it first on a route so nothing else runs.
+            'feature' => RequireFeature::class,
         ]);
 
         // Global (not only "web") so 404s, auth redirects and error pages carry the headers too.
@@ -54,6 +59,24 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+
+        // "Re-send the verification email" with the mail server down: a warning to act on, not an error page. The
+        // handler has already reported the failure. Other routes keep the error page.
+        $exceptions->render(function (TransportExceptionInterface $e, Request $request) {
+            if (! $request->routeIs('verification.send')) {
+                return null;
+            }
+
+            $message = __('We couldn\'t send the email right now. Try again in a few minutes.');
+
+            if ($request->expectsJson() && ! $request->header('X-Inertia')) {
+                return response()->json(['message' => $message], 503);
+            }
+
+            Inertia::flash('toast', ['type' => 'warning', 'message' => $message]);
+
+            return back();
+        });
 
         // A branded page for the errors a person in a browser can reach (App\Http\Errors\BrandedErrorPage).
         $exceptions->respond(new BrandedErrorPage);
