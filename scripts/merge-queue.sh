@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # scripts/merge-queue.sh <pr>:<signed-head>[:<issue>] ...  Merges each PR in order once its CI passes at the signed head.
-# A PR that conflicts with develop only in billing/changelog.md is refreshed (develop merged, both entries kept),
+# A PR that conflicts with develop only in the append-only logs (billing/changelog.md, the kernel changelog) is
+# refreshed (develop merged, both entries kept),
 # pushed, re-signed as a changelog-only change and merged after CI. Any other conflict stops the queue.
 set -uo pipefail
 R=bhimrazy/mohar
@@ -17,11 +18,11 @@ for item in "$@"; do
         [ -n "$d" ] && [ -z "$(git -C "$d" status --porcelain)" ] || { echo "$n conflicts and has no clean worktree; stopping"; exit 1; }
         git -C "$d" fetch -q origin && git -C "$d" merge -q origin/develop --no-edit >/dev/null 2>&1
         u=$(git -C "$d" diff --name-only --diff-filter=U)
-        if [ "$u" != billing/changelog.md ]; then git -C "$d" merge --abort; echo "$n conflicts in: $u; stopping"; exit 1; fi
-        perl -i -ne 'print unless /^(<<<<<<< HEAD|=======|>>>>>>> origin\/develop)$/' "$d/billing/changelog.md"
-        git -C "$d" add billing/changelog.md && git -C "$d" commit -q --no-edit && git -C "$d" push -q || { echo "$n refresh push failed; stopping"; exit 1; }
+        if [ -z "$u" ] || [ -n "$(printf '%s\n' "$u" | grep -vxE 'billing/changelog\.md|billing/docs/architecture/kernel-changelog\.md')" ]; then git -C "$d" merge --abort; echo "$n conflicts in: $u; stopping"; exit 1; fi
+        for f in $u; do perl -i -ne 'if (/^=======$/) { print "\n" if $ARGV =~ /kernel-changelog/; next } print unless /^(<<<<<<< HEAD|>>>>>>> origin\/develop)$/' "$d/$f"; done
+        git -C "$d" add $u && git -C "$d" commit -q --no-edit && git -C "$d" push -q || { echo "$n refresh push failed; stopping"; exit 1; }
         h=$(git -C "$d" rev-parse HEAD)
-        gh pr comment "$n" --repo $R --body "CTO sign-off at $h. The only change since the last sign-off is a merge of develop that resolved a changelog-only conflict, keeping both entries." >/dev/null
+        gh pr comment "$n" --repo $R --body "CTO sign-off at $h. The only change since the last sign-off is a merge of develop that resolved a conflict only in the changelogs, keeping both entries." >/dev/null
         echo "$n refreshed to $h"; sleep 30
     fi
     ci "$n" || { echo "$n CI failed or timed out; stopping"; exit 1; }
