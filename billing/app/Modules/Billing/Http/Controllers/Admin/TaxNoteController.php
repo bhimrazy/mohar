@@ -24,7 +24,10 @@ class TaxNoteController extends Controller
 {
     public function __construct(private TaxNoteIssuer $issuer) {}
 
-    /** Whether staff can issue notes on this invoice: Nepal VAT mode on, and a numbered tax invoice. */
+    /**
+     * Whether staff can issue notes on this invoice: Nepal VAT mode on, and a numbered tax invoice. The mode setting
+     * (`billing.nepal_vat.enabled`, off when unset) gets its definition and enable checks in VAT PR 3 (ADR 0024 §8).
+     */
     public static function issuable(Invoice $invoice): bool
     {
         return app(BillingSettings::class)->bool('nepal_vat.enabled') && $invoice->numbered_at !== null && $invoice->kind !== InvoiceKind::AddFunds;
