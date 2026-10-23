@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\Auth\AuthMailer;
 use App\Contracts\Notifications\SystemMailer;
 use App\Enums\SystemMailOutcome;
 use App\Models\User;
@@ -7,12 +8,14 @@ use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Notifications\LoginEmailNotice;
+use App\Modules\Core\Support\LaravelAuthMailer;
 use App\Modules\Core\Support\LoginEmailChange;
 use App\Modules\Core\Support\NullSystemMailer;
 use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Services\TemplateCatalog;
 use Illuminate\Auth\Notifications\VerifyEmail;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Notifications\Dispatcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
@@ -295,4 +298,77 @@ test('a login without a password sets one through the set-password link, then ca
     $this->patch(route('profile.update'), ['name' => 'Asha', 'email' => 'asha.new@example.com'])->assertSessionHasNoErrors();
 
     expect($user->fresh()->email)->toBe('asha.new@example.com');
+});
+
+/** Every notification fails to send, as with the SMTP server down; the framework's own mail, no templates. */
+function mailServerDown(): void
+{
+    app()->instance(SystemMailer::class, new NullSystemMailer);
+    app()->instance(AuthMailer::class, new LaravelAuthMailer);
+    app()->instance(Dispatcher::class, new class implements Dispatcher
+    {
+        public function send($notifiables, $notification): void
+        {
+            throw new RuntimeException('smtp down');
+        }
+
+        public function sendNow($notifiables, $notification, ?array $channels = null): void
+        {
+            $this->send($notifiables, $notification);
+        }
+    });
+}
+
+test('a failed verification mail after a committed email change gives a warning, not an error page', function () {
+    mailServerDown();
+    $reported = [];
+    app(ExceptionHandler::class)->reportable(function (RuntimeException $e) use (&$reported): void {
+        $reported[] = $e->getMessage();
+    });
+    $user = User::factory()->create(['email' => 'asha@example.com.np']);
+    $this->actingAs($user);
+    confirmPassword();
+
+    $this->patch(route('profile.update'), ['name' => 'Asha', 'email' => 'asha.new@example.com'])
+        ->assertRedirect(route('profile.edit'))
+        ->assertSessionHasNoErrors()
+        ->assertInertiaFlash('toast.type', 'warning')
+        ->assertInertiaFlash('toast.message', 'Email changed and saved, but we couldn\'t send the verification email. Use "Click here to re-send the verification email" below to try again, and we couldn\'t email your previous address about the change.');
+
+    expect($user->fresh())->email->toBe('asha.new@example.com')->email_verified_at->toBeNull()
+        ->and($reported)->toContain('smtp down');
+});
+
+test('a staff member editing another staff member\'s email clears verification and sends the link', function () {
+    $actor = actingAsStaff();
+    confirmPassword();
+    $other = User::factory()->staff()->create(['email' => 'agent@example.com.np']);
+
+    $this->put(route('admin.platform.staff.update', $other), ['name' => $other->name, 'email' => 'agent.new@example.com.np', 'role_id' => $other->role_id, 'is_active' => true])
+        ->assertRedirect(route('admin.platform.staff.index'))
+        ->assertInertiaFlash('toast.type', 'success');
+
+    expect($other->fresh())->email->toBe('agent.new@example.com.np')->email_verified_at->toBeNull();
+    Notification::assertSentTo($other->fresh(), VerifyEmail::class);
+    expect($actor->fresh()->email_verified_at)->not->toBeNull();
+});
+
+test('a staff email change survives a down mail server with a warning', function () {
+    $actor = actingAsStaff();
+    confirmPassword();
+    $other = User::factory()->staff()->create(['email' => 'agent@example.com.np']);
+    mailServerDown();
+    $reported = [];
+    app(ExceptionHandler::class)->reportable(function (RuntimeException $e) use (&$reported): void {
+        $reported[] = $e->getMessage();
+    });
+
+    $this->put(route('admin.platform.staff.update', $other), ['name' => $other->name, 'email' => 'agent.new@example.com.np', 'role_id' => $other->role_id, 'is_active' => true])
+        ->assertRedirect(route('admin.platform.staff.index'))
+        ->assertSessionHasNoErrors()
+        ->assertInertiaFlash('toast.type', 'warning');
+
+    expect($other->fresh())->email->toBe('agent.new@example.com.np')->email_verified_at->toBeNull()
+        ->and($reported)->not->toBeEmpty()
+        ->and(ActivityLog::query()->where('event', 'staff.updated')->exists())->toBeTrue();
 });

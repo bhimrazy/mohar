@@ -121,14 +121,16 @@ class StaffController extends Controller
         $actor = $request->user();
         abort_if($actor === null, 401);
 
-        $update->handle($actor, $staff, [
+        $mailed = $update->handle($actor, $staff, [
             'name' => $request->string('name')->toString(),
             'email' => $request->string('email')->toString(),
             'role_id' => $request->integer('role_id'),
             'is_active' => $request->boolean('is_active'),
         ]);
 
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('Staff member :name saved.', ['name' => $staff->name])]);
+        Inertia::flash('toast', $mailed
+            ? ['type' => 'success', 'message' => __('Staff member :name saved.', ['name' => $staff->name])]
+            : ['type' => 'warning', 'message' => __('Staff member :name saved, but we couldn\'t email them about the new sign-in email. Ask them to use "Forgot password" or resend the verification link from their profile.', ['name' => $staff->name])]);
 
         return to_route('admin.platform.staff.index');
     }

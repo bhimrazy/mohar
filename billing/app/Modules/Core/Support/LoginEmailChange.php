@@ -37,12 +37,12 @@ final class LoginEmailChange
     /**
      * Changes the email under a lock, mails the new address a verification link, then tells the old address.
      *
-     * @return bool false when the old address could not be told (the template system refused or suppressed the
-     *              notice, or the fallback mail failed); the activity log records it and the caller warns the person
+     * Mail is sent after the commit and never throws: a down mail server must not turn a saved change into an error
+     * page. The result says which mail did not go, so the caller can tell the person.
      *
      * @throws ValidationException when another login took the address meanwhile
      */
-    public function change(User $user, string $newEmail): bool
+    public function change(User $user, string $newEmail): LoginEmailChanged
     {
         $newEmail = mb_strtolower(trim($newEmail));
         $taken = ValidationException::withMessages(['email' => __('The email has already been taken.')]);
@@ -72,12 +72,27 @@ final class LoginEmailChange
         }
 
         if ($old === null) {
-            return true;
+            return new LoginEmailChanged(verificationSent: true, oldAddressTold: true);
         }
 
-        $user->sendEmailVerificationNotification();
+        return new LoginEmailChanged($this->sendVerification($user), $this->noticeToOldAddress($user, $old));
+    }
 
-        return $this->noticeToOldAddress($user, $old);
+    /**
+     * Mails the verification link; false (reported) when the mail server failed. The person can resend it from
+     * Settings → Profile.
+     */
+    public function sendVerification(User $user): bool
+    {
+        try {
+            $user->sendEmailVerificationNotification();
+
+            return true;
+        } catch (Throwable $e) {
+            report($e);
+
+            return false;
+        }
     }
 
     private function noticeToOldAddress(User $user, string $old): bool

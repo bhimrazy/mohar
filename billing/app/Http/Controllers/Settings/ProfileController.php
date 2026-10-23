@@ -63,10 +63,14 @@ class ProfileController extends Controller
         $user->forceFill(['name' => $request->validated('name')])->save();
 
         if ($changing) {
-            $told = $emails->change($user, $email);
-            Inertia::flash('toast', $told
+            $result = $emails->change($user, $email);
+            $problems = collect([
+                $result->verificationSent ? null : __('we couldn\'t send the verification email. Use "Click here to re-send the verification email" below to try again'),
+                $result->oldAddressTold ? null : __('we couldn\'t email your previous address about the change'),
+            ])->filter();
+            Inertia::flash('toast', $problems->isEmpty()
                 ? ['type' => 'success', 'message' => __('Email changed. We sent a verification link to :email.', ['email' => $user->email])]
-                : ['type' => 'warning', 'message' => __('Email changed. We sent a verification link to :email, but we couldn\'t email your previous address about the change.', ['email' => $user->email])]);
+                : ['type' => 'warning', 'message' => __('Email changed and saved, but :problems.', ['problems' => $problems->implode(__(', and '))])]);
         } else {
             Inertia::flash('toast', ['type' => 'success', 'message' => __('Profile updated.')]);
         }
