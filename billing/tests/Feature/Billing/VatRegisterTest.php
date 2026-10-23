@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\Core\CompanyClock;
 use App\Data\Billing\InvoiceLineData;
 use App\Data\Reports\ReportQuery;
 use App\Enums\BillableType;
@@ -11,15 +12,16 @@ use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Billing\Reports\RegisterPeriod;
 use App\Modules\Billing\Services\TaxNoteIssuer;
 use App\Modules\Billing\Support\BikramSambat;
-use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ActivityLog;
+use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
-use App\Contracts\Core\CompanyClock;
+use App\Support\Permissions\PermissionRegistry;
 use App\Support\Reports\ReportExporter;
 use App\Support\Reports\ReportRegistry;
 use App\Support\Reports\ReportViewer;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Inertia\Testing\AssertableInertia;
 use Tests\Support\Reports\ReportConformance;
 
@@ -197,7 +199,7 @@ test('a period filter is validated: one kind at a time, inside the BS table', fu
     actingAsStaff(['reports.vat_register.view']);
 
     expect(fn () => app(ReportExporter::class)->query('vat_register', $filters, auth()->id()))
-        ->toThrow(fn (Illuminate\Validation\ValidationException $e) => expect($e->errors())->toHaveKey($field));
+        ->toThrow(fn (ValidationException $e) => expect($e->errors())->toHaveKey($field));
 })->with([
     'month and year' => [['month' => '2083-07', 'year' => '2083.084'], 'month'],
     'month 13' => [['month' => '2083-13'], 'month'],
@@ -261,6 +263,6 @@ test('both registers are registered with a sensitive export', function () {
     $registry = app(ReportRegistry::class);
 
     expect($registry->keys())->toContain('vat_register', 'tax_note_register')
-        ->and(app(App\Support\Permissions\PermissionRegistry::class)->isSensitive('reports.vat_register.export'))->toBeTrue()
-        ->and(app(App\Support\Permissions\PermissionRegistry::class)->isSensitive('reports.tax_note_register.export'))->toBeTrue();
+        ->and(app(PermissionRegistry::class)->isSensitive('reports.vat_register.export'))->toBeTrue()
+        ->and(app(PermissionRegistry::class)->isSensitive('reports.tax_note_register.export'))->toBeTrue();
 });
