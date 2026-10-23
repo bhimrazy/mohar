@@ -17,6 +17,9 @@ $builtInDrivers = [
     'resellerclub' => function (): void {
         app()->instance(RegistrarRefs::class, new InMemoryRegistrarRefs);
     },
+    // The contract account has no API user or client IP, so every call is refused before any HTTP; its working
+    // scenarios run against the simulator (tools/simulators/tests/Namecheap) and the fixtures (NamecheapDriverTest).
+    'namecheap' => null,
 ];
 
 foreach ($builtInDrivers as $key => $arrange) {

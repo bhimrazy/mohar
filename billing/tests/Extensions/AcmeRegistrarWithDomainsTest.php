@@ -41,11 +41,12 @@ test('the package registrar is listed in the registrar admin next to the built-i
         ->component('admin/domains/registrars/index')
         ->where('registrars.0.key', 'log')
         ->where('registrars.1.key', 'resellerclub')
-        ->where('registrars.2.key', 'acme_registrar')
-        ->where('registrars.2.name', 'Acme Registrar')
-        ->where('registrars.2.capabilities', ['availability', 'register', 'renew', 'info', 'nameservers', 'test_connection'])
-        ->where('registrars.2.schema.1.type', 'secret')
-        ->where('registrars.2.secrets_set', ['api_key' => false, 'sandbox_api_key' => false]));
+        ->where('registrars.2.key', 'namecheap')
+        ->where('registrars.3.key', 'acme_registrar')
+        ->where('registrars.3.name', 'Acme Registrar')
+        ->where('registrars.3.capabilities', ['availability', 'register', 'renew', 'info', 'nameservers', 'test_connection'])
+        ->where('registrars.3.schema.1.type', 'secret')
+        ->where('registrars.3.secrets_set', ['api_key' => false, 'sandbox_api_key' => false]));
 });
 
 test('the connection test runs the package driver against the configured account, in test mode on the sandbox key', function () {
