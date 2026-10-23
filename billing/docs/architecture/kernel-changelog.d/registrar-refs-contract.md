@@ -1,4 +1,4 @@
-### `RegistrarRefs::remember()` is first-writer-wins (#267)
+### `RegistrarRefs::remember()` is first-writer-wins (#408)
 
 - `App\Contracts\Domains\Registrar\RegistrarRefs::remember(RegistrarRef): RegistrarRef` now returns the stored ref
   instead of `void`, and no longer replaces an existing one (remote id and secret are kept). Two callers that
