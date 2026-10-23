@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Errors\BrandedErrorPage;
 use App\Http\Middleware\ClearHistoryOnSignOut;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
@@ -12,8 +13,6 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
-use Symfony\Component\HttpFoundation\Response;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -56,24 +55,6 @@ return Application::configure(basePath: dirname(__DIR__))
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
 
-        // Signed-in and public pages show a branded page for the errors a person can reach, not the framework's bare
-        // one. Public 404s keep the storefront's own page.
-        $exceptions->respond(function (Response $response, Throwable $e, Request $request): Response {
-            $status = $response->getStatusCode();
-
-            if (! in_array($status, [403, 404, 419, 429, 500], true)
-                || $request->expectsJson()
-                || $request->is('api/*')
-                || ! $request->hasSession()
-                || ($status === 404 && ! $request->is('admin', 'admin/*', 'client', 'client/*'))
-                || ($status === 500 && config('app.debug'))) {
-                return $response;
-            }
-
-            try {
-                return Inertia::render('auth/error', ['status' => $status])->toResponse($request)->setStatusCode($status);
-            } catch (Throwable) {
-                return $response;
-            }
-        });
+        // A branded page for the errors a person in a browser can reach (App\Http\Errors\BrandedErrorPage).
+        $exceptions->respond(new BrandedErrorPage);
     })->create();

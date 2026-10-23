@@ -1,7 +1,7 @@
 import { Link, setLayoutProps } from '@inertiajs/react';
+import { useEffect, useState } from 'react';
 import { Head } from '@/components/app/head';
 import { Button } from '@/components/ui/button';
-import { home } from '@/routes';
 
 const MESSAGES: Record<number, { title: string; description: string }> = {
     403: {
@@ -17,7 +17,7 @@ const MESSAGES: Record<number, { title: string; description: string }> = {
     419: {
         title: 'This page has expired',
         description:
-            'It was open for too long. Go back, reload the page and try again; nothing was changed.',
+            'It was open for too long, so nothing was saved. Reload the page and try again.',
     },
     429: {
         title: 'Too many attempts',
@@ -30,8 +30,17 @@ const MESSAGES: Record<number, { title: string; description: string }> = {
     },
 };
 
-export default function ErrorPage({ status }: { status: number }) {
+export default function ErrorPage({
+    status,
+    home,
+}: {
+    status: number;
+    home: string;
+}) {
     const message = MESSAGES[status] ?? MESSAGES[500];
+    const [canGoBack, setCanGoBack] = useState(false);
+
+    useEffect(() => setCanGoBack(window.history.length > 1), []);
 
     setLayoutProps({ title: message.title, description: message.description });
 
@@ -43,11 +52,24 @@ export default function ErrorPage({ status }: { status: number }) {
                 Error {status}
             </p>
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
-                <Button variant="outline" onClick={() => window.history.back()}>
-                    Go back
-                </Button>
-                <Button asChild>
-                    <Link href={home()}>Go to the home page</Link>
+                {status === 419 && (
+                    <Button onClick={() => window.location.reload()}>
+                        Reload page
+                    </Button>
+                )}
+                {canGoBack && (
+                    <Button
+                        variant="outline"
+                        onClick={() => window.history.back()}
+                    >
+                        Go back
+                    </Button>
+                )}
+                <Button
+                    variant={status === 419 ? 'outline' : 'default'}
+                    asChild
+                >
+                    <Link href={home}>Go to the home page</Link>
                 </Button>
             </div>
         </>

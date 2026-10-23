@@ -41,9 +41,8 @@ test('probe: a flag already in the session is not used up by a hover prefetch', 
     $this->travel(16)->minutes();
 
     // The image request is the first request after the end: the middleware forgets the unlock and sets the flag,
-    // and the response (403 as JSON; a browser 403 is the branded error page, which would pull the flag) is not an
-    // Inertia page, so the flag stays in the session.
-    $this->getJson($image)->assertForbidden();
+    // and the response (403) is not an Inertia page, so the flag stays in the session.
+    $this->get($image)->assertForbidden();
 
     $prefetch = $this->get(route('admin.kyc.index'), ['X-Inertia' => 'true', 'X-Inertia-Version' => Inertia::getVersion(), 'Purpose' => 'prefetch'])->assertOk()->json();
 
