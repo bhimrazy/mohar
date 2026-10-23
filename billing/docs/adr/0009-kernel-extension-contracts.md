@@ -283,7 +283,7 @@ Kernel shapes decided now:
       network call and runs a bounded number of queries, memoised per request.
     - `clean(string $tld, mixed $input): array<string, string>` drops unknown keys and throws `ValidationException`
       keyed `tld_attributes.<key>`. When the extension's registrar account is disabled it refuses with one error
-      keyed `domain` instead.
+      keyed `tld_attributes` instead.
     - `describe(string $tld, array $answers, bool $mask = true)` returns the answers as a person reads them (labels,
       option names, free text shortened to its last 3 characters), for the cart, the checkout and staff.
     - Orders treats an unbound `TldAttributes` as "no fields". It is separate from `DomainRegistry` so that existing

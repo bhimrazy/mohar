@@ -6,6 +6,7 @@ use App\Data\Domains\DomainDraft;
 use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Events\Domains\RegistrarActionFailed;
+use App\Models\User;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
@@ -15,10 +16,14 @@ use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\RegistrarCommandLog;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Services\TldAttributeService;
+use App\Modules\Notifications\Mail\TemplatedMail;
+use App\Modules\Notifications\Models\EmailMessage;
+use App\Modules\Notifications\Services\TemplateCatalog;
 use App\Modules\Orders\Models\Cart;
 use App\Support\Domains\RegistrarException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Domains\FakeRegistrar;
@@ -222,7 +227,7 @@ test('a disabled registrar account hides the form and refuses the order at the c
         ->and(Cart::query()->count())->toBe(0);
 });
 
-test('answers already collected are kept when the account is disabled before the domain is created', function () {
+test('an order whose account was disabled after the details were collected is refused, not stripped of them', function () {
     RegistrarAccount::query()->create(['key' => 'fake', 'is_active' => true, 'settings' => []]);
     $draft = usDraft($this->client, ['purpose' => 'P1', 'warranty' => '1']);
     RegistrarAccount::query()->where('key', 'fake')->update(['is_active' => false]);
@@ -258,39 +263,110 @@ test('the registrar receives the details, and they reach no log or activity text
         ->and(json_encode(ActivityLog::query()->get()->toArray()))->toContain('Domain register created');
 });
 
-test('a registry message that repeats an answer is masked in every place an error goes', function () {
+/**
+ * Everywhere an error text goes after a register call failed with $message: the domain's last_error, the command
+ * log, the activity log, the RegistrarActionFailed event, the staff mail and the admin domain page.
+ *
+ * @return array<string, string>
+ */
+function errorPlaces(Domain $domain, string $message): array
+{
     Event::fake([RegistrarActionFailed::class]);
-    $domain = Domain::query()->findOrFail(app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P1', 'id' => NEXUS_ID, 'note' => NEXUS_NOTE, 'warranty' => '1'])));
-    $this->registrar->will('register', new RegistrarException('The registry refused: invalid value '.NEXUS_ID.' for id, also seen as 518 2475 3556 and '.NEXUS_NOTE.'.'));
+    test()->registrar->will('register', new RegistrarException($message));
 
     app(SubmitToRegistrar::class)->handle($domain);
 
-    $leaks = [
-        'last_error' => $domain->fresh()->last_error,
-        'command_log' => json_encode(RegistrarCommandLog::query()->get()->toArray()),
-        'activity' => json_encode(ActivityLog::query()->get()->toArray()),
+    $places = [
+        'last_error' => (string) $domain->fresh()->last_error,
+        'command log' => json_encode(RegistrarCommandLog::query()->get()->toArray()),
+        'activity log' => json_encode(ActivityLog::query()->get()->toArray()),
     ];
-    Event::assertDispatched(RegistrarActionFailed::class, function (RegistrarActionFailed $event) use (&$leaks): bool {
-        $leaks['event'] = $event->error;
+    Event::assertDispatched(RegistrarActionFailed::class, function (RegistrarActionFailed $event) use (&$places): bool {
+        $places['event'] = $event->error;
 
         return true;
     });
 
-    foreach ($leaks as $where => $text) {
-        expect((string) $text)->not->toContain(NEXUS_ID, $where)->not->toContain(NEXUS_NOTE, $where);
-    }
+    return $places;
+}
 
-    expect($domain->fresh()->last_error)->toContain('invalid value')->toContain('for id');
+/**
+ * @param  array<string, string>  $places
+ * @param  list<string>  $needles
+ * @return list<string> the places that hold any of the needles
+ */
+function leaksIn(array $places, array $needles): array
+{
+    return array_keys(array_filter($places, fn (string $text): bool => collect($needles)->contains(fn (string $needle): bool => str_contains($text, $needle))));
+}
+
+test('a registry message that repeats an answer is masked in every place an error goes', function () {
+    $domain = Domain::query()->findOrFail(app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P1', 'id' => NEXUS_ID, 'note' => NEXUS_NOTE, 'warranty' => '1'])));
+
+    $places = errorPlaces($domain, 'The registry refused: invalid value '.NEXUS_ID.' for id, also seen as 518 2475 3556 and '.NEXUS_NOTE.'.');
+
+    expect(leaksIn($places, [NEXUS_ID, NEXUS_NOTE, '518 2475 3556']))->toBe([])
+        ->and($places['last_error'])->toContain('invalid value')->toContain('for id');
 
     actingAsStaff(['domains.*']);
     $this->get(route('admin.domains.show', $domain))->assertInertia(fn (Assert $page) => $page
-        ->where('commandLog', fn ($log) => ! str_contains(json_encode($log), NEXUS_ID) && ! str_contains(json_encode($log), NEXUS_NOTE)));
+        ->where('commandLog', fn ($log) => ! str_contains(json_encode($log), NEXUS_ID) && ! str_contains(json_encode($log), NEXUS_NOTE))
+        ->where('domain', fn ($shown) => ! str_contains(json_encode($shown), NEXUS_ID)));
+});
+
+test('the failure mail to staff does not carry an answer the registry repeated', function () {
+    app(TemplateCatalog::class)->install('en');
+    Mail::fake();
+    User::factory()->staff(['*'])->create(['email' => 'admin@example.test']);
+    $domain = Domain::query()->findOrFail(app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P1', 'id' => NEXUS_ID, 'warranty' => '1'])));
+    $this->registrar->will('register', new RegistrarException('Invalid value '.NEXUS_ID.' for attribute id'));
+
+    app(SubmitToRegistrar::class)->handle($domain);
+
+    $sent = [];
+    Mail::assertSent(TemplatedMail::class, function (TemplatedMail $mail) use (&$sent): bool {
+        $sent[] = $mail->subjectLine."\n".$mail->plainText."\n".$mail->htmlBody;
+
+        return true;
+    });
+    $logged = EmailMessage::query()->where('template_key', 'staff.registrar_action_failed')->get(['body_text', 'body_html'])->toArray();
+
+    expect($logged)->not->toBe([])
+        ->and(leaksIn(['mail' => implode("\n", $sent), 'mail log' => json_encode($logged)], [NEXUS_ID]))->toBe([])
+        ->and(implode("\n", $sent))->toContain('for attribute id');
+});
+
+test('an answer is masked however the registry regrouped, punctuated or re-cased it', function (string $typed, string $echoed) {
+    $domain = Domain::query()->findOrFail(app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P1', 'id' => $typed, 'warranty' => '1'])));
+
+    $places = errorPlaces($domain, "Invalid value {$echoed} for attribute id");
+
+    expect(leaksIn($places, [$echoed]))->toBe([])
+        ->and($places['last_error'])->toContain('Invalid value')->toContain('for attribute id');
+})->with([
+    'as typed' => ['51 824 753 556', '51 824 753 556'],
+    'spaces removed' => ['51 824 753 556', '51824753556'],
+    'regrouped' => ['51 824 753 556', '518 247 535 56'],
+    'dashed' => ['51 824 753 556', '51-824-753-556'],
+    'dotted' => ['51 824 753 556', '51.824.753.556'],
+    'upper-cased' => ['tm-abc-1234', 'TM-ABC-1234'],
+    'spaced and re-cased' => ['tm-abc-1234', 'Tm Abc 1234'],
+    'separators dropped and re-cased' => ['tm-abc-1234', 'TMABC1234'],
+]);
+
+test('a value of fewer than four characters is not masked, so ordinary words in an error survive', function () {
+    $domain = Domain::query()->findOrFail(app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P1', 'id' => 'X7Q', 'warranty' => '1'])));
+
+    $places = errorPlaces($domain, 'Invalid value X7Q for attribute id');
+
+    expect($places['last_error'])->toContain('X7Q');
 });
 
 test('select and boolean answers are not masked, so ordinary words in an error survive', function () {
     $service = app(TldAttributeService::class);
 
-    expect($service->maskable('.us', ['purpose' => 'P1', 'warranty' => 'true', 'note' => 'abc', 'id' => '5182 4753']))->toBe(['5182 4753', '51824753']);
+    expect($service->maskable('.us', ['purpose' => 'P1', 'warranty' => 'true', 'note' => 'abc', 'id' => '5182 4753']))->toBe(['5182 4753', '51824753'])
+        ->and($service->maskable('.us', ['id' => 'Ab-12.cd']))->toBe(['Ab-12.cd', 'Ab12cd', 'ab-12.cd', 'AB-12.CD', 'ab12cd', 'AB12CD']);
 });
 
 test('staff see the stored details on the domain page with labels, not codes', function () {
@@ -304,10 +380,11 @@ test('staff see the stored details on the domain page with labels, not codes', f
     ]));
 });
 
-test('the details live in the domain row, so deleting the domain removes them', function () {
+test('the details stay on a soft-deleted domain until an erasure or purge clears them, which does not exist yet', function () {
     $domain = Domain::query()->findOrFail(app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P1', 'warranty' => '1'])));
 
     $domain->delete();
 
-    expect(Domain::query()->whereKey($domain->id)->exists())->toBeFalse();
+    expect(Domain::query()->whereKey($domain->id)->exists())->toBeFalse()
+        ->and(Domain::withTrashed()->findOrFail($domain->id)->additional_fields)->toBe(['tld_attributes' => ['purpose' => 'P1', 'warranty' => 'true']]);
 });

@@ -1,8 +1,11 @@
 <?php
 
 use App\Contracts\Domains\Registrar\DeclaresTldAttributes;
+use App\Contracts\Domains\TldAttributes;
 use App\Modules\Domains\Drivers\Registrars\ResellerClub\ResellerClubDriver;
+use App\Modules\Domains\Models\Tld;
 use App\Support\Domains\RegistrarDriverRegistry;
+use Illuminate\Validation\ValidationException;
 
 test('ResellerClub declares fields for the extensions it needs them for, and none for the rest', function () {
     $driver = app(ResellerClubDriver::class);
@@ -41,4 +44,26 @@ test('ResellerClub explains who qualifies in the help text and checks an ABN or 
         ->and($driver->validateTldAttributes('.com.au', ['id-type' => 'ACN', 'id' => '51824753556']))->toHaveKey('id')
         ->and($driver->validateTldAttributes('.com.au', ['id-type' => 'TM', 'id' => 'anything']))->toBe([])
         ->and($driver->validateTldAttributes('.us', ['purpose' => 'P1']))->toBe([]);
+});
+
+test('the ABN check runs with the generic checks, so every problem shows at once', function () {
+    Tld::factory()->extension('.com.au')->priced()->create(['registrar_key' => 'resellerclub']);
+    $errorsFor = function (array $input): array {
+        try {
+            app(TldAttributes::class)->clean('.com.au', $input);
+
+            return [];
+        } catch (ValidationException $exception) {
+            return $exception->errors();
+        }
+    };
+
+    $empty = $errorsFor([]);
+    $short = $errorsFor(['id-type' => 'ABN', 'id' => '1234', 'policyReason' => '', 'isAUWarranty' => '1']);
+
+    expect(array_keys($empty))->toBe(['tld_attributes.id-type', 'tld_attributes.id', 'tld_attributes.policyReason', 'tld_attributes.isAUWarranty'])
+        ->and($empty['tld_attributes.id'][0])->toBe('Enter identification number.')
+        ->and(array_keys($short))->toBe(['tld_attributes.policyReason', 'tld_attributes.id'])
+        ->and($short['tld_attributes.id'][0])->toBe('Enter the 11-digit ABN of the business.')
+        ->and($errorsFor(['id-type' => 'ABN', 'id' => '51 824 753 556', 'policyReason' => '1', 'isAUWarranty' => '1']))->toBe([]);
 });

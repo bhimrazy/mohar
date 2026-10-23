@@ -97,7 +97,7 @@ class SubmitToRegistrar
         try {
             $result = $capability === 'transfer'
                 ? $this->gateway->forDomain($domain, 'transfer', TransfersDomains::class, fn (TransfersDomains $registrar, RegistrarConfig $config): RegistrarResult => $registrar->transfer($config, $request), $request->toArray(), $staffId, $secrets)
-                : $this->gateway->forDomain($domain, 'register', RegistrarDriver::class, fn (RegistrarDriver $registrar, RegistrarConfig $config): RegistrarResult => $registrar->register($config, $request), $request->toArray(), $staffId, $secrets);
+                : $this->gateway->forDomain($domain, 'register', RegistrarDriver::class, fn (RegistrarDriver $registrar, RegistrarConfig $config): RegistrarResult => $this->tldAttributes->guard($domain->tld, $request->tldAttributes, fn (): RegistrarResult => $registrar->register($config, $request)), $request->toArray(), $staffId, $secrets);
         } catch (RegistrarTimeout $timeout) {
             return $this->unknownOutcome($domain, $timeout->getMessage());
         } catch (RegistrarException $exception) {

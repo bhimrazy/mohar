@@ -438,7 +438,8 @@ class PlaceOrder
         try {
             return $this->domains->createPending($draft);
         } catch (ValidationException $exception) {
-            $message = collect($exception->errors())->first(fn (array $messages, string $key): bool => str_starts_with($key, 'tld_attributes.'));
+            $errors = $exception->errors();
+            $message = collect($errors)->first(fn (array $messages, string $key): bool => str_starts_with($key, 'tld_attributes'));
 
             if ($message === null) {
                 throw $exception;

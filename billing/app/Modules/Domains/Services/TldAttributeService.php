@@ -5,13 +5,20 @@ namespace App\Modules\Domains\Services;
 use App\Contracts\Domains\Registrar\DeclaresTldAttributes;
 use App\Contracts\Domains\Registrar\ValidatesTldAttributes;
 use App\Contracts\Domains\TldAttributes;
+use App\Data\Domains\Registrar\RegistrarResult;
 use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\Tld;
 use App\Support\Domains\RegistrarDriverRegistry;
+use App\Support\Integrations\Redactor;
+use Closure;
+use Error;
+use Exception;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use ReflectionProperty;
+use Throwable;
 
 /**
  * Extension details the registrar asks for (ADR 0009 Amendments 2 and 3). The field list comes from the extension's
@@ -30,6 +37,9 @@ class TldAttributeService implements TldAttributes
 
     /** Shortest free-text value the host masks in registrar errors (shorter ones would mask ordinary words). */
     private const MIN_MASKED = 4;
+
+    /** Characters a registry may drop, add or move when it echoes an identifier: space, dash, dot, slash, underscore. */
+    private const SEPARATORS = '[\\s\\-.\\/_]';
 
     /** @var list<string>|null */
     private ?array $capable = null;
@@ -103,7 +113,7 @@ class TldAttributeService implements TldAttributes
         }
 
         if (in_array($model->registrar_key, $this->disabledKeys(), true)) {
-            throw ValidationException::withMessages(['domain' => __('We cannot take :tld registrations right now. Please try again later.', ['tld' => $model->extension])]);
+            throw ValidationException::withMessages(['tld_attributes' => __('We cannot take :tld registrations right now. Please try again later.', ['tld' => $model->extension])]);
         }
 
         $input = is_array($input) ? $input : [];
@@ -152,10 +162,14 @@ class TldAttributeService implements TldAttributes
             }
         }
 
-        if ($errors === [] && ($driver = $this->drivers->get((string) $model->registrar_key)) instanceof ValidatesTldAttributes) {
+        // The driver's own rules run with the generic ones, so every problem shows at once. Its error on a declared
+        // key counts even when the answer was left empty; a field that already has an error keeps that message.
+        if (($driver = $this->drivers->get((string) $model->registrar_key)) instanceof ValidatesTldAttributes) {
+            $declared = array_map(fn (SettingField $field): string => $field->key, $fields);
+
             foreach ($driver->validateTldAttributes($model->extension, $clean) as $key => $message) {
-                if (array_key_exists($key, $clean)) {
-                    $errors['tld_attributes.'.$key] = $message;
+                if (in_array($key, $declared, true)) {
+                    $errors['tld_attributes.'.$key] ??= $message;
                 }
             }
         }
@@ -193,30 +207,121 @@ class TldAttributeService implements TldAttributes
 
     /**
      * The free-text answers the host masks in anything a registrar call returns (select and boolean answers such as
-     * `P1` or `true` are not masked: they would hide ordinary words). A value typed with spaces is also masked
-     * without them, as registries often echo it normalised.
+     * `P1` or `true` are not masked: they would hide ordinary words). Each value is masked as typed, without its
+     * separators (spaces, dashes, dots, slashes) and in upper and lower case, so the gateway's exact-match masking
+     * (which also covers the URL-encoded forms) catches the usual echoes. Regrouped echoes are caught by `guard()`.
+     *
+     * A value of fewer than 4 characters is not masked, as everywhere else: it would hide ordinary words in the
+     * error text (false positives), and a 3-character answer is not an identifier worth that.
      *
      * @param  array<string, string>  $answers
      * @return list<string>
      */
     public function maskable(string $tld, array $answers): array
     {
-        $model = $this->tld($tld);
         $values = [];
 
-        foreach ($model === null ? [] : $this->declared($model) as $field) {
-            if (in_array($field->type, [FieldType::Select, FieldType::Boolean], true) || ! isset($answers[$field->key])) {
-                continue;
-            }
+        foreach ($this->freeText($tld, $answers) as $value) {
+            $stripped = self::stripped($value);
 
-            foreach ([$answers[$field->key], (string) preg_replace('/\s+/u', '', $answers[$field->key])] as $value) {
-                if (mb_strlen($value) >= self::MIN_MASKED) {
-                    $values[] = $value;
+            foreach ([$value, $stripped, mb_strtolower($value), mb_strtoupper($value), mb_strtolower($stripped), mb_strtoupper($stripped)] as $variant) {
+                if (mb_strlen($variant) >= self::MIN_MASKED) {
+                    $values[] = $variant;
                 }
             }
         }
 
         return array_values(array_unique($values));
+    }
+
+    /**
+     * Runs a registrar call and masks the free-text answers in what it raises or returns, however the registry
+     * echoed them: regrouped (`518 247 535 56`), dashed, dotted, slashed or in another case. The gateway then masks
+     * the exact forms again. The message of the exception and of each exception behind it is rewritten in place,
+     * keeping its class and flags.
+     *
+     * @template T
+     *
+     * @param  array<string, string>  $answers
+     * @param  Closure(): T  $call
+     * @return T
+     */
+    public function guard(string $tld, array $answers, Closure $call): mixed
+    {
+        $patterns = $this->patterns($tld, $answers);
+
+        if ($patterns === []) {
+            return $call();
+        }
+
+        try {
+            $result = $call();
+        } catch (Throwable $exception) {
+            for ($link = $exception, $hops = 0; $link !== null && $hops < 16; $link = $link->getPrevious(), $hops++) {
+                $masked = $this->maskText($patterns, $link->getMessage());
+
+                if ($masked !== $link->getMessage()) {
+                    (new ReflectionProperty($link instanceof Exception ? Exception::class : Error::class, 'message'))->setValue($link, $masked);
+                }
+            }
+
+            throw $exception;
+        }
+
+        return $result instanceof RegistrarResult && $result->message !== null ? $result->withMessage($this->maskText($patterns, $result->message)) : $result;
+    }
+
+    /**
+     * @param  list<string>  $patterns
+     */
+    private function maskText(array $patterns, string $text): string
+    {
+        return (string) preg_replace($patterns, Redactor::MASK, $text);
+    }
+
+    /**
+     * One case-insensitive pattern per free-text answer: its letters and digits in order, with any run of
+     * separators between them.
+     *
+     * @param  array<string, string>  $answers
+     * @return list<string>
+     */
+    private function patterns(string $tld, array $answers): array
+    {
+        $patterns = [];
+
+        foreach ($this->freeText($tld, $answers) as $value) {
+            $core = preg_split('//u', self::stripped($value), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+            if (count($core) >= self::MIN_MASKED) {
+                $patterns[] = '/'.implode(self::SEPARATORS.'*', array_map(fn (string $char): string => preg_quote($char, '/'), $core)).'/iu';
+            }
+        }
+
+        return $patterns;
+    }
+
+    /**
+     * @param  array<string, string>  $answers
+     * @return list<string>
+     */
+    private function freeText(string $tld, array $answers): array
+    {
+        $model = $this->tld($tld);
+        $values = [];
+
+        foreach ($model === null ? [] : $this->declared($model) as $field) {
+            if (! in_array($field->type, [FieldType::Select, FieldType::Boolean], true) && isset($answers[$field->key]) && $answers[$field->key] !== '') {
+                $values[] = $answers[$field->key];
+            }
+        }
+
+        return $values;
+    }
+
+    private static function stripped(string $value): string
+    {
+        return (string) preg_replace('/'.self::SEPARATORS.'+/u', '', $value);
     }
 
     private static function masked(string $value): string

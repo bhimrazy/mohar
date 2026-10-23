@@ -53,11 +53,11 @@ class TldAttributeInput
         try {
             return $source->clean($tld, $input);
         } catch (ValidationException $exception) {
-            if (! array_key_exists('domain', $exception->errors()) || $domainKey === 'domain') {
+            if (! array_key_exists('tld_attributes', $exception->errors())) {
                 throw $exception;
             }
 
-            throw ValidationException::withMessages([$domainKey => $exception->errors()['domain'][0]]);
+            throw ValidationException::withMessages([$domainKey => $exception->errors()['tld_attributes'][0]]);
         }
     }
 

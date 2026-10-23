@@ -39,7 +39,7 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 - ADR 0009 Amendment 3 (so Orders can reach the feature without importing Domains): `App\Data\Domains\DomainDraft`
   gains `array<string, string> $tldAttributes = []` (last parameter, `#[\SensitiveParameter]`; `$eppCode` is now
   `#[\SensitiveParameter]` too), and a new Domains-implemented contract `App\Contracts\Domains\TldAttributes`
-  (`fieldsByTld()`, `clean($tld, $input)` throwing `ValidationException` keyed `tld_attributes.<key>` or `domain`
+  (`fieldsByTld()`, `clean($tld, $input)` throwing `ValidationException` keyed `tld_attributes.<key>` or `tld_attributes`
   when the registrar account is disabled, `describe()` for display). `TldAttributeInput` in Orders resolves nothing
   from Domains until used, so without an implementation no extension has fields.
 - The host masks the free-text answers (not selects or booleans) in the registrar errors of a registration, so a

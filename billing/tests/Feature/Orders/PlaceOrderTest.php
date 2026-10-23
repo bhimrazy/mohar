@@ -513,3 +513,17 @@ it('shows extension details the registrar refuses at checkout on the cart, namin
         ->and($thrown['cart'][0])->toContain('acme.com')->toContain('Choose what the domain is for.')
         ->and(Order::query()->count())->toBe(0);
 });
+
+it('names the domain when the registrar cannot take orders for its extension at checkout', function () {
+    $this->fakes->catalog->addProduct(1, 'Starter Hosting', ['monthly' => [1000, 0]]);
+    $this->fakes->domains->createFails = ValidationException::withMessages(['tld_attributes' => 'We cannot take .com registrations right now. Please try again later.']);
+
+    try {
+        app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1, domain: 'acme.com', mode: 'register')]));
+        $thrown = null;
+    } catch (ValidationException $exception) {
+        $thrown = $exception->errors();
+    }
+
+    expect($thrown['cart'][0])->toStartWith('acme.com: We cannot take .com registrations right now.');
+});

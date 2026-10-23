@@ -6,7 +6,7 @@ use App\Data\Integrations\SettingField;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Implemented by the Domains module. Used by Orders, which asks it where a domain is ordered: which extra details
+ * Implemented by the Domains module. Used by Orders, which asks it where a domain is ordered (ADR 0009 Amendment 3): which extra details
  * the registrar wants for an extension, and whether the answers are acceptable (`DeclaresTldAttributes`, ADR 0009
  * Amendment 2). Orders works without it: when nothing implements it, no extension has fields.
  */
@@ -27,7 +27,7 @@ interface TldAttributes
      * @return array<string, string>
      *
      * @throws ValidationException errors keyed `tld_attributes.<field key>`; when the registrar cannot take orders
-     *                             for the extension now (its account is disabled), one error keyed `domain`
+     *                             for the extension now (its account is disabled), one error keyed `tld_attributes`
      */
     public function clean(string $tld, mixed $input): array;
 

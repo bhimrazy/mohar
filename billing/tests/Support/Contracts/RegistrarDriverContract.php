@@ -16,6 +16,7 @@ use App\Contracts\Domains\Registrar\SuggestsNames;
 use App\Contracts\Domains\Registrar\SyncsDomains;
 use App\Contracts\Domains\Registrar\TestsRegistrarConnection;
 use App\Contracts\Domains\Registrar\TransfersDomains;
+use App\Contracts\Domains\Registrar\ValidatesTldAttributes;
 use App\Data\Domains\Registrar\AvailabilityResult;
 use App\Data\Domains\Registrar\ContactSet;
 use App\Data\Domains\Registrar\DomainInfo;
@@ -282,7 +283,7 @@ final class RegistrarDriverContract
     }
 
     /**
-     * Run one call: it answers with $expected (`list` for a list of AvailabilityResult; a write is completed or
+     * Run one call: it answers with $expected (`list` for a list of AvailabilityResult, `fields` for declared SettingFields, `answers` for field-key messages; a write is completed or
      * pending) or a RegistrarException, never the host's CapabilityNotSupported guard and never another error.
      *
      * @param  Closure(): mixed  $run
@@ -293,6 +294,29 @@ final class RegistrarDriverContract
             $result = $run();
         } catch (RegistrarException $rejected) {
             expect($rejected)->not->toBeInstanceOf(CapabilityNotSupported::class, "{$name} threw the host's capability guard");
+
+            return;
+        }
+
+        if ($expected === 'fields') {
+            expect($result)->toBeList()->each->toBeInstanceOf(SettingField::class);
+
+            foreach ($result as $field) {
+                expect($field->isSecret())->toBeFalse("{$name}: {$field->key} is secret")
+                    ->and($field->optionsSource)->toBeNull("{$name}: {$field->key} takes remote options");
+            }
+
+            expect(array_column(array_map(fn (SettingField $field): array => ['key' => $field->key], $result), 'key'))->each->toBeString();
+
+            return;
+        }
+
+        if ($expected === 'answers') {
+            expect($result)->toBeArray();
+
+            foreach ($result as $key => $message) {
+                expect($key)->toBeString()->and($message)->toBeString();
+            }
 
             return;
         }
@@ -329,7 +353,10 @@ final class RegistrarDriverContract
                 'info' => [DomainInfo::class, fn (): mixed => $driver->info($config, $domain)],
             ],
             ChecksAvailability::class => fn (ChecksAvailability $driver, RegistrarConfig $config): array => ['availability' => ['list', fn (): mixed => $driver->checkAvailability($config, $domain->sld, [$domain->tld])]],
-            DeclaresTldAttributes::class => fn (DeclaresTldAttributes $driver, RegistrarConfig $config): array => ['tld_attributes' => ['list', fn (): mixed => $driver->tldAttributeFields($domain->tld)]],
+            DeclaresTldAttributes::class => fn (DeclaresTldAttributes $driver, RegistrarConfig $config): array => [
+                'tld_attributes' => ['fields', fn (): mixed => array_merge(...array_map(fn (string $tld): array => $driver->tldAttributeFields($tld), ['.com', '.us', '.com.au']))],
+                ...($driver instanceof ValidatesTldAttributes ? ['tld_attributes_validate' => ['answers', fn (): mixed => $driver->validateTldAttributes('.com.au', ['id-type' => 'ABN', 'id' => '1'])]] : []),
+            ],
             SuggestsNames::class => fn (SuggestsNames $driver, RegistrarConfig $config): array => ['suggestions' => ['list', fn (): mixed => $driver->suggest($config, $domain->sld, [$domain->tld], 5)]],
             TransfersDomains::class => fn (TransfersDomains $driver, RegistrarConfig $config): array => [
                 'transfer' => [RegistrarResult::class, fn (): mixed => $driver->transfer($config, $request)],
