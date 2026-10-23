@@ -48,6 +48,10 @@ Skills: `resume-session` after a restart or on a new device; `run-workstream` to
   with `npx vp check --fix`, not standalone prettier.
 - Conventional Commits. Push branches to GitHub (`bhimrazy/mohar`; the owner switches it between public and
   private, see the operating model). Open and merge PRs with `gh`.
-- Keep `docs/handoff/state.md`, `billing/docs/progress.md` and `billing/changelog.md` current: update
-  them when a PR merges, a workstream starts or stops, or the owner makes a decision.
+- Keep `docs/handoff/state.md` and `billing/docs/progress.md` current: update them when a PR merges, a workstream
+  starts or stops, or the owner makes a decision.
+- Changelog entries go in a fragment, `billing/changelog.d/<branch-slug>.md` (a kernel API change also adds
+  `billing/docs/architecture/kernel-changelog.d/<branch-slug>.md`); never edit `billing/changelog.md` or
+  `kernel-changelog.md` directly, CI fails it (ADR 0027; formats in each folder's `README.md`). New ADR amendments are
+  keyed by PR: `## Amendment (#<pr>) — <date>, <title>`.
 - Reports state what actually ran and what was not verified; no claimed results without output.
