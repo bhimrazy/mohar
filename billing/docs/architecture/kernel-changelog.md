@@ -32,6 +32,27 @@ the same PR updates every in-repo implementer and gets the principal-architect g
   `secretValues()` (every setting of 8 characters or more, no caller) is removed. Billing masks with it in step 7.
 - `SecretTemplatePolicy::normalise()` (Notifications) now delegates to `RedactionSet::normalise()`; same result.
 
+### Note events: `total` renamed `amount` (ADR 0024 §6, VAT PR 1b)
+
+- `CreditNoteIssued::$total` and `DebitNoteIssued::$total` are now `$amount`, matching the other Billing money events
+  (`InvoiceRefunded`, `LateFeeApplied`). Breaking, allowed before 1.0: the events merged in #351, nothing consumed them,
+  and the only emitter (`TaxNoteIssuer`) and the tests are updated. The value is unchanged: the note's gross total in
+  minor units.
+
+### Set-a-password mail (ADR 0018 §4, #274)
+
+- `App\Contracts\Auth\AuthMailer` gains `sendPasswordSet(User $user, string $token): void`: the link to the signed-in
+  set-password page for a login without a password. Core's `LaravelAuthMailer` sends `App\Notifications\SetPasswordNotification`;
+  Notifications' `TemplatedAuthMailer` sends the secret-bearing template `auth.password_set` and falls back to that
+  notification when no message could be queued, like the reset mail. Both in-repo implementers are updated.
+
+### Masking a registrar result (ADR 0009 Amendment 5, #368)
+
+- New `App\Data\Domains\Registrar\RegistrarResult::mapText(Closure $mask, string $withheld, int $maxDepth = 8): static`
+  (like `ConnectionCheck::mapText`): a copy with the message and every string value and string key of `meta` masked;
+  a branch deeper than `$maxDepth`, a non-scalar value (object) and a branch whose key changed are replaced by `$withheld`.
+  `remote` is returned unchanged. Additive.
+
 ### `ReturnHint::$signedPaid` (#323)
 
 - `App\Data\Billing\ReturnHint` has a new last constructor parameter `bool $signedPaid = false`: the customer's return
@@ -79,7 +100,7 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 ### Credit and debit note events (ADR 0024 §6, VAT PR 0b)
 
 - New `App\Events\Billing\CreditNoteIssued` and `DebitNoteIssued` (`taxNoteId`, `number`, `invoiceId`, `clientId`,
-  `total` in minor units, `currency`, `automatic`), both `ShouldDispatchAfterCommit`. Additive. Nothing emits them
+  `amount` in minor units, `currency`, `automatic`), both `ShouldDispatchAfterCommit`. Additive. Nothing emits them
   yet: Billing fires them when notes are issued (VAT PR 1b onward). The webhook types `credit_note.issued` and
   `debit_note.issued` join `WebhookEventTypes::MAP` in VAT PR 5, together with the `tax_note` merge-field resolver, so
   the first published payload is the final snapshot (publishing earlier would send the bare event fields and change

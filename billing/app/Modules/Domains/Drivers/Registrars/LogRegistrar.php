@@ -72,7 +72,7 @@ class LogRegistrar implements ChecksAvailability, DeclaresTldAttributes, LinksEx
     public function settingsFields(): array
     {
         return [
-            new SettingField('api_key', 'API key', FieldType::Secret, help: 'Any value works; "invalid" fails the connection test.'),
+            new SettingField('api_key', 'API key', FieldType::Secret, help: 'Any value of 8 characters or more works; "invalid-key" fails the connection test.'),
             new SettingField('simulate', 'Simulate failures', FieldType::Select, options: ['none' => 'Never fail', 'error' => 'Reject every command', 'timeout' => 'Time out every command']),
         ];
     }
@@ -131,7 +131,7 @@ class LogRegistrar implements ChecksAvailability, DeclaresTldAttributes, LinksEx
             return new RegistrarResult('pending', message: 'Registration accepted; awaiting registry confirmation.');
         }
 
-        return new RegistrarResult('completed', CarbonImmutable::today()->addYearsNoOverflow($request->years), 'Domain registered.');
+        return new RegistrarResult('completed', null, 'Domain registered.');
     }
 
     public function transfer(RegistrarConfig $config, RegistrationRequest $request): RegistrarResult
@@ -145,14 +145,14 @@ class LogRegistrar implements ChecksAvailability, DeclaresTldAttributes, LinksEx
     {
         $this->guardWrite($config, 'renew', $domain, timeouts: false);
 
-        return new RegistrarResult('completed', ($domain->expiryDate ?? CarbonImmutable::today())->addYearsNoOverflow($years), 'Domain renewed.');
+        return new RegistrarResult('completed', $domain->expiryDate?->addYearsNoOverflow($years), 'Domain renewed.');
     }
 
     public function restore(RegistrarConfig $config, DomainRef $domain, int $years): RegistrarResult
     {
         $this->guardWrite($config, 'restore', $domain, timeouts: false);
 
-        return new RegistrarResult('completed', ($domain->expiryDate ?? CarbonImmutable::today())->addYearsNoOverflow($years), 'Domain restored and renewed.');
+        return new RegistrarResult('completed', $domain->expiryDate?->addYearsNoOverflow($years), 'Domain restored and renewed.');
     }
 
     public function info(RegistrarConfig $config, DomainRef $domain): DomainInfo
@@ -168,7 +168,7 @@ class LogRegistrar implements ChecksAvailability, DeclaresTldAttributes, LinksEx
             default => 'active',
         };
 
-        $expiry = $domain->expiryDate ?? ($status === 'active' ? CarbonImmutable::today()->addYearsNoOverflow($domain->periodYears) : null);
+        $expiry = $domain->expiryDate;
 
         return new DomainInfo(
             status: $status,
@@ -236,7 +236,7 @@ class LogRegistrar implements ChecksAvailability, DeclaresTldAttributes, LinksEx
             return new SyncResult(active: false, transferredAway: true, expiryDate: $domain->expiryDate);
         }
 
-        return new SyncResult(active: true, expiryDate: $domain->expiryDate ?? CarbonImmutable::today()->addYearsNoOverflow($domain->periodYears));
+        return new SyncResult(active: true, expiryDate: $domain->expiryDate);
     }
 
     public function transferSync(RegistrarConfig $config, DomainRef $domain): TransferSyncResult
@@ -247,9 +247,8 @@ class LogRegistrar implements ChecksAvailability, DeclaresTldAttributes, LinksEx
             return new TransferSyncResult(completed: false, failed: true, reason: 'The losing registrar rejected the transfer: invalid EPP code.');
         }
 
-        $base = $domain->expiryDate ?? CarbonImmutable::today();
-
-        return new TransferSyncResult(completed: true, expiryDate: $base->addYearsNoOverflow(1));
+        // No invented expiry: without one the host dates the transfer from the company calendar.
+        return new TransferSyncResult(completed: true, expiryDate: $domain->expiryDate?->addYearsNoOverflow(1));
     }
 
     public function lookupOrder(RegistrarConfig $config, DomainRef $domain, string $orderId): LinkedOrder
@@ -270,7 +269,7 @@ class LogRegistrar implements ChecksAvailability, DeclaresTldAttributes, LinksEx
         return match (true) {
             $command === 'renew' => new SubmissionLookup(ReconcileStatus::Executed),
             str_contains($domain->sld, 'taken') => new SubmissionLookup(ReconcileStatus::Conflict, message: 'The name is registered in another account.'),
-            $command === 'register' && str_contains($domain->sld, 'timeout') => new SubmissionLookup(ReconcileStatus::Executed, CarbonImmutable::today()->addYearsNoOverflow($domain->periodYears)),
+            $command === 'register' && str_contains($domain->sld, 'timeout') => new SubmissionLookup(ReconcileStatus::Executed),
             str_contains($domain->sld, 'timeout') || str_contains($domain->sld, 'slow') => new SubmissionLookup(ReconcileStatus::InProgress),
             default => new SubmissionLookup(ReconcileStatus::NotExecuted),
         };
@@ -278,7 +277,7 @@ class LogRegistrar implements ChecksAvailability, DeclaresTldAttributes, LinksEx
 
     public function testConnection(RegistrarConfig $config): ConnectionCheck
     {
-        return $config->setting('api_key') === 'invalid'
+        return $config->setting('api_key') === 'invalid-key'
             ? new ConnectionCheck(false, 'Authentication failed: invalid API key.')
             : new ConnectionCheck(true, 'Connected to the log registrar.');
     }

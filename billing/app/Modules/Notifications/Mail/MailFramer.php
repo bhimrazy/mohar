@@ -229,6 +229,7 @@ final class MailFramer
 
         [$tone, $label, $when] = match ($key) {
             'auth.password_reset' => ['accent', self::text('Reset requested'), $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null],
+            'auth.password_set' => ['accent', self::text('Set a password'), $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null],
             'auth.email_verification' => ['accent', self::text('Confirm your email'), null],
             'auth.user_invitation', 'client.migration_invitation' => ['accent', self::text('Invitation'), $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null],
             'auth.password_changed' => ['warning', self::text('Password changed'), $this->date(MailDates::companyDate())],

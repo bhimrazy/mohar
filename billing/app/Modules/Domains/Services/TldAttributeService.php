@@ -12,6 +12,7 @@ use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\Tld;
 use App\Support\Domains\RegistrarDriverRegistry;
 use App\Support\Integrations\RedactionSet;
+use App\Support\Integrations\Redactor;
 use Closure;
 use Error;
 use Exception;
@@ -37,6 +38,9 @@ class TldAttributeService implements TldAttributes
 
     /** Shortest free-text value the host masks in registrar errors (shorter ones would mask ordinary words). */
     private const MIN_MASKED = 4;
+
+    /** Nesting of `meta` and `remote` that is masked; anything deeper is replaced whole rather than shown unchecked. */
+    private const MAX_DEPTH = 8;
 
     /** Characters a registry may drop, add or move when it echoes an identifier: space, dash, dot, slash, underscore. */
     private const SEPARATORS = '[\\s\\-.\\/_]';
@@ -235,9 +239,10 @@ class TldAttributeService implements TldAttributes
     }
 
     /**
-     * Runs a registrar call and masks the free-text answers in what it raises or returns, however the registry
-     * echoed them (the kernel answer rules of RedactionSet: regrouped, any separators, percent-encoded, Devanagari
-     * digits, any case). The gateway then masks the exact forms again. The message of the exception and of each exception behind it is rewritten in place,
+     * Runs a registrar call and masks the free-text answers in what it raises or returns (the message and `meta` of a
+     * result; `remote` holds registrar ids and is never masked), however the registry echoed them (the kernel answer
+     * rules of RedactionSet: regrouped, any separators, percent-encoded, Devanagari digits, any case). The gateway then
+     * masks the exact forms again. The message of the exception and of each exception behind it is rewritten in place,
      * keeping its class and flags.
      *
      * @template T
@@ -268,7 +273,7 @@ class TldAttributeService implements TldAttributes
             throw $exception;
         }
 
-        return $result instanceof RegistrarResult && $result->message !== null ? $result->withMessage($set->mask($result->message)) : $result;
+        return $result instanceof RegistrarResult ? $result->mapText(fn (string $text): string => $set->mask($text), Redactor::MASK, self::MAX_DEPTH) : $result;
     }
 
     /**

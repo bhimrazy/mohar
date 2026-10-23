@@ -24,6 +24,6 @@ Constraints:
 - Agents never run commands in `$MOHAR_ROOT/billing` and never touch port 8000 (the owner's preview).
 
 Heavy commands through `$MOHAR_ROOT/scripts/heavy.sh`. Chain every `cd` with `&&`. Commit Conventional
-Commits, push, open a draft PR into `develop` with a changelog entry when operators are affected. Report: PR URL,
+Commits, push, open a draft PR into `develop` with a changelog fragment (`billing/changelog.d/`) when operators are affected. Report: PR URL,
 what changed, the commands you ran with their actual output (measured CI or run durations, not estimates), and
 follow-ups. Say what you did not verify.

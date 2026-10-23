@@ -121,7 +121,7 @@ test('registrar settings are saved encrypted and blank secrets are kept', functi
 test('the connection test reports the driver result', function () {
     actingAsStaff(['domains.registrars.manage']);
     confirmPassword();
-    RegistrarAccount::query()->create(['key' => 'log', 'settings' => ['api_key' => 'invalid']]);
+    RegistrarAccount::query()->create(['key' => 'log', 'settings' => ['api_key' => 'invalid-key']]);
 
     $this->post(route('admin.domains.registrars.test', 'log'))
         ->assertRedirect()

@@ -6,6 +6,8 @@ use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Services\Models\Server;
+use App\Support\Integrations\SecretMinimumLength;
+use App\Support\Integrations\StoredSecrets;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -66,6 +68,31 @@ class ServerSettings
         }));
     }
 
+    /**
+     * The server row's own credentials as secret fields, so they get the same minimum length as secret settings
+     * (ADR 0023 §2).
+     *
+     * @return list<SettingField>
+     */
+    public function credentialFields(): array
+    {
+        return [
+            new SettingField('password', __('Password'), FieldType::Secret),
+            new SettingField('api_token', __('API token'), FieldType::Secret),
+            new SettingField('access_hash', __('Access hash'), FieldType::SecretText),
+        ];
+    }
+
+    /**
+     * The server's stored credentials, decrypted.
+     *
+     * @return array<string, string|null>
+     */
+    public function credentials(Server $server): array
+    {
+        return array_combine(Server::CREDENTIALS, array_map(fn (string $credential): ?string => $server->getAttribute($credential), Server::CREDENTIALS));
+    }
+
     public function declares(string $driverKey, string $key): bool
     {
         return collect($this->fields($driverKey))->contains(fn (SettingField $field): bool => $field->key === $key);
@@ -113,6 +140,7 @@ class ServerSettings
                 default => ['string', 'max:2000'],
             },
             ...($field->key === self::CERTIFICATE_PIN ? ['regex:#^(sha256//)?[A-Za-z0-9+/]{43}=\z#'] : []),
+            ...($field->isSecret() ? [new SecretMinimumLength($field)] : []),
         ];
     }
 
@@ -209,9 +237,10 @@ class ServerSettings
     }
 
     /**
-     * Form values: non-secret settings, and for each secret only whether a value is stored.
+     * Form values: non-secret settings, for each secret only whether a value is stored, and the keys of stored
+     * secrets shorter than their minimum.
      *
-     * @return array{values: array<string, string>, secrets_set: array<string, bool>}
+     * @return array{values: array<string, string>, secrets_set: array<string, bool>, secrets_short: list<string>}
      */
     public function forForm(Server $server): array
     {
@@ -234,7 +263,7 @@ class ServerSettings
             };
         }
 
-        return ['values' => $values, 'secrets_set' => $set];
+        return ['values' => $values, 'secrets_set' => $set, 'secrets_short' => StoredSecrets::tooShort($this->fields($server->driver), $server->settings ?? [])];
     }
 
     private function cast(SettingField $field, mixed $value): mixed
