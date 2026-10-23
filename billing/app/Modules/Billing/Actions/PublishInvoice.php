@@ -9,6 +9,7 @@ use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Services\DocumentNumbers;
+use App\Modules\Billing\Services\FiscalSnapshotWriter;
 use App\Modules\Billing\Services\InvoiceCalculator;
 use App\Modules\Billing\Services\InvoiceSettlement;
 use App\Modules\Billing\Services\SellerDetails;
@@ -32,6 +33,7 @@ class PublishInvoice
         private BillingSettings $settings,
         private SellerDetails $seller,
         private CompanyClock $clock,
+        private FiscalSnapshotWriter $fiscal,
     ) {}
 
     /**
@@ -74,6 +76,8 @@ class PublishInvoice
             if ($this->settings->bool('sequential_paid_numbering')) {
                 $invoice->proforma_number = $this->numbers->next(DocumentNumbers::PROFORMA, $invoice->issue_date);
             } else {
+                // The snapshot is read before the install-wide sequence row is locked (ADR 0024 §4: the sequence goes last).
+                $this->fiscal->stamp($invoice, $this->clock->now()->utc(), published: true);
                 $invoice->number = $this->numbers->next(DocumentNumbers::INVOICE, $invoice->issue_date);
             }
 
