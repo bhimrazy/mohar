@@ -88,6 +88,7 @@ class FortifyServiceProvider extends ServiceProvider
 
         Fortify::confirmPasswordView(fn (Request $request) => Inertia::render('auth/confirm-password', [
             'download' => (bool) $request->session()->get('step_up_download', false),
+            'hasPassword' => (bool) $request->user()?->hasPassword(),
         ]));
     }
 

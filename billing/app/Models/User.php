@@ -26,7 +26,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property string $name
  * @property string $email
  * @property Carbon|null $email_verified_at
- * @property string $password
+ * @property string|null $password
  * @property string|null $two_factor_secret
  * @property string|null $two_factor_recovery_codes
  * @property Carbon|null $two_factor_confirmed_at
@@ -78,6 +78,15 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
                 $user->email_verified_at = null;
             }
         });
+    }
+
+    /**
+     * False for a login created without a password (social or magic-link sign-in, ADR 0018 §5). Such a login can
+     * never pass step-up.
+     */
+    public function hasPassword(): bool
+    {
+        return is_string($this->password) && $this->password !== '';
     }
 
     /**

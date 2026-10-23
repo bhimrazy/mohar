@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Changed
+
+- **A login without a password is told to set one when a sensitive action needs step-up (#274, ADR 0018 §4).** Such a
+  login (for example from a social or magic-link sign-in) can never pass step-up, whatever the session holds, including
+  a passkey confirmation. The 423 response carries `code: "password_not_set"` and the Inertia validation response
+  carries `step_up_reason`; neither holds secret data. The confirm dialog and the confirm-password page show "Set a
+  password" (linking to Security settings) instead of a password field. Shared props carry `auth.user.has_password`.
+  Upgrade: migration `make_users_password_nullable` makes `users.password` nullable (on PostgreSQL it takes a short lock
+  on `users`); no behaviour changes for logins that have a password.
+
 ### Fixed
 
 - **Simulators no longer fail to start at random (#370).** A scenario's `scenario.json` is now written to a temporary file and renamed into place. Rewriting it in place (after the processes were spawned) could let a starting process read it empty, which failed CI with "did not become ready". Test-only tooling; no app change.

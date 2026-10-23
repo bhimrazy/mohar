@@ -12,11 +12,12 @@ export const STEP_UP_DOWNLOAD_EVENT = 'step-up:download';
 export function requestStepUpDownload(
     target: EventTarget,
     url: string,
+    noPassword = false,
 ): boolean {
     return !target.dispatchEvent(
         new CustomEvent(STEP_UP_DOWNLOAD_EVENT, {
             cancelable: true,
-            detail: { url },
+            detail: { url, noPassword },
         }),
     );
 }
@@ -62,7 +63,12 @@ export function StepUpDownloadLink({
             });
 
             if (response.status === 423) {
-                const handled = requestStepUpDownload(window, href);
+                const body = await response.json().catch(() => null);
+                const handled = requestStepUpDownload(
+                    window,
+                    href,
+                    body?.code === 'password_not_set',
+                );
 
                 if (handled) {
                     return;
