@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Settings;
 
+use App\Contracts\Auth\AuthMailer;
 use App\Http\Controllers\Controller;
-use App\Notifications\SetPasswordNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,12 +21,16 @@ class SetPasswordLinkController extends Controller
     {
         $user = $request->user();
 
-        abort_if($user->hasPassword(), 403);
+        if ($user->hasPassword()) {
+            abort_if(! $request->expectsJson(), 403);
+
+            return response()->json(['message' => __('Your account already has a password.'), 'code' => 'password_already_set'], 403);
+        }
 
         $broker = Password::broker(config('fortify.passwords'));
 
         if (! $broker->getRepository()->recentlyCreatedToken($user)) {
-            $user->notify(new SetPasswordNotification($broker->createToken($user)));
+            app(AuthMailer::class)->sendPasswordSet($user, $broker->createToken($user));
         }
 
         if ($request->expectsJson()) {

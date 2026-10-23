@@ -6,6 +6,13 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Set-a-password mail (ADR 0018 §4, #274)
+
+- `App\Contracts\Auth\AuthMailer` gains `sendPasswordSet(User $user, string $token): void`: the link to the signed-in
+  set-password page for a login without a password. Core's `LaravelAuthMailer` sends `App\Notifications\SetPasswordNotification`;
+  Notifications' `TemplatedAuthMailer` sends the secret-bearing template `auth.password_set` and falls back to that
+  notification when no message could be queued, like the reset mail. Both in-repo implementers are updated.
+
 ### Linking an existing registrar order (ADR 0009 Amendment 4, #365)
 
 - New capability interface `App\Contracts\Domains\Registrar\LinksExistingOrders` (detected with `instanceof`;

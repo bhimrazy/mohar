@@ -7,7 +7,7 @@ use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
 /**
- * Mail for a login that has no password: the link opens the signed-in "set a password" page. It is not the
+ * Fallback mail for a login that has no password: the link opens the signed-in "set a password" page. It is not the
  * reset-password mail, which tells the reader to reset a password they do not have.
  */
 class SetPasswordNotification extends Notification

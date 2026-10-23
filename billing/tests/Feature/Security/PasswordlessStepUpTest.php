@@ -223,3 +223,11 @@ it('leaves the guest reset flow unchanged for a login that has a password', func
 
     Notification::assertSentTo($user, ResetPassword::class);
 });
+
+it('says a login that already has a password has one, and an unverified one to verify first', function () {
+    $this->actingAs(User::factory()->create())->postJson(route('password.set-link'))
+        ->assertForbidden()->assertJson(['code' => 'password_already_set']);
+
+    $this->actingAs(passwordlessClient(['email_verified_at' => null]))->postJson(route('password.set-link'))
+        ->assertForbidden()->assertJsonMissingPath('code');
+});

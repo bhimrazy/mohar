@@ -37,10 +37,14 @@ export function SetPasswordButton({ className }: { className?: string }) {
                 return;
             }
 
+            const body = await response.json().catch(() => null);
+
             setState('idle');
             setProblem(
                 response.status === 403
-                    ? 'Verify your email first, then ask for the link again.'
+                    ? body?.code === 'password_already_set'
+                        ? 'Your account already has a password.'
+                        : 'Verify your email first, then ask for the link again.'
                     : response.status === 429
                       ? "You've asked several times; try again in a few minutes."
                       : 'Could not send the email. Try again in a moment.',

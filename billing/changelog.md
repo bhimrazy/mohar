@@ -13,7 +13,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   a passkey confirmation. The 423 response carries `code: "password_not_set"` and the Inertia validation response
   carries `step_up_reason`; neither holds secret data. The confirm dialog and the confirm-password page show "Set a
   password" instead of a password field; it posts to `POST settings/password/set-link`, which emails a "Set a password
-  for your account" mail (not the reset mail) to the account's own address (verified address and a login without a
+  for your account" mail (the editable, logged template `auth.password_set`, not the reset mail) to the account's own address (verified address and a login without a
   password only; 5 a minute per IP and 5 an hour per login; one mail a minute) and answers only "sent". The link opens
   `settings/password/set/{token}`, a signed-in page that sets the password with a confirmation and never asks for a
   current one; the link works once, for that login only, and a signed-out visitor signs in first and returns to it. The

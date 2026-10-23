@@ -95,5 +95,5 @@ export default function SetPassword({
 }
 
 SetPassword.layout = {
-    breadcrumbs: [{ title: 'Set a password', href: '#' }],
+    breadcrumbs: [{ title: 'Set a password', href: edit() }],
 };

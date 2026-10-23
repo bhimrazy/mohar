@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Password;
 use Illuminate\Validation\Rules\Password as PasswordRule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
-use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 /**
  * The page the set-password mail opens (ADR 0018 §4). It works for the signed-in login the token was made for and
@@ -21,13 +21,17 @@ class SetPasswordController extends Controller
 {
     use PasswordValidationRules;
 
-    public function show(Request $request, string $token): Response
+    public function show(Request $request, string $token): SymfonyResponse
     {
-        return Inertia::render('settings/set-password', [
+        // The token is in the URL: never leak it through the Referer header.
+        $response = Inertia::render('settings/set-password', [
             'token' => $token,
             'valid' => $this->usable($request->user(), $token),
             'passwordRules' => PasswordRule::defaults()->toPasswordRulesString(),
-        ]);
+        ])->toResponse($request);
+        $response->headers->set('Referrer-Policy', 'no-referrer');
+
+        return $response;
     }
 
     public function store(Request $request, string $token): RedirectResponse
