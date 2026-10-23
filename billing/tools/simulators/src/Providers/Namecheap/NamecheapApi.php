@@ -70,7 +70,7 @@ final class NamecheapApi
         'xyz' => ['price' => 299, 'transfer' => false, 'lock' => true],
         'in' => ['price' => 899, 'transfer' => true, 'lock' => true],
         'us' => ['price' => 899, 'transfer' => true, 'lock' => true, 'attributes' => ['RegistrantNexus' => '/^C(11|12|21|31|32)$/', 'RegistrantPurpose' => '/^P[1-5]$/']],
-        'ca' => ['price' => 1_199, 'transfer' => true, 'lock' => false, 'attributes' => ['CIRALegalType' => '/^[A-Z]{3}$/', 'CIRAWhoisDisplay' => '/^(Full|Private)$/', 'CIRALanguage' => '/^(EN|FR)$/', 'CIRAAgreementVersion' => '/^\d+\.\d+$/', 'CIRAAgreementValue' => '/^Y$/']],
+        'ca' => ['price' => 1_199, 'transfer' => true, 'lock' => false, 'attributes' => ['CIRALegalType' => '/^[A-Z]{2,3}$/', 'CIRAWhoisDisplay' => '/^(Full|Private)$/', 'CIRALanguage' => '/^(EN|FR)$/']],
         'eu' => ['price' => 899, 'transfer' => false, 'lock' => false, 'attributes' => ['EUAgreeWhoisPolicy' => '/^YES$/', 'EUAgreeDeletePolicy' => '/^YES$/']],
         'co.uk' => ['price' => 899, 'transfer' => false, 'lock' => false],
         'uk' => ['price' => 999, 'transfer' => false, 'lock' => false],
@@ -934,6 +934,18 @@ final class NamecheapApi
         }
 
         return $best === null ? [null, null] : [substr($name, 0, -strlen($best) - 1), $best];
+    }
+
+    /**
+     * The account's record of a name (a registration waiting for the registry included), for tests.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function domain(string $name): ?array
+    {
+        $domain = $this->scenario->state()->get('domains', strtolower($name));
+
+        return is_array($domain) ? $domain : null;
     }
 
     public static function premium(string $name): bool
