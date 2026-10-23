@@ -79,7 +79,7 @@ gh pr merge <n> --merge --match-head-commit <sha> --delete-branch
 cd $MOHAR_ROOT && git pull --ff-only && git worktree remove .worktrees/<slug> && git branch -D feature/<slug>
 ```
 
-- Code conflicts in money or auth PRs go back to the engineer; docs, changelog and lockfile conflicts the CTO resolves
+- Code conflicts in money or auth PRs go back to the engineer; docs and lockfile conflicts the CTO resolves (changelog fragments do not conflict)
   (keep both sides' intent). The resolved head gets CI.
 - `mergeable` reads `UNKNOWN` for a minute or two after CI; retry until `MERGEABLE`.
 - Probe branches `review/pr-<n>-probes`: once adopted, tag as `archive/review/pr-<n>-probes` and delete the branch.
@@ -90,7 +90,8 @@ cd $MOHAR_ROOT && git pull --ff-only && git worktree remove .worktrees/<slug> &&
 ## 6. Record
 
 - `docs/handoff/state.md`: move the row from in progress to merged; update the queue and "Running now".
-- `billing/docs/progress.md`: status row and a timeline line. `billing/changelog.md`: check the PR added its entry
-  (and upgrade notes where behaviour or permissions change); write it if not.
+- `billing/docs/progress.md`: status row and a timeline line. Check the PR added its fragment in `billing/changelog.d/`
+  (and upgrade notes where behaviour or permissions change); add it if not. At a release, or when the folders grow,
+  run `scripts/changelog-assemble.sh` and commit with the trailer `Changelog-Assemble: yes` (ADR 0027).
 - After user-facing merges: a `product-reviewer` sweep of `develop`, fix or route its owner-blocking findings, then
   the owner update with screenshots.

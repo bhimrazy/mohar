@@ -44,7 +44,7 @@ account, so reviews are posted as comments and the verdict line is the gate.
    fetched `origin/develop`.
 3. **Build.** Launch `module-engineer` with the brief template in the `run-workstream` skill. The engineer commits in
    small steps, pushes WIP as `[skip ci]`, verifies locally, and opens a draft PR into `develop` with gates green and
-   a changelog entry. The architect reviews the brief and any kernel diff before the build, not only the PR.
+   a changelog fragment (`billing/changelog.d/<branch-slug>.md`). The architect reviews the brief and any kernel diff before the build, not only the PR.
 4. **Review.** One review per the policy table below, launched only after the engineer reports a pushed, clean head.
 5. **Fix.** Resume the same engineer (SendMessage to its id) with all requested changes in one message. Reviewer
    probes are adopted as tests in the fix push. At most two fix rounds per PR: if the second re-review finds a
@@ -55,7 +55,8 @@ account, so reviews are posted as comments and the verdict line is the gate.
    the head.
 7. **Merge (CTO).** Merge `origin/develop` into the branch, run the gates, mark ready, wait for CI, post the sign-off
    naming each blocking item and its evidence, `gh pr merge --merge`. Remove the worktree and branch.
-8. **Record.** `state.md`, `billing/docs/progress.md`, `billing/changelog.md`. Non-blocking items become issues.
+8. **Record.** `state.md`, `billing/docs/progress.md`; the PR's changelog fragment is already in. Non-blocking items
+   become issues.
 9. **Before an owner update** after user-facing merges: a `product-reviewer` sweep of `develop`; act on its
    owner-blocking findings first. Owner corrections go into `product-standards.md` the same session.
 
@@ -79,8 +80,8 @@ account, so reviews are posted as comments and the verdict line is the gate.
 - Size cap: 2,000 changed lines, adopted probes excluded. An exception is named in the PR body with its reason, and
   engineers flag the size before building, not after.
 - Reviews only on a pushed, clean head; the final head of a code PR must not carry `[skip ci]`.
-- Code conflicts in money or auth PRs go back to the engineer; the CTO resolves docs, changelog and lockfile
-  conflicts, and the resolved head gets CI either way.
+- Code conflicts in money or auth PRs go back to the engineer; the CTO resolves docs and lockfile conflicts (fragments
+  do not conflict), and the resolved head gets CI either way.
 
 ## Agent budget
 
@@ -167,6 +168,8 @@ is also the owner's own machine: the agent budget above applies, `/tmp` survives
 - Never stop, kill or remove a Docker container you didn't start (`docker kill`, `stop`, `rm`, `compose down`):
   the shared test database `mohar-pg` and Mailpit serve every agent. Restarting
   `mohar-pg` is the CTO's call.
+- `.claude/settings.json` denies these Docker commands, `git stash` (all forms, including `push -m`), `npx -y`
+  and Chrome, so an agent cannot run them by mistake.
 - Dev servers: each agent gets its own port range (8100–8299); port 8000 is the owner's preview and is never touched
   by agents. Stop servers by port PID; never `pkill -f`. Chain `cd` with `&&`; never run commands in the main
   checkout from an agent.
@@ -176,8 +179,15 @@ is also the owner's own machine: the agent budget above applies, `/tmp` survives
 - Branches `feature/<slug>` from `develop`; `develop` is integration; `main` is release. Review probes on
   `review/pr-<n>-probes`, archived as tags after adoption. Snapshot branches `wip/<branch>-snapshot` are deleted once
   the work lands.
-- Changelog fragments (`billing/changelog.d/<pr>.md`, assembled at release) are proposed and await the owner's
-  decision; until then the single `billing/changelog.md` stands.
+- Changelog fragments (owner decision 2026-10-23, ADR 0027). A PR never edits `billing/changelog.md` or
+  `billing/docs/architecture/kernel-changelog.md`; it adds `billing/changelog.d/<branch-slug>.md` (sections
+  `### Added`, `### Changed`, `### Fixed`, `### Security`, then bullets) and, for a kernel API change,
+  `billing/docs/architecture/kernel-changelog.d/<branch-slug>.md` (one `### <title> (#<pr>)` entry). Formats: the
+  `README.md` in each folder. The CTO runs `scripts/changelog-assemble.sh` at a release or when the folders grow and
+  commits the result with the trailer `Changelog-Assemble: yes`. CI fails any other direct edit and a malformed
+  fragment, and warns when app or kernel code changes without one. PRs up to #396 keep their direct edits.
+- ADR amendments are keyed by PR, not numbered (ADR 0027): a new one is headed `## Amendment (#<pr>) — <date>, <title>`
+  and cited as "ADR 0009 Amendment (#368)". Existing numbered amendments keep their numbers.
 - Conventional Commits with no attribution trailer or footer (no `Co-Authored-By: Claude`; owner rule, 2026-10-22). PR bodies: summary, spec coverage,
   shared-kernel changes, security notes, tests, screenshots.
 - Screenshots: headless Playwright, under `billing/docs/screenshots/<module>/`, through `npm run images:optimize`

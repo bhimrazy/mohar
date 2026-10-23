@@ -41,8 +41,9 @@ Rules:
 - When you change a driver that has a simulator (Stripe, WHM), run `tools/simulators/tests` too and update the
   simulator to match the real service; CI runs that suite (on 10-21 a Stripe dispute change broke it).
 - When a reviewer pushes probes to `review/pr-<n>-probes` (or names a probe file), adopt them as tests in the fix push.
-- Add a `billing/changelog.md` entry under `[Unreleased]`: what users and operators get, plus upgrade notes when
-  behaviour, permissions or schema change. Facts only.
+- Add a changelog fragment, `billing/changelog.d/<branch-slug>.md` (format in that folder's `README.md`), never an
+  edit to `billing/changelog.md`: what users and operators get, plus upgrade notes when behaviour, permissions or
+  schema change. Facts only. A kernel API change also adds `billing/docs/architecture/kernel-changelog.d/<branch-slug>.md`.
 - Commit small Conventional Commits and push at least every 30 minutes (`wip(<scope>): … [skip ci]`; the final head
   without `[skip ci]`), so a codespace restart loses nothing. Bring in `develop` with `git merge origin/develop`; squash only
   against a fixed SHA you recorded, never `git reset --soft origin/develop` while `develop` moves (on 10-21 that

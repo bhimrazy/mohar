@@ -38,6 +38,9 @@ class TldAttributeService implements TldAttributes
     /** Shortest free-text value the host masks in registrar errors (shorter ones would mask ordinary words). */
     private const MIN_MASKED = 4;
 
+    /** Nesting of `meta` and `remote` that is masked; anything deeper is replaced whole rather than shown unchecked. */
+    private const MAX_DEPTH = 8;
+
     /** Characters a registry may drop, add or move when it echoes an identifier: space, dash, dot, slash, underscore. */
     private const SEPARATORS = '[\\s\\-.\\/_]';
 
@@ -235,7 +238,7 @@ class TldAttributeService implements TldAttributes
     }
 
     /**
-     * Runs a registrar call and masks the free-text answers in what it raises or returns, however the registry
+     * Runs a registrar call and masks the free-text answers in what it raises or returns (the message and `meta` of a result; `remote` holds registrar ids and is never masked), however the registry
      * echoed them: regrouped (`518 247 535 56`), dashed, dotted, slashed or in another case. The gateway then masks
      * the exact forms again. The message of the exception and of each exception behind it is rewritten in place,
      * keeping its class and flags.
@@ -268,7 +271,7 @@ class TldAttributeService implements TldAttributes
             throw $exception;
         }
 
-        return $result instanceof RegistrarResult && $result->message !== null ? $result->withMessage($this->maskText($patterns, $result->message)) : $result;
+        return $result instanceof RegistrarResult ? $result->mapText(fn (string $text): string => $this->maskText($patterns, $text), Redactor::MASK, self::MAX_DEPTH) : $result;
     }
 
     /**

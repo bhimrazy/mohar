@@ -311,3 +311,11 @@ Kernel shapes decided now:
    domain's client; it refuses with a plain message otherwise. The host records `remote.order_id` only when the answer
    carries the order id that was typed, and itself refuses `.np` and other self-registered names. Nothing is ever
    linked by searching for a name or by an email address. `LinkedOrder` carries `remote`, `status` and `expiryDate`.
+
+## Amendment 5 — 2026-10-23, masking a registrar result (PR #368)
+
+**`RegistrarResult::mapText(Closure $mask, string $withheld, int $maxDepth = 8)`** returns a copy with the message and
+everything in `meta` masked: string values and string keys, arrays walked. Anything it cannot check is replaced by the
+withheld marker: a branch nested deeper than `$maxDepth`, an object or other non-scalar value, and a branch whose key the
+mask changed. `remote` is never masked: its values are the registrar ids that prove ownership and later calls need, and
+a mask would change one. The host uses it to mask a customer's free-text TLD answers (Amendment 3, item 4).

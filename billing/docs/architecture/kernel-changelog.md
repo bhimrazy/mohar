@@ -6,6 +6,20 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Set-a-password mail (ADR 0018 §4, #274)
+
+- `App\Contracts\Auth\AuthMailer` gains `sendPasswordSet(User $user, string $token): void`: the link to the signed-in
+  set-password page for a login without a password. Core's `LaravelAuthMailer` sends `App\Notifications\SetPasswordNotification`;
+  Notifications' `TemplatedAuthMailer` sends the secret-bearing template `auth.password_set` and falls back to that
+  notification when no message could be queued, like the reset mail. Both in-repo implementers are updated.
+
+### Masking a registrar result (ADR 0009 Amendment 5, #368)
+
+- New `App\Data\Domains\Registrar\RegistrarResult::mapText(Closure $mask, string $withheld, int $maxDepth = 8): static`
+  (like `ConnectionCheck::mapText`): a copy with the message and every string value and string key of `meta` masked;
+  a branch deeper than `$maxDepth`, a non-scalar value (object) and a branch whose key changed are replaced by `$withheld`.
+  `remote` is returned unchanged. Additive.
+
 ### `ReturnHint::$signedPaid` (#323)
 
 - `App\Data\Billing\ReturnHint` has a new last constructor parameter `bool $signedPaid = false`: the customer's return
