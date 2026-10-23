@@ -13,6 +13,49 @@ import type { SelectOption } from '@/types/app';
 
 const EMPTY = '__none__';
 
+const fold = (text: string) =>
+    text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+
+/** Options matching the query in label or keywords, ignoring case and accents; names starting with it come first. */
+export function filterOptions(
+    options: SelectOption[],
+    query: string,
+): SelectOption[] {
+    const needle = fold(query.trim());
+
+    if (!needle) {
+        return options;
+    }
+
+    const rank = (option: SelectOption) => {
+        const label = fold(option.label);
+        const words = fold(option.keywords ?? '').split(/\s+/);
+
+        if (label.startsWith(needle)) {
+            return 0;
+        }
+
+        if (words.some((word) => word === needle)) {
+            return 1;
+        }
+
+        if (
+            label.split(/[\s-]+/).some((word) => word.startsWith(needle)) ||
+            words.some((word) => word.startsWith(needle))
+        ) {
+            return 2;
+        }
+
+        return label.includes(needle) ? 3 : -1;
+    };
+
+    return options
+        .map((option, index) => ({ option, index, rank: rank(option) }))
+        .filter((entry) => entry.rank >= 0)
+        .sort((a, b) => a.rank - b.rank || a.index - b.index)
+        .map((entry) => entry.option);
+}
+
 type SelectFieldProps = {
     id: string;
     /** Form field name, submitted through a hidden input ('' when empty). */
@@ -121,19 +164,10 @@ function SearchableSelect({
         ? [{ value: '', label: emptyLabel }, ...options]
         : options;
     const selected = all.find((option) => option.value === value);
-    const needle = query.trim().toLowerCase();
-    const shown = needle
-        ? all.filter((option) => option.label.toLowerCase().includes(needle))
-        : all;
+    const shown = filterOptions(all, query);
 
     const show = (text: string) => {
-        const list = text.trim()
-            ? all.filter((option) =>
-                  option.label
-                      .toLowerCase()
-                      .includes(text.trim().toLowerCase()),
-              )
-            : all;
+        const list = filterOptions(all, text);
         const at = list.findIndex((option) => option.value === value);
 
         setActive(Math.max(at, 0));

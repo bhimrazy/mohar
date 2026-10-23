@@ -43,6 +43,7 @@ use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Reports\RegisterDocuments;
 use App\Modules\Billing\Reports\TaxNoteRegisterReport;
 use App\Modules\Billing\Reports\VatRegisterReport;
+use App\Modules\Billing\Rules\EuVatHomeCountry;
 use App\Modules\Billing\Services\BillingAutomation;
 use App\Modules\Billing\Services\BillingDirectory;
 use App\Modules\Billing\Services\CreditLedgerService;
@@ -373,10 +374,10 @@ class BillingServiceProvider extends ModuleServiceProvider
             new SettingDefinition('billing.tax.calculation', 'Tax calculation', 'select', options: ['per_line' => 'Per line', 'per_invoice' => 'Per invoice']),
             new SettingDefinition('billing.tax.rounding', 'Tax rounding', 'select', options: ['half_up' => 'Half up', 'half_even' => 'Half even', 'down' => 'Down', 'up' => 'Up']),
             new SettingDefinition('billing.tax.apply_to', 'Taxed item kinds', help: 'Comma-separated: service, addon, domain, setup, late_fee, manual', rules: ['max:200']),
-            new SettingDefinition('billing.tax.home_country', 'Seller tax country', help: 'ISO code of the country you charge tax from, e.g. NP. Also used for intra-/inter-state rules, e.g. IN', rules: ['size:2']),
+            new SettingDefinition('billing.tax.home_country', 'Seller tax country', 'country', 'The country your business charges tax from, usually where it is registered. Tax rules for other countries and India GST state rules are judged against it.'),
             new SettingDefinition('billing.tax.home_state', 'Seller state', help: 'State of registration, e.g. MH. India GST: CGST+SGST in this state, IGST elsewhere.', rules: ['max:100']),
             $bool('vat.enabled', 'Enable EU VAT rules'),
-            new SettingDefinition('billing.vat.home_country', 'VAT home country', help: 'ISO code, e.g. DE', rules: ['size:2']),
+            new SettingDefinition('billing.vat.home_country', 'VAT home country', 'country', 'The EU country you are VAT-registered in. Required when EU VAT rules are on; it decides which customers get reverse charge.', rules: [new EuVatHomeCountry]),
             $bool('vat.auto_exempt_on_valid_id', 'Reverse charge for valid EU VAT IDs'),
             new SettingDefinition('billing.late_fee.type', 'Late fee type', 'select', options: ['percent' => 'Percent', 'fixed' => 'Fixed amount']),
             new SettingDefinition('billing.late_fee.amount', 'Late fee amount', help: 'Percent, or minor units when fixed. 0 turns late fees off.', rules: ['numeric', 'min:0']),

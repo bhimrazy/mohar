@@ -24,6 +24,7 @@ use App\Modules\Platform\Services\ExchangeRateStatus;
 use App\Modules\Platform\Services\Impersonation;
 use App\Modules\Platform\Services\PermissionGuard;
 use App\Modules\Platform\Services\SettingsCatalog;
+use App\Modules\Platform\Support\AccountMail;
 use App\Modules\Platform\Support\ExchangeRateTask;
 use App\Modules\Platform\Support\PlatformClientLoginInvitations;
 use App\Modules\Platform\Support\PlatformDashboard;
@@ -62,6 +63,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
         $this->app->singleton(PermissionGuard::class);
         $this->app->singleton(SettingsCatalog::class);
         $this->app->scoped(Impersonation::class);
+        $this->app->scoped(AccountMail::class);
         $this->app->bind(ClientLoginInvitations::class, PlatformClientLoginInvitations::class);
     }
 
