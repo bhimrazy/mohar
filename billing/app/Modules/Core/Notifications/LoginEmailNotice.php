@@ -2,6 +2,7 @@
 
 namespace App\Modules\Core\Notifications;
 
+use App\Modules\Core\Support\MailText;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
@@ -33,7 +34,7 @@ class LoginEmailNotice extends Notification
 
         foreach ($this->lines as $line) {
             // Lines are parsed as Markdown and hold addresses the user typed: escape them so they render literally.
-            $message->line((string) preg_replace('/([\\\\`*_{}\[\]()#+\-.!|<>~=:])/u', '\\\\$1', (string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $line)));
+            $message->line(MailText::escape($line));
         }
 
         return $message;

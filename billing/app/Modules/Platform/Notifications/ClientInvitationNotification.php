@@ -4,7 +4,7 @@ namespace App\Modules\Platform\Notifications;
 
 use App\Contracts\Core\CompanyClock;
 use App\Modules\Core\Support\DateFormats;
-use App\Modules\Platform\Support\MailText;
+use App\Modules\Core\Support\MailText;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Bus\Queueable;

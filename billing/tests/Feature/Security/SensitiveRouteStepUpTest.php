@@ -341,8 +341,8 @@ test('probe L1: server-group changes need a recent password confirmation', funct
 });
 
 /**
- * Every route that can change users.email (#388), with its request body less the email. Found by searching app/ for writes
- * to a login's email; account creation (registration, invitations, imports) sets an email and changes none.
+ * The routes known to change users.email (#388), with their request body less the email. Found by searching app/ for
+ * writes to a login's email; a new route that changes it is added here. Account creation (registration, invitations, imports) sets an email and changes none.
  *
  * @return array<string, Closure(): array{0: User, 1: User, 2: string, 3: array<string, mixed>}> actor, target, url, body
  */

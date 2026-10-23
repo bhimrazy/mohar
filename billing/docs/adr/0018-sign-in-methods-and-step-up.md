@@ -168,6 +168,11 @@ A login always keeps at least one way to sign in:
 - A login without a password cannot pass step-up (§4), so it cannot change its email until it sets a password. No
   emailed confirmation link is used instead: that would be a second step-up mechanism, which §4 rules out.
 - After every change the old address gets a notice with the new address partly masked (`auth.email_changed`, or
-  `staff.email_changed` for staff), and the new address must be verified again.
-- `SensitiveRouteStepUpTest` lists every route that writes `users.email` and checks each refuses without step-up.
+  `staff.email_changed` for staff), and the new address must be verified again. This holds for a self-change on both
+  paths (Settings → Profile and Admin → Staff → Edit) and for a staff member editing someone else: the new mailbox
+  receives resets and has not been proven. A staff member who changes their own email is sent to verify before
+  returning to the admin area.
+- If the old-address notice is refused or suppressed by the template system, no other path sends it; the person
+  sees a warning and the activity log records the outcome.
+- `SensitiveRouteStepUpTest` lists the routes known to write `users.email` and checks each refuses without step-up.
   A new route that changes a login's email is added there.

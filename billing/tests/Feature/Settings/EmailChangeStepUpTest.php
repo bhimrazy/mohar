@@ -3,13 +3,20 @@
 use App\Contracts\Notifications\SystemMailer;
 use App\Enums\SystemMailOutcome;
 use App\Models\User;
+use App\Modules\Core\Models\ActivityLog;
+use App\Modules\Core\Models\Client;
+use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Notifications\LoginEmailNotice;
+use App\Modules\Core\Support\LoginEmailChange;
+use App\Modules\Core\Support\NullSystemMailer;
 use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Services\TemplateCatalog;
 use Illuminate\Auth\Notifications\VerifyEmail;
+use Illuminate\Contracts\Notifications\Dispatcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Validation\ValidationException;
 
 /**
  * #388: a session alone can't change the sign-in email. It needs a recent password confirmation; a login without a
@@ -158,4 +165,117 @@ test('the notice template renders to the old address with the new one masked', f
     expect($notice->status)->not->toBe(EmailStatus::Failed)
         ->and($notice->to)->toBe(['asha@example.com.np'])
         ->and($notice->body_text)->toContain('a***w@example.com')->not->toContain('asha.new@example.com');
+});
+
+test('masking keeps the last character only for local parts of four or more characters', function () {
+    expect(LoginEmailChange::mask('a@x.np'))->toBe('a***@x.np')
+        ->and(LoginEmailChange::mask('ab@x.np'))->toBe('a***@x.np')
+        ->and(LoginEmailChange::mask('abc@x.np'))->toBe('a***@x.np')
+        ->and(LoginEmailChange::mask('abcd@x.np'))->toBe('a***d@x.np')
+        ->and(LoginEmailChange::mask('राम्रो@उदाहरण.नेपाल'))->toBe('र***ो@उदाहरण.नेपाल')
+        ->and(LoginEmailChange::mask('noat'))->toBe('n***t');
+});
+
+test('the change is logged with both addresses, and the verification mail goes to the new one', function () {
+    $user = User::factory()->create(['email' => 'asha@example.com.np']);
+    $this->actingAs($user);
+    confirmPassword();
+
+    $this->patch(route('profile.update'), ['name' => 'Asha', 'email' => 'asha.new@example.com'])->assertSessionHasNoErrors();
+
+    $entry = ActivityLog::query()->where('event', 'auth.email_changed')->sole();
+    expect($entry->properties)->toMatchArray(['old_email' => 'asha@example.com.np', 'new_email' => 'asha.new@example.com']);
+});
+
+test('a notice the template system refuses or suppresses warns the person and is logged, with no other mail', function (SystemMailOutcome $outcome) {
+    app()->instance(SystemMailer::class, new class($outcome) implements SystemMailer
+    {
+        public function __construct(private SystemMailOutcome $outcome) {}
+
+        public function send(string $templateKey, User|string $recipient, array $context, string $occurrenceKey, ?int $clientId = null, bool $carriesSecret = false): SystemMailOutcome
+        {
+            return $this->outcome;
+        }
+    });
+    $user = User::factory()->create(['email' => 'asha@example.com.np']);
+    $this->actingAs($user);
+    confirmPassword();
+
+    $this->patch(route('profile.update'), ['name' => 'Asha', 'email' => 'asha.new@example.com'])
+        ->assertSessionHasNoErrors()
+        ->assertInertiaFlash('toast.type', 'warning');
+
+    expect($user->fresh()->email)->toBe('asha.new@example.com')
+        ->and(ActivityLog::query()->where('event', 'auth.email_change_notice_failed')->sole()->properties)->toMatchArray(['outcome' => $outcome->value]);
+    Notification::assertSentTimes(LoginEmailNotice::class, 0);
+})->with([SystemMailOutcome::Refused, SystemMailOutcome::Suppressed]);
+
+test('a failing fallback mail does not turn a committed change into an error', function () {
+    app()->instance(SystemMailer::class, new NullSystemMailer);
+    app()->instance(Dispatcher::class, new class implements Dispatcher
+    {
+        public function send($notifiables, $notification): void
+        {
+            if ($notification instanceof LoginEmailNotice) {
+                throw new RuntimeException('smtp down');
+            }
+        }
+
+        public function sendNow($notifiables, $notification, ?array $channels = null): void
+        {
+            $this->send($notifiables, $notification);
+        }
+    });
+    $user = User::factory()->create(['email' => 'asha@example.com.np']);
+    $this->actingAs($user);
+    confirmPassword();
+
+    $this->patch(route('profile.update'), ['name' => 'Asha', 'email' => 'asha.new@example.com'])
+        ->assertSessionHasNoErrors()
+        ->assertInertiaFlash('toast.type', 'warning');
+
+    expect($user->fresh()->email)->toBe('asha.new@example.com')
+        ->and(ActivityLog::query()->where('event', 'auth.email_change_notice_failed')->count())->toBe(1);
+});
+
+test('two logins taking the same address at once give a validation error, not a 500', function () {
+    $a = User::factory()->create(['email' => 'a@example.com']);
+    $b = User::factory()->create(['email' => 'b@example.com']);
+    // B commits the address between A's check and A's write.
+    User::saving(function (User $user) use ($a, $b): void {
+        if ($user->id === $a->id && $user->isDirty('email')) {
+            DB::table('users')->where('id', $b->id)->update(['email' => 'z@example.com']);
+        }
+    });
+
+    expect(fn () => app(LoginEmailChange::class)->change($a, 'z@example.com'))->toThrow(ValidationException::class);
+    expect($a->fresh()->email)->toBe('a@example.com');
+});
+
+test('a staff member changing their own email loses verification on both paths', function () {
+    $staff = actingAsStaff();
+    confirmPassword();
+
+    $this->put(route('admin.platform.staff.update', $staff), ['name' => $staff->name, 'email' => 'self.new@example.com.np', 'role_id' => $staff->role_id, 'is_active' => true])
+        ->assertSessionHasNoErrors();
+
+    expect($staff->fresh())->email->toBe('self.new@example.com.np')->email_verified_at->toBeNull();
+    Notification::assertSentTo($staff->fresh(), VerifyEmail::class);
+    $this->actingAs($staff->fresh())->get(route('admin.dashboard'))->assertRedirect();
+});
+
+test('editing a client\'s billing contact never changes a login\'s email', function () {
+    Currency::factory()->create();
+    $staff = actingAsStaff();
+    [$user, $client] = [User::factory()->create(['email' => 'owner@example.com.np']), Client::factory()->create()];
+    $client->users()->attach($user);
+
+    $this->put(route('admin.clients.update', $client), [...$client->only(['first_name', 'last_name', 'currency']), 'email' => 'billing.new@example.com.np', 'status' => 'active'])
+        ->assertSessionHasNoErrors();
+    $this->actingAs($user)->put(route('client.account.update'), [
+        'first_name' => 'New', 'last_name' => 'Name', 'email' => 'billing.newer@example.com.np', 'address_1' => '1 Main St', 'city' => 'Kathmandu', 'postcode' => '44600', 'country' => 'NP',
+    ]);
+
+    expect($user->fresh()->email)->toBe('owner@example.com.np')
+        ->and($staff->fresh()->email)->toBe($staff->email);
 });
