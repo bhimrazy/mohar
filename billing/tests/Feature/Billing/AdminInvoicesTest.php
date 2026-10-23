@@ -120,7 +120,7 @@ test('the invoice page exposes lines, transactions, credit and permissions', fun
             ->has('transactions', 1)
             ->where('transactions.0.gateway_txn_id', 'TX-1')
             ->where('credit_available', 0)
-            ->where('can', ['manage' => false, 'payments' => true, 'refunds' => false]));
+            ->where('can', ['manage' => false, 'payments' => true, 'refunds' => false, 'notes' => false]));
 });
 
 test('staff record payments with decimal amounts', function () {

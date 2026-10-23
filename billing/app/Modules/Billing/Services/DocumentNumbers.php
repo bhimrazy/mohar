@@ -107,18 +107,33 @@ class DocumentNumbers
     }
 
     /**
-     * A note format that is empty, or equal to the other kind's, falls back to the kind's default (CN-, DN-), so a credit
-     * and a debit note can never share a number (`tax_notes.number` is unique). The settings form refuses both already;
-     * this holds for a value stored any other way.
+     * Whether two formats can ever produce the same number. Every token and padding produces digits only, so two equal
+     * numbers have equal text once digits are removed; formats whose text without tokens and digits differs never meet.
+     * Conservative: `CN{NUMBER}` and `CN1{NUMBER}` count as colliding (CN11).
+     */
+    public static function formatsCollide(string $a, string $b): bool
+    {
+        $text = fn (string $format): string => (string) preg_replace('/\{(NUMBER|YEAR|MONTH|DAY)\}|\d/', '', $format);
+
+        return $text($a) === $text($b);
+    }
+
+    /**
+     * A note format that is empty falls back to the kind's default; when the two resolved formats could collide, both
+     * use the defaults (CN-, DN-), so a credit and a debit note never share a number (`tax_notes.number` is unique). The
+     * settings form refuses colliding formats already; this holds for a value stored any other way.
      */
     private function noteFormat(string $sequence): string
     {
         $defaults = [self::CREDIT_NOTE => 'CN-{NUMBER}', self::DEBIT_NOTE => 'DN-{NUMBER}'];
-        $other = $sequence === self::CREDIT_NOTE ? self::DEBIT_NOTE : self::CREDIT_NOTE;
-        $own = trim($this->settings->string($sequence.'_format', $defaults[$sequence]));
-        $theirs = trim($this->settings->string($other.'_format', $defaults[$other]));
+        $resolve = function (string $kind) use ($defaults): string {
+            $format = trim($this->settings->string($kind.'_format', $defaults[$kind]));
+            $format = $format === '' ? $defaults[$kind] : $format;
 
-        return $own === '' || $own === $theirs ? $defaults[$sequence] : $own;
+            return str_contains($format, '{NUMBER}') ? $format : $format.'{NUMBER}';
+        };
+
+        return self::formatsCollide($resolve(self::CREDIT_NOTE), $resolve(self::DEBIT_NOTE)) ? $defaults[$sequence] : $resolve($sequence);
     }
 
     private function formatFor(string $sequence): string

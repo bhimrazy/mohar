@@ -10,7 +10,7 @@ use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\RenewalInvoices;
-use Carbon\CarbonImmutable;
+use App\Support\CalendarDate;
 
 /**
  * Daily renewal invoicing (spec §4.3, automation stage RENEWALS). Idempotent per cycle: an invoice is
@@ -27,7 +27,7 @@ class IssueRenewalInvoices
     /**
      * @return int number of invoices issued
      */
-    public function handle(CarbonImmutable $today): int
+    public function handle(CalendarDate $today): int
     {
         $invoicer = $this->invoices->invoicer();
         $issued = 0;
@@ -37,7 +37,7 @@ class IssueRenewalInvoices
             ->where('auto_renew', true)
             // Renewed by the client at the registry: never invoiced here.
             ->whereDoesntHave('tldModel', fn ($tld) => $tld->where('registered_by_client', true))
-            ->whereDate('next_invoice_date', '<=', $today)
+            ->whereDate('next_invoice_date', '<=', $today->toString())
             ->chunkById(200, function ($domains) use ($invoicer, &$issued): void {
                 foreach ($domains as $domain) {
                     if ($invoicer->hasInvoiceForPeriod(BillableType::Domain, $domain->id, $domain->next_due_date)) {

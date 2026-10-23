@@ -127,19 +127,38 @@ deploy at the large volume, treat deploys on a 4 GB host with a database of that
 
 ## When to grow
 
-| Sign                                                                                                         | What to do                                                                                                                  |
-| ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| Sign-in and dashboards have a multi-second p95 while the median is fine (measured at 40 active users: 3–5 s) | More vCPU first, and the PHP thread count that goes with it: the medium profile (4 vCPU, 8 GB, 8 threads), not yet measured |
-| Available memory under about 1 GB during a deploy (`free -m`; a guide, not a measurement)                    | Run `deploy/bin/deploy retire` after each deploy, then move to the medium profile (4 vCPU, 8 GB)                            |
-| Over 50,000 clients, or more than 40 people in the admin and client area at once                             | Not measured; run the medium or large profile from Actions → Load test before sizing                                        |
+| Sign                                                                                                                                                           | What to do                                                                                                                                                        |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sign-in and dashboards have a multi-second p95 while the median is fine, in steady use                                                                         | More vCPU first, and the PHP thread count that goes with it: the medium profile (4 vCPU, 8 GB, 8 threads), not yet measured                                       |
+| Many people sign in at once (measured: 28 at once gave a sign-in p50 of 1.3–1.8 s and a dashboard and store p95 of 1.2–3.0 s, "Where the small host runs out") | The same: more vCPU and PHP threads if those bursts matter to you, otherwise accept a few slow seconds. The bcrypt cost is a security setting and stays unchanged |
+| Available memory under about 1 GB during a deploy (`free -m`; a guide, not a measurement)                                                                      | Run `deploy/bin/deploy retire` after each deploy, then move to the medium profile (4 vCPU, 8 GB)                                                                  |
+| Over 50,000 clients, or more than 40 people in the admin and client area at once                                                                               | Not measured; run the medium or large profile from Actions → Load test before sizing                                                                              |
 
 ## Where the small host runs out
 
-- **The tail, not the median.** At 40 active users every median stays under 50 ms except the admin dashboard
-  (225 ms) and sign-in (2.4 s), but the p99 is 4.2 s and the dashboards and the storefront have a p95 of 3–5 s. Cheap
-  pages with a multi-second p95 are requests queueing behind the **4 PHP threads** while sign-ins (bcrypt) and cold
-  dashboards occupy them. More threads need more CPU, which is what the medium profile adds; it has not been run.
-- **Sign-in** is the slowest page under load, p50 2.4 s at 40 users (bcrypt keeps a PHP thread busy).
+- **The tail, not the median, and most of it was the harness.** Until issue #205 every virtual user of a level started
+  in the same second (k6 `constant-vus`): at 40 users, 28 of them (client, admin and JSON) signed in at once and the 12
+  storefront users about 10 seconds later, on 2 vCPU and 4 PHP threads. Two runner runs show it: 39472898451 (commit
+  `bf97103`, the per-page table above) and
+  [39944684180](https://github.com/bhimrazy/mohar/actions/runs/39944684180) (commit `3151b0d`, the PR #374 branch). In
+  both, the app container was at 168–180% of its 200% cap in the first second sampled, again at 126–141% about 11
+  seconds in, and never above 54–82% for the rest of the level; the queue workers and scheduler were idle. The client
+  dashboard, store and admin dashboard each took their multi-second p95 from their first request per user, which
+  landed in that burst. A local reproduction put every one of the slowest 5% of client dashboard and store requests in
+  the first 10 seconds; after them, the client dashboard had a p95 of 122 ms and the store 111 ms. It differs from the
+  runner: only the app was capped (FrankenPHP 1.13.2, 2 CPUs, 4 threads), PostgreSQL 18 was not, invoice PDFs were
+  off (`PDF_SHARE=0`), and the seed had 20,000 clients against the runner's 50,000. The pages themselves are cheap
+  (client dashboard 12 queries, about 10 ms; store 10 queries, about 10 ms; all on indexes). Since issue #205 each user
+  arrives at a random moment in the first 20 seconds of a level (`loadtest/bin/run --start-spread`), a modelling
+  choice: 40 users arriving over 20 s is two arrivals a second. The runner has not been re-run with it, so the
+  per-page table above still shows the burst.
+- **Sign-in** was two causes at once in the table's 2.4 s p50. Run 39472898451 predates PR #374 and checked the
+  password twice per sign-in (460 ms on the Mac); #374 made it one bcrypt check at cost 12 (260 ms). On the #374
+  branch (run 39944684180) the 40-user sign-in p50 was 1.8 s, and what remained was the burst: almost every sign-in of
+  a level happened in it. Spread out, a sign-in took 270–300 ms locally.
+- **A real burst of sign-ins still queues.** 28 sign-ins at once on 2 vCPU and 4 threads gave a sign-in p50 of
+  1.3–1.6 s locally (1.8 s on the runner), and the dashboard and store requests behind them a p95 of 1.2–2.2 s locally
+  (2.7–3.0 s on the runner). If such bursts happen (a mail campaign, the start of a working day), see "When to grow".
 - **The admin dashboard** is the one page that misses the target even lightly loaded (p95 583 ms at 5 users). The
   codespace re-measure traced this to its receivables, MRR and income aggregates, which read about 150,000 rows and
   are cached for 60 s; the runner run did not profile it separately.

@@ -10,6 +10,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Domains\Actions\SyncDomains;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\DomainReminder;
 use App\Modules\Domains\Models\RegistrarCommandLog;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Services\DomainPricingService;
@@ -114,6 +115,18 @@ it('invoices a renewal on the company day its invoice date is reached', function
     domainsAt($zone, $at);
     $this->artisan('automation:run', ['--only' => 'domains.renewals'])->assertSuccessful();
     expect($this->invoicer->issued())->toHaveCount(1);
+})->with('company midnight');
+
+it('sends the 30-day expiry reminder on the company day it is reached', function (string $zone, string $before, string $at, string $dayBefore, string $dayAfter) {
+    Domain::factory()->expiring(CarbonImmutable::parse($dayAfter)->addDays(30)->toDateString())->create(['tld_id' => $this->com->id]);
+
+    domainsAt($zone, $before);
+    $this->artisan('automation:run', ['--only' => 'domains.reminders'])->assertSuccessful();
+    expect(DomainReminder::query()->count())->toBe(0);
+
+    domainsAt($zone, $at);
+    $this->artisan('automation:run', ['--only' => 'domains.reminders'])->assertSuccessful();
+    expect(DomainReminder::query()->pluck('offset_days')->all())->toBe([30]);
 })->with('company midnight');
 
 it('moves a domain through grace and redemption on company days', function (string $zone, string $before, string $at, string $dayBefore, string $dayAfter) {
