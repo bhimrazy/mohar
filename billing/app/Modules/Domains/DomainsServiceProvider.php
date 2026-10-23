@@ -23,6 +23,7 @@ use App\Modules\Domains\Actions\ConvertTldPrices;
 use App\Modules\Domains\Actions\IssueRenewalInvoices;
 use App\Modules\Domains\Actions\SendExpiryReminders;
 use App\Modules\Domains\Drivers\Registrars\LogRegistrar;
+use App\Modules\Domains\Drivers\Registrars\Namecheap\NamecheapDriver;
 use App\Modules\Domains\Drivers\Registrars\ResellerClub\ResellerClubDriver;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Jobs\SyncRegistrars;
@@ -95,6 +96,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
     {
         $this->app->make(RegistrarDriverRegistry::class)->register('log', LogRegistrar::class);
         $this->app->make(RegistrarDriverRegistry::class)->register(ResellerClubDriver::KEY, ResellerClubDriver::class);
+        $this->app->make(RegistrarDriverRegistry::class)->register(NamecheapDriver::KEY, NamecheapDriver::class);
 
         // Kernel registrar exceptions know nothing about HTTP (ADR 0009 §4): a failed staff or client action goes back
         // to the form with the (already redacted) message.

@@ -11,6 +11,7 @@ use App\Modules\Platform\Models\StaffInvitation;
 use App\Modules\Platform\Notifications\ClientInvitationNotification;
 use App\Modules\Platform\Notifications\SecurityNotice;
 use App\Modules\Platform\Notifications\StaffInvitationNotification;
+use App\Notifications\SetPasswordNotification;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Mail\Markdown;
@@ -32,6 +33,7 @@ const COVERED_MAIL_CLASSES = [
     SecurityNotice::class,
     StaffInvitationNotification::class,
     ClientInvitationNotification::class,
+    SetPasswordNotification::class,
 ];
 
 beforeEach(fn () => app(Settings::class)->set('core.company_name', 'Acme Hosting'));

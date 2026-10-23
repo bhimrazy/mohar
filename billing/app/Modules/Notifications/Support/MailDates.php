@@ -23,9 +23,10 @@ final class MailDates
     /**
      * The company's calendar date today (Y-m-d).
      */
-    public static function today(): string
+    public static function companyDate(): string
     {
-        return rescue(fn (): string => app(CompanyClock::class)->today()->toDateString(), CarbonImmutable::now('UTC')->toDateString(), report: false);
+        // Without the clock (no settings table yet) the date is UTC, the ADR's documented fallback.
+        return rescue(fn (): string => app(CompanyClock::class)->todayDate()->toDateString(), CarbonImmutable::now('UTC')->toDateString(), report: false);
     }
 
     public static function date(mixed $value, ?string $format = null, string $locale = 'en'): ?string
@@ -49,7 +50,7 @@ final class MailDates
     {
         $date = self::parse($value);
 
-        return $date === null ? null : (int) CarbonImmutable::parse(self::today())->diffInDays(CarbonImmutable::parse($date->toDateString()), false);
+        return $date === null ? null : (int) CarbonImmutable::parse(self::companyDate())->diffInDays(CarbonImmutable::parse($date->toDateString()), false);
     }
 
     private static function parse(mixed $value): ?CarbonImmutable

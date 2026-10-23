@@ -13,12 +13,15 @@ final readonly class Route
 {
     /**
      * @param  Closure(Request, Scenario, array<string, string>): Response  $handler
+     * @param  (Closure(Request): bool)|null  $when  a further test on the request, for APIs that pick the operation by a
+     *                                               parameter on one URL (Namecheap's `Command=`); routes are tried in order
      */
     public function __construct(
         public string $method,
         public string $path,
         public string $operation,
         public Closure $handler,
+        public ?Closure $when = null,
     ) {}
 
     /**
@@ -34,7 +37,7 @@ final readonly class Route
 
         $pattern = '#^'.preg_replace('#\\\\\{([a-z_]+)\\\\\}#', '(?P<$1>[^/]+)', preg_quote($this->path, '#')).'$#';
 
-        if (preg_match($pattern, $request->path, $matches) !== 1) {
+        if (preg_match($pattern, $request->path, $matches) !== 1 || ($this->when !== null && ! ($this->when)($request))) {
             return null;
         }
 
