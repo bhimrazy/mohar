@@ -3,8 +3,8 @@
 namespace App\Modules\Platform\Notifications;
 
 use App\Contracts\Branding\BrandProvider;
+use App\Modules\Core\Support\MailText;
 use App\Modules\Platform\Models\StaffInvitation;
-use App\Modules\Platform\Support\MailText;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;

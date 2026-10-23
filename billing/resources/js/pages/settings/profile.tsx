@@ -19,11 +19,15 @@ type PageProps = {
 export default function Profile({
     mustVerifyEmail,
     status,
+    setPasswordUrl,
 }: {
     mustVerifyEmail: boolean;
     status?: string;
+    setPasswordUrl: string;
 }) {
     const { auth } = usePage<PageProps>().props;
+    // Changing the email needs a password confirmation, so a login without one must set it first.
+    const hasPassword = auth.user.has_password;
 
     return (
         <>
@@ -72,13 +76,24 @@ export default function Profile({
                                 <Input
                                     id="email"
                                     type="email"
-                                    className="mt-1 block w-full"
+                                    className="mt-1 block w-full read-only:bg-muted read-only:text-muted-foreground"
                                     defaultValue={auth.user.email}
                                     name="email"
                                     required
                                     autoComplete="username"
                                     placeholder="Email address"
+                                    readOnly={!hasPassword}
+                                    aria-describedby="email-help"
                                 />
+
+                                <p
+                                    id="email-help"
+                                    className="text-sm text-muted-foreground"
+                                >
+                                    {hasPassword
+                                        ? "To change it, you'll confirm your password. We tell your current address, and the new one must be verified."
+                                        : 'Set a password first: changing the email needs a password confirmation, and your account has no password yet.'}
+                                </p>
 
                                 <InputError
                                     className="mt-2"
@@ -123,6 +138,20 @@ export default function Profile({
                     )}
                 </Form>
             </div>
+
+            {!hasPassword && (
+                <Form action={setPasswordUrl} method="post">
+                    {({ processing }) => (
+                        <Button
+                            variant="outline"
+                            disabled={processing}
+                            data-test="set-password-button"
+                        >
+                            Set a password
+                        </Button>
+                    )}
+                </Form>
+            )}
 
             <DeleteUser />
         </>

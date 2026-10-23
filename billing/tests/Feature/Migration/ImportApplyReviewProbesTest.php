@@ -35,6 +35,8 @@ beforeEach(function () {
 test('probe B1: a client login whose owner set its email to a customer\'s address makes that row need a decision, and is never linked', function () {
     // Anyone with a client login can set its email to any address, unverified (settings/profile).
     $mallory = User::factory()->create(['email' => 'mallory@example.com']);
+    // The owner knows the password: an email change needs step-up (#388).
+    confirmPassword();
     $this->actingAs($mallory)->patch(route('profile.update'), ['name' => 'Mallory', 'email' => 'asha@example.com'])->assertSessionHasNoErrors();
     expect($mallory->fresh())->email->toBe('asha@example.com')->email_verified_at->toBeNull();
 
