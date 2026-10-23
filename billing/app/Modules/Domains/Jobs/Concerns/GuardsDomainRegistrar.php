@@ -5,7 +5,6 @@ namespace App\Modules\Domains\Jobs\Concerns;
 use App\Modules\Domains\Jobs\Middleware\OnePerDomain;
 use DateTimeInterface;
 use Illuminate\Queue\MaxAttemptsExceededException;
-use Illuminate\Queue\TimeoutExceededException;
 use Throwable;
 
 /**
@@ -48,7 +47,6 @@ trait GuardsDomainRegistrar
     {
         return match (true) {
             $exception instanceof MaxAttemptsExceededException => __('This did not run: it waited too long for another registrar action on this domain, or failed several times in a row. Check the domain at the registrar, then retry it.'),
-            $exception instanceof TimeoutExceededException => __('The registrar did not answer in time. Check the domain at the registrar, then retry it.'),
             default => $exception->getMessage(),
         };
     }
