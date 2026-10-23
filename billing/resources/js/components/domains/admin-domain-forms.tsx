@@ -116,7 +116,12 @@ export function DetailsForm({
         ['id_protection', 'ID protection'],
         ['dns_management', 'DNS management'],
         ['email_forwarding', 'Email forwarding'],
-    ] as const;
+    ].filter(
+        ([key]) => !(domain.registered_by_client && key === 'auto_renew'),
+    ) as [
+        'auto_renew' | 'id_protection' | 'dns_management' | 'email_forwarding',
+        string,
+    ][];
 
     return (
         <form onSubmit={submit}>
@@ -140,8 +145,10 @@ export function DetailsForm({
                 <div className="grid items-start gap-4 sm:grid-cols-2">
                     {dateField('registration_date', 'Registered', true)}
                     {dateField('expiry_date', 'Expiry date', true)}
-                    {dateField('next_due_date', 'Next due date')}
-                    {dateField('next_invoice_date', 'Next invoice date')}
+                    {!domain.registered_by_client &&
+                        dateField('next_due_date', 'Next due date')}
+                    {!domain.registered_by_client &&
+                        dateField('next_invoice_date', 'Next invoice date')}
                     <Field
                         htmlFor="period_years"
                         label="Renewal period (years)"
@@ -213,6 +220,7 @@ export function DetailsForm({
                             aria-describedby="first_payment_amount-description"
                         />
                     </Field>
+                    {!domain.registered_by_client && (
                     <Field
                         htmlFor="recurring_amount"
                         label={labelWithCurrency(
@@ -236,6 +244,7 @@ export function DetailsForm({
                             aria-describedby="recurring_amount-description"
                         />
                     </Field>
+                    )}
                     <Field
                         htmlFor="linked_service_id"
                         label="Linked service ID"
@@ -256,6 +265,7 @@ export function DetailsForm({
                             aria-describedby="linked_service_id-description"
                         />
                     </Field>
+                    {!domain.registered_by_client && (
                     <label className="flex items-center gap-2 self-end pb-2 text-sm">
                         <Checkbox
                             checked={form.data.recalculate_recurring}
@@ -268,6 +278,7 @@ export function DetailsForm({
                         />
                         Recalculate renewal amount from current prices
                     </label>
+                    )}
                     <div className="grid gap-2 sm:col-span-2 sm:grid-cols-2">
                         {flags.map(([key, label]) => (
                             <label

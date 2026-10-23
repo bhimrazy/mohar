@@ -249,6 +249,7 @@ export default function DomainShow({
                                         )}
                                         {can.update &&
                                             isLive &&
+                                            !domain.registered_by_client &&
                                             billingAvailable && (
                                                 <DropdownMenuItem
                                                     onSelect={() =>
@@ -259,6 +260,7 @@ export default function DomainShow({
                                                 </DropdownMenuItem>
                                             )}
                                         {can.commands &&
+                                            !domain.registered_by_client &&
                                             canRenewAtRegistrar && (
                                                 <DropdownMenuItem
                                                     onSelect={() =>
@@ -384,24 +386,30 @@ export default function DomainShow({
                         }
                         hint={expiryHint(domain.days_until_expiry) ?? undefined}
                     />
-                    <StatCard
-                        label="Next due"
-                        icon={CalendarClock}
-                        value={<DateTime value={domain.next_due_date} />}
-                        hint={
-                            domain.next_invoice_date
-                                ? `Invoice on ${formatDate(domain.next_invoice_date)}`
-                                : undefined
-                        }
-                    />
+                    {!domain.registered_by_client && (
+                        <StatCard
+                            label="Next due"
+                            icon={CalendarClock}
+                            value={<DateTime value={domain.next_due_date} />}
+                            hint={
+                                domain.next_invoice_date
+                                    ? `Invoice on ${formatDate(domain.next_invoice_date)}`
+                                    : undefined
+                            }
+                        />
+                    )}
                     <StatCard
                         label="Renewal"
                         icon={Wallet}
                         value={
-                            <Money
-                                amount={domain.recurring_amount}
-                                currency={domain.currency}
-                            />
+                            domain.registered_by_client ? (
+                                MANAGED_AT_REGISTRY
+                            ) : (
+                                <Money
+                                    amount={domain.recurring_amount}
+                                    currency={domain.currency}
+                                />
+                            )
                         }
                         hint={
                             domain.registered_by_client
@@ -456,6 +464,9 @@ export default function DomainShow({
                                                 />
                                             ),
                                         },
+                                        ...(domain.registered_by_client
+                                            ? []
+                                            : [
                                         {
                                             label: 'Next due',
                                             value: (
@@ -475,6 +486,7 @@ export default function DomainShow({
                                                 />
                                             ),
                                         },
+                                              ]),
                                     ]}
                                 />
                             </SectionCard>

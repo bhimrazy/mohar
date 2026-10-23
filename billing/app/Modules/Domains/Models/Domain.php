@@ -88,6 +88,13 @@ class Domain extends Model
 
     protected static function booted(): void
     {
+        // A name renewed at the registry has nothing to auto-renew; an explicit value is kept.
+        static::creating(function (Domain $domain): void {
+            if (! array_key_exists('auto_renew', $domain->getAttributes()) && $domain->tld_id !== null && Tld::query()->whereKey($domain->tld_id)->where('registered_by_client', true)->exists()) {
+                $domain->auto_renew = false;
+            }
+        });
+
         static::saving(function (Domain $domain): void {
             $domain->active_name = $domain->status->isTerminal() ? null : $domain->name;
         });

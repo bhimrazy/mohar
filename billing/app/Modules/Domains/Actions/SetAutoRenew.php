@@ -20,8 +20,8 @@ class SetAutoRenew
 
     public function handle(Domain $domain, bool $enabled): Domain
     {
-        if ($domain->isRegisteredByClient()) {
-            throw ValidationException::withMessages(['domain' => __('Auto-renewction is handled at the registry for a name you registered yourself.', ['action' => 'Auto-renew'])]);
+        if ($enabled && ! $domain->auto_renew && $domain->isRegisteredByClient()) {
+            throw ValidationException::withMessages(['domain' => __("Auto-renew can't be turned on for a name registered at the registry by the client; it is renewed there.")]);
         }
 
         if ($domain->auto_renew === $enabled) {

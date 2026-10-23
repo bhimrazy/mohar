@@ -144,7 +144,7 @@ class DomainController extends Controller
     {
         $this->context->authorize('domains');
 
-        return Domain::query()->where('client_id', $this->context->id())->findOrFail($id);
+        return Domain::query()->where('client_id', $this->context->id())->with('tldModel:id,registered_by_client')->findOrFail($id);
     }
 
     private function manageable(int $id): Domain

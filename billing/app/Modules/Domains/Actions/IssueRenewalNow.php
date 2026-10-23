@@ -35,7 +35,7 @@ class IssueRenewalNow
     public function handle(Domain $domain, string $actor, ?int $years = null): InvoiceResult
     {
         if ($domain->isRegisteredByClient()) {
-            throw ValidationException::withMessages(['domain' => __('Renewalction is handled at the registry for a name you registered yourself.', ['action' => 'Renewal'])]);
+            throw ValidationException::withMessages(['domain' => __('A name registered at the registry by the client is renewed there, so no renewal invoice is created.')]);
         }
 
         if (! $this->invoices->available()) {

@@ -110,12 +110,15 @@ const columns = (
         key: 'amount',
         header: 'Renewal',
         align: 'right',
-        cell: (domain) => (
-            <Money
-                amount={domain.recurring_amount}
-                currency={domain.currency}
-            />
-        ),
+        cell: (domain) =>
+            domain.registered_by_client ? (
+                <span className="text-muted-foreground">—</span>
+            ) : (
+                <Money
+                    amount={domain.recurring_amount}
+                    currency={domain.currency}
+                />
+            ),
     },
 ];
 
