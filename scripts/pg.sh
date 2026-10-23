@@ -8,6 +8,8 @@
 #                                                       and any idle billing_e2e_* left by an interrupted `simulate:e2e`
 # Then run `composer test:pgsql` (or any artisan command) in the worktree's billing/ directory.
 # The data lives in tmpfs: it is test data, fast, and disappears when the server stops.
+# 4 GB, with WAL kept small (no fsync, minimal level, 256 MB cap): WAL was about half of what filled the earlier 2 GB
+# tmpfs and crashed the server.
 #
 # Slug limit: PostgreSQL names are at most 63 bytes, and a parallel worker adds _test_<n> (Laravel) to the database.
 # So billing_test_<slug> is kept whole while it is 55 bytes or less (a slug of up to 42 characters). A longer one
@@ -59,9 +61,10 @@ db="$(db_for "$slug")"
 
 if ! docker ps --format '{{.Names}}' | grep -qx "$name"; then
     docker rm -f "$name" >/dev/null 2>&1 || true
-    docker run -d --name "$name" -p "127.0.0.1:$port:5432" --tmpfs /var/lib/postgresql:rw,size=2g \
+    docker run -d --name "$name" -p "127.0.0.1:$port:5432" --tmpfs /var/lib/postgresql:rw,size=4g \
         -e POSTGRES_USER=billing -e POSTGRES_PASSWORD=billing -e POSTGRES_DB=billing "$image" \
-        -c max_locks_per_transaction=256 >/dev/null
+        -c max_locks_per_transaction=256 -c fsync=off -c full_page_writes=off -c wal_level=minimal \
+        -c max_wal_senders=0 -c max_wal_size=256MB >/dev/null
     for _ in $(seq 1 60); do docker exec "$name" pg_isready -U billing -q 2>/dev/null && break; sleep 1; done
     docker exec "$name" pg_isready -U billing -q 2>/dev/null || { echo "mohar-pg did not start; see: docker logs $name" >&2; exit 1; }
 fi
