@@ -15,6 +15,24 @@ type CountrySelectProps = {
     emptyLabel?: string;
 };
 
+/** Shown first, in this order, before the alphabetical list. */
+const PINNED = ['NP', 'IN', 'US'];
+
+/** Words people type that the English name does not contain. */
+const ALIASES: Record<string, string> = {
+    US: 'usa america',
+    GB: 'uk britain great britain england',
+    AE: 'uae emirates',
+    CI: 'ivory coast',
+    KR: 'south korea',
+    KP: 'north korea',
+    CZ: 'czech republic',
+    MM: 'burma',
+    NL: 'holland',
+    TR: 'turkey',
+    RU: 'russia',
+};
+
 /** Country picker that shows names ("Nepal") and submits the ISO code ("NP"). */
 export function CountrySelect({
     defaultValue,
@@ -32,9 +50,23 @@ export function CountrySelect({
             }
         }
 
+        const rank = (code: string) => {
+            const at = PINNED.indexOf(code);
+
+            return at === -1 ? PINNED.length : at;
+        };
+
         return [...known]
-            .map((code) => ({ value: code, label: names.of(code) ?? code }))
-            .sort((a, b) => a.label.localeCompare(b.label));
+            .map((code) => ({
+                value: code,
+                label: names.of(code) ?? code,
+                keywords: `${code} ${ALIASES[code] ?? ''}`,
+            }))
+            .sort(
+                (a, b) =>
+                    rank(a.value) - rank(b.value) ||
+                    a.label.localeCompare(b.label),
+            );
     }, [countries, value, defaultValue]);
 
     return (
