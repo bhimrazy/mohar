@@ -216,7 +216,7 @@ test('a debit note adds to the balance with tax from the invoice rates; a note n
         ->and(fn () => issueNote(NoteRequest::creditAmount(issueInvoice(noteClient(), [1_000], status: 'draft')->id, 100, 'goodwill', 'Draft')))->toThrow(BillingException::class, 'numbered tax invoice');
 
     $discounted = issueInvoice(noteClient(), [10_000, -1_000])->fresh();
-    expect(fn () => issueNote(NoteRequest::creditAmount($discounted->id, 100, 'goodwill', 'Discount')))->toThrow(BillingException::class, 'discount lines');
+    expect(fn () => issueNote(NoteRequest::creditAmount($discounted->id, 100, 'goodwill', 'Discount')))->toThrow(BillingException::class, 'has a discount line');
 });
 
 test('the staff user who issued a note cannot be deleted', function () {

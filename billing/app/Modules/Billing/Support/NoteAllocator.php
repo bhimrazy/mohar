@@ -4,7 +4,7 @@ namespace App\Modules\Billing\Support;
 
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Services\Tax\TaxMath;
-use App\Support\Money;
+use App\Support\Currencies\MoneyFormatter;
 
 /**
  * Allocates a credit note to invoice lines (vat-register §5.1). Pure: the caller reads the lines and what earlier notes,
@@ -57,7 +57,7 @@ final class NoteAllocator
         $total = array_sum($left);
 
         if ($amount > $total) {
-            throw new BillingException(__('At most :amount can still be credited on the lines.', ['amount' => Money::of($total, $currency)->format()]));
+            throw new BillingException(__('At most :amount can still be credited on this invoice.', ['amount' => app(MoneyFormatter::class)->amount($total, $currency)]));
         }
 
         $shares = $this->fit($this->spread($amount, $left), $left, $amount);
@@ -128,7 +128,7 @@ final class NoteAllocator
         $left = max(0, $line['gross'] - $line['used_gross']);
 
         if ($gross > $left) {
-            throw new BillingException(__('At most :amount can still be credited on :line.', ['amount' => Money::of($left, $currency)->format(), 'line' => $line['description']]));
+            throw new BillingException(__('At most :amount can still be credited on :line.', ['amount' => app(MoneyFormatter::class)->amount($left, $currency), 'line' => $line['description']]));
         }
 
         $base = ['item_id' => $line['id'], 'description' => $line['description'], 'taxable' => $line['taxable'], 'gross' => $gross];

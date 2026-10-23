@@ -11,7 +11,6 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * A numbered credit or debit note against one invoice (ADR 0024). It is numbered in the transaction that creates it, so
@@ -42,7 +41,6 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property-read Client $client
  * @property-read User|null $creator
  * @property-read Collection<int, TaxNoteLine> $lines
- * @property-read TaxNote|null $reversal the debit note that reversed this credit note
  */
 #[Fillable([
     'kind', 'number', 'invoice_id', 'client_id', 'currency', 'issue_date', 'issued_at', 'invoice_number',
@@ -114,13 +112,5 @@ class TaxNote extends Model
     public function lines(): HasMany
     {
         return $this->hasMany(TaxNoteLine::class)->orderBy('sort_order')->orderBy('id');
-    }
-
-    /**
-     * @return HasOne<TaxNote, $this>
-     */
-    public function reversal(): HasOne
-    {
-        return $this->hasOne(TaxNote::class, 'reverses_tax_note_id');
     }
 }

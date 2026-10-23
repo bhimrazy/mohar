@@ -36,7 +36,7 @@ final class SystemRoles implements InstallsReferenceData
         'billing' => [
             'name' => 'Billing',
             'description' => 'Clients, orders, invoices and billing reports.',
-            'permissions' => ['core.clients.view', 'core.clients.create', 'core.clients.update', 'core.contacts.manage', 'billing.*', 'billing.payments.manage', 'billing.transactions.manage', 'billing.refunds.manage', 'billing.credit.adjust', 'billing.notes.issue', 'orders.*', 'reports.*'],
+            'permissions' => ['core.clients.view', 'core.clients.create', 'core.clients.update', 'core.contacts.manage', 'billing.*', 'billing.payments.manage', 'billing.transactions.manage', 'billing.refunds.manage', 'billing.credit.adjust', 'billing.tax_notes.issue', 'orders.*', 'reports.*'],
         ],
         'support' => [
             'name' => 'Support',

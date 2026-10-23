@@ -20,7 +20,7 @@ class TaxNoteRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return $this->user()?->hasPermission('billing.notes.issue') ?? false;
+        return $this->user()?->hasPermission('billing.tax_notes.issue') ?? false;
     }
 
     /**
@@ -53,6 +53,21 @@ class TaxNoteRequest extends FormRequest
     public function attributes(): array
     {
         return ['reason_code' => 'reason', 'reason_text' => 'reason shown to the client', 'lines.*' => 'line amount'];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'amount.required' => __('Enter the amount, including tax.'),
+            'amount.regex' => __('Enter an amount such as 1,250.00.'),
+            'lines.required' => __('Enter an amount on at least one line.'),
+            'lines.*.regex' => __('Enter each line amount such as 1,250.00.'),
+            'reason_code.required' => __('Choose a reason.'),
+            'reason_text.required' => __('Enter the reason shown to the client.'),
+        ];
     }
 
     public function note(Invoice $invoice): NoteRequest

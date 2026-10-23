@@ -106,7 +106,7 @@ test('above the balance a credit note needs the account credit settlement', func
     billingStaff();
 
     $this->getJson(route('admin.billing.invoices.notes.preview', [$invoice, ...staffFullCredit('balance')]))
-        ->assertUnprocessable()->assertJsonPath('message', 'A credit note above the open balance of 0.00 NPR needs a settlement: choose account credit.');
+        ->assertUnprocessable()->assertJsonPath('message', 'A credit note above the open balance of Rs 0.00 needs a settlement: choose account credit.');
 });
 
 test('reversing a credit note settled to account credit repeats its lines as a debit note and takes the credit back (AC 14)', function () {
@@ -162,7 +162,7 @@ test('a reversal is refused for a reversing note, a second time, a debit note an
         ->and($preview($invoice, $credit->id))->toBe('Credit note CN-1 is already reversed.')
         ->and($preview($unpaid, TaxNote::query()->where('invoice_id', $unpaid->id)->sole()->id))->toBe('Only a credit note can be reversed; correct debit note DN-2 with a credit note.')
         ->and($cancelled->fresh()->status)->toBe(InvoiceStatus::Cancelled)
-        ->and($preview($cancelled, TaxNote::query()->where('invoice_id', $cancelled->id)->sole()->id))->toBe('Credit note CN-2 cancelled the invoice and cannot be reversed; raise a new invoice instead.')
+        ->and($preview($cancelled, TaxNote::query()->where('invoice_id', $cancelled->id)->sole()->id))->toBe('The invoice is cancelled, so it takes no debit note or reversal; raise a new invoice instead.')
         ->and($this->post(route('admin.billing.invoices.notes.store', $invoice), ['kind' => 'debit', 'amount' => '10.00', 'reason_code' => 'reverses_credit_note', 'reason_text' => 'x', 'version' => 1, 'digest' => str_repeat('a', 64)]))
         ->assertSessionHasErrors(['billing' => 'Reverse a credit note from the note itself.']);
 });
@@ -178,7 +178,7 @@ test('debit notes together add at most the value of the invoice, and a reversal 
 
     $debit('6000.00')->assertSessionHasNoErrors();
     $this->getJson(route('admin.billing.invoices.notes.preview', [$invoice, 'kind' => 'debit', 'amount' => '5300.01', 'reason_code' => 'other', 'reason_text' => 'x']))
-        ->assertUnprocessable()->assertJsonPath('message', 'Debit notes can add at most the value of the invoice; 5300.00 NPR is left.');
+        ->assertUnprocessable()->assertJsonPath('message', 'Debit notes and late fees together add at most the value of the invoice; Rs 5,300.00 is left.');
     $debit('5300.00')->assertSessionHasNoErrors();
 
     expect($invoice->fresh())->debited_total->toBe(1_230_000)->balance->toBe(2_260_000);
@@ -196,7 +196,7 @@ test('a confirm that no longer matches its preview is refused and writes nothing
     expect(TaxNote::query()->count())->toBe(0)->and(DB::table('credit_ledger')->count())->toBe(0);
 });
 
-test('without billing.notes.issue every note action is refused and the page offers none (AC 15)', function (array $data) {
+test('without billing.tax_notes.issue every note action is refused and the page offers none (AC 15)', function (array $data) {
     $invoice = staffNoteInvoice(paid: 1_130_000);
     actingAsStaff(['billing.*', 'billing.payments.manage', 'billing.refunds.manage']);
     confirmPassword();
@@ -269,11 +269,76 @@ test('staff who can view invoices see the notes panel with the credit each note 
     confirmPassword();
     staffConfirmNote($invoice, staffFullCredit());
     staffConfirmNote($invoice, ['reverses' => TaxNote::query()->sole()->id, 'reason_text' => 'Mistake']);
-    actingAsStaff(['billing.invoices.view']);
+    actingAsStaff(['billing.invoices.view', 'billing.tax_notes.view']);
 
     $this->get(route('admin.billing.invoices.show', $invoice))->assertInertia(fn (AssertableInertia $page) => $page
         ->where('can.notes', false)
         ->where('tax_notes.0', fn ($note) => $note['number'] === 'CN-1' && $note['to_credit'] === 1_130_000 && $note['reversed_by'] === 'DN-1' && $note['bs_issue_date'] === '3 Kartik 2083 BS')
         ->where('tax_notes.1', fn ($note) => $note['number'] === 'DN-1' && $note['reverses'] === 'CN-1' && $note['to_credit'] === 1_130_000)
-        ->where('creditable.total', 1_130_000));
+        ->where('creditable.total', 1_130_000)
+        ->where('credit_label', null));
+
+    actingAsStaff(['billing.invoices.view']);
+    $this->get(route('admin.billing.invoices.show', $invoice))->assertInertia(fn (AssertableInertia $page) => $page->where('tax_notes', []));
+});
+
+test('the invoice is labelled Credited or Partly credited, and the balance card names each note (AC 13)', function () {
+    $invoice = staffNoteInvoice(paid: 1_130_000);
+    billingStaff();
+    confirmPassword();
+    staffConfirmNote($invoice, [...staffFullCredit(), 'amount' => '2000.00']);
+    $this->get(route('admin.billing.invoices.show', $invoice))->assertInertia(fn (AssertableInertia $page) => $page->where('credit_label', 'Partly credited')
+        ->where('invoice.adjustments', fn ($rows) => collect($rows)->pluck('description')->contains('Credit note CN-1')));
+    staffConfirmNote($invoice, [...staffFullCredit(), 'amount' => '9300.00']);
+    $this->get(route('admin.billing.invoices.show', $invoice))->assertInertia(fn (AssertableInertia $page) => $page->where('credit_label', 'Credited'));
+});
+
+test('a debit note on a paid invoice reopens it with a new due date on the normal terms (product finding 3)', function () {
+    $invoice = staffNoteInvoice(paid: 1_130_000);
+    billingStaff();
+    confirmPassword();
+    $data = ['kind' => 'debit', 'amount' => '565.00', 'taxable' => true, 'reason_code' => 'price_correction', 'reason_text' => 'Price correction'];
+
+    expect($this->getJson(route('admin.billing.invoices.notes.preview', [$invoice, ...$data]))->json())->toMatchArray(['balance_after' => 56_500, 'due_date' => '2026-11-03']);
+    staffConfirmNote($invoice, $data)->assertSessionHasNoErrors();
+
+    expect($invoice->fresh())->status->toBe(InvoiceStatus::Unpaid)->paid_at->toBeNull()->balance->toBe(56_500)
+        ->and($invoice->fresh()->due_date->toDateString())->toBe('2026-11-03')
+        ->and(ActivityLog::query()->where('event', 'billing.tax_note.issued')->sole()->properties)->toMatchArray(['due_date' => '2026-11-03']);
+});
+
+test('the panel says why a note cannot be issued: a discount line, a cancelled invoice', function () {
+    $discounted = issueInvoice(Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']), [1_000_000, -100_000]);
+    $cancelled = staffNoteInvoice();
+    billingStaff();
+    confirmPassword();
+    staffConfirmNote($cancelled, staffFullCredit('balance'));
+
+    $this->get(route('admin.billing.invoices.show', $discounted))->assertInertia(fn (AssertableInertia $page) => $page
+        ->where('note_blocked.credit', 'This invoice has a discount line, and a credit note is allocated to lines without one. To correct it, cancel the invoice and raise a new one.')
+        ->where('note_blocked.debit', null));
+    $this->get(route('admin.billing.invoices.show', $cancelled))->assertInertia(fn (AssertableInertia $page) => $page
+        ->where('note_blocked.credit', 'The invoice is cancelled; nothing is left to credit.')
+        ->where('note_blocked.debit', 'The invoice is cancelled, so it takes no debit note or reversal; raise a new invoice instead.'));
+});
+
+test('a reversal preview shows the client account credit after it, below zero when the credit was spent', function () {
+    $invoice = staffNoteInvoice(paid: 1_130_000);
+    billingStaff();
+    confirmPassword();
+    staffConfirmNote($invoice, staffFullCredit());
+    app(CreditLedgerService::class)->debit($invoice->client_id, Money::of(400_000, 'NPR'), 'Spent elsewhere');
+
+    expect($this->getJson(route('admin.billing.invoices.notes.preview', [$invoice, 'reverses' => TaxNote::query()->sole()->id, 'reason_text' => 'Mistake']))->json())
+        ->toMatchArray(['to_credit' => 1_130_000, 'credit_after' => -400_000, 'due_date' => null]);
+});
+
+test('field errors name what to enter', function () {
+    $invoice = staffNoteInvoice();
+    billingStaff();
+
+    $this->getJson(route('admin.billing.invoices.notes.preview', [$invoice, 'kind' => 'credit', 'allocation' => 'amount', 'amount' => '1,250', 'reason_text' => '']))
+        ->assertUnprocessable()->assertJsonValidationErrors([
+            'amount' => 'Enter an amount such as 1,250.00.', 'reason_code' => 'Choose a reason.', 'reason_text' => 'Enter the reason shown to the client.',
+        ]);
 });

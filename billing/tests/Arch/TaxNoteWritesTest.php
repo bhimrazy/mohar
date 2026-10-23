@@ -12,8 +12,10 @@ const NOTE_WRITE_FORMS = [
     'raw SQL that writes a note table' => '/\b(update|insert\s+into|delete\s+from|truncate(\s+table)?)\s+["`]?tax_note(s|_lines)\b/i',
     'a bulk or quiet write through a note model' => '/\bTaxNote(Line)?\s*::[^;]*->\s*(update|delete|forceDelete|insert|insertOrIgnore|upsert|truncate|increment|decrement|saveQuietly|updateQuietly|deleteQuietly)\s*\(/s',
     'events switched off around a note model' => '/\bTaxNote(Line)?\s*::\s*withoutEvents\b/',
-    // A builder kept for later can be written through; a statement that ends in a read is a plain read (#396 N3).
-    'a note query builder kept in a variable' => '/=\s*TaxNote(Line)?\s*::\s*(query|where\w*|with)\s*\((?![^;]*->\s*(get|first|firstOrFail|sole|find|findOrFail|value|pluck|sum|count|exists|doesntExist|paginate|simplePaginate|cursorPaginate)\s*\([^;]*\)\s*;)/s',
+    // A builder kept for later can be written through; a statement whose outermost call is a read is a plain read
+    // (#396 N3). The read's arguments hold no call, so a builder handed to a closure (`->tap(fn ($q) => $q->count())`)
+    // is still flagged.
+    'a note query builder kept in a variable' => '/=\s*TaxNote(Line)?\s*::\s*(query|where\w*|with)\s*\((?![^;]*->\s*(get|first|firstOrFail|sole|find|findOrFail|value|pluck|sum|count|exists|doesntExist|paginate|simplePaginate|cursorPaginate)\s*\([^()]*\)\s*;)/s',
 ];
 
 /**
@@ -59,6 +61,7 @@ test('the scan recognises the writes it forbids', function (string $code) {
     'TaxNote::withoutEvents(fn () => 1);',
     '$notes = TaxNote::query()->where("id", 1);',
     '$notes = TaxNote::with("lines")->where("id", 1); $notes->update(["total" => 1]);',
+    '$q = TaxNote::query()->tap(fn ($q) => $q->count());',
 ]);
 
 test('the scan lets plain reads through', function (string $code) {

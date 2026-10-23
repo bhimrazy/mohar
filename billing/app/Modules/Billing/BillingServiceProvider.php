@@ -278,7 +278,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         'billing.credit.adjust',
         'billing.gateways.manage',
         'billing.tax.manage',
-        'billing.notes.issue',
+        'billing.tax_notes.issue',
     ];
 
     private function registerPermissions(): void
@@ -297,7 +297,8 @@ class BillingServiceProvider extends ModuleServiceProvider
             'billing.gateways.manage' => 'Configure payment gateways',
             'billing.gateway_log.view' => 'View the gateway log',
             'billing.tax.manage' => 'Manage tax rules',
-            'billing.notes.issue' => 'Issue, reverse and settle credit and debit notes',
+            'billing.tax_notes.view' => 'View credit and debit notes',
+            'billing.tax_notes.issue' => 'Issue, reverse and settle credit and debit notes',
             'billing.settings.manage' => 'Change billing settings',
         ], sensitive: self::SENSITIVE_PERMISSIONS);
     }
@@ -323,7 +324,9 @@ class BillingServiceProvider extends ModuleServiceProvider
         $int = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'integer', $help, rules: ['min:0']);
         $list = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'string', $help, rules: ['regex:/^\s*\d+(\s*,\s*\d+)*\s*$/']);
 
-        Validator::extend('note_format_distinct', fn (string $attribute, mixed $value, array $parameters, \Illuminate\Validation\Validator $validator): bool => ! DocumentNumbers::formatsCollide((string) $value, (string) Arr::get($validator->getData(), $parameters[0])),
+        // The other format comes from the same save, or from the stored setting when the save leaves it out.
+        Validator::extend('note_format_distinct', fn (string $attribute, mixed $value, array $parameters, \Illuminate\Validation\Validator $validator): bool => ! DocumentNumbers::formatsCollide((string) $value,
+            (string) (Arr::has($validator->getData(), $parameters[0]) ? Arr::get($validator->getData(), $parameters[0]) : app(BillingSettings::class)->string(substr($parameters[0], strlen('billing.'))))),
             __('The credit and debit note formats must differ in more than digits, or two notes could get the same number.'));
 
         Validator::extend('note_period_token', function (string $attribute, mixed $value, array $parameters, \Illuminate\Validation\Validator $validator): bool {

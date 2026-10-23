@@ -90,6 +90,8 @@ type Props = {
     tax_notes: TaxNote[];
     notes_enabled: boolean;
     creditable: Creditable | null;
+    note_blocked: { credit: string | null; debit: string | null } | null;
+    credit_label: string | null;
     can: {
         manage: boolean;
         payments: boolean;
@@ -269,6 +271,8 @@ export default function InvoiceShow({
     tax_notes,
     notes_enabled,
     creditable,
+    note_blocked,
+    credit_label,
     can,
 }: Props) {
     const [dialog, setDialog] = useState<
@@ -410,6 +414,12 @@ export default function InvoiceShow({
                                 status="add_funds"
                                 tone="info"
                                 label="Add funds"
+                            />
+                        ) : credit_label ? (
+                            <StatusBadge
+                                status="credited"
+                                tone="info"
+                                label={credit_label}
                             />
                         ) : undefined
                     }
@@ -727,11 +737,7 @@ export default function InvoiceShow({
                             creditable={creditable}
                             enabled={notes_enabled}
                             canIssue={can.notes}
-                            debitBlocked={
-                                PAYABLE.includes(invoice.status)
-                                    ? null
-                                    : 'A debit note can be issued on an unpaid invoice only, for now.'
-                            }
+                            blocked={note_blocked}
                         />
 
                         <SectionCard title="Transactions" flush>

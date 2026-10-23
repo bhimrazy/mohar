@@ -25,7 +25,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { normalizeMoney } from '@/components/billing/types';
-import { labelWithCurrency } from '@/lib/money';
+import { formatMoney, labelWithCurrency } from '@/lib/money';
 import {
     preview as previewNote,
     store as storeNote,
@@ -62,6 +62,10 @@ type Preview = {
     balance_after: number;
     settlement: 'balance' | 'credit';
     to_credit: number;
+    /** New due date when the note leaves a paid invoice owing again. */
+    due_date: string | null;
+    /** The client's account credit after a reversal; may be negative. */
+    credit_after: number | null;
     version: number;
     digest: string;
     lines: {
@@ -110,12 +114,12 @@ type PanelProps = {
     creditable: Creditable | null;
     enabled: boolean;
     canIssue: boolean;
-    /** Why a debit note can't be issued now, or null when it can. */
-    debitBlocked: string | null;
+    /** Why a credit or debit note can't be issued now (server-side), or null when it can. */
+    blocked: { credit: string | null; debit: string | null } | null;
 };
 
 /**
- * The invoice's credit and debit notes, what can still be credited, and (with billing.notes.issue, in Nepal VAT mode)
+ * The invoice's credit and debit notes, what can still be credited, and (with billing.tax_notes.issue, in Nepal VAT mode)
  * the issue and reverse actions. A note is previewed by the server and confirmed against that preview.
  */
 export function TaxNotesPanel({
@@ -125,14 +129,12 @@ export function TaxNotesPanel({
     creditable,
     enabled,
     canIssue,
-    debitBlocked,
+    blocked,
 }: PanelProps) {
     const [mode, setMode] = useState<Mode | null>(null);
     const actions = enabled && canIssue;
-    const creditBlocked =
-        creditable?.total === 0
-            ? 'Nothing is left to credit on this invoice.'
-            : null;
+    const creditBlocked = blocked?.credit ?? null;
+    const debitBlocked = blocked?.debit ?? null;
 
     if (!enabled && notes.length === 0) {
         return null;
@@ -252,7 +254,8 @@ export function TaxNotesPanel({
                                 />
                                 {actions &&
                                     note.kind === 'credit' &&
-                                    !note.reversed_by && (
+                                    !note.reversed_by &&
+                                    !debitBlocked && (
                                         <Button
                                             variant="ghost"
                                             size="sm"
@@ -309,6 +312,7 @@ function NoteDialog({
     const [reasonText, setReasonText] = useState('');
     const [preview, setPreview] = useState<Preview | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
     const [processing, setProcessing] = useState(false);
     // The password dialog repeats the confirm itself after a step-up; its outcome closes this dialog or shows here.
@@ -324,7 +328,7 @@ function NoteDialog({
             if (!event.detail.errors.password_confirmation) {
                 setSteppingUp(false);
                 setPreview(null);
-                setError(event.detail.errors.billing ?? null);
+                showErrors(event.detail.errors);
             }
         });
 
@@ -359,7 +363,33 @@ function NoteDialog({
             set(value);
             setPreview(null);
             setError(null);
+            setFieldErrors({});
         };
+
+    // Field errors show under their field; a rule the note breaks shows above the buttons.
+    function showErrors(errors: Record<string, string | string[]>) {
+        const first = (value: string | string[]) =>
+            Array.isArray(value) ? value[0] : value;
+        const fields: Record<string, string> = {};
+        let general: string | null = null;
+
+        for (const [key, value] of Object.entries(errors)) {
+            const field = key.startsWith('lines.') ? 'lines' : key;
+
+            if (
+                ['amount', 'lines', 'reason_code', 'reason_text'].includes(
+                    field,
+                )
+            ) {
+                fields[field] ??= first(value);
+            } else {
+                general ??= first(value);
+            }
+        }
+
+        setFieldErrors(fields);
+        setError(general);
+    }
 
     const loadPreview = async () => {
         setLoading(true);
@@ -379,11 +409,13 @@ function NoteDialog({
             const body = await response.json();
 
             if (!response.ok) {
-                setError(
-                    response.status === 403
-                        ? 'You are not allowed to issue notes.'
-                        : (body.message ?? 'Could not prepare the note.'),
-                );
+                if (response.status === 403) {
+                    setError('You are not allowed to issue notes.');
+                } else if (body.errors) {
+                    showErrors(body.errors);
+                } else {
+                    setError(body.message ?? 'Could not prepare the note.');
+                }
 
                 return;
             }
@@ -417,9 +449,7 @@ function NoteDialog({
                     }
 
                     setPreview(null);
-                    setError(
-                        errors.billing ?? Object.values(errors)[0] ?? null,
-                    );
+                    showErrors(errors);
                 },
             },
         );
@@ -447,9 +477,15 @@ function NoteDialog({
 
                 <div className="grid gap-4">
                     {kind === 'credit' && !reversal && (
-                        <Field htmlFor="note-allocation" label="Credit">
+                        <div className="grid gap-2">
+                            <span
+                                id="note-allocation-label"
+                                className="text-sm font-medium"
+                            >
+                                Credit by
+                            </span>
                             <ToggleGroup
-                                id="note-allocation"
+                                aria-labelledby="note-allocation-label"
                                 type="single"
                                 variant="outline"
                                 value={allocation}
@@ -461,13 +497,13 @@ function NoteDialog({
                                 }
                             >
                                 <ToggleGroupItem value="amount">
-                                    By amount
+                                    Amount, spread over the lines
                                 </ToggleGroupItem>
                                 <ToggleGroupItem value="lines">
-                                    By line
+                                    Line
                                 </ToggleGroupItem>
                             </ToggleGroup>
-                        </Field>
+                        </div>
                     )}
 
                     {!reversal &&
@@ -504,6 +540,7 @@ function NoteDialog({
                                         />
                                     </div>
                                 ))}
+                                <InputError message={fieldErrors.lines} />
                             </div>
                         ) : (
                             <div className="grid gap-4 sm:grid-cols-2">
@@ -514,14 +551,27 @@ function NoteDialog({
                                         currency,
                                     )}
                                     hint={
-                                        kind === 'credit' && creditable
-                                            ? 'At most what is still creditable.'
-                                            : undefined
+                                        kind === 'credit' && creditable ? (
+                                            <>
+                                                At most{' '}
+                                                <Money
+                                                    amount={creditable.total}
+                                                    currency={currency}
+                                                />
+                                                .
+                                            </>
+                                        ) : (
+                                            'Including tax, such as 1,250.00.'
+                                        )
                                     }
+                                    error={fieldErrors.amount}
                                 >
                                     <Input
                                         id="note-amount"
                                         inputMode="decimal"
+                                        placeholder="0.00"
+                                        aria-invalid={!!fieldErrors.amount}
+                                        aria-describedby="note-amount-description"
                                         value={amount}
                                         onChange={(event) =>
                                             edit(setAmount)(event.target.value)
@@ -548,9 +598,14 @@ function NoteDialog({
                         ))}
 
                     {!reversal && (
-                        <Field htmlFor="note-reason" label="Reason">
+                        <Field
+                            htmlFor="note-reason"
+                            label="Reason"
+                            error={fieldErrors.reason_code}
+                        >
                             <SelectField
                                 id="note-reason"
+                                invalid={!!fieldErrors.reason_code}
                                 value={reasonCode}
                                 onChange={edit(setReasonCode)}
                                 options={Object.entries(REASONS[kind]).map(
@@ -564,9 +619,12 @@ function NoteDialog({
                         htmlFor="note-reason-text"
                         label="Reason shown to the client"
                         hint="Printed on the note. At most 500 characters."
+                        error={fieldErrors.reason_text}
                     >
                         <Textarea
                             id="note-reason-text"
+                            aria-invalid={!!fieldErrors.reason_text}
+                            aria-describedby="note-reason-text-description"
                             rows={2}
                             maxLength={500}
                             value={reasonText}
@@ -602,13 +660,16 @@ function NoteDialog({
                             disabled={processing}
                         >
                             {processing && <Spinner />}
-                            {reversal ? 'Issue reversing note' : 'Issue note'}
+                            {reversal
+                                ? 'Issue reversing debit note'
+                                : `Issue ${kind} note`}{' '}
+                            · {formatMoney(preview.total, currency)}
                         </Button>
                     ) : (
                         <Button
                             type="button"
                             onClick={loadPreview}
-                            disabled={loading || reasonText.trim() === ''}
+                            disabled={loading}
                         >
                             {loading && <Spinner />}
                             Preview
@@ -649,7 +710,21 @@ function NotePreview({
                 <tbody>
                     {preview.lines.map((line, index) => (
                         <tr key={index}>
-                            <td className="py-0.5 pr-2">{line.description}</td>
+                            <td className="py-0.5 pr-2">
+                                {line.description}
+                                <span className="block text-xs text-muted-foreground sm:hidden">
+                                    Net{' '}
+                                    <Money
+                                        amount={line.net}
+                                        currency={currency}
+                                    />{' '}
+                                    + tax{' '}
+                                    <Money
+                                        amount={line.tax1 + line.tax2}
+                                        currency={currency}
+                                    />
+                                </span>
+                            </td>
                             <td className="hidden text-right sm:table-cell">
                                 <Money amount={line.net} currency={currency} />
                             </td>
@@ -670,7 +745,12 @@ function NotePreview({
                 </tbody>
                 <tfoot className="border-t font-medium">
                     <tr>
-                        <td className="pt-1">Note total</td>
+                        <td className="pt-1">
+                            Note total
+                            <span className="block text-xs font-normal text-muted-foreground sm:hidden">
+                                Tax <Money amount={tax} currency={currency} />
+                            </span>
+                        </td>
                         <td className="hidden pt-1 text-right sm:table-cell">
                             <Money
                                 amount={preview.total - tax}
@@ -706,7 +786,35 @@ function NotePreview({
                         </dd>
                     </>
                 )}
+                {preview.credit_after !== null && (
+                    <>
+                        <dt className="text-muted-foreground">
+                            Client’s account credit after
+                        </dt>
+                        <dd className="text-right">
+                            <Money
+                                amount={preview.credit_after}
+                                currency={currency}
+                                tone="ledger"
+                            />
+                        </dd>
+                    </>
+                )}
             </dl>
+            {preview.credit_after !== null && preview.credit_after < 0 && (
+                <p className="text-sm text-danger-text">
+                    The client has already used part of this credit, so their
+                    account credit goes below zero.
+                </p>
+            )}
+            {preview.due_date && (
+                <p className="text-sm">
+                    The invoice is paid, so it becomes unpaid again for{' '}
+                    <Money amount={preview.balance_after} currency={currency} />
+                    , due <DateTime value={preview.due_date} />. No late fee or
+                    overdue notice counts from its old due date.
+                </p>
+            )}
         </div>
     );
 }

@@ -10,7 +10,7 @@ use App\Modules\Core\Support\Settings;
 /**
  * Tax and invoice defaults for a first install, following the country the Core installer stored (the marker setting
  * `core.regional_defaults`, written only on a first install). The seller's tax country becomes that country. For
- * Nepal it also adds a VAT rule of 13% and numbers invoices INV-00001. Tax itself stays off until staff turn it on in
+ * Nepal it also adds a VAT rule of 13% and numbers invoices INV-00001 and notes CN-00001 and DN-00001. Tax itself stays off until staff turn it on in
  * Settings → Billing → Tax: charging VAT depends on the company's registration. An installation without the marker,
  * or one that already stores a tax country, is left alone, and a rule staff deleted is not created again.
  */
@@ -44,7 +44,8 @@ final class RegionalTaxDefaults implements InstallsReferenceData
         $created = 1;
 
         if ($country === 'NP') {
-            $values += ['billing.number_format' => 'INV-{NUMBER}', 'billing.number_padding' => 5];
+            // Credit and debit notes pad like the invoices (CN-00001 beside INV-00001).
+            $values += ['billing.number_format' => 'INV-{NUMBER}', 'billing.number_padding' => 5, 'billing.credit_note_padding' => 5, 'billing.debit_note_padding' => 5];
             TaxRule::query()->firstOrCreate(
                 ['name' => 'VAT', 'country' => 'NP', 'level' => 1],
                 ['scope' => null, 'rate' => '13.000', 'priority' => 0],
