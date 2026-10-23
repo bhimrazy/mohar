@@ -270,7 +270,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
                 return null;
             }
 
-            $today = app(CompanyClock::class)->todayDate();
+            $today = app(CompanyClock::class)->calendarDate();
             $soon = $today->addDays(30);
 
             return [
@@ -283,10 +283,10 @@ class DomainsServiceProvider extends ModuleServiceProvider
                         'title' => $domain->name_unicode,
                         'subtitle' => $domain->auto_renew ? 'Auto-renew on' : 'Auto-renew off',
                         'href' => route('client.domains.show', $domain->id),
-                        'status' => $domain->status === DomainStatus::Active && $domain->expiry_date?->lte($soon) ? 'expiring' : $domain->status->value,
+                        'status' => $domain->status === DomainStatus::Active && $domain->expiry_date !== null && $domain->expiry_date->toDateString() <= $soon->toString() ? 'expiring' : $domain->status->value,
                         'date' => $domain->expiry_date?->toDateString(),
                         'dateLabel' => match (true) {
-                            (bool) $domain->expiry_date?->lt($today) => 'Expired',
+                            $domain->expiry_date !== null && $domain->expiry_date->toDateString() < $today->toString() => 'Expired',
                             $domain->auto_renew => 'Renews',
                             default => 'Expires',
                         },
@@ -383,7 +383,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
                 'expiry_date' => $domain->expiry_date?->toDateString(),
                 'expiry_label' => $domain->expiry_date === null && $domain->isRegisteredByClient() ? __('At the registry') : null,
                 'next_due_date' => $domain->next_due_date->toDateString(),
-                'days_until_expiry' => $domain->expiry_date === null ? null : (int) app(CompanyClock::class)->todayDate()->diffInDays($domain->expiry_date, false),
+                'days_until_expiry' => $domain->expiry_date === null ? null : app(CompanyClock::class)->calendarDate()->daysUntil(CalendarDate::parse($domain->expiry_date->toDateString())),
                 'recurring_amount' => $domain->recurring_amount,
                 'currency' => $domain->currency,
                 'period_years' => $domain->period_years,

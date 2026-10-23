@@ -109,8 +109,12 @@ class Automation
     }
 
     /**
-     * Keys of the registered tasks that still take the run date as Carbon (or any non-CalendarDate type), read from the
-     * handlers by reflection, so package tasks and handlers passed as variables or callables count too.
+     * Keys of the registered tasks whose handler does not take a `CalendarDate` first parameter: typed Carbon,
+     * `CarbonInterface` (also fully qualified), untyped, or any other type. They are read from the handlers by
+     * reflection, so handlers passed as variables or callables and package tasks count. For the arch baseline
+     * (CarbonRunDateTasksTest), not for modules.
+     *
+     * @internal
      *
      * @return list<string>
      */

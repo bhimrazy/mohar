@@ -245,9 +245,10 @@ again if the date type changed after it.
 4. **Automation tasks.** `Automation::run(string $key, CalendarDate $date)` runs a task. A handler whose first parameter
    is typed `CalendarDate` (or `?CalendarDate`) gets the `CalendarDate`; any other gets the Carbon date value as before.
    The type is read once, when the task is registered, and a union type that names `CalendarDate` is refused there.
-   `CompanyClockScanTest` keeps a baseline of Carbon-typed tasks per file that may only shrink. `automation:run`
+   `CarbonRunDateTasksTest` keeps a baseline, by task key, of registered tasks that do not take a `CalendarDate` (read by
+   reflection with `Automation::carbonDateTasks()`, so any handler form and package tasks count) that may only shrink. `automation:run`
    resolves the run date as a `CalendarDate` and accepts `--date` only as `Y-m-d`. Catalog, Migration, Orders (cart
-   pruning), Platform and Support tasks are typed in this PR. Billing (VAT PR 3), Services, Domains (#398), Kyc,
+   pruning), Platform and Support tasks are typed in this PR. Domains (#426) is typed. Billing (VAT PR 3), Services, Kyc,
    Notifications and Orders' stale-order cancelling move with their modules. When none is left in the repository,
    registering a Carbon-typed task calls `trigger_error(E_USER_DEPRECATED)` once per task key (ADR 0010), and after the
    deprecation window the Carbon branch is removed (kernel changelog).
