@@ -112,7 +112,7 @@ final class MailFramer
             amountLabel: $key === 'invoice.refunded' ? self::text('Refunded') : self::text('Credit'),
             statusTone: 'info',
             statusLabel: $key === 'invoice.refunded' ? self::text('Refunded') : self::text('Credit issued'),
-            statusWhen: $this->date(MailDates::today()),
+            statusWhen: $this->date(MailDates::companyDate()),
             document: true,
             downloads: $this->invoiceDownload($context),
             reason: $this->billingReason($context),
@@ -231,9 +231,9 @@ final class MailFramer
             'auth.password_reset' => ['accent', self::text('Reset requested'), $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null],
             'auth.email_verification' => ['accent', self::text('Confirm your email'), null],
             'auth.user_invitation', 'client.migration_invitation' => ['accent', self::text('Invitation'), $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null],
-            'auth.password_changed' => ['warning', self::text('Password changed'), $this->date(MailDates::today())],
-            'auth.new_login_alert' => ['warning', self::text('New login'), $this->date(MailDates::today())],
-            default => ['info', self::text('Account change'), $this->date(MailDates::today())],
+            'auth.password_changed' => ['warning', self::text('Password changed'), $this->date(MailDates::companyDate())],
+            'auth.new_login_alert' => ['warning', self::text('New login'), $this->date(MailDates::companyDate())],
+            default => ['info', self::text('Account change'), $this->date(MailDates::companyDate())],
         };
 
         return new MailFrame(label: self::text('Account security'), statusTone: $tone, statusLabel: $label, statusWhen: $when, security: true);

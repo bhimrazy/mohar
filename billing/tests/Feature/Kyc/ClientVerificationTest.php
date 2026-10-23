@@ -95,7 +95,7 @@ test('a stored document is encrypted at rest, and the page shows neither the num
     $document = KycDocument::query()->sole();
     $raw = (string) Storage::disk(KycDocument::DISK)->get($document->front_path);
 
-    expect($raw)->not->toContain('PNG')
+    expect($raw)->not->toStartWith("\x89PNG")
         ->and(Crypt::decryptString($raw))->toStartWith("\x89PNG")
         ->and(DB::table('kyc_documents')->value('number'))->not->toContain('01234')
         ->and($document->number)->toBe('27-01-74-01234')

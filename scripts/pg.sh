@@ -2,14 +2,14 @@
 # One shared PostgreSQL for every worktree and agent, with a separate database per worktree.
 #   eval "$($MOHAR_ROOT/scripts/pg.sh <slug>)"   start the shared server if needed, create
 #                                                       database billing_test_<slug>, export DB_* vars
-#   $MOHAR_ROOT/scripts/pg.sh --stop             stop the shared server
+#   $MOHAR_ROOT/scripts/pg.sh --stop             stop the shared server and delete its data volume
 #   $MOHAR_ROOT/scripts/pg.sh --prune [slug...]  drop test databases with no open connections,
 #                                                       except those of the slugs given (dropped ones are recreated on demand),
 #                                                       and any idle billing_e2e_* left by an interrupted `simulate:e2e`
 # Then run `composer test:pgsql` (or any artisan command) in the worktree's billing/ directory.
-# The data lives in tmpfs: it is test data, fast, and disappears when the server stops.
-# 4 GB, with WAL kept small (no fsync, minimal level, 256 MB cap): WAL was about half of what filled the earlier 2 GB
-# tmpfs and crashed the server.
+# The data lives in the Docker volume mohar-pg-data, on disk: a tmpfs is limited by the Docker VM's memory, which
+# was smaller than the data. It is test data, so durability is off (no fsync, minimal WAL capped at 256 MB) and
+# `--stop` deletes the volume with the server; run it if a crash leaves the server unable to start.
 #
 # Slug limit: PostgreSQL names are at most 63 bytes, and a parallel worker adds _test_<n> (Laravel) to the database.
 # So billing_test_<slug> is kept whole while it is 55 bytes or less (a slug of up to 42 characters). A longer one
@@ -39,6 +39,7 @@ db_for() {
 
 if [ "${1:-}" = "--stop" ]; then
     docker rm -f "$name" >/dev/null 2>&1 || true
+    docker volume rm mohar-pg-data >/dev/null 2>&1 || true
     exit 0
 fi
 
@@ -61,7 +62,7 @@ db="$(db_for "$slug")"
 
 if ! docker ps --format '{{.Names}}' | grep -qx "$name"; then
     docker rm -f "$name" >/dev/null 2>&1 || true
-    docker run -d --name "$name" -p "127.0.0.1:$port:5432" --tmpfs /var/lib/postgresql:rw,size=4g \
+    docker run -d --name "$name" -p "127.0.0.1:$port:5432" -v mohar-pg-data:/var/lib/postgresql \
         -e POSTGRES_USER=billing -e POSTGRES_PASSWORD=billing -e POSTGRES_DB=billing "$image" \
         -c max_locks_per_transaction=256 -c fsync=off -c full_page_writes=off -c wal_level=minimal \
         -c max_wal_senders=0 -c max_wal_size=256MB >/dev/null

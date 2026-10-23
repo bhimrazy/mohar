@@ -83,6 +83,7 @@ final class ResellerClubSimulator implements HasControlActions, Simulator
             $api('POST', 'domains/renew.json', 'renew', fn (ResellerClubApi $rc, Request $request, array $input) => $rc->renew($input)),
             $api('POST', 'domains/restore.json', 'restore', fn (ResellerClubApi $rc, Request $request, array $input) => $rc->restore($input)),
             $api('GET', 'domains/details-by-name.json', 'details_by_name', fn (ResellerClubApi $rc, Request $request) => $rc->details($request)),
+            $api('GET', 'domains/details.json', 'details_by_id', fn (ResellerClubApi $rc, Request $request) => $rc->detailsById($request)),
             $api('GET', 'domains/orderid.json', 'orderid', fn (ResellerClubApi $rc, Request $request, array $input) => $rc->orderId($input)),
             $api('GET', 'domains/search.json', 'search', fn (ResellerClubApi $rc, Request $request) => $rc->search($request)),
             $api('POST', 'domains/modify-ns.json', 'modify_ns', fn (ResellerClubApi $rc, Request $request) => $rc->modifyNameservers($request)),
@@ -129,6 +130,9 @@ final class ResellerClubSimulator implements HasControlActions, Simulator
      * - `settle_order` {domain, outcome: active|failed}: the registry answers a `slow-` registration or a transfer
      *   that has its auth code;
      * - `set_status` {domain, status}: the order moves on as time would (Pending Delete Restorable, Deleted, …);
+     * - `add_order` {domain, customer_id, status?, reseller_id?, expires_in_days?}: an order that already exists in the
+     *   account (a domain imported from another billing system, or placed in the panel); a `reseller_id` other than
+     *   the demo reseller's makes it another reseller's order, which this account cannot read;
      * - `add_foreign_domain` {domain, auth_code, expires_in_days?}: a name held at another registrar;
      * - `set_balance` {cents}: the reseller balance (0 for the insufficient-funds case);
      * - `registry_down` {tld, down}: availability answers `unknown` for that extension;
@@ -149,6 +153,11 @@ final class ResellerClubSimulator implements HasControlActions, Simulator
                 $scenario->state()->put('config', 'next_actionstatus', (string) ($input['value'] ?? ''));
 
                 return ['next_actionstatus' => (string) ($input['value'] ?? '')];
+            },
+            'add_order' => function (array $input, Scenario $scenario) use ($domain): array {
+                $order = (new ResellerClubApi($scenario))->importOrder($domain($input), (string) ($input['customer_id'] ?? ''), (string) ($input['status'] ?? 'Active'), (string) ($input['reseller_id'] ?? self::RESELLER_ID), (int) ($input['expires_in_days'] ?? 200));
+
+                return ['order_id' => $order['orderid']];
             },
             'add_foreign_domain' => function (array $input, Scenario $scenario) use ($domain): array {
                 $scenario->state()->put('registry', $domain($input), ['auth_code' => (string) ($input['auth_code'] ?? ''), 'endtime' => time() + (int) ($input['expires_in_days'] ?? 200) * 86_400]);
