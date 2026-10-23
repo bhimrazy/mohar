@@ -2,8 +2,8 @@
 
 namespace App\Modules\Notifications\Console\Commands;
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Notifications\Actions\PruneNotificationLogs;
-use Carbon\CarbonImmutable;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -15,9 +15,9 @@ use Illuminate\Console\Command;
 #[Description('Clear old email bodies and delete old webhook deliveries')]
 class PruneNotifications extends Command
 {
-    public function handle(PruneNotificationLogs $prune): int
+    public function handle(PruneNotificationLogs $prune, CompanyClock $clock): int
     {
-        $this->components->info('Pruned '.$prune->handle(CarbonImmutable::today()).' records.');
+        $this->components->info('Pruned '.$prune->handle($clock->todayDate()).' records.');
 
         return self::SUCCESS;
     }
