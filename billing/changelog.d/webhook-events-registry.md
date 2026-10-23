@@ -1,0 +1,4 @@
+### Changed
+
+- Webhook event types are registered by the module that owns each event, through the new `App\Support\Events\WebhookEvents` registry, instead of one list in Notifications. The 30 existing types keep their keys, labels and payloads; the endpoint form and delivery are unchanged.
+- Upgrade notes for package authors: register a webhook event in your service provider's `boot()` with `app(WebhookEvents::class)->register(MyEvent::class, 'acme.thing_done', 'entity', 'idProperty')`. The type is `<area>.<action>` in lowercase (up to 50 characters), and a type or event class already registered throws unless `replace: true` is passed, and a type owned by a kernel event (`App\Events\...`) can never be replaced. Register in `boot()`. `Notifications\Webhooks\WebhookEventTypes` is removed; `WebhookEvents::PING` replaces its `PING` constant.

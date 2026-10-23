@@ -11,6 +11,7 @@ use App\Support\Currencies\ExchangeRateSources;
 use App\Support\Currencies\PriceConverters;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Domains\RegistrarDriverRegistry;
+use App\Support\Events\WebhookEvents;
 use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Integrations\Endpoints;
 use App\Support\Integrations\StoredSecrets;
@@ -67,6 +68,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(RegistrarDriverRegistry::class);
         $this->app->singleton(SitemapRegistry::class);
         $this->app->singleton(Endpoints::class);
+        $this->app->singleton(WebhookEvents::class);
         $this->app->singleton(StoredSecrets::class);
     }
 

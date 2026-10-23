@@ -10,6 +10,7 @@ use App\Enums\ReconcileStatus;
 use App\Modules\Domains\Drivers\Registrars\Namecheap\NamecheapClient;
 use App\Modules\Domains\Drivers\Registrars\Namecheap\NamecheapContacts;
 use App\Modules\Domains\Drivers\Registrars\Namecheap\NamecheapDriver;
+use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\Tld;
 use App\Support\Domains\RegistrarDriverRegistry;
 use App\Support\Domains\RegistrarException;
@@ -140,7 +141,7 @@ test('a registration is sent as one POST to the sandbox with the sandbox credent
     $sent = ncSent('namecheap.domains.create');
 
     expect($result->status)->toBe('completed')
-        ->and($result->expiryDate->toDateString())->toBe(CarbonImmutable::now('UTC')->addYear()->toDateString())
+        ->and($result->expiryDate)->toBeNull()
         ->and($result->remote)->toBe(['domain_id' => 8_100_001, 'order_id' => 5_100_001])
         ->and($sent->method())->toBe('POST')
         ->and($sent->url())->toBe('https://api.sandbox.namecheap.com/xml.response')
@@ -298,6 +299,42 @@ test('the local request budget keeps a write reserve: reads stop first, nothing 
 
     expect(fn () => ncDriver()->setLock($config, ncRef(), true))->toThrow(RegistrarException::class, 'is used up')
         ->and(Http::recorded()->count())->toBe(10);
+});
+
+test('reads inside a registration or renewal use the write reserve; a plain read is still refused at it', function () {
+    $renewed = '<DomainRenewResult DomainName="asha-sim.com" Renew="true" OrderID="1"><DomainDetails><ExpiredDate>03/10/2028</ExpiredDate><NumYears>1</NumYears></DomainDetails></DomainRenewResult>';
+    $created = '<DomainCreateResult Domain="asha-sim.com" Registered="true" DomainID="555" OrderID="1" />';
+    $spend = function (int $calls): void {
+        ncResetBudget();
+
+        foreach (range(1, $calls) as $ignored) {
+            RateLimiter::hit('namecheap:sandbox:'.sha1('sandbox-user').':60', 60);
+        }
+    };
+
+    ncFake([
+        'namecheap.domains.getInfo' => [ncXml('namecheap.domains.getInfo', ncInfo('03/10/2027')), ncXml('namecheap.domains.getInfo', errors: [2019166])],
+        'namecheap.domains.renew' => ncXml('namecheap.domains.renew', $renewed),
+        'namecheap.domains.getList' => ncXml('namecheap.domains.getList', NC_EMPTY_LIST),
+        'namecheap.domains.create' => ncXml('namecheap.domains.create', $created),
+    ]);
+
+    $spend(30);
+    expect(fn () => ncDriver()->checkAvailability(ncConfig(), 'a', ['.com']))->toThrow(RegistrarException::class, 'kept for registrations')
+        ->and(fn () => ncDriver()->info(ncConfig(), ncRef()))->toThrow(RegistrarException::class, 'kept for registrations')
+        ->and(Http::recorded()->count())->toBe(0);
+
+    expect(ncDriver()->renew(ncConfig(), ncRef(), 1)->status)->toBe('completed')
+        ->and(ncSent('namecheap.domains.getInfo'))->not->toBeNull()
+        ->and(RateLimiter::attempts('namecheap:sandbox:'.sha1('sandbox-user').':60'))->toBe(32);
+
+    $spend(30);
+    expect(ncDriver()->register(ncConfig(), ncRequest())->status)->toBe('completed')
+        ->and(ncSent('namecheap.domains.create'))->not->toBeNull();
+
+    // The chain's reads count against the whole limit: with it spent, the chain stops before sending.
+    $spend(40);
+    expect(fn () => ncDriver()->renew(ncConfig(), ncRef(), 1))->toThrow(RegistrarException::class, 'is used up');
 });
 
 test('a renewal is sent only when Namecheap\'s expiry is our expiry; when it is a term ahead nothing is bought twice', function () {
@@ -593,7 +630,7 @@ test('contacts are read per role and written as all four with the billing role a
     $sent = ncSent('namecheap.domains.setContacts');
 
     expect($changed->status)->toBe('completed')
-        ->and($changed->meta['transfer_lock_until'])->toBe(CarbonImmutable::today()->addDays(60)->toDateString())
+        ->and($changed->meta['transfer_lock_days'])->toBe(60)
         ->and($sent['AuxBillingEmailAddress'])->toBe('asha@example.test')
         ->and($sent['RegistrantEmailAddress'])->toBe('asha@example.test')
         ->and($sent['DomainName'])->toBe('asha-sim.com');
@@ -720,6 +757,8 @@ test('Namecheap declares extension details for .us, .ca and .eu only, as plain r
 });
 
 test('the host cleans extension answers against the declared fields, and a boolean confirmation is sent as YES', function () {
+    // A registrar that needs credentials declares no fields until its account is saved (#408).
+    RegistrarAccount::query()->create(['key' => 'namecheap', 'is_active' => true, 'test_mode' => true, 'settings' => []]);
     Tld::factory()->extension('.eu')->priced()->create(['registrar_key' => 'namecheap']);
     $errors = function (array $input): array {
         try {

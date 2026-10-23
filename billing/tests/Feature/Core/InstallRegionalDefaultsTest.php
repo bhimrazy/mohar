@@ -1,5 +1,7 @@
 <?php
 
+use App\Contracts\Install\InstallMarkers;
+use App\Modules\Billing\Install\RegionalTaxDefaults;
 use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Core\Install\QueueTimeouts;
 use App\Modules\Core\Models\Currency;
@@ -179,3 +181,25 @@ class QueueTimeoutProbeJob
 {
     public int $timeout = 400;
 }
+
+test('Core writes the marker under the shared key and Billing follows it', function () {
+    [$status] = installRegion(['--country' => 'IN', '--currency' => 'INR', '--timezone' => 'Asia/Kolkata']);
+    $settings = app(Settings::class);
+
+    expect($status)->toBe(0)
+        ->and($settings->get(InstallMarkers::REGIONAL_COUNTRY))->toBe('IN')
+        ->and($settings->get('billing.tax.home_country'))->toBe('IN');
+});
+
+test('Billing applies its defaults from the shared marker alone, and ignores an installation without it', function () {
+    $settings = app(Settings::class);
+
+    expect(app(RegionalTaxDefaults::class)->install()->unchanged)->toBe(1)
+        ->and($settings->all())->not->toHaveKey('billing.tax.home_country');
+
+    $settings->setMany([InstallMarkers::REGIONAL_COUNTRY => 'NP']);
+    app(RegionalTaxDefaults::class)->install();
+
+    expect($settings->get('billing.tax.home_country'))->toBe('NP')
+        ->and(TaxRule::query()->where('country', 'NP')->count())->toBe(1);
+});

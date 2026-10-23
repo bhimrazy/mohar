@@ -29,7 +29,8 @@ use SimpleXMLElement;
  *   RegistrarTimeout. A read that fails that way is retryable.
  *
  * Namecheap allows 50 calls a minute, 700 an hour and 8000 a day per key, so the client keeps a smaller budget of its
- * own (40, 600 and 7000) and holds a reserve back for changes: reads stop earlier than changes do.
+ * own (40, 600 and 7000) and holds a reserve back for changes: reads stop earlier than changes do. The reads inside
+ * within() belong to a change (the look-ups before a registration, a renewal or a transfer) and may use the reserve.
  *
  * Messages never carry the API key: it travels only in the request, and the host masks the account's secrets in
  * everything a call returns or raises.
@@ -62,12 +63,16 @@ final class NamecheapClient
     /** @var float|null when the current budget (within()) runs out, as microtime */
     private ?float $deadline = null;
 
+    /** Inside within(): the chain is a change, so its reads draw on the write reserve. */
+    private bool $changeChain = false;
+
     public function __construct(private int $timeoutSeconds = 90, private int $shortTimeoutSeconds = 15) {}
 
     /**
      * Run a chain of calls inside a time budget, so a job with a hard timeout is never killed between two of them:
      * every call is limited to what is left, a change that cannot be given enough time is refused before it is sent
-     * (retryable, nothing ran), and the budget ends with the callback.
+     * (retryable, nothing ran), and the budget ends with the callback. The chain is a change: its reads may use the
+     * write reserve, so a busy storefront's lookups cannot stall it.
      *
      * @template T
      *
@@ -76,18 +81,19 @@ final class NamecheapClient
      */
     public function within(int $seconds, \Closure $chain): mixed
     {
-        $outer = $this->deadline;
+        $outer = [$this->deadline, $this->changeChain];
         $this->deadline = microtime(true) + $seconds;
+        $this->changeChain = true;
 
         try {
             return $chain();
         } finally {
-            $this->deadline = $outer;
+            [$this->deadline, $this->changeChain] = $outer;
         }
     }
 
     /**
-     * A read: may be repeated, spends no write reserve.
+     * A read: may be repeated. Outside within() it spends no write reserve.
      *
      * @param  array<string, string|int>  $params
      *
@@ -128,7 +134,7 @@ final class NamecheapClient
         $timeout = $this->timeoutFor($command, $mutating);
         $proxy = $config->setting('http_proxy');
         $options = [...$endpoint->options, ...(is_string($proxy) && $proxy !== '' ? ['proxy' => self::validProxy($proxy)] : [])];
-        $this->spend($credentials['ApiUser'], $config->testMode, $mutating);
+        $this->spend($credentials['ApiUser'], $config->testMode, $mutating, $mutating || $this->changeChain);
 
         try {
             $response = Http::withOptions($options)->connectTimeout(min(10, $timeout))->timeout($timeout)->asForm()
@@ -269,18 +275,18 @@ final class NamecheapClient
     /**
      * Count one call against the local budget. Each window is incremented first (atomically in the cache) and the new
      * count compared, so workers running together cannot all pass one check. A read stops WRITE_RESERVE calls before
-     * the limit, so changes still get through when lookups have used the rest. A refused call gives its counts back,
+     * the limit, so changes (and the reads inside a change chain) still get through when lookups have used the rest. A refused call gives its counts back,
      * so it takes nothing from the reserve; nothing is sent when the budget is spent.
      *
      * @throws RegistrarException
      */
-    private function spend(string $apiUser, bool $testMode, bool $mutating): void
+    private function spend(string $apiUser, bool $testMode, bool $mutating, bool $reserved): void
     {
         $key = 'namecheap:'.($testMode ? 'sandbox:' : 'live:').sha1($apiUser);
         $taken = [];
 
         foreach (self::BUDGET as $seconds => $limit) {
-            $allowed = $mutating ? $limit : $limit - self::WRITE_RESERVE[$seconds];
+            $allowed = $reserved ? $limit : $limit - self::WRITE_RESERVE[$seconds];
             $taken[] = $seconds;
 
             if (RateLimiter::hit($key.':'.$seconds, $seconds) > $allowed) {
@@ -290,7 +296,7 @@ final class NamecheapClient
 
                 throw new RegistrarException('The Namecheap request budget for this '.match ($seconds) {
                     60 => 'minute', 3600 => 'hour', default => 'day',
-                }.' is used up'.($mutating ? '' : ' (the rest is kept for registrations, renewals and other changes)').'; nothing was sent, try again later.', retryable: true);
+                }.' is used up'.($reserved ? '' : ' (the rest is kept for registrations, renewals and other changes)').'; nothing was sent, try again later.', retryable: true);
             }
         }
     }
