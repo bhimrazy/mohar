@@ -52,6 +52,14 @@ Status values: **Done** (merged on `develop`), **In progress** (work exists in a
 Consequence of the cooldown: Laravel was held at 13.34.0 and Wayfinder at 0.1.21 until the cooldown cleared; both moved to 13.36.0 and 0.1.22
 on 2026-10-22 (#242, closing issue #11).
 
+Owner decisions on 2026-10-23 (the CTO's recommendation, or the cautious option where none was given):
+
+- FrankenPHP 1.13.2 stays pinned until it clears the cooldown on 2026-10-28 (#406); nothing ships to `main` before.
+- Build provenance (`actions/attest-build-provenance`) is not adopted yet; images are published from the default
+  branch only; the first release run waits for the owner (#412).
+- No setting ties the heartbeat to the cron interval yet (#412).
+- The load-test label trigger stays; no paid medium-profile runner runs for now (#415).
+
 ## Security and quality
 
 | Requirement                                                                                                                                                                                         | Date       | Where                                                                                                                        | Status                     |
