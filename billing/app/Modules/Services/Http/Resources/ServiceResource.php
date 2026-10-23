@@ -2,9 +2,9 @@
 
 namespace App\Modules\Services\Http\Resources;
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Service;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -20,7 +20,7 @@ class ServiceResource extends JsonResource
     {
         $staff = (bool) $request->user()?->is_staff;
         $overdue = $this->next_due_date !== null
-            && $this->next_due_date->lt(CarbonImmutable::today())
+            && $this->next_due_date->lt(app(CompanyClock::class)->todayDate())
             && in_array($this->status, [ServiceStatus::Active, ServiceStatus::Suspended], true);
 
         return [
