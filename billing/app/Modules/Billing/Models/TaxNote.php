@@ -5,6 +5,7 @@ namespace App\Modules\Billing\Models;
 use App\Models\User;
 use App\Modules\Billing\Exceptions\ImmutableInvoiceException;
 use App\Modules\Core\Models\Client;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
@@ -22,6 +23,14 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property string $number
  * @property int $invoice_id
  * @property int $client_id
+ * @property string $currency
+ * @property CarbonImmutable $issue_date
+ * @property string $bs_issue_date
+ * @property string $reason_code
+ * @property string $reason_text client-visible
+ * @property int $tax1_amount
+ * @property int $tax2_amount
+ * @property bool $automatic
  * @property int $total minor units, positive; the kind gives the direction
  * @property string|null $report_rate
  * @property string $bs_period

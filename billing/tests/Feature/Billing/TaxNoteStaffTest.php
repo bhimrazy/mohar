@@ -5,11 +5,14 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Billing\Services\TaxNoteIssuer;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Testing\TestResponse;
 use Inertia\Testing\AssertableInertia;
 
 require_once __DIR__.'/helpers.php';
@@ -45,7 +48,7 @@ function staffNoteInvoice(int $paid = 0): Invoice
  *
  * @param  array<string, mixed>  $data
  */
-function staffConfirmNote(Invoice $invoice, array $data): \Illuminate\Testing\TestResponse
+function staffConfirmNote(Invoice $invoice, array $data): TestResponse
 {
     $preview = test()->getJson(route('admin.billing.invoices.notes.preview', [$invoice, ...$data]))->assertOk()->json();
 
@@ -112,7 +115,7 @@ test('reversing a credit note settled to account credit repeats its lines as a d
     confirmPassword();
     staffConfirmNote($invoice, staffFullCredit());
     $credit = TaxNote::query()->sole();
-    app(CreditLedgerService::class)->debit($invoice->client_id, \App\Support\Money::of(400_000, 'NPR'), 'Spent elsewhere');
+    app(CreditLedgerService::class)->debit($invoice->client_id, Money::of(400_000, 'NPR'), 'Spent elsewhere');
 
     staffConfirmNote($invoice, ['reverses' => $credit->id, 'reason_text' => 'Credit note issued by mistake'])->assertSessionHasNoErrors();
 
@@ -124,8 +127,8 @@ test('reversing a credit note settled to account credit repeats its lines as a d
         ->and(DB::table('credit_ledger')->where('tax_note_id', $debit->id)->get(['amount', 'reason'])->map(fn ($row) => (array) $row)->all())->toBe([['amount' => -1_130_000, 'reason' => 'credit_note_reversed']])
         ->and(staffCreditBalance($invoice))->toBe(-400_000)
         ->and($invoice->fresh())->balance->toBe(0)->status->toBe(InvoiceStatus::Paid)->credited_total->toBe(1_130_000)->debited_total->toBe(1_130_000)
-        ->and(app(\App\Modules\Billing\Services\TaxNoteIssuer::class)->creditable($invoice->fresh()))->toBe(1_130_000)
-        ->and(app(\App\Modules\Billing\Services\TaxNoteIssuer::class)->creditableLines($invoice->fresh())[0]['left'])->toBe(1_130_000);
+        ->and(app(TaxNoteIssuer::class)->creditable($invoice->fresh()))->toBe(1_130_000)
+        ->and(app(TaxNoteIssuer::class)->creditableLines($invoice->fresh())[0]['left'])->toBe(1_130_000);
 });
 
 test('reversing a note that settled a partly paid invoice makes it owe again', function () {
