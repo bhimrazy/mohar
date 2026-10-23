@@ -75,7 +75,9 @@ use `Dispatchable`, carry ids not models, and are promoted to the kernel when an
   registry `App\Support\Events\WebhookEvents`. The module that owns an event, or a package, registers it in its own
   provider rather than editing another module's list:
   `app(WebhookEvents::class)->register(InvoicePaid::class, 'invoice.paid', 'invoice', 'invoiceId')` (event, type, merge-field
-  entity, id property). A type and an event class are each registered once. `tests/Arch/WebhookEventsScanTest.php` checks
+  entity, id property). Register in the provider's `boot()` (Notifications attaches its listeners after all providers have
+  booted, so a later registration gets none). `entity` and `idProperty` are not validated at registration; an unknown
+  entity falls back to the event's scalar properties. A type and an event class are each registered once. `tests/Arch/WebhookEventsScanTest.php` checks
   that a module registers only its own events.
 
 ### Enforcement (arch tests)

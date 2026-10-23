@@ -33,7 +33,7 @@ const WEBHOOK_TYPES_BEFORE_REGISTRY = [
 test('every type that was listed before the registry is still registered, with its entity and id property', function () {
     $registry = app(WebhookEvents::class);
 
-    expect($registry->keys())->toEqualCanonicalizing(array_keys(WEBHOOK_TYPES_BEFORE_REGISTRY));
+    expect($registry->types())->toEqualCanonicalizing([...array_keys(WEBHOOK_TYPES_BEFORE_REGISTRY), 'webhook.ping']);
 
     foreach ($registry->events() as $event) {
         $registered = $registry->forEvent($event);
@@ -51,19 +51,34 @@ test('the endpoint form lists the registered types', function () {
         ->assertInertia(fn ($page) => $page->where('eventTypes', app(WebhookEvents::class)->types()));
 });
 
-test('a type or an event class is registered once unless replace is passed, and a replacement is logged', function () {
+test('a type or an event class is registered once unless replace is passed', function () {
+    $registry = new WebhookEvents;
+    $registry->register('Acme\\Events\\InvoiceSettled', 'acme.settled');
+
+    expect(fn () => $registry->register('Acme\\Events\\Other', 'acme.settled'))->toThrow(LogicException::class)
+        ->and(fn () => $registry->register('Acme\\Events\\InvoiceSettled', 'acme.other'))->toThrow(LogicException::class);
+});
+
+test('a package-owned type can be replaced, with a warning naming the previous event', function () {
     Log::spy();
+    $registry = new WebhookEvents;
+    $registry->register('Acme\\Events\\InvoiceSettled', 'acme.settled', 'invoice', 'invoiceId');
+
+    $registry->register('Other\\Events\\Settled', 'acme.settled', replace: true);
+
+    expect($registry->types())->toBe(['acme.settled', 'webhook.ping'])
+        ->and($registry->forEvent('Other\\Events\\Settled'))->toBe(['type' => 'acme.settled', 'entity' => null, 'idProperty' => null])
+        ->and($registry->forEvent('Acme\\Events\\InvoiceSettled'))->toBeNull();
+    Log::shouldHaveReceived('warning')->once()->with('Webhook event replaced.', ['type' => 'acme.settled', 'event' => 'Other\\Events\\Settled', 'previous' => ['Acme\\Events\\InvoiceSettled']]);
+});
+
+test('a kernel-owned type or event cannot be replaced, even with replace', function () {
     $registry = new WebhookEvents;
     $registry->register(InvoicePaid::class, 'invoice.paid', 'invoice', 'invoiceId');
 
-    expect(fn () => $registry->register(InvoicePaid::class, 'invoice.settled'))->toThrow(LogicException::class)
-        ->and(fn () => $registry->register(stdClass::class, 'invoice.paid'))->toThrow(LogicException::class);
-
-    $registry->register(InvoicePaid::class, 'invoice.settled', replace: true);
-
-    expect($registry->keys())->toBe(['invoice.settled'])
-        ->and($registry->forEvent(InvoicePaid::class))->toBe(['type' => 'invoice.settled', 'entity' => null, 'idProperty' => null]);
-    Log::shouldHaveReceived('info')->once()->with('Webhook event replaced.', ['type' => 'invoice.settled', 'event' => InvoicePaid::class]);
+    expect(fn () => $registry->register('Acme\\Events\\Paid', 'invoice.paid', replace: true))->toThrow(LogicException::class, 'cannot be replaced')
+        ->and(fn () => $registry->register(InvoicePaid::class, 'acme.paid', replace: true))->toThrow(LogicException::class, 'cannot be replaced')
+        ->and($registry->forEvent(InvoicePaid::class)['type'])->toBe('invoice.paid');
 });
 
 test('types are <area>.<action> in lowercase, up to 50 characters, and the test event is reserved', function (string $type) {

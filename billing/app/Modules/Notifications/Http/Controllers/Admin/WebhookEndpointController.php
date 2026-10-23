@@ -25,7 +25,7 @@ use Inertia\Response;
  */
 class WebhookEndpointController extends Controller
 {
-    public function __construct(private ActivityLogger $activity) {}
+    public function __construct(private ActivityLogger $activity, private WebhookEvents $events) {}
 
     public function index(): Response
     {
@@ -43,7 +43,7 @@ class WebhookEndpointController extends Controller
     {
         $this->authorize('notifications.webhooks.manage');
 
-        return Inertia::render('admin/notifications/webhooks/form', ['endpoint' => null, 'eventTypes' => app(WebhookEvents::class)->types()]);
+        return Inertia::render('admin/notifications/webhooks/form', ['endpoint' => null, 'eventTypes' => $this->events->types()]);
     }
 
     public function store(WebhookEndpointRequest $request): RedirectResponse
@@ -96,7 +96,7 @@ class WebhookEndpointController extends Controller
     {
         $this->authorize('notifications.webhooks.manage');
 
-        return Inertia::render('admin/notifications/webhooks/form', ['endpoint' => $this->summary($endpoint), 'eventTypes' => app(WebhookEvents::class)->types()]);
+        return Inertia::render('admin/notifications/webhooks/form', ['endpoint' => $this->summary($endpoint), 'eventTypes' => $this->events->types()]);
     }
 
     public function update(WebhookEndpointRequest $request, WebhookEndpoint $endpoint): RedirectResponse

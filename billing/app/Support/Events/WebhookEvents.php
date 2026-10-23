@@ -14,7 +14,9 @@ use LogicException;
  *
  * $entity names the merge-field resolver that builds the payload object and $idProperty the event property holding
  * the entity id; without them the payload is the event's scalar properties. Registration stores plain data and
- * resolves nothing. The type is the key subscribers see, so it is a public name: `<area>.<action>`, lowercase.
+ * resolves nothing, so register in boot(): the listeners attach once all providers have booted. The type is the key
+ * subscribers see, so it is a public name: `<area>.<action>`, lowercase. A type whose event is under `App\Events\` is
+ * kernel-owned and cannot be replaced; a package-owned one can, with a warning in the log.
  *
  * @api
  */
@@ -27,6 +29,9 @@ final class WebhookEvents
 
     /** @var array<string, array{event: class-string, entity: string|null, idProperty: string|null}> */
     private array $types = [];
+
+    /** @var array<class-string, string>|null event => type, built on first read */
+    private ?array $byEvent = null;
 
     /**
      * @param  class-string  $event
@@ -41,11 +46,19 @@ final class WebhookEvents
         $conflict = isset($this->types[$type]) ? $type : $eventHolder;
 
         if ($conflict !== null) {
+            $previous = array_values(array_unique(array_filter([$this->types[$type]['event'] ?? null, $eventHolder === null ? null : $this->types[$eventHolder]['event']])));
+
             if (! $replace) {
                 throw new LogicException("Webhook type [{$type}] or event [{$event}] is already registered as [{$conflict}]; pass replace: true to override it.");
             }
 
-            Log::info('Webhook event replaced.', ['type' => $type, 'event' => $event]);
+            foreach ($previous as $held) {
+                if (str_starts_with($held, 'App\\Events\\')) {
+                    throw new LogicException("Webhook type [{$conflict}] belongs to the kernel event [{$held}] and cannot be replaced.");
+                }
+            }
+
+            Log::warning('Webhook event replaced.', ['type' => $type, 'event' => $event, 'previous' => $previous]);
             unset($this->types[$type]);
 
             if ($eventHolder !== null) {
@@ -54,6 +67,7 @@ final class WebhookEvents
         }
 
         $this->types[$type] = ['event' => $event, 'entity' => $entity, 'idProperty' => $idProperty];
+        $this->byEvent = null;
     }
 
     public function has(string $type): bool
@@ -92,24 +106,10 @@ final class WebhookEvents
         return [...array_keys($this->types), self::PING];
     }
 
-    /**
-     * Registered types in registration order, without the test event.
-     *
-     * @return list<string>
-     */
-    public function keys(): array
-    {
-        return array_keys($this->types);
-    }
-
     private function typeOf(string $event): ?string
     {
-        foreach ($this->types as $type => $entry) {
-            if ($entry['event'] === $event) {
-                return $type;
-            }
-        }
+        $this->byEvent ??= array_flip(array_map(fn (array $entry): string => $entry['event'], $this->types));
 
-        return null;
+        return $this->byEvent[$event] ?? null;
     }
 }

@@ -19,13 +19,13 @@ class WebhookEndpointRequest extends FormRequest
     /**
      * @return array<string, ValidationRule|array<mixed>|string>
      */
-    public function rules(): array
+    public function rules(WebhookEvents $events): array
     {
         return [
             'url' => ['required', 'string', 'max:2048', 'url:https,http'],
             'description' => ['nullable', 'string', 'max:255'],
             'events' => ['required', 'array', 'min:1'],
-            'events.*' => ['string', Rule::in(['*', ...app(WebhookEvents::class)->types()])],
+            'events.*' => ['string', Rule::in(['*', ...$events->types()])],
             'is_active' => ['boolean'],
         ];
     }
