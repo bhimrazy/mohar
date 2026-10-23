@@ -13,6 +13,7 @@ use App\Modules\Domains\Actions\RetrieveEppCode;
 use App\Modules\Domains\Actions\SetRegistrarLock;
 use App\Modules\Domains\Actions\SubmitToRegistrar;
 use App\Modules\Domains\Actions\SyncDomain;
+use App\Modules\Domains\Actions\UpdateContacts;
 use App\Modules\Domains\Actions\UpdateNameservers;
 use App\Modules\Domains\Drivers\Registrars\ResellerClub\ResellerClubClient;
 use App\Modules\Domains\Drivers\Registrars\ResellerClub\ResellerClubContacts;
@@ -419,6 +420,24 @@ test('name servers, the lock and the EPP code go through the host; the code is n
         ->and($code->code)->toBe(rcOrderOf('asha-sim.com')['domsecret'])
         ->and((string) json_encode(RegistrarCommandLog::query()->get(['request', 'response', 'error'])))->not->toContain($code->code);
 });
+
+test('a registrant change leaves a 60-day transfer lock dated from the company day, not the driver clock', function (string $zone, string $instant, string $date) {
+    $domain = rcDomain('asha-sim');
+    app(SubmitToRegistrar::class)->handle($domain);
+    actingAsStaff(['domains.manage']);
+    inCompanyTimezone($zone);
+    CarbonImmutable::setTestNow(CarbonImmutable::parse($instant, 'UTC'));
+    $registrant = $domain->fresh()->contacts->firstWhere('role', 'registrant');
+
+    app(UpdateContacts::class)->handle($domain->fresh(), ['registrant' => [...$registrant->only(['first_name', 'last_name', 'email', 'phone', 'address_1', 'city', 'state', 'postcode', 'country']), 'last_name' => 'Thapa', 'email' => 'bikash@example.test']]);
+
+    expect(rcOrderOf('asha-sim.com')['domainstatus'])->toBe(['sixtydaylock'])
+        ->and($domain->fresh()->registrar_meta['transfer_lock_until'])->toBe(CarbonImmutable::parse($date)->addDays(60)->toDateString());
+    CarbonImmutable::setTestNow();
+})->with([
+    'Kathmandu, at local midnight' => ['Asia/Kathmandu', '2026-10-18 18:15:00', '2026-10-19'],
+    'New York, 1 second before local midnight' => ['America/New_York', '2026-10-19 03:59:59', '2026-10-18'],
+]);
 
 test('test connection passes, and names the allow-list when ResellerClub answers Access Denied', function () {
     $ok = app(RegistrarGateway::class)->testConnection(ResellerClubDriver::KEY);

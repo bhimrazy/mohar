@@ -5,6 +5,7 @@ namespace App\Modules\Domains\Http\Requests;
 use App\Enums\FieldType;
 use App\Support\Domains\RegistrarDriverRegistry;
 use App\Support\Integrations\KeepsSecretsOutOfOldInput;
+use App\Support\Integrations\SecretMinimumLength;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -39,7 +40,7 @@ class RegistrarAccountRequest extends FormRequest
                 FieldType::Number => ['nullable', 'integer', 'min:0', 'max:1000000'],
                 FieldType::Select => ['nullable', Rule::in(array_map('strval', array_keys($field->options)))],
                 FieldType::Boolean => ['nullable', 'boolean'],
-                default => ['nullable', 'string', 'max:1000'],
+                default => ['nullable', 'string', 'max:1000', new SecretMinimumLength($field)],
             };
         }
 

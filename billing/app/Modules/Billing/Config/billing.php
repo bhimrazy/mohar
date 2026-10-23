@@ -26,6 +26,13 @@ return [
     'proforma_format' => 'PF-{NUMBER}',
     'set_issue_date_on_payment' => true,
     'quote_number_format' => 'Q-{NUMBER}',
+    // Credit and debit notes (ADR 0024): own gap-free sequences with their own format, padding and reset.
+    'credit_note_format' => 'CN-{NUMBER}',
+    'credit_note_padding' => 0,
+    'credit_note_reset' => 'never', // never|yearly|monthly
+    'debit_note_format' => 'DN-{NUMBER}',
+    'debit_note_padding' => 0,
+    'debit_note_reset' => 'never',
     'invoice_days_before_due' => 14,
 
     // Credit & add funds (§4.4, §4.5)
