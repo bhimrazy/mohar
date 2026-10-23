@@ -1,9 +1,9 @@
 # ADR 0023 — Log redaction rules
 
-- Status: Proposed · 2026-10-23 (revised after the security review of #382) · Owner: Principal architect.
+- Status: Accepted · 2026-10-23 (CTO), after two security reviews of #382 · Owner: Principal architect.
 - Amends: ADR 0009 §1 (the `Redactor`) and ADR 0014 "Logs".
-- Related: issues #254, #311, #309, #356, #383; PRs #252, #264, #294, #345, #368 (open); ADR 0009 Amendments 2, 3
-  and 5 (#368); ADR 0010 (contract evolution), ADR 0012 (capabilities); CTO review 2026-10-22, recommendation 3;
+- Related: issues #254, #311, #309, #356, #383; PRs #252, #264, #294, #345, #368 (open), #386 (hot-fix); ADR 0009
+  Amendments 2, 3 and 5 (#368); ADR 0010 (contract evolution), ADR 0012 (capabilities); CTO review 2026-10-22, recommendation 3;
   `billing/docs/security/standards.md` §4 and §6.
 
 ## Context
@@ -32,7 +32,8 @@
   message, which loses the class and the cause: `ExecuteModuleCommand` (twice: the command's `catch` and
   `callDriver()`), `SyncUsage`, `FetchServerAccounts`, `VerifyUnknownOutcomes`, `ServerController` and
   `RegistryProvisioningDrivers`. Both `ExecuteModuleCommand` sites leave the new password of a password change out of
-  their mask set; the CTO fixes that separately (#383).
+  their mask set; the CTO fixes that separately (#383, hot-fix #386). `CpanelSmokeCommand` prints exception messages
+  unmasked, and the throwaway password it generates is in no mask set.
 - **The application log has no backstop.** `config/logging.php` is Laravel's default. Its only processor is
   `PsrLogMessageProcessor`: listed on `papertrail` and `stderr`, and added by `replace_placeholders` on the file,
   Slack, syslog and errorlog channels. Production runs `LOG_CHANNEL=stderr` with `JsonFormatter`
@@ -77,7 +78,8 @@
 3. **Other sinks.** `failed_jobs.exception` is a sink: the kernel decorates the `queue.failer` binding so that the
    exception is passed through `maskThrowable()` (shape rules and any attached set) before it is stored. An
    error-tracking service, if one is added, takes exceptions only after the same call. Code outside tests never
-   writes to `error_log()`, `STDERR` or `php://stderr`, and never builds a logger with `Log::build()` (§6, step 4).
+   writes to `error_log()`, `syslog()`, `STDERR` or `php://stderr`, and never builds a logger with `Log::build()`
+   (§6, step 4).
 4. **One exception helper.** `Redactor::maskThrowable(Throwable, ?RedactionSet): Throwable` masks the message of the
    exception and of up to 16 exceptions behind it, in place. It keeps the class, code, flags, trace and `previous`.
    It replaces `maskChain()`, `guard()`'s loop and the seven `RuntimeException` wrappers, which report the original
@@ -110,21 +112,26 @@ Matching rules:
       found as `SecretTemplatePolicy::normalise()` does: a word that holds `&` or `%` is decoded until it is stable
       (at most 6 passes), and the whole word is masked when its decoded form holds a value. `normalise()` moves into
       the kernel, and Notifications uses it from there;
-    - base64 and base64url, with and without padding, at all three byte alignments: the value is encoded after 0, 1
-      and 2 prefix bytes, and the characters at each edge that depend on the neighbouring bytes are dropped. This
-      covers `user:secret` in a Basic header or a dump. Matched exactly (base64 is case-sensitive);
+    - base64 and base64url, with and without padding, matched exactly (base64 is case-sensitive). The value is
+      encoded after 0 prefix bytes, and also after 1 and 2 prefix bytes with the edge characters that depend on the
+      neighbouring bytes dropped. This covers `user:secret` in a Basic header or a dump. The offset forms are built
+      only when what is left is 8 characters or more (values of about 7 bytes or more): a shorter core is drawn from
+      the letter alphabet and would match inside ordinary words;
     - hex in either case, for values of 8 bytes or more;
     - for `SecretText` (a PEM or SSH key), each line of 16 characters or more also on its own, so CRLF line endings
       and re-wrapped keys are caught;
     - **truncated echoes**: for values of 16 bytes or more, a run of token characters (letters, digits, `-`, `_`,
-      `+`, `/`, `=`) that starts with the value's first 8 bytes or ends with its last 8 bytes is masked whole. A
-      truncated echo shorter than 8 bytes stays readable; that is the bound.
+      `+`, `/`, `=`) that starts with the value's first 8 bytes or ends with its last 8 bytes is masked whole. An
+      anchor is built only from token characters: an anchor that holds any other character (`:`, a space) is not
+      built, and neither is one that equals a known shape prefix (`sk_live_`, `rk_live_`), which the shape rules
+      already mask. A truncated echo shorter than 8 bytes stays readable; that is the bound.
     - They are not regrouped: a provider does not regroup a random token, and regrouping short values would mask
       ordinary text.
 - **Client answers** match their letters and digits in order, case-insensitively (Unicode).
-    - Between two characters, a run of 1 to 3 separators is allowed. A separator is any character that is not a
-      letter or digit (space, `-`, `.`, `/`, `_`, `,`, `(`, `)`, `+` and so on), or a percent-encoded byte
-      (`%20`). So `(981) 234-5678`, `518,247,535,56` and `518%20247%20535%2056` match.
+    - Between two characters, 0 to 3 separators are allowed, matched possessively. A separator is any character that
+      is not a letter or digit (space, `-`, `.`, `/`, `_`, `,`, `(`, `)`, `+` and so on), or a percent-encoded byte
+      (`%20`). So `51824753556`, `(981) 234-5678`, `518,247,535,56` and `518%20247%20535%2056` match. Separators are
+      never letters or digits, so nothing backtracks more than a constant per position.
     - Each digit in the pattern matches its ASCII form or its Devanagari form (U+0966 to U+096F), so no copy is
       folded and offsets stay as they are.
     - An answer of 8 letters or digits or more matches anywhere, as `guard()` does now: `9812345678` is masked in
@@ -136,9 +143,11 @@ Matching rules:
   everywhere hides ordinary words and shows staff, by elimination, which word the secret is.
 - **Minimum length for a new secret setting: 8 bytes.** Saving a `Secret` or `SecretText` value shorter than 8 bytes
   is refused, unless the field declares a shorter known format through a new trailing, defaulted
-  `SettingField::$minLength` (a 6-digit PIN declares 6). Values already stored are not broken: a read-only check
-  lists, by setting key and never by value, every stored secret below its minimum, so staff can replace it. The
-  check is shown in Health once the ADR 0014 `HealthChecks` registry exists.
+  `SettingField::$minLength` (a 6-digit PIN declares 6). A field that declares a `minLength` under 4 is refused when
+  it is built, since such a value could never be masked by value. Values already stored are not broken: a read-only
+  check finds every stored secret below its minimum and names it by setting key, never by value. Its field is marked
+  on its settings form ("too short, replace it"), and a read-only artisan command lists them all. The check is also
+  shown in Health once the ADR 0014 `HealthChecks` registry exists.
 - **Names and shapes** keep today's rules (words, adjacent pairs, run-together spellings, provider prefixes, the one
   linear text pass). A new rule is added with a corpus case (§5), not a probe file.
 - **Readable on purpose.** `REFERENCE_KEYS`, `REFERENCE_ID_PATTERN`, `PAYMENT_REFERENCES` and `remote` (§3) are the
@@ -147,8 +156,10 @@ Matching rules:
 - **Fail closed.** An unterminated quote, element or CDATA section masks to the end of the text. A pattern that
   fails (`preg_*` returns `null`) withholds the whole string. A branch past the depth cap is masked.
 - **Budget.** Every rule is linear in the input: 1 MB of text in under 2 seconds (the existing timing test) and
-  memory proportional to its length (tested from step 2 of §6). Each value adds a fixed number of forms, so the
-  cost grows with the size of the set, not with the input squared. Value matching runs before any cut, so a cut
+  memory proportional to its length (tested from step 2 of §6). Each value adds a fixed number of forms (about
+  20), so the cost is the text's length times the number of forms, never the input squared. Forms are built once
+  per set and reused across records. The budget test runs with a realistic maximum set (16 values, `SecretText`
+  among them) through the processor path as well as through `redact()`. Value matching runs before any cut, so a cut
   never leaves part of a secret readable. Text that is masked by shape only may be cut first, as `WebhookSender`
   does at 2 KB.
 
@@ -161,10 +172,13 @@ Matching rules:
   `RegistrarActionFailed` and the staff email it triggers): the message and `meta` are masked through `mapText()`
   and `withMessage()`, with keys and depth as #368 settled.
 - **`remote` in the state copy** is never partly masked: it holds the ids later calls and proof of ownership need,
-  and a mask would change one. If a leaf of `remote` contains a value from the set, the host withholds that whole
-  leaf (`[redacted]`) and logs a fixed warning naming the registrar and the key. No real id contains an EPP code, a
-  credential or a client answer, so no working id is lost. The admin page's Inertia prop (`DomainActionController`)
-  and `DomainResource` read `registrar_meta`, so neither holds the value.
+  and a mask would change one. It is not compared with the substring rules of §2, which would hit a numeric order id
+  that happens to contain a short credential or a phone number. A leaf is a hit only when it equals one of a value's
+  match forms, or, for values of 8 bytes or more, contains one at token boundaries (not preceded or followed by a
+  letter or digit). On a hit the host withholds the whole leaf (`[redacted]`), sets the domain's `needs_review`, and
+  logs a fixed warning naming the registrar and the key, so no renew or transfer runs on a lost id until staff
+  check it. The admin page's Inertia prop (`DomainActionController`) and `DomainResource` read `registrar_meta`, so
+  neither holds the value.
 - **Log copy**, written to `registrar_command_log`: built from the state copy, then `redact()` with the same set and
   the driver's declared keys (§5), with `remote` masked as well, since the log is not read back as state. Then it is
   cut to 16 KB. `request` keeps listing TLD attribute keys only (#345).
@@ -210,7 +224,9 @@ Matching rules:
       `WeakMap<Throwable, RedactionSet>` before it is re-thrown. The processor, `maskThrowable()` and the failer
       decorator look up every exception along the `previous` chain, so a `report()` in the host's `catch`, a log
       line the queue worker writes after the job, and `failed_jobs.exception` are masked by value after the scope
-      has ended. An entry goes when its exception is freed.
+      has ended. When `during()` calls nest, the sets are merged onto the exception, never replaced. An entry goes
+      when its exception is freed. The processor uses only the sets of calls in progress and those attached to the
+      exceptions in the record at hand, so one job never masks with another job's set.
     - The scope holds only the sets of calls in progress and drops each one in a `finally`.
 - **Test contract** `tests/Support/Contracts/RedactionContract.php`, used by the registrar, provisioning and (new)
   gateway driver contracts:
@@ -219,7 +235,9 @@ Matching rules:
        configured secret or request secret, checked raw, before host masking;
     3. on the host path, with a provider answer echoing every secret in each form of §2 and each client answer in
        each regrouping of §2, none reaches the stored rows, `last_error`, `remote` as stored, the activity log,
-       event payloads, mail, Inertia props or a log record captured with the processor removed;
+       event payloads, mail, Inertia props or a log record captured with the processor removed. It includes a
+       `remote` leaf equal to a secret (withheld, `needs_review` set) and a `remote` id that contains a short
+       credential by coincidence (kept);
     4. the same host path inside a queued job that fails: none reaches `failed_jobs.exception` or the worker's log
        record.
 - **Corpus test** (CTO recommendation 3): a slow, plain reference masker (test-only) and a generated corpus of
@@ -231,7 +249,7 @@ Matching rules:
 ### 6. Migration, in order
 
 Each step is one PR under 2,000 changed lines. Kernel steps are made by the CTO session (repository rule). The
-missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this series (#383).
+missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this series (#383, #386).
 
 1. **This ADR**, and a pointer to it in `architecture.md` (docs only).
 2. **Tests first**: reference masker, generated corpus and budgets; the probe files folded into
@@ -239,20 +257,23 @@ missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this s
 3. **Kernel rules**: `RedactionSet` with the §2 forms and the 4-byte match minimum, answer patterns moved from
    `TldAttributeService` into the kernel, numeric leaves and JSON keys, `normalise()` moved into the kernel,
    `maskThrowable()`, the self-returning object fix, #309, and the HTML marker walk split out of `Redactor` (#311).
-   In the same PR, the 8-byte refusal at save (`SettingField::$minLength`) and the read-only check of stored short
-   secrets, so no stored value loses its mask without staff being told. The corpus from step 2 proves nothing else
+   In the same PR, the 8-byte refusal at save (`SettingField::$minLength`, at least 4), and the check of stored short
+   secrets shown on each settings form and as a read-only artisan command, so no stored value loses its mask
+   without staff being told. The corpus from step 2 proves nothing else
    became readable.
 4. **Backstop**: `RedactingProcessor` on every channel's handlers, `RedactLogs`, `RedactionScope` with its
    `WeakMap`, the `queue.failer` decorator, the re-entry guard, the order test, and the `stderr` channel (§1.7). An
    Arch test fails on a channel in `config/logging.php` without the tap (`stack` and `null` excepted), and on
-   `Log::build()`, `LogManager::build()`, `error_log()`, `STDERR` or `php://stderr` in `app/`. It comes before any
+   `Log::build()`, `LogManager::build()`, `error_log()`, `syslog()`, `openlog()`, `STDERR` or `php://stderr` in
+   `app/`. It comes before any
    host step, because steps 5 and 6 report the original exception with its full `previous` chain, which today's
    wrappers drop.
 5. **Domains host**: `RegistrarGateway` builds the set, runs the call in `RedactionScope::during()`, and masks state
    and log copies and withholds `remote` leaves as in §3; `guard()` and `maskChain()` removed;
    `DeclaresSensitiveKeys` replaces `codeKeys()`. After #368 merges.
 6. **Services and Core hosts**: the seven `RuntimeException` wrappers become `maskThrowable()`, driver calls run in
-   `RedactionScope::during()`, `WebhookSender` and `RunAutomation` pass a set.
+   `RedactionScope::during()`, `WebhookSender` and `RunAutomation` pass a set, and `CpanelSmokeCommand` masks the
+   messages it prints with a set that includes its throwaway password.
 7. **Billing**: `GatewayConfig::secrets()`, gateway calls in `RedactionScope::during()`, and credentials masked by
    value in `gateway_logs` and transaction and refund `raw`.
 8. **Contracts**: `RedactionContract` in the registrar and provisioning contracts, and a first gateway driver
@@ -267,11 +288,12 @@ missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this s
   mandatory and tested without it.
 - A reviewer can tell a leak from a bound: a leak is a corpus token the reference masks and the `Redactor` does not;
   anything else is a rule change and needs an ADR amendment. The bounds are written down: values under 4 bytes,
-  truncated echoes under 8 bytes, and short answers inside longer runs.
+  truncated echoes under 8 bytes, offset base64 forms for values under about 7 bytes, short answers inside longer
+  runs, and `remote` leaves that hold a value other than at token boundaries.
 - Behaviour changes staff will notice: a new secret under 8 bytes cannot be saved without a declared format; a stored
   short secret is listed for replacement and, under 4 bytes, is masked only by key; case, entity and encoding
   variants are masked; `2026` inside a longer number stays readable; a `remote` leaf holding a set value is
-  withheld; and the command log masks `remote` while the domain keeps it.
+  withheld and the domain goes to review; and the command log masks `remote` while the domain keeps it.
 - The processor costs nothing on a request that writes no log line. Expected outcomes are not logged (ADR 0014), so
   the hot paths in `billing/docs/devops/sizing.md` are not affected.
 - The `emergency` logger, which Laravel uses only when logging itself fails, bypasses the processor.
@@ -286,7 +308,8 @@ missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this s
   line and keep them all in memory. `RedactionScope` and the `WeakMap` hold only the sets of calls in progress and
   of exceptions still alive.
 - **Masking `remote` in the state copy.** It would change registrar ids that later calls and ownership proofs need.
-  Withholding a whole leaf that holds a set value changes no working id.
+  Withholding a whole leaf only on equality or a token-boundary match, with the domain sent to review, keeps a
+  real id that contains a short value by coincidence.
 - **A shorter match minimum, or the word-edge rule for long answers.** The first hides ordinary words and reveals
   which word was the secret. The second would leave `9812345678` readable in `+9779812345678`.
 - **Re-wrapping exceptions in `RuntimeException`.** It loses the class, the retry flag and the cause.
