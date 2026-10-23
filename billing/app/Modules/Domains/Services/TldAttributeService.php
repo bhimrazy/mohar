@@ -350,12 +350,21 @@ class TldAttributeService implements TldAttributes
     }
 
     /**
-     * Capable registrars whose account exists and is switched off (no account counts as on, as in isActive()).
+     * Capable registrars that are switched off, or need an account and have none (as in RegistrarManager::isActive()).
      *
      * @return list<string>
      */
     private function disabledKeys(): array
     {
-        return $this->disabled ??= $this->capableKeys() === [] ? [] : array_values(array_map(strval(...), RegistrarAccount::query()->whereIn('key', $this->capableKeys())->where('is_active', false)->pluck('key')->all()));
+        if ($this->disabled !== null) {
+            return $this->disabled;
+        }
+
+        $accounts = $this->capableKeys() === [] ? collect() : RegistrarAccount::query()->whereIn('key', $this->capableKeys())->pluck('is_active', 'key');
+
+        return $this->disabled = array_values(array_filter(
+            $this->capableKeys(),
+            fn (string $key): bool => $accounts->has($key) ? ! $accounts->get($key) : $this->drivers->needsAccount($key),
+        ));
     }
 }

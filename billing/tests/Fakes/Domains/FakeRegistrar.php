@@ -58,6 +58,7 @@ class FakeRegistrar
         // Standing in for a real driver keeps its settings, so the host masks that driver's secrets as it would.
         $fake->settingsFields = $registry->has($key) ? $registry->fields($key) : [];
         $registry->register($key, fn (): RegistrarDriver => $fake->driver($key), replace: true);
+        $registry->markStandalone($key);
 
         return $fake;
     }

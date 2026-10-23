@@ -40,7 +40,7 @@ class RegistrarController extends Controller
                     'name' => $driver->name(),
                     'capabilities' => $registrars->capabilitiesOf($key),
                     'configured' => $account !== null,
-                    'is_active' => $account->is_active ?? true,
+                    'is_active' => $account === null ? ! $registrars->needsAccount($key) : $account->is_active,
                     'test_mode' => $account->test_mode ?? false,
                     'schema' => array_map(fn (SettingField $field): array => $field->toArray(), $schema),
                     'settings' => collect($schema)->mapWithKeys(fn (SettingField $field): array => [

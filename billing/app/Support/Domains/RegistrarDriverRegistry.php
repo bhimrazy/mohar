@@ -71,6 +71,9 @@ final class RegistrarDriverRegistry extends DriverRegistry
 
     public const TLD_ATTRIBUTES = 'tld_attributes';
 
+    /** @var array<string, true> */
+    private array $standalone = [];
+
     protected function contract(): string
     {
         return RegistrarDriver::class;
@@ -116,5 +119,22 @@ final class RegistrarDriverRegistry extends DriverRegistry
     public function fields(string $key): array
     {
         return $this->get($key)->settingsFields();
+    }
+
+    /**
+     * Declare that the driver registered as $key works without a saved account (the demo log driver). Any other
+     * driver that has settings is not active until staff save its account: without one it has no credentials.
+     */
+    public function markStandalone(string $key): void
+    {
+        $this->standalone[$key] = true;
+    }
+
+    /**
+     * Whether $key must have a saved account before it can be used.
+     */
+    public function needsAccount(string $key): bool
+    {
+        return ! isset($this->standalone[$key]) && $this->fields($key) !== [];
     }
 }

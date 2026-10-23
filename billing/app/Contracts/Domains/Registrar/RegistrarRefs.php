@@ -17,10 +17,17 @@ interface RegistrarRefs
     public function find(string $registrarKey, string $refType, string $localType, int $localId, string $payloadHash = ''): ?RegistrarRef;
 
     /**
-     * Record a remote object after the registrar created it. Recording the same local record and payload again
-     * replaces the remote id and the secret: a ref with `secret: null` erases a stored secret, so a driver that
-     * re-records a ref passes the secret it holds. Behaviour when two workers record the same object at once
-     * (first or last writer wins, and the lock rule for drivers) is pending #267.
+     * Record a remote object after the registrar created it, and return the ref that is stored: first writer wins.
+     * When a ref for the same registrar, type, local record and payload hash exists already, nothing is changed
+     * (remote id and secret included) and the stored ref comes back, so two callers that remember the same key,
+     * even at the same moment, both receive the ref of whichever stored first. Use the returned `remoteId` and
+     * `secret`, not the ones you passed.
+     *
+     * Lock rule: remember() needs no lock; the store decides the winner atomically (a unique key, never a
+     * read-then-write). It cannot stop two workers from both creating the remote object before either remembers:
+     * the loser's object stays at the registrar unused. A driver that must not create duplicates holds a lock
+     * on the ref key (registrar, type, local record and payload hash) around find, create and remember, and
+     * re-reads with find() after taking it. Do not hold a database transaction open across the registrar call.
      */
-    public function remember(RegistrarRef $ref): void;
+    public function remember(RegistrarRef $ref): RegistrarRef;
 }
