@@ -297,7 +297,8 @@ final class CreditNoteIssued implements DomainEvent, ShouldDispatchAfterCommit
   are dispatched with `event()`. They are **never** passed to `AfterCommit::dispatch`, which would defer them a
   second time.
 - Webhook types `credit_note.issued` and `debit_note.issued` go into `WebhookEventTypes::MAP` until the registration
-  method from ADR 0011 exists.
+  method from ADR 0011 exists. They land together with the `tax_note` merge-field resolver (PR 5), so the first
+  payload subscribers receive is the final snapshot, never the events' bare fields.
 - Existing events keep their meaning:
     - `InvoiceCancelled` fires after the cancelling note;
     - `InvoiceModified` fires on a partial note;
@@ -367,20 +368,20 @@ This table is the build order; `vat-register.md` §18 points here. Each PR is at
 hidden until PR 4 merges. The AC numbers are those of `vat-register.md` §13 as revised in the same round as this
 section.
 
-| PR       | Content                                                                                                                                                                                           | AC                       |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
-| 0a (CTO) | `CompanyClock` contract, Core implementation, Billing fiscal call sites, boundary tests at 18:14:59 and 18:15:00 UTC, widened arch scan (ADR 0013 Amendment 1)                                    | 48 (invoices)            |
-| 0b (CTO) | `CreditNoteIssued` and `DebitNoteIssued`, the `MAP` entries                                                                                                                                       | —                        |
-| 1a       | Schema incl. `numbered_at`, snapshot, `tax_note_reservations` and `tax_note_reservation_lines`; the backfill with the review list (§2); `FROZEN`; per-sequence `DocumentNumbers`; `rateDecimal()` | 7–10                     |
-| 1b       | Note issuer (allocation, caps with reservations, remainder, digest), lock order, race tests for notes                                                                                             | 1–6, 11, 12, 48 (notes)  |
-| 2        | Manual issue UI, settlement, step-up, permissions, notes panel, reversing note, recorded "Refund account credit", webhook delivery                                                                | 13–20                    |
-| 3        | Old paths, the six `Invoicer::cancel` callers, automation, enabling the mode (§8: BS-month start, one instant per transaction, locked refusal, locked settings)                                   | 21–27, 52                |
-| 4        | Refund state machine (§5) incl. refunds crossing `enabled_from`, provider-initiated refunds, overpayment split, `RefundAccountCredit` (§5a), race tests (combined review, money)                  | 28–34, 49–51, 53, 54, 57 |
-| 5        | Note PDF, email, merge fields, client area, `print_count`                                                                                                                                         | 35, 36, 55, 56           |
-| 0c (CTO) | Report registry, DTOs, `SafeCsv` with `ErrorsCsv` moved, synchronous CSV and PDF (ADR 0025). Lands just before PR 6                                                                               | 45                       |
-| 6        | `VatRegisterReport`, `TaxNoteRegisterReport`, screens                                                                                                                                             | 37–43                    |
-| 7        | `detail` and `ird` layouts, PDF, export permissions                                                                                                                                               | 44, 46, 47               |
-| later    | Trigger (§9); `{BS_FY}` after D2; queued export with the Reports module (ADR 0025)                                                                                                                | 58                       |
+| PR       | Content                                                                                                                                                                                           | AC                           |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| 0a (CTO) | `CompanyClock` contract, Core implementation, Billing fiscal call sites, boundary tests at 18:14:59 and 18:15:00 UTC, widened arch scan (ADR 0013 Amendment 1)                                    | 48 (invoices)                |
+| 0b (CTO) | `CreditNoteIssued` and `DebitNoteIssued`                                                                                                                                                          | —                            |
+| 1a       | Schema incl. `numbered_at`, snapshot, `tax_note_reservations` and `tax_note_reservation_lines`; the backfill with the review list (§2); `FROZEN`; per-sequence `DocumentNumbers`; `rateDecimal()` | 7–10                         |
+| 1b       | Note issuer (allocation, caps with reservations, remainder, digest), lock order, race tests for notes                                                                                             | 1–6, 11, 12, 48 (notes)      |
+| 2        | Manual issue UI, settlement, step-up, permissions, notes panel, reversing note, recorded "Refund account credit"                                                                                  | 13–19, 20 (event)            |
+| 3        | Old paths, the six `Invoicer::cancel` callers, automation, enabling the mode (§8: BS-month start, one instant per transaction, locked refusal, locked settings)                                   | 21–27, 52                    |
+| 4        | Refund state machine (§5) incl. refunds crossing `enabled_from`, provider-initiated refunds, overpayment split, `RefundAccountCredit` (§5a), race tests (combined review, money)                  | 28–34, 49–51, 53, 54, 57     |
+| 5        | Note PDF, email, merge fields with the `tax_note` resolver, webhook delivery (the `MAP` entries), client area, `print_count`                                                                      | 35, 36, 55, 56, 20 (webhook) |
+| 0c (CTO) | Report registry, DTOs, `SafeCsv` with `ErrorsCsv` moved, synchronous CSV and PDF (ADR 0025). Lands just before PR 6                                                                               | 45                           |
+| 6        | `VatRegisterReport`, `TaxNoteRegisterReport`, screens                                                                                                                                             | 37–43                        |
+| 7        | `detail` and `ird` layouts, PDF, export permissions                                                                                                                                               | 44, 46, 47                   |
+| later    | Trigger (§9); `{BS_FY}` after D2; queued export with the Reports module (ADR 0025)                                                                                                                | 58                           |
 
 ## Open questions (accountant)
 
