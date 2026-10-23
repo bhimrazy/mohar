@@ -64,7 +64,7 @@ if [ -n "$direct" ]; then
         fi
     elif [ -n "${PR_NUMBER:-}" ] && [ "$PR_NUMBER" -le "$LEGACY_MAX_PR" ]; then
         for f in $direct; do
-            annotate warning "$f" "PR #$PR_NUMBER predates changelog fragments and keeps its direct edit; new entries go in a fragment (billing/changelog.d/README.md)"
+            annotate warning "$f" "PR #$PR_NUMBER predates changelog fragments and keeps its direct edit; later entries go in a fragment (ADR 0027)"
         done
     else
         for f in $direct; do
@@ -83,10 +83,11 @@ if ! "$here/changelog-assemble.sh" --check --root "$top"; then
     failed=1
 fi
 
-if grep -qE "$code_re" <<< "$paths" && [ -z "$(added_or_edited "$app_frag_re")" ]; then
+# A legacy PR's direct edit stands in for the fragment.
+if grep -qE "$code_re" <<< "$paths" && ! grep -qx "$app_log" <<< "$direct" && [ -z "$(added_or_edited "$app_frag_re")" ]; then
     annotate warning billing/changelog.d "app code changed but no billing/changelog.d/ fragment was added; add one unless users and operators see no change"
 fi
-if grep -qE "$kernel_re" <<< "$paths" && [ -z "$(added_or_edited "$kernel_frag_re")" ]; then
+if grep -qE "$kernel_re" <<< "$paths" && ! grep -qx "$kernel_log" <<< "$direct" && [ -z "$(added_or_edited "$kernel_frag_re")" ]; then
     annotate warning billing/docs/architecture/kernel-changelog.d "the kernel surface changed (ADR 0010) but no kernel-changelog.d/ fragment was added; add one unless the public API is unchanged"
 fi
 
