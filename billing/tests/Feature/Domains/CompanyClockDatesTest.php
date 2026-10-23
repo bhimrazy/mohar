@@ -10,6 +10,7 @@ use App\Contracts\Domains\DomainRegistry;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarCommandLog;
+use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Services\DomainPricingService;
 use App\Data\Domains\DomainDraft;
 use Carbon\CarbonImmutable;
@@ -139,4 +140,28 @@ it('prunes the registrar log before the start of the company day the retention r
     $this->artisan('automation:run', ['--only' => 'domains.command_log_prune', '--date' => $dayAfter])->assertSuccessful();
 
     expect(RegistrarCommandLog::query()->pluck('id')->all())->toBe([$kept->id]);
+})->with('company midnight');
+
+it('dates a log-registrar registration, transfer and renewal from the company day, with the due dates in step', function (string $zone, string $before, string $at, string $dayBefore, string $dayAfter) {
+    $tld = Tld::factory()->extension('.net')->priced(register: 1500)->create(['registrar_key' => 'log']);
+    $client = Client::factory()->create();
+    $registry = app(DomainRegistry::class);
+
+    foreach ([[$before, $dayBefore, 'one'], [$at, $dayAfter, 'two']] as [$instant, $date, $name]) {
+        domainsAt($zone, $instant);
+        $id = $registry->createPending(new DomainDraft($client->id, "{$name}.net", 'register', 1, 'USD', 1400, 1200, null, null, []));
+        $registry->process($id);
+
+        $domain = Domain::query()->findOrFail($id);
+        $year = CarbonImmutable::parse($date)->addYear()->toDateString();
+        expect($domain->status)->toBe(DomainStatus::Active)
+            ->and($domain->registration_date->toDateString())->toBe($date)
+            ->and($domain->expiry_date->toDateString())->toBe($year)
+            ->and($domain->next_due_date->toDateString())->toBe($year);
+
+        $transfer = Domain::factory()->pending('transfer')->status(DomainStatus::PendingTransfer)->create(['tld_id' => $tld->id, 'registrar_key' => 'log', 'billing_anchor_day' => null, 'sld' => "{$name}-in", 'name' => "{$name}-in.net"]);
+        app(SyncDomains::class)->handle();
+        expect($transfer->fresh())->status->toBe(DomainStatus::Active)->registration_date->toDateString()->toBe($date)
+            ->expiry_date->toDateString()->toBe(CarbonImmutable::parse($date)->addYears($transfer->period_years)->toDateString());
+    }
 })->with('company midnight');

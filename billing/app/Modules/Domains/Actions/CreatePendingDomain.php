@@ -14,7 +14,6 @@ use App\Modules\Domains\Services\DomainPricingService;
 use App\Modules\Domains\Services\TldAttributeService;
 use App\Modules\Domains\Support\DomainName;
 use App\Modules\Domains\Support\Nameservers;
-use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;

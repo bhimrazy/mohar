@@ -8,7 +8,7 @@ final readonly class RegistrarResult
 {
     /**
      * @param  'completed'|'pending'  $status
-     * @param  array<string, mixed>  $meta  driver-specific flags (e.g. contact_change_pending, transfer_lock_until)
+     * @param  array<string, mixed>  $meta  driver-specific flags (e.g. contact_change_pending, transfer_lock_days)
      * @param  array<string, string|int>  $remote  registrar ids later calls need (order id, transfer id), kept in
      *                                             registrar_meta.remote
      */

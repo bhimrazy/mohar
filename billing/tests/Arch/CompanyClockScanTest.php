@@ -28,9 +28,6 @@ const SCANNED_MODULES = ['Billing', 'Services', 'Notifications', 'Platform', 'Do
  * is unavailable (no settings table yet). The scan removes exactly this text from that file before matching.
  */
 const SCAN_EXCEPTIONS = [
-    // The log registrar is the offline test driver and must touch no database (its contract test), so its placeholder
-    // registrar dates cannot read the company setting.
-    'Modules/Domains/Drivers/Registrars/LogRegistrar.php' => 'CarbonImmutable::today()',
     'Modules/Notifications/Support/MailDates.php' => "CarbonImmutable::now('UTC')->toDateString()",
 ];
 

@@ -4,7 +4,6 @@ namespace App\Modules\Domains\Http\Resources;
 
 use App\Contracts\Core\CompanyClock;
 use App\Modules\Domains\Models\Domain;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
