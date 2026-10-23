@@ -19,17 +19,15 @@ type PageProps = {
 export default function Profile({
     mustVerifyEmail,
     status,
-    hasPassword,
     setPasswordUrl,
 }: {
     mustVerifyEmail: boolean;
     status?: string;
-    /** Changing the email needs a password confirmation, so a login without one must set it first. */
-    hasPassword: boolean;
-    /** The set-password action, when this install has it. */
-    setPasswordUrl: string | null;
+    setPasswordUrl: string;
 }) {
     const { auth } = usePage<PageProps>().props;
+    // Changing the email needs a password confirmation, so a login without one must set it first.
+    const hasPassword = auth.user.has_password;
 
     return (
         <>
@@ -141,7 +139,7 @@ export default function Profile({
                 </Form>
             </div>
 
-            {!hasPassword && setPasswordUrl && (
+            {!hasPassword && (
                 <Form action={setPasswordUrl} method="post">
                     {({ processing }) => (
                         <Button

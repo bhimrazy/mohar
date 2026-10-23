@@ -87,7 +87,7 @@ test('driver server settings are validated, stored encrypted and never sent back
         ->and((string) $server->getRawOriginal('settings'))->not->toContain('Reseller-S3cret')->not->toContain('eu-1');
 
     $this->get(route('admin.services.servers.edit', $server))->assertInertia(fn (Assert $page) => $page
-        ->where('server.settings', ['values' => ['region' => 'eu-1', 'verify_pin' => '1'], 'secrets_set' => ['reseller_secret' => true]])
+        ->where('server.settings', ['values' => ['region' => 'eu-1', 'verify_pin' => '1'], 'secrets_set' => ['reseller_secret' => true], 'secrets_short' => []])
         ->where('driverFields.settings_panel.1', fn ($field) => $field['type'] === 'secret' && $field['secret'] === true)
         ->where('driverFields.log.0.key', 'region'));
     $this->get(route('admin.services.servers.edit', $server))->assertDontSee('Reseller-S3cret');

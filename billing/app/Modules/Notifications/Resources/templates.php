@@ -52,6 +52,13 @@ The link works until {{ auth.expires_at }} and only once. If you didn't ask for 
 
 If this wasn't you, contact {{ support.email }}.
 MD),
+    $secret('auth.password_set', 'client', 'general', 'Set a password link', 'Set a password for your {{ company.name }} account', 'Set a password', 'Set a password', <<<'MD'
+Hello {{ user.first_name }}, you asked to set a password for your {{ company.name }} account. Use the button below; sign in first if you are asked to.
+
+The link works until {{ auth.expires_at }} and only once. If you didn't ask for this, ignore this email and nothing changes.
+
+If this wasn't you, contact {{ support.email }}.
+MD),
     $client('auth.password_changed', 'general', 'Password changed', 'Your {{ company.name }} password was changed', <<<'MD'
 # Your password was changed
 
@@ -841,6 +848,7 @@ MD),
  */
 $preheaders = [
     'auth.password_reset' => 'This link works until {{ auth.expires_at }}. If you didn\'t ask for it, ignore this email and your password stays the same.',
+    'auth.password_set' => 'This link works until {{ auth.expires_at }}. If you didn\'t ask for it, ignore this email.',
     'auth.password_changed' => 'Changed on {{ system.today | date }}. If this wasn\'t you, reset your password now.',
     'auth.email_verification' => 'One click confirms this address, so your invoices and service details reach you.',
     'auth.user_invitation' => 'Accept within {{ auth.expires_in }} to choose your password and see this account\'s invoices, services and tickets.',

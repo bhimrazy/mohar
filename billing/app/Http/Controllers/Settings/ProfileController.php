@@ -11,16 +11,12 @@ use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class ProfileController extends Controller
 {
-    /** The refusal code for a login without a password, the same one #384's step-up refusal uses. */
-    public const NO_PASSWORD_CODE = 'password_not_set';
-
     /**
      * Show the user's profile settings page.
      */
@@ -29,10 +25,8 @@ class ProfileController extends Controller
         return Inertia::render('settings/profile', [
             'mustVerifyEmail' => $request->user() instanceof MustVerifyEmail,
             'status' => $request->session()->get('status'),
-            // A login without a password can't change its email until it sets one (#388); the set-password action is
-            // #384's and may not be installed yet.
-            'hasPassword' => LoginEmailChange::hasPassword($request->user()),
-            'setPasswordUrl' => Route::has('password.set-link') ? route('password.set-link') : null,
+            // A login without a password can't change its email until it sets one (#388).
+            'setPasswordUrl' => route('password.set-link'),
         ]);
     }
 
@@ -48,11 +42,11 @@ class ProfileController extends Controller
         $changing = $email !== $user->email;
 
         if ($changing) {
-            if (! LoginEmailChange::hasPassword($user)) {
+            if (! $user->hasPassword()) {
                 $message = __('Set a password first. Your account has no password, and changing the email needs one.');
 
                 if ($json) {
-                    abort(response()->json(['message' => $message, 'code' => self::NO_PASSWORD_CODE], 423));
+                    abort(response()->json(['message' => $message, 'code' => RequireRecentPasswordConfirmation::NO_PASSWORD_CODE], 423));
                 }
 
                 throw ValidationException::withMessages(['email' => $message]);

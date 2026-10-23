@@ -20,6 +20,11 @@ final class AccountLinks
         return self::generator()->route('password.reset', ['token' => $token, 'email' => $user->getEmailForPasswordReset()]);
     }
 
+    public static function passwordSet(#[\SensitiveParameter] string $token): string
+    {
+        return self::generator()->route('password.set', ['token' => $token]);
+    }
+
     public static function emailVerification(User $user): string
     {
         return self::generator()->temporarySignedRoute(

@@ -2,6 +2,10 @@
 
 use App\Modules\Billing\Models\InvoiceFiscalReview;
 use App\Modules\Billing\Support\FiscalSnapshotCalculator;
+use Tests\TestCase;
+
+// The old cancellation text is translated, so matching needs the translator.
+uses(TestCase::class);
 
 /*
 | The tax-invoice snapshot rule (ADR 0024 §2) on plain rows: no database, no clock.
@@ -16,10 +20,10 @@ function snapshotInvoice(array $overrides = []): array
     return $overrides + ['total' => 11_300, 'subtotal' => 10_000, 'tax1_amount' => 1_300, 'tax2_amount' => 0, 'tax_inclusive' => false];
 }
 
-/** @return array{id: int, description: string, amount: int, tax_amount: int, cancelled: bool} */
+/** @return array{id: int, description: string, amount: int, tax_amount: int, taxable: bool, cancelled: bool} */
 function snapshotLine(int $id, int $amount, int $tax, string $description = 'Hosting', bool $cancelled = false): array
 {
-    return ['id' => $id, 'description' => $description, 'amount' => $amount, 'tax_amount' => $tax, 'cancelled' => $cancelled];
+    return ['id' => $id, 'description' => $description, 'amount' => $amount, 'tax_amount' => $tax, 'taxable' => $tax !== 0, 'cancelled' => $cancelled];
 }
 
 /** @return array{id: int, kind: string, reason: string, amount: int, taxable_amount: int, tax_amount: int, description: string|null} */

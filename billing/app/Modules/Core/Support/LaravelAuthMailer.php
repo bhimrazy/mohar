@@ -4,6 +4,7 @@ namespace App\Modules\Core\Support;
 
 use App\Contracts\Auth\AuthMailer;
 use App\Models\User;
+use App\Notifications\SetPasswordNotification;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
 
@@ -16,6 +17,11 @@ class LaravelAuthMailer implements AuthMailer
     public function sendPasswordReset(User $user, #[\SensitiveParameter] string $token): void
     {
         AccountLinks::withAppOrigin(fn () => $user->notify(new ResetPassword($token)));
+    }
+
+    public function sendPasswordSet(User $user, #[\SensitiveParameter] string $token): void
+    {
+        AccountLinks::withAppOrigin(fn () => $user->notify(new SetPasswordNotification($token)));
     }
 
     public function sendEmailVerification(User $user): void

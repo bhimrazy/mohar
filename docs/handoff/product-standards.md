@@ -34,6 +34,7 @@ every item.
   (2026-10-23)
 - What a customer enters at order time is shown back in the cart and at checkout before payment, with
   identity numbers masked. (2026-10-23)
+- A country is chosen by name from a list, never typed as a code; the ISO code is what is stored. (2026-10-23)
 
 ## Settings
 
@@ -83,6 +84,8 @@ every item.
 
 ## Brand and visuals
 
+- Error pages (403, 404, 419, 429, 500) show the host's brand and a way back, in light and dark mode; never the
+  framework's default page. (2026-10-23)
 - Customer-facing surfaces (emails, PDFs, the public site, the client area and its login) never show the product's
   own name, mark or tagline unless the host chose them: they use the host's brand settings, with an empty tagline
   and no product mark by default. The product identity (Mohar name, seal, "Web hosting billing, sealed and

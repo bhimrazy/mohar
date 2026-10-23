@@ -26,7 +26,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property string $name
  * @property string $email
  * @property Carbon|null $email_verified_at
- * @property string $password
+ * @property string|null $password
  * @property string|null $two_factor_secret
  * @property string|null $two_factor_recovery_codes
  * @property Carbon|null $two_factor_confirmed_at
@@ -69,6 +69,13 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     protected static function booted(): void
     {
         static::saving(function (self $user): void {
+            // ADR 0018 §5: staff step-up must always be possible. Only a save that creates the login or changes
+            // is_staff or the password is checked, so an unrelated save (sign-out cycles the remember token) of a
+            // row that is already in this state still works.
+            if ($user->is_staff && ! $user->hasPassword() && (! $user->exists || $user->isDirty(['is_staff', 'password']))) {
+                throw new \DomainException('A staff login must have a password.');
+            }
+
             if ($user->isDirty('password')) {
                 $user->password_changed_at = now();
                 $user->must_change_password = false;
@@ -78,6 +85,15 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
                 $user->email_verified_at = null;
             }
         });
+    }
+
+    /**
+     * False for a login created without a password (social or magic-link sign-in, ADR 0018 §5). Such a login can
+     * never pass step-up.
+     */
+    public function hasPassword(): bool
+    {
+        return is_string($this->password) && $this->password !== '';
     }
 
     /**

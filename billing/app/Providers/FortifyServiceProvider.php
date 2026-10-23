@@ -106,6 +106,7 @@ class FortifyServiceProvider extends ServiceProvider
 
         Fortify::confirmPasswordView(fn (Request $request) => Inertia::render('auth/confirm-password', [
             'download' => (bool) $request->session()->get('step_up_download', false),
+            'hasPassword' => (bool) $request->user()?->hasPassword(),
         ]));
     }
 
@@ -130,6 +131,12 @@ class FortifyServiceProvider extends ServiceProvider
         RateLimiter::for('password-reset-link', fn (Request $request): array => [
             Limit::perMinute(5)->by('ip|'.$request->ip()),
             Limit::perHour(5)->by('email|'.$this->throttleEmail($request)),
+        ]);
+
+        // POST settings/password/set-link: per login and per IP (the request has no email input to key on).
+        RateLimiter::for('password-set-link', fn (Request $request): array => [
+            Limit::perMinute(5)->by('set-link-ip|'.$request->ip()),
+            Limit::perHour(5)->by('set-link-user|'.$request->user()?->getAuthIdentifier()),
         ]);
 
         // POST /register: per IP and per address. The limiter runs before validation, so a known and an unknown

@@ -23,14 +23,6 @@ final class LoginEmailChange
     public function __construct(private SystemMailer $mailer, private ActivityLogger $activity) {}
 
     /**
-     * The same rule as User::hasPassword() (#384), which develop does not have yet; use that once it lands.
-     */
-    public static function hasPassword(User $user): bool
-    {
-        return filled($user->getAuthPassword());
-    }
-
-    /**
      * The local part keeps its first character, and its last one only when it has 4 or more: enough for the owner to
      * recognise the address, not enough to read it from a notice that reached someone else.
      */

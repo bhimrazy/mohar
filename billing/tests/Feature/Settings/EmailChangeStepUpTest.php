@@ -16,6 +16,7 @@ use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Contracts\Notifications\Dispatcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -106,7 +107,7 @@ test('a login without a password must set one before changing its email, whateve
     // A stale or forged step-up timestamp does not stand in for a password the login does not have.
     confirmPassword();
 
-    $this->get(route('profile.edit'))->assertInertia(fn ($page) => $page->where('hasPassword', false));
+    $this->get(route('profile.edit'))->assertInertia(fn ($page) => $page->where('auth.user.has_password', false)->where('setPasswordUrl', route('password.set-link')));
     $this->patch(route('profile.update'), ['name' => 'Asha', 'email' => 'attacker@evil.test'])
         ->assertSessionHasErrors(['email' => 'Set a password first. Your account has no password, and changing the email needs one.'])
         ->assertSessionDoesntHaveErrors('password_confirmation');
@@ -278,4 +279,20 @@ test('editing a client\'s billing contact never changes a login\'s email', funct
 
     expect($user->fresh()->email)->toBe('owner@example.com.np')
         ->and($staff->fresh()->email)->toBe($staff->email);
+});
+
+test('a login without a password sets one through the set-password link, then can change its email', function () {
+    $user = passwordlessLogin();
+    $this->actingAs($user);
+    $token = Password::broker(config('fortify.passwords'))->createToken($user);
+
+    $this->post(route('password.set.store', $token), ['password' => 'a-Strong-pass-123!', 'password_confirmation' => 'a-Strong-pass-123!'])
+        ->assertRedirect(route('profile.edit'));
+    $this->actingAs($user->fresh())->get(route('profile.edit'))->assertInertia(fn ($page) => $page->where('auth.user.has_password', true));
+
+    $this->patch(route('profile.update'), ['name' => 'Asha', 'email' => 'asha.new@example.com'])->assertSessionHasErrors('password_confirmation');
+    $this->post(route('password.confirm.store'), ['password' => 'a-Strong-pass-123!'])->assertSessionHasNoErrors();
+    $this->patch(route('profile.update'), ['name' => 'Asha', 'email' => 'asha.new@example.com'])->assertSessionHasNoErrors();
+
+    expect($user->fresh()->email)->toBe('asha.new@example.com');
 });

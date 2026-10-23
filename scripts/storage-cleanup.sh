@@ -29,7 +29,7 @@ git -C "$root" fetch -q origin 2>/dev/null
 git -C "$root" worktree list --porcelain | awk '/^worktree /{print $2}' | tail -n +2 | while read -r wt; do
     branch="$(git -C "$wt" branch --show-current 2>/dev/null)"
     [ -n "$branch" ] || continue
-    dirty="$(git -C "$wt" status --porcelain 2>/dev/null | wc -l)"
+    dirty="$(git -C "$wt" status --porcelain 2>/dev/null | wc -l | tr -d " ")"
     unpushed="$(git -C "$wt" rev-list --count "origin/$branch..HEAD" 2>/dev/null || echo unknown)"
     merged_pr="$(gh pr list --state merged --head "$branch" --json number -q '.[0].number' 2>/dev/null)"
     if [ -n "$merged_pr" ] && [ "$dirty" = 0 ] && [ "$unpushed" = 0 ]; then
