@@ -81,7 +81,8 @@ export function storefront() {
     if (!ordered || !signIn(customer, email)) {
         return;
     }
-    const domain = `lt-${exec.vu.idInTest}-${exec.vu.iterationInScenario}.example.org`;
+    // The start time keeps names unique across levels: earlier orders keep their domains.
+    const domain = `lt-${exec.scenario.startTime}-${exec.vu.idInTest}-${exec.vu.iterationInScenario}.example.org`;
     const fields = {
         cycle: ordered.cycle,
         ...(ordered.requiresDomain
