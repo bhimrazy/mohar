@@ -95,15 +95,15 @@ test('B2: the undo snapshot is what the importer overwrote under its lock, so an
         ->and($record->before)->toBe(['client' => ['last_name' => 'Admin']]);
 });
 
-test('re-review kernel hook: staff who change their own email on the staff page keep admin access (UpdateStaff keeps a self-change verified)', function () {
+test('re-review kernel hook: staff who change their own email on the staff page must verify the new address before returning to the admin area (#388)', function () {
     $me = actingAsStaff();
     confirmPassword();
 
     $this->put(route('admin.platform.staff.update', $me), ['name' => $me->name, 'email' => 'me.new@example.com', 'role_id' => $me->role_id, 'is_active' => true])
         ->assertSessionHasNoErrors();
 
-    expect($me->fresh())->email->toBe('me.new@example.com')->email_verified_at->not->toBeNull();
-    $this->get(route('admin.migration.imports.index'))->assertOk();
+    expect($me->fresh())->email->toBe('me.new@example.com')->email_verified_at->toBeNull();
+    $this->actingAs($me->fresh())->get(route('admin.migration.imports.index'))->assertRedirect();
 });
 
 test('kernel hook: an admin who changes another staff member\'s email still clears its verification and sends the mail', function () {

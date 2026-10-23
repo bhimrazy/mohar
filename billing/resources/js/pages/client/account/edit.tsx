@@ -1,6 +1,7 @@
 import { Form } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import AccountController from '@/actions/App/Modules/Core/Http/Controllers/Client/AccountController';
+import { CountrySelect } from '@/components/app/country-select';
 import { Field } from '@/components/app/field';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
@@ -68,7 +69,7 @@ const addressFields: FieldSpec[] = [
         autoComplete: 'address-level1',
     },
     { name: 'postcode', label: 'Postcode', autoComplete: 'postal-code' },
-    { name: 'country', label: 'Country code', autoComplete: 'country' },
+    { name: 'country', label: 'Country', autoComplete: 'country' },
     { name: 'tax_id', label: 'Tax / VAT number', optional: true, wide: true },
 ];
 
@@ -90,17 +91,28 @@ export default function AccountEdit({ client }: Props) {
                         error={errors[field.name]}
                         className={field.wide ? 'sm:col-span-2' : undefined}
                     >
-                        <Input
-                            id={field.name}
-                            name={field.name}
-                            type={field.type ?? 'text'}
-                            defaultValue={
-                                typeof value === 'string' ? value : ''
-                            }
-                            autoComplete={field.autoComplete}
-                            aria-invalid={Boolean(errors[field.name])}
-                            aria-describedby={`${field.name}-description`}
-                        />
+                        {field.name === 'country' ? (
+                            <CountrySelect
+                                id={field.name}
+                                name={field.name}
+                                defaultValue={
+                                    typeof value === 'string' ? value : ''
+                                }
+                                invalid={Boolean(errors[field.name])}
+                            />
+                        ) : (
+                            <Input
+                                id={field.name}
+                                name={field.name}
+                                type={field.type ?? 'text'}
+                                defaultValue={
+                                    typeof value === 'string' ? value : ''
+                                }
+                                autoComplete={field.autoComplete}
+                                aria-invalid={Boolean(errors[field.name])}
+                                aria-describedby={`${field.name}-description`}
+                            />
+                        )}
                     </Field>
                 );
             })}

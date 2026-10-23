@@ -174,6 +174,8 @@ test('[S153-7] moving a login to the WHM contact address does not count as verif
     $client->users()->attach($login, ['is_owner' => false, 'permissions' => json_encode(['profile'])]);
     s153ClientSetsEmail($client, $login);
 
+    // The owner knows the password: an email change needs step-up (#388).
+    confirmPassword();
     $this->actingAs($login)->patch(route('profile.update'), ['name' => 'Mallory', 'email' => 'anna@alpha-books.com'])->assertSessionHasNoErrors();
     expect($login->refresh()->email_verified_at)->toBeNull();
     auth()->logout();

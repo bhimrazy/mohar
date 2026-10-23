@@ -4,7 +4,7 @@ namespace App\Modules\Billing\Services;
 
 use App\Modules\Billing\Models\BillingSequence;
 use App\Modules\Billing\Support\BillingSettings;
-use Carbon\CarbonImmutable;
+use App\Support\CalendarDate;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -39,10 +39,10 @@ class DocumentNumbers
     public function __construct(private BillingSettings $settings) {}
 
     /**
-     * @param  CarbonImmutable  $date  the document's company-calendar date (its yearly and monthly period and the
-     *                                 {YEAR}, {MONTH} and {DAY} fields); there is no default, so a caller can't fall back to UTC
+     * @param  CalendarDate  $date  the document's company-calendar date (its yearly and monthly period and the {YEAR},
+     *                              {MONTH} and {DAY} fields); there is no default, so a caller can't fall back to UTC
      */
-    public function next(string $sequence, CarbonImmutable $date): string
+    public function next(string $sequence, CalendarDate $date): string
     {
         $period = match ($this->resetFor($sequence)) {
             'yearly' => $date->format('Y'),
@@ -73,7 +73,7 @@ class DocumentNumbers
         return $this->format($this->formatFor($sequence), $number, $date, $this->paddingFor($sequence));
     }
 
-    public function format(string $format, int $number, CarbonImmutable $date, ?int $padding = null): string
+    public function format(string $format, int $number, CalendarDate $date, ?int $padding = null): string
     {
         $padded = str_pad((string) $number, max(0, $padding ?? $this->settings->int('number_padding')), '0', STR_PAD_LEFT);
 

@@ -28,9 +28,9 @@ use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\NoteAllocator;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Support\CalendarDate;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Money;
-use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use OutOfRangeException;
 
@@ -154,7 +154,7 @@ class TaxNoteIssuer
                 $plan->total, userId: $request->userId, taxableAmount: $plan->taxable, taxAmount: $plan->tax1 + $plan->tax2,
             );
             // The sequence row is locked last, just before the note is inserted.
-            $number = $this->numbers->next($credit ? DocumentNumbers::CREDIT_NOTE : DocumentNumbers::DEBIT_NOTE, CarbonImmutable::parse($date, 'UTC'));
+            $number = $this->numbers->next($credit ? DocumentNumbers::CREDIT_NOTE : DocumentNumbers::DEBIT_NOTE, CalendarDate::parse($date));
 
             $note = (new TaxNote)->forceFill([
                 'kind' => $request->kind, 'number' => $number, 'invoice_id' => $invoice->id, 'client_id' => $invoice->client_id, 'currency' => $invoice->currency,
@@ -297,7 +297,7 @@ class TaxNoteIssuer
     private function bsDate(string $date): BikramSambatDate
     {
         try {
-            return BikramSambat::fromAd(CarbonImmutable::parse($date, 'UTC'));
+            return BikramSambat::fromAd(CalendarDate::parse($date));
         } catch (OutOfRangeException) {
             throw new BillingException(__('The date is outside the Bikram Sambat table; no tax document can be numbered.'));
         }

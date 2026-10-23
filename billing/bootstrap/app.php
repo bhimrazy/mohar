@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Errors\BrandedErrorPage;
 use App\Http\Middleware\ClearHistoryOnSignOut;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
@@ -53,4 +54,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+
+        // A branded page for the errors a person in a browser can reach (App\Http\Errors\BrandedErrorPage).
+        $exceptions->respond(new BrandedErrorPage);
     })->create();

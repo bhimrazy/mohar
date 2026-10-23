@@ -91,6 +91,11 @@ export function Pagination({
     // Laravel's links[] = [prev, ...numbers and "...", next].
     const numbered = meta.links.slice(1, -1);
 
+    // The table's own empty state already says there is nothing; a second "No …" line under it only repeats it.
+    if (total === 0) {
+        return null;
+    }
+
     return (
         <div
             data-slot="pagination"
@@ -100,21 +105,15 @@ export function Pagination({
             )}
         >
             <p className="text-muted-foreground tabular-nums">
-                {total === 0 ? (
-                    `No ${itemLabel}`
-                ) : (
-                    <>
-                        Showing{' '}
-                        <span className="font-medium text-foreground">
-                            {from}–{to}
-                        </span>{' '}
-                        of{' '}
-                        <span className="font-medium text-foreground">
-                            {total.toLocaleString()}
-                        </span>{' '}
-                        {itemLabel}
-                    </>
-                )}
+                Showing{' '}
+                <span className="font-medium text-foreground">
+                    {from}–{to}
+                </span>{' '}
+                of{' '}
+                <span className="font-medium text-foreground">
+                    {total.toLocaleString()}
+                </span>{' '}
+                {itemLabel}
             </p>
 
             {last > 1 && (

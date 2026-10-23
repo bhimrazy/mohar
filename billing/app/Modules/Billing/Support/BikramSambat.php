@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Support;
 
+use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use OutOfRangeException;
@@ -136,8 +137,11 @@ final class BikramSambat
         2095 => [31, 31, 32, 31, 31, 31, 30, 29, 30, 30, 30, 30],
     ];
 
-    /** The BS date of an AD calendar date (its own year, month and day; the time and time zone are ignored). */
-    public static function fromAd(DateTimeInterface $date): BikramSambatDate
+    /**
+     * The BS date of an AD calendar date. A DateTimeInterface is read by its own year, month and day (time and zone
+     * ignored); new callers pass a CalendarDate.
+     */
+    public static function fromAd(CalendarDate|DateTimeInterface $date): BikramSambatDate
     {
         $remaining = self::daysSinceEpoch($date->format('Y-m-d'));
 

@@ -327,7 +327,10 @@ export default function InvoiceShow({
             header: 'Reference',
             hideOnMobile: true,
             cell: (txn) => (
-                <span className="font-mono text-xs">
+                <span
+                    className="inline-block max-w-36 truncate align-bottom font-mono text-xs"
+                    title={txn.gateway_txn_id ?? undefined}
+                >
                     {txn.gateway_txn_id ?? '—'}
                 </span>
             ),

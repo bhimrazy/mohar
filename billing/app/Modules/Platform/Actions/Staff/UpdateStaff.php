@@ -56,8 +56,8 @@ class UpdateStaff
             $staff->forceFill(['remember_token' => Str::random(60)]);
         }
 
-        if ($emailChanged && ! $staff->is($actor)) {
-            // An admin-initiated change must be re-verified by the owner of the new address.
+        if ($emailChanged) {
+            // The new mailbox now receives password resets and has not been proven yet, whoever made the change.
             $staff->forceFill(['email_verified_at' => null]);
         }
 
@@ -69,9 +69,7 @@ class UpdateStaff
                 __(':actor changed the sign-in email of your staff account from :old to :new.', ['actor' => $actor->name, 'old' => $oldEmail, 'new' => $newEmail]),
             ]);
 
-            if (! $staff->is($actor)) {
-                $staff->sendEmailVerificationNotification();
-            }
+            $staff->sendEmailVerificationNotification();
         }
 
         if ($deactivating) {

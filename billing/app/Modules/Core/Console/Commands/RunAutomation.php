@@ -6,13 +6,14 @@ use App\Contracts\Core\CompanyClock;
 use App\Events\Core\AutomationRunCompleted;
 use App\Modules\Core\Models\AutomationRun;
 use App\Support\Automation\Automation;
+use App\Support\CalendarDate;
 use App\Support\Integrations\Redactor;
 use App\Support\Queues;
-use Carbon\CarbonImmutable;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
+use InvalidArgumentException;
 use Throwable;
 
 #[Signature('automation:run {--date= : Run date (Y-m-d), defaults to today on the company clock} {--only= : Run a single task key} {--force : Re-run tasks that already succeeded for the date}')]
@@ -57,16 +58,23 @@ class RunAutomation extends Command
 
     private function runPipeline(Automation $automation, Redactor $redactor, CompanyClock $clock): int
     {
-        $date = $this->option('date') ? CarbonImmutable::parse((string) $this->option('date'))->startOfDay() : $clock->todayDate();
+        try {
+            $date = $this->option('date') ? CalendarDate::parse((string) $this->option('date')) : $clock->calendarDate();
+        } catch (InvalidArgumentException $exception) {
+            $this->components->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
+
         $failed = false;
 
-        foreach ($automation->ordered() as $key => $task) {
+        foreach (array_keys($automation->ordered()) as $key) {
             if ($this->option('only') && $this->option('only') !== $key) {
                 continue;
             }
 
-            $run = AutomationRun::query()->whereDate('run_date', $date)->where('task', $key)->first()
-                ?? new AutomationRun(['run_date' => $date, 'task' => $key]);
+            $run = AutomationRun::query()->whereDate('run_date', $date->toString())->where('task', $key)->first()
+                ?? new AutomationRun(['run_date' => $date->toString(), 'task' => $key]);
 
             if ($run->exists && $run->status === 'success' && ! $this->option('force')) {
                 $this->components->twoColumnDetail($key, '<fg=gray>already done</>');
@@ -77,7 +85,7 @@ class RunAutomation extends Command
             $started = hrtime(true);
 
             try {
-                $summary = ($task['handler'])($date);
+                $summary = $automation->run($key, $date);
                 $run->fill(['status' => 'success', 'summary' => is_scalar($summary) ? (string) $summary : null]);
                 $this->components->twoColumnDetail($key, '<fg=green>'.($run->summary ?? 'done').'</>');
             } catch (Throwable $exception) {
@@ -92,7 +100,7 @@ class RunAutomation extends Command
             $run->save();
         }
 
-        AutomationRunCompleted::dispatch($date->toDateString(), $failed);
+        AutomationRunCompleted::dispatch($date->toString(), $failed);
 
         return $failed ? self::FAILURE : self::SUCCESS;
     }
