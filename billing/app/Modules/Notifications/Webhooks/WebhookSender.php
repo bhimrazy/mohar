@@ -11,6 +11,7 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Enums\WebhookDeliveryStatus;
 use App\Modules\Notifications\Models\WebhookDelivery;
 use App\Modules\Notifications\Models\WebhookEndpoint;
+use App\Support\Events\WebhookEvents;
 use App\Support\Integrations\OutboundAddressGuard;
 use App\Support\Integrations\Redactor;
 use Illuminate\Http\Client\Response;
@@ -36,7 +37,7 @@ class WebhookSender
     {
         $endpoint = $delivery->endpoint;
 
-        if (! $endpoint->is_active && $delivery->event_type !== WebhookEventTypes::PING) {
+        if (! $endpoint->is_active && $delivery->event_type !== WebhookEvents::PING) {
             $delivery->update(['status' => WebhookDeliveryStatus::Abandoned, 'error' => 'Endpoint is disabled.', 'next_attempt_at' => null]);
 
             return;
@@ -108,7 +109,7 @@ class WebhookSender
     {
         $maxAttempts = max(1, (int) $this->settings->get('notifications.webhooks_max_attempts', 8));
         $backoff = array_values((array) config('notifications.webhooks_backoff_seconds', [60]));
-        $abandoned = $delivery->attempt >= $maxAttempts || $delivery->event_type === WebhookEventTypes::PING;
+        $abandoned = $delivery->attempt >= $maxAttempts || $delivery->event_type === WebhookEvents::PING;
         $delay = (int) ($backoff[min($delivery->attempt - 1, count($backoff) - 1)] ?? 60);
 
         $delivery->fill([
@@ -122,7 +123,7 @@ class WebhookSender
 
         WebhookDeliveryFailed::dispatch($delivery->id, $delivery->webhook_endpoint_id, $delivery->event_type, $delivery->attempt, $abandoned);
 
-        if ($delivery->event_type !== WebhookEventTypes::PING) {
+        if ($delivery->event_type !== WebhookEvents::PING) {
             $this->countFailure($delivery->endpoint);
         }
     }
