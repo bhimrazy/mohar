@@ -212,7 +212,7 @@ test('with the permission but no recent password the confirm asks for one and wr
     $user = billingStaff();
     confirmPassword();
     staffConfirmNote($invoice, ['kind' => 'credit', 'allocation' => 'amount', 'amount' => '100.00', 'reason_code' => 'goodwill', 'reason_text' => 'Goodwill']);
-    $data = isset($data['reverses']) ? ['reverses' => TaxNote::query()->sole()->id, ...$data] : $data;
+    $data = isset($data['reverses']) ? [...$data, 'reverses' => TaxNote::query()->sole()->id] : $data;
     $preview = $this->getJson(route('admin.billing.invoices.notes.preview', [$invoice, ...$data]))->assertOk()->json();
     $this->actingAs($user)->withSession(['auth.password_confirmed_at' => 0]);
 
