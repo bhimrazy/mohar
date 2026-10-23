@@ -45,15 +45,19 @@ class DashboardController extends Controller
             return [];
         }
 
-        $pending = StaffNotice::query()
-            ->where('user_id', $user->id)
-            ->whereNull('dismissed_at')
-            ->pluck('notice')
-            ->filter(fn (string $notice): bool => StaffNotice::exists($notice) && $user->hasPermission((string) StaffNotice::permissionFor($notice)));
+        $notices = [];
 
-        return $pending->map(fn (string $notice): array => match ($notice) {
-            StaffNotice::COMPANY_TIME_SETTINGS => $this->companyTimeNotice($user),
-        })->values()->all();
+        foreach (StaffNotice::query()->where('user_id', $user->id)->whereNull('dismissed_at')->pluck('notice') as $notice) {
+            if (! StaffNotice::exists($notice) || ! $user->hasPermission((string) StaffNotice::permissionFor($notice))) {
+                continue;
+            }
+
+            if ($notice === StaffNotice::COMPANY_TIME_SETTINGS) {
+                $notices[] = $this->companyTimeNotice($user);
+            }
+        }
+
+        return $notices;
     }
 
     /**
