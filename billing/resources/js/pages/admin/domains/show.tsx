@@ -467,25 +467,29 @@ export default function DomainShow({
                                         ...(domain.registered_by_client
                                             ? []
                                             : [
-                                        {
-                                            label: 'Next due',
-                                            value: (
-                                                <DateTime
-                                                    value={domain.next_due_date}
-                                                />
-                                            ),
-                                        },
-                                        {
-                                            label: 'Renewal amount',
-                                            value: (
-                                                <Money
-                                                    amount={
-                                                        domain.recurring_amount
-                                                    }
-                                                    currency={domain.currency}
-                                                />
-                                            ),
-                                        },
+                                                  {
+                                                      label: 'Next due',
+                                                      value: (
+                                                          <DateTime
+                                                              value={
+                                                                  domain.next_due_date
+                                                              }
+                                                          />
+                                                      ),
+                                                  },
+                                                  {
+                                                      label: 'Renewal amount',
+                                                      value: (
+                                                          <Money
+                                                              amount={
+                                                                  domain.recurring_amount
+                                                              }
+                                                              currency={
+                                                                  domain.currency
+                                                              }
+                                                          />
+                                                      ),
+                                                  },
                                               ]),
                                     ]}
                                 />

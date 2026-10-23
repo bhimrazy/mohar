@@ -221,29 +221,29 @@ export function DetailsForm({
                         />
                     </Field>
                     {!domain.registered_by_client && (
-                    <Field
-                        htmlFor="recurring_amount"
-                        label={labelWithCurrency(
-                            'Renewal amount',
-                            domain.currency,
-                        )}
-                        error={errors.recurring_amount}
-                        hint="Locked at purchase; price list changes don't affect it."
-                    >
-                        <Input
-                            id="recurring_amount"
-                            inputMode="decimal"
-                            value={form.data.recurring_amount}
-                            disabled={form.data.recalculate_recurring}
-                            onChange={(event) =>
-                                form.setData(
-                                    'recurring_amount',
-                                    event.target.value,
-                                )
-                            }
-                            aria-describedby="recurring_amount-description"
-                        />
-                    </Field>
+                        <Field
+                            htmlFor="recurring_amount"
+                            label={labelWithCurrency(
+                                'Renewal amount',
+                                domain.currency,
+                            )}
+                            error={errors.recurring_amount}
+                            hint="Locked at purchase; price list changes don't affect it."
+                        >
+                            <Input
+                                id="recurring_amount"
+                                inputMode="decimal"
+                                value={form.data.recurring_amount}
+                                disabled={form.data.recalculate_recurring}
+                                onChange={(event) =>
+                                    form.setData(
+                                        'recurring_amount',
+                                        event.target.value,
+                                    )
+                                }
+                                aria-describedby="recurring_amount-description"
+                            />
+                        </Field>
                     )}
                     <Field
                         htmlFor="linked_service_id"
@@ -266,18 +266,18 @@ export function DetailsForm({
                         />
                     </Field>
                     {!domain.registered_by_client && (
-                    <label className="flex items-center gap-2 self-end pb-2 text-sm">
-                        <Checkbox
-                            checked={form.data.recalculate_recurring}
-                            onCheckedChange={(checked) =>
-                                form.setData(
-                                    'recalculate_recurring',
-                                    checked === true,
-                                )
-                            }
-                        />
-                        Recalculate renewal amount from current prices
-                    </label>
+                        <label className="flex items-center gap-2 self-end pb-2 text-sm">
+                            <Checkbox
+                                checked={form.data.recalculate_recurring}
+                                onCheckedChange={(checked) =>
+                                    form.setData(
+                                        'recalculate_recurring',
+                                        checked === true,
+                                    )
+                                }
+                            />
+                            Recalculate renewal amount from current prices
+                        </label>
                     )}
                     <div className="grid gap-2 sm:col-span-2 sm:grid-cols-2">
                         {flags.map(([key, label]) => (
