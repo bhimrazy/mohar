@@ -271,18 +271,8 @@ class BillingServiceProvider extends ModuleServiceProvider
      */
     private function noteNumbering(string $kind, string $label, string $other): array
     {
-        Validator::extend('note_period_token', function (string $attribute, mixed $value, array $parameters, \Illuminate\Validation\Validator $validator): bool {
-            $reset = Arr::get($validator->getData(), $parameters[0]);
-
-            return match ($reset) {
-                'yearly' => str_contains((string) $value, '{YEAR}'),
-                'monthly' => str_contains((string) $value, '{YEAR}') && str_contains((string) $value, '{MONTH}'),
-                default => true,
-            };
-        }, 'The number format needs {YEAR} when numbering resets yearly, and {YEAR} and {MONTH} when it resets monthly.');
-
         return [
-            new SettingDefinition("billing.{$kind}_note_format", "{$label} number format", help: 'Tokens: {NUMBER} {YEAR} {MONTH} {DAY}. It must differ from the other note format.', rules: ['max:40', "different:billing.{$other}_note_format", "note_period_token:billing.{$kind}_note_reset"]),
+            new SettingDefinition("billing.{$kind}_note_format", "{$label} number format", help: 'Tokens: {NUMBER} {YEAR} {MONTH} {DAY}. Required, must contain {NUMBER} and differ from the other note format.', rules: ['required', 'max:40', 'regex:/\{NUMBER\}/', "different:billing.{$other}_note_format", "note_period_token:billing.{$kind}_note_reset"]),
             new SettingDefinition("billing.{$kind}_note_padding", "{$label} number padding (digits)", 'integer', rules: ['min:0']),
             new SettingDefinition("billing.{$kind}_note_reset", "Reset {$label} numbering", 'select', options: ['never' => 'Never', 'yearly' => 'Yearly', 'monthly' => 'Monthly']),
         ];
@@ -293,6 +283,16 @@ class BillingServiceProvider extends ModuleServiceProvider
         $bool = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'boolean', $help);
         $int = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'integer', $help, rules: ['min:0']);
         $list = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'string', $help, rules: ['regex:/^\s*\d+(\s*,\s*\d+)*\s*$/']);
+
+        Validator::extend('note_period_token', function (string $attribute, mixed $value, array $parameters, \Illuminate\Validation\Validator $validator): bool {
+            $reset = Arr::get($validator->getData(), $parameters[0]);
+
+            return match ($reset) {
+                'yearly' => str_contains((string) $value, '{YEAR}'),
+                'monthly' => str_contains((string) $value, '{YEAR}') && str_contains((string) $value, '{MONTH}'),
+                default => true,
+            };
+        }, __('The number format needs {YEAR} when numbering resets yearly, and {YEAR} and {MONTH} when it resets monthly.'));
 
         $this->app->make(SettingsRegistry::class)->section('billing', 'Billing', [
             new SettingDefinition('billing.seller.legal_name', 'Seller legal name', help: 'Printed on invoices; defaults to the company name.', rules: ['max:200']),

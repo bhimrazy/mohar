@@ -44,9 +44,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   (and `{MONTH}`) in the format. Filed notes cannot be written through the query builder (architecture test), and
   `tax_notes.created_by` now blocks deleting the staff user who issued a note. Fiscal backfill: a line is taxable by
   its `taxable` flag on an invoice that carries tax, and an old cancellation is matched to its line by its exact text.
-  Upgrade: one expand-only migration (`invoice_adjustments.tax_note_id`, `invoice_item_id`, both nullable). Because
-  PR 1a's `tax_notes` table has no rows yet, its `created_by` key changed in place; a database that already ran PR 1a
-  needs `migrate:fresh` or the key altered by hand.
+  A debit note adds at most the invoice's value. Both note formats are required and must contain `{NUMBER}`; a stored
+  format that is empty or equal to the other falls back to `CN-`/`DN-`, so the two kinds never share a number. The
+  `total` field of `CreditNoteIssued` and `DebitNoteIssued` is now `amount` (nothing consumed it). Upgrade: two
+  migrations (`invoice_adjustments.tax_note_id` and `invoice_item_id`, nullable; `tax_notes.created_by` moves to
+  restrict-on-delete, the table being empty). Rolling back the first is refused while a note exists.
 
 - **Tax-invoice snapshot and numbering groundwork for Nepal VAT credit and debit notes (VAT PR 1a, ADR 0024).** Schema
   and numbering rules only: no screen changes and no note can be issued yet. An invoice that gets its legal number now

@@ -24,6 +24,7 @@ use App\Modules\Billing\Support\AfterCommit;
 use App\Modules\Billing\Support\BikramSambat;
 use App\Modules\Billing\Support\BikramSambatDate;
 use App\Modules\Billing\Support\NoteAllocator;
+use App\Modules\Core\Models\Client;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -34,9 +35,10 @@ use OutOfRangeException;
  * preview() plans a note, issue() takes the invoice lock, plans it again and refuses when the invoice version or the
  * plan's digest differs from the preview's.
  *
- * Lock order (ADR 0024 §4): payments, then the invoice, then the invoice's pending reservations, then the client, then
- * the sequence row, taken last. This slice settles to the balance only, so it needs no payment and no client lock; a note
- * above the balance is refused until settlement to account credit or refund exists.
+ * Lock order (ADR 0024 §4): payments, then the invoice, then the client, then the invoice's pending reservations, then the
+ * sequence row, taken last. This slice settles to the balance only, so it takes no payment lock and posts no credit (it
+ * locks the client for the order's sake); a note above the balance is refused until settlement to account credit or refund
+ * exists.
  *
  * Not yet handled, and refused with a message: invoices with discount lines (they are credited with their parent line).
  *
@@ -69,6 +71,9 @@ class TaxNoteIssuer
     {
         return DB::transaction(function () use ($request, $version, $digest): TaxNote {
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($request->invoiceId);
+            // The client next: the note's own insert takes a key-share lock on it, and the refund paths that hold the client
+            // for update then wait for the sequence. Locking it here keeps both in the same order.
+            Client::query()->whereKey($invoice->client_id)->lockForUpdate()->firstOrFail();
             DB::table('tax_note_reservations')->where('invoice_id', $invoice->id)->where('status', 'pending')->orderBy('id')->lockForUpdate()->pluck('id');
             $plan = $this->plan($request, $invoice);
 
@@ -106,7 +111,8 @@ class TaxNoteIssuer
                 ]);
             }
 
-            $adjustment->forceFill(['tax_note_id' => $note->id])->save();
+            // A note aimed at one line names it on its adjustment.
+            $adjustment->forceFill(['tax_note_id' => $note->id, 'invoice_item_id' => count($plan->parts) === 1 ? $plan->parts[0]['item_id'] : null])->save();
             $this->afterNote($invoice, $credit);
             event($credit
                 ? new CreditNoteIssued($note->id, $number, $invoice->id, $invoice->client_id, $plan->total, $invoice->currency, $request->automatic)
@@ -171,6 +177,11 @@ class TaxNoteIssuer
 
         if ($request->kind === 'debit' && ! $invoice->status->isPayable()) {
             throw new BillingException(__('A debit note can only be issued on an unpaid invoice for now.'));
+        }
+
+        // ADR 0024 §3: a debit note adds at most the invoice's original value, which also bounds the tax arithmetic.
+        if ($request->kind === 'debit' && (int) $request->amount > $invoice->fiscal_total) {
+            throw new BillingException(__('A debit note can add at most :amount, the value of the invoice.', ['amount' => Money::of($invoice->fiscal_total, $invoice->currency)->format()]));
         }
 
         $this->bsDate($this->clock->localDate($this->clock->now()));
@@ -260,9 +271,9 @@ class TaxNoteIssuer
      */
     private function usedByNotes(Invoice $invoice): array
     {
-        return DB::table('tax_note_lines as l')->join('tax_notes as n', 'n.id', '=', 'l.tax_note_id')
-            ->where('n.invoice_id', $invoice->id)->where('n.kind', 'credit')->whereNotNull('l.invoice_item_id')->groupBy('l.invoice_item_id')
-            ->selectRaw('l.invoice_item_id as item, sum(l.amount) as net, sum(l.tax1_amount) as tax1, sum(l.tax2_amount) as tax2')->get()
+        return TaxNoteLine::query()->join('tax_notes as n', 'n.id', '=', 'tax_note_lines.tax_note_id')
+            ->where('n.invoice_id', $invoice->id)->where('n.kind', 'credit')->whereNotNull('tax_note_lines.invoice_item_id')->groupBy('tax_note_lines.invoice_item_id')
+            ->selectRaw('tax_note_lines.invoice_item_id as item, sum(tax_note_lines.amount) as net, sum(tax_note_lines.tax1_amount) as tax1, sum(tax_note_lines.tax2_amount) as tax2')->toBase()->get()
             ->map(fn (\stdClass $row): array => ['item' => (int) $row->item, 'net' => (int) $row->net, 'tax1' => (int) $row->tax1, 'tax2' => (int) $row->tax2])->values()->all();
     }
 

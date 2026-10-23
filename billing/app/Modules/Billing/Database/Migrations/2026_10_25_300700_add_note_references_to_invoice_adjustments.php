@@ -4,6 +4,7 @@ use App\Modules\Core\Support\LockTimeout;
 use App\Modules\Core\Support\OnlineIndex;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -34,6 +35,11 @@ return new class extends Migration
 
     public function down(): void
     {
+        // The link is the only proof of what a note settled (ADR 0024 §1); dropping it would lose it for good.
+        if (Schema::hasColumn('invoice_adjustments', 'tax_note_id') && DB::table('invoice_adjustments')->whereNotNull('tax_note_id')->exists()) {
+            throw new RuntimeException('Rolling back would drop invoice_adjustments.tax_note_id while credit and debit notes exist, and lose which adjustment each note wrote. Restore a backup instead.');
+        }
+
         foreach (array_keys(self::COLUMNS) as $column) {
             OnlineIndex::drop('invoice_adjustments', "invoice_adjustments_{$column}_set_index");
         }

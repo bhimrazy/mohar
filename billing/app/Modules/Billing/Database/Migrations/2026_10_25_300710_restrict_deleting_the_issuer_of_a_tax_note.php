@@ -12,6 +12,9 @@ use Illuminate\Support\Facades\Schema;
  *
  * Tightening a constraint is normally a contract step (docs/architecture.md); it is safe here only because the table has
  * no rows and no code of the previous release uses it.
+ *
+ * @compatible the table is empty and the previous release never reads it. deploy:check-migrations does not recognise a
+ * tightened foreign key and would call this expand only (issue #389).
  */
 return new class extends Migration
 {

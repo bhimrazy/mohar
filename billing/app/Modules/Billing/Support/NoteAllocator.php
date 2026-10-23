@@ -53,14 +53,14 @@ final class NoteAllocator
      */
     public function byAmount(array $lines, int $amount, string $currency): array
     {
-        $left = array_map(fn (array $line): int => $line['gross'] - $line['used_gross'], $lines);
+        $left = array_map(fn (array $line): int => max(0, $line['gross'] - $line['used_gross']), $lines);
         $total = array_sum($left);
 
         if ($amount > $total) {
             throw new BillingException(__('At most :amount can still be credited on the lines.', ['amount' => Money::of($total, $currency)->format()]));
         }
 
-        $shares = $this->spread($amount, $left);
+        $shares = $this->fit($this->spread($amount, $left), $left, $amount);
         $parts = [];
 
         foreach ($lines as $i => $line) {
@@ -93,26 +93,49 @@ final class NoteAllocator
     }
 
     /**
+     * Shares clamped to what each has room for (never negative, never above it); what clamping leaves unplaced goes to
+     * the shares that still have room, so the total stays exactly `$amount`.
+     *
+     * @param  list<int>  $shares
+     * @param  list<int>  $room
+     * @return list<int>
+     */
+    private function fit(array $shares, array $room, int $amount): array
+    {
+        $shares = array_map(fn (int $share, int $max): int => max(0, min($share, $max)), $shares, $room);
+
+        foreach (array_keys($shares) as $i) {
+            $shares[$i] += min($room[$i] - $shares[$i], max(0, $amount - array_sum($shares)));
+        }
+
+        return $shares;
+    }
+
+    /**
+     * A partial note takes net, tax1 and tax2 in the proportion of what the line has left, and none of them more than it
+     * has left, so repeated small credits can never take more net than the line holds. The note that takes everything
+     * that is left takes exactly the remaining parts.
+     *
      * @param  Line  $line
      * @return Part
      */
     private function part(array $line, int $gross, string $currency): array
     {
-        $left = $line['gross'] - $line['used_gross'];
+        $left = max(0, $line['gross'] - $line['used_gross']);
 
         if ($gross > $left) {
             throw new BillingException(__('At most :amount can still be credited on :line.', ['amount' => Money::of($left, $currency)->format(), 'line' => $line['description']]));
         }
 
         $base = ['item_id' => $line['id'], 'description' => $line['description'], 'taxable' => $line['taxable'], 'gross' => $gross];
+        $room = [max(0, $line['net'] - $line['used_net']), max(0, $line['tax1'] - $line['used_tax1']), max(0, $line['tax2'] - $line['used_tax2'])];
 
         if ($gross === $left) {
-            return $base + ['net' => $line['net'] - $line['used_net'], 'tax1' => $line['tax1'] - $line['used_tax1'], 'tax2' => $line['tax2'] - $line['used_tax2']];
+            return $base + ['net' => $room[0], 'tax1' => $room[1], 'tax2' => $room[2]];
         }
 
-        $tax1 = min($line['tax1'] - $line['used_tax1'], TaxMath::roundDiv($line['tax1'] * $gross, $line['gross']));
-        $tax2 = min($line['tax2'] - $line['used_tax2'], TaxMath::roundDiv($line['tax2'] * $gross, $line['gross']));
+        $take = $this->fit($this->spread($gross, $room), $room, $gross);
 
-        return $base + ['net' => $gross - $tax1 - $tax2, 'tax1' => $tax1, 'tax2' => $tax2];
+        return $base + ['net' => $take[0], 'tax1' => $take[1], 'tax2' => $take[2]];
     }
 }

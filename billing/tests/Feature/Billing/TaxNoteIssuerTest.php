@@ -68,7 +68,7 @@ test('a full credit note is numbered CN-1, cites the invoice and its BS date, an
         ->and($note->lines)->toHaveCount(1)
         ->and($invoice->fresh())->status->toBe(InvoiceStatus::Cancelled)->balance->toBe(0)->credited_total->toBe(11_300)
         ->and(DB::table('invoice_adjustments')->where('tax_note_id', $note->id)->count())->toBe(1);
-    Event::assertDispatched(CreditNoteIssued::class, fn (CreditNoteIssued $event) => $event->number === 'CN-1' && $event->total === 11_300 && ! $event->automatic);
+    Event::assertDispatched(CreditNoteIssued::class, fn (CreditNoteIssued $event) => $event->number === 'CN-1' && $event->amount === 11_300 && ! $event->automatic);
 });
 
 test('notes on different invoices take consecutive numbers and a rolled-back note consumes none (AC 2)', function () {
@@ -225,4 +225,37 @@ test('the staff user who issued a note cannot be deleted', function () {
 
     expect(fn () => DB::transaction(fn () => DB::table('users')->where('id', $user->id)->delete()))->toThrow(QueryException::class)
         ->and($note->fresh()->created_by)->toBe($user->id);
+});
+
+test('a debit note adds at most the value of the invoice', function () {
+    $invoice = issueInvoice(noteClient(), [10_000])->fresh(['items']);
+
+    expect(fn () => issueNote(NoteRequest::debit($invoice->id, 11_301, true, 'other', 'Too much')))->toThrow(BillingException::class, 'at most')
+        ->and(issueNote(NoteRequest::debit($invoice->id, 11_300, true, 'other', 'Upper bound'))->total)->toBe(11_300);
+});
+
+test('a note aimed at one line names it on its adjustment, and a spread over several lines names none', function () {
+    $invoice = issueInvoice(noteClient(), [5_000, 6_000])->fresh(['items']);
+    $single = issueNote(NoteRequest::creditLines($invoice->id, [$invoice->items[1]->id => 1_000], 'lines_cancelled', 'One line'));
+    $spread = issueNote(NoteRequest::creditAmount($invoice->id, 1_000, 'goodwill', 'Spread'));
+
+    expect(DB::table('invoice_adjustments')->where('tax_note_id', $single->id)->value('invoice_item_id'))->toBe($invoice->items[1]->id)
+        ->and(DB::table('invoice_adjustments')->where('tax_note_id', $spread->id)->value('invoice_item_id'))->toBeNull();
+});
+
+test('credit and debit numbers never collide, even when the stored formats are empty or equal', function (string $credit, string $debit) {
+    $invoice = issueInvoice(noteClient(), [10_000])->fresh(['items']);
+    billingSettings(['credit_note_format' => $credit, 'debit_note_format' => $debit]);
+
+    $numbers = [issueNote(NoteRequest::creditAmount($invoice->id, 100, 'goodwill', 'c'))->number, issueNote(NoteRequest::debit($invoice->id, 100, true, 'other', 'd'))->number];
+
+    expect($numbers[0])->not->toBe($numbers[1])->and($numbers)->toBe(['CN-1', 'DN-1']);
+})->with(['both empty' => ['', ''], 'equal' => ['N-{NUMBER}', 'N-{NUMBER}'], 'blank spaces' => ['  ', '  ']]);
+
+test('rolling back the note references is refused while a note exists', function () {
+    $invoice = issueInvoice(noteClient(), [10_000])->fresh(['items']);
+    issueNote(NoteRequest::creditAmount($invoice->id, 100, 'goodwill', 'c'));
+    $migration = require base_path('app/Modules/Billing/Database/Migrations/2026_10_25_300700_add_note_references_to_invoice_adjustments.php');
+
+    expect(fn () => $migration->down())->toThrow(RuntimeException::class, 'Rolling back would drop');
 });
