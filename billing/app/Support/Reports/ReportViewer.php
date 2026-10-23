@@ -2,16 +2,20 @@
 
 namespace App\Support\Reports;
 
+use App\Contracts\Reports\ProvidesTotals;
 use App\Data\Reports\ReportPage;
 use App\Data\Reports\ReportQuery;
-use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Validation\ValidationException;
 
 /**
  * The on-screen entry point for a report (the export path is ReportExporter). page() checks `reports.{key}.view` for
  * the query's user, bounds the page (1 to ReportQuery::MAX_LIMIT rows, offset up to ReportQuery::MAX_OFFSET) and
- * returns the page without ever holding more than `limit` rows, whatever the report yields.
+ * returns the page without ever holding more than `limit` rows, whatever the report yields. A report that provides
+ * totals gets them on the page, computed on the unpaged query, so a screen never calls the report itself.
+ *
+ * Paging on screen is not an export (ADR 0025, Amendment 1): it needs only the view permission, so it has no step-up,
+ * row cap or `report.exported` entry. The screen's route is rate-limited instead.
  *
  * @api
  */
@@ -29,11 +33,7 @@ final class ReportViewer
             throw ValidationException::withMessages(['report' => __('This report does not exist.')]);
         }
 
-        $user = $query->userId === null ? null : User::query()->find($query->userId);
-
-        if (! $user?->hasPermission("reports.{$key}.view")) {
-            throw new AuthorizationException(__('You do not have permission to view this report.'));
-        }
+        ReportAccess::authorize($key, $query, 'view', __('You do not have permission to view this report.'));
 
         $errors = [];
 
@@ -61,6 +61,15 @@ final class ReportViewer
             $rows[] = $row;
         }
 
-        return new ReportPage($report->columns($paged), $rows, $report->count($query->unpaged()), $limit, $offset);
+        $unpaged = $query->unpaged();
+
+        return new ReportPage(
+            $report->columns($paged),
+            $rows,
+            $report->count($unpaged),
+            $limit,
+            $offset,
+            $report instanceof ProvidesTotals ? $report->totals($unpaged) : [],
+        );
     }
 }

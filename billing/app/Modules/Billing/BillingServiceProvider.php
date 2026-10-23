@@ -30,6 +30,9 @@ use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Reports\RegisterDocuments;
+use App\Modules\Billing\Reports\TaxNoteRegisterReport;
+use App\Modules\Billing\Reports\VatRegisterReport;
 use App\Modules\Billing\Services\BillingAutomation;
 use App\Modules\Billing\Services\BillingDirectory;
 use App\Modules\Billing\Services\CreditLedgerService;
@@ -54,6 +57,7 @@ use App\Support\Money;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Reports\ReportRegistry;
 use App\Support\Search\GlobalSearch;
 use App\Support\Security\EncryptedModel;
 use App\Support\Security\EncryptedStorage;
@@ -81,6 +85,8 @@ class BillingServiceProvider extends ModuleServiceProvider
         $this->app->singleton(BillingSettings::class);
         $this->app->singleton(TaxEngine::class);
         $this->app->singleton(CreditLedgerService::class);
+        // One per request: the register screen and its totals footer share one summary of the period.
+        $this->app->scoped(RegisterDocuments::class);
         $this->app->bind(Invoicer::class, InvoiceService::class);
         $this->app->bind(TaxCalculator::class, TaxEngine::class);
         $this->app->bind(CreditLedger::class, CreditLedgerService::class);
@@ -122,6 +128,11 @@ class BillingServiceProvider extends ModuleServiceProvider
 
         $this->app->make(ReferenceDataRegistry::class)->register(RegionalTaxDefaults::KEY, RegionalTaxDefaults::class, order: 110);
 
+        // The VAT registers (ADR 0024 §10, PR 6); the registry adds reports.{key}.view and the sensitive .export.
+        $reports = $this->app->make(ReportRegistry::class);
+        $reports->register('vat_register', VatRegisterReport::class);
+        $reports->register('tax_note_register', TaxNoteRegisterReport::class);
+
         Event::listen(OrderAccepted::class, RecordAcceptedOrder::class);
 
         // Opening credit balances of imported clients (client-import spec §6.12).
@@ -132,6 +143,10 @@ class BillingServiceProvider extends ModuleServiceProvider
 
         // Each client pay request may open a provider session (Khalti initiate) with the merchant's key: cap it per
         // signed-in user so one account can't get the key throttled or flagged at the provider.
+        // Paging a register needs only the view permission (ADR 0025 Amendment 1), so cap how fast one user can page.
+        RateLimiter::for('billing-registers', fn (Request $request): Limit => Limit::perMinute(self::REGISTER_REQUESTS_PER_MINUTE)
+            ->by('billing-registers|'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+
         RateLimiter::for('billing-pay', fn (Request $request): Limit => Limit::perMinute(self::PAY_REQUESTS_PER_MINUTE)
             ->by('billing-pay|'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
 
@@ -185,6 +200,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $navigation->add('admin', new NavItem('Account credit', 'admin.billing.credit.index', 'Wallet', 'Billing', 40, 'billing.credit.manage', 'admin.billing.credit.*'));
         $navigation->add('admin', new NavItem('Gateways', 'admin.billing.gateways.index', 'CreditCard', 'Setup', 40, 'billing.gateways.manage', 'admin.billing.gateways.*'));
         $navigation->add('admin', new NavItem('Tax rules', 'admin.billing.tax-rules.index', 'Percent', 'Setup', 41, 'billing.tax.manage', 'admin.billing.tax-rules.*'));
+        $navigation->add('admin', new NavItem('VAT register', 'admin.billing.vat-register.index', 'BookOpen', 'Billing', 45, 'reports.vat_register.view', 'admin.billing.vat-register.*'));
         $navigation->add('admin', new NavItem('Payment attempts', 'admin.billing.payment-attempts.index', 'Activity', 'Billing', 50, 'billing.payments.manage', 'admin.billing.payment-attempts.*'));
         $navigation->add('admin', new NavItem('Gateway log', 'admin.billing.gateway-log.index', 'Webhook', 'Setup', 42, 'billing.gateway_log.view', 'admin.billing.gateway-log.*'));
 
@@ -246,6 +262,9 @@ class BillingServiceProvider extends ModuleServiceProvider
      */
     /** Client pay requests (invoice and batch) per user per minute. */
     public const PAY_REQUESTS_PER_MINUTE = 10;
+
+    /** Register screen and export requests per staff member per minute. */
+    public const REGISTER_REQUESTS_PER_MINUTE = 60;
 
     public const SENSITIVE_PERMISSIONS = [
         'billing.refunds.manage',
