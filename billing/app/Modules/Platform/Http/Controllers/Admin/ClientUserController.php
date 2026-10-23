@@ -7,16 +7,17 @@ use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Platform\Actions\Clients\ManageClientLogins;
 use App\Modules\Platform\Http\Requests\ClientUserRequest;
+use App\Modules\Platform\Support\AccountMail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
 class ClientUserController extends Controller
 {
-    public function store(ClientUserRequest $request, Client $client, ManageClientLogins $logins): RedirectResponse
+    public function store(ClientUserRequest $request, Client $client, ManageClientLogins $logins, AccountMail $mail): RedirectResponse
     {
         $user = $logins->invite($client, $request->string('email')->toString(), $request->string('name')->toString(), $this->permissions($request));
-        Inertia::flash('toast', ['type' => 'success', 'message' => __(':email can now use this account.', ['email' => $user->email])]);
+        Inertia::flash('toast', $mail->toast(['type' => 'success', 'message' => __(':email can now use this account.', ['email' => $user->email])]));
 
         return to_route('admin.clients.show', $client);
     }
@@ -31,13 +32,13 @@ class ClientUserController extends Controller
         return to_route('admin.clients.show', $client);
     }
 
-    public function transfer(Client $client, User $user, ManageClientLogins $logins): RedirectResponse
+    public function transfer(Client $client, User $user, ManageClientLogins $logins, AccountMail $mail): RedirectResponse
     {
         $this->authorize('core.users.manage');
         $this->ensureAttached($client, $user);
 
         $logins->transferOwnership($client, $user);
-        Inertia::flash('toast', ['type' => 'success', 'message' => __(':email is now the account owner.', ['email' => $user->email])]);
+        Inertia::flash('toast', $mail->toast(['type' => 'success', 'message' => __(':email is now the account owner.', ['email' => $user->email])]));
 
         return to_route('admin.clients.show', $client);
     }
@@ -75,7 +76,7 @@ class ClientUserController extends Controller
         return to_route('admin.clients.show', $client);
     }
 
-    public function resetTwoFactor(Request $request, Client $client, User $user, ManageClientLogins $logins): RedirectResponse
+    public function resetTwoFactor(Request $request, Client $client, User $user, ManageClientLogins $logins, AccountMail $mail): RedirectResponse
     {
         $this->authorize('core.users.reset_2fa');
         $this->ensureAttached($client, $user);
@@ -83,7 +84,7 @@ class ClientUserController extends Controller
         abort_if($actor === null, 401);
 
         $logins->resetTwoFactor($client, $user, $actor);
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('Two-factor authentication reset for :email.', ['email' => $user->email])]);
+        Inertia::flash('toast', $mail->toast(['type' => 'success', 'message' => __('Two-factor authentication reset for :email.', ['email' => $user->email])]));
 
         return to_route('admin.clients.show', $client);
     }

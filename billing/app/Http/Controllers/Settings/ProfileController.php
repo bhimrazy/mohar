@@ -64,13 +64,13 @@ class ProfileController extends Controller
 
         if ($changing) {
             $result = $emails->change($user, $email);
-            $problems = collect([
-                $result->verificationSent ? null : __('we couldn\'t send the verification email. Use "Click here to re-send the verification email" below to try again'),
-                $result->oldAddressTold ? null : __('we couldn\'t email your previous address about the change'),
-            ])->filter();
-            Inertia::flash('toast', $problems->isEmpty()
-                ? ['type' => 'success', 'message' => __('Email changed. We sent a verification link to :email.', ['email' => $user->email])]
-                : ['type' => 'warning', 'message' => __('Email changed and saved, but :problems.', ['problems' => $problems->implode(__(', and '))])]);
+            $args = ['email' => $user->email];
+            Inertia::flash('toast', match (true) {
+                $result->verificationSent && $result->oldAddressTold => ['type' => 'success', 'message' => __('Email changed. We sent a verification link to :email.', $args)],
+                $result->oldAddressTold => ['type' => 'warning', 'message' => __('Email changed to :email, but the verification email could not be sent. Use "Click here to re-send the verification email" below once mail works again.', $args)],
+                $result->verificationSent => ['type' => 'warning', 'message' => __('Email changed. We sent a verification link to :email, but we couldn\'t email your previous address about the change.', $args)],
+                default => ['type' => 'warning', 'message' => __('Email changed to :email, but neither the verification email nor the notice to your previous address could be sent. Use "Click here to re-send the verification email" below once mail works again.', $args)],
+            });
         } else {
             Inertia::flash('toast', ['type' => 'success', 'message' => __('Profile updated.')]);
         }

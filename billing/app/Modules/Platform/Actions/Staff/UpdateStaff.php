@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\LoginEmailChange;
+use App\Modules\Core\Support\LoginEmailChanged;
 use App\Modules\Platform\Services\PermissionGuard;
 use App\Modules\Platform\Support\AccountMail;
 use Illuminate\Support\Facades\DB;
@@ -19,11 +20,12 @@ class UpdateStaff
 
     /**
      * @param  array{name: string, email: string, role_id: int, is_active: bool}  $data
-     * @return bool false when the email changed but a mail about it could not be sent (reported); the change is saved
+     * @return LoginEmailChanged which mails about an email change were delivered (both true when it did not change);
+     *                           the change is saved either way
      *
      * @throws ValidationException
      */
-    public function handle(User $actor, User $staff, array $data): bool
+    public function handle(User $actor, User $staff, array $data): LoginEmailChanged
     {
         $role = Role::query()->findOrFail($data['role_id']);
         $roleChanged = $staff->role_id !== $role->id;
@@ -65,7 +67,7 @@ class UpdateStaff
 
         $staff->save();
 
-        $mailed = true;
+        $result = new LoginEmailChanged(verificationSent: true, oldAddressTold: true);
 
         if ($emailChanged) {
             // Both addresses hear about it: the old one so a takeover is noticed, the new one for the record.
@@ -73,7 +75,7 @@ class UpdateStaff
                 __(':actor changed the sign-in email of your staff account from :old to :new.', ['actor' => $actor->name, 'old' => $oldEmail, 'new' => $newEmail]),
             ]);
 
-            $mailed = $this->emails->sendVerification($staff) && $noticed;
+            $result = new LoginEmailChanged($this->emails->sendVerification($staff), $noticed);
         }
 
         if ($deactivating) {
@@ -102,7 +104,7 @@ class UpdateStaff
             StaffDisabled::dispatch($staff->id);
         }
 
-        return $mailed;
+        return $result;
     }
 
     /**

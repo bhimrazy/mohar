@@ -14,13 +14,16 @@ use App\Modules\Core\Support\NullSystemMailer;
 use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Services\TemplateCatalog;
+use App\Modules\Platform\Notifications\SecurityNotice;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Notifications\Dispatcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Password;
+use Illuminate\Testing\TestResponse;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\Mailer\Exception\TransportException;
 
 /**
  * #388: a session alone can't change the sign-in email. It needs a recent password confirmation; a login without a
@@ -221,7 +224,7 @@ test('a failing fallback mail does not turn a committed change into an error', f
         public function send($notifiables, $notification): void
         {
             if ($notification instanceof LoginEmailNotice) {
-                throw new RuntimeException('smtp down');
+                throw new TransportException('smtp down');
             }
         }
 
@@ -300,16 +303,27 @@ test('a login without a password sets one through the set-password link, then ca
     expect($user->fresh()->email)->toBe('asha.new@example.com');
 });
 
-/** Every notification fails to send, as with the SMTP server down; the framework's own mail, no templates. */
-function mailServerDown(): void
+/**
+ * The mail transport fails for the given notification classes (all of them when none is given), as with the SMTP
+ * server down; the framework's own mail, no templates. Returns the reported exception messages.
+ *
+ * @param  list<class-string>  $only
+ * @return ArrayObject<int, string>
+ */
+function mailServerDownFor(array $only = []): ArrayObject
 {
     app()->instance(SystemMailer::class, new NullSystemMailer);
     app()->instance(AuthMailer::class, new LaravelAuthMailer);
-    app()->instance(Dispatcher::class, new class implements Dispatcher
+    app()->instance(Dispatcher::class, new class($only) implements Dispatcher
     {
+        /** @param  list<class-string>  $only */
+        public function __construct(private array $only) {}
+
         public function send($notifiables, $notification): void
         {
-            throw new RuntimeException('smtp down');
+            if ($this->only === [] || in_array($notification::class, $this->only, true)) {
+                throw new TransportException('smtp down');
+            }
         }
 
         public function sendNow($notifiables, $notification, ?array $channels = null): void
@@ -317,26 +331,79 @@ function mailServerDown(): void
             $this->send($notifiables, $notification);
         }
     });
-}
-
-test('a failed verification mail after a committed email change gives a warning, not an error page', function () {
-    mailServerDown();
-    $reported = [];
-    app(ExceptionHandler::class)->reportable(function (RuntimeException $e) use (&$reported): void {
+    $reported = new ArrayObject;
+    app(ExceptionHandler::class)->reportable(function (TransportException $e) use ($reported): void {
         $reported[] = $e->getMessage();
     });
+
+    return $reported;
+}
+
+function emailChangeAsAsha(): User
+{
     $user = User::factory()->create(['email' => 'asha@example.com.np']);
-    $this->actingAs($user);
+    test()->actingAs($user);
     confirmPassword();
+
+    return $user;
+}
+
+function staffEmailChange(User $other): TestResponse
+{
+    return test()->put(route('admin.platform.staff.update', $other), ['name' => $other->name, 'email' => 'agent.new@example.com.np', 'role_id' => $other->role_id, 'is_active' => true]);
+}
+
+test('a failed verification mail alone gives a warning that says so, and is logged', function () {
+    $reported = mailServerDownFor([VerifyEmail::class]);
+    $user = emailChangeAsAsha();
 
     $this->patch(route('profile.update'), ['name' => 'Asha', 'email' => 'asha.new@example.com'])
         ->assertRedirect(route('profile.edit'))
         ->assertSessionHasNoErrors()
         ->assertInertiaFlash('toast.type', 'warning')
-        ->assertInertiaFlash('toast.message', 'Email changed and saved, but we couldn\'t send the verification email. Use "Click here to re-send the verification email" below to try again, and we couldn\'t email your previous address about the change.');
+        ->assertInertiaFlash('toast.message', 'Email changed to asha.new@example.com, but the verification email could not be sent. Use "Click here to re-send the verification email" below once mail works again.');
 
     expect($user->fresh())->email->toBe('asha.new@example.com')->email_verified_at->toBeNull()
-        ->and($reported)->toContain('smtp down');
+        ->and($reported)->toHaveCount(1)
+        ->and(ActivityLog::query()->where('event', 'auth.email_verification_failed')->count())->toBe(1)
+        ->and(ActivityLog::query()->where('event', 'auth.email_change_notice_failed')->count())->toBe(0);
+});
+
+test('a failed old-address notice alone gives a warning that says so, and is logged', function () {
+    $reported = mailServerDownFor([LoginEmailNotice::class]);
+    $user = emailChangeAsAsha();
+
+    $this->patch(route('profile.update'), ['name' => 'Asha', 'email' => 'asha.new@example.com'])
+        ->assertRedirect(route('profile.edit'))
+        ->assertInertiaFlash('toast.type', 'warning')
+        ->assertInertiaFlash('toast.message', 'Email changed. We sent a verification link to asha.new@example.com, but we couldn\'t email your previous address about the change.');
+
+    expect($reported)->toHaveCount(1)
+        ->and(ActivityLog::query()->where('event', 'auth.email_change_notice_failed')->count())->toBe(1)
+        ->and(ActivityLog::query()->where('event', 'auth.email_verification_failed')->count())->toBe(0);
+});
+
+test('both mails failing gives the combined warning', function () {
+    mailServerDownFor();
+    emailChangeAsAsha();
+
+    $this->patch(route('profile.update'), ['name' => 'Asha', 'email' => 'asha.new@example.com'])
+        ->assertInertiaFlash('toast.type', 'warning')
+        ->assertInertiaFlash('toast.message', 'Email changed to asha.new@example.com, but neither the verification email nor the notice to your previous address could be sent. Use "Click here to re-send the verification email" below once mail works again.');
+
+    expect(ActivityLog::query()->whereIn('event', ['auth.email_verification_failed', 'auth.email_change_notice_failed'])->count())->toBe(2);
+});
+
+test('resending the verification email while the mail server is down warns instead of failing', function () {
+    $user = User::factory()->unverified()->create();
+    $this->actingAs($user);
+    $reported = mailServerDownFor([VerifyEmail::class]);
+
+    $this->from(route('profile.edit'))->post(route('verification.send'))
+        ->assertRedirect(route('profile.edit'))
+        ->assertInertiaFlash('toast.type', 'warning');
+
+    expect($reported)->toHaveCount(1);
 });
 
 test('a staff member editing another staff member\'s email clears verification and sends the link', function () {
@@ -344,7 +411,7 @@ test('a staff member editing another staff member\'s email clears verification a
     confirmPassword();
     $other = User::factory()->staff()->create(['email' => 'agent@example.com.np']);
 
-    $this->put(route('admin.platform.staff.update', $other), ['name' => $other->name, 'email' => 'agent.new@example.com.np', 'role_id' => $other->role_id, 'is_active' => true])
+    staffEmailChange($other)
         ->assertRedirect(route('admin.platform.staff.index'))
         ->assertInertiaFlash('toast.type', 'success');
 
@@ -353,22 +420,67 @@ test('a staff member editing another staff member\'s email clears verification a
     expect($actor->fresh()->email_verified_at)->not->toBeNull();
 });
 
-test('a staff email change survives a down mail server with a warning', function () {
-    $actor = actingAsStaff();
+test('a staff email change with only the verification mail failing says so', function () {
+    actingAsStaff();
     confirmPassword();
     $other = User::factory()->staff()->create(['email' => 'agent@example.com.np']);
-    mailServerDown();
-    $reported = [];
-    app(ExceptionHandler::class)->reportable(function (RuntimeException $e) use (&$reported): void {
-        $reported[] = $e->getMessage();
-    });
+    $reported = mailServerDownFor([VerifyEmail::class]);
 
-    $this->put(route('admin.platform.staff.update', $other), ['name' => $other->name, 'email' => 'agent.new@example.com.np', 'role_id' => $other->role_id, 'is_active' => true])
+    staffEmailChange($other)
         ->assertRedirect(route('admin.platform.staff.index'))
-        ->assertSessionHasNoErrors()
+        ->assertInertiaFlash('toast.type', 'warning')
+        ->assertInertiaFlash('toast.message', 'Staff member '.$other->name.' saved, but the verification email could not be sent. Once mail works again, they can resend it from their profile page.');
+
+    expect($other->fresh())->email->toBe('agent.new@example.com.np')
+        ->and($reported)->toHaveCount(1)
+        ->and(ActivityLog::query()->where('event', 'auth.email_verification_failed')->count())->toBe(1)
+        ->and(ActivityLog::query()->where('event', 'account.notice_failed')->count())->toBe(0)
+        ->and(ActivityLog::query()->where('event', 'staff.updated')->exists())->toBeTrue();
+});
+
+test('a staff email change with only the notices failing says so and logs each recipient', function () {
+    actingAsStaff();
+    confirmPassword();
+    $other = User::factory()->staff()->create(['email' => 'agent@example.com.np']);
+    mailServerDownFor([SecurityNotice::class]);
+
+    staffEmailChange($other)
+        ->assertRedirect(route('admin.platform.staff.index'))
         ->assertInertiaFlash('toast.type', 'warning');
 
-    expect($other->fresh())->email->toBe('agent.new@example.com.np')->email_verified_at->toBeNull()
-        ->and($reported)->not->toBeEmpty()
-        ->and(ActivityLog::query()->where('event', 'staff.updated')->exists())->toBeTrue();
+    $logged = ActivityLog::query()->where('event', 'account.notice_failed')->get();
+    expect($logged->pluck('properties.recipient')->all())->toEqualCanonicalizing(['agent@example.com.np', 'agent.new@example.com.np'])
+        ->and($logged->first()->properties)->toMatchArray(['notice' => 'staff.email_changed', 'reason' => TransportException::class]);
+});
+
+test('a staff notice the template system refuses counts as not delivered', function () {
+    actingAsStaff();
+    confirmPassword();
+    $other = User::factory()->staff()->create(['email' => 'agent@example.com.np']);
+    app()->instance(SystemMailer::class, new class implements SystemMailer
+    {
+        public function send(string $templateKey, User|string $recipient, array $context, string $occurrenceKey, ?int $clientId = null, bool $carriesSecret = false): SystemMailOutcome
+        {
+            return SystemMailOutcome::Refused;
+        }
+    });
+
+    staffEmailChange($other)->assertInertiaFlash('toast.type', 'warning');
+
+    expect(ActivityLog::query()->where('event', 'account.notice_failed')->first()->properties)->toMatchArray(['reason' => 'refused']);
+});
+
+test('a staff two-factor reset whose notice cannot be delivered warns and logs it', function () {
+    actingAsStaff();
+    confirmPassword();
+    $other = User::factory()->staff()->create(['email' => 'agent@example.com.np']);
+    $reported = mailServerDownFor([SecurityNotice::class]);
+
+    $this->post(route('admin.platform.staff.reset-two-factor', $other))
+        ->assertRedirect()
+        ->assertInertiaFlash('toast.type', 'warning')
+        ->assertInertiaFlash('toast.message', 'Two-factor authentication reset for '.$other->name.'. A security notice about it could not be delivered. The activity log has the details.');
+
+    expect($reported)->toHaveCount(1)
+        ->and(ActivityLog::query()->where('event', 'account.notice_failed')->sole()->properties)->toMatchArray(['notice' => 'staff.two_factor_reset', 'recipient' => 'agent@example.com.np']);
 });

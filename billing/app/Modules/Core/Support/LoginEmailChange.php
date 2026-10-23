@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use Throwable;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 /**
  * A login changing its own sign-in email after step-up (#388). The old address is told, with the new one masked,
@@ -37,8 +37,8 @@ final class LoginEmailChange
     /**
      * Changes the email under a lock, mails the new address a verification link, then tells the old address.
      *
-     * Mail is sent after the commit and never throws: a down mail server must not turn a saved change into an error
-     * page. The result says which mail did not go, so the caller can tell the person.
+     * Mail is sent after the commit, and a mail transport failure (server down) is reported, not thrown: it must not
+     * turn a saved change into an error page. The result says which mail did not go, so the caller can tell the person.
      *
      * @throws ValidationException when another login took the address meanwhile
      */
@@ -79,7 +79,7 @@ final class LoginEmailChange
     }
 
     /**
-     * Mails the verification link; false (reported) when the mail server failed. The person can resend it from
+     * Mails the verification link; false (reported) when the mail transport failed. The person can resend it from
      * Settings → Profile.
      */
     public function sendVerification(User $user): bool
@@ -88,8 +88,9 @@ final class LoginEmailChange
             $user->sendEmailVerificationNotification();
 
             return true;
-        } catch (Throwable $e) {
+        } catch (TransportExceptionInterface $e) {
             report($e);
+            $this->activity->log('Verification email not sent', $user, properties: ['email' => $user->email, 'reason' => $e::class], event: 'auth.email_verification_failed');
 
             return false;
         }
@@ -113,7 +114,7 @@ final class LoginEmailChange
                 ]));
 
                 return true;
-            } catch (Throwable $e) {
+            } catch (TransportExceptionInterface $e) {
                 // The change is committed: a down mail server must not turn it into an error page.
                 report($e);
                 $outcome = SystemMailOutcome::Refused;
