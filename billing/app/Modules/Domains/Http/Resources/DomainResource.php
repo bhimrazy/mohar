@@ -51,6 +51,7 @@ class DomainResource extends JsonResource
             'last_synced_at' => $this->when($staff, fn (): ?string => $this->last_synced_at?->toIso8601String()),
             'last_sync_status' => $this->when($staff, $this->last_sync_status),
             'linked_service_id' => $this->when($staff, $this->linked_service_id),
+            'registrar_order_id' => $this->when($staff, fn (): string|int|null => is_int($meta['remote']['order_id'] ?? null) || is_string($meta['remote']['order_id'] ?? null) ? $meta['remote']['order_id'] : null),
             'has_epp_code' => $this->when($staff, fn (): bool => $this->epp_code !== null),
             'client' => $this->whenLoaded('client', fn (): array => ['id' => $this->client->id, 'display_name' => $this->client->display_name]),
             'created_at' => $this->created_at?->toIso8601String(),
