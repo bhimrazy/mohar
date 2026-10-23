@@ -1,5 +1,5 @@
 import { ChevronDown } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import {
@@ -27,14 +27,13 @@ type SelectFieldProps = {
     invalid?: boolean;
     disabled?: boolean;
     className?: string;
+    /** A search box that filters the options; for long lists such as time zones. */
+    searchable?: boolean;
 };
 
-/** Above this many options the list becomes a searchable combobox. */
-const SEARCH_FROM = 30;
-
-/** Radix select that works inside a plain Inertia <Form>; long lists get a search box. */
+/** Radix select that works inside a plain Inertia <Form>; `searchable` swaps in a filterable combobox for long lists. */
 export function SelectField(props: SelectFieldProps) {
-    return props.options.length > SEARCH_FROM ? (
+    return props.searchable ? (
         <SearchableSelect {...props} />
     ) : (
         <PlainSelect {...props} />
@@ -109,6 +108,13 @@ function SearchableSelect({
     const [query, setQuery] = useState('');
     const [open, setOpen] = useState(false);
     const [active, setActive] = useState(0);
+    const [box, setBox] = useState<{
+        top: number;
+        left: number;
+        width: number;
+        height: number;
+    }>();
+    const input = useRef<HTMLInputElement>(null);
     const value = controlled ?? internal;
 
     const all: SelectOption[] = emptyLabel
@@ -120,17 +126,81 @@ function SearchableSelect({
         ? all.filter((option) => option.label.toLowerCase().includes(needle))
         : all;
 
+    const show = (text: string) => {
+        const list = text.trim()
+            ? all.filter((option) =>
+                  option.label
+                      .toLowerCase()
+                      .includes(text.trim().toLowerCase()),
+              )
+            : all;
+        const at = list.findIndex((option) => option.value === value);
+
+        setActive(Math.max(at, 0));
+        setOpen(true);
+    };
+
+    // The list is fixed-positioned under the input, so a dialog or an overflow-hidden card does not clip it.
+    useEffect(() => {
+        if (!open) {
+            return;
+        }
+
+        const place = () => {
+            const rect = input.current?.getBoundingClientRect();
+
+            if (rect) {
+                setBox({
+                    top: rect.bottom + 4,
+                    left: rect.left,
+                    width: rect.width,
+                    height: Math.min(
+                        256,
+                        window.innerHeight - rect.bottom - 12,
+                    ),
+                });
+            }
+        };
+
+        place();
+        window.addEventListener('resize', place);
+        window.addEventListener('scroll', place, true);
+
+        return () => {
+            window.removeEventListener('resize', place);
+            window.removeEventListener('scroll', place, true);
+        };
+    }, [open]);
+
+    useEffect(() => {
+        if (open) {
+            document
+                .getElementById(`${id}-option-${active}`)
+                ?.scrollIntoView({ block: 'nearest' });
+        }
+    }, [open, active, id, box]);
+
+    const close = () => {
+        setOpen(false);
+        setQuery('');
+    };
+
     const choose = (option: SelectOption) => {
         setInternal(option.value);
         onValueChange?.(option.value);
-        setQuery('');
-        setOpen(false);
+        close();
     };
 
     const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault();
-            setOpen(true);
+
+            if (!open) {
+                show(query);
+
+                return;
+            }
+
             setActive((current) =>
                 shown.length === 0
                     ? 0
@@ -145,14 +215,14 @@ function SearchableSelect({
         } else if (event.key === 'Escape' && open) {
             event.preventDefault();
             event.stopPropagation();
-            setQuery('');
-            setOpen(false);
+            close();
         }
     };
 
     return (
         <div className={cn('relative', className ?? 'w-full')}>
             <Input
+                ref={input}
                 id={id}
                 role="combobox"
                 autoComplete="off"
@@ -165,33 +235,44 @@ function SearchableSelect({
                 aria-invalid={invalid || undefined}
                 aria-describedby={`${id}-description`}
                 aria-expanded={open}
-                aria-controls={`${id}-options`}
+                aria-controls={open ? `${id}-options` : undefined}
                 aria-autocomplete="list"
                 aria-activedescendant={
                     open && shown[active] ? `${id}-option-${active}` : undefined
                 }
-                onFocus={() => setOpen(true)}
-                onClick={() => setOpen(true)}
+                onClick={() => !open && show(query)}
                 onKeyDown={onKeyDown}
-                onBlur={() => {
-                    setOpen(false);
-                    setQuery('');
-                }}
+                onBlur={close}
                 onChange={(event) => {
                     setQuery(event.target.value);
+                    show(event.target.value);
                     setActive(0);
-                    setOpen(true);
                 }}
             />
             <ChevronDown
                 className="pointer-events-none absolute top-1/2 right-2.5 size-4 -translate-y-1/2 text-muted-foreground"
                 aria-hidden="true"
             />
-            {open && (
+            <span role="status" aria-live="polite" className="sr-only">
+                {open
+                    ? shown.length === 0
+                        ? 'No matches'
+                        : `${shown.length} ${shown.length === 1 ? 'result' : 'results'}`
+                    : ''}
+            </span>
+            {open && box && (
                 <ul
                     id={`${id}-options`}
                     role="listbox"
-                    className="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"
+                    aria-label={placeholder ?? 'Options'}
+                    style={{
+                        top: box.top,
+                        left: box.left,
+                        width: box.width,
+                        maxHeight: Math.max(box.height, 96),
+                    }}
+                    className="fixed z-50 overflow-auto rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"
+                    onMouseDown={(event) => event.preventDefault()}
                 >
                     {shown.length === 0 ? (
                         <li className="px-2 py-1.5 text-muted-foreground">
@@ -209,14 +290,7 @@ function SearchableSelect({
                                     index === active && 'bg-accent',
                                     option.value === value && 'font-medium',
                                 )}
-                                ref={(element) => {
-                                    if (index === active) {
-                                        element?.scrollIntoView?.({
-                                            block: 'nearest',
-                                        });
-                                    }
-                                }}
-                                onMouseDown={(event) => event.preventDefault()}
+                                onMouseMove={() => setActive(index)}
                                 onClick={() => choose(option)}
                             >
                                 {option.label}
