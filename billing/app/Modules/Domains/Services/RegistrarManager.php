@@ -30,7 +30,7 @@ class RegistrarManager
     }
 
     /**
-     * Whether the driver is registered and its account (if configured) is enabled.
+     * Whether the driver is registered and usable: its account is enabled, or it has none and needs none.
      */
     public function isActive(string $key): bool
     {
@@ -40,6 +40,6 @@ class RegistrarManager
 
         $account = RegistrarAccount::query()->where('key', $key)->first();
 
-        return $account === null || $account->is_active;
+        return $account === null ? ! $this->drivers->needsAccount($key) : $account->is_active;
     }
 }

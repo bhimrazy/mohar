@@ -245,7 +245,7 @@ final class NamecheapDriver implements ChecksAvailability, DeclaresTldAttributes
             $remote = self::remote(['domain_id' => $result['DomainID'] ?? null, 'order_id' => $result['OrderID'] ?? null]);
 
             return match (true) {
-                self::flag($result['Registered'] ?? null) => new RegistrarResult('completed', CarbonImmutable::now('UTC')->startOfDay()->addYears($request->years), 'Registered at Namecheap; the expiry is computed from the term and corrected by the next sync.', remote: $remote),
+                self::flag($result['Registered'] ?? null) => new RegistrarResult('completed', null, 'Registered at Namecheap; the expiry is dated from the term on the company calendar and corrected by the next sync.', remote: $remote),
                 self::flag($result['NonRealTimeDomain'] ?? null) => new RegistrarResult('pending', message: 'Namecheap accepted the registration; the registry has not confirmed it yet.', remote: $remote),
                 default => throw new RegistrarTimeout('Namecheap neither registered the domain nor queued it; check the account.'),
             };
@@ -534,7 +534,7 @@ final class NamecheapDriver implements ChecksAvailability, DeclaresTldAttributes
         $generic = strlen(self::lastLabel($domain->tld)) > 2;
 
         return $changed && $generic
-            ? new RegistrarResult($done->status, message: $done->message, meta: ['transfer_lock_until' => CarbonImmutable::today()->addDays(60)->toDateString()])
+            ? new RegistrarResult($done->status, message: $done->message, meta: ['transfer_lock_days' => 60])
             : $done;
     }
 

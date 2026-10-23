@@ -9,6 +9,7 @@ use App\Modules\Notifications\Models\WebhookDelivery;
 use App\Modules\Notifications\Models\WebhookEndpoint;
 use App\Modules\Notifications\Services\MergeContext;
 use App\Modules\Notifications\Support\EventKey;
+use App\Support\Events\WebhookEvents;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -21,15 +22,17 @@ class WebhookPublisher
     /** Keys never sent in a payload, at any depth. */
     private const SECRET_KEY_PATTERN = '/(password|passwd|secret|token|epp|auth_?code|access_key|api_key|card|cvv|iban)/i';
 
-    public function __construct(private MergeContext $context) {}
+    public function __construct(private MergeContext $context, private WebhookEvents $events) {}
 
     public function publishEvent(object $event): int
     {
-        [$type, $entity, $idProperty] = WebhookEventTypes::MAP[$event::class] ?? [null, null, null];
+        $registered = $this->events->forEvent($event::class);
 
-        if ($type === null) {
+        if ($registered === null) {
             return 0;
         }
+
+        ['type' => $type, 'entity' => $entity, 'idProperty' => $idProperty] = $registered;
 
         // Without a subscribed endpoint there is nothing to build: the payload's entity is not even read.
         $endpoints = $this->subscribed($type);
@@ -71,7 +74,7 @@ class WebhookPublisher
         return WebhookEndpoint::query()->where('is_active', true)
             ->when($endpointIds !== null, fn ($query) => $query->whereIn('id', $endpointIds))
             ->orderBy('id')->get()
-            ->filter(fn (WebhookEndpoint $endpoint): bool => $type === WebhookEventTypes::PING || $endpoint->subscribesTo($type));
+            ->filter(fn (WebhookEndpoint $endpoint): bool => $type === WebhookEvents::PING || $endpoint->subscribesTo($type));
     }
 
     /**

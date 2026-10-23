@@ -167,7 +167,7 @@ the gTLD 60-day transfer lock (no opt-out param). Lock is a simple flag. No EPP 
 **Settings.** `api_user`, `api_key` (**secret**), `username` (usually = api_user), `client_ip` (the whitelisted egress IPv4),
 `sandbox_api_user`, `sandbox_api_key` (**secret**), `sandbox_username`, `http_proxy` (**secret**). Local rate budget:
 40/min, 600/h, 7000/day via `RateLimiter`, with a reserve kept for writes. When the budget is exhausted the driver
-throws `retryable` _before_ sending. Public lookups never spend the write reserve.
+throws `retryable` _before_ sending. Public lookups never spend the write reserve; the lookups inside a registration, renewal or transfer do.
 
 ## 5. OpenSRS (`opensrs`) — chosen over Enom
 

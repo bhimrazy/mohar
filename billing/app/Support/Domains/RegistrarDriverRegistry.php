@@ -13,6 +13,7 @@ use App\Contracts\Domains\Registrar\ProvidesEppCode;
 use App\Contracts\Domains\Registrar\ReconcilesSubmissions;
 use App\Contracts\Domains\Registrar\RegistrarDriver;
 use App\Contracts\Domains\Registrar\RestoresDomains;
+use App\Contracts\Domains\Registrar\StandaloneRegistrar;
 use App\Contracts\Domains\Registrar\SuggestsNames;
 use App\Contracts\Domains\Registrar\SyncsDomains;
 use App\Contracts\Domains\Registrar\TestsRegistrarConnection;
@@ -116,5 +117,13 @@ final class RegistrarDriverRegistry extends DriverRegistry
     public function fields(string $key): array
     {
         return $this->get($key)->settingsFields();
+    }
+
+    /**
+     * Whether $key must have a saved account before it can be used.
+     */
+    public function needsAccount(string $key): bool
+    {
+        return ! $this->get($key) instanceof StandaloneRegistrar && $this->fields($key) !== [];
     }
 }
