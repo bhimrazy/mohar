@@ -11,6 +11,8 @@ use App\Support\Reports\ReportRegistry;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Container\Container;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\View;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -176,6 +178,60 @@ test('the PDF is a single A4 landscape document', function () {
         ->and($body)->toStartWith('%PDF')
         // A4 landscape is 841.89 x 595.28 points.
         ->and($body)->toContain('/MediaBox [0.000 0.000 841.890 595.280]');
+});
+
+/** Runs a PDF export and returns the data the `reports.pdf` view was given. */
+function pdfViewData(): array
+{
+    $data = [];
+    View::composer('reports.pdf', function ($view) use (&$data) {
+        $data = $view->getData();
+    });
+    runExport(ExportFormat::Pdf);
+
+    return $data;
+}
+
+test('the PDF wraps a long name, ends an extreme one with an ellipsis, and splits pages by lines', function () {
+    actingAsStaff(['reports.demo_sales.export']);
+    $legal = 'Himalayan Hosting and Cloud Infrastructure Services Private Limited '.str_repeat('Kathmandu Metropolitan City ', 8);
+    DemoReport::$rows = [
+        DemoReport::row(substr($legal, 0, 340), 1_000),
+        DemoReport::row(str_repeat('Extremely long registered name ', 80), 1_000),
+        ...array_map(fn (int $i): array => DemoReport::row('Tall '.str_repeat('Cloud Services ', 20).$i, 1_000), range(1, 30)),
+    ];
+
+    $pages = pdfViewData()['pages'];
+
+    // A 340-character name is kept whole; the 2,480-character one ends in an ellipsis and stays within four lines.
+    expect($pages[0]['rows'][0]['name'])->toBe(substr($legal, 0, 340))
+        ->and($pages[0]['rows'][1]['name'])->toEndWith('…')->and(mb_strlen($pages[0]['rows'][1]['name']))->toBeLessThan(700)
+        // Tall rows take more of a page, so fewer than the 22 single-line rows fit.
+        ->and(count($pages[0]['rows']))->toBeLessThan(14)->and(count($pages))->toBeGreaterThan(2)
+        ->and(array_sum(array_map(fn (array $page): int => count($page['rows']), $pages)))->toBe(32);
+});
+
+test('the PDF aligns numeric headings with their figures and keeps dates left in a narrow column', function () {
+    actingAsStaff(['reports.demo_sales.export']);
+    $data = pdfViewData();
+    $html = view('reports.pdf', $data)->render();
+
+    // date, name, qty, amount
+    expect($data['right'])->toBe([false, false, true, true])
+        ->and($data['widths'][0])->toBe(round(74 / 1074 * 100, 2).'%')
+        ->and($html)->toContain('table.rows th.right, .right { text-align: right; }')
+        ->and($html)->toMatch('/<th class="right" style="width: [\d.]+%">Qty<\/th>/')
+        ->and($html)->toMatch('/<th class="right" style="width: [\d.]+%">Amount \(Rs\)<\/th>/')
+        ->and($html)->toMatch('/<th class="" style="width: [\d.]+%">Date<\/th>/');
+});
+
+test('the PDF prints the time in the company zone', function () {
+    actingAsStaff(['reports.demo_sales.export']);
+    app(Settings::class)->set('system.timezone', 'Asia/Kathmandu');
+    Carbon::setTestNow('2026-10-23 06:40:00 UTC');
+
+    // 06:40 UTC is 12:25 in Kathmandu (UTC+05:45).
+    expect(pdfViewData()['printedAt'])->toBe('2026-10-23 12:25 (Asia/Kathmandu)');
 });
 
 test('export needs the export permission; viewing is not enough and nothing is logged', function () {
