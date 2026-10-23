@@ -114,7 +114,7 @@ const HAND_CONVERSIONS = [
     'shiftTimezone(' => '/shiftTimezone\s*\(/',
     // A chain such as `$today->subDays(3)->endOfDay()` is the same conversion.
     'an instant method on the run date' => '/\$today(\s*->\s*\w+\([^)]*\))*\s*->\s*(setTime|setTimeFrom|endOfDay|isToday|isSameDay|utc|setTimezone)\s*\(/',
-    'a timestamp column compared with the run date' => '/[\x27"]\w+_at[\x27"]\s*,\s*[\x27"][<>]=?[\x27"]\s*,\s*\$today\b/',
+    'a timestamp column compared with the run date' => '/[\x27"](\w+\.)?\w+_at[\x27"]\s*,\s*[\x27"][<>]=?[\x27"]\s*,\s*\$today\b/',
 ];
 
 /**
@@ -165,6 +165,7 @@ test('the hand-conversion patterns see what they ban', function (string $label, 
     ['an instant method on the run date', '$today->addDay()->setTimeFrom(now())'],
     ['a timestamp column compared with the run date', "->where('captured_at', '>=', \$today)"],
     ['a timestamp column compared with the run date', "->where('created_at', '<', \$today->subDays(3))"],
+    ['a timestamp column compared with the run date', "->orWhere('services.updated_at', '>=', \$today->subMonths(12)->startOfMonth())"],
 ]);
 
 test('the scan reads the moved modules but not their factories', function () {

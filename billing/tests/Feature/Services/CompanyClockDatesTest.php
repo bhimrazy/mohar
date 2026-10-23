@@ -2,18 +2,25 @@
 
 use App\Contracts\Core\CompanyClock;
 use App\Contracts\Services\ServiceRegistry;
+use App\Data\Billing\InvoiceLineData;
 use App\Data\Services\ServiceDraft;
+use App\Enums\BillableType;
 use App\Enums\BillingCycle;
+use App\Events\Billing\InvoicePaid;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Services\Actions\PruneModuleLog;
+use App\Modules\Services\Actions\QuoteServiceChange;
 use App\Modules\Services\Enums\CancellationStatus;
+use App\Modules\Services\Enums\ChangeKind;
+use App\Modules\Services\Enums\ChangeStatus;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\CancellationRequest;
 use App\Modules\Services\Models\ModuleCommand;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerGroup;
 use App\Modules\Services\Models\Service;
+use App\Modules\Services\Models\ServiceChange;
 use App\Support\Dashboard\Dashboard;
 use Carbon\CarbonImmutable;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -152,3 +159,69 @@ it('accepts an import due date of the company today and refuses the day before',
         $put(CarbonImmutable::parse($today)->subDay()->toDateString())->assertSessionHasErrors('next_due_date');
     }
 })->with('company midnight');
+
+it('counts a change applied just after the company midnight of the window start, not one just before', function (string $zone, string $justBefore, string $justAfter) {
+    inCompanyTimezone($zone);
+    $service = Service::factory()->create(['recurring_amount' => 1_000]);
+    $change = fn (string $at, int $amount) => ServiceChange::query()->create([
+        'service_id' => $service->id, 'kind' => ChangeKind::Product, 'from_snapshot' => ['recurring_amount' => 1_000],
+        'to_snapshot' => ['recurring_amount' => $amount], 'currency' => 'USD', 'status' => ChangeStatus::Applied,
+        'applied_at' => CarbonImmutable::parse($at, 'UTC'),
+    ]);
+    $quote = app(QuoteServiceChange::class);
+    $windowStart = CarbonImmutable::parse('2026-11-01');
+    $end = CarbonImmutable::parse('2026-12-01');
+
+    $change($justBefore, 3_000);
+    expect($quote->paidAmountFor($service, $windowStart, $end))->not->toBe(3_000);
+
+    $change($justAfter, 5_000);
+    expect($quote->paidAmountFor($service, $windowStart, $end))->toBe(5_000);
+})->with([
+    // 1 Nov 00:00 in Kathmandu is 31 Oct 18:15 UTC; in New York (EDT) it is 1 Nov 04:00 UTC.
+    'Kathmandu' => ['Asia/Kathmandu', '2026-10-31 18:14:59', '2026-10-31 18:15:00'],
+    'New York' => ['America/New_York', '2026-11-01 03:59:59', '2026-11-01 04:00:00'],
+]);
+
+it('lifts an overdue suspension on payment while the due day is still today, not after the company midnight', function (string $zone, string $before, string $at, string $dayBefore) {
+    $service = Service::factory()->dueOn($dayBefore)->onServer()->create();
+    $this->artisan('automation:run', ['--date' => $dayBefore, '--only' => 'services.renewals'])->assertSuccessful(); // the renewal for [due, due+1m) is open
+    $paidEarlier = fn () => event(new InvoicePaid(9000 + $service->id, $service->client_id, [new InvoiceLineData('Earlier period', 1000, 1, true, BillableType::Service, $service->id, CarbonImmutable::parse($dayBefore)->subMonth(), CarbonImmutable::parse($dayBefore))]));
+
+    foreach ([[$before, ServiceStatus::Active], [$at, ServiceStatus::Suspended]] as [$instant, $expected]) {
+        $service->forceFill(['status' => ServiceStatus::Suspended, 'suspension_reason' => 'overdue'])->save();
+        atUtc($zone, $instant);
+        $paidEarlier();
+        expect($service->refresh()->status)->toBe($expected);
+    }
+})->with('company midnight');
+
+it('dates an imported account on the company calendar of its creation instant', function (string $zone, string $createdAt, string $date) {
+    CarbonImmutable::setTestNow('2026-10-19 10:00:00');
+    inCompanyTimezone($zone);
+    $server = Server::factory()->create(['driver' => 'cpanel', 'hostname' => Whm::HOST, 'username' => 'root', 'api_token' => Whm::TOKEN, 'port' => null]);
+    $group = ServerGroup::factory()->create();
+    $group->servers()->attach($server, ['sort_order' => 0]);
+    $this->kit->priceBook->addProduct(21, 'Basic hosting', ['monthly' => 1200], driver: 'cpanel', serverGroupId: $group->id, driverConfig: ['package' => 'root_basic']);
+    Client::factory()->create(['email' => 'anna@alpha-books.com', 'currency' => 'USD']);
+    $alpha = [...Whm::fixture('listaccts_page1')['data']['acct'][0], 'unix_startdate' => CarbonImmutable::parse($createdAt, 'UTC')->getTimestamp()];
+    Whm::fake(['listaccts' => Whm::fixture('listaccts_example', ['data' => ['acct' => [$alpha]]])]);
+    actingAsStaff();
+    confirmPassword();
+    $this->post(route('admin.services.servers.import.fetch', $server))->assertSessionHasNoErrors();
+    $this->put(route('admin.services.servers.import.select', $server), ['proposed' => true])->assertSessionHasNoErrors();
+    $review = $this->get(route('admin.services.servers.import.review', $server))->assertOk();
+    $row = collect($review->inertiaProps('rows'))->keyBy('username')['alpha'];
+    $this->post(route('admin.services.servers.import.apply', $server), ['digest' => $review->inertiaProps('digest')])->assertSessionHasNoErrors();
+
+    $anniversary = CarbonImmutable::parse($date)->setYear(2026)->toDateString();
+    expect(Service::query()->sole()->registration_date->toDateString())->toBe($date)
+        ->and($row['decision']['next_due_date'])->toBe($anniversary)
+        ->and($row['decision']['anchor_day'])->toBe((int) substr($date, 8));
+})->with([
+    // 2023-11-14 18:15 UTC is 00:00 on the 15th in Kathmandu; 05:00 UTC is 00:00 on the 14th in New York (EST).
+    'Kathmandu before midnight' => ['Asia/Kathmandu', '2023-11-14 18:14:59', '2023-11-14'],
+    'Kathmandu at midnight' => ['Asia/Kathmandu', '2023-11-14 18:15:00', '2023-11-15'],
+    'New York before midnight' => ['America/New_York', '2023-11-14 04:59:59', '2023-11-13'],
+    'New York at midnight' => ['America/New_York', '2023-11-14 05:00:00', '2023-11-14'],
+]);

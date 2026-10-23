@@ -107,7 +107,7 @@ class ServicesDashboard
             ->whereNull('services.deleted_at')
             ->whereIn('services.status', [...$open, ServiceStatus::Terminated->value, ServiceStatus::Cancelled->value])
             ->where('services.recurring_amount', '>', 0)
-            ->where(fn ($query) => $query->whereIn('services.status', $open)->orWhere('services.updated_at', '>=', $today->subMonths(self::MONTHS)->startOfMonth()))
+            ->where(fn ($query) => $query->whereIn('services.status', $open)->orWhere('services.updated_at', '>=', app(CompanyClock::class)->dayBounds($today->startOfMonth()->subMonths(self::MONTHS))[0]))
             ->selectRaw('services.currency, case when services.status in (?, ?) then 1 else 0 end as is_open, round(services.recurring_amount * 1.0 / cycles.months) as monthly, '
                 .'date(services.registration_date) as registered, date(coalesce(services.termination_date, services.updated_at)) as ended', $open);
 
