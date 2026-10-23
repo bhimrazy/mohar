@@ -2,7 +2,9 @@
 
 namespace App\Modules\Core\Http\Controllers\Admin;
 
+use App\Contracts\Core\CompanyClock;
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use App\Modules\Core\Models\StaffNotice;
 use App\Support\Dashboard\Dashboard;
 use Illuminate\Http\Request;
@@ -17,6 +19,8 @@ use Inertia\Response;
  */
 class DashboardController extends Controller
 {
+    public function __construct(private readonly CompanyClock $clock) {}
+
     public function __invoke(Request $request, Dashboard $dashboard): Response
     {
         $user = $request->user();
@@ -31,31 +35,47 @@ class DashboardController extends Controller
     }
 
     /**
-     * @return list<array{key: string, title: string, body: string, href: string|null}>
+     * @return list<array{key: string, title: string, body: string, links: list<array{label: string, href: string}>}>
      */
     private function notices(Request $request): array
     {
         $user = $request->user();
 
-        if ($user === null || ! $user->hasPermission('core.settings.update')) {
+        if ($user === null) {
             return [];
         }
 
         $pending = StaffNotice::query()
             ->where('user_id', $user->id)
-            ->where('notice', StaffNotice::COMPANY_TIME_SETTINGS)
             ->whereNull('dismissed_at')
-            ->exists();
+            ->pluck('notice')
+            ->filter(fn (string $notice): bool => StaffNotice::exists($notice) && $user->hasPermission((string) StaffNotice::permissionFor($notice)));
 
-        if (! $pending) {
-            return [];
+        return $pending->map(fn (string $notice): array => match ($notice) {
+            StaffNotice::COMPANY_TIME_SETTINGS => $this->companyTimeNotice($user),
+        })->values()->all();
+    }
+
+    /**
+     * @return array{key: string, title: string, body: string, links: list<array{label: string, href: string}>}
+     */
+    private function companyTimeNotice(User $user): array
+    {
+        $links = [];
+
+        if (Route::has('admin.platform.settings.edit')) {
+            $links[] = ['label' => __('Automation time'), 'href' => route('admin.platform.settings.edit', 'company')];
+
+            if ($user->hasPermission('core.currencies.rates')) {
+                $links[] = ['label' => __('Rate update time'), 'href' => route('admin.platform.settings.edit', 'exchange_rates')];
+            }
         }
 
-        return [[
+        return [
             'key' => StaffNotice::COMPANY_TIME_SETTINGS,
             'title' => __('Check your automation times'),
-            'body' => __('"Daily automation time" and "Rate update time" now mean your company time, not UTC. We did not change any value. If you set one while the server clock was UTC, open Settings and check that it still runs when you want.'),
-            'href' => Route::has('admin.platform.settings.edit') ? route('admin.platform.settings.edit', 'company') : null,
-        ]];
+            'body' => __('Daily automation time and Rate update time now use your company time zone (:zone). We did not change either value. If you set them before this update, check they still run when you expect.', ['zone' => $this->clock->timezone()]),
+            'links' => $links,
+        ];
     }
 }

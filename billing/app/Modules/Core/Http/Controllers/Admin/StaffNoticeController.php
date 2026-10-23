@@ -12,7 +12,8 @@ class StaffNoticeController extends Controller
     /** Dismisses a notice for the signed-in person only. */
     public function dismiss(Request $request, string $notice): RedirectResponse
     {
-        $this->authorize('core.settings.update');
+        abort_unless(StaffNotice::exists($notice), 404);
+        $this->authorize(StaffNotice::permissionFor($notice));
 
         StaffNotice::query()
             ->where('user_id', $request->user()->id)

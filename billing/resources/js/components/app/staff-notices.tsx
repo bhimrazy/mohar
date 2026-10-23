@@ -8,7 +8,7 @@ export type StaffNoticeItem = {
     key: string;
     title: string;
     body: string;
-    href: string | null;
+    links: { label: string; href: string }[];
 };
 
 /** One-time messages for the signed-in staff member; dismissing one hides it for that person only. */
@@ -32,26 +32,40 @@ export function StaffNotices({ notices }: { notices: StaffNoticeItem[] }) {
                     <div className="min-w-0 flex-1 space-y-1 text-sm">
                         <h2 className="font-medium">{notice.title}</h2>
                         <p>{notice.body}</p>
-                        {notice.href && (
-                            <Link
-                                href={notice.href}
-                                className="inline-block font-medium underline underline-offset-4"
-                            >
-                                Open settings
-                            </Link>
+                        {notice.links.length > 0 && (
+                            <p className="flex flex-wrap gap-x-4 gap-y-1">
+                                {notice.links.map((link) => (
+                                    <Link
+                                        key={link.href}
+                                        href={link.href}
+                                        className="font-medium underline underline-offset-4"
+                                    >
+                                        {link.label}
+                                    </Link>
+                                ))}
+                            </p>
                         )}
                     </div>
                     <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="size-7 shrink-0"
+                        className="size-10 shrink-0 sm:size-8"
                         aria-label={`Dismiss: ${notice.title}`}
                         onClick={() =>
                             router.post(
                                 StaffNoticeController.dismiss(notice.key),
                                 {},
-                                { preserveScroll: true },
+                                {
+                                    preserveScroll: true,
+                                    onSuccess: () => {
+                                        // Keep the reader's place: move focus to the page heading.
+                                        const heading =
+                                            document.querySelector('h1');
+                                        heading?.setAttribute('tabindex', '-1');
+                                        heading?.focus();
+                                    },
+                                },
                             )
                         }
                     >
