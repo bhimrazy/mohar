@@ -63,12 +63,18 @@ function d4Dockerfile(): string
     return file_get_contents(dirname(__DIR__, 4).'/deploy/Dockerfile');
 }
 
+/** The text without whole-line comments, so a probe cannot pass on a comment that mentions the thing. */
+function d4WithoutComments(string $text): string
+{
+    return preg_replace('/^\s*#.*$/m', '', $text);
+}
+
 /** The instructions of one build stage, from its FROM line to the next FROM. */
 function d4Stage(string $name): string
 {
     preg_match('/^FROM (\S+) AS '.preg_quote($name, '/').'\n(.*?)(?=^FROM |\z)/ms', d4Dockerfile(), $m) || throw new RuntimeException("no stage {$name}");
 
-    return $m[1]."\n".$m[2];
+    return d4WithoutComments($m[1]."\n".$m[2]);
 }
 
 test('the release target is built from the same stages as the prod image and contains only the app tree and the built assets', function () {
@@ -79,7 +85,20 @@ test('the release target is built from the same stages as the prod image and con
 
     preg_match_all('/^COPY --from=(\S+) (\S+) (\S+)$/m', $release, $copies, PREG_SET_ORDER);
     expect(array_map(fn (array $c): array => [$c[1], $c[2]], $copies))
-        ->toBe([['vendor', '/app'], ['assets', '/app/public/build']]);
+        ->toBe([['release-tree', '/app'], ['assets', '/app/public/build']]);
+
+    // release-tree is the vendor stage minus the front-end sources and dev configs, so it cannot drift from prod's code.
+    $tree = d4Stage('release-tree');
+    expect($tree)->toStartWith('vendor');
+
+    foreach (['resources/js', 'package.json', 'package-lock.json', 'vite.config.ts', 'phpunit.xml', 'phpstan.neon', 'pint.json', 'tsconfig.json'] as $dev) {
+        expect($tree)->toContain($dev);
+    }
+
+    // What the app reads at runtime stays: the Composer manifest, the views and the stylesheets.
+    foreach (['composer.json', 'resources/views', 'resources/css', 'artisan'] as $kept) {
+        expect($tree)->not->toContain($kept);
+    }
 
     // The same two sources as prod's /app, so the tarball and the image cannot hold different code.
     expect($prod)->toContain('COPY --from=vendor /app /app')
@@ -115,4 +134,20 @@ test('the release tarball excludes .env, tests, docs, node_modules and dev vendo
     // The vendor stage's backstop fails the build on a leaked .env or storage file.
     expect(d4Stage('vendor'))->toContain("-name '.env'")
         ->and(d4Stage('vendor'))->toContain('find storage -type f ! -name .gitignore');
+});
+
+test('the draft release job is the only write-capable job besides the GHCR push, and runs only from the default branch for the built tag', function () {
+    $workflow = file_get_contents(dirname(__DIR__, 4).'/.github/workflows/build-image.yml');
+    preg_match('/^    release:\n(.*?)(?=^    \S+:\n|\z)/ms', $workflow, $m) || throw new RuntimeException('no release job');
+    $job = d4WithoutComments($m[1]);
+    $workflow = d4WithoutComments($workflow);
+
+    expect($workflow)->toContain("permissions:\n    contents: read\n")
+        ->and($workflow)->toContain("format('refs/tags/{0}', inputs.release_tag)")
+        ->and($job)->toContain('-- "$RELEASE_TAG"')
+        ->and($job)->toContain('contents: write')
+        ->and($job)->toContain("github.ref == format('refs/heads/{0}', github.event.repository.default_branch)")
+        ->and($job)->toContain('inputs.release_tag == inputs.ref')
+        ->and($job)->toContain('--verify-tag --draft')
+        ->and(preg_match_all('/^\s+contents: write$/m', $workflow))->toBe(1);
 });
