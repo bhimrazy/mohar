@@ -32,7 +32,7 @@ interface CompanyClock
      */
     public function todayDate(): CarbonImmutable;
 
-    /** The company date today (ADR 0013 Amendment 2). */
+    /** The company date today (ADR 0013 Amendment (#410)). */
     public function calendarDate(): CalendarDate;
 
     /**

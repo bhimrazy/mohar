@@ -5,6 +5,7 @@ namespace App\Support\Automation;
 use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use Closure;
+use InvalidArgumentException;
 use ReflectionFunction;
 use ReflectionNamedType;
 
@@ -17,9 +18,10 @@ use ReflectionNamedType;
  *
  * Staff-facing screens show the label and description, never the key (the key stays as secondary text).
  *
- * Tasks receive the run date, a company-calendar date (ADR 0013 Amendment 2). A handler whose first parameter is typed
+ * Tasks receive the run date, a company-calendar date (ADR 0013 Amendment (#410)). A handler whose first parameter is typed
  * `CalendarDate` gets one; any other handler gets the older Carbon shape of `CompanyClock::todayDate()` (00:00 UTC on
- * the company date), until every in-repo task has moved. Turn the run date into instants only with
+ * the company date), until every in-repo task has moved; a union type naming CalendarDate is refused at registration.
+ * Turn the run date into instants only with
  * `CompanyClock::dayBounds()`. Name the parameter `$today`, so the arch scan (CompanyClockScanTest) can see it. Tasks
  * return a short summary (int count or string) for the run log.
  * A task must be safe to re-run for the same date (it may be retried after a failure).
@@ -50,8 +52,12 @@ class Automation
     /** @var array<string, array{stage: int, handler: Closure, label: string, description: ?string}> */
     private array $tasks = [];
 
+    /** @var array<string, bool> */
+    private array $takesCalendarDate = [];
+
     public function task(string $key, int $stage, Closure $handler, ?string $label = null, ?string $description = null): void
     {
+        $this->takesCalendarDate[$key] = self::takesCalendarDate($handler, $key);
         $this->tasks[$key] = ['stage' => $stage, 'handler' => $handler, 'label' => $label ?? self::fallbackLabel($key), 'description' => $description];
     }
 
@@ -76,12 +82,26 @@ class Automation
     /** Runs one registered task for a run date and returns its summary. */
     public function run(string $key, CalendarDate $date): mixed
     {
-        $handler = $this->tasks[$key]['handler'];
+        return ($this->tasks[$key]['handler'])($this->takesCalendarDate[$key] ? $date : CarbonImmutable::parse($date->toString(), 'UTC'));
+    }
+
+    /**
+     * Whether the handler's first parameter is `CalendarDate` (or `?CalendarDate`). A union naming CalendarDate is
+     * refused: it would leave the runner to guess which value to pass.
+     */
+    private static function takesCalendarDate(Closure $handler, string $key): bool
+    {
         $type = ((new ReflectionFunction($handler))->getParameters()[0] ?? null)?->getType();
 
-        return $handler($type instanceof ReflectionNamedType && $type->getName() === CalendarDate::class
-            ? $date
-            : CarbonImmutable::parse($date->toString(), 'UTC'));
+        if ($type instanceof ReflectionNamedType || $type === null) {
+            return $type?->getName() === CalendarDate::class;
+        }
+
+        if (str_contains((string) $type, CalendarDate::class)) {
+            throw new InvalidArgumentException("Automation task \"{$key}\": type the run date as CalendarDate alone, not {$type}.");
+        }
+
+        return false;
     }
 
     /**

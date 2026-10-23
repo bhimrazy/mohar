@@ -10,7 +10,7 @@ use JsonSerializable;
 use Stringable;
 
 /**
- * A company-calendar date (ADR 0013 Amendment 2): a year, month and day with no time and no time zone. Due dates,
+ * A company-calendar date (ADR 0013 Amendment (#410)): a year, month and day with no time and no time zone. Due dates,
  * run dates, issue dates and report periods are calendar dates. It becomes an instant only through
  * `CompanyClock::dayBounds()`; it has no time, so it never compares with a timestamp.
  *
@@ -21,6 +21,9 @@ use Stringable;
  */
 final readonly class CalendarDate implements JsonSerializable, Stringable
 {
+    /** The format() characters that print part of a date and nothing of a time or zone. */
+    private const DATE_CHARACTERS = 'dDjlNSwzWFmMntLoXxYy';
+
     private function __construct(public int $year, public int $month, public int $day) {}
 
     public static function of(int $year, int $month, int $day): self
@@ -32,10 +35,10 @@ final readonly class CalendarDate implements JsonSerializable, Stringable
         return new self($year, $month, $day);
     }
 
-    /** Parses exactly `Y-m-d`; anything else (a time, a zone, "today") is refused. */
+    /** Parses exactly `Y-m-d`; anything else (a time, a zone, "today", a trailing newline) is refused. */
     public static function parse(string $date): self
     {
-        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $date, $parts) !== 1) {
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $date, $parts) !== 1) {
             throw new InvalidArgumentException("\"{$date}\" is not a Y-m-d date.");
         }
 
@@ -43,13 +46,15 @@ final readonly class CalendarDate implements JsonSerializable, Stringable
     }
 
     /**
-     * The date of a date value: a `date`-cast attribute, `CompanyClock::todayDate()` or `today()`. Its own Y-m-d is
-     * read, so a value with a time of day is refused; for an instant use `CompanyClock::localDate()`.
+     * The date of a date value: a `date`-cast attribute or `CompanyClock::todayDate()`, that is 00:00:00 at a UTC
+     * offset of zero. Any other time or offset is refused (`CompanyClock::today()` is an instant). A UTC instant at
+     * exactly midnight has the same shape, so use this for date columns only; for an instant use
+     * `CalendarDate::parse($clock->localDate($instant))`.
      */
     public static function fromDateValue(DateTimeInterface $value): self
     {
-        if ($value->format('H:i:s.u') !== '00:00:00.000000') {
-            throw new InvalidArgumentException('A date value has no time of day; pass an instant through CompanyClock::localDate().');
+        if ($value->format('H:i:s.u') !== '00:00:00.000000' || $value->getOffset() !== 0) {
+            throw new InvalidArgumentException('A date value is 00:00 UTC; pass an instant through CompanyClock::localDate().');
         }
 
         return self::parse($value->format('Y-m-d'));
@@ -60,9 +65,22 @@ final readonly class CalendarDate implements JsonSerializable, Stringable
         return sprintf('%04d-%02d-%02d', $this->year, $this->month, $this->day);
     }
 
-    /** Formats with date characters (`d M Y`); time and zone characters print midnight UTC. */
+    /**
+     * Formats with date characters only (`d M Y`). A time, zone or timestamp character would print the UTC midnight,
+     * an instant, so it throws; letters meant literally are escaped with a backslash.
+     */
     public function format(string $format): string
     {
+        $length = strlen($format);
+
+        for ($i = 0; $i < $length; $i++) {
+            if ($format[$i] === '\\') {
+                $i++;
+            } elseif (ctype_alpha($format[$i]) && ! str_contains(self::DATE_CHARACTERS, $format[$i])) {
+                throw new InvalidArgumentException("\"{$format[$i]}\" is not a date format character.");
+            }
+        }
+
         return $this->utcMidnight()->format($format);
     }
 
@@ -112,6 +130,19 @@ final readonly class CalendarDate implements JsonSerializable, Stringable
     public function addYears(int $years): self
     {
         return $this->addMonths($years * 12);
+    }
+
+    /** @return array{year: int, month: int, day: int} */
+    public function __serialize(): array
+    {
+        return ['year' => $this->year, 'month' => $this->month, 'day' => $this->day];
+    }
+
+    /** @param  array{year?: mixed, month?: mixed, day?: mixed}  $data */
+    public function __unserialize(array $data): void
+    {
+        $date = self::of((int) ($data['year'] ?? 0), (int) ($data['month'] ?? 0), (int) ($data['day'] ?? 0));
+        [$this->year, $this->month, $this->day] = [$date->year, $date->month, $date->day];
     }
 
     public function jsonSerialize(): string

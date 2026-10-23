@@ -8,7 +8,7 @@ use Carbon\CarbonImmutable;
 
 /**
  * What one run of a report asks for: the validated filters, the acting user and the period resolved on the company
- * calendar (ADR 0013). `from` and `to` are company dates (both inclusive; CalendarDate since Amendment 2); `startsAt`
+ * calendar (ADR 0013). `from` and `to` are company dates (both inclusive; CalendarDate since Amendment (#410)); `startsAt`
  * and `endsAt` are the UTC instants bounding them, [start, end), for querying timestamp columns.
  *
  * @api

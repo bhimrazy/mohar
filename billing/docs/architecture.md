@@ -129,7 +129,7 @@ config from the shared `currencyFormats` prop. `Money::format()` ("24.99 USD") i
 ISO code only where it identifies a currency (switchers, selects, settings, CSV columns, API, logs), not next to amounts.
 
 **Dates** — `CarbonImmutable` for instants (`Date::use` is set). A company-calendar date in code is
-`App\Support\CalendarDate` (ADR 0013 Amendment 2): `CompanyClock::calendarDate()` gives today's, `CalendarDate::parse()`
+`App\Support\CalendarDate` (ADR 0013 Amendment (#410)): `CompanyClock::calendarDate()` gives today's, `CalendarDate::parse()`
 reads `Y-m-d`, and `CompanyClock::dayBounds()` is the only way to its instants. Store dates (`date`) for billing anchors
 (`next_due_date`), timestamps for events. Advance cycles with `BillingCycle::advance($date, anchorDay: $model->billing_anchor_day)` — store the
 original day-of-month as an anchor on recurring items to avoid drift. Query `date` columns with

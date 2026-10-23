@@ -143,7 +143,7 @@ const HAND_CONVERSIONS = [
 /**
  * Hits that exist today, as "file: form" => count. The list may only shrink: each module PR removes its own entries. A
  * hit beyond the count fails (type the task with CalendarDate and use dayBounds()); a listed hit that is gone fails until
- * it is lowered here. A task typed `CalendarDate $today` has none of these methods (ADR 0013 Amendment 2).
+ * it is lowered here. A task typed `CalendarDate $today` has none of these methods (ADR 0013 Amendment (#410)).
  */
 const HAND_CONVERSION_BASELINE = [
     'Modules/Billing/Database/Seeders/BillingHistorySeeder.php: an instant method on the run date' => 1,
@@ -188,6 +188,44 @@ test('the hand-conversion patterns see what they ban', function (string $label, 
     ['a timestamp column compared with the run date', "->where('created_at', '<', \$today->subDays(3))"],
     ['a timestamp column compared with the run date', "->orWhere('services.updated_at', '>=', \$today->subMonths(12)->startOfMonth())"],
 ]);
+
+/** A task registered with its run date typed `CarbonImmutable` (the form before ADR 0013 Amendment (#410)). */
+const CARBON_TASK = '/->task\(\s*[^,]+,\s*[^,]+,\s*(static\s+)?(fn|function)\s*\(\s*CarbonImmutable\s+\$/';
+
+/**
+ * Carbon-typed tasks that exist today, per file. The list may only shrink: a module types its tasks `CalendarDate
+ * $today` when it moves onto the company clock, and lowers its count here.
+ */
+const CARBON_TASK_BASELINE = [
+    'Modules/Billing/BillingServiceProvider.php' => 6,
+    'Modules/Domains/DomainsServiceProvider.php' => 4,
+    'Modules/Kyc/KycServiceProvider.php' => 1,
+    'Modules/Notifications/NotificationsServiceProvider.php' => 1,
+    'Modules/Orders/OrdersServiceProvider.php' => 1,
+    'Modules/Services/ServicesServiceProvider.php' => 9,
+];
+
+test('no new automation task takes the run date as Carbon', function () {
+    $found = [];
+
+    foreach (billingDocumentCode('', true) as $path => $code) {
+        if (($hits = preg_match_all(CARBON_TASK, $code)) > 0) {
+            $found[$path] = $hits;
+        }
+    }
+
+    $over = array_filter($found, fn (int $hits, string $path): bool => $hits > (CARBON_TASK_BASELINE[$path] ?? 0), ARRAY_FILTER_USE_BOTH);
+    $under = array_filter(CARBON_TASK_BASELINE, fn (int $hits, string $path): bool => $hits > ($found[$path] ?? 0), ARRAY_FILTER_USE_BOTH);
+
+    expect($over)->toBe([], 'Type the run date of a new task as CalendarDate $today.')
+        ->and($under)->toBe([], 'A Carbon-typed task is gone: lower or remove it in CARBON_TASK_BASELINE.');
+});
+
+test('the Carbon-task pattern sees both closure forms and not a CalendarDate task', function () {
+    expect(preg_match(CARBON_TASK, "\$automation->task('a.b', Automation::SYNC, fn (CarbonImmutable \$today): int => 1);"))->toBe(1)
+        ->and(preg_match(CARBON_TASK, "\$this->app->make(Automation::class)->task('a.b', Automation::SYNC, function (CarbonImmutable \$today) use (\$x): int {"))->toBe(1)
+        ->and(preg_match(CARBON_TASK, "\$automation->task('a.b', Automation::SYNC, fn (CalendarDate \$today): int => 1);"))->toBe(0);
+});
 
 test('the scan reads the moved modules but not their factories', function () {
     expect(array_keys(billingDocumentCode()))->toContain('Modules/Billing/Actions/PublishInvoice.php')->not->toContain('Modules/Billing/Database/Factories/InvoiceFactory.php')

@@ -153,3 +153,12 @@ it('refuses a run date that is not Y-m-d', function () {
 
     expect(AutomationRun::query()->count())->toBe(0);
 });
+
+it('reads a task\'s run-date type once, at registration, and refuses a union naming CalendarDate', function () {
+    $automation = app(Automation::class);
+    $automation->task('test.nullable', Automation::HOUSEKEEPING, fn (?CalendarDate $today): string => $today::class);
+
+    expect($automation->run('test.nullable', CalendarDate::parse('2026-10-19')))->toBe(CalendarDate::class)
+        ->and(fn () => $automation->task('test.union', Automation::HOUSEKEEPING, fn (CalendarDate|CarbonImmutable $today): string => 'x'))
+        ->toThrow(InvalidArgumentException::class, 'CalendarDate alone');
+});

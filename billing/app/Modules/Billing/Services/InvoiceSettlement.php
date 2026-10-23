@@ -93,7 +93,7 @@ class InvoiceSettlement
             // The snapshot is written once, in this transaction, with every adjustment written so far (ADR 0024 §2),
             // and before the sequence row is locked (§4).
             $this->fiscal->stamp($invoice, $at);
-            $invoice->number = $this->numbers->next(DocumentNumbers::INVOICE, CalendarDate::fromDateValue($today));
+            $invoice->number = $this->numbers->next(DocumentNumbers::INVOICE, CalendarDate::parse($this->clock->localDate($today)));
         }
 
         $invoice->save();
