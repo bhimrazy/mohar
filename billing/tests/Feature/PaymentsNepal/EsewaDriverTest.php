@@ -534,7 +534,7 @@ test('an expired eSewa attempt whose status check still says not paid stays clos
     expect(Transaction::query()->count())->toBe(0)
         ->and($attempt->fresh())->status->toBe(AttemptStatus::Expired)->late_payment_at->toBeNull()->lookup_count->toBe($attempt->lookup_count + 1)
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
-})->with(['NOT_FOUND', 'CANCELED', 'PENDING']);
+})->with(['CANCELED', 'PENDING']);
 
 test('closed attempts are no longer swept for late payments once the late window has passed', function () {
     [, $attempt] = expiredEsewa();
@@ -544,4 +544,105 @@ test('closed attempts are no longer swept for late payments once the late window
     $this->artisan('billing:reconcile-payments');
 
     expect($attempt->fresh())->status->toBe(AttemptStatus::Expired)->lookup_count->toBe($lookups);
+});
+
+/*
+| #323 / #217: eSewa's own signed COMPLETE is evidence that money was taken. A later NOT_FOUND (the status check matches
+| on the amount) goes to staff review with the amount and the evidence, and an attempt already in review is never expired.
+*/
+
+test('a signed COMPLETE return followed by NOT_FOUND goes to staff review with the evidence, not to abandoned', function () {
+    [$invoice, $attempt] = startEsewa(113_050);
+    Http::fake([ESEWA_STATUS => Http::response(esewaStatus($attempt, 'NOT_FOUND', refId: null))]);
+
+    $this->get(esewaSuccess($attempt, '1,130.5'));
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Ambiguous)->lookups_closed_at->toBeNull()
+        ->review_reason->toContain('Provider signed a paid return of 1130.50 NPR (code 000ABCD)')->toContain('1130.50 NPR')
+        ->and($attempt->fresh()->raw['signed_return'])->toMatchArray(['status' => 'COMPLETE', 'total_amount' => '1,130.5', 'transaction_code' => '000ABCD'])
+        ->and(Transaction::query()->count())->toBe(0)
+        ->and(ActivityLog::query()->where('event', 'billing.payment.unmatched')->sole()->properties)->toMatchArray(['amount' => 113_050, 'currency' => 'NPR'])
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
+
+    // Nobody is asked to pay twice: the open review blocks a new attempt.
+    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => EsewaDriver::KEY])->assertSessionHasErrors('billing');
+
+    // Polling past the grace period does not expire it either, and does not repeat the to-do.
+    $this->travel(15 + 121)->minutes();
+    $this->artisan('billing:reconcile-payments', ['--only' => 'open']);
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Ambiguous)->raw->toHaveKey('signed_return')
+        ->and(ActivityLog::query()->where('event', 'billing.payment.unmatched')->count())->toBe(1);
+});
+
+test('the signed evidence outlives an eSewa outage on the return and is used by the next poll', function () {
+    [, $attempt] = startEsewa(113_050);
+    Http::fake([ESEWA_STATUS => Http::sequence()->push(['code' => 0, 'error_message' => 'Service is currently unavailable'], 503)
+        ->push(esewaStatus($attempt, 'NOT_FOUND', refId: null))]);
+
+    $this->get(esewaSuccess($attempt));
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Pending)->raw->toHaveKey('signed_return');
+
+    $this->travel(6)->minutes();
+    $this->artisan('billing:reconcile-payments', ['--only' => 'open']);
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Ambiguous)->review_reason->toContain('Provider signed a paid return');
+});
+
+test('a forged or unsigned COMPLETE return does not stop a NOT_FOUND from ending the attempt', function (array $overrides, string $secret, array $signed) {
+    [, $attempt] = startEsewa(10_000);
+    Http::fake([ESEWA_STATUS => Http::response(esewaFixture('status_not_found_cancelled', ['transaction_uuid' => $attempt->reference]))]);
+
+    $this->get(esewaSuccess($attempt, '100', $overrides, $secret, $signed));
+    $this->travel(6)->minutes();
+    $this->artisan('billing:reconcile-payments', ['--only' => 'open']);
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Expired)->raw->not->toHaveKey('signed_return');
+})->with([
+    'wrong secret' => [[], 'guessed-secret', []],
+    'tampered' => [['total_amount' => '1000'], ESEWA_SECRET, []],
+    'unsigned status and amount' => [[], ESEWA_SECRET, ['signed_field_names' => 'transaction_uuid']],
+    'another merchant' => [[], ESEWA_SECRET, ['product_code' => 'OTHERMERCH']],
+]);
+
+test('a signed COMPLETE return for an attempt closed as abandoned reopens it for review when eSewa still answers NOT_FOUND', function () {
+    [, $attempt] = startEsewa(10_000);
+    Http::fake([ESEWA_STATUS => Http::response(esewaFixture('status_not_found_cancelled', ['transaction_uuid' => $attempt->reference]))]);
+    $this->travel(6)->minutes();
+    $this->artisan('billing:reconcile-payments', ['--only' => 'open']);
+    expect($attempt->fresh()->status)->toBe(AttemptStatus::Expired);
+
+    $this->travel(2)->minutes();
+    $this->get(esewaSuccess($attempt, '100'));
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Ambiguous)->review_reason->toContain('Provider signed a paid return')
+        ->and(Transaction::query()->count())->toBe(0);
+});
+
+test('an eSewa attempt already in review is not expired by NOT_FOUND past the grace period', function () {
+    [, $attempt] = startEsewa();
+    Http::fake([ESEWA_STATUS => Http::sequence()->push(esewaStatus($attempt, 'AMBIGUOUS', refId: null))
+        ->whenEmpty(Http::response(esewaStatus($attempt, 'NOT_FOUND', refId: null)))]);
+
+    $this->artisan('billing:reconcile-payments', ['--only' => 'open']);
+    expect($attempt->fresh()->status)->toBe(AttemptStatus::Ambiguous);
+
+    $this->travel(61 + 121)->minutes();
+    $this->artisan('billing:reconcile-payments', ['--only' => 'open']);
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Ambiguous)->review_reason->toBe('The provider could not confirm the payment yet');
+});
+
+test('an attempt in review for signed evidence still books if eSewa later finds it under our amount, once', function () {
+    [$invoice, $attempt] = startEsewa(113_050);
+    Http::fake([ESEWA_STATUS => Http::sequence()->push(esewaStatus($attempt, 'NOT_FOUND', refId: null))
+        ->whenEmpty(Http::response(esewaStatus($attempt, 'COMPLETE')))]);
+
+    $this->get(esewaSuccess($attempt));
+    $this->travel(6)->minutes();
+    $this->artisan('billing:reconcile-payments', ['--only' => 'open']);
+    $this->artisan('billing:reconcile-payments', ['--only' => 'open']);
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Succeeded)->review_reason->toBeNull()
+        ->and(Transaction::query()->count())->toBe(1)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
 });

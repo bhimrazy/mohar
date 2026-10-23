@@ -82,8 +82,8 @@ final class EsewaSimulator implements HasControlActions, RedactsPayments, Simula
     /**
      * - `pay`, `leave`, `cancel` {transaction_uuid, settled_amount?, variant?}: the payer's choice on the page
      *   (EsewaApi::choose()); they return `redirect`, the URL the browser follows into the app;
-     * - `settle` {transaction_uuid, status}: what eSewa later does (COMPLETE, EXPIRED, AMBIGUOUS, FULL_REFUND,
-     *   PARTIAL_REFUND).
+     * - `settle` {transaction_uuid, status}: what eSewa later does (COMPLETE, EXPIRED, AMBIGUOUS, NOT_FOUND,
+     *   FULL_REFUND, PARTIAL_REFUND).
      */
     public function actions(): array
     {

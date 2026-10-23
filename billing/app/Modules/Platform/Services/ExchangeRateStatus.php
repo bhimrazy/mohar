@@ -2,6 +2,7 @@
 
 namespace App\Modules\Platform\Services;
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Models\ExchangeRateHistory;
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class ExchangeRateStatus
 {
-    public function __construct(private Settings $settings) {}
+    public function __construct(private Settings $settings, private CompanyClock $clock) {}
 
     public function staleAfterDays(): int
     {
@@ -71,13 +72,16 @@ class ExchangeRateStatus
      */
     public function dailySeries(Currency $currency, int $days = 90): array
     {
-        $start = CarbonImmutable::today()->subDays($days - 1);
+        // Days are company days: a date value for the label, its UTC bounds for the timestamps.
+        $today = $this->clock->todayDate();
+        $start = $today->subDays($days - 1);
+        $startAt = $this->clock->dayBounds($start)[0];
         $history = ExchangeRateHistory::query()->where('currency', $currency->code)
-            ->where('effective_at', '>=', $start)
+            ->where('effective_at', '>=', $startAt)
             ->orderBy('effective_at')->orderBy('id')
             ->get(['rate', 'effective_at']);
         $before = ExchangeRateHistory::query()->where('currency', $currency->code)
-            ->where('effective_at', '<', $start)
+            ->where('effective_at', '<', $startAt)
             ->orderByDesc('effective_at')->orderByDesc('id')
             ->value('rate');
 
@@ -89,8 +93,8 @@ class ExchangeRateStatus
         $points = [];
         $index = 0;
 
-        for ($day = $start; $day->lte(CarbonImmutable::today()); $day = $day->addDay()) {
-            while ($index < $history->count() && $history[$index]->effective_at->lt($day->addDay())) {
+        for ($day = $start; $day->lte($today); $day = $day->addDay()) {
+            while ($index < $history->count() && $history[$index]->effective_at->lt($this->clock->dayBounds($day)[1])) {
                 $rate = $history[$index]->rate;
                 $index++;
             }

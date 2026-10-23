@@ -13,6 +13,13 @@ the same PR updates every in-repo implementer and gets the principal-architect g
   a branch deeper than `$maxDepth`, a non-scalar value (object) and a branch whose key changed are replaced by `$withheld`.
   `remote` is returned unchanged. Additive.
 
+### `ReturnHint::$signedPaid` (#323)
+
+- `App\Data\Billing\ReturnHint` has a new last constructor parameter `bool $signedPaid = false`: the customer's return
+  carries the provider's own valid signature over a paid status (eSewa COMPLETE). It is still only a hint for settling,
+  but Billing keeps it as evidence, so a later "not found" goes to staff review instead of ending the attempt.
+  Additive: existing implementers (Khalti, Stripe, sandbox) leave it false and need no change.
+
 ### Linking an existing registrar order (ADR 0009 Amendment 4, #365)
 
 - New capability interface `App\Contracts\Domains\Registrar\LinksExistingOrders` (detected with `instanceof`;

@@ -1,6 +1,11 @@
 import { Link, router } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import { Activity } from 'lucide-react';
+import { ConfirmDialog } from '@/components/app/confirm-dialog';
+import { Field } from '@/components/app/field';
+import { FormDialog } from '@/components/billing/form-dialog';
+import { Input } from '@/components/ui/input';
+import { formatMoney } from '@/lib/money';
 import { DataTable } from '@/components/app/data-table';
 import type { DataTableColumn } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
@@ -17,6 +22,7 @@ import { show as showInvoice } from '@/actions/App/Modules/Billing/Http/Controll
 import {
     check,
     lateChecked,
+    resolve,
 } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/PaymentAttemptController';
 import type { LaravelPaginated, SelectOption } from '@/types/app';
 
@@ -24,6 +30,7 @@ type Attempt = {
     id: number;
     reference: string;
     gateway: string;
+    gateway_name: string;
     status: string;
     amount: number;
     currency: string;
@@ -39,6 +46,9 @@ type Attempt = {
     late_checked_at: string | null;
     check_reason: string | null;
     needs_check: boolean;
+    can_resolve: boolean;
+    staff_closed: boolean;
+    return_code: string | null;
 };
 
 type Props = {
@@ -79,6 +89,87 @@ const TONES: Record<string, string> = {
     ambiguous: 'overdue',
 };
 
+/**
+ * Staff settle a payment in review by hand, after looking in the gateway's own portal: it was paid, or it was not.
+ */
+function ResolveButtons({ attempt }: { attempt: Attempt }) {
+    const name = attempt.gateway_name;
+    const amount = formatMoney(attempt.amount, attempt.currency);
+
+    return (
+        <>
+            <FormDialog
+                trigger={
+                    <Button variant="outline" size="sm">
+                        Mark as paid
+                    </Button>
+                }
+                title={`Record this ${amount} payment as paid?`}
+                description={`Only after you saw this payment in the ${name} portal. Enter the amount and reference exactly as the portal shows them. It is added to the invoice once, and can't be undone. If the portal shows a different amount, record it with Add payment on the invoice instead.`}
+                submitLabel="Record payment"
+                action={resolve(attempt.id)}
+                initial={{
+                    outcome: 'paid',
+                    provider_reference: '',
+                    amount: '',
+                }}
+            >
+                {(form) => (
+                    <>
+                        <Field
+                            htmlFor={`attempt-amount-${attempt.id}`}
+                            label={`Amount in the ${name} portal (${attempt.currency})`}
+                            hint="For example 1130.50."
+                            error={form.errors.amount}
+                        >
+                            <Input
+                                id={`attempt-amount-${attempt.id}`}
+                                inputMode="decimal"
+                                value={form.data.amount}
+                                onChange={(event) =>
+                                    form.setData('amount', event.target.value)
+                                }
+                                required
+                            />
+                        </Field>
+                        <Field
+                            htmlFor={`attempt-ref-${attempt.id}`}
+                            label={`${name} reference ID`}
+                            hint={`The reference ID the portal shows for this payment.${attempt.return_code ? ` The customer's return from ${name} showed the transaction code ${attempt.return_code}, which may differ from the reference ID.` : ''}`}
+                            error={form.errors.provider_reference}
+                        >
+                            <Input
+                                id={`attempt-ref-${attempt.id}`}
+                                value={form.data.provider_reference}
+                                onChange={(event) =>
+                                    form.setData(
+                                        'provider_reference',
+                                        event.target.value,
+                                    )
+                                }
+                                required
+                            />
+                        </Field>
+                    </>
+                )}
+            </FormDialog>
+            <ConfirmDialog
+                trigger={
+                    <Button variant="outline" size="sm">
+                        Not paid
+                    </Button>
+                }
+                title={`Close this ${amount} payment as not paid?`}
+                description={`Use only after you checked the ${name} portal and found no payment of ${amount}. The invoice can then be paid again, so a wrong choice can mean the client pays twice.`}
+                confirmLabel="Close as not paid"
+                method="post"
+                action={resolve(attempt.id)}
+                data={{ outcome: 'not_paid' }}
+            />
+        </>
+    );
+}
+
 export default function PaymentAttempts({ attempts, statuses }: Props) {
     const columns: DataTableColumn<Attempt>[] = [
         {
@@ -92,7 +183,7 @@ export default function PaymentAttempts({ attempts, statuses }: Props) {
         {
             key: 'gateway',
             header: 'Gateway',
-            cell: (attempt) => humanize(attempt.gateway),
+            cell: (attempt) => attempt.gateway_name,
         },
         {
             key: 'invoice',
@@ -163,7 +254,7 @@ export default function PaymentAttempts({ attempts, statuses }: Props) {
             header: <span className="sr-only">Actions</span>,
             align: 'right',
             cell: (attempt) => (
-                <div className="flex justify-end gap-1">
+                <div className="flex flex-wrap items-center gap-2 md:justify-end">
                     {attempt.needs_check && (
                         <Button
                             variant="outline"
@@ -173,15 +264,19 @@ export default function PaymentAttempts({ attempts, statuses }: Props) {
                             Mark checked
                         </Button>
                     )}
-                    {CHECKABLE.includes(attempt.status) && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => post(check.url(attempt.id))}
-                        >
-                            Check now
-                        </Button>
+                    {attempt.can_resolve && (
+                        <ResolveButtons attempt={attempt} />
                     )}
+                    {CHECKABLE.includes(attempt.status) &&
+                        !attempt.staff_closed && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => post(check.url(attempt.id))}
+                            >
+                                Check now
+                            </Button>
+                        )}
                 </div>
             ),
         },
