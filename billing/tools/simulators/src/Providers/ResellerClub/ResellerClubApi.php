@@ -35,6 +35,7 @@ final class ResellerClubApi
         'xyz' => ['key' => 'dotxyz', 'price' => 300, 'privacy' => true],
         'in' => ['key' => 'dotin', 'price' => 800, 'privacy' => false],
         'co.in' => ['key' => 'thirdleveldotin', 'price' => 600, 'privacy' => false],
+        'us' => ['key' => 'dotus', 'price' => 900, 'privacy' => false, 'attributes' => ['purpose' => '/^P[1-5]$/', 'category' => '/^C(11|12|21|31|32)$/']],
         'dev' => ['key' => 'dotdev', 'price' => 1_400, 'privacy' => true, 'attributes' => ['tnc' => '/^[yY]$/']],
         'com.au' => ['key' => 'thirdleveldotau', 'price' => 1_300, 'privacy' => false, 'auth_code_upfront' => true, 'attributes' => ['id-type' => '/^(ACN|ABN|TM|Other)$/', 'id' => '/^\S.{0,63}$/', 'policyReason' => '/^[12]$/', 'isAUWarranty' => '/^true$/']],
         'co.uk' => ['key' => 'thirdleveldotuk', 'price' => 700, 'privacy' => false, 'absent_roles' => ['admin', 'tech', 'billing']],
@@ -227,7 +228,9 @@ final class ResellerClubApi
 
         foreach (self::TLDS[$tld]['attributes'] ?? [] as $attribute => $pattern) {
             if (preg_match($pattern, $attributes[$attribute] ?? '') !== 1) {
-                return self::error('The .'.$tld.' registry needs the extra detail '.$attribute.' for this order.');
+                $given = $attributes[$attribute] ?? '';
+
+                return self::error('The .'.$tld.' registry needs the extra detail '.$attribute.' for this order'.($given === '' ? '.' : ': "'.$given.'" is not accepted.'));
             }
         }
 

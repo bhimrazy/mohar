@@ -61,8 +61,18 @@ class FakeRegistrarDriver implements RegistrarDriver
         return $this->script->record('suggestions', $term, []);
     }
 
+    /**
+     * @return list<SettingField>
+     */
+    public function tldAttributeFields(string $tld): array
+    {
+        return $this->script->tldFields[$tld] ?? [];
+    }
+
     public function register(RegistrarConfig $config, RegistrationRequest $request): RegistrarResult
     {
+        $this->script->requests[] = $request;
+
         return $this->script->record('register', $request->domain->name, new RegistrarResult('completed', today()->toImmutable()->addYears($request->years)));
     }
 

@@ -1,11 +1,14 @@
 <?php
 
+use App\Data\Integrations\SettingField;
 use App\Data\Services\ProvisionResult;
+use App\Enums\FieldType;
 use App\Events\Orders\OrderAccepted;
 use App\Events\Orders\OrderCancelled;
 use App\Events\Orders\OrderMarkedFraud;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Domains\Models\Tld;
 use App\Modules\Orders\Actions\AcceptOrder;
 use App\Modules\Orders\Actions\PlaceOrder;
 use App\Modules\Orders\Enums\OrderItemStatus;
@@ -16,6 +19,7 @@ use App\Modules\Orders\Models\OrderItem;
 use App\Modules\Orders\Models\Promotion;
 use Illuminate\Support\Facades\Event;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Fakes\Domains\FakeRegistrar;
 use Tests\Fakes\Orders\OrdersFakes;
 
 beforeEach(function () {
@@ -391,6 +395,21 @@ describe('staff orders', function () {
         ])->assertSessionHasErrors(['cycle', 'price_override' => 'Enter a price like 10 or 12.50.']);
 
         expect(Order::query()->count())->toBe(0);
+    });
+
+    it('asks for the registrar\'s extension details when staff register a domain, and hands them on', function () {
+        $registrar = FakeRegistrar::install();
+        $registrar->tldFields['.us'] = [new SettingField('purpose', 'What the domain is for', FieldType::Select, required: true, options: ['P1' => 'Business', 'P3' => 'Personal'])];
+        Tld::factory()->extension('.us')->priced()->create(['registrar_key' => 'fake']);
+        $this->fakes->domains->tlds['.us'] = ['register' => 1200, 'transfer' => 1000, 'renew' => 1400];
+        actingAsStaff(['orders.orders.view', 'orders.orders.create']);
+        $order = ['client_id' => $this->client->id, 'product_id' => 1, 'cycle' => 'monthly', 'domain_mode' => 'register', 'domain_name' => 'asha.us', 'payment_gateway' => 'bank_transfer', 'skip_fraud' => true];
+
+        $this->post(route('admin.orders.store'), $order)->assertSessionHasErrors(['tld_attributes.purpose']);
+        expect(Order::query()->count())->toBe(0);
+
+        $this->post(route('admin.orders.store'), [...$order, 'tld_attributes' => ['purpose' => 'P3', 'other' => 'dropped']])->assertRedirect();
+        expect(array_values($this->fakes->domains->created)[0]->tldAttributes)->toBe(['purpose' => 'P3']);
     });
 
     it('forbids staff without the create permission', function () {

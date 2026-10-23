@@ -4,12 +4,14 @@ namespace Tests\Fakes\Domains;
 
 use App\Contracts\Domains\Registrar\RegistrarDriver;
 use App\Contracts\Integrations\IntegrationDriver;
+use App\Data\Domains\Registrar\RegistrationRequest;
 use App\Data\Integrations\SettingField;
 use App\Support\Domains\RegistrarDriverRegistry;
 use Closure;
 use LogicException;
 use Tests\Fakes\Domains\Registrars\CoreOnlyRegistrar;
 use Tests\Fakes\Domains\Registrars\FullRegistrar;
+use Tests\Fakes\Domains\Registrars\FullWithoutAttributesRegistrar;
 use Tests\Fakes\Domains\Registrars\NameserverEppRegistrar;
 use Tests\Fakes\Domains\Registrars\NameserverRegistrar;
 use Tests\Fakes\Domains\Registrars\NameserverSyncingRegistrar;
@@ -38,6 +40,12 @@ class FakeRegistrar
     {
         $this->capabilities = array_values(array_diff(array_keys(app(RegistrarDriverRegistry::class)->capabilities()), ['reconcile']));
     }
+
+    /** @var array<string, list<SettingField>> extension => the fields a driver with `tld_attributes` declares */
+    public array $tldFields = [];
+
+    /** @var list<RegistrationRequest> every register/transfer request received */
+    public array $requests = [];
 
     /** @var list<SettingField> the replaced driver's settings, if it replaced one */
     public array $settingsFields = [];
@@ -91,7 +99,7 @@ class FakeRegistrar
     {
         $fixtures = [];
 
-        foreach ([CoreOnlyRegistrar::class, SyncingRegistrar::class, NameserverRegistrar::class, NameserverEppRegistrar::class, NameserverSyncingRegistrar::class, FullRegistrar::class, ReconcilingRegistrar::class] as $class) {
+        foreach ([CoreOnlyRegistrar::class, SyncingRegistrar::class, NameserverRegistrar::class, NameserverEppRegistrar::class, NameserverSyncingRegistrar::class, FullRegistrar::class, FullWithoutAttributesRegistrar::class, ReconcilingRegistrar::class] as $class) {
             $interfaces = array_values(array_diff((array) class_implements($class), [RegistrarDriver::class, IntegrationDriver::class]));
             sort($interfaces);
             $fixtures[implode(',', $interfaces)] = $class;

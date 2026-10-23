@@ -12,6 +12,7 @@ import {
 import CartController from '@/actions/App/Modules/Orders/Http/Controllers/Public/CartController';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { EmptyState } from '@/components/app/empty-state';
+import { ItemDetails } from '@/components/orders/item-details';
 import { Money } from '@/components/app/money';
 import InputError from '@/components/input-error';
 import { OrderSummary } from '@/components/orders/order-summary';
@@ -65,6 +66,8 @@ function CartItemCard({
                     className="font-semibold"
                 />
             </div>
+
+            <ItemDetails details={item.details} />
 
             <ul className="mt-3 grid gap-1 text-sm">
                 {item.lines.map((line) => (

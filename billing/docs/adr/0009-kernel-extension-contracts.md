@@ -271,3 +271,33 @@ Kernel shapes decided now:
 - **`RegistrarRefs`** is bound by Domains only, so a driver that injects it resolves only while Domains is loaded. Its
   `remember()` is last-writer-wins for now; first-writer-wins with a lock per local record is a follow-up (#267),
   before the first driver that writes refs.
+
+## Amendment 3 — 2026-10-23, TLD attributes reach Orders (PR #345)
+
+1. **`DomainDraft::$tldAttributes`** (trailing, default `[]`, `#[\SensitiveParameter]`, as `$eppCode` now is): the
+   answers Orders collected, keyed by the field keys the driver declared. Domains validates them again in
+   `createPending` and is the authority. Transfers carry none.
+2. **`App\Contracts\Domains\TldAttributes`**, implemented by Domains and used by Orders: the order-time read of
+   `DeclaresTldAttributes`.
+    - `fieldsByTld(): array<string, list<SettingField>>` covers only the extensions that have fields. It makes no
+      network call and runs a bounded number of queries, memoised per request.
+    - `clean(string $tld, mixed $input): array<string, string>` drops unknown keys and throws `ValidationException`
+      keyed `tld_attributes.<key>`. When the extension's registrar account is disabled it refuses with one error
+      keyed `tld_attributes` instead.
+    - `describe(string $tld, array $answers, bool $mask = true)` returns the answers as a person reads them (labels,
+      option names, free text shortened to its last 3 characters), for the cart, the checkout and staff.
+    - Orders treats an unbound `TldAttributes` as "no fields". It is separate from `DomainRegistry` so that existing
+      implementations stay compatible (ADR 0010), and separate from the driver SPI.
+3. **Fields a driver declares** are never secret and never `optionsSource: remote` (the host filters them out).
+   Booleans are delivered as `'true'` or `'false'`. A driver may also implement `ValidatesTldAttributes` (an
+   extension of `DeclaresTldAttributes`, not a separate capability) for rules between fields, such as the length of
+   an identification number by its type.
+4. **Storage and retention.** Answers are personal data, in the same class as domain contacts. They are stored in
+   plain text in `domains.additional_fields.tld_attributes`, encrypted in the cart (a short-lived value, like the cart's
+   EPP code), never written to the command log, activity log or errors, and kept for the life of the domain record.
+   The host also masks the free-text answers (not select or boolean ones) in whatever a registrar call returns.
+   Staff may view them; edits, when built, are logged by key, never by value. A field that would carry a personal
+   government identifier needs an amendment first: an encrypted, `EncryptedStorage`-registered home, or a ban.
+   Client erasure, when it is built, must clear them with the domain contacts.
+5. **Account state.** It decides whether the fields are shown and whether new orders are taken for the extension, not
+   whether answers that were already collected are kept.

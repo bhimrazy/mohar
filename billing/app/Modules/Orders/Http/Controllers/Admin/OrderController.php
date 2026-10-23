@@ -27,6 +27,7 @@ use App\Modules\Orders\Http\Resources\OrderResource;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Services\CheckoutGateways;
 use App\Modules\Orders\Services\InvoiceLinks;
+use App\Modules\Orders\Services\TldAttributeInput;
 use App\Support\Money;
 use DomainException;
 use Illuminate\Http\RedirectResponse;
@@ -117,7 +118,7 @@ class OrderController extends Controller
         ]);
     }
 
-    public function create(Request $request, PriceBook $priceBook, CheckoutGateways $gateways): Response
+    public function create(Request $request, PriceBook $priceBook, CheckoutGateways $gateways, TldAttributeInput $tldAttributes): Response
     {
         $this->authorize('orders.orders.create');
 
@@ -128,11 +129,12 @@ class OrderController extends Controller
             'clients' => Client::query()->where('status', 'active')->orderBy('first_name')->orderBy('id')->limit(200)->get()
                 ->map(fn (Client $client): array => ['value' => (string) $client->id, 'label' => "{$client->display_name} ({$client->email})"]),
             'groups' => $client === null ? [] : $priceBook->storefront($client->currency),
+            'tld_attribute_fields' => $tldAttributes->props(),
             'gateways' => collect($gateways->all($client->currency ?? Currency::default()->code))->map(fn (string $label, string $key): array => ['value' => $key, 'label' => $label])->values(),
         ]);
     }
 
-    public function store(StaffOrderRequest $request, PlaceOrder $placeOrder): RedirectResponse
+    public function store(StaffOrderRequest $request, PlaceOrder $placeOrder, TldAttributeInput $tldAttributes): RedirectResponse
     {
         $client = Client::query()->findOrFail($request->integer('client_id'));
         $item = new CartItem(
@@ -143,6 +145,7 @@ class OrderController extends Controller
             domainMode: $request->input('domain_mode') ?: null,
             domainName: $request->filled('domain_name') ? $request->string('domain_name')->lower()->toString() : null,
             eppCode: $request->input('epp_code') ?: null,
+            tldAttributes: $request->input('domain_mode') === 'register' ? $tldAttributes->clean($request->input('domain_name'), $request->input('tld_attributes'), 'domain_name') : [],
         );
 
         $placed = $placeOrder->handle(new CheckoutData(

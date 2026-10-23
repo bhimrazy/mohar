@@ -14,6 +14,7 @@ use App\Modules\Orders\Pricing\CartPricer;
 use App\Modules\Orders\Services\CartManager;
 use App\Modules\Orders\Services\CustomerResolver;
 use App\Modules\Orders\Services\DomainGuard;
+use App\Modules\Orders\Services\TldAttributeInput;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -52,7 +53,7 @@ class StoreController extends Controller
         return DomainGuard::isValidName($domain) && DomainGuard::registryLevelError($domain) === null ? $domain : null;
     }
 
-    public function show(Request $request, int $product, CustomerResolver $customers): Response
+    public function show(Request $request, int $product, CustomerResolver $customers, TldAttributeInput $tldAttributes): Response
     {
         $currency = $this->carts->currencyFor($request);
         $summary = $this->priceBook->product($product);
@@ -92,9 +93,11 @@ class StoreController extends Controller
                 'domain_mode' => $editing->domainMode,
                 'domain_name' => $editing->domain(),
                 'addon_ids' => $editing->addonIds,
+                'tld_attributes' => $editing->tldAttributes,
             ] : null,
             'signed_in' => $clientId !== null,
             'existing_domain' => $this->existingDomain($request),
+            'tld_attribute_fields' => $tldAttributes->props(),
             ...$this->carts->storeProps($request),
         ]);
     }
@@ -136,7 +139,7 @@ class StoreController extends Controller
         ]);
     }
 
-    public function domains(Request $request, DomainPricing $pricing, CustomerResolver $customers): Response
+    public function domains(Request $request, DomainPricing $pricing, CustomerResolver $customers, TldAttributeInput $tldAttributes): Response
     {
         $currency = $this->carts->currencyFor($request);
         $clientId = $customers->clientFor($request->user(), $request->session())?->id;
@@ -168,6 +171,7 @@ class StoreController extends Controller
             'search' => $search,
             'results' => $results,
             'currency' => $currency,
+            'tld_attribute_fields' => $tldAttributes->props(),
             ...$this->carts->storeProps($request),
         ]);
     }

@@ -9,6 +9,9 @@ final readonly class RegistrationRequest
 {
     /**
      * @param  list<string>  $nameservers
+     * @param  array<string, string>  $tldAttributes  answers to the fields the driver declared through
+     *                                                `DeclaresTldAttributes`, keyed by field key; personal data,
+     *                                                never logged (`toArray()` lists the keys only)
      */
     public function __construct(
         public DomainRef $domain,
@@ -17,6 +20,7 @@ final readonly class RegistrationRequest
         public ContactSet $contacts,
         public bool $idProtection = false,
         #[\SensitiveParameter] public ?string $eppCode = null,
+        #[\SensitiveParameter] public array $tldAttributes = [],
     ) {}
 
     /**
@@ -44,6 +48,7 @@ final readonly class RegistrationRequest
             'id_protection' => $this->idProtection,
             'epp_code' => $this->eppCode,
             'contacts' => $this->contacts->toArray(),
+            'tld_attributes' => array_keys($this->tldAttributes),
         ];
     }
 }

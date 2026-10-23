@@ -66,6 +66,7 @@ loads only Core + Billing.
 | `Catalog\PriceBook`                                                 | Catalog                | Orders, Services                                              |
 | `Services\ServiceRegistry`                                          | Services               | Orders                                                        |
 | `Domains\DomainRegistry`, `Domains\DomainPricing`                   | Domains                | Orders                                                        |
+| `Domains\TldAttributes`                                             | Domains                | Orders                                                        |
 | `Notifications\MergeFieldRegistry`                                  | Core (in-memory)       | every module registers resolvers; Notifications reads         |
 | `Branding\BrandProvider` (→ `Data\Branding\Brand`)                  | Themes (Core fallback) | Inertia shared props, mail layout, Billing invoice PDF header |
 

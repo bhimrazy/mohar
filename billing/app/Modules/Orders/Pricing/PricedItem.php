@@ -13,6 +13,7 @@ final class PricedItem
     /**
      * @param  list<PricedLine>  $lines
      * @param  list<string>  $errors
+     * @param  list<array{label: string, value: string}>  $details  the registrar's extension details, as they read back
      */
     public function __construct(
         public readonly CartItem $item,
@@ -20,6 +21,7 @@ final class PricedItem
         public readonly ?string $subtitle,
         public array $lines = [],
         public array $errors = [],
+        public array $details = [],
         public readonly ?ProductSummary $product = null,
     ) {}
 
@@ -50,6 +52,7 @@ final class PricedItem
             'years' => $this->item->years,
             'lines' => array_map(fn (PricedLine $line): array => $line->toArray(), $this->lines),
             'errors' => $this->errors,
+            'details' => $this->details,
             'due_today' => $this->dueToday(),
         ];
     }

@@ -9,6 +9,7 @@ use App\Modules\Orders\Data\CartItem;
 use App\Modules\Orders\Enums\CartItemKind;
 use App\Modules\Orders\Models\Cart;
 use App\Modules\Orders\Pricing\CartPricer;
+use App\Modules\Orders\Services\TldAttributeInput;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -21,10 +22,11 @@ class AddDomainToCart
         private CartPricer $pricer,
         private DomainPricing $pricing,
         private Settings $settings,
+        private TldAttributeInput $tldAttributes,
     ) {}
 
     /**
-     * @param  array{domain: string, action: string, years: int, epp_code?: ?string, id_protection?: bool}  $input
+     * @param  array{domain: string, action: string, years: int, epp_code?: ?string, id_protection?: bool, tld_attributes?: mixed}  $input
      *
      * @throws ValidationException
      */
@@ -53,6 +55,7 @@ class AddDomainToCart
             eppCode: $transfer && $epp !== '' ? $epp : null,
             years: (int) $input['years'],
             idProtection: (bool) ($input['id_protection'] ?? false),
+            tldAttributes: $transfer ? [] : $this->tldAttributes->clean($input['domain'], $input['tld_attributes'] ?? null),
         );
 
         $priced = $this->pricer->price([$item], $cart->currency, null, $client)->items[0];

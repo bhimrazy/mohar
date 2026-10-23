@@ -36,6 +36,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   automation:run --date=YYYY-MM-DD`. Core's `BusinessCalendar`, Orders' `CompanyClock` and Notifications' `MailClock`
   are replaced by the `CompanyClock` contract. No schema or permission change.
 
+- **Extension details for registrars.** When a domain is ordered, the registrar can now ask for the extra details a
+  registry requires for that extension, and they are asked for where the domain is ordered: the domain search, the
+  product page ("Register a new domain") and the staff order form. The details are checked on the server (required,
+  one of the listed options, no stray values), kept in the cart encrypted, stored with the pending domain
+  (`domains.additional_fields`, no schema change) and sent with the registration; a transfer sends none. They are never
+  written to the activity log, the registrar command log or an error message. ResellerClub asks for the purpose and
+  who is registering for `.us`, and for the identification, policy reason and eligibility confirmation for `.com.au`;
+  other extensions are unchanged; an ABN or ACN is checked for its length before payment. Each field says who qualifies,
+  the cart and checkout show what was entered (ID numbers shortened to their last 3 characters), and staff see the stored
+  details, with labels, on the domain page (read-only). Answers that a registry's error message repeats are masked. These
+  ResellerClub attribute names are verified against the simulator only. Upgrade
+  notes: no migration, no new permission; drivers without the capability behave as before; a domain ordered before
+  this release has no details stored.
+
 - **ResellerClub registrar (#280).** Hosts can register, transfer, renew and restore domains through ResellerClub:
   Admin → Domains → Registrars → ResellerClub takes the reseller id and API key (and separate demo credentials for
   test mode), one default customer or one customer per client, and an optional outbound proxy for the API allow-list.

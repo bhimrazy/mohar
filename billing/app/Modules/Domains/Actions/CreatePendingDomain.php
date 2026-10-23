@@ -10,6 +10,7 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainPricingService;
+use App\Modules\Domains\Services\TldAttributeService;
 use App\Modules\Domains\Support\DomainName;
 use App\Modules\Domains\Support\Nameservers;
 use Carbon\CarbonImmutable;
@@ -28,6 +29,7 @@ class CreatePendingDomain
         private Settings $settings,
         private ActivityLogger $activity,
         private BuildDomainContacts $contacts,
+        private TldAttributeService $tldAttributes,
     ) {}
 
     /**
@@ -65,6 +67,9 @@ class CreatePendingDomain
             throw ValidationException::withMessages(['years' => "Choose between {$tld->min_years} and {$tld->max_years} years."]);
         }
 
+        // The registrar's extension details are checked here too, whoever built the draft; transfers send none.
+        $tldAttributes = $draft->action === 'register' ? $this->tldAttributes->clean($tld->extension, $draft->tldAttributes) : [];
+
         $nameservers = Nameservers::normalise($draft->nameservers);
 
         if ($nameservers !== [] && ! Nameservers::isValidSet($nameservers)) {
@@ -73,7 +78,7 @@ class CreatePendingDomain
 
         $nameservers = $nameservers ?: Nameservers::normalise(SettingList::of($this->settings->get('domains.default_nameservers', [])));
 
-        return DB::transaction(function () use ($draft, $name, $parts, $tld, $nameservers): Domain {
+        return DB::transaction(function () use ($draft, $name, $parts, $tld, $nameservers, $tldAttributes): Domain {
             if (Domain::query()->where('active_name', $name)->lockForUpdate()->exists()) {
                 throw ValidationException::withMessages(['domain' => "{$name} is already registered with us."]);
             }
@@ -101,6 +106,7 @@ class CreatePendingDomain
                 'auto_renew' => (bool) $this->settings->get('domains.default_auto_renew', true),
                 'id_protection' => $draft->idProtection,
                 'nameservers' => $nameservers,
+                'additional_fields' => $tldAttributes === [] ? null : ['tld_attributes' => $tldAttributes],
                 'epp_code' => $draft->action === 'transfer' ? trim((string) $draft->eppCode) : null,
             ]);
 

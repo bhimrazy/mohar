@@ -15,6 +15,7 @@ use App\Modules\Domains\Models\DomainContact;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Services\RegistrarManager;
 use App\Modules\Domains\Services\RenewalInvoices;
+use App\Modules\Domains\Services\TldAttributeService;
 use App\Support\Domains\RegistrarDriverRegistry;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -54,7 +55,7 @@ class DomainController extends Controller
         ]);
     }
 
-    public function show(Request $request, Domain $domain, RegistrarDriverRegistry $registrars, RegistrarManager $accounts): Response
+    public function show(Request $request, Domain $domain, RegistrarDriverRegistry $registrars, RegistrarManager $accounts, TldAttributeService $tldAttributes): Response
     {
         $this->authorize('domains.domains.view');
         $domain->load(['client:id,first_name,last_name,company_name', 'contacts']);
@@ -68,6 +69,7 @@ class DomainController extends Controller
                 'name' => $registrars->get($domain->registrar_key)->name(),
                 'active' => $accounts->isActive($domain->registrar_key),
             ],
+            'registryDetails' => $tldAttributes->describe($domain->tld, array_map(strval(...), (array) ($domain->additional_fields['tld_attributes'] ?? [])), mask: false),
             'billingAvailable' => app(RenewalInvoices::class)->available(),
             'registrars' => $registrars->keys(),
             'registrarNames' => array_map(fn (RegistrarDriver $driver): string => $driver->name(), $registrars->all()),
