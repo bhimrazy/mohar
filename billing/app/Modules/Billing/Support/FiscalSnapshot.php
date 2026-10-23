@@ -20,7 +20,7 @@ final readonly class FiscalSnapshot
         public array $reviews = [],
     ) {}
 
-    /** "taxable" when the supply carried tax, else "exempt". No document is an export until the accountant rules on D6. */
+    /** "taxable" when the supply carried tax, else "exempt" (no export until D6 is answered). */
     public function supplyClass(): string
     {
         return $this->tax1 + $this->tax2 !== 0 ? 'taxable' : 'exempt';

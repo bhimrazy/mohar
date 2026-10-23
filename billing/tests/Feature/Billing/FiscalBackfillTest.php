@@ -8,10 +8,7 @@ use Illuminate\Support\Facades\DB;
 
 require_once __DIR__.'/helpers.php';
 
-/*
-| The PR 1a backfill (ADR 0024 §2, vat-register AC 9): invoices numbered before the snapshot existed, written straight
-| to the tables the way the previous release left them. Nepal VAT 13%, NPR.
-*/
+// The backfill (ADR 0024 §2, AC 9) on rows written the way the previous release left them. Nepal VAT 13%, NPR.
 
 beforeEach(function () {
     Currency::factory()->create();

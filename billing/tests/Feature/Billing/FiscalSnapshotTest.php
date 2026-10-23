@@ -17,10 +17,7 @@ use Illuminate\Support\Facades\DB;
 
 require_once __DIR__.'/helpers.php';
 
-/*
-| The tax-invoice snapshot an invoice stores when it is numbered (ADR 0024 §2, vat-register AC 7 and 8): Nepal VAT 13%,
-| NPR, Nepal time.
-*/
+// Snapshot at numbering (ADR 0024 §2, AC 7 and 8): Nepal VAT 13%, NPR.
 
 beforeEach(function () {
     CarbonImmutable::setTestNow('2026-10-20 06:00:00');
