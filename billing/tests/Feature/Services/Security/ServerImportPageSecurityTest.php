@@ -116,8 +116,8 @@ test('Match again on one server never touches another server\'s list, and a serv
     $this->post(route('admin.services.servers.import.rematch', $b))->assertSessionHasNoErrors();
 
     expect($listA->refresh()->updated_at->lessThan($listB->refresh()->updated_at))->toBeTrue()
-        ->and(array_column($listA->accounts, 'username'))->toBe(['alpha'])
-        ->and(array_column($listB->accounts, 'username'))->toBe(['bravo']);
+        ->and(array_column($listA->accountRows(), 'username'))->toBe(['alpha'])
+        ->and(array_column($listB->accountRows(), 'username'))->toBe(['bravo']);
 });
 
 test('the polling reload of one server\'s page carries only that server\'s list and counts', function () {

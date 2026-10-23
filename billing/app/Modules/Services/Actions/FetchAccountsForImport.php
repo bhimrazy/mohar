@@ -8,13 +8,14 @@ use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Services\Jobs\FetchServerAccounts;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerAccountImport;
+use App\Modules\Services\Support\AccountList;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
  * Start reading a server's accounts for Import accounts, on the queue. One fetch per server at a time (under the server
- * row lock); a new fetch discards the previous list. Audited, because the list holds client emails.
+ * row lock); the previous list stays until the new one arrives, then is replaced. Audited, because the list holds client emails.
  */
 class FetchAccountsForImport
 {
@@ -90,16 +91,16 @@ class FetchAccountsForImport
     }
 
     /**
-     * The server's current list that has not expired, if any, without the account list unless $withAccounts: the newest
-     * one that did not fail, or the failed one when there is no other. An expired list is deleted here, so client emails never outlive
-     * it by more than a read (housekeeping deletes the rest daily).
+     * The server's current list that has not expired, if any: the newest one that did not fail, or the failed one when
+     * there is no other. Its accounts are read through AccountList, never with it. An expired list is deleted here
+     * (unless its import is still running), so client emails never outlive it by more than a read (housekeeping
+     * deletes the rest daily).
      */
-    public static function latest(Server $server, bool $withAccounts = false): ?ServerAccountImport
+    public static function latest(Server $server): ?ServerAccountImport
     {
-        ServerAccountImport::query()->where('server_id', $server->id)->where('expires_at', '<=', now())->delete();
+        ServerAccountImport::pruneExpired(serverId: $server->id);
 
-        // The encrypted account list can be megabytes: it is read only when asked for.
-        $columns = array_values(array_diff((new ServerAccountImport)->getFillable(), $withAccounts ? [] : ['accounts']));
+        $columns = (new ServerAccountImport)->getFillable();
 
         // A Match again whose job never ran: the list it left is still the last good one, so it becomes usable again.
         ServerAccountImport::query()->where('server_id', $server->id)->where('status', ServerAccountImport::MATCHING)
@@ -114,7 +115,13 @@ class FetchAccountsForImport
             ->latest('id');
 
         // A failed fetch does not replace the last good list: that list stays current, the failure is shown beside it.
-        return $query()->where('status', '!=', ServerAccountImport::FAILED)->first() ?? $query()->first();
+        $import = $query()->where('status', '!=', ServerAccountImport::FAILED)->first() ?? $query()->first();
+
+        if ($import !== null) {
+            app(AccountList::class)->adopt($import);
+        }
+
+        return $import;
     }
 
     /**

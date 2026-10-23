@@ -143,6 +143,20 @@ function fakePng(string $name, int $width, int $height, bool $noise = false): Up
  * (Pest 5.3 flushes global afterAll hooks in each test's tearDown). The rules are split across files so the
  * per-file peak stays well below the limit.
  */
+/**
+ * A fetched list with its accounts stored as the page and the import read them (AccountList).
+ *
+ * @param  list<array<string, mixed>>  $accounts
+ * @param  array<string, mixed>  $attributes
+ */
+function importWithAccounts(array $accounts, array $attributes): \App\Modules\Services\Models\ServerAccountImport
+{
+    $import = \App\Modules\Services\Models\ServerAccountImport::query()->create($attributes);
+    app(\App\Modules\Services\Support\AccountList::class)->replace($import, $accounts);
+
+    return $import;
+}
+
 function releaseArchCache(): void
 {
     (fn () => self::$instance = null)->bindTo(null, ObjectsRepository::class)();

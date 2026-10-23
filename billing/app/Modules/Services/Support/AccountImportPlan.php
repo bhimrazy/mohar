@@ -34,7 +34,7 @@ class AccountImportPlan
     /** @var array<string, int|null> */
     private array $prices = [];
 
-    public function __construct(private AccountImportMatcher $matcher, private Catalog $catalog, private CompanyClock $clock) {}
+    public function __construct(private AccountImportMatcher $matcher, private Catalog $catalog, private CompanyClock $clock, private AccountList $list) {}
 
     /**
      * The ticked accounts, each with a `decision`: client, product, cycle, next_due_date, amount (minor units, in the
@@ -45,7 +45,8 @@ class AccountImportPlan
     public function rows(Server $server, ServerAccountImport $import): array
     {
         $selections = $import->selections ?? [];
-        $accounts = array_values(array_filter($import->accounts ?? [], fn (array $row): bool => (bool) ($selections[$row['username']]['include'] ?? false)));
+        // Only the ticked accounts are read from the list (decrypted), not the whole of it.
+        $accounts = array_values($this->list->rows($import, array_keys(array_filter($selections, fn (array $choice): bool => (bool) ($choice['include'] ?? false)))));
 
         if ($accounts === []) {
             return [];

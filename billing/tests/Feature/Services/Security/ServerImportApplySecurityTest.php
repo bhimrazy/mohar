@@ -92,7 +92,7 @@ test('a ticked account with no client at review is not imported onto a client th
 test('selections take only usernames in this server\'s stored list, and only the choice fields', function () {
     $other = Server::factory()->create(['driver' => 'cpanel', 'name' => 'Shared 2', 'hostname' => Whm::HOST, 'username' => 'root', 'api_token' => Whm::TOKEN, 'port' => null]);
     $this->group->servers()->attach($other, ['sort_order' => 1]);
-    ServerAccountImport::query()->create(['server_id' => $other->id, 'status' => 'ready', 'accounts' => [], 'connection_user' => 'root', 'expires_at' => now()->addDay()]);
+    ServerAccountImport::query()->create(['server_id' => $other->id, 'status' => 'ready', 'connection_user' => 'root', 'expires_at' => now()->addDay()]);
 
     secSelect($this->server, ['usernames' => ['alpha', 'ghost', '../../etc', 'ALPHA'], 'include' => true,
         'domain' => 'evil.example', 'username' => 'root', 'recurring_amount' => 0, 'status' => 'active', 'server_id' => $other->id, 'amount' => 1]);

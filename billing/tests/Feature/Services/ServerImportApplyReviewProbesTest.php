@@ -43,7 +43,7 @@ function tickedImport(Server $server, int $clientId, int $count, string $created
         $selections["acct{$i}"] = ['include' => true, 'client_id' => $clientId, 'product_id' => 21];
     }
 
-    return ServerAccountImport::query()->create(['server_id' => $server->id, 'status' => 'ready', 'accounts' => $accounts, 'account_count' => $count, 'missing' => [],
+    return importWithAccounts($accounts, ['server_id' => $server->id, 'status' => 'ready', 'account_count' => $count, 'missing' => [],
         'connection_user' => 'root', 'selections' => $selections, 'fetched_at' => now(), 'expires_at' => now()->addDay()]);
 }
 
