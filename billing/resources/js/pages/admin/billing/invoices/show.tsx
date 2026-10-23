@@ -26,6 +26,8 @@ import { InvoiceDate } from '@/components/billing/invoice-date';
 import { InvoiceTotals } from '@/components/billing/invoice-totals';
 import { LineItems } from '@/components/billing/line-items';
 import { PaymentInProgressCard } from '@/components/billing/payment-in-progress';
+import { TaxNotesPanel } from '@/components/billing/tax-notes';
+import type { Creditable, TaxNote } from '@/components/billing/tax-notes';
 import { SelectField } from '@/components/billing/select-field';
 import type {
     GatewayOption,
@@ -85,7 +87,15 @@ type Props = {
     payment_in_progress: PaymentInProgressData | null;
     gateways: GatewayOption[];
     pay_methods: PayMethod[];
-    can: { manage: boolean; payments: boolean; refunds: boolean };
+    tax_notes: TaxNote[];
+    notes_enabled: boolean;
+    creditable: Creditable | null;
+    can: {
+        manage: boolean;
+        payments: boolean;
+        refunds: boolean;
+        notes: boolean;
+    };
 };
 
 const PAYABLE = ['unpaid', 'payment_pending', 'collections'];
@@ -256,6 +266,9 @@ export default function InvoiceShow({
     payment_in_progress,
     gateways,
     pay_methods,
+    tax_notes,
+    notes_enabled,
+    creditable,
     can,
 }: Props) {
     const [dialog, setDialog] = useState<
@@ -705,6 +718,20 @@ export default function InvoiceShow({
                             transactions={transactions}
                             gateways={gateways}
                             canAct={can.refunds}
+                        />
+
+                        <TaxNotesPanel
+                            invoiceId={invoice.id}
+                            currency={invoice.currency}
+                            notes={tax_notes}
+                            creditable={creditable}
+                            enabled={notes_enabled}
+                            canIssue={can.notes}
+                            debitBlocked={
+                                PAYABLE.includes(invoice.status)
+                                    ? null
+                                    : 'A debit note can be issued on an unpaid invoice only, for now.'
+                            }
                         />
 
                         <SectionCard title="Transactions" flush>

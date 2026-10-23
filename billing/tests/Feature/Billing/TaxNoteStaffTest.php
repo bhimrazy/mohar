@@ -270,7 +270,7 @@ test('staff who can view invoices see the notes panel with the credit each note 
 
     $this->get(route('admin.billing.invoices.show', $invoice))->assertInertia(fn (AssertableInertia $page) => $page
         ->where('can.notes', false)
-        ->where('tax_notes.0', fn ($note) => $note['number'] === 'CN-1' && $note['to_credit'] === 1_130_000 && $note['reversed_by'] === 'DN-1' && $note['bs_issue_date'] === '2083-07-03')
+        ->where('tax_notes.0', fn ($note) => $note['number'] === 'CN-1' && $note['to_credit'] === 1_130_000 && $note['reversed_by'] === 'DN-1' && $note['bs_issue_date'] === '3 Kartik 2083 BS')
         ->where('tax_notes.1', fn ($note) => $note['number'] === 'DN-1' && $note['reverses'] === 'CN-1' && $note['to_credit'] === 1_130_000)
         ->where('creditable.total', 1_130_000));
 });

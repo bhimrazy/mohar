@@ -10,6 +10,7 @@ use App\Modules\Billing\Http\Requests\Admin\TaxNoteRequest;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Billing\Services\TaxNoteIssuer;
+use App\Modules\Billing\Support\BikramSambatDate;
 use App\Modules\Billing\Support\BillingSettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -81,7 +82,7 @@ class TaxNoteController extends Controller
 
         return array_values($notes->map(fn (TaxNote $note): array => [
             'id' => $note->id, 'number' => $note->number, 'kind' => $note->kind, 'issue_date' => $note->issue_date->toDateString(),
-            'bs_issue_date' => $note->bs_issue_date, 'reason_code' => $note->reason_code, 'reason_text' => $note->reason_text, 'total' => $note->total,
+            'bs_issue_date' => (new BikramSambatDate(...array_map('intval', explode('-', (string) $note->bs_issue_date))))->format(), 'reason_code' => $note->reason_code, 'reason_text' => $note->reason_text, 'total' => $note->total,
             'tax' => $note->tax1_amount + $note->tax2_amount, 'to_credit' => $credit[$note->id] ?? 0, 'automatic' => $note->automatic,
             'issued_by' => $note->creator?->name, 'reverses' => $note->reverses_tax_note_id !== null ? $numbers[$note->reverses_tax_note_id] ?? null : null,
             'reversed_by' => $reversedBy[$note->id] ?? null,
