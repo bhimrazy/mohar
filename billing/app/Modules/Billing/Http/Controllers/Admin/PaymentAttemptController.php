@@ -55,6 +55,7 @@ class PaymentAttemptController extends Controller
                     'late_checked_at' => $attempt->late_checked_at?->toIso8601String(),
                     'check_reason' => $attempt->check_reason,
                     'needs_check' => $attempt->needsCheck(),
+                    'can_resolve' => $attempt->status === AttemptStatus::Ambiguous,
                 ]),
             'filters' => (object) array_filter($filters),
             'statuses' => array_map(fn (AttemptStatus $status): array => ['value' => $status->value, 'label' => ucfirst($status->value)], AttemptStatus::cases()),
@@ -67,6 +68,29 @@ class PaymentAttemptController extends Controller
         // Staff are waiting on this request: one quick provider try, like the customer's return.
         $status = $settle->handle($attempt, interactive: true);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Attempt :reference is :status.', ['reference' => $attempt->reference, 'status' => $status->value])]);
+
+        return back();
+    }
+
+    /**
+     * Staff settle an attempt in review by hand, after looking in the provider's portal: it was paid (booked once, with
+     * the provider's reference) or it was not (closed for good, the invoice can be paid again).
+     */
+    public function resolve(Request $request, PaymentAttempt $attempt, SettlePaymentAttempt $settle, ActivityLogger $activity): RedirectResponse
+    {
+        $this->authorize('billing.payments.manage');
+        $data = $request->validate([
+            'outcome' => ['required', 'in:paid,not_paid'],
+            'provider_reference' => ['required_if:outcome,paid', 'nullable', 'string', 'max:191'],
+        ]);
+        $paid = $data['outcome'] === 'paid';
+
+        $row = $paid ? $settle->resolvePaid($attempt, $data['provider_reference'] ?? '') : $settle->resolveNotPaid($attempt);
+        $activity->log($paid ? 'Gateway payment marked as paid by staff' : 'Gateway payment closed as not paid by staff', $row, $row->client_id, [
+            'reference' => $row->reference, 'gateway' => $row->gateway, 'amount' => $row->amount, 'currency' => $row->currency,
+            'outcome' => $data['outcome'], 'provider_reference' => $paid ? $row->provider_txn_id : null,
+        ], 'billing.payment.resolved');
+        Inertia::flash('toast', ['type' => 'success', 'message' => $paid ? __('Payment recorded.') : __('Closed as not paid. The invoice can be paid again.')]);
 
         return back();
     }

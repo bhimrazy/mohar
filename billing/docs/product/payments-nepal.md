@@ -562,6 +562,11 @@ merchants).
   to staff review (Ambiguous, `billing.payment.unmatched` in the activity log) instead of being abandoned, open and
   blocking new payments, and still books if a later lookup says COMPLETE for our amount. A closed attempt is reopened for
   review the same way. An attempt already in review is never expired by `NOT_FOUND` past the grace period (#217 N5).
+  The review attempt stops expiring (`expires_at` null, as for a processing payment), so it keeps blocking a new payment for the
+  invoice. The evidence is also kept when the return route skips the lookup (its one-minute floor). Staff settle it on
+  Payment attempts: **Mark as paid** (provider reference required, deduped on `provider_txn_id`, booked through the
+  normal settle path) or **Not paid** (`Failed`, `lookups_closed_at` set); both under `billing.payments.manage` with a
+  recent password and logged as `billing.payment.resolved`.
   Still open (#217 N4): more REA captures of confirmed cancels and of the status after the booking expires.
 - **Booking window (UAT capture, 2026-10-21).** eSewa's `product_details` for a fresh booking carries
   `bookingExpiryTime`, 50 minutes after the form post, in every capture. The docs' "15 minutes after login" does not

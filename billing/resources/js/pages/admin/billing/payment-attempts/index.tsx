@@ -1,6 +1,11 @@
 import { Link, router } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import { Activity } from 'lucide-react';
+import { ConfirmDialog } from '@/components/app/confirm-dialog';
+import { Field } from '@/components/app/field';
+import { FormDialog } from '@/components/billing/form-dialog';
+import { Input } from '@/components/ui/input';
+import { formatMoney } from '@/lib/money';
 import { DataTable } from '@/components/app/data-table';
 import type { DataTableColumn } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
@@ -17,6 +22,7 @@ import { show as showInvoice } from '@/actions/App/Modules/Billing/Http/Controll
 import {
     check,
     lateChecked,
+    resolve,
 } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/PaymentAttemptController';
 import type { LaravelPaginated, SelectOption } from '@/types/app';
 
@@ -39,6 +45,7 @@ type Attempt = {
     late_checked_at: string | null;
     check_reason: string | null;
     needs_check: boolean;
+    can_resolve: boolean;
 };
 
 type Props = {
@@ -78,6 +85,65 @@ const TONES: Record<string, string> = {
     expired: 'cancelled',
     ambiguous: 'overdue',
 };
+
+/**
+ * Staff settle a payment in review by hand, after looking in the gateway's own portal: it was paid, or it was not.
+ */
+function ResolveButtons({ attempt }: { attempt: Attempt }) {
+    const name = humanize(attempt.gateway);
+    const amount = formatMoney(attempt.amount, attempt.currency);
+
+    return (
+        <>
+            <FormDialog
+                trigger={
+                    <Button variant="outline" size="sm">
+                        Mark as paid
+                    </Button>
+                }
+                title={`Record this ${amount} payment as paid?`}
+                description={`Only after you saw the full ${amount} payment in the ${name} portal. It is added to the invoice once, and can't be undone.`}
+                submitLabel="Record payment"
+                action={resolve(attempt.id)}
+                initial={{ outcome: 'paid', provider_reference: '' }}
+            >
+                {(form) => (
+                    <Field
+                        htmlFor={`attempt-ref-${attempt.id}`}
+                        label={`${name} reference`}
+                        hint="The transaction code the portal shows for this payment."
+                        error={form.errors.provider_reference}
+                    >
+                        <Input
+                            id={`attempt-ref-${attempt.id}`}
+                            value={form.data.provider_reference}
+                            onChange={(event) =>
+                                form.setData(
+                                    'provider_reference',
+                                    event.target.value,
+                                )
+                            }
+                            required
+                        />
+                    </Field>
+                )}
+            </FormDialog>
+            <ConfirmDialog
+                trigger={
+                    <Button variant="outline" size="sm">
+                        Not paid
+                    </Button>
+                }
+                title={`Close this ${amount} payment as not paid?`}
+                description={`Use only after you checked the ${name} portal and found no payment of ${amount}. The invoice can then be paid again, so a wrong choice can mean the client pays twice.`}
+                confirmLabel="Close as not paid"
+                method="post"
+                action={resolve(attempt.id)}
+                data={{ outcome: 'not_paid' }}
+            />
+        </>
+    );
+}
 
 export default function PaymentAttempts({ attempts, statuses }: Props) {
     const columns: DataTableColumn<Attempt>[] = [
@@ -163,7 +229,7 @@ export default function PaymentAttempts({ attempts, statuses }: Props) {
             header: <span className="sr-only">Actions</span>,
             align: 'right',
             cell: (attempt) => (
-                <div className="flex justify-end gap-1">
+                <div className="flex flex-wrap justify-end gap-1">
                     {attempt.needs_check && (
                         <Button
                             variant="outline"
@@ -172,6 +238,9 @@ export default function PaymentAttempts({ attempts, statuses }: Props) {
                         >
                             Mark checked
                         </Button>
+                    )}
+                    {attempt.can_resolve && (
+                        <ResolveButtons attempt={attempt} />
                     )}
                     {CHECKABLE.includes(attempt.status) && (
                         <Button

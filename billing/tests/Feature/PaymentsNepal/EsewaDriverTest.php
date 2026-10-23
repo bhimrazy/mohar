@@ -588,18 +588,20 @@ test('the signed evidence outlives an eSewa outage on the return and is used by 
     expect($attempt->fresh())->status->toBe(AttemptStatus::Ambiguous)->review_reason->toContain('Provider signed a paid return');
 });
 
-test('a forged or unsigned COMPLETE return does not stop a NOT_FOUND from ending the attempt', function (array $overrides, string $secret) {
+test('a forged or unsigned COMPLETE return does not stop a NOT_FOUND from ending the attempt', function (array $overrides, string $secret, array $signed) {
     [, $attempt] = startEsewa(10_000);
     Http::fake([ESEWA_STATUS => Http::response(esewaFixture('status_not_found_cancelled', ['transaction_uuid' => $attempt->reference]))]);
 
-    $this->get(esewaSuccess($attempt, '100', $overrides, $secret));
+    $this->get(esewaSuccess($attempt, '100', $overrides, $secret, $signed));
     $this->travel(6)->minutes();
     $this->artisan('billing:reconcile-payments', ['--only' => 'open']);
 
     expect($attempt->fresh())->status->toBe(AttemptStatus::Expired)->raw->not->toHaveKey('signed_return');
 })->with([
-    'wrong secret' => [[], 'guessed-secret'],
-    'tampered' => [['total_amount' => '1000'], ESEWA_SECRET],
+    'wrong secret' => [[], 'guessed-secret', []],
+    'tampered' => [['total_amount' => '1000'], ESEWA_SECRET, []],
+    'unsigned status and amount' => [[], ESEWA_SECRET, ['signed_field_names' => 'transaction_uuid']],
+    'another merchant' => [[], ESEWA_SECRET, ['product_code' => 'OTHERMERCH']],
 ]);
 
 test('a signed COMPLETE return for an attempt closed as abandoned reopens it for review when eSewa still answers NOT_FOUND', function () {

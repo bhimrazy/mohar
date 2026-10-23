@@ -49,7 +49,14 @@ class GatewayReturnController extends Controller
         // The customer is waiting, so the lookup is a single quick try: anything inconclusive is left to the poller.
         $cancelReturn = $request->boolean('cancelled');
         $floor = $cancelReturn && $attempt->status === AttemptStatus::Pending ? now()->subSeconds(10) : now()->subMinute();
-        $status = $attempt->last_lookup_at !== null && $attempt->last_lookup_at->gt($floor)
+        $lookupSkipped = $attempt->last_lookup_at !== null && $attempt->last_lookup_at->gt($floor);
+
+        // A signed paid return is evidence even when no lookup is made now; it is kept for the next one.
+        if ($lookupSkipped) {
+            $settle->keepSignedReturn($attempt, $hint);
+        }
+
+        $status = $lookupSkipped
             ? $attempt->status
             : $settle->handle($attempt, interactive: true, cancelReturn: $cancelReturn, returnHint: $hint);
 
