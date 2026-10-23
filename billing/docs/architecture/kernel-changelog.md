@@ -30,6 +30,13 @@ the same PR updates every in-repo implementer and gets the principal-architect g
   `secretValues()` (every setting of 8 characters or more, no caller) is removed. Billing masks with it in step 7.
 - `SecretTemplatePolicy::normalise()` (Notifications) now delegates to `RedactionSet::normalise()`; same result.
 
+### `ReturnHint::$signedPaid` (#323)
+
+- `App\Data\Billing\ReturnHint` has a new last constructor parameter `bool $signedPaid = false`: the customer's return
+  carries the provider's own valid signature over a paid status (eSewa COMPLETE). It is still only a hint for settling,
+  but Billing keeps it as evidence, so a later "not found" goes to staff review instead of ending the attempt.
+  Additive: existing implementers (Khalti, Stripe, sandbox) leave it false and need no change.
+
 ### Linking an existing registrar order (ADR 0009 Amendment 4, #365)
 
 - New capability interface `App\Contracts\Domains\Registrar\LinksExistingOrders` (detected with `instanceof`;
