@@ -22,6 +22,8 @@ type Template = {
     is_system: boolean;
     is_enabled: boolean;
     subject: string | null;
+    sample_subject: string | null;
+    description: string | null;
     locales: string[];
     updated_at: string | null;
 };
@@ -55,19 +57,27 @@ export default function TemplatesIndex({
                             <Badge variant="outline">Custom</Badge>
                         )}
                     </div>
-                    <div className="truncate font-mono text-xs text-muted-foreground">
-                        {template.key}
-                    </div>
+                    {template.description && (
+                        <div
+                            className="line-clamp-2 text-xs text-muted-foreground"
+                            title={`Key: ${template.key}`}
+                        >
+                            {template.description}
+                        </div>
+                    )}
                 </div>
             ),
         },
         {
             key: 'subject',
-            header: 'Subject',
+            header: 'Subject (sample)',
             hideOnMobile: true,
             cell: (template) => (
-                <span className="block max-w-[26rem] truncate text-sm text-muted-foreground">
-                    {template.subject}
+                <span
+                    className="block max-w-[26rem] truncate text-sm text-muted-foreground"
+                    title={template.subject ?? undefined}
+                >
+                    {template.sample_subject ?? template.subject}
                 </span>
             ),
         },
