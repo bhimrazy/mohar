@@ -87,6 +87,7 @@ class SubmitToRegistrar
             contacts: $this->contacts->contactSet($domain),
             idProtection: $domain->id_protection,
             eppCode: $domain->epp_code,
+            tldAttributes: $domain->type === 'transfer' ? [] : self::tldAttributes($domain),
         );
 
         try {
@@ -106,6 +107,18 @@ class SubmitToRegistrar
         }
 
         return $this->succeeded($domain, $result, $staffId);
+    }
+
+    /**
+     * The extension details stored with the order (personal data: handed to the driver, never logged).
+     *
+     * @return array<string, string>
+     */
+    private static function tldAttributes(Domain $domain): array
+    {
+        $stored = $domain->additional_fields['tld_attributes'] ?? [];
+
+        return is_array($stored) ? array_map(strval(...), array_filter($stored, is_scalar(...))) : [];
     }
 
     /**

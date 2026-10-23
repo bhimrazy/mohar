@@ -418,6 +418,7 @@ class PlaceOrder
                     eppCode: $item->item->eppCode,
                     nameservers: $item->item->nameservers,
                     idProtection: $item->item->idProtection,
+                    tldAttributes: $item->item->tldAttributes,
                 ));
 
                 $this->orderItem($order, OrderItemType::Domain, $domainId, $line, ['parent_id' => $serviceItem?->id]);

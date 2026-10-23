@@ -4,6 +4,8 @@ namespace App\Modules\Domains;
 
 use App\Contracts\Domains\DomainPricing;
 use App\Contracts\Domains\DomainRegistry;
+use App\Contracts\Domains\TldAttributes;
+use App\Modules\Domains\Services\TldAttributeService;
 use App\Contracts\Domains\Registrar\RegistrarRefs;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Events\Billing\InvoiceCancelled;
@@ -79,6 +81,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $this->app->scoped(DomainPricingService::class);
         $this->app->scoped(DomainPricing::class, fn ($app) => $app->make(DomainPricingService::class));
         $this->app->bind(DomainRegistry::class, DomainRegistryService::class);
+        $this->app->bind(TldAttributes::class, TldAttributeService::class);
         $this->app->bind(RegistrarRefs::class, EloquentRegistrarRefs::class);
     }
 

@@ -30,6 +30,8 @@ class AddProductRequest extends FormRequest
             'domain_mode' => ['nullable', 'string', 'in:register,transfer,existing'],
             'domain_name' => ['nullable', 'string', 'max:253'],
             'epp_code' => ['nullable', 'string', 'max:100'],
+            'tld_attributes' => ['nullable', 'array', 'max:20'],
+            'tld_attributes.*' => ['nullable', 'string', 'max:255'],
             'addon_ids' => ['nullable', 'array'],
             'addon_ids.*' => ['integer', 'min:1'],
         ];

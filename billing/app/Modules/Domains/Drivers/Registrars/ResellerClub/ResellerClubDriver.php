@@ -3,6 +3,7 @@
 namespace App\Modules\Domains\Drivers\Registrars\ResellerClub;
 
 use App\Contracts\Domains\Registrar\ChecksAvailability;
+use App\Contracts\Domains\Registrar\DeclaresTldAttributes;
 use App\Contracts\Domains\Registrar\ManagesContacts;
 use App\Contracts\Domains\Registrar\ManagesIdProtection;
 use App\Contracts\Domains\Registrar\ManagesLock;
@@ -51,7 +52,7 @@ use Carbon\CarbonImmutable;
  * Every order read is tied to the domain: by the order id the host holds, or else by the client's customer.
  * A register or transfer chain runs inside a time budget (REGISTER_BUDGET) that fits the host job's timeout.
  */
-final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, ManagesIdProtection, ManagesLock, ManagesNameservers, ProvidesEppCode, ReconcilesSubmissions, RegistrarDriver, RestoresDomains, SyncsDomains, TestsRegistrarConnection, TransfersDomains
+final class ResellerClubDriver implements ChecksAvailability, DeclaresTldAttributes, ManagesContacts, ManagesIdProtection, ManagesLock, ManagesNameservers, ProvidesEppCode, ReconcilesSubmissions, RegistrarDriver, RestoresDomains, SyncsDomains, TestsRegistrarConnection, TransfersDomains
 {
     public const KEY = 'resellerclub';
 
@@ -94,6 +95,60 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
         ];
     }
 
+    /**
+     * Extra details ResellerClub's register call takes as `attr-name{n}` / `attr-value{n}` pairs for some extensions.
+     * The set is small on purpose; an extension that is not listed here is sent without attributes.
+     *
+     * - `.us`: purpose and nexus category, from the .US registry's nexus policy
+     *   (https://support.opensrs.com/support/solutions/articles/201000063592, values P1-P5 and C11/C12/C21). Only
+     *   the categories that need no extra validator are offered (C31/C32 also need a nexus country).
+     * - `.com.au`: eligibility id, id type, policy reason and warranty, as the simulator already models them.
+     *
+     * Unverified: ResellerClub's own knowledge base could not be read when this was written, so the attribute names
+     * (`purpose`, `category`, `id-type`, `id`, `policyReason`, `isAUWarranty`) and the `.com.au` values follow the
+     * simulator and the registry policies, not a call to a ResellerClub account. Check them against the demo
+     * account before enabling these extensions.
+     */
+    public function tldAttributeFields(string $tld): array
+    {
+        return match (ltrim(strtolower($tld), '.')) {
+            'us' => [
+                new SettingField('purpose', 'What the domain is for', FieldType::Select, required: true, options: ['P1' => 'Business for profit', 'P2' => 'Non-profit, club, association or religious group', 'P3' => 'Personal use', 'P4' => 'Education', 'P5' => 'Government']),
+                new SettingField('category', 'Who is registering it', FieldType::Select, required: true, options: ['C11' => 'A citizen of the United States', 'C12' => 'A permanent resident of the United States', 'C21' => 'An organization formed in the United States'], help: 'The .us registry only allows people and organizations with a connection to the United States.'),
+            ],
+            'com.au' => [
+                new SettingField('id-type', 'Type of identification', FieldType::Select, required: true, options: ['ACN' => 'Australian Company Number', 'ABN' => 'Australian Business Number', 'TM' => 'Australian trademark', 'Other' => 'Other']),
+                new SettingField('id', 'Identification number', required: true),
+                new SettingField('policyReason', 'Why the name suits the registrant', FieldType::Select, required: true, options: ['1' => 'It matches the registrant\'s name, abbreviation or trading name', '2' => 'It is closely and substantially connected to the registrant']),
+                new SettingField('isAUWarranty', 'The registrant is eligible for a .com.au name', FieldType::Boolean, required: true),
+            ],
+            default => [],
+        };
+    }
+
+    /**
+     * The request's attributes as numbered pairs, in the order of the declared fields. Only keys the driver
+     * declared for the extension are sent, whatever the caller passed.
+     *
+     * @return array<string, string>
+     */
+    private function attributeParams(RegistrationRequest $request): array
+    {
+        $declared = array_map(fn (SettingField $field): string => $field->key, $this->tldAttributeFields($request->domain->tld));
+        $params = [];
+        $n = 0;
+
+        foreach ($declared as $key) {
+            if (isset($request->tldAttributes[$key]) && $request->tldAttributes[$key] !== '') {
+                $n++;
+                $params['attr-name'.$n] = $key;
+                $params['attr-value'.$n] = $request->tldAttributes[$key];
+            }
+        }
+
+        return $params;
+    }
+
     public function checkAvailability(RegistrarConfig $config, string $sld, array $tlds): array
     {
         $answer = (array) $this->client->get($config, 'domains/available.json', ['domain-name' => [$sld], 'tlds' => array_map(fn (string $tld): string => ltrim($tld, '.'), $tlds)], check: true);
@@ -124,6 +179,7 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
 
             $answer = $this->client->post($config, 'domains/register.json', [
                 ...$this->orderParams($config, $request),
+                ...$this->attributeParams($request),
                 'years' => $request->years,
                 'ns' => $request->nameservers,
             ]);

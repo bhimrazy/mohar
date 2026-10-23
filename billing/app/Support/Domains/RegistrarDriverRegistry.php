@@ -3,6 +3,7 @@
 namespace App\Support\Domains;
 
 use App\Contracts\Domains\Registrar\ChecksAvailability;
+use App\Contracts\Domains\Registrar\DeclaresTldAttributes;
 use App\Contracts\Domains\Registrar\ManagesContacts;
 use App\Contracts\Domains\Registrar\ManagesIdProtection;
 use App\Contracts\Domains\Registrar\ManagesLock;
@@ -65,6 +66,8 @@ final class RegistrarDriverRegistry extends DriverRegistry
 
     public const TEST_CONNECTION = 'test_connection';
 
+    public const TLD_ATTRIBUTES = 'tld_attributes';
+
     protected function contract(): string
     {
         return RegistrarDriver::class;
@@ -89,6 +92,7 @@ final class RegistrarDriverRegistry extends DriverRegistry
             self::TRANSFER_SYNC => TransfersDomains::class,
             self::RECONCILE => ReconcilesSubmissions::class,
             self::TEST_CONNECTION => TestsRegistrarConnection::class,
+            self::TLD_ATTRIBUTES => DeclaresTldAttributes::class,
         ];
     }
 

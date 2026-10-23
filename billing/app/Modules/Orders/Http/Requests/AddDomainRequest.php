@@ -29,11 +29,13 @@ class AddDomainRequest extends FormRequest
             'years' => ['required', 'integer', 'min:1', 'max:10'],
             'epp_code' => ['nullable', 'string', 'max:100'],
             'id_protection' => ['boolean'],
+            'tld_attributes' => ['nullable', 'array', 'max:20'],
+            'tld_attributes.*' => ['nullable', 'string', 'max:255'],
         ];
     }
 
     /**
-     * @return array{domain: string, action: string, years: int, epp_code?: ?string, id_protection?: bool}
+     * @return array{domain: string, action: string, years: int, epp_code?: ?string, id_protection?: bool, tld_attributes?: array<string, string>}
      */
     public function domainInput(): array
     {
@@ -43,6 +45,7 @@ class AddDomainRequest extends FormRequest
             'years' => $this->integer('years'),
             'epp_code' => $this->filled('epp_code') ? $this->string('epp_code')->toString() : null,
             'id_protection' => $this->boolean('id_protection'),
+            'tld_attributes' => (array) $this->input('tld_attributes', []),
         ];
     }
 }
