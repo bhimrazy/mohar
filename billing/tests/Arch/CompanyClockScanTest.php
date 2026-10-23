@@ -3,7 +3,7 @@
 /*
  * Billing's document paths take their dates from the company clock (ADR 0013 Amendment 1), never from the UTC calendar.
  * The arch plugin can't see static calls, so this scans the code (comments left out) for the forms that read a UTC date.
- * Factories and seeders (`Database/`) build demo data and are not document paths. The other modules join the scan as
+ * Factories and seeders (`Database/`) build demo data and are not document paths. Services has joined; the other modules join as
  * each one moves.
  */
 
@@ -19,6 +19,9 @@ const UTC_DATE_FORMS = [
     'date() of the current time' => '/(?<![>:$\w])date\s*\(\s*["\x27][^"\x27]*["\x27]\s*\)/',
     'the UTC date of an instant column' => '/_at\s*\??->\s*toDateString\s*\(/',
 ];
+
+/** Modules that have moved onto the company clock. */
+const SCANNED_MODULES = ['Billing', 'Services'];
 
 /** Code the scan must not flag. */
 const ALLOWED_DATE_CODE = [
@@ -43,7 +46,7 @@ function billingDocumentCode(string $module = 'Billing', bool $withDatabase = fa
     foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(dirname(__DIR__, 2).'/app/Modules'.($module === '' ? '' : "/{$module}"), FilesystemIterator::SKIP_DOTS)) as $file) {
         $path = $file->getPathname();
 
-        if ($file->getExtension() !== 'php' || (! $withDatabase && str_contains($path, '/Billing/Database/'))) {
+        if ($file->getExtension() !== 'php' || (! $withDatabase && str_contains($path, '/Database/'))) {
             continue;
         }
 
@@ -56,13 +59,15 @@ function billingDocumentCode(string $module = 'Billing', bool $withDatabase = fa
     return $files;
 }
 
-test('Billing document paths read no UTC calendar date', function () {
+test('document paths of the moved modules read no UTC calendar date', function () {
     $found = [];
 
-    foreach (billingDocumentCode() as $path => $code) {
-        foreach (UTC_DATE_FORMS as $label => $pattern) {
-            if (preg_match($pattern, $code) === 1) {
-                $found[] = "{$path}: {$label}";
+    foreach (SCANNED_MODULES as $module) {
+        foreach (billingDocumentCode($module) as $path => $code) {
+            foreach (UTC_DATE_FORMS as $label => $pattern) {
+                if (preg_match($pattern, $code) === 1) {
+                    $found[] = "{$path}: {$label}";
+                }
             }
         }
     }
@@ -123,8 +128,6 @@ const HAND_CONVERSION_BASELINE = [
     'Modules/Notifications/Actions/PruneNotificationLogs.php: a timestamp column compared with the run date' => 2,
     'Modules/Orders/Actions/CancelStalePendingOrders.php: a timestamp column compared with the run date' => 1,
     'Modules/Platform/PlatformServiceProvider.php: a timestamp column compared with the run date' => 3,
-    'Modules/Services/Actions/PruneModuleLog.php: a timestamp column compared with the run date' => 1,
-    'Modules/Services/Database/Seeders/ServicesSeeder.php: an instant method on the run date' => 1,
 ];
 
 test('no module converts the run date by hand beyond the baseline', function () {
@@ -164,8 +167,9 @@ test('the hand-conversion patterns see what they ban', function (string $label, 
     ['a timestamp column compared with the run date', "->where('created_at', '<', \$today->subDays(3))"],
 ]);
 
-test('the scan reads the Billing module', function () {
-    expect(array_keys(billingDocumentCode()))->toContain('Modules/Billing/Actions/PublishInvoice.php')->not->toContain('Modules/Billing/Database/Factories/InvoiceFactory.php');
+test('the scan reads the moved modules but not their factories', function () {
+    expect(array_keys(billingDocumentCode()))->toContain('Modules/Billing/Actions/PublishInvoice.php')->not->toContain('Modules/Billing/Database/Factories/InvoiceFactory.php')
+        ->and(array_keys(billingDocumentCode('Services')))->toContain('Modules/Services/Actions/PruneModuleLog.php')->not->toContain('Modules/Services/Database/Factories/ServiceFactory.php');
 });
 
 afterAll(fn () => releaseArchCache());

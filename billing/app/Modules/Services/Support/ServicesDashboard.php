@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Support;
 
+use App\Contracts\Core\CompanyClock;
 use App\Enums\BillingCycle;
 use App\Models\User;
 use App\Modules\Core\Support\ConstantRows;
@@ -44,15 +45,15 @@ class ServicesDashboard
     private function mrr(): array
     {
         $rollup = app(CurrencyRollup::class);
-        $today = CarbonImmutable::today();
+        $today = app(CompanyClock::class)->todayDate();
         $points = [];
 
         for ($month = self::MONTHS - 1; $month >= 1; $month--) {
-            $points[] = $today->subMonths($month)->endOfMonth()->toDateString();
+            $points[] = $today->startOfMonth()->subMonths($month)->endOfMonth()->toDateString();
         }
 
         $points[] = $today->toDateString();
-        $monthAgo = $today->subMonth()->toDateString();
+        $monthAgo = $today->subMonthNoOverflow()->toDateString();
         ['series' => $series, 'previous' => $previous, 'count' => $count] = Cache::remember(
             'dashboard.services.mrr.'.$today->toDateString(),
             self::CACHE_SECONDS,

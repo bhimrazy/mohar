@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Support;
 
+use App\Contracts\Core\CompanyClock;
 use App\Data\Catalog\ProductSelection;
 use App\Data\Catalog\ProductSummary;
 use App\Enums\BillingCycle;
@@ -33,7 +34,7 @@ class AccountImportPlan
     /** @var array<string, int|null> */
     private array $prices = [];
 
-    public function __construct(private AccountImportMatcher $matcher, private Catalog $catalog) {}
+    public function __construct(private AccountImportMatcher $matcher, private Catalog $catalog, private CompanyClock $clock) {}
 
     /**
      * The ticked accounts, each with a `decision`: client, product, cycle, next_due_date, amount (minor units, in the
@@ -57,7 +58,7 @@ class AccountImportPlan
         $clientIds = array_map(fn (array $row): int => (int) ($selections[$row['username']]['client_id'] ?? $row['client_id'] ?? 0), $fresh);
         $clients = Client::query()->whereKey(array_values(array_unique(array_filter($clientIds))))->with('group:id,name,discount_percent')->get(['id', 'first_name', 'last_name', 'company_name', 'currency', 'status', 'client_group_id'])->keyBy('id');
         $flags = $this->matcher->clientFlags($clients->keys()->map(fn (mixed $id): int => (int) $id)->all());
-        $today = CarbonImmutable::today();
+        $today = $this->clock->todayDate();
 
         return array_map(function (array $row) use ($selections, $products, $clients, $flags, $today): array {
             $choice = $selections[$row['username']] ?? [];
@@ -66,7 +67,7 @@ class AccountImportPlan
             $cycle = BillingCycle::tryFrom((string) ($choice['cycle'] ?? '')) ?? $this->defaultCycle($product, $client);
             $due = isset($choice['next_due_date']) ? CarbonImmutable::parse($choice['next_due_date']) : $this->defaultDue($row['created_at'] ?? null, $cycle, $today);
             // The account's renewal day, kept for short months (a 31st renews on the 30th in November, then the 31st).
-            $anchor = isset($choice['next_due_date']) || ($row['created_at'] ?? null) === null ? $due?->day : CarbonImmutable::parse($row['created_at'])->day;
+            $anchor = isset($choice['next_due_date']) || ($row['created_at'] ?? null) === null ? $due?->day : $this->createdDate($row['created_at'])->day;
             $amount = $client !== null && $product !== null && $cycle !== null ? $this->price($product, $cycle, $client) : null;
             // A client group's discount is why one package can show two prices; the list price says so on the review.
             // Flagged: shown on the review, and imported only when staff chose this very client themselves.
@@ -234,6 +235,12 @@ class AccountImportPlan
         return in_array(BillingCycle::Monthly, $cycles, true) ? BillingCycle::Monthly : ($cycles[0] ?? null);
     }
 
+    /** The company-calendar date (a date value) of the moment the server created the account. */
+    private function createdDate(string $createdAt): CarbonImmutable
+    {
+        return CarbonImmutable::parse($this->clock->localDate(CarbonImmutable::parse($createdAt)));
+    }
+
     /**
      * The first date after today that is a whole number of cycles from the account's creation (its renewal date).
      */
@@ -243,7 +250,7 @@ class AccountImportPlan
             return null;
         }
 
-        $start = $createdAt === null ? $today : CarbonImmutable::parse($createdAt)->startOfDay();
+        $start = $createdAt === null ? $today : $this->createdDate($createdAt);
         $periods = intdiv(max(0, (int) floor($start->diffInMonths($today))), (int) $cycle->months());
         $due = $cycle->advance($start, $periods, $start->day);
 
