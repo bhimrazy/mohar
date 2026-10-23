@@ -620,7 +620,16 @@ test('contacts Namecheap cannot take are refused before anything is sent, and ph
         ->and(NamecheapContacts::phone('+14155550100', 'US'))->toBe('+1.4155550100')
         ->and(fn () => NamecheapContacts::phone('+0009841234567', 'NP'))->toThrow(RegistrarException::class, 'not recognised')
         ->and(fn () => NamecheapContacts::phone('555 0100', 'ZZ'))->toThrow(RegistrarException::class, 'country code')
-        ->and(fn () => NamecheapContacts::phone('+977.12', 'NP'))->toThrow(RegistrarException::class, 'valid length');
+        ->and(fn () => NamecheapContacts::phone('+977.12', 'NP'))->toThrow(RegistrarException::class, 'not recognised');
+});
+
+test('Namecheap phones: Nepal national, Italy keeps its trunk 0, exit prefixes 0011 and 011 are refused, 15 digits is the cap', function () {
+    expect(NamecheapContacts::phone('984-1234567', 'NP'))->toBe('+977.9841234567')
+        ->and(NamecheapContacts::phone('06 1234 5678', 'IT'))->toBe('+39.0612345678')
+        ->and(NamecheapContacts::phone('+7 123 4567 8901 234', 'RU'))->toBe('+7.12345678901234')
+        ->and(fn () => NamecheapContacts::phone('+7 123 4567 8901 2345', 'RU'))->toThrow(RegistrarException::class, 'not recognised')
+        ->and(fn () => NamecheapContacts::phone('0011 61 2 5550 1234', 'AU'))->toThrow(RegistrarException::class, 'not recognised')
+        ->and(fn () => NamecheapContacts::phone('011 44 20 7946 0958', 'US'))->toThrow(RegistrarException::class, 'Enter the contact phone number with its country code');
 });
 
 test('lock, name servers, privacy and restore are sent as documented; privacy needs the service id and the registrant email', function () {
