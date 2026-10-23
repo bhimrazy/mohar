@@ -1,4 +1,4 @@
-import { useForm } from '@inertiajs/react';
+import { useForm, usePage } from '@inertiajs/react';
 import type { FormEvent } from 'react';
 import DomainActionController from '@/actions/App/Modules/Domains/Http/Controllers/Admin/DomainActionController';
 import DomainController from '@/actions/App/Modules/Domains/Http/Controllers/Admin/DomainController';
@@ -474,6 +474,10 @@ export function LinkOrderDialog({
     onOpenChange: (open: boolean) => void;
 }) {
     const form = useForm({ order_id: '' });
+    // After a password step-up the request is repeated outside this form, so its refusal arrives as a page error.
+    const pageErrors = usePage().props.errors as
+        | Record<string, string | undefined>
+        | undefined;
 
     const submit = (event: FormEvent) => {
         event.preventDefault();
@@ -517,7 +521,7 @@ export function LinkOrderDialog({
                         htmlFor="link-order-id"
                         label="Order id"
                         hint={`Shown on the order in the ${registrarName} panel.`}
-                        error={form.errors.order_id}
+                        error={form.errors.order_id ?? pageErrors?.order_id}
                     >
                         <Input
                             id="link-order-id"
