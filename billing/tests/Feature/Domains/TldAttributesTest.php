@@ -354,6 +354,15 @@ test('an answer is masked however the registry regrouped, punctuated or re-cased
     'separators dropped and re-cased' => ['tm-abc-1234', 'TMABC1234'],
 ]);
 
+test('a registry message with invalid UTF-8 keeps its words and still masks the answer', function () {
+    $domain = Domain::query()->findOrFail(app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P1', 'id' => NEXUS_ID, 'warranty' => '1'])));
+
+    $places = errorPlaces($domain, "Registry: \xFF value ".NEXUS_ID.' refused for attribute id');
+
+    expect(leaksIn($places, [NEXUS_ID]))->toBe([])
+        ->and($places['last_error'])->toContain('refused for attribute id');
+});
+
 test('a value of fewer than four characters is not masked, so ordinary words in an error survive', function () {
     $domain = Domain::query()->findOrFail(app(DomainRegistry::class)->createPending(usDraft($this->client, ['purpose' => 'P1', 'id' => 'X7Q', 'warranty' => '1'])));
 

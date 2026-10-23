@@ -272,11 +272,14 @@ class TldAttributeService implements TldAttributes
     }
 
     /**
+     * Invalid UTF-8 from the registry is scrubbed first: a `/u` pattern fails on it and would otherwise blank the whole
+     * message. If a pattern still fails, the message is withheld rather than shown unmasked.
+     *
      * @param  list<string>  $patterns
      */
     private function maskText(array $patterns, string $text): string
     {
-        return (string) preg_replace($patterns, Redactor::MASK, $text);
+        return preg_replace($patterns, Redactor::MASK, mb_scrub($text, 'UTF-8')) ?? Redactor::MASK;
     }
 
     /**
