@@ -172,7 +172,7 @@ changes with no changelog fragment, or the kernel surface changes with no kernel
 - The assemble commit is allowed to edit the changelogs: the PR head (`HEAD^2` of the merge commit) carries the trailer
   `Changelog-Assemble: yes`, and the diff only edits the two changelogs and deletes fragments. Keep that commit as the
   PR's last one; a later commit or a merge of `develop` drops the marker.
-- PRs into `main` are not checked (a release PR carries `develop`'s assembled changelog). PRs up to #393, opened before
+- PRs into `main` are not checked (a release PR carries `develop`'s assembled changelog). PRs up to #396, opened before
   fragments, keep their direct edits with a warning (`LEGACY_MAX_PR` in the script; remove it once they have merged).
 - The local merge gate runs the same check with `develop`'s copy of both scripts.
 

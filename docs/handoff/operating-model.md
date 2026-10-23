@@ -183,7 +183,7 @@ is also the owner's own machine: the agent budget above applies, `/tmp` survives
   `billing/docs/architecture/kernel-changelog.d/<branch-slug>.md` (one `### <title> (#<pr>)` entry). Formats: the
   `README.md` in each folder. The CTO runs `scripts/changelog-assemble.sh` at a release or when the folders grow and
   commits the result with the trailer `Changelog-Assemble: yes`. CI fails any other direct edit and a malformed
-  fragment, and warns when app or kernel code changes without one. PRs up to #393 keep their direct edits.
+  fragment, and warns when app or kernel code changes without one. PRs up to #396 keep their direct edits.
 - ADR amendments are keyed by PR, not numbered (ADR 0027): a new one is headed `## Amendment (#<pr>) — <date>, <title>`
   and cited as "ADR 0009 Amendment (#368)". Existing numbered amendments keep their numbers.
 - Conventional Commits with no attribution trailer or footer (no `Co-Authored-By: Claude`; owner rule, 2026-10-22). PR bodies: summary, spec coverage,

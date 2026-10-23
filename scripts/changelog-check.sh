@@ -14,7 +14,7 @@ set -euo pipefail
 export LC_ALL=C
 
 # The highest PR number open when fragments were introduced. Remove the exception once those PRs have merged.
-LEGACY_MAX_PR=393
+LEGACY_MAX_PR=396
 
 marker_rev=""
 while [ $# -gt 0 ]; do

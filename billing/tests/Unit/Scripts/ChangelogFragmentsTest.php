@@ -334,11 +334,11 @@ describe('changelog-check.sh', function () {
         clfGit($this->repo, 'checkout', '-q', '-b', 'feature/old');
         file_put_contents("{$this->repo}/billing/changelog.md", "\n- edited\n", FILE_APPEND);
 
-        $old = clfCheck($this->repo, env: ['PR_NUMBER' => '393']);
-        $new = clfRun($this->repo, ['bash', clfScripts().'/changelog-check.sh', 'main', 'HEAD'], ['PR_NUMBER' => '394']);
+        $old = clfCheck($this->repo, env: ['PR_NUMBER' => '396']);
+        $new = clfRun($this->repo, ['bash', clfScripts().'/changelog-check.sh', 'main', 'HEAD'], ['PR_NUMBER' => '398']);
 
         expect($old->getExitCode())->toBe(0)
-            ->and($old->getOutput())->toContain('warning: billing/changelog.md: PR #393 predates changelog fragments')
+            ->and($old->getOutput())->toContain('warning: billing/changelog.md: PR #396 predates changelog fragments')
             ->and($new->getExitCode())->toBe(1);
     });
 
