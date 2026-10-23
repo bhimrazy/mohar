@@ -1,4 +1,4 @@
-import { Link, router, usePage } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
 import type { FormEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import ConfirmablePasswordController from '@/actions/Laravel/Fortify/Http/Controllers/ConfirmablePasswordController';
@@ -15,7 +15,10 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
-import { edit as securityEdit } from '@/routes/security';
+import {
+    SetPasswordButton,
+    xsrfToken,
+} from '@/components/app/set-password-button';
 import { STEP_UP_DOWNLOAD_EVENT } from '@/components/app/step-up-download-link';
 import type { HttpMethod } from '@/types/app';
 
@@ -28,12 +31,6 @@ type PendingVisit = {
     /** The login has no password: offer "Set a password" instead of the password field. */
     noPassword?: boolean;
 };
-
-function xsrfToken(): string {
-    const match = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
-
-    return match ? decodeURIComponent(match[1]) : '';
-}
 
 /**
  * Step-up authentication for sensitive actions. When the server answers a visit with a
@@ -177,9 +174,8 @@ export function PasswordConfirmationGate() {
                             </DialogTitle>
                             <DialogDescription>
                                 This is a sensitive action and your account has
-                                no password yet, so it can't be confirmed. Set a
-                                password in your security settings, then try
-                                again.
+                                no password yet, so it can't be confirmed. We
+                                can email you a link to set one; then try again.
                             </DialogDescription>
                         </DialogHeader>
                         <DialogFooter>
@@ -190,15 +186,7 @@ export function PasswordConfirmationGate() {
                             >
                                 Cancel
                             </Button>
-                            <Button asChild>
-                                <Link
-                                    href={securityEdit().url}
-                                    onClick={() => setPending(null)}
-                                    data-test="step-up-set-password"
-                                >
-                                    Set a password
-                                </Link>
-                            </Button>
+                            <SetPasswordButton />
                         </DialogFooter>
                     </div>
                 ) : (

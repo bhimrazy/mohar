@@ -69,6 +69,13 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     protected static function booted(): void
     {
         static::saving(function (self $user): void {
+            // ADR 0018 §5: staff step-up must always be possible. Only a save that creates the login or changes
+            // is_staff or the password is checked, so an unrelated save (sign-out cycles the remember token) of a
+            // row that is already in this state still works.
+            if ($user->is_staff && ! $user->hasPassword() && (! $user->exists || $user->isDirty(['is_staff', 'password']))) {
+                throw new \DomainException('A staff login must have a password.');
+            }
+
             if ($user->isDirty('password')) {
                 $user->password_changed_at = now();
                 $user->must_change_password = false;

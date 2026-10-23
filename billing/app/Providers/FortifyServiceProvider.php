@@ -115,6 +115,12 @@ class FortifyServiceProvider extends ServiceProvider
             Limit::perHour(5)->by('email|'.$this->throttleEmail($request)),
         ]);
 
+        // POST settings/password/set-link: per login and per IP (the request has no email input to key on).
+        RateLimiter::for('password-set-link', fn (Request $request): array => [
+            Limit::perMinute(5)->by('set-link-ip|'.$request->ip()),
+            Limit::perHour(5)->by('set-link-user|'.$request->user()?->getAuthIdentifier()),
+        ]);
+
         // POST /register: per IP and per address. The limiter runs before validation, so a known and an unknown
         // address get the same answer (security review 2026-10-19, M2).
         RateLimiter::for('register', fn (Request $request): array => [
