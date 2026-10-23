@@ -40,4 +40,28 @@ final readonly class RegistrarResult
     {
         return new self($this->status, $this->expiryDate, $message, $this->meta, $this->remote);
     }
+
+    /**
+     * A copy with every text of the result passed through $mask: the message, and every string value of `meta` and
+     * `remote` (arrays are walked; numbers, booleans and keys are kept). A branch nested deeper than $maxDepth is
+     * replaced whole by $withheld, so nothing deep is shown unchecked.
+     *
+     * @param  \Closure(string): string  $mask
+     */
+    public function mapText(\Closure $mask, string $withheld, int $maxDepth = 8): static
+    {
+        $walk = function (array $values, int $depth) use (&$walk, $mask, $withheld, $maxDepth): array {
+            foreach ($values as $key => $value) {
+                $values[$key] = match (true) {
+                    is_string($value) => $mask($value),
+                    is_array($value) => $depth >= $maxDepth ? $withheld : $walk($value, $depth + 1),
+                    default => $value,
+                };
+            }
+
+            return $values;
+        };
+
+        return new self($this->status, $this->expiryDate, $this->message === null ? null : $mask($this->message), $walk($this->meta, 1), $walk($this->remote, 1));
+    }
 }
