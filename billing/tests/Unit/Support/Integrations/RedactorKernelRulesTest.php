@@ -138,3 +138,56 @@ test('a gateway config lists only its secret-typed settings', function () {
 
     expect($config->secrets())->toBe(['8gBm/:&EnhH.1/q']);
 });
+
+test('#399: a header value the set already masked is masked once, with no stray bracket', function (string $header, array $secrets) {
+    expect((new Redactor)->maskValues($header."\r\nHost: a.test", $secrets))->toBe(explode(':', $header)[0].": [redacted]\r\nHost: a.test")
+        ->and((new Redactor)->maskValues('sent '.$header.', retrying', $secrets))->toBe('sent '.explode(':', $header)[0].': [redacted], retrying');
+})->with([
+    'basic, password in the set' => ['Authorization: Basic '.base64_encode('reseller:hunter22x'), ['hunter22x']],
+    'basic, the whole pair in the set' => ['Authorization: Basic '.base64_encode('reseller:hunter22x'), ['reseller:hunter22x']],
+    'bearer token in the set' => ['Authorization: Bearer tok3nValue99', ['tok3nValue99']],
+    'api key header' => ['X-Api-Key: k3yValue77', ['k3yValue77']],
+]);
+
+test('#399: a pair value the set masked in part is masked once, and a bracket of the text after it is kept', function () {
+    $basic = base64_encode('reseller:hunter22x');
+
+    expect((new Redactor)->maskValues("auth={$basic}&id=5", ['hunter22x']))->toBe('auth=[redacted]&id=5')
+        ->and((new Redactor)->maskValues("[token={$basic}] y", ['hunter22x']))->toBe('[token=[redacted]] y');
+});
+
+/** A JsonSerializable that fans out into two new copies of itself, counting how many were read. */
+function redactorFanOut(int &$reads, int $stopAfter): JsonSerializable
+{
+    return new class($reads, $stopAfter) implements JsonSerializable
+    {
+        public function __construct(private int &$reads, private int $stopAfter) {}
+
+        public function jsonSerialize(): mixed
+        {
+            return ++$this->reads >= $this->stopAfter ? 'leaf' : [new self($this->reads, $this->stopAfter), new self($this->reads, $this->stopAfter)];
+        }
+    };
+}
+
+test('#399: an object that fans out is read only up to the node budget, and the rest of it is masked', function (string $method) {
+    $reads = 0;
+    // The object stops fanning out on its own after 200,000 reads, so a missing budget fails here instead of exhausting memory.
+    $redacted = (new Redactor)->{$method}(['answer' => redactorFanOut($reads, 200_000), 'id' => 7]);
+
+    expect($reads)->toBeLessThan(100_000)
+        ->and($redacted['id'])->toBe(7)
+        ->and(json_encode($redacted))->toContain('[redacted]')->not->toContain('leaf');
+})->with(['redact', 'redactPayment']);
+
+test('#399: the node budget starts over on every call', function () {
+    $redactor = new Redactor;
+    $reads = 0;
+    memory_reset_peak_usage();
+    $before = memory_get_usage();
+    $redactor->redact(['answer' => redactorFanOut($reads, PHP_INT_MAX)]);
+
+    expect(memory_get_peak_usage() - $before)->toBeLessThan(32 * 1024 * 1024)
+        ->and($redactor->redact(['id' => 7, 'note' => 'ok']))->toBe(['id' => 7, 'note' => 'ok'])
+        ->and($redactor->redactPayment(['id' => 'pi_1']))->toBe(['id' => 'pi_1']);
+});

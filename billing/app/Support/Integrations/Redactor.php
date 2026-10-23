@@ -42,6 +42,13 @@ final class Redactor
     /** Nested values deeper than this are masked rather than walked (self-referencing object graphs). */
     private const MAX_DEPTH = 32;
 
+    /**
+     * Values one call reads through objects (each object, and every entry under one); past it they are masked. An
+     * object that fans out into new copies of itself stays under the depth cap and would otherwise grow without bound
+     * (#399). Plain arrays and decoded JSON text are bounded by the input, so they are not counted.
+     */
+    private const MAX_NODES = 50_000;
+
     /** Exceptions behind the first one whose messages maskThrowable() masks; those further down are withheld. */
     private const MAX_PREVIOUS = 16;
 
@@ -153,6 +160,11 @@ final class Redactor
     /** @var array<string, bool> */
     private array $keyCache = [];
 
+    private int $nodesLeft = 0;
+
+    /** Public calls in progress, so a call made from inside an unwrap shares the outer call's budget. */
+    private int $calls = 0;
+
     /**
      * A sensitive key hides its whole value, nested arrays included. Null and empty values are kept, so the log
      * still shows that nothing was sent. Objects are read as arrays first (Arrayable, JsonSerializable, otherwise
@@ -166,7 +178,7 @@ final class Redactor
      */
     public function redact(array $payload, RedactionSet|array $secrets = [], array $sensitiveKeys = []): array
     {
-        return $this->redactWith($payload, self::set($secrets), array_map('strtolower', $sensitiveKeys), 0);
+        return $this->budgeted(fn (): array => $this->redactWith($payload, self::set($secrets), array_map('strtolower', $sensitiveKeys), 0));
     }
 
     /**
@@ -178,13 +190,30 @@ final class Redactor
      */
     public function redactPayment(array $payload, int $depth = 0): array
     {
+        return $this->budgeted(fn (): array => $this->redactPaymentWith($payload, $depth));
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $payload
+     * @return array<array-key, mixed>
+     */
+    private function redactPaymentWith(array $payload, int $depth, bool $counted = false): array
+    {
         foreach ($payload as $key => $value) {
+            $fromObject = $counted || is_object($value);
+
+            if ($fromObject && ! $this->takeNode()) {
+                $payload[$key] = self::MASK;
+
+                continue;
+            }
+
             $value = $this->unwrap($value, $depth);
 
             if ($depth >= self::MAX_DEPTH && (is_array($value) || is_object($value))) {
                 $payload[$key] = self::MASK;
             } elseif (is_array($value)) {
-                $payload[$key] = $this->redactPayment($value, $depth + 1);
+                $payload[$key] = $this->redactPaymentWith($value, $depth + 1, $fromObject);
             } elseif (is_string($key) && ! in_array($key, self::PAYMENT_REFERENCES, true) && preg_match(self::PAYMENT_KEYS, $key) === 1) {
                 $payload[$key] = self::MASK;
             } else {
@@ -200,7 +229,7 @@ final class Redactor
      */
     public function maskValues(string $value, RedactionSet|array $secrets): string
     {
-        return $this->maskString($value, self::set($secrets), [], 0);
+        return $this->budgeted(fn (): string => $this->maskString($value, self::set($secrets), [], 0));
     }
 
     /**
@@ -226,7 +255,7 @@ final class Redactor
         for ($link = $exception, $hops = 0; $link !== null && ! $seen->contains($link); $link = $link->getPrevious(), $hops++) {
             $seen->attach($link);
             $message = $link->getMessage();
-            $masked = $hops <= self::MAX_PREVIOUS ? $this->maskString($message, $set, [], 0) : self::MASK;
+            $masked = $hops <= self::MAX_PREVIOUS ? $this->budgeted(fn (): string => $this->maskString($message, $set, [], 0)) : self::MASK;
 
             if ($masked !== $message) {
                 (new ReflectionProperty($link instanceof Exception ? Exception::class : Error::class, 'message'))->setValue($link, $masked);
@@ -318,16 +347,19 @@ final class Redactor
      * @param  list<string>  $sensitiveKeys
      * @return array<array-key, mixed>
      */
-    private function redactWith(array $payload, RedactionSet $set, array $sensitiveKeys, int $depth): array
+    private function redactWith(array $payload, RedactionSet $set, array $sensitiveKeys, int $depth, bool $counted = false): array
     {
         $redacted = [];
 
         foreach ($payload as $key => $value) {
-            $value = $this->unwrap($value, $depth);
+            $fromObject = $counted || is_object($value);
+            $spent = $fromObject && ! $this->takeNode();
+            $value = $spent ? self::MASK : $this->unwrap($value, $depth);
 
             $masked = match (true) {
+                $spent => self::MASK,
                 $value !== null && $value !== '' && $value !== [] && $this->isSensitiveKey($key, $sensitiveKeys) => self::MASK,
-                is_array($value) => $depth >= self::MAX_DEPTH ? self::MASK : $this->redactWith($value, $set, $sensitiveKeys, $depth + 1),
+                is_array($value) => $depth >= self::MAX_DEPTH ? self::MASK : $this->redactWith($value, $set, $sensitiveKeys, $depth + 1, $fromObject),
                 is_string($value) => $this->maskString($value, $set, $sensitiveKeys, $depth),
                 is_int($value), is_float($value) => $set->matches((string) $value) ? self::MASK : $value,
                 default => $value,
@@ -371,6 +403,33 @@ final class Redactor
         }
 
         return $value;
+    }
+
+    /**
+     * Runs one public call under the node budget, which only the outermost call sets.
+     *
+     * @template T
+     *
+     * @param  \Closure(): T  $call
+     * @return T
+     */
+    private function budgeted(\Closure $call): mixed
+    {
+        if ($this->calls++ === 0) {
+            $this->nodesLeft = self::MAX_NODES;
+        }
+
+        try {
+            return $call();
+        } finally {
+            $this->calls--;
+        }
+    }
+
+    /** Counts one value against the budget; false once it is spent. */
+    private function takeNode(): bool
+    {
+        return $this->nodesLeft-- > 0;
     }
 
     /**
@@ -863,8 +922,12 @@ final class Redactor
 
             $next = $value[$index + 1] ?? '';
 
+            // The `]` of a mask the set already put in the value is part of the value, so it is masked once (#399).
             if ($next === '' || str_contains($stops, $next)) {
-                return $index;
+                if ($value[$index] !== ']' || $index - $start < strlen(self::MASK) - 1
+                    || substr_compare($value, self::MASK, $index - strlen(self::MASK) + 1, strlen(self::MASK)) !== 0) {
+                    return $index;
+                }
             }
         }
     }
