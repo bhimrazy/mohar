@@ -120,24 +120,24 @@ class FiscalSnapshotWriter
     }
 
     /**
-     * @param  Collection<int, object>  $rows
+     * @param  Collection<int, \stdClass>  $rows
      * @return list<array{id: int, description: string, amount: int, tax_amount: int, cancelled: bool}>
      */
     public function itemRows(Collection $rows): array
     {
-        return array_values($rows->map(fn (object $row): array => [
+        return array_values($rows->map(fn (\stdClass $row): array => [
             'id' => (int) $row->id, 'description' => (string) $row->description, 'amount' => (int) $row->amount,
             'tax_amount' => (int) $row->tax_amount, 'cancelled' => $row->cancelled_at !== null,
         ])->all());
     }
 
     /**
-     * @param  Collection<int, object>  $rows
+     * @param  Collection<int, \stdClass>  $rows
      * @return list<array{id: int, kind: string, reason: string, amount: int, taxable_amount: int, tax_amount: int, description: string|null}>
      */
     public function adjustmentRows(Collection $rows): array
     {
-        return array_values($rows->map(fn (object $row): array => [
+        return array_values($rows->map(fn (\stdClass $row): array => [
             'id' => (int) $row->id, 'kind' => (string) $row->kind, 'reason' => (string) $row->reason, 'amount' => (int) $row->amount,
             'taxable_amount' => (int) $row->taxable_amount, 'tax_amount' => (int) $row->tax_amount,
             'description' => $row->description !== null ? (string) $row->description : null,

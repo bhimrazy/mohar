@@ -5,6 +5,7 @@ namespace App\Modules\Billing\Models;
 use App\Modules\Billing\Enums\ReservationStatus;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -24,7 +25,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int|null $tax_note_id set when finalised
  * @property CarbonImmutable|null $created_at
  * @property-read Invoice $invoice
- * @property-read \Illuminate\Database\Eloquent\Collection<int, TaxNoteReservationLine> $lines
+ * @property-read Collection<int, TaxNoteReservationLine> $lines
  */
 #[Fillable(['invoice_id', 'transaction_id', 'reason_code', 'reason_text', 'digest', 'created_by', 'status', 'tax_note_id'])]
 class TaxNoteReservation extends Model

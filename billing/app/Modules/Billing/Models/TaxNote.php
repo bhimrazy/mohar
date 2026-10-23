@@ -8,6 +8,7 @@ use App\Modules\Billing\Exceptions\ImmutableInvoiceException;
 use App\Modules\Core\Models\Client;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -52,13 +53,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property-read Invoice $invoice
  * @property-read Client $client
  * @property-read User|null $creator
- * @property-read \Illuminate\Database\Eloquent\Collection<int, TaxNoteLine> $lines
+ * @property-read Collection<int, TaxNoteLine> $lines
  */
 #[Fillable([
     'kind', 'number', 'invoice_id', 'client_id', 'currency', 'issue_date', 'issued_at', 'invoice_number',
     'invoice_bs_issue_date', 'reason_code', 'reason_text', 'taxable_amount', 'exempt_amount', 'tax1_amount',
     'tax2_amount', 'total', 'report_currency', 'report_rate', 'supply_class', 'seller_snapshot', 'buyer_snapshot',
-    'bs_issue_date', 'bs_period', 'bs_fiscal_year', 'automatic', 'created_by',
+    'bs_issue_date', 'bs_period', 'bs_fiscal_year', 'automatic', 'created_by', 'print_count', 'cbms_status', 'cbms_reference',
 ])]
 class TaxNote extends Model
 {

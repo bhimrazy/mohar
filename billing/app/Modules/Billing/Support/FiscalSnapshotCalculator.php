@@ -99,7 +99,7 @@ final class FiscalSnapshotCalculator
      * @param  array{total: int, subtotal: int, tax1_amount: int, tax2_amount: int, tax_inclusive: bool}  $invoice
      * @param  list<array{id: int, description: string, amount: int, tax_amount: int, cancelled: bool}>  $items
      * @param  list<int>  $used  line ids already matched by an earlier cancellation
-     * @return array{parts: list<int>|null, review: array{reason: string, subject: string, detail: string}|null}
+     * @return array{parts: array{int, int, int, int}|null, review: array{reason: string, subject: string, detail: string}|null}
      */
     private function classify(array $row, array $invoice, array $items, bool $taxedLines, bool $hasTax, array &$used): array
     {
@@ -110,7 +110,7 @@ final class FiscalSnapshotCalculator
         }
 
         if ($row['reason'] !== 'item_cancellation') {
-            $review = $hasTax ? ['reason' => InvoiceFiscalReview::LINE_LESS_ROW, 'subject' => $subject, 'detail' => "A {$row['reason']} row stores no line and no tax split; its tax is prorated over the invoice."] : null;
+            $review = $hasTax ? ['reason' => InvoiceFiscalReview::LINE_LESS_ROW, 'subject' => $subject, 'detail' => "A {$row['reason']} row stores no line and no tax split, so it counts against the invoice cap only (before numbering, its value is prorated over the snapshot)."] : null;
 
             return ['parts' => $hasTax ? null : [0, $row['amount'], 0, 0], 'review' => $review];
         }
@@ -176,7 +176,7 @@ final class FiscalSnapshotCalculator
      *
      * @param  array{amount: int}  $row
      * @param  array{tax1_amount: int, tax2_amount: int}  $invoice
-     * @return list<int>
+     * @return array{int, int, int, int}
      */
     private function parts(array $row, int $taxable, int $tax, array $invoice): array
     {
@@ -190,21 +190,31 @@ final class FiscalSnapshotCalculator
      * An amount spread over [taxable, exempt, tax1, tax2] in proportion to the current snapshot; the rounding remainder
      * goes to the largest part. With nothing to go by the amount is exempt.
      *
-     * @param  list<int>  $parts
-     * @return list<int>
+     * @param  array{int, int, int, int}  $parts
+     * @return array{int, int, int, int}
      */
     private function prorate(int $amount, array $parts): array
     {
-        $weights = array_map(fn (int $part): int => max(0, $part), $parts);
-        $sum = array_sum($weights);
+        $weights = [max(0, $parts[0]), max(0, $parts[1]), max(0, $parts[2]), max(0, $parts[3])];
+        $sum = $weights[0] + $weights[1] + $weights[2] + $weights[3];
 
         if ($sum === 0) {
             return [0, $amount, 0, 0];
         }
 
-        $shares = array_map(fn (int $weight): int => TaxMath::roundDiv($amount * $weight, $sum), $weights);
-        $largest = array_search(max($weights), $weights, true);
-        $shares[$largest] += $amount - array_sum($shares);
+        $shares = [
+            TaxMath::roundDiv($amount * $weights[0], $sum), TaxMath::roundDiv($amount * $weights[1], $sum),
+            TaxMath::roundDiv($amount * $weights[2], $sum), TaxMath::roundDiv($amount * $weights[3], $sum),
+        ];
+        $largest = 0;
+
+        foreach ([1, 2, 3] as $i) {
+            if ($weights[$i] > $weights[$largest]) {
+                $largest = $i;
+            }
+        }
+
+        $shares[$largest] += $amount - ($shares[0] + $shares[1] + $shares[2] + $shares[3]);
 
         return $shares;
     }

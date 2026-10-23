@@ -1,6 +1,7 @@
 <?php
 
 use App\Modules\Core\Support\LockTimeout;
+use Closure;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -130,9 +131,9 @@ return new class extends Migration
     }
 
     /**
-     * @param  callable(Blueprint): void  $columns
+     * @param  Closure(Blueprint): void  $columns
      */
-    private function create(string $locks, string $table, callable $columns): void
+    private function create(string $locks, string $table, Closure $columns): void
     {
         LockTimeout::run($locks, function () use ($table, $columns): void {
             if (! Schema::hasTable($table)) {

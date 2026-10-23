@@ -6,8 +6,8 @@ use App\Modules\Billing\Models\InvoiceFiscalReview;
 use App\Modules\Billing\Support\FiscalSnapshotCalculator;
 use Carbon\CarbonImmutable;
 use Closure;
-use Illuminate\Support\Collection;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -68,7 +68,7 @@ class FiscalBackfill
      */
     private function pending(int $after, int $limit): array
     {
-        return $this->query()->where('id', '>', $after)->orderBy('id')->limit($limit)->pluck('id')->map(fn (mixed $id): int => (int) $id)->all();
+        return array_values($this->query()->where('id', '>', $after)->orderBy('id')->limit($limit)->pluck('id')->map(fn (mixed $id): int => (int) $id)->all());
     }
 
     private function query(): Builder
@@ -92,10 +92,9 @@ class FiscalBackfill
         foreach ($invoices as $invoice) {
             $rows = $adjustments->get($invoice->id, collect());
             [$numberedAt, $review] = $this->numberedAt($invoice, $rows, $transactions->get($invoice->id, collect()));
-            $values = $rows->filter(fn (object $row): bool => in_array($row->reason, FiscalSnapshotCalculator::VALUE_REASONS, true));
-            [$folded, $later] = $invoice->proforma_number === null
-                ? [collect(), $values]
-                : $values->partition(fn (object $row): bool => $this->at($row->created_at)->lte($numberedAt));
+            $values = $rows->filter(fn (\stdClass $row): bool => in_array($row->reason, FiscalSnapshotCalculator::VALUE_REASONS, true));
+            $folded = $invoice->proforma_number === null ? collect() : $values->filter(fn (\stdClass $row): bool => $this->at($row->created_at)->lte($numberedAt));
+            $later = $values->diffKeys($folded);
 
             $snapshot = $this->calculator->compute(
                 ['total' => (int) $invoice->total, 'subtotal' => (int) $invoice->subtotal, 'tax1_amount' => (int) $invoice->tax1_amount, 'tax2_amount' => (int) $invoice->tax2_amount, 'tax_inclusive' => (bool) $invoice->tax_inclusive],
@@ -125,26 +124,26 @@ class FiscalBackfill
     }
 
     /**
-     * @param  Collection<int, object>  $adjustments
-     * @param  Collection<int, object>  $transactions
+     * @param  Collection<int, \stdClass>  $adjustments
+     * @param  Collection<int, \stdClass>  $transactions
      * @return array{0: CarbonImmutable, 1: array{reason: string, subject: string, detail: string}|null}
      */
-    private function numberedAt(object $invoice, Collection $adjustments, Collection $transactions): array
+    private function numberedAt(\stdClass $invoice, Collection $adjustments, Collection $transactions): array
     {
         if ($invoice->proforma_number === null) {
             return [$this->at($invoice->created_at), null];
         }
 
-        $payments = $transactions->filter(fn (object $row): bool => in_array($row->type, self::PAYMENT_TYPES, true) && $row->status === 'succeeded' && (int) $row->amount_in > 0)->values();
-        $disturbed = $adjustments->contains(fn (object $row): bool => in_array($row->reason, ['credit_applied', 'credit_removed', 'chargeback'], true))
-            || $transactions->contains(fn (object $row): bool => in_array($row->type, ['chargeback', 'chargeback_reversal'], true));
+        $payments = $transactions->filter(fn (\stdClass $row): bool => in_array($row->type, self::PAYMENT_TYPES, true) && $row->status === 'succeeded' && (int) $row->amount_in > 0)->values();
+        $disturbed = $adjustments->contains(fn (\stdClass $row): bool => in_array($row->reason, ['credit_applied', 'credit_removed', 'chargeback'], true))
+            || $transactions->contains(fn (\stdClass $row): bool => in_array($row->type, ['chargeback', 'chargeback_reversal'], true));
 
         if ($payments->count() === 1 && ! $disturbed && $payments->first()->created_at !== null) {
             $payment = $payments->first();
             $paidAt = $this->at($payment->created_at);
             $value = (int) $invoice->total + $adjustments
-                ->filter(fn (object $row): bool => in_array($row->reason, FiscalSnapshotCalculator::VALUE_REASONS, true) && $this->at($row->created_at)->lte($paidAt))
-                ->sum(fn (object $row): int => ($row->kind === 'debit' ? 1 : -1) * (int) $row->amount);
+                ->filter(fn (\stdClass $row): bool => in_array($row->reason, FiscalSnapshotCalculator::VALUE_REASONS, true) && $this->at($row->created_at)->lte($paidAt))
+                ->sum(fn (\stdClass $row): int => ($row->kind === 'debit' ? 1 : -1) * (int) $row->amount);
 
             if ($value - (int) $payment->amount_in <= 0) {
                 return [$paidAt, null];
