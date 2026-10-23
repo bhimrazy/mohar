@@ -1,5 +1,6 @@
 import { useForm } from '@inertiajs/react';
 import type { FormEvent } from 'react';
+import { CountrySelect } from '@/components/app/country-select';
 import { Field } from '@/components/app/field';
 import { SectionCard } from '@/components/app/section-card';
 import { Button } from '@/components/ui/button';
@@ -27,7 +28,7 @@ const FIELDS: {
     { key: 'city', label: 'City', optional: true },
     { key: 'state', label: 'State / region', optional: true },
     { key: 'postcode', label: 'Postcode', optional: true },
-    { key: 'country', label: 'Country code', optional: true },
+    { key: 'country', label: 'Country', optional: true },
 ];
 
 type ContactsFormProps = {
@@ -122,32 +123,47 @@ export function ContactsForm({
                                                     : undefined
                                             }
                                         >
-                                            <Input
-                                                id={id}
-                                                value={
-                                                    form.data.contacts[role][
-                                                        field.key
-                                                    ] ?? ''
-                                                }
-                                                disabled={disabled}
-                                                autoComplete={
-                                                    field.autoComplete
-                                                }
-                                                maxLength={
-                                                    field.key === 'country'
-                                                        ? 2
-                                                        : 255
-                                                }
-                                                onChange={(event) =>
-                                                    setField(
-                                                        role,
-                                                        field.key,
-                                                        event.target.value,
-                                                    )
-                                                }
-                                                aria-invalid={!!error}
-                                                aria-describedby={`${id}-description`}
-                                            />
+                                            {field.key === 'country' ? (
+                                                <CountrySelect
+                                                    id={id}
+                                                    value={
+                                                        form.data.contacts[role]
+                                                            .country ?? ''
+                                                    }
+                                                    disabled={disabled}
+                                                    invalid={!!error}
+                                                    onValueChange={(value) =>
+                                                        setField(
+                                                            role,
+                                                            'country',
+                                                            value,
+                                                        )
+                                                    }
+                                                />
+                                            ) : (
+                                                <Input
+                                                    id={id}
+                                                    value={
+                                                        form.data.contacts[
+                                                            role
+                                                        ][field.key] ?? ''
+                                                    }
+                                                    disabled={disabled}
+                                                    autoComplete={
+                                                        field.autoComplete
+                                                    }
+                                                    maxLength={255}
+                                                    onChange={(event) =>
+                                                        setField(
+                                                            role,
+                                                            field.key,
+                                                            event.target.value,
+                                                        )
+                                                    }
+                                                    aria-invalid={!!error}
+                                                    aria-describedby={`${id}-description`}
+                                                />
+                                            )}
                                         </Field>
                                     );
                                 })}

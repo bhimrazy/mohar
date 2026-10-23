@@ -6,6 +6,7 @@ import { FormActions } from '@/components/app/form-actions';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
+import { CountrySelect } from '@/components/app/country-select';
 import { SelectField } from '@/components/app/select-field';
 import { statusLabel } from '@/components/app/status-badge';
 import { SwitchField } from '@/components/app/switch-field';
@@ -185,14 +186,22 @@ export default function ClientForm({
                                         client={client}
                                         optional
                                     />
-                                    <TextField
-                                        name="country"
-                                        label="Country code"
-                                        errors={errors}
-                                        client={client}
+                                    <Field
+                                        htmlFor="country"
+                                        label="Country"
+                                        error={errors.country}
                                         optional
-                                        fallback={defaultCountry}
-                                    />
+                                    >
+                                        <CountrySelect
+                                            id="country"
+                                            name="country"
+                                            defaultValue={
+                                                client?.country ??
+                                                defaultCountry
+                                            }
+                                            invalid={Boolean(errors.country)}
+                                        />
+                                    </Field>
                                 </div>
                             </SectionCard>
 

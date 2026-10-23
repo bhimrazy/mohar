@@ -7,8 +7,10 @@ use App\Contracts\Currencies\CurrencyDirectory;
 use App\Data\Currencies\CurrencyDisplay;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\DateFormats;
+use App\Support\Countries;
 use App\Support\Navigation\Navigation;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -58,6 +60,7 @@ class HandleInertiaRequests extends Middleware
                 : [],
             'currentClientId' => fn (): ?int => $request->session()->get(ClientContext::SESSION_KEY),
             'dateFormat' => fn (): string => DateFormats::current(),
+            'countries' => Inertia::once(fn (): array => Countries::CODES),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }
