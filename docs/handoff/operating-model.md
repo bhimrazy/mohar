@@ -167,6 +167,8 @@ is also the owner's own machine: the agent budget above applies, `/tmp` survives
 - Never stop, kill or remove a Docker container you didn't start (`docker kill`, `stop`, `rm`, `compose down`):
   the shared test database `mohar-pg` and Mailpit serve every agent. Restarting
   `mohar-pg` is the CTO's call.
+- `.claude/settings.json` denies these Docker commands, `git stash` (all forms, including `push -m`), `npx -y`
+  and Chrome, so an agent cannot run them by mistake.
 - Dev servers: each agent gets its own port range (8100–8299); port 8000 is the owner's preview and is never touched
   by agents. Stop servers by port PID; never `pkill -f`. Chain `cd` with `&&`; never run commands in the main
   checkout from an agent.
