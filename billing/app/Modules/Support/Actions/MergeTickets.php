@@ -2,6 +2,7 @@
 
 namespace App\Modules\Support\Actions;
 
+use App\Events\Support\TicketAccessLinkReplaced;
 use App\Events\Support\TicketMerged;
 use App\Models\User;
 use App\Modules\Support\Data\TicketAuthor;
@@ -23,7 +24,10 @@ use Illuminate\Validation\ValidationException;
  *
  * Tickets of different requesters (client accounts, or different guest emails) merge only with the
  * cross-client permission, and their requesters are then NOT added to the target: access to the
- * merged ticket is never granted through a source ticket's link or email address.
+ * merged ticket is never granted through a source ticket's link or email address. The target's own access key
+ * is replaced in that case too: whoever opened the target under another person's address (guest tickets carry no
+ * proof of the address) must not keep a link to the thread the merge just filled with other people's messages. The
+ * new link is emailed to the target's requester address.
  */
 class MergeTickets
 {
@@ -38,7 +42,9 @@ class MergeTickets
     {
         $actor = TicketAuthor::staff($staff);
 
-        $target = DB::transaction(function () use ($ticketIds, $actor, $allowCrossClient): Ticket {
+        $rotated = false;
+
+        $target = DB::transaction(function () use ($ticketIds, $actor, $allowCrossClient, &$rotated): Ticket {
             $tickets = Ticket::query()->whereIn('id', $ticketIds)->whereNull('merged_into_id')
                 ->orderBy('created_at')->orderBy('id')->lockForUpdate()->get();
 
@@ -46,7 +52,9 @@ class MergeTickets
                 throw ValidationException::withMessages(['tickets' => __('Select at least two tickets to merge.')]);
             }
 
-            if (! $allowCrossClient && $tickets->map(fn (Ticket $ticket): string => $ticket->requesterIdentity())->unique()->count() > 1) {
+            $mixedRequesters = $tickets->map(fn (Ticket $ticket): string => $ticket->requesterIdentity())->unique()->count() > 1;
+
+            if (! $allowCrossClient && $mixedRequesters) {
                 throw ValidationException::withMessages(['tickets' => __('Only tickets of the same client can be merged.')]);
             }
 
@@ -68,7 +76,13 @@ class MergeTickets
             $target->last_client_reply_at = $tickets->max('last_client_reply_at');
             $target->last_staff_reply_at = $tickets->max('last_staff_reply_at');
             $target->first_staff_reply_at = $tickets->min('first_staff_reply_at');
+            $target->first_unanswered_at = $target->oldestUnansweredReplyAt();
             $target->cc = $this->mergedCc($target, $tickets);
+
+            if ($mixedRequesters) {
+                $target->access_key = Str::random(32);
+                $rotated = true;
+            }
 
             if (! $target->isDirty(Ticket::VERSIONED)) {
                 $target->version = $target->version + 1;
@@ -99,6 +113,10 @@ class MergeTickets
         });
 
         TicketMerged::dispatch($target->id, array_values(array_map('intval', array_diff($ticketIds, [$target->id]))));
+
+        if ($rotated && $target->isGuest()) {
+            TicketAccessLinkReplaced::dispatch($target->id, $target->client_id);
+        }
 
         return $target;
     }

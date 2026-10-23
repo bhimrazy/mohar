@@ -61,6 +61,8 @@ class EditMessage
             ]);
             $message->attachments()->delete();
             $message->delete();
+            $ticket->first_unanswered_at = $ticket->oldestUnansweredReplyAt();
+            $ticket->saveQuietly();
         });
 
         foreach ($files as $file) {

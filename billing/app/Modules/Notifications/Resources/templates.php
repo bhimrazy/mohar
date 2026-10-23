@@ -610,6 +610,13 @@ MD, 'View your ticket'),
 
 We closed this ticket because we haven't heard back for a while. Reply to this email if you still need help and it will reopen.
 MD.$signOff, 'View your ticket'),
+    $ticket('ticket.link_replaced', 'Ticket link replaced', $supportSubject, <<<'MD'
+# Your ticket link has changed
+
+Tickets from other senders were merged into ticket #{{ ticket.number }}, so we replaced its private link. The link in your earlier emails no longer opens it. Use the button below from now on, and keep it to yourself.
+
+If you did not expect this, reply to this email and tell us.
+MD.$signOff, 'View your ticket'),
     $client('ticket.closed_bounce', 'support', 'Reply to a closed ticket', 'Your email was not added to a ticket', <<<'MD'
 # Your email wasn't added
 
@@ -896,6 +903,7 @@ $preheaders = [
     'ticket.opened_by_staff' => '{{ ticket.department }} opened this ticket for you.',
     'ticket.reply' => '{{ reply.author_name }} from {{ ticket.department }} replied: {{ reply.excerpt }}',
     'ticket.auto_closed' => 'We closed this ticket because we haven\'t heard back. Reply to reopen it.',
+    'ticket.link_replaced' => 'Your private ticket link has changed. Use the new one from now on.',
     'ticket.closed_bounce' => 'That ticket is closed. Open a new ticket and we\'ll pick it up from there.',
     'ticket.unregistered_bounce' => 'This address only takes email from customers with an account.',
     'ticket.replies_only_bounce' => 'This address only accepts replies to existing tickets.',
@@ -957,6 +965,7 @@ $descriptions = [
     'ticket.opened_by_staff' => 'Tells the client that staff opened a ticket for them.',
     'ticket.reply' => 'Sends a staff reply to the client.',
     'ticket.auto_closed' => 'Tells the client a ticket was closed because they did not reply.',
+    'ticket.link_replaced' => 'Sends a guest the new private link of their ticket after tickets of other senders were merged into it.',
     'ticket.closed_bounce' => 'Reply to someone who emailed a ticket that is already closed.',
     'ticket.unregistered_bounce' => 'Reply to an email from an address that has no client account.',
     'ticket.replies_only_bounce' => 'Reply to an email sent to a department that only accepts replies.',

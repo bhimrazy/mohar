@@ -20,6 +20,7 @@ use App\Contracts\Services\CatalogUsage;
 use App\Contracts\Services\ClientServiceDirectory;
 use App\Contracts\Services\ProvisioningDrivers;
 use App\Contracts\Support\PublicHelpDirectory;
+use App\Contracts\Support\TicketStaffDirectory;
 use App\Events\Core\ClientRegistered;
 use App\Events\Core\ClientUpdated;
 use App\Models\User;
@@ -57,6 +58,7 @@ use App\Modules\Core\Support\NullRegistrarRefs;
 use App\Modules\Core\Support\NullShopperSession;
 use App\Modules\Core\Support\NullSystemMailer;
 use App\Modules\Core\Support\NullTaxIdRules;
+use App\Modules\Core\Support\NullTicketStaffDirectory;
 use App\Modules\Core\Support\Settings;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Events\WebhookEvents;
@@ -115,6 +117,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->bindIf(TaxIdRules::class, NullTaxIdRules::class);
         $this->app->bindIf(ShopperSession::class, NullShopperSession::class);
         $this->app->bindIf(PublicHelpDirectory::class, NullPublicHelpDirectory::class);
+        $this->app->bindIf(TicketStaffDirectory::class, NullTicketStaffDirectory::class);
         $this->app->bindIf(RegistrarRefs::class, NullRegistrarRefs::class);
     }
 
