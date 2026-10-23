@@ -12,7 +12,7 @@
  * Every path used here exists in SampleContext, so previews render without warnings. Support-type client
  * subjects are fixed by EmailComposer and only listed for completeness.
  *
- * @return list<array{key: string, type: string, audience: string, name: string, subject: string, body: string, preheader?: string|null, heading?: string, action_label?: string}>
+ * @return list<array{key: string, type: string, audience: string, name: string, subject: string, body: string, description?: string|null, preheader?: string|null, heading?: string, action_label?: string}>
  */
 
 // Client mail greets the reader by first name after the title (design §3 block 4).
@@ -888,4 +888,86 @@ $preheaders = [
     'staff.invitation' => 'Accept within {{ auth.expires_in }} to set your password. The invitation works until {{ auth.expires_at }}.',
 ];
 
-return array_map(fn (array $template): array => [...$template, 'preheader' => $preheaders[$template['key']] ?? null], $templates);
+/*
+ * What each template is for, shown in the template list. Staff-facing, one sentence.
+ */
+$descriptions = [
+    'auth.password_reset' => 'Sent to a client who asks to reset a forgotten password.',
+    'auth.password_set' => 'Sent to a client who needs to set a password, for example after signing up with a social login.',
+    'auth.password_changed' => 'Confirms to the client that their password was changed.',
+    'auth.email_verification' => 'Asks a new client to confirm their email address.',
+    'auth.user_invitation' => 'Invites someone to join a client account.',
+    'client.migration_invitation' => 'Invites a client moved from another billing system to set a password and sign in.',
+    'auth.new_login_alert' => 'Warns the client about a sign-in from a new device or place.',
+    'auth.login_added' => 'Tells the account owner that a new login was added to their account.',
+    'auth.access_granted' => 'Tells a person they now have access to a client account.',
+    'auth.owner_changed' => 'Tells the previous and new owner that account ownership moved.',
+    'auth.two_factor_reset' => 'Confirms that two-factor authentication was turned off for a client login.',
+    'client.welcome' => 'Welcomes a new client and links to the client area.',
+    'kyc.document_decided' => 'Tells the client whether their identity document was approved or declined, and why.',
+    'order.confirmation' => 'Confirms an order to the client with its items and total.',
+    'quote.delivered' => 'Sends a quote to the client with a link to accept it.',
+    'affiliate.activated' => 'Tells a client their affiliate account is ready.',
+    'affiliate.withdrawal_processed' => 'Tells an affiliate that their withdrawal was processed.',
+    'affiliate.monthly_summary' => 'Monthly summary of an affiliate\'s referrals and earnings.',
+    'service.welcome.shared_hosting' => 'Sent when a shared hosting account is set up, with login details.',
+    'service.welcome.reseller_hosting' => 'Sent when a reseller hosting account is set up, with login details.',
+    'service.welcome.server' => 'Sent when a server is set up, with access details.',
+    'service.welcome.other' => 'Sent when any other product is activated.',
+    'service.suspended' => 'Tells the client their service was suspended and what to do.',
+    'service.unsuspended' => 'Tells the client their service is active again.',
+    'service.cancellation_requested' => 'Confirms that a cancellation request was received.',
+    'service.upgrade_completed' => 'Confirms a plan upgrade or downgrade is complete.',
+    'service.terminated' => 'Tells the client their service was removed.',
+    'invoice.created' => 'Sent when a new invoice is issued to a client.',
+    'invoice.created_autocharge' => 'Sent when an invoice is issued and will be charged to the saved payment method.',
+    'invoice.payment_reminder' => 'Reminds the client before an invoice is due.',
+    'invoice.overdue_first' => 'First notice after an invoice passes its due date.',
+    'invoice.overdue_second' => 'Second notice for an invoice that is still unpaid.',
+    'invoice.overdue_third' => 'Final notice for an invoice that is still unpaid.',
+    'invoice.payment_confirmation' => 'Receipt sent when a payment is received.',
+    'invoice.payment_failed' => 'Tells the client a payment did not go through and how to retry.',
+    'invoice.refunded' => 'Tells the client a refund was issued.',
+    'invoice.modified' => 'Sent when an issued invoice is changed.',
+    'payment_method.expiring' => 'Warns the client that a saved payment method is about to expire.',
+    'credit_note.issued' => 'Sent when a credit note is issued against an invoice.',
+    'domain.registration_confirmation' => 'Confirms a domain registration.',
+    'domain.transfer_initiated' => 'Confirms that a domain transfer to us has started.',
+    'domain.transfer_completed' => 'Confirms a domain transfer finished.',
+    'domain.transfer_failed' => 'Tells the client a domain transfer did not complete and what to do.',
+    'domain.renewal_confirmation' => 'Confirms a domain renewal.',
+    'domain.renewal_upcoming' => 'Reminds the client that domains are up for renewal.',
+    'domain.expired_notice' => 'Tells the client that domains have expired.',
+    'ticket.autoresponse' => 'Automatic reply confirming a support request was received.',
+    'ticket.opened_by_staff' => 'Tells the client that staff opened a ticket for them.',
+    'ticket.reply' => 'Sends a staff reply to the client.',
+    'ticket.auto_closed' => 'Tells the client a ticket was closed because they did not reply.',
+    'ticket.closed_bounce' => 'Reply to someone who emailed a ticket that is already closed.',
+    'ticket.unregistered_bounce' => 'Reply to an email from an address that has no client account.',
+    'ticket.replies_only_bounce' => 'Reply to an email sent to a department that only accepts replies.',
+    'staff.order_new' => 'Tells staff a new order was placed.',
+    'staff.order_fraud' => 'Tells staff an order was flagged as possible fraud.',
+    'staff.ticket_new' => 'Tells staff a new ticket was opened.',
+    'staff.ticket_client_reply' => 'Tells staff a client replied to a ticket.',
+    'staff.ticket_assigned' => 'Tells a staff member a ticket was assigned to them.',
+    'staff.ticket_mention' => 'Tells a staff member they were mentioned in a ticket note.',
+    'staff.ticket_department_changed' => 'Tells staff a ticket was moved to their department.',
+    'staff.provisioning_failed' => 'Tells staff that setting up a service failed.',
+    'staff.registrar_action_failed' => 'Tells staff a registrar action failed.',
+    'staff.domain_sync_report' => 'Report of domain changes found during a registrar sync.',
+    'staff.free_domain_renewal_blocked' => 'Tells staff a free domain renewal was blocked and needs a decision.',
+    'staff.cancellation_request' => 'Tells staff a client asked to cancel a service.',
+    'staff.affiliate_withdrawal_request' => 'Tells staff an affiliate requested a withdrawal.',
+    'staff.automation_summary' => 'Daily summary of what the automation run did and what failed.',
+    'staff.password_reset' => 'Sent to a staff member who asks to reset their password.',
+    'staff.invitation' => 'Invites a new staff member to the admin area.',
+    'staff.two_factor_reset' => 'Tells a staff member their two-factor authentication was reset.',
+    'staff.email_changed' => 'Tells a staff member their login email was changed.',
+    'staff.settings_changed' => 'Tells staff that a security setting was changed.',
+    'staff.login_failures' => 'Warns staff about repeated failed sign-ins.',
+    'staff.client_details_changed' => 'Tells staff a client changed their details.',
+    'staff.webhook_endpoint_disabled' => 'Tells staff a webhook endpoint was disabled after repeated failures.',
+    'staff.template_render_failed' => 'Tells staff an email template failed to render, with the error.',
+];
+
+return array_map(fn (array $template): array => [...$template, 'preheader' => $preheaders[$template['key']] ?? null, 'description' => $descriptions[$template['key']] ?? null], $templates);

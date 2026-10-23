@@ -75,7 +75,11 @@ a running container).
 
 - The manual "Build image" workflow (`.github/workflows/build-image.yml`) builds `linux/amd64`, `linux/arm64` (QEMU)
   or both into an OCI artifact with SBOM and provenance, reports the compressed size per platform, packs the
-  release tarball (target `release`) and can push the same archive to GHCR. Only amd64 has been built on a runner.
+  release tarball (target `release`), can push the same archive to GHCR and, from the default branch, attach the
+  tarball to a draft GitHub release for an existing tag (`release_tag`). Only amd64 has been built on a runner.
+- No provenance attestation for the release tarball (`actions/attest-build-provenance`, needs `id-token: write` and
+  `attestations: write`): a new action, waiting for the owner's approval (#225). The image already carries BuildKit
+  SBOM and provenance.
 - The Debian packages `install-php-extensions` pulls (ICU, libpq, libgd and friends) come from the trixie
   repositories at build time and are not pinned by version; rebuilding later may pick up Debian security updates.
 - `aws/aws-sdk-php` is 76 MB unpacked (6 MB compressed) although only S3 is used; the SDK's

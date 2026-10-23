@@ -1,0 +1,3 @@
+### Changed
+
+- **The release tarball for non-Docker and cPanel installs is leaner, and a tagged build can become a draft GitHub release (#225).** The tarball no longer contains the front-end sources or dev configs (`resources/js`, `package.json`, `vite.config.ts`, `phpunit.xml`, lint configs); the built `public/build` is unchanged and the cron-mode simulation passes on it. The "Build image" workflow has a new `release_tag` input: from the default branch, with an existing tag equal to `ref`, it attaches the tarball and its checksum to a draft release for a maintainer to publish. The cPanel guide now explains entry-process limits on CloudLinux hosts. No setting or schema change.

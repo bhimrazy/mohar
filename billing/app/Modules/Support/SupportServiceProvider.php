@@ -6,6 +6,9 @@ use App\Contracts\Core\CompanyClock;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Support\PublicHelpDirectory;
 use App\Data\Notifications\SensitiveValue;
+use App\Events\Support\TicketClosed;
+use App\Events\Support\TicketOpened;
+use App\Events\Support\TicketReplied;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ClientContext;
@@ -24,6 +27,7 @@ use App\Modules\Support\Services\SupportSettings;
 use App\Modules\Support\Services\TicketAccess;
 use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Events\WebhookEvents;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
@@ -61,6 +65,11 @@ class SupportServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $webhooks = $this->app->make(WebhookEvents::class);
+        $webhooks->register(TicketOpened::class, 'ticket.opened', 'ticket', 'ticketId');
+        $webhooks->register(TicketReplied::class, 'ticket.replied', 'ticket', 'ticketId');
+        $webhooks->register(TicketClosed::class, 'ticket.closed', 'ticket', 'ticketId');
+
         $this->app->make(SitemapRegistry::class)->register('support', fn (): iterable => [
             ['loc' => route('support.kb.index'), 'lastmod' => null],
             ['loc' => route('support.announcements.index'), 'lastmod' => null],

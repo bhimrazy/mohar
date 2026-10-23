@@ -10,6 +10,10 @@ use App\Contracts\Domains\TldAttributes;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Events\Billing\InvoiceCancelled;
 use App\Events\Billing\InvoicePaid;
+use App\Events\Domains\DomainExpired;
+use App\Events\Domains\DomainRegistered;
+use App\Events\Domains\DomainRenewed;
+use App\Events\Domains\DomainTransferred;
 use App\Events\Services\ServiceActivated;
 use App\Events\Services\ServiceRenewed;
 use App\Events\Services\ServiceSuspended;
@@ -47,6 +51,7 @@ use App\Support\Currencies\PriceConverters;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Domains\RegistrarDriverRegistry;
 use App\Support\Domains\RegistrarException;
+use App\Support\Events\WebhookEvents;
 use App\Support\Integrations\StoredSecrets;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
@@ -97,6 +102,12 @@ class DomainsServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $webhooks = $this->app->make(WebhookEvents::class);
+        $webhooks->register(DomainRegistered::class, 'domain.registered', 'domain', 'domainId');
+        $webhooks->register(DomainRenewed::class, 'domain.renewed', 'domain', 'domainId');
+        $webhooks->register(DomainTransferred::class, 'domain.transferred', 'domain', 'domainId');
+        $webhooks->register(DomainExpired::class, 'domain.expired', 'domain', 'domainId');
+
         $this->app->make(RegistrarDriverRegistry::class)->register('log', LogRegistrar::class);
         $this->app->make(RegistrarDriverRegistry::class)->register(ResellerClubDriver::KEY, ResellerClubDriver::class);
         $this->app->make(RegistrarDriverRegistry::class)->register(NamecheapDriver::KEY, NamecheapDriver::class);

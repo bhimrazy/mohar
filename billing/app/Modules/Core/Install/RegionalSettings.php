@@ -2,6 +2,7 @@
 
 namespace App\Modules\Core\Install;
 
+use App\Contracts\Install\InstallMarkers;
 use App\Contracts\Install\InstallsReferenceData;
 use App\Data\Install\ReferenceDataResult;
 use App\Modules\Core\Models\Currency;
@@ -39,7 +40,7 @@ final class RegionalSettings implements InstallsReferenceData
             'core.default_country' => $this->regional->country(),
             'system.timezone' => $this->regional->timezone(),
             'core.date_format' => $this->regional->isNepal() ? RegionalDefaults::DATE_FORMAT : DateFormats::DEFAULT,
-            RegionalDefaults::MARKER => $this->regional->country(),
+            InstallMarkers::REGIONAL_COUNTRY => $this->regional->country(),
         ]);
 
         return new ReferenceDataResult(created: 3);
