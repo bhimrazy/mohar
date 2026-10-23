@@ -2,6 +2,7 @@
 # One shared PostgreSQL for every worktree and agent, with a separate database per worktree.
 #   eval "$($MOHAR_ROOT/scripts/pg.sh <slug>)"   start the shared server if needed, create
 #                                                       database billing_test_<slug>, export DB_* vars
+#   $MOHAR_ROOT/scripts/pg.sh --help             print the usage
 #   $MOHAR_ROOT/scripts/pg.sh --stop             stop the shared server and delete its data volume
 #   $MOHAR_ROOT/scripts/pg.sh --prune [slug...]  drop test databases with no open connections,
 #                                                       except those of the slugs given (dropped ones are recreated on demand),
@@ -57,16 +58,20 @@ if [ "${1:-}" = "--prune" ]; then
     exit 0
 fi
 
+usage="usage: pg.sh <worktree-slug> | --stop | --prune [slug...]"
 case "${1:-}" in
+    --help | -h)
+        echo "$usage"
+        exit 0
+        ;;
     -*)
-        # An unknown option would otherwise become a slug and create billing_test___help.
-        echo "usage: pg.sh <worktree-slug> | --stop | --prune [slug...]" >&2
-        [ "$1" = "--help" ] || [ "$1" = "-h" ]
-        exit $?
+        # An unknown option would otherwise become a slug and create billing_test_<option>.
+        echo "$usage" >&2
+        exit 1
         ;;
 esac
 
-slug="${1:?usage: pg.sh <worktree-slug> | --stop | --prune [slug...]}"
+slug="${1:?$usage}"
 db="$(db_for "$slug")"
 
 if ! docker ps --format '{{.Names}}' | grep -qx "$name"; then
