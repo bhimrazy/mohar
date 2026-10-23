@@ -57,7 +57,16 @@ if [ "${1:-}" = "--prune" ]; then
     exit 0
 fi
 
-slug="${1:?usage: pg.sh <worktree-slug> | --stop}"
+case "${1:-}" in
+    -*)
+        # An unknown option would otherwise become a slug and create billing_test___help.
+        echo "usage: pg.sh <worktree-slug> | --stop | --prune [slug...]" >&2
+        [ "$1" = "--help" ] || [ "$1" = "-h" ]
+        exit $?
+        ;;
+esac
+
+slug="${1:?usage: pg.sh <worktree-slug> | --stop | --prune [slug...]}"
 db="$(db_for "$slug")"
 
 if ! docker ps --format '{{.Names}}' | grep -qx "$name"; then
