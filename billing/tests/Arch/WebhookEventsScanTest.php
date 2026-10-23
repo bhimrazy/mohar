@@ -52,3 +52,5 @@ test('Notifications keeps no webhook list of its own', function () {
     expect(array_filter(webhookRegistrations()['Notifications'] ?? []))->toBe([])
         ->and(glob(dirname(__DIR__, 2).'/app/Modules/Notifications/Webhooks/WebhookEventTypes.php'))->toBe([]);
 });
+
+afterAll(fn () => releaseArchCache());
