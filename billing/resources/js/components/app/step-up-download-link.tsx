@@ -12,7 +12,7 @@ export const STEP_UP_DOWNLOAD_EVENT = 'step-up:download';
 export function requestStepUpDownload(
     target: EventTarget,
     url: string,
-    noPassword = false,
+    noPassword?: boolean,
 ): boolean {
     return !target.dispatchEvent(
         new CustomEvent(STEP_UP_DOWNLOAD_EVENT, {

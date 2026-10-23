@@ -2,10 +2,11 @@
 
 use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Models\User;
+use App\Notifications\SetPasswordNotification;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
-use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Route;
 use Inertia\Testing\AssertableInertia as Assert;
 
@@ -93,57 +94,132 @@ it('leaves a login with a password unchanged', function () {
         ->assertInertia(fn (Assert $page) => $page->where('hasPassword', true)->where('auth.user.has_password', true));
 });
 
-it('lets only a login without a password ask for the set-password link, and says only "sent"', function () {
-    Notification::fake();
-    $user = passwordlessStaff();
+/** A client login without a password: the real case, so no bypass of the staff hook is needed. */
+function passwordlessClient(array $state = []): User
+{
+    return User::factory()->create(['password' => null, ...$state]);
+}
 
-    $this->actingAs($user)->postJson(route('password.set-link'))->assertOk()->assertExactJson(['status' => 'sent']);
-    Notification::assertSentTo($user, ResetPassword::class);
-
-    $withPassword = User::factory()->staff(['*'])->create();
-    $this->actingAs($withPassword)->postJson(route('password.set-link'))->assertForbidden();
-    Notification::assertNotSentTo($withPassword, ResetPassword::class);
-
-    auth()->logout();
-    $this->postJson(route('password.set-link'))->assertUnauthorized();
-});
-
-it('throttles the set-password link', function () {
-    Notification::fake();
-    RateLimiter::clear('set-link-user|1');
-    $user = passwordlessStaff();
-
-    foreach (range(1, 5) as $ignored) {
-        $this->actingAs($user)->postJson(route('password.set-link'))->assertOk();
-    }
-
-    $this->actingAs($user)->postJson(route('password.set-link'))->assertStatus(429);
-});
-
-it('lets the emailed link set a password, after which step-up works with it', function () {
-    Notification::fake();
-    $user = passwordlessStaff();
-    $this->actingAs($user)->postJson(route('password.set-link'))->assertOk();
-
+function sentSetPasswordToken(User $user): string
+{
     $token = null;
-    Notification::assertSentTo($user, ResetPassword::class, function (ResetPassword $notification) use (&$token): bool {
+    Notification::assertSentTo($user, SetPasswordNotification::class, function (SetPasswordNotification $notification) use (&$token): bool {
         $token = $notification->token;
 
         return true;
     });
 
-    auth()->logout();
-    $this->flushSession();
-    $this->post(route('password.update'), [
-        'token' => $token,
-        'email' => $user->email,
-        'password' => 'a-Strong-pass-123!',
-        'password_confirmation' => 'a-Strong-pass-123!',
-    ])->assertRedirect();
+    return $token;
+}
 
+it('lets only a login without a password ask for the set-password link, and says only "sent"', function () {
+    Notification::fake();
+    $user = passwordlessClient();
+
+    $this->actingAs($user)->postJson(route('password.set-link'))->assertOk()->assertExactJson(['status' => 'sent']);
+    Notification::assertSentTo($user, SetPasswordNotification::class);
+
+    $withPassword = User::factory()->create();
+    $this->actingAs($withPassword)->postJson(route('password.set-link'))->assertForbidden();
+    Notification::assertNotSentTo($withPassword, SetPasswordNotification::class);
+
+    auth()->logout();
+    $this->postJson(route('password.set-link'))->assertUnauthorized();
+});
+
+it('sends a dedicated set-a-password mail whose link opens the signed-in page', function () {
+    Notification::fake();
+    $user = passwordlessClient();
+    $this->actingAs($user)->postJson(route('password.set-link'))->assertOk();
+
+    $mail = (new SetPasswordNotification(sentSetPasswordToken($user)))->toMail($user);
+
+    expect($mail->subject)->toBe('Set a password for your account')
+        ->and($mail->actionUrl)->toContain('/settings/password/set/')
+        ->and($mail->actionUrl)->not->toContain('reset-password')
+        ->and(implode(' ', $mail->introLines))->not->toContain('reset');
+});
+
+it('throttles the set-password link per login and across IPs, and sends one mail for five rapid requests', function () {
+    Notification::fake();
+    $user = passwordlessClient();
+
+    foreach (range(1, 5) as $i) {
+        $this->actingAs($user)->withServerVariables(['REMOTE_ADDR' => "10.0.0.$i"])->postJson(route('password.set-link'))->assertOk();
+    }
+
+    $this->actingAs($user)->withServerVariables(['REMOTE_ADDR' => '10.0.0.99'])->postJson(route('password.set-link'))->assertStatus(429);
+    Notification::assertSentToTimes($user, SetPasswordNotification::class, 1);
+});
+
+it('refuses the set-password link to an unverified address, with a reason the UI can show', function () {
+    Notification::fake();
+    $user = passwordlessClient(['email_verified_at' => null]);
+
+    $this->actingAs($user)->postJson(route('password.set-link'))->assertForbidden();
+    Notification::assertNothingSent();
+});
+
+it('sets a password through the emailed link while signed in, without a current password, and step-up then works', function () {
+    Notification::fake();
+    $user = passwordlessStaff();
+    $this->actingAs($user)->postJson(route('password.set-link'))->assertOk();
+    $token = sentSetPasswordToken($user);
+
+    $this->actingAs($user)->get(route('password.set', $token))
+        ->assertInertia(fn (Assert $page) => $page->component('settings/set-password')->where('valid', true));
+
+    $this->actingAs($user)->post(route('password.set.store', $token), ['password' => 'a-Strong-pass-123!', 'password_confirmation' => 'other'])
+        ->assertSessionHasErrors('password');
+    expect($user->refresh()->hasPassword())->toBeFalse();
+
+    $this->actingAs($user)->post(route('password.set.store', $token), ['password' => 'a-Strong-pass-123!', 'password_confirmation' => 'a-Strong-pass-123!'])
+        ->assertRedirect(route('profile.edit'));
     expect($user->refresh()->hasPassword())->toBeTrue();
 
     $this->actingAs($user)->postJson('/_step-up-probe')->assertStatus(423)->assertJsonMissingPath('code');
     $this->actingAs($user)->postJson(route('password.confirm.store'), ['password' => 'a-Strong-pass-123!'])->assertSuccessful();
     $this->actingAs($user)->post('/_step-up-probe')->assertOk();
+});
+
+it('refuses a link used twice, a link for another login, an expired link and a login that has a password', function () {
+    Notification::fake();
+    $user = passwordlessClient();
+    $this->actingAs($user)->postJson(route('password.set-link'))->assertOk();
+    $token = sentSetPasswordToken($user);
+    $body = ['password' => 'a-Strong-pass-123!', 'password_confirmation' => 'a-Strong-pass-123!'];
+
+    $other = passwordlessClient();
+    $this->actingAs($other)->get(route('password.set', $token))->assertInertia(fn (Assert $page) => $page->where('valid', false));
+    $this->actingAs($other)->post(route('password.set.store', $token), $body)->assertSessionHasErrors('token');
+    expect($other->refresh()->hasPassword())->toBeFalse();
+
+    $this->travel(61)->minutes();
+    $this->actingAs($user)->get(route('password.set', $token))->assertInertia(fn (Assert $page) => $page->where('valid', false));
+    $this->actingAs($user)->post(route('password.set.store', $token), $body)->assertSessionHasErrors('token');
+    $this->travelBack();
+
+    $fresh = Password::broker()->createToken($user);
+    $this->actingAs($user)->post(route('password.set.store', $fresh), $body)->assertRedirect();
+    $this->actingAs($user)->post(route('password.set.store', $fresh), $body)->assertSessionHasErrors('token');
+
+    $again = Password::broker()->createToken($user->refresh());
+    $this->actingAs($user)->get(route('password.set', $again))->assertInertia(fn (Assert $page) => $page->where('valid', false));
+});
+
+it('sends a signed-out visitor to sign in and back to the set-password page', function () {
+    $user = passwordlessClient();
+    $token = Password::broker()->createToken($user);
+
+    $this->get(route('password.set', $token))->assertRedirect(route('login'));
+    expect(session('url.intended'))->toBe(route('password.set', $token));
+});
+
+it('leaves the guest reset flow unchanged for a login that has a password', function () {
+    Notification::fake();
+    $user = User::factory()->create();
+
+    $this->post(route('password.email'), ['email' => $user->email]);
+
+    Notification::assertSentTo($user, ResetPassword::class);
 });

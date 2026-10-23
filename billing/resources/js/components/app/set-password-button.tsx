@@ -10,16 +10,15 @@ export function xsrfToken(): string {
 }
 
 /**
- * For a login without a password: asks the server to email a link to set one. The reset page is for guests only, so
- * the text says to open the link in a private window.
+ * For a login without a password: asks the server to email a link to the set-password page.
  */
 export function SetPasswordButton({ className }: { className?: string }) {
-    const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'failed'>(
-        'idle',
-    );
+    const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle');
+    const [problem, setProblem] = useState<string | null>(null);
 
     const send = async () => {
         setState('sending');
+        setProblem(null);
 
         try {
             const response = await fetch(setLink.url(), {
@@ -32,9 +31,25 @@ export function SetPasswordButton({ className }: { className?: string }) {
                 },
             });
 
-            setState(response.ok ? 'sent' : 'failed');
+            if (response.ok) {
+                setState('sent');
+
+                return;
+            }
+
+            setState('idle');
+            setProblem(
+                response.status === 403
+                    ? 'Verify your email first, then ask for the link again.'
+                    : response.status === 429
+                      ? "You've asked several times; try again in a few minutes."
+                      : 'Could not send the email. Try again in a moment.',
+            );
         } catch {
-            setState('failed');
+            setState('idle');
+            setProblem(
+                'Could not send the email. Check your connection and try again.',
+            );
         }
     };
 
@@ -45,8 +60,8 @@ export function SetPasswordButton({ className }: { className?: string }) {
                 className="text-sm text-muted-foreground"
                 data-test="set-password-sent"
             >
-                Check your email. The link lets you choose a password; open it
-                in a private window if you stay signed in here.
+                Check your email. The link opens a page where you choose a
+                password.
             </p>
         );
     }
@@ -63,9 +78,9 @@ export function SetPasswordButton({ className }: { className?: string }) {
                 {state === 'sending' && <Spinner />}
                 Set a password
             </Button>
-            {state === 'failed' && (
+            {problem && (
                 <p role="alert" className="text-sm text-destructive">
-                    Could not send the email. Try again in a moment.
+                    {problem}
                 </p>
             )}
         </div>

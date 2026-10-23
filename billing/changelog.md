@@ -12,9 +12,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   login (for example from a social or magic-link sign-in) can never pass step-up, whatever the session holds, including
   a passkey confirmation. The 423 response carries `code: "password_not_set"` and the Inertia validation response
   carries `step_up_reason`; neither holds secret data. The confirm dialog and the confirm-password page show "Set a
-  password" instead of a password field; it posts to `POST settings/password/set-link`, which emails the standard
-  reset link to the account's own address (only for a login without a password; limited to 5 a minute per IP and 5 an
-  hour per login) and answers only "sent". Shared props carry `auth.user.has_password`.
+  password" instead of a password field; it posts to `POST settings/password/set-link`, which emails a "Set a password
+  for your account" mail (not the reset mail) to the account's own address (verified address and a login without a
+  password only; 5 a minute per IP and 5 an hour per login; one mail a minute) and answers only "sent". The link opens
+  `settings/password/set/{token}`, a signed-in page that sets the password with a confirmation and never asks for a
+  current one; the link works once, for that login only, and a signed-out visitor signs in first and returns to it. The
+  guest reset flow is unchanged. Shared props carry `auth.user.has_password`.
   A staff login can no longer be created or promoted without a password (ADR 0018 §5; an unrelated save of a
   row already in that state still works). Upgrade: migration `make_users_password_nullable` makes `users.password` nullable (on PostgreSQL it takes a short lock
   on `users`); no behaviour changes for logins that have a password.

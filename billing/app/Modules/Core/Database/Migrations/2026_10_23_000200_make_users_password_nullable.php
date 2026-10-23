@@ -31,4 +31,10 @@ return new class extends Migration
         $change();
         OnlineIndex::create('users', [], 'users_email_lower_index', expression: 'lower(email)');
     }
+
+    /**
+     * Deliberately nothing: once a login without a password exists, NOT NULL cannot be restored, so a rollback
+     * leaves the column nullable.
+     */
+    public function down(): void {}
 };

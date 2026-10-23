@@ -158,7 +158,8 @@ export function PasswordConfirmationGate() {
         }
     };
 
-    const noPassword = pending?.noPassword === true || !hasPassword;
+    // The server's answer wins; the page prop can be stale (a password set in another window).
+    const noPassword = pending?.noPassword ?? !hasPassword;
 
     return (
         <Dialog
