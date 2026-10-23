@@ -205,6 +205,7 @@ final readonly class RegisterPeriod
             /** @var array<string, mixed> */
             private array $data = [];
 
+            /** @param  array<string, mixed>  $data */
             public function setData(array $data): static
             {
                 $this->data = $data;

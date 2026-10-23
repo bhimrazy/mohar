@@ -118,6 +118,9 @@ function plural(count: number): string {
     return count === 1 ? '1 document is' : `${count} documents are`;
 }
 
+/** Text columns wrap within a bounded width, so the amount columns stay on screen. */
+const WRAP = 'min-w-32 max-w-52 whitespace-normal';
+
 const KIND_OPTIONS: SelectOption[] = [
     { value: 'month', label: 'BS month' },
     { value: 'year', label: 'BS fiscal year' },
@@ -240,6 +243,7 @@ export default function VatRegister({
     };
     const buyer: DataTableColumn<Row> = {
         key: 'buyer',
+        className: WRAP,
         header: 'Buyer',
         cell: (row) => (
             <Stack
@@ -273,6 +277,7 @@ export default function VatRegister({
                   buyer,
                   {
                       key: 'goods',
+                      className: WRAP,
                       header: 'Goods or service',
                       hideOnMobile: true,
                       cell: (row) => (
@@ -343,6 +348,7 @@ export default function VatRegister({
                   buyer,
                   {
                       key: 'reason',
+                      className: WRAP,
                       header: 'Reason',
                       hideOnMobile: true,
                       cell: (row) => (
@@ -358,6 +364,7 @@ export default function VatRegister({
                   money('total', 'Total', true),
                   {
                       key: 'settlement',
+                      className: WRAP,
                       header: 'Settlement',
                       hideOnMobile: true,
                       cell: (row) => (

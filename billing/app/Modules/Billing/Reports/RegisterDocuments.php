@@ -102,6 +102,9 @@ class RegisterDocuments
         return $this->summaries[$key] = $summary;
     }
 
+    /**
+     * @param  'invoices'|'tax_notes'  $table
+     */
     private function sum(RegisterSummary $summary, string $table, RegisterPeriod $period, string $currency): void
     {
         $notes = $table === 'tax_notes';
@@ -142,7 +145,11 @@ class RegisterDocuments
             ->count();
     }
 
-    /** The register's documents of one table in the period, through its period index. */
+    /**
+     * The register's documents of one table in the period, through its period index.
+     *
+     * @param  'invoices'|'tax_notes'  $table
+     */
     private function base(string $table, RegisterPeriod $period): Builder
     {
         if ($table === 'tax_notes') {
