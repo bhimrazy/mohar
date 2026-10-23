@@ -87,7 +87,7 @@ ASCII-only format; closes #426).
 
 | PR   | Workstream                                                                                  | Status (2026-10-24)                                                         |
 | ---- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| #432 | VAT PR 3a: Nepal VAT mode settings, VAT/export classification (flag `features.billing.nepal_vat_mode`, hidden until VAT PR 4) | Fix round 2; the architect approved.                                        |
+| #432 | VAT PR 3a: Nepal VAT mode settings, VAT/export classification (flag `features.billing.nepal_vat_mode`, hidden until VAT PR 4) | Signed off; queued after #435.                                              |
 | #128 | Gateway expansion spec                                                                      | Draft. Owner questions in the PR.                                           |
 
 After each merge close the issue by hand (`develop` ignores closing keywords). Signed-off PRs must be marked ready:
@@ -96,7 +96,7 @@ CI skips drafts without the `ci` label.
 - Queue after these: VAT PR 3b (old paths: `Invoicer::cancel` callers, automation, `CancelInvoiceItems`,
   `LateFeeApplied`), then VAT PRs 4, 5 and 7; follow-ups after #432 (#428 sums VAT only from flagged levels, #429
   notes copy their invoice's flags); #430 (covered by #432); #431 (report query budget, conformance kit); #436 (last
-  Domains `todayDate` callers); #418 default country picker; #402, #407, #414 follow-ups; #244 Node and Debian images
+  Domains `todayDate` callers); #407, #414 follow-ups (#418 default country picker and #402 email change with SMTP down are building); #244 Node and Debian images
   (after 10-28); the admin dashboard above its 200 ms target (from #205).
 - Namecheap is merged but not enabled. Before enabling it: a sandbox check of the not-in-account error numbers (2016166, 2019166), the `.us`,
   `.ca` and `.eu` extension details and the transfer texts (simulator README "verify" list).
