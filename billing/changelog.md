@@ -624,6 +624,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Security
 
+- `vite-plus` 1.1.0 → 1.3.0 (and the `vite` alias/override `@voidzero-dev/vite-plus-core` 1.1.0 → 1.3.0) for
+  GHSA-p458-7748-mcp3 (moderate: Vitest browser and UI servers misapplied `server.fs.deny` and could serve `.env`,
+  keys and `.git`; dev and test only, nothing in the production image). 1.3.0 is the first fixed release and was
+  adopted after the 7-day cooldown (#241); `npm audit` is clean again (it reported 5 moderate findings). Brings
+  Vitest 5.0.5, Oxlint 1.88.0, Oxlint-tsgolint 7.0.2004, Oxfmt 0.73.0 and the Rolldown bundled in vite-plus-core; the Yuku parser moves
+  0.9.5 → 0.19.0. No source or formatting change (`vp check --fix` leaves the tree unchanged). Developers run
+  `npm ci` in `billing/` after pulling.
 - Log redaction (#278): an unclosed void-named container with a secret name (`<param name="password"><value>…`, a
   truncated XML-RPC body, `<input>` used as an XML/SOAP element) now masks everything after it instead of leaking the
   child value, also after an empty CDATA section, a stray end tag, or a child whose name starts with `_`. Inside an
