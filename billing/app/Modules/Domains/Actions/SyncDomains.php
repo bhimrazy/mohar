@@ -67,8 +67,13 @@ class SyncDomains
                 break;
             }
 
-            $synced++;
             $result = $this->sync->handle($domain, $notifyOnly);
+
+            if (($result['busy'] ?? false)) {
+                continue; // a registrar job has it; last_synced_at is untouched, so it is first in line next run
+            }
+
+            $synced++;
             array_push($changes, ...$result['changes']);
 
             if ($result['error'] !== null) {
