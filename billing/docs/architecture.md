@@ -86,7 +86,7 @@ Settings, connection checks, logos and log redaction are shared by every driver 
   word). The host calls it on what drivers return; drivers never call it. `excerpt()` makes raw provider output safe
   to show staff (redacted, 4 KB). Text (headers, query strings, form bodies, JSON or XML after a label) is masked in
   one linear pass. The rule is that anything storing or logging provider text, error messages included, goes
-  through it; the known gaps are tracked in #254.
+  through it; the known gaps are tracked in #254, and the redesign is ADR 0023.
 - `Support\Integrations\OutboundAddressGuard` checks every connection to a host a person typed in (SSRF, ADR 0015):
   resolve once, refuse non-public addresses under the install policy in `config/integrations.php`, pin the request to
   the checked IP and port (`CURLOPT_CONNECT_TO`), bypass proxies (`proxy: ''`), follow no redirects. Drivers call it before they connect and never choose the
