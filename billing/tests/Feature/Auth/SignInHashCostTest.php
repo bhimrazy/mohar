@@ -74,6 +74,7 @@ test('the sign-in pipeline is Fortify\'s default except the one swapped step', f
         Fortify::$authenticateThroughCallback = $callback;
     }
 
+    // loginPipeline() drops steps switched off by config, so a new Fortify step that is off in tests is not compared.
     expect($default)->toContain(AttemptToAuthenticate::class)
         ->and(array_map(fn (string $step): string => $step === AttemptToAuthenticate::class ? SignInValidatedUser::class : $step, $default))->toBe($ours)
         ->and(app(RedirectsIfTwoFactorAuthenticatable::class))->toBeInstanceOf(RememberValidatedLogin::class);

@@ -159,9 +159,9 @@ class Currency extends Model
      * convertTo() with the rate arithmetic done once: for converting many amounts (a daily series) between the same
      * two currencies. Each call returns exactly what the decimal-string arithmetic returns
      * (rounded half up, away from zero): the factors that do not depend on the amount are multiplied out first, and
-     * the division is done on integers only while every product stays within PHP_INT_MAX / 4 (the rates, and per
-     * amount, 2 x amount x factor + divisor). Otherwise, and for rates that are not plain decimals, it uses the
-     * decimal-string path, so it never throws where that path would not.
+     * the division is done on integers when factor and divisor are within PHP_INT_MAX / 4 and the amount is small
+     * enough that 2 x amount x factor + divisor stays within PHP_INT_MAX. Otherwise, and for rates that are not plain
+     * decimals, it uses the decimal-string path, so it never throws where that path would not.
      *
      * @return \Closure(int): int
      */
@@ -183,7 +183,7 @@ class Currency extends Model
         $factor = $n[0] * 10 ** $d[1];
         $divisor = $d[0] * 10 ** $n[1];
 
-        // Any product that left the integer range became a float: keep every intermediate within PHP_INT_MAX / 4.
+        // A product that left the integer range became a float. Capping both at PHP_INT_MAX / 4 keeps 2 x factor in range.
         if (! is_int($factor) || ! is_int($divisor) || $factor <= 0 || $divisor <= 0 || $factor > intdiv(PHP_INT_MAX, 4) || $divisor > intdiv(PHP_INT_MAX, 4)) {
             return $exact;
         }
