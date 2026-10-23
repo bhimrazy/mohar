@@ -307,7 +307,10 @@ final class Scenario
     private function save(): void
     {
         $temporary = $this->directory.'/scenario.json.'.getmypid().'.tmp';
-        file_put_contents($temporary, json_encode($this->config, JSON_PRETTY_PRINT));
-        rename($temporary, $this->directory.'/scenario.json');
+        if (file_put_contents($temporary, json_encode($this->config, JSON_PRETTY_PRINT)) === false || ! rename($temporary, $this->directory.'/scenario.json')) {
+            @unlink($temporary);
+
+            throw new RuntimeException("Could not save the scenario in {$this->directory}.");
+        }
     }
 }
