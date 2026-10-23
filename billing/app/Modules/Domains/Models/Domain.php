@@ -2,6 +2,7 @@
 
 namespace App\Modules\Domains\Models;
 
+use App\Contracts\Core\CompanyClock;
 use App\Data\Domains\Registrar\DomainRef;
 use App\Modules\Core\Models\Client;
 use App\Modules\Domains\Database\Factories\DomainFactory;
@@ -232,7 +233,7 @@ class Domain extends Model
      */
     public function scopeExpiringWithin(Builder $query, int $days, ?CarbonImmutable $today = null): void
     {
-        $today ??= CarbonImmutable::today();
+        $today ??= app(CompanyClock::class)->todayDate();
 
         $query->withStatus([DomainStatus::Active, DomainStatus::Grace, DomainStatus::Redemption])
             ->whereDate('expiry_date', '>=', $today)

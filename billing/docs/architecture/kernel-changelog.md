@@ -6,6 +6,13 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Note events: `total` renamed `amount` (ADR 0024 §6, VAT PR 1b)
+
+- `CreditNoteIssued::$total` and `DebitNoteIssued::$total` are now `$amount`, matching the other Billing money events
+  (`InvoiceRefunded`, `LateFeeApplied`). Breaking, allowed before 1.0: the events merged in #351, nothing consumed them,
+  and the only emitter (`TaxNoteIssuer`) and the tests are updated. The value is unchanged: the note's gross total in
+  minor units.
+
 ### Set-a-password mail (ADR 0018 §4, #274)
 
 - `App\Contracts\Auth\AuthMailer` gains `sendPasswordSet(User $user, string $token): void`: the link to the signed-in
@@ -67,7 +74,7 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 ### Credit and debit note events (ADR 0024 §6, VAT PR 0b)
 
 - New `App\Events\Billing\CreditNoteIssued` and `DebitNoteIssued` (`taxNoteId`, `number`, `invoiceId`, `clientId`,
-  `total` in minor units, `currency`, `automatic`), both `ShouldDispatchAfterCommit`. Additive. Nothing emits them
+  `amount` in minor units, `currency`, `automatic`), both `ShouldDispatchAfterCommit`. Additive. Nothing emits them
   yet: Billing fires them when notes are issued (VAT PR 1b onward). The webhook types `credit_note.issued` and
   `debit_note.issued` join `WebhookEventTypes::MAP` in VAT PR 5, together with the `tax_note` merge-field resolver, so
   the first published payload is the final snapshot (publishing earlier would send the bare event fields and change

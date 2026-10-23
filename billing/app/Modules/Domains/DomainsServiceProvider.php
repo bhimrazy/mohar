@@ -2,6 +2,7 @@
 
 namespace App\Modules\Domains;
 
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Domains\DomainPricing;
 use App\Contracts\Domains\DomainRegistry;
 use App\Contracts\Domains\Registrar\RegistrarRefs;
@@ -158,7 +159,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
             : 'disabled', label: 'Convert domain prices', description: 'Recalculates TLD prices in other currencies from the default currency at current rates (when automatic conversion is on).');
 
         $automation->task('domains.command_log_prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => ChunkedDelete::run(RegistrarCommandLog::query()
-            ->where('created_at', '<', $today->subDays((int) $this->app->make(Settings::class)->get('domains.command_log_retention_days', 90)))), label: 'Prune the registrar log', description: 'Deletes registrar command log entries older than the retention period.');
+            ->where('created_at', '<', $this->app->make(CompanyClock::class)->dayBounds($today->subDays((int) $this->app->make(Settings::class)->get('domains.command_log_retention_days', 90)))[0])), label: 'Prune the registrar log', description: 'Deletes registrar command log entries older than the retention period.');
     }
 
     private function registerNavigation(): void
@@ -333,7 +334,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
                 'expiry_date' => $domain->expiry_date?->toDateString(),
                 'expiry_label' => $domain->expiry_date === null && $domain->isRegisteredByClient() ? __('At the registry') : null,
                 'next_due_date' => $domain->next_due_date->toDateString(),
-                'days_until_expiry' => $domain->expiry_date === null ? null : (int) CarbonImmutable::today()->diffInDays($domain->expiry_date, false),
+                'days_until_expiry' => $domain->expiry_date === null ? null : (int) app(CompanyClock::class)->todayDate()->diffInDays($domain->expiry_date, false),
                 'recurring_amount' => $domain->recurring_amount,
                 'currency' => $domain->currency,
                 'period_years' => $domain->period_years,

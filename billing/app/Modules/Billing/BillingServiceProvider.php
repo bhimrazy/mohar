@@ -62,8 +62,10 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Validator;
 
 class BillingServiceProvider extends ModuleServiceProvider
 {
@@ -261,11 +263,36 @@ class BillingServiceProvider extends ModuleServiceProvider
         ], sensitive: self::SENSITIVE_PERMISSIONS);
     }
 
+    /**
+     * The numbering settings of one note sequence. The two formats must differ, and a reset needs the period in the
+     * format, or the same number comes round again and the unique note number refuses every later note.
+     *
+     * @return list<SettingDefinition>
+     */
+    private function noteNumbering(string $kind, string $label, string $other): array
+    {
+        return [
+            new SettingDefinition("billing.{$kind}_note_format", "{$label} number format", help: 'Tokens: {NUMBER} {YEAR} {MONTH} {DAY}. Required, must contain {NUMBER} and differ from the other note format.', rules: ['required', 'max:40', 'regex:/\{NUMBER\}/', "different:billing.{$other}_note_format", "note_period_token:billing.{$kind}_note_reset"]),
+            new SettingDefinition("billing.{$kind}_note_padding", "{$label} number padding (digits)", 'integer', rules: ['min:0']),
+            new SettingDefinition("billing.{$kind}_note_reset", "Reset {$label} numbering", 'select', options: ['never' => 'Never', 'yearly' => 'Yearly', 'monthly' => 'Monthly']),
+        ];
+    }
+
     private function registerSettings(): void
     {
         $bool = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'boolean', $help);
         $int = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'integer', $help, rules: ['min:0']);
         $list = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'string', $help, rules: ['regex:/^\s*\d+(\s*,\s*\d+)*\s*$/']);
+
+        Validator::extend('note_period_token', function (string $attribute, mixed $value, array $parameters, \Illuminate\Validation\Validator $validator): bool {
+            $reset = Arr::get($validator->getData(), $parameters[0]);
+
+            return match ($reset) {
+                'yearly' => str_contains((string) $value, '{YEAR}'),
+                'monthly' => str_contains((string) $value, '{YEAR}') && str_contains((string) $value, '{MONTH}'),
+                default => true,
+            };
+        }, __('The number format needs {YEAR} when numbering resets yearly, and {YEAR} and {MONTH} when it resets monthly.'));
 
         $this->app->make(SettingsRegistry::class)->section('billing', 'Billing', [
             new SettingDefinition('billing.seller.legal_name', 'Seller legal name', help: 'Printed on invoices; defaults to the company name.', rules: ['max:200']),
@@ -284,6 +311,8 @@ class BillingServiceProvider extends ModuleServiceProvider
             new SettingDefinition('billing.proforma_format', 'Proforma number format', rules: ['max:40']),
             $bool('set_issue_date_on_payment', 'Set issue date on payment (proforma mode)'),
             new SettingDefinition('billing.quote_number_format', 'Quote number format', rules: ['max:40']),
+            ...$this->noteNumbering('credit', 'Credit note', 'debit'),
+            ...$this->noteNumbering('debit', 'Debit note', 'credit'),
             $int('invoice_days_before_due', 'Days until due for manual invoices'),
             $bool('credit.auto_apply_on_generate', 'Apply credit to generated invoices'),
             $bool('credit.tax_add_funds', 'Charge tax on add funds'),
