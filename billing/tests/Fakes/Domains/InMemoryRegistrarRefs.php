@@ -18,8 +18,8 @@ final class InMemoryRegistrarRefs implements RegistrarRefs
         return $this->refs[implode('|', [$registrarKey, $refType, $localType, $localId, $payloadHash])] ?? null;
     }
 
-    public function remember(RegistrarRef $ref): void
+    public function remember(RegistrarRef $ref): RegistrarRef
     {
-        $this->refs[implode('|', [$ref->registrarKey, $ref->refType, $ref->localType, $ref->localId, $ref->payloadHash])] = $ref;
+        return $this->refs[implode('|', [$ref->registrarKey, $ref->refType, $ref->localType, $ref->localId, $ref->payloadHash])] ??= $ref;
     }
 }
