@@ -3,10 +3,11 @@
 namespace App\Support\Integrations;
 
 /**
- * The secret values of one call (configured credentials and request secrets) and the forms they are matched in
- * (ADR 0023 §2). The forms are built once, when the set is made, and reused for every string it masks.
+ * The sensitive values of one call and the forms they are matched in (ADR 0023 §2): configured credentials and request
+ * secrets ("values"), and clients' free-text answers ("answers", personal data such as a citizenship number). The forms
+ * are built once, when the set is made, and reused for every string it masks.
  *
- * Each value is trimmed, then matched as a substring in these forms:
+ * Each value is trimmed, then matched as a substring, on bytes, in these forms:
  * - as typed, urlencode, rawurlencode, JSON-escaped and HTML-escaped, case-insensitively (ASCII case, on bytes);
  * - base64 and base64url, case-sensitively: the whole encoding with and without padding, and the core that stays the
  *   same whatever bytes sit before or after it (0, 1 or 2 prefix bytes, the dependent edge characters dropped), built
@@ -18,9 +19,17 @@ namespace App\Support\Integrations;
  *   characters, and from the start of the run to the value's last 8 bytes. An anchor holding a non-token character,
  *   or one that is a known key-shape prefix (`sk_live_`), is not built.
  * A value holding a line break (a SecretText PEM or SSH key) also matches each of its lines of 16 bytes or more.
+ * Values are not regrouped: a provider does not regroup a random token.
  *
- * Bounds (ADR 0023 Consequences): values under 4 bytes are not matched at all, truncated echoes under 8 bytes stay
- * readable, and the offset base64 cores exist only for values of about 7 bytes or more. Values are not regrouped.
+ * Each answer matches its letters and digits in order, case-insensitively (Unicode), with 0 to 3 separators between
+ * two of them: any character that is not a letter or digit, or a percent-encoded byte (`(981) 234-5678`, `518%20247`).
+ * A digit also matches its Devanagari form. An answer of 8 letters and digits or more matches anywhere (`9812345678`
+ * in `+9779812345678`); a shorter one must not extend a run of the same kind (`2026` alone, not inside `20261`).
+ * Answers are matched on an mb_scrub()bed copy, which is what is returned; if a pattern fails the text is withheld.
+ *
+ * Bounds (ADR 0023 Consequences): values under 4 bytes and answers under 4 letters and digits are not matched,
+ * truncated echoes under 8 bytes stay readable, the offset base64 cores exist only for values of about 7 bytes or
+ * more, and a short answer inside a longer run of its kind stays readable.
  *
  * The cost is the text's length times the number of forms (about 20 per value), never the input squared.
  *
@@ -53,6 +62,14 @@ final class RedactionSet
 
     private const MAX_DECODE_PASSES = 6;
 
+    /** Answers from this many letters and digits match anywhere; shorter ones only outside a longer run of their kind. */
+    private const ANSWER_ANYWHERE_FROM = 8;
+
+    /** Between two characters of an answer: up to 3 separators, possessive, so nothing backtracks. */
+    private const ANSWER_SEPARATORS = '(?:%[0-9A-Fa-f]{2}|[^\p{L}\p{N}]){0,3}+';
+
+    private const DIGIT_RUN = '0-9\x{0966}-\x{096F}';
+
     private const WHITE_SPACE = " \t\r\n\f\v";
 
     /** @var list<string> lowercased values, for the decoded-word check */
@@ -70,11 +87,25 @@ final class RedactionSet
     /** @var list<string> lowercased last-8-byte anchors */
     private array $endAnchors = [];
 
+    /** @var list<string> one `/iu` pattern per answer */
+    private array $answerPatterns = [];
+
     /**
      * @param  list<string>  $values
+     * @param  list<string>  $answers
      */
-    private function __construct(array $values)
+    private function __construct(array $values, array $answers)
     {
+        foreach ($answers as $answer) {
+            $pattern = self::answerPattern($answer);
+
+            if ($pattern !== null) {
+                $this->answerPatterns[] = $pattern;
+            }
+        }
+
+        $this->answerPatterns = array_values(array_unique($this->answerPatterns));
+
         foreach ($values as $value) {
             $this->add($value);
 
@@ -95,21 +126,22 @@ final class RedactionSet
     }
 
     /**
-     * @param  list<string>  $values
+     * @param  list<string>  $values  credentials and request secrets
+     * @param  list<string>  $answers  clients' free-text answers
      */
-    public static function of(array $values): self
+    public static function of(array $values, array $answers = []): self
     {
-        return new self($values);
+        return new self($values, $answers);
     }
 
     public static function empty(): self
     {
-        return new self([]);
+        return new self([], []);
     }
 
     public function isEmpty(): bool
     {
-        return $this->values === [];
+        return $this->values === [] && $this->answerPatterns === [];
     }
 
     /**
@@ -117,8 +149,12 @@ final class RedactionSet
      */
     public function mask(string $text, string $mask = Redactor::MASK): string
     {
-        if ($this->values === [] || $text === '') {
+        if ($this->isEmpty() || $text === '') {
             return $text;
+        }
+
+        if ($this->values === []) {
+            return $this->maskAnswers($text, $mask);
         }
 
         $folded = strtolower($text);
@@ -158,7 +194,7 @@ final class RedactionSet
             }
         }
 
-        return $this->maskDecodedWords($this->apply($text, $spans, $mask), $mask);
+        return $this->maskAnswers($this->maskDecodedWords($this->apply($text, $spans, $mask), $mask), $mask);
     }
 
     /**
@@ -166,7 +202,10 @@ final class RedactionSet
      */
     public function matches(string $text): bool
     {
-        return $this->mask($text, "\0") !== $text;
+        $masked = $this->mask($text, "\0");
+
+        // With answers, an unmatched text still comes back mb_scrub()bed.
+        return $masked !== $text && ($this->answerPatterns === [] || $masked !== mb_scrub($text, 'UTF-8'));
     }
 
     /**
@@ -191,6 +230,54 @@ final class RedactionSet
         }
 
         return $text;
+    }
+
+    private function maskAnswers(string $text, string $mask): string
+    {
+        if ($this->answerPatterns === []) {
+            return $text;
+        }
+
+        return preg_replace($this->answerPatterns, $mask, mb_scrub($text, 'UTF-8')) ?? $mask;
+    }
+
+    /**
+     * The answer's letters and digits in order with optional separators between them, or null when it has fewer than
+     * 4. A digit matches its ASCII and Devanagari forms, so no copy of the text is folded and offsets stay put.
+     */
+    private static function answerPattern(string $answer): ?string
+    {
+        $characters = preg_split('//u', (string) preg_replace('/[^\p{L}\p{N}]+/u', '', mb_scrub($answer, 'UTF-8')), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        if (count($characters) < self::MIN_MATCH_BYTES) {
+            return null;
+        }
+
+        $parts = array_map(function (string $character): string {
+            $digit = self::digitValue($character);
+
+            return $digit === null ? preg_quote($character, '/') : '['.$digit.mb_chr(0x0966 + $digit).']';
+        }, $characters);
+        $pattern = implode(self::ANSWER_SEPARATORS, $parts);
+
+        if (count($characters) < self::ANSWER_ANYWHERE_FROM) {
+            $edge = fn (string $character): string => self::digitValue($character) === null ? '\p{L}' : '['.self::DIGIT_RUN.']';
+            $pattern = '(?<!'.$edge($characters[0]).')'.$pattern.'(?!'.$edge($characters[count($characters) - 1]).')';
+        }
+
+        return '/'.$pattern.'/iu';
+    }
+
+    /** 0-9 for an ASCII or Devanagari digit, otherwise null. */
+    private static function digitValue(string $character): ?int
+    {
+        $code = mb_ord($character);
+
+        return match (true) {
+            $code >= 0x30 && $code <= 0x39 => $code - 0x30,
+            $code >= 0x0966 && $code <= 0x096F => $code - 0x0966,
+            default => null,
+        };
     }
 
     private function add(string $value): void
@@ -373,9 +460,11 @@ final class RedactionSet
     private function decodedHoldsValue(string $word): bool
     {
         $decoded = strtolower(self::decode($word));
+        // urlencode() writes a space as `+`, which rawurldecode() keeps.
+        $spaced = strtr($decoded, '+', ' ');
 
         foreach ($this->values as $value) {
-            if (str_contains($decoded, $value)) {
+            if (str_contains($decoded, $value) || str_contains($spaced, $value)) {
                 return true;
             }
         }
