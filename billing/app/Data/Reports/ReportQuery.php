@@ -9,8 +9,8 @@ use InvalidArgumentException;
 
 /**
  * What one run of a report asks for: the validated filters, the acting user and the period resolved on the company
- * calendar (ADR 0013). `from` and `to` are company dates (both inclusive; CalendarDate since Amendment (#410)); `startsAt`
- * and `endsAt` are the UTC instants bounding them, [start, end), for querying timestamp columns.
+ * calendar (ADR 0013). `from` and `to` are company dates (both inclusive; CalendarDate since Amendment (#410));
+ * `startsAt` and `endsAt` are the UTC instants bounding them, [start, end), for querying timestamp columns.
  *
  * `limit` and `offset` select one page of `Report::rows()` for an on-screen view (ReportViewer); a null limit means
  * all rows, which is what exports use. A limit is 1 to MAX_LIMIT and an offset 0 to MAX_OFFSET.
