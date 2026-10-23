@@ -3,6 +3,7 @@
 use App\Contracts\Domains\Registrar\DeclaresTldAttributes;
 use App\Contracts\Domains\TldAttributes;
 use App\Modules\Domains\Drivers\Registrars\ResellerClub\ResellerClubDriver;
+use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\Tld;
 use App\Support\Domains\RegistrarDriverRegistry;
 use Illuminate\Validation\ValidationException;
@@ -47,6 +48,7 @@ test('ResellerClub explains who qualifies in the help text and checks an ABN or 
 });
 
 test('the ABN check runs with the generic checks, so every problem shows at once', function () {
+    RegistrarAccount::query()->create(['key' => 'resellerclub', 'is_active' => true, 'test_mode' => false, 'settings' => []]);
     Tld::factory()->extension('.com.au')->priced()->create(['registrar_key' => 'resellerclub']);
     $errorsFor = function (array $input): array {
         try {

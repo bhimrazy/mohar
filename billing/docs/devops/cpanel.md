@@ -59,7 +59,11 @@ the `ea-php84` binary) stops the current ones early.
     The checksum proves the upload arrived intact, nothing more: it sits beside the tarball it describes, and two
     builds of one commit give different tarballs (file times and ownership are inside), so it is not a signature or a
     reproducible-build hash. Downloading the artifact needs a signed-in GitHub account with access to the repository
-    (or `gh run download <run-id> -n release-<commit>`), and it expires after 7 days.
+    (or `gh run download <run-id> -n release-<commit>`), and it expires after 7 days. For a tagged build, a
+    maintainer can run the workflow with **release_tag** set to an existing tag (equal to **ref**): it attaches the
+    tarball and its checksum to a draft GitHub release, which stays downloadable after the 7 days once the
+    maintainer publishes it. The tarball carries no front-end sources or dev configs (`resources/js`, `package.json`,
+    `vite.config.ts`, `phpunit.xml`, lint configs); `public/build` is the built front end.
 
 2. **Upload and extract it** into the home directory, which gives `~/billing`:
 
@@ -117,6 +121,17 @@ the `ea-php84` binary) stops the current ones early.
 
 6. **Check.** Open `https://<domain>/up`, then sign in. After a minute, the dashboard's automation summary shows a
    scheduler heartbeat.
+
+**Entry-process limits.** Cron mode starts up to five PHP processes in the same minute (the scheduler and four pools),
+each gone as soon as its queue is empty. CloudLinux hosts cap an account's entry processes (EP; the CloudLinux
+default is 20, [LVE limits](https://cloudlinux.zendesk.com/hc/en-us/articles/9299899421084-LVE-limits-default-values-and-recommended-values))
+and count web requests, SSH sessions and, per CloudLinux's description of the limit, cron jobs against it. Five
+leave room for web traffic on the default, but a host with a lower cap, or a busy site, can hit it: requests then
+fail with HTTP 508 and cron starts are skipped. Ask the host to raise EP, or move to a VPS or the container
+install. This has not been measured on a CloudLinux host.
+`schedule:run` has no `flock` on purpose: a long entry would make `flock -n` skip the next minute's tick, heartbeat
+included. Overlap protection is each entry's own `withoutOverlapping()` and `onOneServer()` (ADR 0017), checked by
+`tests/Feature/Core/SchedulerOverlapTest.php`.
 
 ## Upgrading
 
