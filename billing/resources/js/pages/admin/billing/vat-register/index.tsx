@@ -15,18 +15,12 @@ import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { Pagination } from '@/components/app/pagination';
 import { SectionCard } from '@/components/app/section-card';
+import { SelectField } from '@/components/app/select-field';
 import { StatCard } from '@/components/app/stat-card';
 import { StepUpDownloadLink } from '@/components/app/step-up-download-link';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import {
     Tooltip,
     TooltipContent,
@@ -115,6 +109,16 @@ function text(cell: Cell): string {
         ? String(cell)
         : '';
 }
+
+function plural(count: number): string {
+    return count === 1 ? '1 document is' : `${count} documents are`;
+}
+
+const KIND_OPTIONS: SelectOption[] = [
+    { value: 'month', label: 'BS month' },
+    { value: 'year', label: 'BS fiscal year' },
+    { value: 'range', label: 'AD date range' },
+];
 
 function isMoney(cell: Cell): cell is MoneyValue {
     return typeof cell === 'object' && cell !== null && 'amount' in cell;
@@ -234,6 +238,12 @@ export default function VatRegister({
     }));
 
     const moneyColumns = columns.filter((column) => column.type === 'money');
+    const notices = [
+        warnings.withoutPan > 0 &&
+            `${plural(warnings.withoutPan)} to a business buyer without a PAN. Their PAN column is blank; add the PAN to the client for later documents.`,
+        warnings.unconverted > 0 &&
+            `${plural(warnings.unconverted)} without a stored exchange rate into the register currency. Their amounts are blank and left out of the totals.`,
+    ].filter((notice): notice is string => typeof notice === 'string');
 
     return (
         <>
@@ -300,30 +310,15 @@ export default function VatRegister({
                         className="flex flex-col gap-4 md:flex-row md:items-end"
                     >
                         <Field htmlFor="period-kind" label="Show">
-                            <Select
+                            <SelectField
+                                id="period-kind"
+                                className="md:w-44"
+                                options={KIND_OPTIONS}
                                 value={kind}
                                 onValueChange={(value) =>
                                     setKind(value as Kind)
                                 }
-                            >
-                                <SelectTrigger
-                                    id="period-kind"
-                                    className="md:w-44"
-                                >
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="month">
-                                        BS month
-                                    </SelectItem>
-                                    <SelectItem value="year">
-                                        BS fiscal year
-                                    </SelectItem>
-                                    <SelectItem value="range">
-                                        AD date range
-                                    </SelectItem>
-                                </SelectContent>
-                            </Select>
+                            />
                         </Field>
                         {kind === 'month' && (
                             <Field
@@ -331,27 +326,13 @@ export default function VatRegister({
                                 label="Month"
                                 error={filterErrors.month}
                             >
-                                <Select
-                                    value={month || options.lastClosed}
+                                <SelectField
+                                    id="period-month"
+                                    className="md:w-48"
+                                    options={options.months}
+                                    value={month}
                                     onValueChange={setMonth}
-                                >
-                                    <SelectTrigger
-                                        id="period-month"
-                                        className="md:w-48"
-                                    >
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {options.months.map((option) => (
-                                            <SelectItem
-                                                key={option.value}
-                                                value={option.value}
-                                            >
-                                                {option.label}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                />
                             </Field>
                         )}
                         {kind === 'year' && (
@@ -360,24 +341,13 @@ export default function VatRegister({
                                 label="Fiscal year"
                                 error={filterErrors.year}
                             >
-                                <Select value={year} onValueChange={setYear}>
-                                    <SelectTrigger
-                                        id="period-year"
-                                        className="md:w-40"
-                                    >
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {options.years.map((option) => (
-                                            <SelectItem
-                                                key={option.value}
-                                                value={option.value}
-                                            >
-                                                {option.label}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <SelectField
+                                    id="period-year"
+                                    className="md:w-40"
+                                    options={options.years}
+                                    value={year}
+                                    onValueChange={setYear}
+                                />
                             </Field>
                         )}
                         {kind === 'range' && (
@@ -426,32 +396,12 @@ export default function VatRegister({
                     />
                 </SectionCard>
 
-                {warnings.withoutPan > 0 && (
-                    <Alert>
+                {notices.map((notice) => (
+                    <Alert key={notice}>
                         <AlertTriangle className="text-warning-text" />
-                        <AlertDescription>
-                            {warnings.withoutPan === 1
-                                ? '1 document is'
-                                : `${warnings.withoutPan} documents are`}{' '}
-                            to a business buyer without a PAN. Their PAN column
-                            is blank; add the PAN to the client for later
-                            documents.
-                        </AlertDescription>
+                        <AlertDescription>{notice}</AlertDescription>
                     </Alert>
-                )}
-                {warnings.unconverted > 0 && (
-                    <Alert>
-                        <AlertTriangle className="text-warning-text" />
-                        <AlertDescription>
-                            {warnings.unconverted === 1
-                                ? '1 document has'
-                                : `${warnings.unconverted} documents have`}{' '}
-                            no stored exchange rate into the register currency.
-                            Their amounts are blank and left out of the totals.
-                        </AlertDescription>
-                    </Alert>
-                )}
-
+                ))}
                 {tab === 'register' && net && (
                     <section
                         aria-labelledby="return-figures"
