@@ -67,7 +67,8 @@ final readonly class CalendarDate implements JsonSerializable, Stringable
 
     /**
      * Formats with date characters only (`d M Y`). A time, zone or timestamp character would print the UTC midnight,
-     * an instant, so it throws; letters meant literally are escaped with a backslash.
+     * an instant, so it throws; ASCII letters meant literally are escaped with a backslash. Other bytes (such as a
+     * Devanagari literal) are not format characters and pass through.
      */
     public function format(string $format): string
     {
@@ -76,7 +77,7 @@ final readonly class CalendarDate implements JsonSerializable, Stringable
         for ($i = 0; $i < $length; $i++) {
             if ($format[$i] === '\\') {
                 $i++;
-            } elseif (ctype_alpha($format[$i]) && ! str_contains(self::DATE_CHARACTERS, $format[$i])) {
+            } elseif (self::isAsciiLetter($format[$i]) && ! str_contains(self::DATE_CHARACTERS, $format[$i])) {
                 throw new InvalidArgumentException("\"{$format[$i]}\" is not a date format character.");
             }
         }
@@ -153,6 +154,12 @@ final readonly class CalendarDate implements JsonSerializable, Stringable
     public function __toString(): string
     {
         return $this->toString();
+    }
+
+    /** ctype_alpha() would follow the locale and flag bytes of multibyte characters. */
+    private static function isAsciiLetter(string $byte): bool
+    {
+        return ($byte >= 'a' && $byte <= 'z') || ($byte >= 'A' && $byte <= 'Z');
     }
 
     private function utcMidnight(): DateTimeImmutable

@@ -5,6 +5,7 @@ use App\Modules\Domains\Actions\IssueRenewalInvoices;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainInvoice;
 use App\Modules\Domains\Models\Tld;
+use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Domains\DomainFixtures;
@@ -102,7 +103,7 @@ test('the daily renewal run does not invoice a name registered at the registry',
     $this->selfRegistered->forceFill(['auto_renew' => true, 'next_invoice_date' => $due, 'next_due_date' => $due->addDays(30), 'recurring_amount' => 1000])->save();
     $this->sold->forceFill(['auto_renew' => true, 'next_invoice_date' => $due, 'next_due_date' => $due->addDays(30)])->save();
 
-    $issued = app(IssueRenewalInvoices::class)->handle(CarbonImmutable::today());
+    $issued = app(IssueRenewalInvoices::class)->handle(CalendarDate::parse(CarbonImmutable::today()->toDateString()));
 
     expect($issued)->toBe(1)
         ->and($invoicer->issued())->toHaveCount(1)
