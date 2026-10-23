@@ -75,7 +75,7 @@ gh pr ready <n>                       # only once no review at this head says "C
 gh pr checks <n> --watch              # CI runs the full suite on SQLite and PostgreSQL
 gh pr comment <n> -b "CTO sign-off at <sha>: <each blocking item and its evidence>, gates, test count"
 for s in $(gh pr list --base feature/<slug> --json number --jq '.[].number'); do gh pr edit $s --base develop; done
-gh pr merge <n> --merge --match-head-commit <sha> --delete-branch
+gh pr merge <n> --squash --match-head-commit <sha> --delete-branch   # --merge if another open PR is based on the branch
 cd $MOHAR_ROOT && git pull --ff-only && git worktree remove .worktrees/<slug> && git branch -D feature/<slug>
 ```
 

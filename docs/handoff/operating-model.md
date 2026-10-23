@@ -54,7 +54,9 @@ account, so reviews are posted as comments and the verdict line is the gate.
    for every other PR, when every adopted probe passes at
    the head.
 7. **Merge (CTO).** Merge `origin/develop` into the branch, run the gates, mark ready, wait for CI, post the sign-off
-   naming each blocking item and its evidence, `gh pr merge --merge`. Remove the worktree and branch.
+   naming each blocking item and its evidence, `gh pr merge --squash --match-head-commit <sha>`. Use `--merge`
+   instead when another open PR is based on the branch, so the stacked PR keeps its parent's commits (owner,
+   2026-10-24). Remove the worktree and branch.
 8. **Record.** `state.md`, `billing/docs/progress.md`; the PR's changelog fragment is already in. Non-blocking items
    become issues.
 9. **Before an owner update** after user-facing merges: a `product-reviewer` sweep of `develop`; act on its
