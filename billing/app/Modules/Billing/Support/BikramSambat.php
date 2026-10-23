@@ -184,6 +184,23 @@ final class BikramSambat
         return CarbonImmutable::parse(self::EPOCH, 'UTC')->addDays($days);
     }
 
+    /**
+     * The Nepali fiscal year that holds a BS date, in the form the tax office uses: "2083.084" for 1 Shrawan 2083 to
+     * the end of Asar 2084. The year starts on 1 Shrawan (month 4), so Baisakh to Asar belong to the year before.
+     */
+    public static function fiscalYear(BikramSambatDate $date): string
+    {
+        $start = $date->month >= 4 ? $date->year : $date->year - 1;
+
+        return sprintf('%d.%03d', $start, ($start + 1) % 1000);
+    }
+
+    /** The BS month as a sortable key, "2083-07" for Kartik 2083: the VAT period of a document. */
+    public static function period(BikramSambatDate $date): string
+    {
+        return sprintf('%d-%02d', $date->year, $date->month);
+    }
+
     public static function daysInMonth(int $year, int $month): int
     {
         if ($year < self::FIRST_YEAR || $year > self::LAST_YEAR || $month < 1 || $month > 12) {

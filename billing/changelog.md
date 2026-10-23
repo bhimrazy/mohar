@@ -32,6 +32,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **Tax-invoice snapshot and numbering groundwork for Nepal VAT credit and debit notes (VAT PR 1a, ADR 0024).** Schema
+  and numbering rules only: no screen changes and no note can be issued yet. An invoice that gets its legal number now
+  stores, in the same transaction, `numbered_at`, its tax-invoice value (taxable, exempt, two taxes, total, including late
+  fees and cancelled lines written before the number), the reporting currency and rate (a decimal string from stored
+  rates; the remote rate source is never called), its supply class and its Bikram Sambat date, month and fiscal year.
+  These fields are frozen with the number, and a numbered invoice cannot be deleted. New tables hold notes, note
+  lines, refund reservations and the staff-review list. Credit and debit notes get gap-free sequences of their own
+  (`CN-{NUMBER}`, `DN-{NUMBER}`; settings `credit_note_*` and `debit_note_*` for format, padding, reset; increment
+  always 1). Upgrade notes: **two expand-only migrations run on deploy; none fills data.** The snapshot of invoices
+  that already have a number is filled by `php artisan billing:fiscal-snapshot`, which the scheduler runs every five
+  minutes (5,000 invoices per run, chunks of 200 that lock only their own rows; about 2 ms an invoice) and
+  `deploy/bin/deploy` runs once after the switch. It is safe to repeat, never writes a number and skips deposit
+  invoices. `numbered_at` is the creation time of an invoice numbered at publish, and of one numbered on payment the
+  creation time of the one payment that brought its balance to zero (not the payment date, which staff can backdate).
+  Invoices with no such single payment, and rows with no usable tax split (refunds, cancellations), go on the
+  **staff-review list** with an estimate (`php artisan billing:fiscal-snapshot --list`). During the switch the previous
+  release keeps serving and can number an invoice or write a late fee or cancellation without updating the new
+  `credited_total`/`debited_total`: every run recomputes these two caches from the value rows and lists each invoice it
+  corrected (the pass re-reads rows younger than an hour on every run, because a row can become visible after a higher id). The reporting rate of an old foreign-currency invoice is the rate of the payment that numbered it, else today's stored rate, and the latter is listed as `report_rate_estimated`. Nepal VAT mode (a later release) cannot be enabled while invoices wait for a snapshot, the list is unseen
+  or a cache differs from its rows. Staff cannot delete an invoice that has a review entry (the previous release gets a
+  foreign-key error). Rollback drops the new tables and columns.
 - **Link an existing ResellerClub order to a domain (#338).** A domain imported from another billing system, or set Active by staff, has no ResellerClub order recorded, so sync, renew, the EPP code and contact changes refuse it ("No ResellerClub order is linked"). Staff can now open the domain, choose **Link ResellerClub order…** and type the order id from the ResellerClub panel. The order is read from ResellerClub and linked only if it is in this reseller account, is for exactly this domain name, has not been deleted, and belongs to the default customer (or, in one-customer-per-client mode, that client's recorded customer; a client with no recorded customer is refused). It is refused if another domain, even a deleted record, already holds that order id. One sync runs after linking. Two staff linking the same order to two rows of one name at once are serialised by a row lock, so only one wins. Repeating the same link changes nothing and writes no second entry; linking a different order to a linked domain is refused. Needs `domains.domains.update` and `domains.domains.commands` and a recent password; each link is written to the activity log (`domain.order_linked`) and the registrar command log. Sync still never links an order it finds by name. The domain page shows the recorded order in the Registrar card. Upgrade notes: new registrar capability `link_order` (interface `LinksExistingOrders`, DTO `LinkedOrder`); no schema change and no new permission. The WHMCS importer recording the order id is not part of this change.
 
 - **A one-time notice about the automation times, and a daylight-saving help line (#341, #342).** After upgrading, staff who can change settings (`core.settings.update`) see a dismissible notice on the admin dashboard: **Daily automation time** and **Rate update time** now mean company time, no value was converted, and they should check both. Dismissing it hides it for that person only; staff added after the upgrade and fresh installs never see it. **Daily automation time** now says that in a time zone with daylight saving the run can be skipped or happen twice on the day the clocks change (Nepal has none, so Nepal-time runs are never skipped or repeated). A notice that does not exist returns 404 on dismiss, and each notice has its own audience permission. Upgrade notes: new table `staff_notices` (one row per existing staff member); no new permission.
