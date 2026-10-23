@@ -32,7 +32,7 @@ test('gateways can be configured without exposing stored secrets', function () {
 
     $this->put(route('admin.billing.gateways.update', 'sandbox_card'), [
         'display_name' => 'Card', 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 1,
-        'settings' => ['webhook_secret' => 'whsec_1', 'fee_percent' => '2.9'],
+        'settings' => ['webhook_secret' => 'whsec_test_1', 'fee_percent' => '2.9'],
     ])->assertRedirect(route('admin.billing.gateways.index'));
 
     $this->put(route('admin.billing.gateways.update', 'sandbox_card'), [
@@ -42,7 +42,7 @@ test('gateways can be configured without exposing stored secrets', function () {
 
     $gateway = Gateway::query()->where('key', 'sandbox_card')->firstOrFail();
     expect($gateway->display_name)->toBe('Credit card')
-        ->and($gateway->setting('webhook_secret'))->toBe('whsec_1')
+        ->and($gateway->setting('webhook_secret'))->toBe('whsec_test_1')
         ->and($gateway->setting('fee_percent'))->toBe('3');
 
     $this->get(route('admin.billing.gateways.edit', 'sandbox_card'))

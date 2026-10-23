@@ -11,6 +11,13 @@ use App\Contracts\Services\ServiceRegistry;
 use App\Events\Billing\InvoiceCancelled;
 use App\Events\Billing\InvoicePaid;
 use App\Events\Orders\OrderPlaced;
+use App\Events\Services\ServiceActivated;
+use App\Events\Services\ServiceCancelled;
+use App\Events\Services\ServiceRenewed;
+use App\Events\Services\ServiceSuspended;
+use App\Events\Services\ServiceTerminated;
+use App\Events\Services\ServiceUnsuspended;
+use App\Events\Services\ServiceUpgraded;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\RequestMemo;
@@ -41,10 +48,13 @@ use App\Modules\Services\Services\EloquentClientServiceDirectory;
 use App\Modules\Services\Services\EloquentServiceRegistry;
 use App\Modules\Services\Services\RegistryProvisioningDrivers;
 use App\Modules\Services\Support\ClientNameservers;
+use App\Modules\Services\Support\ServerSettings;
 use App\Modules\Services\Support\ServicesDashboard;
 use App\Support\Automation\Automation;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Events\WebhookEvents;
+use App\Support\Integrations\StoredSecrets;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
@@ -80,6 +90,15 @@ class ServicesServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $webhooks = $this->app->make(WebhookEvents::class);
+        $webhooks->register(ServiceActivated::class, 'service.activated', 'service', 'serviceId');
+        $webhooks->register(ServiceSuspended::class, 'service.suspended', 'service', 'serviceId');
+        $webhooks->register(ServiceUnsuspended::class, 'service.unsuspended', 'service', 'serviceId');
+        $webhooks->register(ServiceRenewed::class, 'service.renewed', 'service', 'serviceId');
+        $webhooks->register(ServiceUpgraded::class, 'service.upgraded', 'service', 'serviceId');
+        $webhooks->register(ServiceCancelled::class, 'service.cancelled', 'service', 'serviceId');
+        $webhooks->register(ServiceTerminated::class, 'service.terminated', 'service', 'serviceId');
+
         // Encrypted casts, for `security:reencrypt` (ADR 0022).
         $encrypted = $this->app->make(EncryptedStorage::class);
         $encrypted->register('services_servers', new EncryptedModel(Server::class));
@@ -91,6 +110,18 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $drivers->register('none', NoneDriver::class);
         $drivers->register('log', LogDriver::class);
         $drivers->register(CpanelDriver::KEY, CpanelDriver::class);
+
+        // Stored server credentials and settings checked against their minimum length (`integrations:short-secrets`).
+        $this->app->make(StoredSecrets::class)->register('servers', function (): iterable {
+            $settings = $this->app->make(ServerSettings::class);
+
+            foreach (Server::query()->lazyById() as $server) {
+                $owner = "{$server->name} (#{$server->id})";
+
+                yield ['owner' => $owner, 'fields' => $settings->credentialFields(), 'values' => fn (): array => $settings->credentials($server)];
+                yield ['owner' => $owner, 'fields' => $settings->fields($server->driver), 'values' => fn (): array => $server->settings ?? []];
+            }
+        });
 
         // A service's prices are stored in its client's currency (client-import spec §6.4); a deleted one still counts.
         $this->app->make(ClientCurrencyUsage::class)->register('services', fn (array $clientIds): array => Service::withTrashed()

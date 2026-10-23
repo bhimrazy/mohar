@@ -358,7 +358,7 @@ test('name servers, the lock, privacy and contacts go through the host and the d
     $changed = new ContactSet(array_map(fn (array $contact): array => [...$contact, 'email' => 'new-owner@example.test', 'first_name' => 'Binod'], app(BuildDomainContacts::class)->contactSet($com->fresh())->toArray()));
     $set = $driver->setContacts(ncConfigured(), $com->fresh()->toRef(), $changed);
 
-    expect($set->meta['transfer_lock_until'])->toBe(CarbonImmutable::today()->addDays(60)->toDateString())
+    expect($set->meta['transfer_lock_days'])->toBe(60)
         ->and(ncRecord('lock-sim.com')['contacts']['Registrant']['EmailAddress'])->toBe('new-owner@example.test')
         ->and(ncRecord('lock-sim.com')['lock_until'])->toBeGreaterThan(time() + 59 * 86_400);
 });

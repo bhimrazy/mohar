@@ -16,6 +16,9 @@ import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
+/** Settings whose option list is long enough to need a search box. */
+const SEARCHABLE = new Set(['system.timezone']);
+
 type SettingField = {
     key: string;
     label: string;
@@ -205,6 +208,9 @@ export default function SettingsEdit({ sections, section }: Props) {
                                                         set(field.key, next)
                                                     }
                                                     options={field.options}
+                                                    searchable={SEARCHABLE.has(
+                                                        field.key,
+                                                    )}
                                                     disabled={disabled}
                                                     invalid={Boolean(error)}
                                                 />

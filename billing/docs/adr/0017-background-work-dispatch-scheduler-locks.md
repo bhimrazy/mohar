@@ -40,7 +40,8 @@ assumptions about that topology without writing them down:
       other remote host.
     - Sweeps dispatch one job per item. The job is `ShouldBeUnique`, keyed by the item, and runs on the family's
       queue (`provisioning`, `payments`, `registrar`).
-    - Every scheduled entry has `->onOneServer()` and `->withoutOverlapping()`.
+    - Every scheduled entry has `->onOneServer()` and `->withoutOverlapping()`, except the once-a-minute heartbeat
+      (`core.heartbeat`), which has only `->onOneServer()`: it is a single cache write, so an overlap is harmless.
     - Daily work is an `Automation` task. Sub-daily polling is a schedule entry. Nothing is both.
 3. **Every job's timeout is below its queue's `retry_after`.**
     - Each job sets `$timeout` and `$tries` explicitly.

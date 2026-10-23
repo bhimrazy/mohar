@@ -14,6 +14,7 @@ use App\Modules\Domains\Services\RegistrarGateway;
 use App\Support\Domains\CapabilityNotSupported;
 use App\Support\Domains\RegistrarDriverRegistry;
 use App\Support\Domains\RegistrarException;
+use App\Support\Integrations\StoredSecrets;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -40,13 +41,14 @@ class RegistrarController extends Controller
                     'name' => $driver->name(),
                     'capabilities' => $registrars->capabilitiesOf($key),
                     'configured' => $account !== null,
-                    'is_active' => $account->is_active ?? true,
+                    'is_active' => $account === null ? ! $registrars->needsAccount($key) : $account->is_active,
                     'test_mode' => $account->test_mode ?? false,
                     'schema' => array_map(fn (SettingField $field): array => $field->toArray(), $schema),
                     'settings' => collect($schema)->mapWithKeys(fn (SettingField $field): array => [
                         $field->key => $field->isSecret() ? '' : ($settings[$field->key] ?? $field->default ?? ($field->type === FieldType::Boolean ? false : null)),
                     ])->all(),
                     'secrets_set' => collect($schema)->filter(fn (SettingField $field): bool => $field->isSecret())->mapWithKeys(fn (SettingField $field): array => [$field->key => filled($settings[$field->key] ?? null)])->all(),
+                    'secrets_short' => StoredSecrets::tooShort($schema, $settings),
                     'domains_count' => (int) ($domainCounts[$key] ?? 0),
                     'tlds_count' => (int) ($tldCounts[$key] ?? 0),
                 ];

@@ -6,7 +6,10 @@ import { FormActions } from '@/components/app/form-actions';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
-import { SettingFieldInput } from '@/components/app/setting-field';
+import {
+    SettingFieldInput,
+    shortSecretHint,
+} from '@/components/app/setting-field';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { SwitchField } from '@/components/app/switch-field';
 import {
@@ -202,11 +205,13 @@ export default function ServerForm({
         .filter(([, stored]) => stored)
         .map(([label]) => label);
 
-    const secretHint = (has: boolean | undefined) =>
+    const secretHint = (has: boolean | undefined, key: string) =>
         has
             ? retargeted
                 ? 'The address changed: enter it again.'
-                : 'Stored encrypted. Leave blank to keep it.'
+                : server?.credentials_short.includes(key)
+                  ? shortSecretHint(8) // SettingField::MIN_SECRET_BYTES
+                  : 'Stored encrypted. Leave blank to keep it.'
             : undefined;
 
     return (
@@ -411,6 +416,7 @@ export default function ServerForm({
                                         error={
                                             errorsByKey[`settings.${field.key}`]
                                         }
+                                        checkMinLength
                                     />
                                 ))}
                             {shows('username') && (
@@ -431,7 +437,10 @@ export default function ServerForm({
                                     htmlFor="password"
                                     label="Password"
                                     optional
-                                    hint={secretHint(server?.has_password)}
+                                    hint={secretHint(
+                                        server?.has_password,
+                                        'password',
+                                    )}
                                     error={errors.password}
                                 >
                                     <Input
@@ -446,7 +455,10 @@ export default function ServerForm({
                                     htmlFor="api_token"
                                     label="API token"
                                     optional
-                                    hint={secretHint(server?.has_api_token)}
+                                    hint={secretHint(
+                                        server?.has_api_token,
+                                        'api_token',
+                                    )}
                                     error={errors.api_token}
                                 >
                                     <Input
@@ -461,7 +473,10 @@ export default function ServerForm({
                                     htmlFor="access_hash"
                                     label="Access hash"
                                     optional
-                                    hint={secretHint(server?.has_access_hash)}
+                                    hint={secretHint(
+                                        server?.has_access_hash,
+                                        'access_hash',
+                                    )}
                                     error={errors.access_hash}
                                 >
                                     <Input
@@ -588,6 +603,14 @@ export default function ServerForm({
                                                         field.key
                                                     ]
                                                 }
+                                                secretShort={
+                                                    server?.driver ===
+                                                        data.driver &&
+                                                    server.settings.secrets_short.includes(
+                                                        field.key,
+                                                    )
+                                                }
+                                                checkMinLength
                                                 error={
                                                     errorsByKey[
                                                         `settings.${field.key}`

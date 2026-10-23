@@ -95,6 +95,7 @@ final class ReportExporter
     public function export(string $key, ReportQuery $query, ExportFormat $format, ?string $layout = null): StreamedResponse
     {
         $report = $this->report($key);
+        $query = $query->unpaged();
         $user = $this->authorize($report, $query);
         $layout = $this->layout($report, $layout);
         $writer = $this->writers[$format->value];
