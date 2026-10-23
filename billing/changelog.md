@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **A phone typed as `+9779841234567` no longer gets its country code twice at ResellerClub (#377).** A number written with a `+` and no separator after the country code is now split at the longest known calling code (for example 977, 971, 44, 1) before it is sent; an unknown code is refused with an example of how to write it. Numbers with a separator, and local numbers, are unchanged.
+
 - **Simulators no longer fail to start at random (#370).** A scenario's `scenario.json` is now written to a temporary file and renamed into place. Rewriting it in place (after the processes were spawned) could let a starting process read it empty, which failed CI with "did not become ready". Test-only tooling; no app change.
 
 - **Report PDFs: long names wrap, headings line up, dates sit next to the next column (#357).** A long text cell (a legal
