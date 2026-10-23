@@ -82,7 +82,7 @@ class PerformRenewal
 
         $cycle = $fromExpiry ?? 'none';
 
-        if (! $this->claim($domain, $cycle)) {
+        if (! $this->claim($domain, $cycle, $years)) {
             return $this->reconcile($domain, $years, $target, $staffId);
         }
 
@@ -120,9 +120,9 @@ class PerformRenewal
     /**
      * Claim the renewal of this cycle; false when an earlier attempt already holds a claim.
      */
-    private function claim(Domain $domain, string $cycle): bool
+    private function claim(Domain $domain, string $cycle, int $years): bool
     {
-        return DB::transaction(function () use ($domain, $cycle): bool {
+        return DB::transaction(function () use ($domain, $cycle, $years): bool {
             $locked = Domain::query()->lockForUpdate()->findOrFail($domain->id);
 
             if (isset($locked->registrar_meta['renew_sent_for'])) {
@@ -131,7 +131,7 @@ class PerformRenewal
                 return false;
             }
 
-            $locked->forceFill(['registrar_meta' => [...($locked->registrar_meta ?? []), 'renew_sent_for' => $cycle, 'renew_sent_at' => now()->toIso8601String()]])->save();
+            $locked->forceFill(['registrar_meta' => [...($locked->registrar_meta ?? []), 'renew_sent_for' => $cycle, 'renew_sent_at' => now()->toIso8601String(), 'renew_years' => $years]])->save();
             $domain->setRawAttributes($locked->getAttributes(), true);
 
             return true;
@@ -141,7 +141,7 @@ class PerformRenewal
     private function releaseClaim(Domain $domain): void
     {
         $meta = $domain->registrar_meta ?? [];
-        unset($meta['renew_sent_for'], $meta['renew_sent_at']);
+        unset($meta['renew_sent_for'], $meta['renew_sent_at'], $meta['renew_years']);
         $domain->forceFill(['registrar_meta' => $meta ?: null])->save();
     }
 
@@ -213,7 +213,7 @@ class PerformRenewal
     {
         $this->dates->applyExpiry($domain, $expiry);
         $meta = RemoteIds::merge($domain->registrar_meta, $remote) ?? [];
-        unset($meta['renew_sent_for'], $meta['renew_sent_at']);
+        unset($meta['renew_sent_for'], $meta['renew_sent_at'], $meta['renew_years']);
 
         $this->states->transition($domain, DomainStatus::Active, "Renewed for {$years} year(s)", [
             'registrar_meta' => $meta ?: null,

@@ -10,6 +10,7 @@ use App\Data\Domains\Registrar\SubmissionLookup;
 use App\Data\Domains\Registrar\SyncResult;
 use App\Data\Domains\Registrar\TransferSyncResult;
 use App\Enums\BillableType;
+use App\Enums\BillingCycle;
 use App\Enums\ReconcileStatus;
 use App\Events\Domains\DomainRegistered;
 use App\Events\Domains\DomainTransferFailed;
@@ -243,7 +244,15 @@ class SyncDomain
         $remote = $result->expiryDate;
         $local = $domain->expiry_date;
 
-        if ($remote === null || ($local !== null && $remote->isSameDay($local))) {
+        if ($remote === null) {
+            return $changes;
+        }
+
+        if ($local !== null && $remote->isSameDay($local)) {
+            if ($apply) {
+                $this->settleRenewalClaim($domain, $remote);
+            }
+
             return $changes;
         }
 
@@ -265,9 +274,34 @@ class SyncDomain
                 && $this->invoices->invoicer()->hasOpenInvoiceFor(BillableType::Domain, $domain->id);
             $this->dates->applyExpiry($domain, $remote, updateDueDates: ! $openInvoice);
             $domain->save();
+            $this->settleRenewalClaim($domain, $remote);
         }
 
         return $changes;
+    }
+
+    /**
+     * A renewal whose answer was lost keeps its claim and the review flag. When the registrar's expiry has reached
+     * the end of the claimed cycle, the renewal is confirmed: close the claim so the next cycle renews on its own.
+     */
+    private function settleRenewalClaim(Domain $domain, CarbonImmutable $remote): void
+    {
+        $meta = $domain->registrar_meta ?? [];
+        $cycle = $meta['renew_sent_for'] ?? null;
+
+        if ($cycle === null || $cycle === 'none') {
+            return;
+        }
+
+        $target = BillingCycle::Annually->advance(CarbonImmutable::parse((string) $cycle), (int) ($meta['renew_years'] ?? 1), $domain->billing_anchor_day);
+
+        if ($remote->lt($target)) {
+            return;
+        }
+
+        unset($meta['renew_sent_for'], $meta['renew_sent_at'], $meta['renew_years']);
+        $domain->forceFill(['registrar_meta' => $meta ?: null, 'needs_review' => false, 'last_error' => null])->save();
+        $this->activity->log("Renewal of {$domain->name} confirmed by sync", $domain, $domain->client_id, ['expiry' => $remote->toDateString()]);
     }
 
     /**

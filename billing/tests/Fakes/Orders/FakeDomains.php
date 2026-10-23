@@ -40,7 +40,7 @@ class FakeDomains implements DomainPricing, DomainRegistry
         return $price === null ? null : $price * $years;
     }
 
-    public function terms(string $tld, string $action, string $currency): array
+    public function terms(string $tld, string $action, string $currency, ?int $clientId = null): array
     {
         return ($this->tlds[$tld][$action] ?? null) === null ? [] : [1, 2, 3, 5, 10];
     }

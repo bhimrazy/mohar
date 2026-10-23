@@ -41,7 +41,7 @@ class AddDomainToCart
 
         $tld = $this->pricing->split(strtolower(trim($input['domain'])))[1] ?? null;
 
-        $terms = $tld === null ? [] : $this->pricing->terms($tld, $transfer ? 'transfer' : 'register', $cart->currency);
+        $terms = $tld === null ? [] : $this->pricing->terms($tld, $transfer ? 'transfer' : 'register', $cart->currency, $client?->id);
 
         // No terms at all: the pricer below explains that the extension is not sold here.
         if ($terms !== [] && ! in_array((int) $input['years'], $terms, true)) {

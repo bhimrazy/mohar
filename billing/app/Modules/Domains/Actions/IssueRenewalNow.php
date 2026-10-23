@@ -11,12 +11,14 @@ use App\Modules\Domains\Exceptions\DomainActionNotAllowed;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainPricingService;
 use App\Modules\Domains\Services\RenewalInvoices;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
 
 /**
  * "Renew now" (spec §8): issue the renewal invoice for the current cycle immediately instead of waiting
  * for the automated lead time. Clients pick a term at the current renew price; staff bill the locked
- * renewal amount and period. Never issues a second invoice for the same period.
+ * renewal amount and period. Never issues a second invoice for the same period: a per-domain lock serialises
+ * double clicks and the period check is repeated on a fresh read under it.
  */
 class IssueRenewalNow
 {
@@ -42,6 +44,24 @@ class IssueRenewalNow
             throw new DomainActionNotAllowed('Renewal invoices cannot be created right now. Please try again later.');
         }
 
+        // A cache lock, held outside any transaction: the Invoicer opens its own.
+        $lock = Cache::lock('domains:renew-now:'.$domain->id, 30);
+
+        if (! $lock->get()) {
+            throw new DomainActionNotAllowed('A renewal invoice for this domain is being created. Check your invoices in a moment.');
+        }
+
+        try {
+            $domain->refresh();
+
+            return $this->issue($domain, $actor, $years);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function issue(Domain $domain, string $actor, ?int $years): InvoiceResult
+    {
         if (! in_array($domain->status, [DomainStatus::Active, DomainStatus::Grace, DomainStatus::Redemption], true)) {
             throw new DomainActionNotAllowed("A {$domain->status->label()} domain cannot be renewed here.");
         }
