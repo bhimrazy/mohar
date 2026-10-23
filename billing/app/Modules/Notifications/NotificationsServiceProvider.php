@@ -21,9 +21,9 @@ use App\Modules\Notifications\Services\TemplateDirectory;
 use App\Modules\Notifications\Services\TemplatedSystemMailer;
 use App\Modules\Notifications\Support\SecretTemplatePolicy;
 use App\Modules\Notifications\Webhooks\HostResolver;
-use App\Modules\Notifications\Webhooks\WebhookEventTypes;
 use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Events\WebhookEvents;
 use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
@@ -77,9 +77,12 @@ class NotificationsServiceProvider extends ModuleServiceProvider
             Event::listen($event, [SendEventEmails::class, 'handle']);
         }
 
-        foreach (array_keys(WebhookEventTypes::MAP) as $event) {
-            Event::listen($event, [PublishEventWebhooks::class, 'handle']);
-        }
+        // After every provider has booted, so events registered by sibling modules and packages are included.
+        $this->app->booted(function (): void {
+            foreach ($this->app->make(WebhookEvents::class)->events() as $event) {
+                Event::listen($event, [PublishEventWebhooks::class, 'handle']);
+            }
+        });
 
         $this->registerNavigation();
         $this->registerDashboard();
