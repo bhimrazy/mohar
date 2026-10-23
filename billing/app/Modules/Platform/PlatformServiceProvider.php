@@ -149,21 +149,23 @@ class PlatformServiceProvider extends ModuleServiceProvider
     private function registerAutomation(): void
     {
         $automation = $this->app->make(Automation::class);
+        // Retention cutoffs compare timestamps, so they start at the company midnight, not at the UTC one ($today is a date value).
+        $cutoff = fn (CarbonImmutable $today, int $days): CarbonImmutable => $this->app->make(CompanyClock::class)->dayBounds($today->subDays($days))[0];
 
         $automation->task('platform.prune_invitations', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): string => trans_choice(
             '{0} no invitations pruned|{1} 1 invitation pruned|[2,*] :count invitations pruned',
             StaffInvitation::query()
                 ->where(fn ($query) => $query
-                    ->where(fn ($query) => $query->whereNull('accepted_at')->where('expires_at', '<', $today->subDays(30)))
-                    ->orWhere(fn ($query) => $query->whereNotNull('accepted_at')->where('accepted_at', '<', $today->subDays(90))))
+                    ->where(fn ($query) => $query->whereNull('accepted_at')->where('expires_at', '<', $cutoff($today, 30)))
+                    ->orWhere(fn ($query) => $query->whereNotNull('accepted_at')->where('accepted_at', '<', $cutoff($today, 90))))
                 ->delete(),
         ), label: 'Delete old staff invitations', description: 'Removes expired and used staff invitations.');
 
-        $automation->task('platform.prune_activity_log', Automation::HOUSEKEEPING, function (CarbonImmutable $today): string {
+        $automation->task('platform.prune_activity_log', Automation::HOUSEKEEPING, function (CarbonImmutable $today) use ($cutoff): string {
             $days = max(30, (int) $this->app->make(Settings::class)->get('platform.activity_log_retention_days', 365));
 
             // Entries tied to a client are kept until the client is deleted (spec §8).
-            $count = ChunkedDelete::run(DB::table('activity_log')->whereNull('client_id')->where('created_at', '<', $today->subDays($days)));
+            $count = ChunkedDelete::run(DB::table('activity_log')->whereNull('client_id')->where('created_at', '<', $cutoff($today, $days)));
 
             return trans_choice('{0} no entries pruned|{1} 1 entry pruned|[2,*] :count entries pruned', $count);
         }, label: 'Prune the activity log', description: 'Deletes activity log entries older than the retention period (client entries are kept).');

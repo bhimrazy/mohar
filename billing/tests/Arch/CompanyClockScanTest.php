@@ -20,6 +20,9 @@ const UTC_DATE_FORMS = [
     'the UTC date of an instant column' => '/_at\s*\??->\s*toDateString\s*\(/',
 ];
 
+/** Modules that have moved onto the company clock. */
+const SCANNED_MODULES = ['Billing', 'Notifications', 'Platform'];
+
 /** Code the scan must not flag. */
 const ALLOWED_DATE_CODE = [
     '$this->clock->today()',
@@ -43,7 +46,7 @@ function billingDocumentCode(string $module = 'Billing', bool $withDatabase = fa
     foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(dirname(__DIR__, 2).'/app/Modules'.($module === '' ? '' : "/{$module}"), FilesystemIterator::SKIP_DOTS)) as $file) {
         $path = $file->getPathname();
 
-        if ($file->getExtension() !== 'php' || (! $withDatabase && str_contains($path, '/Billing/Database/'))) {
+        if ($file->getExtension() !== 'php' || (! $withDatabase && str_contains($path, '/Database/'))) {
             continue;
         }
 
@@ -56,13 +59,15 @@ function billingDocumentCode(string $module = 'Billing', bool $withDatabase = fa
     return $files;
 }
 
-test('Billing document paths read no UTC calendar date', function () {
+test('document paths of the moved modules read no UTC calendar date', function () {
     $found = [];
 
-    foreach (billingDocumentCode() as $path => $code) {
-        foreach (UTC_DATE_FORMS as $label => $pattern) {
-            if (preg_match($pattern, $code) === 1) {
-                $found[] = "{$path}: {$label}";
+    foreach (SCANNED_MODULES as $module) {
+        foreach (billingDocumentCode($module) as $path => $code) {
+            foreach (UTC_DATE_FORMS as $label => $pattern) {
+                if (preg_match($pattern, $code) === 1) {
+                    $found[] = "{$path}: {$label}";
+                }
             }
         }
     }
@@ -120,9 +125,7 @@ const HAND_CONVERSIONS = [
 const HAND_CONVERSION_BASELINE = [
     'Modules/Billing/Database/Seeders/BillingHistorySeeder.php: an instant method on the run date' => 1,
     'Modules/Domains/DomainsServiceProvider.php: a timestamp column compared with the run date' => 1,
-    'Modules/Notifications/Actions/PruneNotificationLogs.php: a timestamp column compared with the run date' => 2,
     'Modules/Orders/Actions/CancelStalePendingOrders.php: a timestamp column compared with the run date' => 1,
-    'Modules/Platform/PlatformServiceProvider.php: a timestamp column compared with the run date' => 3,
     'Modules/Services/Actions/PruneModuleLog.php: a timestamp column compared with the run date' => 1,
     'Modules/Services/Database/Seeders/ServicesSeeder.php: an instant method on the run date' => 1,
 ];
