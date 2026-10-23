@@ -8,7 +8,7 @@ use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainStateMachine;
 use App\Modules\Domains\Services\RenewalInvoices;
-use Carbon\CarbonImmutable;
+use App\Support\CalendarDate;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -29,7 +29,7 @@ class ApplyExpiryLifecycle
     /**
      * @return int number of domains that changed status
      */
-    public function handle(CarbonImmutable $today): int
+    public function handle(CalendarDate $today): int
     {
         $enabled = (bool) $this->settings->get('domains.grace_redemption_enabled', true);
         $changed = 0;
@@ -38,7 +38,7 @@ class ApplyExpiryLifecycle
             ->with('tldModel')
             ->withStatus([DomainStatus::Active, DomainStatus::Grace, DomainStatus::Redemption])
             ->whereNotNull('expiry_date')
-            ->whereDate('expiry_date', '<', $today)
+            ->whereDate('expiry_date', '<', $today->toString())
             ->chunkById(200, function ($domains) use ($today, $enabled, &$changed): void {
                 foreach ($domains as $domain) {
                     $target = $this->targetStatus($domain, $today, $enabled);
@@ -58,7 +58,7 @@ class ApplyExpiryLifecycle
         return $changed;
     }
 
-    private function targetStatus(Domain $domain, CarbonImmutable $today, bool $enabled): ?DomainStatus
+    private function targetStatus(Domain $domain, CalendarDate $today, bool $enabled): ?DomainStatus
     {
         if ($domain->expiry_date === null) {
             return null;
@@ -66,7 +66,7 @@ class ApplyExpiryLifecycle
 
         $graceDays = $enabled ? $domain->tldModel->grace_days : 0;
         $redemptionDays = $enabled ? $domain->tldModel->redemption_days : 0;
-        $daysPast = (int) $domain->expiry_date->diffInDays($today);
+        $daysPast = CalendarDate::parse($domain->expiry_date->toDateString())->daysUntil($today);
 
         return match (true) {
             $daysPast <= $graceDays => DomainStatus::Grace,

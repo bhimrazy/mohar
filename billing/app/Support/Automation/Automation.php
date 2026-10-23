@@ -55,9 +55,13 @@ class Automation
     /** @var array<string, bool> */
     private array $takesCalendarDate = [];
 
+    /** @var array<string, bool> Tasks whose handler takes a run date that is not a CalendarDate. */
+    private array $takesCarbonDate = [];
+
     public function task(string $key, int $stage, Closure $handler, ?string $label = null, ?string $description = null): void
     {
         $this->takesCalendarDate[$key] = self::takesCalendarDate($handler, $key);
+        $this->takesCarbonDate[$key] = ! $this->takesCalendarDate[$key] && (new ReflectionFunction($handler))->getNumberOfParameters() > 0;
         $this->tasks[$key] = ['stage' => $stage, 'handler' => $handler, 'label' => $label ?? self::fallbackLabel($key), 'description' => $description];
     }
 
@@ -102,6 +106,20 @@ class Automation
         }
 
         return false;
+    }
+
+    /**
+     * Keys of the registered tasks that still take the run date as Carbon (or any non-CalendarDate type), read from the
+     * handlers by reflection, so package tasks and handlers passed as variables or callables count too.
+     *
+     * @return list<string>
+     */
+    public function carbonDateTasks(): array
+    {
+        $keys = array_keys(array_filter($this->takesCarbonDate));
+        sort($keys);
+
+        return $keys;
     }
 
     /**

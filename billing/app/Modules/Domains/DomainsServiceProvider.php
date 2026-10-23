@@ -46,6 +46,7 @@ use App\Modules\Domains\Services\EloquentRegistrarRefs;
 use App\Modules\Domains\Services\RenewalInvoices;
 use App\Modules\Domains\Services\TldAttributeService;
 use App\Support\Automation\Automation;
+use App\Support\CalendarDate;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\PriceConverters;
 use App\Support\Dashboard\Dashboard;
@@ -62,7 +63,6 @@ use App\Support\Security\EncryptedModel;
 use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
-use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Debug\ExceptionHandler;
@@ -169,21 +169,21 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $automation = $this->app->make(Automation::class);
         $invoicesAvailable = fn (): bool => $this->app->make(RenewalInvoices::class)->available();
 
-        $automation->task('domains.renewals', Automation::RENEWALS, fn (CarbonImmutable $today): int|string => $invoicesAvailable()
+        $automation->task('domains.renewals', Automation::RENEWALS, fn (CalendarDate $today): int|string => $invoicesAvailable()
             ? $this->app->make(IssueRenewalInvoices::class)->handle($today)
             : 'skipped: no invoicer', label: 'Generate domain renewal invoices', description: 'Invoices domains that are coming up for renewal.');
 
-        $automation->task('domains.reminders', Automation::REMINDERS, fn (CarbonImmutable $today): int => $this->app->make(SendExpiryReminders::class)->handle($today), label: 'Send domain expiry reminders', description: 'Emails clients about domains that are about to expire.');
+        $automation->task('domains.reminders', Automation::REMINDERS, fn (CalendarDate $today): int => $this->app->make(SendExpiryReminders::class)->handle($today), label: 'Send domain expiry reminders', description: 'Emails clients about domains that are about to expire.');
 
-        $automation->task('domains.lifecycle', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $this->app->make(ApplyExpiryLifecycle::class)->handle($today), label: 'Move expired domains through grace and redemption', description: 'Moves expired domains into grace, redemption and expired, swapping their renewal invoices.');
+        $automation->task('domains.lifecycle', Automation::CANCELLATIONS, fn (CalendarDate $today): int => $this->app->make(ApplyExpiryLifecycle::class)->handle($today), label: 'Move expired domains through grace and redemption', description: 'Moves expired domains into grace, redemption and expired, swapping their renewal invoices.');
 
         $this->app->make(PriceConverters::class)->register(ConvertTldPrices::class);
         $automation->task('domains.convert-prices', Automation::SYNC, fn (): int|string => $this->app->make(ConvertTldPrices::class)->automatic()
             ? $this->app->make(ConvertTldPrices::class)->apply()
             : 'disabled', label: 'Convert domain prices', description: 'Recalculates TLD prices in other currencies from the default currency at current rates (when automatic conversion is on).');
 
-        $automation->task('domains.command_log_prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => ChunkedDelete::run(RegistrarCommandLog::query()
-            ->where('created_at', '<', $this->app->make(CompanyClock::class)->dayBounds($today->subDays((int) $this->app->make(Settings::class)->get('domains.command_log_retention_days', 90)))[0])), label: 'Prune the registrar log', description: 'Deletes registrar command log entries older than the retention period.');
+        $automation->task('domains.command_log_prune', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => ChunkedDelete::run(RegistrarCommandLog::query()
+            ->where('created_at', '<', $this->app->make(CompanyClock::class)->dayBounds($today->addDays(-(int) $this->app->make(Settings::class)->get('domains.command_log_retention_days', 90)))[0])), label: 'Prune the registrar log', description: 'Deletes registrar command log entries older than the retention period.');
     }
 
     private function registerNavigation(): void
