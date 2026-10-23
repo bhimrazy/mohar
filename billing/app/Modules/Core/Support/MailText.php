@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Platform\Support;
+namespace App\Modules\Core\Support;
 
 /**
  * Makes text safe to place in a Markdown mail line. Blade's {{ }} in the notification template already

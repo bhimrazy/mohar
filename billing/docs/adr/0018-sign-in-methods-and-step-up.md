@@ -159,3 +159,20 @@ A login always keeps at least one way to sign in:
   30 days ago" already implies "unchanged for 30 days", and no consumer needs the two facts apart. The column is added,
   set in the same hook, with the first consumer that does: linking a social identity by verified email (§1), or a
   rule for staff. `clients.email_changed_at` stays the column for the client record.
+
+## Addendum (2026-10-23, #388): changing the sign-in email needs step-up
+
+- A login's own email change (Settings → Profile) needs `password.recent`, like the staff edit (`UpdateStaff`), which
+  already had it. Whoever controls the email controls password resets, so the change is account recovery and a session
+  alone must not be able to make it. A name-only save needs no step-up.
+- A login without a password cannot pass step-up (§4), so it cannot change its email until it sets a password. No
+  emailed confirmation link is used instead: that would be a second step-up mechanism, which §4 rules out.
+- After every change the old address gets a notice with the new address partly masked (`auth.email_changed`, or
+  `staff.email_changed` for staff), and the new address must be verified again. This holds for a self-change on both
+  paths (Settings → Profile and Admin → Staff → Edit) and for a staff member editing someone else: the new mailbox
+  receives resets and has not been proven. A staff member who changes their own email is sent to verify before
+  returning to the admin area.
+- If the old-address notice is refused or suppressed by the template system, no other path sends it; the person
+  sees a warning and the activity log records the outcome.
+- `SensitiveRouteStepUpTest` lists the routes known to write `users.email` and checks each refuses without step-up.
+  A new route that changes a login's email is added there.

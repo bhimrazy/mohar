@@ -30,6 +30,8 @@ beforeEach(function () {
 function s133rSignUpAndMoveLogin(): Client
 {
     test()->post(route('register'), ['name' => 'Anna Alpha', 'email' => 'anna@alpha-books.com', 'password' => 'Correct-Horse-9-Battery', 'password_confirmation' => 'Correct-Horse-9-Battery']);
+    // The owner knows the password: an email change needs step-up (#388).
+    confirmPassword();
     test()->patch(route('profile.update'), ['name' => 'Anna Alpha', 'email' => 'visitor@own.example'])->assertSessionHasNoErrors();
     // The visitor verifies the address they control.
     $login = User::query()->where('email', 'visitor@own.example')->sole();
