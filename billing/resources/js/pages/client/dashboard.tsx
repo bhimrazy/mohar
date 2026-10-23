@@ -1,4 +1,4 @@
-import { Link } from '@inertiajs/react';
+import { Link, usePage } from '@inertiajs/react';
 import { CircleAlert, Receipt, Sparkles } from 'lucide-react';
 import { Head } from '@/components/app/head';
 import type {
@@ -15,10 +15,10 @@ import { Button } from '@/components/ui/button';
 import { navIcon } from '@/lib/nav-icons';
 import { cn } from '@/lib/utils';
 import { dashboard } from '@/routes/client';
-import type { ClientRecord, DashboardCard } from '@/types';
+import type { DashboardCard } from '@/types';
 
 type Props = {
-    client: ClientRecord;
+    client: { id: number; company_name: string | null };
     notices: NoticeWidgetData[];
     cards: DashboardCard[];
     panels: ListWidgetData[];
@@ -89,6 +89,8 @@ export default function ClientDashboard({
     cards,
     panels,
 }: Props) {
+    const { auth } = usePage().props;
+    const firstName = auth.user.name.split(' ')[0];
     const nothing =
         notices.length === 0 && cards.length === 0 && panels.length === 0;
 
@@ -97,7 +99,7 @@ export default function ClientDashboard({
             <Head title="Dashboard" />
             <Page>
                 <PageHeader
-                    title={`Welcome back, ${client.first_name}`}
+                    title={`Welcome back, ${firstName}`}
                     description={
                         client.company_name
                             ? `You're managing ${client.company_name.replace(/\.$/, '')}.`
@@ -110,7 +112,7 @@ export default function ClientDashboard({
                 ))}
 
                 {cards.length > 0 && (
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
                         {cards.map((card) => (
                             <StatCard
                                 key={card.key}

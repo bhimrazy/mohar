@@ -49,6 +49,8 @@ export type DashboardListItem = {
     /** ISO date shown after the subtitle, prefixed with `dateLabel`. */
     date?: string | null;
     dateLabel?: string;
+    /** A button at the end of the row ("Pay"). */
+    action?: { label: string; href: string } | null;
 };
 
 export type ListWidgetData = WidgetBase & {
@@ -66,7 +68,7 @@ export type ListWidgetData = WidgetBase & {
     tabTitle?: string;
 };
 
-/** A banner, e.g. the client's invoice to pay. */
+/** A banner, e.g. the client's invoice to pay. Rendered by the client dashboard only. */
 export type NoticeWidgetData = WidgetBase & {
     type: 'notice';
     title: string;
@@ -134,7 +136,8 @@ export type DashboardWidget =
     | StatWidget
     | ListWidgetData
     | ChartWidget
-    | BreakdownWidget;
+    | BreakdownWidget
+    | NoticeWidgetData;
 
 export type HealthCheck = {
     key: string;

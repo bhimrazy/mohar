@@ -19,14 +19,15 @@ use Closure;
  * Other widgets — type + payload shape:
  *   'list'  => ['title' => 'Recent orders', 'items' => [['title', 'subtitle'?, 'href'?, 'meta'?, 'money'?, 'status'?]], 'href'? (view all),
  *               'empty'?, 'group'? + 'groupTitle'? (lists sharing a group render as tabs of one card)]
- *               An item may add 'date' + 'dateLabel' ("Renews", "Due"), shown after its subtitle; a list may add
- *               'emptyAction' => ['label', 'href'].
+ *               An item may add 'date' + 'dateLabel' ("Renews", "Due"), shown after its subtitle, and 'action' =>
+ *               ['label', 'href'] (a button on the row); a list may add 'emptyAction' => ['label', 'href'].
  *   'chart' => ['title' => 'Income', 'kind' => 'line'|'bar', 'currency'?, 'stacked'?, 'description'?, 'xFormat'? ('month'|'day'|'dayOfMonth'|'week'),
  *               'series' => [['name', 'compare'? (drawn as the neutral baseline), 'points' => [['x' => '2026-10-01', 'y' => 1234]]]],
  *               'summary'? => ['money'|'value', 'label', 'trend'?], 'ranges'? => ['12m' => ['label', 'series', 'summary'?, 'xFormat'?]], 'href'?]
  *   'breakdown' => ['title', 'description'?, 'rows' => [['key', 'label', 'code'?, 'money'|'value', 'share' (0–100)]],
  *               'notes'? => [['label', 'money']], 'notesTitle'?, 'empty'?]
- *   'notice' => ['title', 'body'?, 'tone' => 'warning'|'danger'|'info', 'actions' => [['label', 'href', 'primary'?]]]  (a banner)
+ *   'notice' => ['title', 'body'?, 'tone' => 'warning'|'danger'|'info', 'actions' => [['label', 'href', 'primary'?]]]
+ *               (a banner; only the client dashboard renders it, the admin dashboard ignores it)
  *   $dashboard->widget('admin', 'orders.recent', 'list', fn ($user) => [...], 'orders.orders.view', order: 30, size: 'md');
  *
  * A resolver that returns null hides its widget for this request (nothing to show, or the viewer may not see it).
@@ -88,8 +89,8 @@ class Dashboard
     }
 
     /**
-     * Stat cards only (kept for simple dashboards and the client area), including cards that mirror a to-do; those
-     * carry 'mirrorsTodo' => true.
+     * Stat cards only, including cards that mirror a to-do; those carry 'mirrorsTodo' => true. The dashboards
+     * themselves use resolveWidgets(); this serves callers that need just the counters.
      *
      * @return list<array<string, mixed>>
      */

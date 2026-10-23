@@ -247,15 +247,6 @@ class DomainsServiceProvider extends ModuleServiceProvider
 
         $canSee = fn (?User $user, Client $client): bool => app(ClientContext::class)->allows($user, $client, 'domains');
 
-        $dashboard->todo('client', 'domains.renew', fn (?User $user, Client $client): array => [
-            'label' => 'Domains to renew',
-            'count' => $canSee($user, $client) ? Domain::query()->where('client_id', $client->id)
-                ->where(fn ($query) => $query->expiringWithin(30)->orWhere(fn ($query) => $query->withStatus([DomainStatus::Grace, DomainStatus::Redemption])))
-                ->count() : 0,
-            'href' => route('client.domains.index'),
-            'tone' => 'warning',
-        ], null, 30);
-
         $dashboard->card('client', 'domains.expiring', fn (?User $user, Client $client): ?array => $canSee($user, $client) ? [
             'label' => 'Domains expiring soon',
             'value' => Domain::query()->where('client_id', $client->id)->expiringWithin(30)->count(),

@@ -199,7 +199,12 @@ class SupportServiceProvider extends ModuleServiceProvider
                     'title' => $ticket->subject,
                     'subtitle' => '#'.$ticket->number,
                     'href' => route('client.support.tickets.show', $ticket->number),
-                    'status' => $ticket->status === TicketStatus::Answered ? 'awaiting-you' : $ticket->status->value,
+                    // The client's view of who is waiting: staff answered → them; they replied → us.
+                    'status' => match ($ticket->status) {
+                        TicketStatus::Answered => 'awaiting-you',
+                        TicketStatus::CustomerReply => 'waiting-for-us',
+                        default => $ticket->status->value,
+                    },
                     'meta' => $ticket->last_reply_at?->toIso8601String(),
                 ])->values()->all(),
             'href' => route('client.support.tickets.index'),

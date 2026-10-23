@@ -33,7 +33,7 @@ function clientDashboardProps(): array
     return test()->get(route('client.dashboard'))->assertOk()->viewData('page')['props'];
 }
 
-function panel(string $key): ?array
+function dashboardPanel(string $key): ?array
 {
     return collect(clientDashboardProps()['panels'])->firstWhere('key', $key);
 }
@@ -62,6 +62,21 @@ test('an overdue invoice turns the banner to danger, and the earliest due one is
         ->and($notice['actions'][0]['href'])->toBe(route('client.invoices.index', ['status' => 'unpaid']));
 });
 
+test('the banner and the Unpaid card count the same set: collections yes, payment_pending no', function () {
+    issueInvoice($this->client, [7_000], dueDate: CarbonImmutable::parse('2026-10-10'))->forceFill(['status' => 'payment_pending'])->save();
+    $collections = issueInvoice($this->client, [3_000], dueDate: CarbonImmutable::parse('2026-10-15'));
+    $collections->forceFill(['status' => 'collections'])->save();
+    issueInvoice($this->client, [2_000], dueDate: CarbonImmutable::parse('2026-10-28'));
+
+    $props = clientDashboardProps();
+    $unpaid = collect($props['cards'])->firstWhere('key', 'billing.unpaid');
+
+    expect($props['notices'][0]['title'])->toStartWith("Invoice {$collections->number} for Rs 30.00 was due")
+        ->and($props['notices'][0]['body'])->toBe('You have 1 more invoice to pay.')
+        ->and($unpaid['hint'])->toBe('2 to pay')
+        ->and($unpaid['money']['amount'])->toBe(5_000);
+});
+
 test('no banner when nothing is owed: paid, cancelled and other clients\' invoices do not count', function () {
     payInvoice($paid = issueInvoice($this->client, [4_000]), $paid->total);
     issueInvoice($this->client, [4_000])->forceFill(['status' => 'cancelled'])->save();
@@ -73,13 +88,15 @@ test('no banner when nothing is owed: paid, cancelled and other clients\' invoic
 test('the services panel lists the client\'s live services, the ones needing attention first', function () {
     Service::factory()->dueOn('2026-11-01')->create(['client_id' => $this->client->id, 'product_name' => 'Business Hosting', 'domain' => 'himal.com.np', 'currency' => 'NPR', 'recurring_amount' => 299_900]);
     Service::factory()->suspended()->create(['client_id' => $this->client->id, 'product_name' => 'VPS 4 GB']);
+    Service::factory()->pending()->create(['client_id' => $this->client->id, 'product_name' => 'Email Pro']);
     Service::factory()->status(ServiceStatus::Terminated)->create(['client_id' => $this->client->id, 'product_name' => 'Old plan']);
     Service::factory()->create(['product_name' => 'Someone else']);
 
-    $panel = panel('services.list');
+    $panel = dashboardPanel('services.list');
 
-    expect(array_column($panel['items'], 'title'))->toBe(['VPS 4 GB', 'Business Hosting'])
-        ->and($panel['items'][1])->toMatchArray([
+    expect(array_column($panel['items'], 'title'))->toBe(['VPS 4 GB', 'Email Pro', 'Business Hosting'])
+        ->and($panel['items'][1]['date'])->toBeNull()
+        ->and($panel['items'][2])->toMatchArray([
             'subtitle' => 'himal.com.np · Monthly',
             'status' => 'active',
             'money' => ['amount' => 299_900, 'currency' => 'NPR'],
@@ -89,28 +106,32 @@ test('the services panel lists the client\'s live services, the ones needing att
         ->and($panel['href'])->toBe(route('client.services.index'));
 });
 
-test('the invoices panel shows the latest invoices with derived overdue status', function () {
+test('the invoices panel shows the latest invoices with derived overdue status and Pay on the ones to pay', function () {
     $paid = issueInvoice($this->client, [1_000], dueDate: CarbonImmutable::parse('2026-10-10'));
     payInvoice($paid, $paid->total);
     $overdue = issueInvoice($this->client, [2_000], dueDate: CarbonImmutable::parse('2026-10-20'));
     issueInvoice($this->client, [3_000], status: 'draft');
 
-    $items = collect(panel('billing.invoices')['items'])->keyBy('href');
+    $items = collect(dashboardPanel('billing.invoices')['items'])->keyBy('href');
 
     expect($items)->toHaveCount(2)
-        ->and($items[route('client.invoices.show', $overdue->id)])->toMatchArray(['status' => 'overdue', 'dateLabel' => 'Due', 'date' => '2026-10-20'])
-        ->and($items[route('client.invoices.show', $paid->id)])->toMatchArray(['status' => 'paid', 'dateLabel' => 'Paid', 'date' => '2026-10-23']);
+        ->and($items[route('client.invoices.show', $overdue->id)])->toMatchArray([
+            'status' => 'overdue', 'dateLabel' => 'Due', 'date' => '2026-10-20',
+            'action' => ['label' => 'Pay', 'href' => route('client.invoices.show', $overdue->id)],
+        ])
+        ->and($items[route('client.invoices.show', $paid->id)])->toMatchArray(['status' => 'paid', 'dateLabel' => 'Paid', 'date' => '2026-10-23', 'action' => null]);
 });
 
 test('the support panel puts tickets awaiting the client first and leaves closed ones out', function () {
     Ticket::factory()->forClient($this->client)->status(TicketStatus::Open)->create(['subject' => 'DNS question', 'last_reply_at' => now()]);
     Ticket::factory()->forClient($this->client)->status(TicketStatus::Answered)->create(['subject' => 'Email bouncing', 'last_reply_at' => now()->subDay()]);
+    Ticket::factory()->forClient($this->client)->status(TicketStatus::CustomerReply)->create(['subject' => 'Still slow', 'last_reply_at' => now()->subHour()]);
     Ticket::factory()->forClient($this->client)->status(TicketStatus::Closed)->create(['subject' => 'Old']);
 
-    $items = panel('support.tickets')['items'];
+    $items = dashboardPanel('support.tickets')['items'];
 
-    expect(array_column($items, 'title'))->toBe(['Email bouncing', 'DNS question'])
-        ->and($items[0]['status'])->toBe('awaiting-you');
+    expect(array_column($items, 'title'))->toBe(['Email bouncing', 'DNS question', 'Still slow'])
+        ->and(array_column($items, 'status'))->toBe(['awaiting-you', 'open', 'waiting-for-us']);
 });
 
 test('the domains panel lists live domains by expiry with auto-renew and an expiring flag', function () {
@@ -119,7 +140,7 @@ test('the domains panel lists live domains by expiry with auto-renew and an expi
     Domain::factory()->create(['client_id' => $this->client->id, 'name_unicode' => 'lapsed.com', 'status' => DomainStatus::Grace, 'expiry_date' => '2026-10-15', 'auto_renew' => true]);
     Domain::factory()->status(DomainStatus::Cancelled)->create(['client_id' => $this->client->id, 'name_unicode' => 'gone.com']);
 
-    $items = panel('domains.list')['items'];
+    $items = dashboardPanel('domains.list')['items'];
 
     expect(array_column($items, 'title'))->toBe(['lapsed.com', 'soon.com', 'later.com'])
         ->and($items[0])->toMatchArray(['status' => 'grace', 'dateLabel' => 'Expired'])
@@ -132,8 +153,12 @@ test('every panel has an empty state with a next step when the client has nothin
 
     expect($panels->keys()->all())->toBe(['services.list', 'billing.invoices', 'support.tickets', 'domains.list'])
         ->and($panels->every(fn (array $panel): bool => $panel['items'] === [] && $panel['empty'] !== ''))->toBeTrue()
-        ->and($panels['support.tickets']['emptyAction']['href'])->toBe(route('client.support.tickets.create'))
-        ->and($panels['domains.list']['emptyAction']['href'])->toBe(route('domains.search'));
+        ->and($panels->map(fn (array $panel): string => $panel['emptyAction']['href'])->all())->toBe([
+            'services.list' => route('store.index'),
+            'billing.invoices' => route('store.index'),
+            'support.tickets' => route('client.support.tickets.create'),
+            'domains.list' => route('domains.search'),
+        ]);
 });
 
 test('an account user sees only the areas the owner granted', function () {

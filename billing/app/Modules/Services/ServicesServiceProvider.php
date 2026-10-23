@@ -280,12 +280,13 @@ class ServicesServiceProvider extends ModuleServiceProvider
                 ->limit(4)
                 ->get(['id', 'product_name', 'domain', 'status', 'cycle', 'recurring_amount', 'currency', 'next_due_date', 'do_not_renew'])
                 ->map(fn (Service $service): array => [
-                    'title' => $service->product_name ?? 'Service #'.$service->id,
+                    'title' => $service->product_name ?? 'Service',
                     'subtitle' => implode(' · ', array_filter([$service->domain, self::cycleLabel($service->cycle)])),
                     'href' => route('client.services.show', $service->id),
                     ...($service->cycle->isRecurring() ? ['money' => ['amount' => $service->recurring_amount, 'currency' => $service->currency]] : []),
                     'status' => $service->status->value,
-                    'date' => $service->cycle->isRecurring() ? $service->next_due_date?->toDateString() : null,
+                    // A pending service has not started, so it has no renewal date yet.
+                    'date' => $service->cycle->isRecurring() && $service->status !== ServiceStatus::Pending ? $service->next_due_date?->toDateString() : null,
                     'dateLabel' => match (true) {
                         $service->do_not_renew => 'Ends',
                         (bool) $service->next_due_date?->lt(app(CompanyClock::class)->todayDate()) => 'Was due',

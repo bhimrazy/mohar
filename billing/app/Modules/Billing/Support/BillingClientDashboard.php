@@ -13,6 +13,8 @@ use App\Modules\Core\Support\DateFormats;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Money;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Route;
 
 /**
  * Billing's part of the client dashboard: the due-invoice banner, the unpaid and credit counters and the recent
@@ -20,7 +22,10 @@ use App\Support\Money;
  */
 class BillingClientDashboard
 {
-    /** Invoices the banner asks the client to pay; payment_pending is already being paid. */
+    /**
+     * "To pay" everywhere on the client dashboard (banner, Unpaid card, Pay on rows): unpaid and collections invoices
+     * with a balance. payment_pending is left out because a payment for it is already under way.
+     */
     private const DUE = [InvoiceStatus::Unpaid, InvoiceStatus::Collections];
 
     public function register(Dashboard $dashboard): void
@@ -32,7 +37,7 @@ class BillingClientDashboard
                 return null;
             }
 
-            $unpaid = Invoice::query()->where('client_id', $client->id)->whereIn('status', InvoiceStatus::payable());
+            $unpaid = $this->due($client);
 
             return [
                 'label' => 'Unpaid invoices',
@@ -53,6 +58,14 @@ class BillingClientDashboard
         $dashboard->widget('client', 'billing.invoices', 'list', fn (?User $user, Client $client): ?array => $this->canSeeBilling($user, $client) ? $this->recentInvoices($client) : null, order: 20);
     }
 
+    /**
+     * @return Builder<Invoice>
+     */
+    private function due(Client $client): Builder
+    {
+        return Invoice::query()->where('client_id', $client->id)->whereIn('status', self::DUE)->where('balance', '>', 0);
+    }
+
     private function canSeeBilling(?User $user, Client $client): bool
     {
         return app(ClientContext::class)->allows($user, $client, 'billing');
@@ -65,7 +78,7 @@ class BillingClientDashboard
      */
     private function dueNotice(Client $client): ?array
     {
-        $due = Invoice::query()->where('client_id', $client->id)->whereIn('status', self::DUE)->where('balance', '>', 0);
+        $due = $this->due($client);
 
         /** @var Invoice|null $first */
         $first = (clone $due)->orderByRaw('due_date is null')->orderBy('due_date')->orderBy('id')
@@ -77,13 +90,14 @@ class BillingClientDashboard
 
         $others = (clone $due)->count() - 1;
         $amount = app(MoneyFormatter::class)->amount($first->balance, $first->currency);
-        $label = $first->number ?? $first->proforma_number ?? '#'.$first->id;
+        $number = $first->number ?? $first->proforma_number;
+        $label = $number === null ? 'An invoice' : "Invoice {$number}";
         $dueOn = $first->due_date?->format(DateFormats::current());
         $overdue = $first->due_date !== null && $first->due_date->lt(app(CompanyClock::class)->todayDate());
         $title = match (true) {
-            $first->due_date === null => "Invoice {$label} for {$amount} is unpaid",
-            $overdue => "Invoice {$label} for {$amount} was due on {$dueOn}",
-            default => "Invoice {$label} for {$amount} is due on {$dueOn}",
+            $first->due_date === null => "{$label} for {$amount} is unpaid",
+            $overdue => "{$label} for {$amount} was due on {$dueOn}",
+            default => "{$label} for {$amount} is due on {$dueOn}",
         };
 
         return [
@@ -113,14 +127,17 @@ class BillingClientDashboard
 
         $items = Invoice::query()->where('client_id', $client->id)->where('status', '!=', InvoiceStatus::Draft)
             ->orderByDesc('issue_date')->orderByDesc('id')->limit(4)
-            ->get(['id', 'number', 'proforma_number', 'status', 'issue_date', 'due_date', 'paid_at', 'total', 'currency'])
+            ->get(['id', 'number', 'proforma_number', 'status', 'issue_date', 'due_date', 'paid_at', 'total', 'balance', 'currency'])
             ->map(function (Invoice $invoice) use ($clock, $today): array {
                 $overdue = $invoice->status === InvoiceStatus::Unpaid && $invoice->due_date?->lt($today);
                 $paid = $invoice->status === InvoiceStatus::Paid && $invoice->paid_at !== null;
 
                 return [
-                    'title' => $invoice->number ?? $invoice->proforma_number ?? '#'.$invoice->id,
+                    'title' => $invoice->number ?? $invoice->proforma_number ?? 'Invoice',
                     'href' => route('client.invoices.show', $invoice->id),
+                    'action' => in_array($invoice->status, self::DUE, true) && $invoice->balance > 0
+                        ? ['label' => 'Pay', 'href' => route('client.invoices.show', $invoice->id)]
+                        : null,
                     'money' => ['amount' => $invoice->total, 'currency' => $invoice->currency],
                     'status' => $overdue ? 'overdue' : $invoice->status->value,
                     'date' => ($paid ? $clock->localDate($invoice->paid_at) : $invoice->due_date?->toDateString()),
@@ -133,6 +150,7 @@ class BillingClientDashboard
             'items' => $items,
             'href' => route('client.invoices.index'),
             'empty' => 'No invoices yet. They appear here when you order or renew a service.',
+            'emptyAction' => Route::has('store.index') ? ['label' => 'Browse the store', 'href' => route('store.index')] : null,
         ];
     }
 
