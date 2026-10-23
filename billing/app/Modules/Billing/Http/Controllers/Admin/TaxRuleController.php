@@ -60,6 +60,14 @@ class TaxRuleController extends Controller
 
     public function update(TaxRuleRequest $request, TaxRule $taxRule): RedirectResponse
     {
+        $mode = app(NepalVatMode::class);
+
+        if (in_array($taxRule->id, [...$mode->vatRules(), $mode->exportRule()], true) && (float) $request->validated('rate') !== (float) $taxRule->rate) {
+            Inertia::flash('toast', ['type' => 'error', 'message' => __('This rule is used by Nepal VAT mode, so its rate cannot change. Add a new rule and choose it there.')]);
+
+            return back();
+        }
+
         $before = $taxRule->only(['name', 'level', 'country', 'state', 'scope', 'rate', 'priority', 'effective_from']);
         $taxRule->update([...$request->validated(), 'priority' => $request->integer('priority')]);
         $this->activity->log('Tax rule updated', $taxRule, properties: ['from' => $before, 'to' => $taxRule->only(array_keys($before))]);

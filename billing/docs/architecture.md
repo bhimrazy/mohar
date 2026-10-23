@@ -272,6 +272,16 @@ database-free Unit and Arch suites run on SQLite only — ADR 0006, `docs/devops
     the searched expression of every OR'd column (`OnlineIndex::trigram()`), or PostgreSQL scans the table.
     `SearchIndexesTest` checks the admin searches.
 
+### Feature flags (unfinished work)
+
+- `config/features.php` holds one key per unfinished feature, `features.<module>.<flag>`, env `FEATURE_<MODULE>_<FLAG>`, off by
+  default. It is config only, never a stored setting, and outside every module's own config tree.
+- Gate a route with the `feature:<module>.<flag>` middleware, first on the route, so nothing else runs when it is off; gate a
+  menu item with the same config key. A flag hides the screen; it does not undo what the feature already wrote or switch a
+  stored mode off.
+- The PR that finishes the work deletes the flag and every check of it. `config/billing_sandbox.php` is a permanent
+  deployment switch, not a feature flag.
+
 ### Migrations during blue-green deploys (expand, then contract)
 
 Production deploys are blue-green (`deploy/bin/deploy`, `docs/devops/production.md`): the new release's

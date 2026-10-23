@@ -37,7 +37,6 @@ type Props = {
     started: boolean;
     months: { value: string; label: string }[];
     rules: Rule[];
-    suggested_vat_rules: number[];
     blockers: string[];
     can_switch_off: boolean;
     tax_rules_url: string;
@@ -65,7 +64,6 @@ export default function VatModeEdit({
     started,
     months,
     rules,
-    suggested_vat_rules,
     blockers,
     can_switch_off,
     tax_rules_url,
@@ -74,7 +72,7 @@ export default function VatModeEdit({
     const form = useForm({
         enabled: mode.enabled,
         enabled_from: mode.enabled_from ?? months[0]?.value ?? '',
-        vat_rules: mode.vat_rules.length ? mode.vat_rules : suggested_vat_rules,
+        vat_rules: mode.vat_rules,
         export_rule: mode.export_rule ? String(mode.export_rule) : NO_EXPORT,
     });
     const errors = form.errors as Record<string, string | undefined>;

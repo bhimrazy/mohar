@@ -70,6 +70,7 @@ use App\Support\Search\GlobalSearch;
 use App\Support\Security\EncryptedModel;
 use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
+use App\Support\Settings\SettingLocks;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -208,7 +209,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $navigation->add('admin', new NavItem('Quotes', 'admin.billing.quotes.index', 'ClipboardList', 'Billing', 30, 'billing.quotes.view', 'admin.billing.quotes.*'));
         $navigation->add('admin', new NavItem('Account credit', 'admin.billing.credit.index', 'Wallet', 'Billing', 40, 'billing.credit.manage', 'admin.billing.credit.*'));
         $navigation->add('admin', new NavItem('Gateways', 'admin.billing.gateways.index', 'CreditCard', 'Setup', 40, 'billing.gateways.manage', 'admin.billing.gateways.*'));
-        if (config('billing_features.nepal_vat_mode')) {
+        if (config('features.billing.nepal_vat_mode')) {
             $navigation->add('admin', new NavItem('Nepal VAT', 'admin.billing.vat-mode.edit', 'FileText', 'Setup', 44, 'billing.tax.manage', 'admin.billing.vat-mode.*'));
         }
         $navigation->add('admin', new NavItem('Tax rules', 'admin.billing.tax-rules.index', 'Percent', 'Setup', 41, 'billing.tax.manage', 'admin.billing.tax-rules.*'));
@@ -334,21 +335,9 @@ class BillingServiceProvider extends ModuleServiceProvider
             };
         }, __('The number format needs {YEAR} when numbering resets yearly, and {YEAR} and {MONTH} when it resets monthly.'));
 
-        Validator::extend('nepal_vat_unlocked', function (string $attribute, mixed $value): bool {
-            if (! app(NepalVatMode::class)->enabled()) {
-                return true;
-            }
+        $this->app->make(SettingLocks::class)->lock(NepalVatMode::LOCKED, fn (): ?string => app(NepalVatMode::class)->lockReason(), NepalVatMode::ENABLED);
 
-            $normalise = fn (mixed $item): string => is_bool($item) ? (string) (int) $item : (string) $item;
-
-            return $normalise($value) === $normalise(app(BillingSettings::class)->get(substr($attribute, strlen('billing.'))));
-        }, __('This is fixed while Nepal VAT mode is on: tax documents are numbered under it.'));
-
-        $locked = fn (SettingDefinition $definition): SettingDefinition => in_array($definition->key, NepalVatMode::LOCKED, true)
-            ? new SettingDefinition($definition->key, $definition->label, $definition->type, $definition->help, $definition->options, [...$definition->rules, 'nepal_vat_unlocked'], $definition->secret, fn (): ?string => app(NepalVatMode::class)->enabled() ? __('Fixed while Nepal VAT mode is on.') : null)
-            : $definition;
-
-        $this->app->make(SettingsRegistry::class)->section('billing', 'Billing', array_map($locked, [
+        $this->app->make(SettingsRegistry::class)->section('billing', 'Billing', [
             new SettingDefinition('billing.seller.legal_name', 'Seller legal name', help: 'Printed on invoices; defaults to the company name.', rules: ['max:200']),
             new SettingDefinition('billing.seller.address', 'Seller address', 'text', rules: ['max:1000']),
             new SettingDefinition('billing.seller.email', 'Seller billing email', 'email'),
@@ -415,7 +404,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             $bool('show_bs_dates', 'Show the Bikram Sambat date beside the AD date on invoices', 'Issue and due dates on invoice pages, PDFs and invoice emails also show the BS date, e.g. 12 Jan 2026 (28 Poush 2082 BS). Dates from 15 April 2039 on show the AD date only.'),
             $bool('pdf.attach_to_emails', 'Attach PDFs to invoice emails'),
             new SettingDefinition('billing.pdf.paper', 'PDF paper size', 'select', options: ['A4' => 'A4', 'letter' => 'Letter']),
-        ]), 'billing.settings.manage');
+        ], 'billing.settings.manage');
     }
 
     private function registerSearch(): void

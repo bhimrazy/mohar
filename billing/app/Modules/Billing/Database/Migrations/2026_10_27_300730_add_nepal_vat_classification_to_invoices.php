@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Schema;
  * are nullable, so the previous release keeps working. Invoices numbered before this keep NULL flags until
  * `billing:fiscal-vat-split` fills them; that is not done here (architecture rule 1).
  *
- * The partial index lists taxed, numbered invoices without a classification in id order. It serves that command and
+ * The partial index lists numbered invoices that carry tax or a tax rule and have no classification in id order. It serves that command and
  * the enable check, and holds nothing once the command has run. Built CONCURRENTLY on PostgreSQL.
  */
 return new class extends Migration
@@ -19,6 +19,8 @@ return new class extends Migration
     public $withinTransaction = false;
 
     public const INDEX = 'invoices_vat_split_pending_index';
+
+    public const ADJUSTMENTS_INDEX = 'invoice_adjustments_created_at_index';
 
     public function up(): void
     {
@@ -35,12 +37,15 @@ return new class extends Migration
             });
         });
 
-        OnlineIndex::create('invoices', ['id'], self::INDEX, where: "numbered_at is not null and fiscal_tax1_is_vat is null and kind <> 'add_funds' and (tax1_amount <> 0 or tax2_amount <> 0)");
+        // The enable check looks for old-style rows from the start day on.
+        OnlineIndex::create('invoice_adjustments', ['created_at'], self::ADJUSTMENTS_INDEX);
+        OnlineIndex::create('invoices', ['id'], self::INDEX, where: "numbered_at is not null and fiscal_tax1_is_vat is null and kind <> 'add_funds' and (tax1_amount <> 0 or tax2_amount <> 0 or tax1_rule_id is not null or tax2_rule_id is not null)");
     }
 
     public function down(): void
     {
         OnlineIndex::drop('invoices', self::INDEX);
+        OnlineIndex::drop('invoice_adjustments', self::ADJUSTMENTS_INDEX);
 
         LockTimeout::run('invoices', function (): void {
             if (! Schema::hasColumn('invoices', 'tax1_rule_id')) {

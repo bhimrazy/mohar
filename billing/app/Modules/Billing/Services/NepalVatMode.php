@@ -96,8 +96,9 @@ class NepalVatMode
     }
 
     /**
-     * How a document is classified, from the tax rules of its two levels and its tax amounts. A level with tax but no
-     * rule id (calculated before rule ids were stored) is matched to a Nepal VAT rule by its name and rate instead;
+     * How a document is classified, from the tax rules of its two levels and its tax amounts. A level is Nepal VAT when
+     * its rule is one chosen as VAT (whatever the amount). A level without a rule id (calculated before rule ids were
+     * stored) is matched to a Nepal VAT rule by its name and rate instead; a 0% level has no name and never matches;
      * `$levels` is [name1, rate1, name2, rate2] as stored on the invoice.
      *
      * @param  array{0: string|null, 1: string, 2: string|null, 3: string}|null  $levels
@@ -106,8 +107,8 @@ class NepalVatMode
     public function classify(?int $rule1, ?int $rule2, int $tax1, int $tax2, ?array $levels = null): array
     {
         $rules = $this->vatRules();
-        $vat1 = $rule1 !== null ? in_array($rule1, $rules, true) : ($levels !== null && $tax1 !== 0 && $this->isVatByName($levels[0], $levels[1]));
-        $vat2 = $rule2 !== null ? in_array($rule2, $rules, true) : ($levels !== null && $tax2 !== 0 && $this->isVatByName($levels[2], $levels[3]));
+        $vat1 = $rule1 !== null ? in_array($rule1, $rules, true) : ($levels !== null && $this->isVatByName($levels[0], $levels[1]));
+        $vat2 = $rule2 !== null ? in_array($rule2, $rules, true) : ($levels !== null && $this->isVatByName($levels[2], $levels[3]));
         $export = $this->exportRule();
 
         return [
@@ -163,7 +164,7 @@ class NepalVatMode
         }
 
         if ($this->splitPending()) {
-            $blockers[] = __('Some numbered invoices are not yet split into Nepal VAT and other tax. Save the tax rules below, then run "php artisan billing:fiscal-vat-split" until it reports nothing left.');
+            $blockers[] = __('Some numbered invoices are not yet split into Nepal VAT and other tax. Save the tax rules above, then run "php artisan billing:fiscal-vat-split" until it reports nothing left.');
         }
 
         if (InvoiceFiscalReview::query()->unseen()->exists()) {
@@ -181,11 +182,11 @@ class NepalVatMode
         return $blockers;
     }
 
-    /** Whether any taxed, numbered invoice still has no Nepal VAT classification (reads `invoices_vat_split_pending_index`). */
+    /** Whether any taxed (or rule-carrying) numbered invoice still has no Nepal VAT classification (reads `invoices_vat_split_pending_index`). */
     public function splitPending(): bool
     {
         return DB::table('invoices')->whereNotNull('numbered_at')->whereNull('fiscal_tax1_is_vat')->where('kind', '<>', 'add_funds')
-            ->where(fn ($query) => $query->where('tax1_amount', '<>', 0)->orWhere('tax2_amount', '<>', 0))->exists();
+            ->where(fn ($query) => $query->where('tax1_amount', '<>', 0)->orWhere('tax2_amount', '<>', 0)->orWhereNotNull('tax1_rule_id')->orWhereNotNull('tax2_rule_id'))->exists();
     }
 
     /**
@@ -197,14 +198,14 @@ class NepalVatMode
      */
     public function apply(User $actor, array $input): bool
     {
-        return DB::transaction(function () use ($actor, $input): bool {
+        $changed = DB::transaction(function () use ($actor, $input): bool {
             if (Setting::query()->whereKey(self::ENABLED)->lockForUpdate()->first() === null) {
-                Setting::query()->insertOrIgnore(['key' => self::ENABLED, 'value' => json_encode($this->enabled())]);
+                Setting::query()->insertOrIgnore(['key' => self::ENABLED, 'value' => 'false']);
                 Setting::query()->whereKey(self::ENABLED)->lockForUpdate()->firstOrFail();
-                $this->settings->forgetCached();
             }
 
-            $before = $this->current();
+            // Decide on what is committed now, not on what this request read before it got the lock.
+            $before = $this->stored();
             $after = $this->validated($input, $before);
 
             if ($after === $before) {
@@ -229,6 +230,36 @@ class NepalVatMode
 
             return true;
         });
+
+        // setMany cleared the cache inside the transaction, before commit; another request may have refilled it from the old rows.
+        $this->settings->forgetCached();
+
+        return $changed;
+    }
+
+    /** Why the numbering settings are fixed, read from the database (a save asks under its lock); null when the mode is off. */
+    public function lockReason(): ?string
+    {
+        return $this->stored()['enabled'] ? (string) __('Fixed while Nepal VAT mode is on: tax documents are numbered under it.') : null;
+    }
+
+    /**
+     * The four mode settings straight from the database, never the settings cache or this request's memo.
+     *
+     * @return array{enabled: bool, enabled_from: string|null, vat_rules: list<int>, export_rule: int|null}
+     */
+    public function stored(): array
+    {
+        $rows = Setting::query()->whereIn('key', [self::ENABLED, self::ENABLED_FROM, self::VAT_RULES, self::EXPORT_RULE])->pluck('value', 'key');
+        $from = $rows[self::ENABLED_FROM] ?? null;
+        $export = (int) ($rows[self::EXPORT_RULE] ?? 0);
+
+        return [
+            'enabled' => filter_var($rows[self::ENABLED] ?? false, FILTER_VALIDATE_BOOLEAN),
+            'enabled_from' => is_string($from) && $from !== '' ? $from : null,
+            'vat_rules' => array_values(array_map('intval', array_filter((array) ($rows[self::VAT_RULES] ?? []), 'is_numeric'))),
+            'export_rule' => $export > 0 ? $export : null,
+        ];
     }
 
     /** @return array{enabled: bool, enabled_from: string|null, vat_rules: list<int>, export_rule: int|null} */
@@ -271,6 +302,11 @@ class NepalVatMode
 
         // Once the mode has started its start day is history; switching off keeps it.
         $from = $enabled && ! $this->started($before) ? $this->validStart($from, $errors) : $before['enabled_from'];
+
+        // Moving the start day of a mode that has not started re-runs the check that enabling ran for that day.
+        if ($enabled && $before['enabled'] && $from !== null && $from !== $before['enabled_from'] && ! isset($errors['enabled_from']) && $this->oldStyleRowsFrom($from)) {
+            $errors['enabled_from'] = __('A cancellation, refund or late fee was recorded on a numbered invoice on or after that start date. Pick the next BS month.');
+        }
 
         if (! $enabled && $before['enabled'] && TaxNote::query()->exists()) {
             $errors['enabled'] = __('The mode cannot be switched off: credit or debit notes have been issued under it.');

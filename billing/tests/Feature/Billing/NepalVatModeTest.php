@@ -10,11 +10,12 @@ use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Platform\Actions\Settings\UpdateSettings;
 use App\Modules\Platform\Services\SettingsCatalog;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/helpers.php';
@@ -25,7 +26,7 @@ require_once __DIR__.'/helpers.php';
 */
 
 beforeEach(function () {
-    config(['billing_features.nepal_vat_mode' => true]);
+    config(['features.billing.nepal_vat_mode' => true]);
     CarbonImmutable::setTestNow('2026-10-20 06:00:00');
     Currency::factory()->create();
     Currency::factory()->npr()->create();
@@ -271,16 +272,27 @@ test('the split command classifies invoices numbered before the mode, caps its w
         ->and(DB::table('invoices')->where('id', $deposit->value('id'))->value('fiscal_tax1_is_vat'))->toBeNull();
 });
 
-test('the numbering and pay-then-number settings are fixed while the mode is on', function () {
-    expect(Validator::make(['billing' => ['number_format' => 'INV-{NUMBER}']], ['billing.number_format' => ['nepal_vat_unlocked']])->passes())->toBeTrue();
+test('the Billing settings save refuses to change a numbering setting while the mode is on, and accepts it when off', function () {
+    $update = fn (string $format) => app(UpdateSettings::class)->handle('billing', ['billing' => ['number_format' => $format, 'number_padding' => 0]]);
+
+    expect($update('INV-{NUMBER}'))->toBe(['billing.number_format'])
+        ->and(app(BillingSettings::class)->string('number_format'))->toBe('INV-{NUMBER}');
 
     vatModeSwitchOn();
-    billingSettings(['number_format' => '{NUMBER}', 'sequential_paid_numbering' => true]);
 
-    expect(Validator::make(['billing' => ['number_format' => 'INV-{NUMBER}']], ['billing.number_format' => ['nepal_vat_unlocked']])->fails())->toBeTrue()
-        ->and(Validator::make(['billing' => ['number_format' => '{NUMBER}']], ['billing.number_format' => ['nepal_vat_unlocked']])->passes())->toBeTrue()
-        ->and(Validator::make(['billing' => ['sequential_paid_numbering' => false]], ['billing.sequential_paid_numbering' => ['nepal_vat_unlocked']])->fails())->toBeTrue()
-        ->and(Validator::make(['billing' => ['sequential_paid_numbering' => true]], ['billing.sequential_paid_numbering' => ['nepal_vat_unlocked']])->passes())->toBeTrue();
+    expect(fn () => $update('X-{NUMBER}'))->toThrow(ValidationException::class)
+        ->and($update('INV-{NUMBER}'))->toBe([])
+        ->and(app(BillingSettings::class)->string('number_format'))->toBe('INV-{NUMBER}');
+});
+
+test('the Billing settings form says why a numbering field is fixed while the mode is on', function () {
+    $reason = fn () => collect(app(SettingsCatalog::class)->fields('billing'))->firstWhere('key', 'billing.number_format')['locked_reason'];
+
+    expect($reason())->toBeNull();
+
+    vatModeSwitchOn();
+
+    expect($reason())->toStartWith('Fixed while Nepal VAT mode is on');
 });
 
 test('a tax rule the mode relies on cannot be deleted', function () {
@@ -301,7 +313,7 @@ test('the settings page shows the rules, the next BS months and what blocks enab
     $this->get(route('admin.billing.vat-mode.edit'))->assertInertia(fn (Assert $page) => $page
         ->component('admin/billing/vat-mode/edit')
         ->where('mode.enabled', false)
-        ->where('suggested_vat_rules', [$this->vat->id, $this->levy->id])
+        ->where('mode.vat_rules', [])
         ->where('months.0', ['value' => '2026-10-18', 'label' => 'Kartik 2083 BS (from 18 Oct 2026)'])
         ->where('months.1.value', '2026-11-17')
         ->has('rules', 4)
@@ -312,7 +324,7 @@ test('the settings page shows the rules, the next BS months and what blocks enab
 });
 
 test('the page and the save are hidden (404) until the mode is made available', function () {
-    config(['billing_features.nepal_vat_mode' => false]);
+    config(['features.billing.nepal_vat_mode' => false]);
     actingAsStaff(['billing.tax.manage']);
     confirmPassword();
 
@@ -321,12 +333,40 @@ test('the page and the save are hidden (404) until the mode is made available', 
     expect(app(NepalVatMode::class)->enabled())->toBeFalse();
 });
 
-test('the Billing settings form says why a numbering field is fixed while the mode is on', function () {
-    $field = fn () => collect(app(SettingsCatalog::class)->fields('billing'))->firstWhere('key', 'billing.number_format')['help'];
-
-    expect($field())->not->toContain('Fixed while');
-
+test('a tax rule the mode uses cannot have its rate changed, other rules can', function () {
     vatModeSwitchOn();
+    actingAsStaff(['billing.tax.manage']);
+    confirmPassword();
+    $body = fn (TaxRule $rule, string $rate) => ['name' => $rule->name, 'level' => $rule->level, 'country' => $rule->country, 'rate' => $rate, 'priority' => 0];
 
-    expect($field())->toStartWith('Fixed while Nepal VAT mode is on.');
+    $this->put(route('admin.billing.tax-rules.update', $this->export), $body($this->export, '13.000'))->assertRedirect();
+    $this->put(route('admin.billing.tax-rules.update', $this->vat), $body($this->vat, '15.000'))->assertRedirect();
+    $this->put(route('admin.billing.tax-rules.update', $this->gst), $body($this->gst, '12.000'))->assertRedirect();
+
+    expect((float) $this->export->fresh()->rate)->toBe(0.0)->and((float) $this->vat->fresh()->rate)->toBe(13.0)->and((float) $this->gst->fresh()->rate)->toBe(12.0);
+});
+
+test('the split classifies an export-rule invoice as export and keeps a renamed rule by its id', function () {
+    $abroad = issueInvoice(vatModeClient('US', 'USD'), [10_000]);
+    $home = issueInvoice(vatModeClient(), [10_000]);
+    $this->vat->update(['name' => 'VAT 13%']);
+    billingSettings(['nepal_vat.vat_rules' => [$this->vat->id], 'nepal_vat.export_rule' => $this->export->id]);
+
+    $this->artisan('billing:fiscal-vat-split --dry-run')->expectsOutputToContain('would be classified')->assertSuccessful();
+    expect($abroad->fresh()->fiscal_tax1_is_vat)->toBeNull();
+
+    $this->artisan('billing:fiscal-vat-split')->assertSuccessful();
+
+    expect($abroad->fresh())->supply_class->toBe('export')->fiscal_tax1_is_vat->toBeFalse()
+        ->and($home->fresh())->supply_class->toBe('taxable')->fiscal_tax1_is_vat->toBeTrue();
+});
+
+test('turning the feature flag off after enabling hides the page but the mode stays in effect', function () {
+    vatModeSwitchOn();
+    config(['features.billing.nepal_vat_mode' => false]);
+
+    $invoice = issueInvoice(vatModeClient(), [10_000])->fresh();
+
+    expect(app(NepalVatMode::class)->enabled())->toBeTrue()->and($invoice)->supply_class->toBe('taxable')->fiscal_tax1_is_vat->toBeTrue()
+        ->and(collect(app(SettingsCatalog::class)->fields('billing'))->firstWhere('key', 'billing.number_format')['locked_reason'])->not->toBeNull();
 });
