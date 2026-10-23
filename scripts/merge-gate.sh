@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local merge gate: the steps of .github/workflows/ci.yml's main job, run on this machine against a pull request
+# Local merge gate: the steps of .github/workflows/ci.yml's jobs, in one sequence on this machine against a pull request
 # merged into origin/develop. For when Actions is unavailable (private repository, minutes used up).
 # Runs on macOS (bash 3.2, BSD tools) and Linux.
 #

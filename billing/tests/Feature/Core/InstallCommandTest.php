@@ -5,6 +5,7 @@ use App\Data\Install\ReferenceDataResult;
 use App\Events\Core\RoleUpdated;
 use App\Events\Core\StaffCreated;
 use App\Models\User;
+use App\Modules\Billing\Database\Seeders\BillingHistorySeeder;
 use App\Modules\Core\Database\Seeders\CoreSeeder;
 use App\Modules\Core\Install\AdministratorRefused;
 use App\Modules\Core\Install\FirstAdministrator;
@@ -19,6 +20,7 @@ use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Queues;
 use App\Support\Security\PasswordPolicy;
 use Database\Seeders\DatabaseSeeder;
+use Illuminate\Database\Seeder;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Process\Pool;
 use Illuminate\Support\Facades\Artisan;
@@ -353,6 +355,12 @@ test('the demo seed installs exactly the reference data an install creates, thro
         }
     };
     app(ReferenceDataRegistry::class)->register('test_probe', fn () => $probe);
+    // The 730-day demo history writes only billing documents, never currencies or roles, and BillingSeederTest covers
+    // it; skipping it here took this test from 20 s (64 s on PostgreSQL) to under a second.
+    app()->instance(BillingHistorySeeder::class, new class extends Seeder
+    {
+        public function run(): void {}
+    });
 
     $this->seed(DatabaseSeeder::class);
 

@@ -1,12 +1,13 @@
 # Single CI source of truth for the billing app (the Laravel project lives in billing/).
-# Design (billing/docs/devops/ci.md): ONE main job to keep billable minutes low — every job is rounded up to a
-# whole minute and pays its own setup, so policy, lint, types, static analysis, both test suites and the
-# build share one runner, cheapest steps first. The E2E simulators job is opt-in (manual dispatch, pushes to main,
-# PRs labelled `e2e`): it never runs on ordinary PR events, and it is not a required check. Docs/image-only PRs and
-# pushes (Markdown, images, billing/docs/, the documentation site in docs-site/) run only the formatter: an in-job
-# fast path, so the required check always reports. The docs site is never built here. A change to docs-site's own
-# dependency files still runs the policy checks. Draft PRs run only when labelled `ci`; feature-branch pushes do not
-# run. Policy checks (lockfile sync, audits, cooldown) run before any dependency is installed or executed.
+# Design (billing/docs/devops/ci.md): the repository is public, so runner minutes are free and wall time is what
+# counts. The `checks` job runs the policy checks before anything is installed, then lint, types and static analysis
+# (about a minute), so a cheap failure fails fast; the test suites (SQLite in 2 shards, PostgreSQL in 3) and the build
+# start only after it passed, in parallel. The last job carries the required check's name and passes only when every
+# job did. The E2E simulators job is opt-in (manual dispatch, pushes to main, PRs labelled `e2e`): it never runs on
+# ordinary PR events, and it is not a required check. Docs/image-only PRs and pushes (Markdown, images, billing/docs/,
+# the documentation site in docs-site/) run only the formatter and skip the test and build jobs, so the required check
+# still reports. The docs site is never built here. A change to docs-site's own dependency files still runs the policy
+# checks. Draft PRs run only when labelled `ci`; feature-branch pushes do not run.
 #
 # Every third-party action and image is pinned to a commit SHA / digest and must be at least
 # MIN_RELEASE_AGE_DAYS old (billing/docs/devops/dependency-policy.md). Dependabot (14-day cooldown)
@@ -15,7 +16,7 @@
 name: CI
 
 on:
-    # Pushes to develop and main run the main job, so every merge is tested on the commit that actually landed.
+    # Pushes to develop and main run every job, so every merge is tested on the commit that actually landed.
     # A merged PR therefore runs CI twice (its PR run, then the push run); see billing/docs/devops/ci.md.
     push:
         branches:
@@ -48,8 +49,8 @@ env:
     MIN_RELEASE_AGE_DAYS: '7'
 
 jobs:
-    ci:
-        name: CI (policy, lint, types, static, tests, build)
+    checks:
+        name: Checks (policy, lint, types, static)
         # Drafts skip CI unless labelled `ci` (then PostgreSQL runs before review, not only at merge time).
         # A `labeled` event only runs when the label added is `ci`.
         if: >-
@@ -57,24 +58,9 @@ jobs:
             (github.event.action == 'labeled' && github.event.label.name == 'ci') ||
             (github.event.action != 'labeled' && (github.event.pull_request.draft == false || contains(github.event.pull_request.labels.*.name, 'ci')))
         runs-on: ubuntu-24.04
-        timeout-minutes: 15
-        services:
-            postgres:
-                # Must equal the postgres image in billing/compose.yaml (asserted below).
-                image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
-                env:
-                    POSTGRES_DB: billing_test
-                    POSTGRES_USER: billing
-                    POSTGRES_PASSWORD: billing
-                    # Throwaway database reachable only from this job: no SCRAM handshake on each test's new connection.
-                    POSTGRES_HOST_AUTH_METHOD: trust
-                ports:
-                    - 5432:5432
-                options: >-
-                    --health-cmd "pg_isready -U billing -d billing_test"
-                    --health-interval 5s
-                    --health-timeout 5s
-                    --health-retries 10
+        timeout-minutes: 10
+        outputs:
+            code: ${{ steps.changes.outputs.code }}
         permissions:
             contents: read
             pull-requests: read # read the security-exception label at run time (re-runs pick it up)
@@ -129,7 +115,6 @@ jobs:
                       echo "audit=$audit"
                       echo "base=$base"
                   } >> "$GITHUB_OUTPUT"
-                  echo "JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
                   echo "Code changes: $code · docs-site dependency changes: $deps · audits: $audit · dependency diff base: $base"
 
             # ADR 0027: entries go in fragments, never straight into the two changelogs. PRs only, on the docs-only fast
@@ -259,14 +244,104 @@ jobs:
               if: steps.changes.outputs.code == 'true'
               run: vendor/bin/phpstan analyse --memory-limit=1G --no-progress --error-format=github
 
+    # Pest's --shard splits the test files round-robin; each shard is a full `--parallel` run of its share.
+    sqlite:
+        name: Pest SQLite (${{ matrix.shard }}/2)
+        needs: checks
+        # The policy checks passed before any of these jobs installs or runs code; docs-only changes skip them.
+        if: needs.checks.outputs.code == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            contents: read
+        strategy:
+            fail-fast: false
+            matrix:
+                shard: [1, 2]
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            - name: Set up PHP
+              uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+              with:
+                  php-version: '8.4'
+                  tools: composer:2.10.3
+                  extensions: gd, pdo_sqlite, pdo_pgsql, pgsql
+                  coverage: none
+
+            # Node runs scripts/slowest-tests.mjs; no npm dependencies are installed.
+            - name: Set up Node
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version-file: billing/.nvmrc
+
+            - name: Install dependencies
+              uses: ./.github/actions/setup-app
+
             - name: Pest (SQLite)
-              if: steps.changes.outputs.code == 'true'
+              env:
+                  SHARD: ${{ matrix.shard }}/2
               run: |
-                  vendor/bin/pest --parallel --log-junit="$RUNNER_TEMP/sqlite.xml"
+                  vendor/bin/pest --parallel --shard="$SHARD" --log-junit="$RUNNER_TEMP/sqlite.xml"
                   node scripts/slowest-tests.mjs "$RUNNER_TEMP/sqlite.xml"
 
+    pgsql:
+        name: Pest PostgreSQL (${{ matrix.shard }}/3)
+        needs: checks
+        # The policy checks passed before any of these jobs installs or runs code; docs-only changes skip them.
+        if: needs.checks.outputs.code == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            contents: read
+        strategy:
+            fail-fast: false
+            matrix:
+                shard: [1, 2, 3]
+        services:
+            postgres:
+                # Must equal the postgres image in billing/compose.yaml (asserted in the checks job).
+                image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+                env:
+                    POSTGRES_DB: billing_test
+                    POSTGRES_USER: billing
+                    POSTGRES_PASSWORD: billing
+                    # Throwaway database reachable only from this job: no SCRAM handshake on each test's new connection.
+                    POSTGRES_HOST_AUTH_METHOD: trust
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U billing -d billing_test"
+                    --health-interval 5s
+                    --health-timeout 5s
+                    --health-retries 10
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            - name: Set up PHP
+              uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+              with:
+                  php-version: '8.4'
+                  tools: composer:2.10.3
+                  extensions: gd, pdo_sqlite, pdo_pgsql, pgsql
+                  coverage: none
+
+            # Node runs scripts/slowest-tests.mjs; no npm dependencies are installed.
+            - name: Set up Node
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version-file: billing/.nvmrc
+
+            - name: Install dependencies
+              uses: ./.github/actions/setup-app
+
             - name: Tune PostgreSQL for throwaway data
-              if: steps.changes.outputs.code == 'true'
               env:
                   CONTAINER: ${{ job.services.postgres.id }}
               run: |
@@ -285,26 +360,59 @@ jobs:
                   } >> "$GITHUB_ENV"
 
             - name: Pest (PostgreSQL)
-              if: steps.changes.outputs.code == 'true'
               env:
                   # The suite is round-trip bound on PostgreSQL (workers mostly wait on the database), so it runs more
                   # workers than the 2 vCPUs; each stays under the 1 GB memory_limit in phpunit.xml.
                   PEST_PROCESSES: '4'
+                  SHARD: ${{ matrix.shard }}/3
               run: |
                   read -r _ u1 n1 s1 i1 w1 _ < /proc/stat
-                  composer test:pgsql -- --log-junit="$RUNNER_TEMP/pgsql.xml"
+                  composer test:pgsql -- --shard="$SHARD" --log-junit="$RUNNER_TEMP/pgsql.xml"
                   read -r _ u2 n2 s2 i2 w2 _ < /proc/stat
                   busy=$(( (u2 + n2 + s2) - (u1 + n1 + s1) )); idle=$(( (i2 + w2) - (i1 + w1) ))
                   echo "CPU busy during the suite: $(( 100 * busy / (busy + idle) ))% of $(nproc) vCPUs"
                   node scripts/slowest-tests.mjs "$RUNNER_TEMP/pgsql.xml"
 
+    build:
+        name: Build
+        needs: checks
+        # The policy checks passed before any of these jobs installs or runs code; docs-only changes skip them.
+        if: needs.checks.outputs.code == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            contents: read
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            - name: Set up PHP
+              uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+              with:
+                  php-version: '8.4'
+                  tools: composer:2.10.3
+                  extensions: gd, pdo_sqlite, pdo_pgsql, pgsql
+                  coverage: none
+
+            - name: Set up Node
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version-file: billing/.nvmrc
+                  cache: npm
+                  cache-dependency-path: billing/package-lock.json
+
+            - name: Install dependencies
+              uses: ./.github/actions/setup-app
+              with:
+                  node: 'true'
+
             - name: Build
-              if: steps.changes.outputs.code == 'true'
               run: npm run build
 
             # Last, because it removes the dev dependencies from this job's vendor directory (ADR 0016 §5, guarantee 1).
             - name: The app runs without the dev-only simulators package
-              if: steps.changes.outputs.code == 'true'
               # bash -eo pipefail, and the command list is captured first, so a crash of artisan itself fails the step.
               shell: bash
               run: |
@@ -316,21 +424,52 @@ jobs:
                   fi
                   php -r 'require "vendor/autoload.php"; exit(class_exists("Mohar\\Simulators\\SimulatorRegistry") ? 1 : 0);'
 
-            # timeout-minutes is 15; warn at 12 so a slow job is noticed before it is cancelled (billing/docs/devops/ci.md).
-            - name: Job time (warn above 12 minutes)
-              if: always() && steps.changes.outputs.code == 'true'
+    # The required status check (branch protection on develop and main): it passes only when the checks job passed and
+    # every test and build job passed, or, on a docs-only change, was skipped. always() so a failed, cancelled or
+    # timed-out job still reports a failure here instead of a skipped (= passing) check.
+    ci:
+        name: CI (policy, lint, types, static, tests, build)
+        needs: [checks, sqlite, pgsql, build]
+        if: >-
+            always() && (
+                github.event_name != 'pull_request' ||
+                (github.event.action == 'labeled' && github.event.label.name == 'ci') ||
+                (github.event.action != 'labeled' && (github.event.pull_request.draft == false || contains(github.event.pull_request.labels.*.name, 'ci')))
+            )
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        defaults:
+            run:
+                working-directory: .
+        steps:
+            - name: Every job passed
+              env:
+                  CHECKS: ${{ needs.checks.result }}
+                  CODE: ${{ needs.checks.outputs.code }}
+                  SQLITE: ${{ needs.sqlite.result }}
+                  PGSQL: ${{ needs.pgsql.result }}
+                  BUILD: ${{ needs.build.result }}
               run: |
-                  elapsed=$(( $(date +%s) - JOB_STARTED_AT ))
-                  echo "Job time since checkout: ${elapsed} s of the 900 s timeout"
-                  if [ "$elapsed" -gt 720 ]; then
-                      echo "::warning::CI took ${elapsed} s, over 12 of the 15 minutes before the timeout; see billing/docs/devops/ci.md"
+                  echo "checks: $CHECKS (code changes: ${CODE:-?}) · sqlite: $SQLITE · pgsql: $PGSQL · build: $BUILD"
+                  if [ "$CHECKS" != success ]; then
+                      echo "::error::the checks job did not pass ($CHECKS)"
+                      exit 1
                   fi
+                  want=skipped
+                  if [ "$CODE" = true ]; then want=success; fi
+                  for job in "sqlite:$SQLITE" "pgsql:$PGSQL" "build:$BUILD"; do
+                      if [ "${job#*:}" != "$want" ]; then
+                          echo "::error::${job%%:*} is ${job#*:}, expected $want"
+                          exit 1
+                      fi
+                  done
 
     # ADR 0016 §4-5: the end-to-end hosting scenario against the whm, stripe, khalti and esewa simulators, on a throwaway PostgreSQL
     # database. Its own job and check name, so a simulator failure never hides a main-suite failure. Opt-in, about
     # 2 billable minutes a run: manual dispatch (the CTO's develop run after a batch of merges counts towards the
     # 10 consecutive green runs), pushes to main, and PRs labelled `e2e`. Never on ordinary PR events, and not a
-    # required check. The main job never runs tests/Simulators.
+    # required check. The test jobs never run tests/Simulators.
     e2e-simulators:
         name: E2E simulators (hosting lifecycle)
         if: >-
@@ -342,7 +481,7 @@ jobs:
         timeout-minutes: 10
         services:
             postgres:
-                # Must equal the postgres image in billing/compose.yaml (the main job asserts it).
+                # Must equal the postgres image in billing/compose.yaml (the checks job asserts it).
                 image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
                 env:
                     POSTGRES_DB: billing_test
