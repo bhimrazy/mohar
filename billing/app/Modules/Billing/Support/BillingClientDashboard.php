@@ -9,6 +9,7 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ClientContext;
+use App\Modules\Core\Support\DateFormats;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Money;
@@ -77,11 +78,12 @@ class BillingClientDashboard
         $others = (clone $due)->count() - 1;
         $amount = app(MoneyFormatter::class)->amount($first->balance, $first->currency);
         $label = $first->number ?? $first->proforma_number ?? '#'.$first->id;
+        $dueOn = $first->due_date?->format(DateFormats::current());
         $overdue = $first->due_date !== null && $first->due_date->lt(app(CompanyClock::class)->todayDate());
         $title = match (true) {
             $first->due_date === null => "Invoice {$label} for {$amount} is unpaid",
-            $overdue => "Invoice {$label} for {$amount} was due on {$first->due_date->format('M j, Y')}",
-            default => "Invoice {$label} for {$amount} is due on {$first->due_date->format('M j, Y')}",
+            $overdue => "Invoice {$label} for {$amount} was due on {$dueOn}",
+            default => "Invoice {$label} for {$amount} is due on {$dueOn}",
         };
 
         return [

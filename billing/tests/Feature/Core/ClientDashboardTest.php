@@ -116,13 +116,15 @@ test('the support panel puts tickets awaiting the client first and leaves closed
 test('the domains panel lists live domains by expiry with auto-renew and an expiring flag', function () {
     Domain::factory()->create(['client_id' => $this->client->id, 'name_unicode' => 'later.com', 'status' => DomainStatus::Active, 'expiry_date' => '2027-03-18', 'auto_renew' => true]);
     Domain::factory()->create(['client_id' => $this->client->id, 'name_unicode' => 'soon.com', 'status' => DomainStatus::Active, 'expiry_date' => '2026-10-29', 'auto_renew' => false]);
+    Domain::factory()->create(['client_id' => $this->client->id, 'name_unicode' => 'lapsed.com', 'status' => DomainStatus::Grace, 'expiry_date' => '2026-10-15', 'auto_renew' => true]);
     Domain::factory()->status(DomainStatus::Cancelled)->create(['client_id' => $this->client->id, 'name_unicode' => 'gone.com']);
 
     $items = panel('domains.list')['items'];
 
-    expect(array_column($items, 'title'))->toBe(['soon.com', 'later.com'])
-        ->and($items[0])->toMatchArray(['status' => 'expiring', 'subtitle' => 'Auto-renew off', 'dateLabel' => 'Expires', 'date' => '2026-10-29'])
-        ->and($items[1])->toMatchArray(['status' => 'active', 'subtitle' => 'Auto-renew on', 'dateLabel' => 'Renews']);
+    expect(array_column($items, 'title'))->toBe(['lapsed.com', 'soon.com', 'later.com'])
+        ->and($items[0])->toMatchArray(['status' => 'grace', 'dateLabel' => 'Expired'])
+        ->and($items[1])->toMatchArray(['status' => 'expiring', 'subtitle' => 'Auto-renew off', 'dateLabel' => 'Expires', 'date' => '2026-10-29'])
+        ->and($items[2])->toMatchArray(['status' => 'active', 'subtitle' => 'Auto-renew on', 'dateLabel' => 'Renews']);
 });
 
 test('every panel has an empty state with a next step when the client has nothing yet', function () {

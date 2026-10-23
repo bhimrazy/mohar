@@ -157,21 +157,25 @@ export function ListRows({
                                     <div className="truncate text-sm font-medium">
                                         {item.title}
                                     </div>
-                                    {(item.subtitle || item.date) && (
+                                    {item.subtitle && !item.date && (
                                         <div className="truncate text-xs text-muted-foreground">
                                             {item.subtitle}
-                                            {item.subtitle &&
-                                                item.date &&
-                                                ' · '}
-                                            {item.date && (
-                                                <>
-                                                    {item.dateLabel &&
-                                                        `${item.dateLabel} `}
-                                                    <DateTime
-                                                        value={item.date}
-                                                    />
-                                                </>
+                                        </div>
+                                    )}
+                                    {item.date && (
+                                        // The date gets its own line on phones so truncation never hides it.
+                                        <div className="text-xs text-muted-foreground sm:truncate">
+                                            {item.subtitle && (
+                                                <span className="block truncate sm:inline">
+                                                    {item.subtitle}
+                                                    <span className="hidden sm:inline">
+                                                        {' · '}
+                                                    </span>
+                                                </span>
                                             )}
+                                            {item.dateLabel &&
+                                                `${item.dateLabel} `}
+                                            <DateTime value={item.date} />
                                         </div>
                                     )}
                                 </div>

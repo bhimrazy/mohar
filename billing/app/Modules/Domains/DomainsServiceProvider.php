@@ -256,7 +256,8 @@ class DomainsServiceProvider extends ModuleServiceProvider
                 return null;
             }
 
-            $soon = app(CompanyClock::class)->todayDate()->addDays(30);
+            $today = app(CompanyClock::class)->todayDate();
+            $soon = $today->addDays(30);
 
             return [
                 'title' => 'Domains',
@@ -270,7 +271,11 @@ class DomainsServiceProvider extends ModuleServiceProvider
                         'href' => route('client.domains.show', $domain->id),
                         'status' => $domain->status === DomainStatus::Active && $domain->expiry_date?->lte($soon) ? 'expiring' : $domain->status->value,
                         'date' => $domain->expiry_date?->toDateString(),
-                        'dateLabel' => $domain->auto_renew ? 'Renews' : 'Expires',
+                        'dateLabel' => match (true) {
+                            (bool) $domain->expiry_date?->lt($today) => 'Expired',
+                            $domain->auto_renew => 'Renews',
+                            default => 'Expires',
+                        },
                     ])->values()->all(),
                 'href' => route('client.domains.index'),
                 'empty' => 'You have no domains yet.',

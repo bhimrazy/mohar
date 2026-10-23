@@ -272,7 +272,11 @@ class ServicesServiceProvider extends ModuleServiceProvider
                     ...($service->cycle->isRecurring() ? ['money' => ['amount' => $service->recurring_amount, 'currency' => $service->currency]] : []),
                     'status' => $service->status->value,
                     'date' => $service->cycle->isRecurring() ? $service->next_due_date?->toDateString() : null,
-                    'dateLabel' => $service->do_not_renew ? 'Ends' : 'Renews',
+                    'dateLabel' => match (true) {
+                        $service->do_not_renew => 'Ends',
+                        (bool) $service->next_due_date?->lt(app(CompanyClock::class)->todayDate()) => 'Was due',
+                        default => 'Renews',
+                    },
                 ])->values()->all(),
             'href' => route('client.services.index'),
             'empty' => 'You have no services yet.',
