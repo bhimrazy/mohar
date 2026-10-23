@@ -46,7 +46,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   **staff-review list** with an estimate (`php artisan billing:fiscal-snapshot --list`). During the switch the previous
   release keeps serving and can number an invoice or write a late fee or cancellation without updating the new
   `credited_total`/`debited_total`: every run recomputes these two caches from the value rows and lists each invoice it
-  corrected. Nepal VAT mode (a later release) cannot be enabled while invoices wait for a snapshot, the list is unseen
+  corrected (the pass re-reads rows younger than an hour on every run, because a row can become visible after a higher id). The reporting rate of an old foreign-currency invoice is the rate of the payment that numbered it, else today's stored rate, and the latter is listed as `report_rate_estimated`. Nepal VAT mode (a later release) cannot be enabled while invoices wait for a snapshot, the list is unseen
   or a cache differs from its rows. Staff cannot delete an invoice that has a review entry (the previous release gets a
   foreign-key error). Rollback drops the new tables and columns.
 
