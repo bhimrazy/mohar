@@ -978,6 +978,7 @@ $descriptions = [
     'staff.invitation' => 'Invites a new staff member to the admin area.',
     'staff.two_factor_reset' => 'Tells a staff member their two-factor authentication was reset.',
     'staff.email_changed' => 'Tells a staff member their login email was changed.',
+    'auth.email_changed' => 'Tells the previous address that a login\'s sign-in email was changed, with the new one partly masked.',
     'staff.settings_changed' => 'Tells staff that a security setting was changed.',
     'staff.login_failures' => 'Warns staff about repeated failed sign-ins.',
     'staff.client_details_changed' => 'Tells staff a client changed their details.',
