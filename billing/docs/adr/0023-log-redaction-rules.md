@@ -3,8 +3,8 @@
 - Status: Accepted · 2026-10-23 (CTO), after two security reviews of #382 · Owner: Principal architect.
 - Amends: ADR 0009 §1 (the `Redactor`) and ADR 0014 "Logs".
 - Related: issues #254, #311, #309, #356, #383; PRs #252, #264, #294, #345, #368 (open), #386 (hot-fix); ADR 0009
-  Amendments 2, 3 and 5 (#368); ADR 0010 (contract evolution), ADR 0012 (capabilities); CTO review 2026-10-22, recommendation 3;
-  `billing/docs/security/standards.md` §4 and §6.
+  Amendments 2, 3 and 5 (#368); ADR 0010 (contract evolution), ADR 0012 (capabilities); CTO review 2026-10-22,
+  recommendation 3; `billing/docs/security/standards.md` §4 and §6.
 
 ## Context
 
