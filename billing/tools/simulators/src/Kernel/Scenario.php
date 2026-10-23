@@ -300,8 +300,17 @@ final class Scenario
         }
     }
 
+    /**
+     * Written to a temporary file and renamed into place, so a process starting at the same moment never reads a
+     * half-written scenario (rename is atomic on one file system).
+     */
     private function save(): void
     {
-        file_put_contents($this->directory.'/scenario.json', json_encode($this->config, JSON_PRETTY_PRINT));
+        $temporary = $this->directory.'/scenario.json.'.getmypid().'.tmp';
+        if (file_put_contents($temporary, json_encode($this->config, JSON_PRETTY_PRINT)) === false || ! rename($temporary, $this->directory.'/scenario.json')) {
+            @unlink($temporary);
+
+            throw new RuntimeException("Could not save the scenario in {$this->directory}.");
+        }
     }
 }

@@ -130,11 +130,12 @@ does not make anything lighter, and it would send data off the machine. Not a fi
 ### 5. Docker PostgreSQL on tmpfs (what we have)
 
 `scripts/pg.sh` runs one shared `postgres:18.6-alpine` (digest-pinned, the same image as CI and
-`compose.yaml`) on port 55432. It has a 2 GB tmpfs data directory, one database per worktree and
+`compose.yaml`) on port 55432. It has a 4 GB tmpfs data directory, one database per worktree and
 `max_locks_per_transaction=256`. A slug of up to 42 characters gives `billing_test_<slug>` unchanged. A longer slug
 becomes its first 46 bytes, `_`, and 8 hex digits of its SHA-256 (55 bytes in all), so the `_test_<n>` copies of parallel
-workers stay within PostgreSQL's 63-byte name limit. It does **not** set `fsync=off`. On tmpfs, fsync costs almost nothing, so
-adding `-c fsync=off -c synchronous_commit=off -c full_page_writes=off` is a small, harmless gain. Today
+workers stay within PostgreSQL's 63-byte name limit. It runs with `fsync=off`, `full_page_writes=off`,
+`wal_level=minimal`, `max_wal_senders=0` and `max_wal_size=256MB`: on the earlier 2 GB tmpfs, write-ahead log was about
+half of what filled the disk and crashed the server (2026-10-23). Today
 it uses about 595 MiB (`docker stats`), and that includes the tmpfs data of every worktree's test databases.
 It has full fidelity and is already approved.
 
@@ -198,9 +199,7 @@ memory comes from the cited source or `docker stats`.
   (not the shared tmpfs server, which loses its data on every stop). Do not move it to `pg.sh`: it is test
   data on tmpfs.
 - **(b) Local tests.** No change. SQLite stays the fast inner loop. `eval "$(scripts/pg.sh <slug>)"` plus
-  `composer test:pgsql` runs before pushing anything that touches queries, locks or migrations. Small
-  change worth making: add `-c fsync=off -c synchronous_commit=off -c full_page_writes=off` to `pg.sh`
-  (test data only).
+  `composer test:pgsql` runs before pushing anything that touches queries, locks or migrations.
 - **(c) CI.** Keep the pinned service container, which is the gate defined in ADR 0006. The PostgreSQL step
   has run close to its time limit, so a measured spike is worth doing (next section).
 - **(d) Tiny self-hosted.** Real PostgreSQL 18, from OS or PGDG packages on bare metal, or the compose
