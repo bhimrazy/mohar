@@ -142,6 +142,8 @@ class BillingServiceProvider extends ModuleServiceProvider
         $schedule->command('billing:reconcile-payments --only=open')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
         // Closed attempts, for late payments (#130): hourly, on a lock of its own so it never delays the open ones.
         $schedule->command('billing:reconcile-payments --only=late')->hourly()->withoutOverlapping(30)->onOneServer();
+        // Fiscal snapshot of invoices numbered before it existed or by the previous release, and the cached totals (ADR 0024 §2).
+        $schedule->command('billing:fiscal-snapshot')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
     }
 
     private function registerAutomation(): void
