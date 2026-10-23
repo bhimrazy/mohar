@@ -63,12 +63,13 @@ class SettingsCatalog
     {
         return array_map(function (SettingDefinition $definition): array {
             $value = $this->settings->get($definition->key);
+            $note = $definition->lockedNote !== null ? ($definition->lockedNote)() : null;
 
             return [
                 'key' => $definition->key,
                 'label' => $definition->label,
                 'type' => $definition->type,
-                'help' => $definition->help,
+                'help' => $note !== null ? trim($note.' '.$definition->help) : $definition->help,
                 'options' => array_map(
                     fn (string|int $value, string $label): array => ['value' => (string) $value, 'label' => $label],
                     array_keys($definition->options),

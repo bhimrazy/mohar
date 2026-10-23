@@ -208,7 +208,9 @@ class BillingServiceProvider extends ModuleServiceProvider
         $navigation->add('admin', new NavItem('Quotes', 'admin.billing.quotes.index', 'ClipboardList', 'Billing', 30, 'billing.quotes.view', 'admin.billing.quotes.*'));
         $navigation->add('admin', new NavItem('Account credit', 'admin.billing.credit.index', 'Wallet', 'Billing', 40, 'billing.credit.manage', 'admin.billing.credit.*'));
         $navigation->add('admin', new NavItem('Gateways', 'admin.billing.gateways.index', 'CreditCard', 'Setup', 40, 'billing.gateways.manage', 'admin.billing.gateways.*'));
-        $navigation->add('admin', new NavItem('Nepal VAT', 'admin.billing.vat-mode.edit', 'FileText', 'Setup', 44, 'billing.tax.manage', 'admin.billing.vat-mode.*'));
+        if (config('billing_features.nepal_vat_mode')) {
+            $navigation->add('admin', new NavItem('Nepal VAT', 'admin.billing.vat-mode.edit', 'FileText', 'Setup', 44, 'billing.tax.manage', 'admin.billing.vat-mode.*'));
+        }
         $navigation->add('admin', new NavItem('Tax rules', 'admin.billing.tax-rules.index', 'Percent', 'Setup', 41, 'billing.tax.manage', 'admin.billing.tax-rules.*'));
         $navigation->add('admin', new NavItem('Payment attempts', 'admin.billing.payment-attempts.index', 'Activity', 'Billing', 50, 'billing.payments.manage', 'admin.billing.payment-attempts.*'));
         $navigation->add('admin', new NavItem('Gateway log', 'admin.billing.gateway-log.index', 'Webhook', 'Setup', 42, 'billing.gateway_log.view', 'admin.billing.gateway-log.*'));
@@ -343,7 +345,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         }, __('This is fixed while Nepal VAT mode is on: tax documents are numbered under it.'));
 
         $locked = fn (SettingDefinition $definition): SettingDefinition => in_array($definition->key, NepalVatMode::LOCKED, true)
-            ? new SettingDefinition($definition->key, $definition->label, $definition->type, $definition->help, $definition->options, [...$definition->rules, 'nepal_vat_unlocked'], $definition->secret)
+            ? new SettingDefinition($definition->key, $definition->label, $definition->type, $definition->help, $definition->options, [...$definition->rules, 'nepal_vat_unlocked'], $definition->secret, fn (): ?string => app(NepalVatMode::class)->enabled() ? __('Fixed while Nepal VAT mode is on.') : null)
             : $definition;
 
         $this->app->make(SettingsRegistry::class)->section('billing', 'Billing', array_map($locked, [

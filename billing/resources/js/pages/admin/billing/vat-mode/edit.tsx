@@ -136,7 +136,7 @@ export default function VatModeEdit({
                 <form onSubmit={submit} className="grid gap-6">
                     <SectionCard
                         title="Which tax rules are Nepal VAT"
-                        description={`Invoices can carry other taxes too. Only the rules ticked here count as VAT in the register. Rules are managed under Tax rules.`}
+                        description="Invoices can carry other taxes too. Only the rules ticked here count as VAT in the register. Rules are managed under Tax rules. Applies to invoices numbered after you save; issued invoices keep their classification."
                     >
                         {rules.length === 0 ? (
                             <p className="text-sm text-muted-foreground">

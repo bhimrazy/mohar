@@ -10,6 +10,7 @@ use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Platform\Services\SettingsCatalog;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +25,7 @@ require_once __DIR__.'/helpers.php';
 */
 
 beforeEach(function () {
+    config(['billing_features.nepal_vat_mode' => true]);
     CarbonImmutable::setTestNow('2026-10-20 06:00:00');
     Currency::factory()->create();
     Currency::factory()->npr()->create();
@@ -307,4 +309,24 @@ test('the settings page shows the rules, the next BS months and what blocks enab
 
     actingAsStaff(['billing.invoices.view']);
     $this->get(route('admin.billing.vat-mode.edit'))->assertForbidden();
+});
+
+test('the page and the save are hidden (404) until the mode is made available', function () {
+    config(['billing_features.nepal_vat_mode' => false]);
+    actingAsStaff(['billing.tax.manage']);
+    confirmPassword();
+
+    $this->get(route('admin.billing.vat-mode.edit'))->assertNotFound();
+    $this->put(route('admin.billing.vat-mode.update'), vatModePayload())->assertNotFound();
+    expect(app(NepalVatMode::class)->enabled())->toBeFalse();
+});
+
+test('the Billing settings form says why a numbering field is fixed while the mode is on', function () {
+    $field = fn () => collect(app(SettingsCatalog::class)->fields('billing'))->firstWhere('key', 'billing.number_format')['help'];
+
+    expect($field())->not->toContain('Fixed while');
+
+    vatModeSwitchOn();
+
+    expect($field())->toStartWith('Fixed while Nepal VAT mode is on.');
 });

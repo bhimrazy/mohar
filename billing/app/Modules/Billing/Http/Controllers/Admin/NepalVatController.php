@@ -18,6 +18,7 @@ class NepalVatController extends Controller
 {
     public function edit(NepalVatMode $mode, BillingSettings $settings): Response
     {
+        abort_unless(config('billing_features.nepal_vat_mode'), 404);
         $this->authorize('billing.tax.manage');
 
         $rules = TaxRule::query()->orderBy('level')->orderBy('country')->orderBy('id')->get(['id', 'name', 'level', 'country', 'rate']);
@@ -40,6 +41,8 @@ class NepalVatController extends Controller
 
     public function update(NepalVatRequest $request, NepalVatMode $mode): RedirectResponse
     {
+        abort_unless(config('billing_features.nepal_vat_mode'), 404);
+
         $input = $request->validated();
         $changed = $mode->apply($request->user(), [
             'enabled' => (bool) $input['enabled'],

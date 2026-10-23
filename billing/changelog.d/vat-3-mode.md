@@ -6,4 +6,6 @@
 
 ### Changed
 
+- The Nepal VAT page is hidden (404, no menu item) until `BILLING_NEPAL_VAT_MODE=true`; it stays off by default until the old cancel, refund and late-fee paths issue notes (VAT PR 3b). The Billing settings form shows "Fixed while Nepal VAT mode is on." beside the locked numbering fields.
+
 - Upgrade notes: one migration adds four nullable columns and a partial index (`invoices_vat_split_pending_index`) to `invoices`, built concurrently on PostgreSQL. Nothing is backfilled by the migration. Before enabling the mode on an install with numbered invoices, run `billing:fiscal-snapshot` and `billing:fiscal-vat-split` until they report nothing left. Installs that never enable the mode see no change in invoices, numbering or reports.

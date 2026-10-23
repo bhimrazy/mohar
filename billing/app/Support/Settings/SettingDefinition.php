@@ -10,6 +10,7 @@ final readonly class SettingDefinition
      * @param  array<string, string>  $options  value => label, for "select"
      * @param  list<string>  $rules  extra Laravel validation rules
      * @param  bool  $secret  write-only (API keys, passwords): never sent back to the UI, masked in the activity log
+     * @param  (\Closure(): ?string)|null  $lockedNote  evaluated per request; a returned text is shown before the help, saying why the value is fixed
      */
     public function __construct(
         public string $key,
@@ -19,5 +20,6 @@ final readonly class SettingDefinition
         public array $options = [],
         public array $rules = [],
         public bool $secret = false,
+        public ?\Closure $lockedNote = null,
     ) {}
 }
