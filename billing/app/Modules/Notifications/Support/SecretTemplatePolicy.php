@@ -44,6 +44,7 @@ final class SecretTemplatePolicy
     public const ACTION_LINKS = [
         'auth.password_reset' => 'auth.reset_url',
         'staff.password_reset' => 'auth.reset_url',
+        'auth.password_set' => 'auth.set_url',
         'auth.email_verification' => 'auth.verify_url',
         'auth.user_invitation' => 'auth.invite_url',
         'client.migration_invitation' => 'auth.invite_url',

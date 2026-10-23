@@ -6,6 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Changed
+
+- **A login without a password is told to set one when a sensitive action needs step-up (#274, ADR 0018 §4).** Such a
+  login (for example from a social or magic-link sign-in) can never pass step-up, whatever the session holds, including
+  a passkey confirmation. The 423 response carries `code: "password_not_set"` and the Inertia validation response
+  carries `step_up_reason`; neither holds secret data. The confirm dialog and the confirm-password page show "Set a
+  password" instead of a password field; it posts to `POST settings/password/set-link`, which emails a "Set a password
+  for your account" mail (the editable, logged template `auth.password_set`, not the reset mail) to the account's own address (verified address and a login without a
+  password only; 5 a minute per IP and 5 an hour per login; one mail a minute) and answers only "sent". The link opens
+  `settings/password/set/{token}`, a signed-in page that sets the password with a confirmation and never asks for a
+  current one; the link works once, for that login only, and a signed-out visitor signs in first and returns to it. The
+  guest reset flow is unchanged. Shared props carry `auth.user.has_password`.
+  A staff login can no longer be created or promoted without a password (ADR 0018 §5; an unrelated save of a
+  row already in that state still works). Upgrade: migration `make_users_password_nullable` makes `users.password` nullable (on PostgreSQL it takes a short lock
+  on `users`); no behaviour changes for logins that have a password.
+
 ### Fixed
 
 - **Registry answers echoed in a registrar result's `meta` are masked too (#356).** The free-text answers a customer gave for an extension (such as a nexus identification number) were already masked, however the registry regrouped them, in a registrar's error and result message. They are now masked the same way in every text value and every text key of the result's `meta`, at any nesting up to 8 levels, before the result reaches the registrar command log. A branch nested deeper, an object value, or a branch whose key held an answer is replaced by `[redacted]`. The result's `remote` (the registrar's order and transfer ids) is never masked, because a mask would change an id the host needs later. Numbers, booleans and answers of fewer than 4 characters are unchanged. A 4-character answer such as `2026` masks every equal run of characters in those texts, a year in a message included. No schema or permission change.

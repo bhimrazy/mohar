@@ -56,6 +56,26 @@ class TemplatedAuthMailer implements AuthMailer
         }
     }
 
+    public function sendPasswordSet(User $user, #[\SensitiveParameter] string $token): void
+    {
+        $url = AccountLinks::passwordSet($token);
+
+        if (! $this->linkAllowed($url, $user, 'set password')) {
+            return;
+        }
+
+        $broker = (string) config('fortify.passwords', 'users');
+        $expiresAt = MailDates::dateTime(now()->addMinutes((int) config("auth.passwords.{$broker}.expire", 60)));
+
+        $sent = $this->send($user, 'auth.password_set', [
+            'auth' => ['set_url' => new SensitiveValue($url, secret: $token), 'expires_at' => $expiresAt],
+        ], 'auth-set|'.$user->id.'|'.hash('sha256', $token));
+
+        if (! $this->handled($sent)) {
+            $this->fallback->sendPasswordSet($user, $token);
+        }
+    }
+
     public function sendEmailVerification(User $user): void
     {
         $url = VerifyEmail::$createUrlCallback !== null
