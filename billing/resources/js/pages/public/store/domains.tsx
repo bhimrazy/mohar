@@ -1,4 +1,9 @@
 import { Form, usePage } from '@inertiajs/react';
+import {
+    TldAttributeFields,
+    tldFieldsFor,
+    type TldAttributeFieldMap,
+} from '@/components/orders/tld-attribute-fields';
 import { Head } from '@/components/app/head';
 import { ArrowRightLeft, Globe, Plus, Search } from 'lucide-react';
 import { useState } from 'react';
@@ -34,20 +39,28 @@ type Props = {
     search: string;
     results: Result[];
     currency: string;
+    tld_attribute_fields: TldAttributeFieldMap;
 };
 
 function DomainRow({
     result,
     currency,
     transfer,
+    tldAttributeFields,
 }: {
     result: Result;
     currency: string;
     transfer: boolean;
+    tldAttributeFields: TldAttributeFieldMap;
 }) {
     const [action, setAction] = useState<'register' | 'transfer'>(
         transfer && result.transfer !== null ? 'transfer' : 'register',
     );
+    const [details, setDetails] = useState<Record<string, string>>({});
+    const detailFields =
+        action === 'register'
+            ? tldFieldsFor(tldAttributeFields, result.domain)
+            : [];
     const price = action === 'register' ? result.register : result.transfer;
 
     return (
@@ -168,6 +181,18 @@ function DomainRow({
                                 Add
                             </Button>
                         </div>
+                        {detailFields.length > 0 && (
+                            <div className="grid w-full gap-4 sm:max-w-sm">
+                                <TldAttributeFields
+                                    fields={detailFields}
+                                    values={details}
+                                    onChange={setDetails}
+                                    errors={errors}
+                                    idPrefix={`${result.domain}-detail`}
+                                    nativeInputs
+                                />
+                            </div>
+                        )}
                         <InputError
                             message={
                                 errors.domain ?? errors.epp_code ?? errors.years
@@ -180,7 +205,12 @@ function DomainRow({
     );
 }
 
-export default function Domains({ search, results, currency }: Props) {
+export default function Domains({
+    search,
+    results,
+    currency,
+    tld_attribute_fields: tldAttributeFields,
+}: Props) {
     // "Transfer a domain" links here with ?transfer=1: transfer is preselected on each result.
     const transfer =
         new URL(usePage().url, 'http://localhost').searchParams.get(
@@ -268,6 +298,7 @@ export default function Domains({ search, results, currency }: Props) {
                                     result={result}
                                     currency={currency}
                                     transfer={transfer}
+                                    tldAttributeFields={tldAttributeFields}
                                 />
                             ))}
                         </ul>

@@ -6,6 +6,23 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### TLD attributes for registrar drivers (ADR 0009 Amendment 2)
+
+- New capability `App\Contracts\Domains\Registrar\DeclaresTldAttributes` (detected with `instanceof`; registry
+  capability name `tld_attributes`, `RegistrarDriverRegistry::TLD_ATTRIBUTES`): `tldAttributeFields(string $tld):
+  list<SettingField>`, `$tld` with its leading dot, no network call. Domains renders, validates (required, options,
+  type) and stores the answers per domain.
+- `App\Data\Domains\Registrar\RegistrationRequest` gains `array<string, string> $tldAttributes = []` (last
+  parameter, `#[\SensitiveParameter]`): the answers keyed by the field keys the driver declared. `toArray()` lists the
+  keys only, so the command log never holds the values. Existing drivers and callers are unchanged. The host fills it
+  for a registration, not for a transfer.
+- Beyond the ADR text, needed so Orders can reach the feature without importing Domains: `App\Data\Domains\DomainDraft`
+  gains `array<string, string> $tldAttributes = []` (last parameter), and a new Domains-implemented contract
+  `App\Contracts\Domains\TldAttributes` (`fieldsByTld()`, `clean($tld, $input)`, throws `ValidationException` keyed
+  `tld_attributes.<key>`). Orders works when nothing implements it.
+- Behaviour note: the test fakes' default capability set now includes `tld_attributes`; a registrar fake without it is
+  `FullWithoutAttributesRegistrar`.
+
 ### Refund lookup for unconfirmed gateway refunds (#334)
 
 - New provider contract `App\Contracts\Billing\LooksUpRefunds` (extends `GatewayDriver`, detected with

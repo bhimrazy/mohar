@@ -102,12 +102,12 @@ final class ResellerClubDriver implements ChecksAvailability, DeclaresTldAttribu
      * - `.us`: purpose and nexus category, from the .US registry's nexus policy
      *   (https://support.opensrs.com/support/solutions/articles/201000063592, values P1-P5 and C11/C12/C21). Only
      *   the categories that need no extra validator are offered (C31/C32 also need a nexus country).
-     * - `.com.au`: eligibility id, id type, policy reason and warranty, as the simulator already models them.
+     * - `.com.au`: eligibility id, id type, policy reason and warranty, as ResellerClub's `.au` registration takes them.
      *
      * Unverified: ResellerClub's own knowledge base could not be read when this was written, so the attribute names
      * (`purpose`, `category`, `id-type`, `id`, `policyReason`, `isAUWarranty`) and the `.com.au` values follow the
-     * simulator and the registry policies, not a call to a ResellerClub account. Check them against the demo
-     * account before enabling these extensions.
+     * registry policies and the expected API shape, not a call to a ResellerClub account. Check them against the
+     * demo account before enabling these extensions.
      */
     public function tldAttributeFields(string $tld): array
     {

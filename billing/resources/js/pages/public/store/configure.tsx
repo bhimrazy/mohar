@@ -1,4 +1,9 @@
 import { Link, useForm, useHttp } from '@inertiajs/react';
+import {
+    TldAttributeFields,
+    tldFieldsFor,
+    type TldAttributeFieldMap,
+} from '@/components/orders/tld-attribute-fields';
 import { Head } from '@/components/app/head';
 import { ChevronLeft } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -70,9 +75,11 @@ type Props = {
         domain_mode: string | null;
         domain_name: string | null;
         addon_ids: number[];
+        tld_attributes: Record<string, string>;
     } | null;
     /** A domain the visitor already owns (from the domain search), preselected as "Use a domain I own". */
     existing_domain: string | null;
+    tld_attribute_fields: TldAttributeFieldMap;
 };
 
 type DomainMode = '' | 'register' | 'transfer' | 'existing';
@@ -85,6 +92,7 @@ type FormData = {
     domain_mode: DomainMode;
     domain_name: string;
     epp_code: string;
+    tld_attributes: Record<string, string>;
 };
 
 type Quote = { item: PricedItem; currency: string; subtotal: number };
@@ -188,6 +196,7 @@ export default function Configure({
     custom_fields: customFields,
     editing,
     existing_domain: existingDomain,
+    tld_attribute_fields: tldAttributeFields,
 }: Props) {
     const form = useForm<FormData>({
         cycle: editing?.cycle ?? cycles[0]?.cycle ?? 'monthly',
@@ -208,7 +217,12 @@ export default function Configure({
                   : ''),
         domain_name: editing?.domain_name ?? existingDomain ?? '',
         epp_code: '',
+        tld_attributes: editing?.tld_attributes ?? {},
     });
+    const tldFields =
+        form.data.domain_mode === 'register'
+            ? tldFieldsFor(tldAttributeFields, form.data.domain_name)
+            : [];
     const errors = form.errors as Record<string, string | undefined>;
 
     const preview = useHttp<PreviewData, Quote>({
@@ -265,6 +279,7 @@ export default function Configure({
             domain_mode: data.domain_mode || null,
             domain_name: data.domain_mode ? data.domain_name : null,
             epp_code: data.domain_mode === 'transfer' ? data.epp_code : null,
+            tld_attributes: tldFields.length > 0 ? data.tld_attributes : null,
         }));
 
         if (editing) {
@@ -492,6 +507,19 @@ export default function Configure({
                                             aria-describedby="epp_code-description"
                                         />
                                     </Field>
+                                )}
+                                {tldFields.length > 0 && (
+                                    <TldAttributeFields
+                                        fields={tldFields}
+                                        values={form.data.tld_attributes}
+                                        onChange={(values) =>
+                                            form.setData(
+                                                'tld_attributes',
+                                                values,
+                                            )
+                                        }
+                                        errors={errors}
+                                    />
                                 )}
                             </div>
                         )}

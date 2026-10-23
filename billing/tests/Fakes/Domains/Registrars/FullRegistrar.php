@@ -3,6 +3,7 @@
 namespace Tests\Fakes\Domains\Registrars;
 
 use App\Contracts\Domains\Registrar\ChecksAvailability;
+use App\Contracts\Domains\Registrar\DeclaresTldAttributes;
 use App\Contracts\Domains\Registrar\ManagesContacts;
 use App\Contracts\Domains\Registrar\ManagesIdProtection;
 use App\Contracts\Domains\Registrar\ManagesLock;
@@ -18,4 +19,4 @@ use Tests\Fakes\Domains\FakeRegistrarDriver;
 /**
  * Fake registrar with every capability except reconcile (the FakeRegistrar default).
  */
-final class FullRegistrar extends FakeRegistrarDriver implements ChecksAvailability, ManagesContacts, ManagesIdProtection, ManagesLock, ManagesNameservers, ProvidesEppCode, RestoresDomains, SuggestsNames, SyncsDomains, TestsRegistrarConnection, TransfersDomains {}
+final class FullRegistrar extends FakeRegistrarDriver implements ChecksAvailability, DeclaresTldAttributes, ManagesContacts, ManagesIdProtection, ManagesLock, ManagesNameservers, ProvidesEppCode, RestoresDomains, SuggestsNames, SyncsDomains, TestsRegistrarConnection, TransfersDomains {}

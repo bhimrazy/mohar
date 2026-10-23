@@ -6,6 +6,7 @@ use App\Contracts\Domains\DomainPricing;
 use App\Contracts\Domains\TldAttributes;
 use App\Data\Integrations\SettingField;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Validation\ValidationException;
 
 /**
  * The extension details a registrar asks for, as Orders uses them: the field lists the order forms show, and the
@@ -35,7 +36,7 @@ class TldAttributeInput
      *
      * @return array<string, string>
      *
-     * @throws \Illuminate\Validation\ValidationException
+     * @throws ValidationException
      */
     public function clean(?string $domain, mixed $input): array
     {

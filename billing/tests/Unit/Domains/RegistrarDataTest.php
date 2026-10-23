@@ -48,3 +48,15 @@ test('a transfer sync result and a connection check copy with replaced text only
         ->and($check->mapText(fn (string $text): string => str_replace('raw', 'masked', $text)))
         ->toEqual(new ConnectionCheck(false, 'masked message', [new ConnectionCheckStep('Login', CheckStatus::Fail, 'masked step')], ['account' => 'masked detail']));
 });
+
+test('a registration request carries no extension details by default and logs their keys, never their values', function () {
+    $domain = new DomainRef(1, 2, 'asha.us', 'asha', '.us', 'pending', null, 'log');
+
+    expect((new RegistrationRequest($domain, 1, [], new ContactSet))->tldAttributes)->toBe([])
+        ->and((new RegistrationRequest($domain, 1, [], new ContactSet))->toArray()['tld_attributes'])->toBe([]);
+
+    $logged = (new RegistrationRequest($domain, 1, [], new ContactSet, tldAttributes: ['purpose' => 'P3', 'id' => 'ABN-SECRET-77']))->toArray();
+
+    expect($logged['tld_attributes'])->toBe(['purpose', 'id'])
+        ->and(json_encode($logged))->not->toContain('ABN-SECRET-77');
+});

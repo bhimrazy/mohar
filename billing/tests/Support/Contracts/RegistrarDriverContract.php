@@ -3,6 +3,7 @@
 namespace Tests\Support\Contracts;
 
 use App\Contracts\Domains\Registrar\ChecksAvailability;
+use App\Contracts\Domains\Registrar\DeclaresTldAttributes;
 use App\Contracts\Domains\Registrar\ManagesContacts;
 use App\Contracts\Domains\Registrar\ManagesIdProtection;
 use App\Contracts\Domains\Registrar\ManagesLock;
@@ -328,6 +329,7 @@ final class RegistrarDriverContract
                 'info' => [DomainInfo::class, fn (): mixed => $driver->info($config, $domain)],
             ],
             ChecksAvailability::class => fn (ChecksAvailability $driver, RegistrarConfig $config): array => ['availability' => ['list', fn (): mixed => $driver->checkAvailability($config, $domain->sld, [$domain->tld])]],
+            DeclaresTldAttributes::class => fn (DeclaresTldAttributes $driver, RegistrarConfig $config): array => ['tld_attributes' => ['list', fn (): mixed => $driver->tldAttributeFields($domain->tld)]],
             SuggestsNames::class => fn (SuggestsNames $driver, RegistrarConfig $config): array => ['suggestions' => ['list', fn (): mixed => $driver->suggest($config, $domain->sld, [$domain->tld], 5)]],
             TransfersDomains::class => fn (TransfersDomains $driver, RegistrarConfig $config): array => [
                 'transfer' => [RegistrarResult::class, fn (): mixed => $driver->transfer($config, $request)],

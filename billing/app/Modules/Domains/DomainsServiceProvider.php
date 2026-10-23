@@ -4,9 +4,8 @@ namespace App\Modules\Domains;
 
 use App\Contracts\Domains\DomainPricing;
 use App\Contracts\Domains\DomainRegistry;
-use App\Contracts\Domains\TldAttributes;
-use App\Modules\Domains\Services\TldAttributeService;
 use App\Contracts\Domains\Registrar\RegistrarRefs;
+use App\Contracts\Domains\TldAttributes;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Events\Billing\InvoiceCancelled;
 use App\Events\Billing\InvoicePaid;
@@ -38,6 +37,7 @@ use App\Modules\Domains\Services\DomainPricingService;
 use App\Modules\Domains\Services\DomainRegistryService;
 use App\Modules\Domains\Services\EloquentRegistrarRefs;
 use App\Modules\Domains\Services\RenewalInvoices;
+use App\Modules\Domains\Services\TldAttributeService;
 use App\Support\Automation\Automation;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\PriceConverters;

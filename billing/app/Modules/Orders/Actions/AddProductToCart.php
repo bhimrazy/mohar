@@ -10,9 +10,9 @@ use App\Modules\Orders\Data\CartItem;
 use App\Modules\Orders\Enums\CartItemKind;
 use App\Modules\Orders\Models\Cart;
 use App\Modules\Orders\Pricing\CartPricer;
-use App\Modules\Orders\Services\TldAttributeInput;
 use App\Modules\Orders\Services\CustomFieldRules;
 use App\Modules\Orders\Services\DomainGuard;
+use App\Modules\Orders\Services\TldAttributeInput;
 use Illuminate\Validation\ValidationException;
 
 /**

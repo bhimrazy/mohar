@@ -1,3 +1,8 @@
+import {
+    TldAttributeFields,
+    tldFieldsFor,
+    type TldAttributeFieldMap,
+} from '@/components/orders/tld-attribute-fields';
 import { Link, router, useForm } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import OrderController from '@/actions/App/Modules/Orders/Http/Controllers/Admin/OrderController';
@@ -35,6 +40,7 @@ type Props = {
     clients: SelectOption[];
     groups: StoreGroup[];
     gateways: SelectOption[];
+    tld_attribute_fields: TldAttributeFieldMap;
 };
 
 type StaffOrderForm = {
@@ -44,6 +50,7 @@ type StaffOrderForm = {
     domain_mode: string;
     domain_name: string;
     epp_code: string;
+    tld_attributes: Record<string, string>;
     price_override: string;
     promotion_code: string;
     payment_gateway: string;
@@ -83,6 +90,7 @@ export default function CreateOrder({
     clients,
     groups,
     gateways,
+    tld_attribute_fields: tldAttributeFields,
 }: Props) {
     const form = useForm<StaffOrderForm>({
         client_id: client ? String(client.id) : '',
@@ -91,6 +99,7 @@ export default function CreateOrder({
         domain_mode: '',
         domain_name: '',
         epp_code: '',
+        tld_attributes: {},
         price_override: '',
         promotion_code: '',
         payment_gateway: gateways[0]?.value ?? '',
@@ -99,6 +108,10 @@ export default function CreateOrder({
         admin_notes: '',
     });
     const errors = form.errors as Record<string, string | undefined>;
+    const tldFields =
+        form.data.domain_mode === 'register'
+            ? tldFieldsFor(tldAttributeFields, form.data.domain_name)
+            : [];
     const products = groups.flatMap((group) =>
         group.products.map((product) => ({ ...product, group: group.name })),
     );
@@ -359,6 +372,19 @@ export default function CreateOrder({
                                                 placeholder="example.com"
                                             />
                                         </Field>
+                                    )}
+                                    {tldFields.length > 0 && (
+                                        <TldAttributeFields
+                                            fields={tldFields}
+                                            values={form.data.tld_attributes}
+                                            onChange={(values) =>
+                                                form.setData(
+                                                    'tld_attributes',
+                                                    values,
+                                                )
+                                            }
+                                            errors={errors}
+                                        />
                                     )}
                                     {form.data.domain_mode === 'transfer' && (
                                         <Field
