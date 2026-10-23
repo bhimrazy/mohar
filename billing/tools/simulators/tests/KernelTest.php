@@ -7,6 +7,7 @@ use Mohar\Simulators\Kernel\Recorder;
 use Mohar\Simulators\Kernel\Scenario;
 use Mohar\Simulators\SimulatorRegistry;
 use Mohar\Simulators\Tests\Fixtures\EchoSimulator;
+use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
 uses(TestCase::class);
@@ -127,4 +128,23 @@ test('a delivery the app does not accept is retried on the backoff schedule unti
     }, 'unsigned');
 
     expect(end($unsigned))->toBeTrue();
+});
+
+test('a scenario rewritten while a process starts is never read half-written (#370)', function () {
+    $scenario = Scenario::create(EchoSimulator::class);
+    $reader = new Process([PHP_BINARY, '-r', 'require $argv[1]."/vendor/autoload.php"; for ($i = 0; $i < 2000; $i++) { Mohar\Simulators\Kernel\Scenario::load($argv[2]); } echo "ok";', base_path(), $scenario->directory], timeout: 60);
+
+    try {
+        $reader->start();
+
+        while ($reader->isRunning()) {
+            $scenario->withPids([]);
+        }
+
+        expect($reader->getErrorOutput())->toBe('')
+            ->and($reader->getOutput())->toBe('ok')
+            ->and(glob($scenario->directory.'/scenario.json.*.tmp'))->toBe([]);
+    } finally {
+        Processes::stop($scenario);
+    }
 });
