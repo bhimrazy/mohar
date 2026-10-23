@@ -198,6 +198,12 @@ cmd_deploy() {
     save_state
     move_workers "$next" "$PREVIOUS"
 
+    # The old colour may have numbered invoices or written value rows before the switch (ADR 0024 §2); the scheduler
+    # repeats this every five minutes, so a failure here only delays it.
+    say "filling fiscal snapshots"
+    "${compose[@]}" run --rm -T -e APP_OPTIMIZE=0 migrate php artisan billing:fiscal-snapshot \
+        || say "warning: billing:fiscal-snapshot failed; the scheduler runs it again"
+
     say "live: $next ($image)${PREVIOUS:+; app-$PREVIOUS keeps running for 'deploy/bin/deploy rollback' (stop it with 'retire')}"
 }
 

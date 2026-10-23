@@ -21,7 +21,15 @@ const UTC_DATE_FORMS = [
 ];
 
 /** Modules that have moved onto the company clock. */
-const SCANNED_MODULES = ['Billing', 'Services'];
+const SCANNED_MODULES = ['Billing', 'Services', 'Notifications', 'Platform'];
+
+/**
+ * The one UTC read left on purpose, as "file" => code. MailDates falls back to the UTC date when the company clock
+ * itself is unavailable (no settings table yet); the scan removes exactly this text from that file before matching.
+ */
+const SCAN_EXCEPTIONS = [
+    'Modules/Notifications/Support/MailDates.php' => "CarbonImmutable::now('UTC')->toDateString()",
+];
 
 /** Code the scan must not flag. */
 const ALLOWED_DATE_CODE = [
@@ -64,6 +72,8 @@ test('document paths of the moved modules read no UTC calendar date', function (
 
     foreach (SCANNED_MODULES as $module) {
         foreach (billingDocumentCode($module) as $path => $code) {
+            $code = str_replace(SCAN_EXCEPTIONS[$path] ?? "\0", '', $code);
+
             foreach (UTC_DATE_FORMS as $label => $pattern) {
                 if (preg_match($pattern, $code) === 1) {
                     $found[] = "{$path}: {$label}";
@@ -104,6 +114,19 @@ test('the scan sees every form it forbids', function (string $label, string $cod
     ['the UTC date of an instant column', '$invoice->paid_at?->toDateString()'],
 ]);
 
+test('the MailDates fallback is the only allowed UTC read, and only in that form', function () {
+    $file = 'Modules/Notifications/Support/MailDates.php';
+    $fallback = SCAN_EXCEPTIONS[$file];
+    $hits = fn (string $code): array => array_keys(array_filter(UTC_DATE_FORMS, fn (string $pattern): bool => preg_match($pattern, $code) === 1));
+
+    // The exception names code that exists in the file, and the form is one the scan would otherwise flag.
+    expect(billingDocumentCode('Notifications')[$file])->toContain($fallback)
+        ->and($hits($fallback))->not->toBe([])
+        ->and($hits(str_replace($fallback, '', billingDocumentCode('Notifications')[$file])))->toBe([])
+        // Any other form in the same file, or the same form elsewhere, is still caught.
+        ->and($hits(str_replace($fallback, '', "{$fallback}; now()->toDateString();")))->not->toBe([]);
+});
+
 test('the scan allows the company clock and plain date handling', function () {
     foreach (ALLOWED_DATE_CODE as $allowed) {
         expect(array_keys(array_filter(UTC_DATE_FORMS, fn (string $pattern): bool => preg_match($pattern, $allowed) === 1)))->toBe([], $allowed);
@@ -125,9 +148,7 @@ const HAND_CONVERSIONS = [
 const HAND_CONVERSION_BASELINE = [
     'Modules/Billing/Database/Seeders/BillingHistorySeeder.php: an instant method on the run date' => 1,
     'Modules/Domains/DomainsServiceProvider.php: a timestamp column compared with the run date' => 1,
-    'Modules/Notifications/Actions/PruneNotificationLogs.php: a timestamp column compared with the run date' => 2,
     'Modules/Orders/Actions/CancelStalePendingOrders.php: a timestamp column compared with the run date' => 1,
-    'Modules/Platform/PlatformServiceProvider.php: a timestamp column compared with the run date' => 3,
 ];
 
 test('no module converts the run date by hand beyond the baseline', function () {

@@ -1,6 +1,7 @@
 <?php
 
 use App\Modules\Billing\Support\BikramSambat;
+use App\Modules\Billing\Support\BikramSambatDate;
 use Carbon\CarbonImmutable;
 
 /*
@@ -103,3 +104,23 @@ test('BS dates that do not exist or are outside the table are refused', function
     'day 30 of a 29-day Mangsir' => [2082, 8, 30],
     'day 0' => [2082, 1, 0],
 ]);
+
+test('the fiscal year starts on 1 Shrawan and is written the way the tax office writes it', function (array $bs, string $fiscalYear) {
+    expect(BikramSambat::fiscalYear(new BikramSambatDate(...$bs)))->toBe($fiscalYear);
+})->with([
+    'last day of Asar 2083 is still 2082/83' => [[2083, 3, 32], '2082.083'],
+    '1 Shrawan 2083 opens 2083/84' => [[2083, 4, 1], '2083.084'],
+    'Kartik 2083' => [[2083, 7, 1], '2083.084'],
+    'last day of Chaitra 2083' => [[2083, 12, 30], '2083.084'],
+    '1 Baisakh 2084 is still 2083/84' => [[2084, 1, 1], '2083.084'],
+    'a year starting in 2099 (arithmetic only, past the table)' => [[2099, 4, 1], '2099.100'],
+]);
+
+test('the VAT period is the BS month and sorts in date order', function () {
+    $periods = [BikramSambat::period(new BikramSambatDate(2083, 7, 3)), BikramSambat::period(new BikramSambatDate(2083, 12, 1)), BikramSambat::period(new BikramSambatDate(2084, 1, 1))];
+
+    expect($periods)->toBe(['2083-07', '2083-12', '2084-01'])->and((new BikramSambatDate(2083, 7, 3))->toIso())->toBe('2083-07-03');
+    $sorted = $periods;
+    sort($sorted);
+    expect($sorted)->toBe($periods);
+});

@@ -44,7 +44,7 @@ class MergeContext
             'system' => array_filter([
                 'client_area_url' => $this->link('client.dashboard'),
                 'admin_url' => $forStaff ? $this->link('admin.dashboard') : null,
-                'today' => MailDates::today(),
+                'today' => MailDates::companyDate(),
             ], fn (mixed $value): bool => $value !== null),
             'signature' => (string) $this->settings->get('notifications.signature', ''),
             'support' => [

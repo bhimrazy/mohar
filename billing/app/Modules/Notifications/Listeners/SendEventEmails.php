@@ -309,7 +309,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
             ...$this->invoiceContext($event->invoiceId),
             'payment' => [
                 'amount' => app(MoneyFormatter::class)->amount($event->amount, $event->currency),
-                'date' => $transaction['date'] ?? now()->toDateString(),
+                'date' => $transaction['date'] ?? MailDates::companyDate(),
                 'reference' => $transaction['reference'] ?? null,
                 'gateway' => $event->gateway,
             ],

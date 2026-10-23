@@ -24,7 +24,11 @@ class SampleContext
      */
     public function build(bool $forStaff = false, ?string $templateKey = null): array
     {
-        $today = MailDates::today();
+        $today = MailDates::companyDate();
+        // Sample dates run from the company's today, like the real ones.
+        $nextYear = CarbonImmutable::parse($today)->addYear()->toDateString();
+        $inThirtyDays = CarbonImmutable::parse($today)->addDays(30)->toDateString();
+        $inTwoWeeks = CarbonImmutable::parse($today)->addDays(14)->toDateString();
         $inviteDays = min(30, max(1, (int) app(Settings::class)->get('platform.invitation_expiry_days', 7)));
         // Overdue notices preview an invoice that is overdue, everything else one due in two weeks.
         $due = CarbonImmutable::parse($today)->addDays(str_starts_with((string) $templateKey, 'invoice.overdue') ? -7 : 14)->toDateString();
@@ -83,14 +87,14 @@ class SampleContext
             ],
             'cancellation' => ['type' => 'end_of_billing_period', 'reason' => 'Moving to a larger plan'],
             'domain' => [
-                'id' => 77, 'domain' => 'example.com', 'registration_date' => $today, 'expiry_date' => now()->addYear()->toDateString(),
-                'next_due_date' => now()->addYear()->toDateString(), 'days_until_expiry' => 365, 'period_years' => 1,
+                'id' => 77, 'domain' => 'example.com', 'registration_date' => $today, 'expiry_date' => $nextYear,
+                'next_due_date' => $nextYear, 'days_until_expiry' => 365, 'period_years' => 1,
                 'nameservers' => ['ns1.example.net', 'ns2.example.net'], 'renew_url' => url('/client/domains/77'),
                 'transfer_failure_reason' => 'Invalid authorisation code',
             ],
             'domains' => [
-                ['name' => 'example.com', 'expiry_date' => now()->addDays(30)->toDateString(), 'days_until_expiry' => 30, 'renew_url' => url('/client/domains/77')],
-                ['name' => 'example.org', 'expiry_date' => now()->addDays(14)->toDateString(), 'days_until_expiry' => 14, 'renew_url' => url('/client/domains/78')],
+                ['name' => 'example.com', 'expiry_date' => $inThirtyDays, 'days_until_expiry' => 30, 'renew_url' => url('/client/domains/77')],
+                ['name' => 'example.org', 'expiry_date' => $inTwoWeeks, 'days_until_expiry' => 14, 'renew_url' => url('/client/domains/78')],
             ],
             'ticket' => [
                 'number' => '482913', 'subject' => 'Email not working', 'department' => 'Technical Support', 'priority' => 'Medium',
