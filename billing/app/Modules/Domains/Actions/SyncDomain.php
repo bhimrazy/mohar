@@ -22,6 +22,7 @@ use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\DomainStateMachine;
 use App\Modules\Domains\Services\RegistrarGateway;
 use App\Modules\Domains\Services\RenewalInvoices;
+use App\Modules\Domains\Support\DomainRegistrarLock;
 use App\Modules\Domains\Support\RemoteIds;
 use App\Support\Domains\CapabilityNotSupported;
 use App\Support\Domains\RegistrarException;
@@ -29,12 +30,16 @@ use Carbon\CarbonImmutable;
 
 /**
  * Reconcile one domain with its registrar (spec §9): transfer sync for pending transfers, status and
- * expiry sync for active / pending registrations. Returns the differences found; in notify-only mode
+ * expiry sync for active / pending registrations. Runs under the domain's registrar lock (the one the register,
+ * transfer and renew jobs hold) and, when that is taken, does nothing and answers BUSY. Returns the differences found; in notify-only mode
  * nothing is changed. Expiry never moves backwards by more than a year without staff review, and
  * next_due_date is only moved when no renewal invoice is open.
  */
 class SyncDomain
 {
+    /** The error of a sync that did not run because a registrar job holds the domain; nothing was changed. */
+    public const BUSY = 'A registrar job is running for this domain. Try again in a minute.';
+
     public function __construct(
         private RegistrarGateway $gateway,
         private DomainStateMachine $states,
@@ -47,6 +52,24 @@ class SyncDomain
      * @return array{changes: list<array{domain_id: int, domain: string, field: string, from: string|null, to: string|null, applied: bool}>, error: string|null}
      */
     public function handle(Domain $domain, bool $notifyOnly = false, ?int $staffId = null): array
+    {
+        $lock = DomainRegistrarLock::for($domain->id);
+
+        if (! $lock->get()) {
+            return ['changes' => [], 'error' => self::BUSY];
+        }
+
+        try {
+            return $this->locked($domain, $notifyOnly, $staffId);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * @return array{changes: list<array{domain_id: int, domain: string, field: string, from: string|null, to: string|null, applied: bool}>, error: string|null}
+     */
+    private function locked(Domain $domain, bool $notifyOnly, ?int $staffId): array
     {
         $domain->refresh();
 

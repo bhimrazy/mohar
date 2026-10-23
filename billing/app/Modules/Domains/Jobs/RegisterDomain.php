@@ -3,23 +3,22 @@
 namespace App\Modules\Domains\Jobs;
 
 use App\Modules\Domains\Actions\SubmitToRegistrar;
+use App\Modules\Domains\Jobs\Concerns\GuardsDomainRegistrar;
 use App\Modules\Domains\Models\Domain;
 use App\Support\Queues;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Throwable;
 
 /**
  * Submit a paid registration to the registrar. Unique per domain and never overlapping with another
- * registrar job for it; only errors known not to have executed are retried (see SubmitToRegistrar).
+ * registrar job or sync for it (they wait their turn, see GuardsDomainRegistrar); only errors known not to have executed are retried (see SubmitToRegistrar).
  */
 class RegisterDomain implements ShouldBeUnique, ShouldQueue
 {
+    use GuardsDomainRegistrar;
     use Queueable;
-
-    public int $tries = 3;
 
     /** Seconds: above the drivers' HTTP timeouts (10 s connect + 90 s), below the registrar pool's 200 s (ADR 0017 §3). */
     public int $timeout = 180;
@@ -35,16 +34,6 @@ class RegisterDomain implements ShouldBeUnique, ShouldQueue
     public function uniqueId(): string
     {
         return 'domain:'.$this->domainId;
-    }
-
-    /**
-     * Never run two registrar submissions for the same domain at once (any command, any worker).
-     *
-     * @return list<object>
-     */
-    public function middleware(): array
-    {
-        return [(new WithoutOverlapping('domain:'.$this->domainId))->dontRelease()->expireAfter(600)];
     }
 
     /**
