@@ -83,7 +83,8 @@ test('R3: credit and debit notes on six invoices at once, with a reconcile pass:
     $debit = TaxNote::query()->where('kind', 'debit')->pluck('number')->map(fn ($n) => (int) substr($n, 3))->sort()->values()->all();
 
     // A note that lost the version race is refused, never half-written; what was issued is numbered 1..n without a gap.
-    expect($credit)->toBe(range(1, count($credit)))->and($debit)->toBe(range(1, count($debit)))
+    // range(1, 0) is [1, 0], so an empty kind compares with [].
+    expect($credit)->toBe($credit === [] ? [] : range(1, count($credit)))->and($debit)->toBe($debit === [] ? [] : range(1, count($debit)))
         ->and($outcomes)->each->toBeIn(['issued', 'StaleNoteException'])
         ->and(app(FiscalBackfill::class)->mismatches())->toBe(0);
 });
