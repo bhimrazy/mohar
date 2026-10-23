@@ -17,7 +17,7 @@ namespace App\Support\Integrations;
  *   most 6 passes) and masked whole when its decoded form holds a value;
  * - truncated echoes, for values of 16 bytes or more: from the value's first 8 bytes to the end of that run of token
  *   characters, and from the start of the run to the value's last 8 bytes. An anchor holding a non-token character,
- *   or one that is a known key-shape prefix (`sk_live_`), is not built.
+ *   or one that is a known key-shape prefix (`sk_live_`) or the start of one, is not built.
  * A value holding a line break (a SecretText PEM or SSH key) also matches each of its lines of 16 bytes or more.
  * Values are not regrouped: a provider does not regroup a random token.
  *

@@ -6,6 +6,30 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Redaction rules, step 3a (ADR 0023 §2, §5; architecture review 2026-10-23, R3a)
+
+- New `App\Support\Integrations\RedactionSet` (`@api`): `of(list<string> $values, list<string> $answers = [])`,
+  `empty()`, `isEmpty()`, `mask(string, string $mask = Redactor::MASK)`, `matches(string)` and the static
+  `normalise(string)`. It builds the §2 match forms once per set: credentials and request secrets as substrings on
+  bytes (case-insensitive typed, URL-, JSON- and HTML-escaped, decoded entity and percent words; base64 and base64url
+  at three alignments, cores of 8 characters or more; hex from 8 bytes; lines of a multi-line value from 16 bytes;
+  truncated echoes from 16 bytes), and answers as regrouped `/iu` patterns (0 to 3 separators, `%XX`, Devanagari
+  digits; anywhere from 8 letters and digits, otherwise not inside a longer run of the same kind). Nothing under 4
+  bytes, or 4 letters and digits, is matched.
+- `Redactor::redact()`, `maskValues()` and `excerpt()` take `RedactionSet|list<string>` (the list builds a set; it
+  goes once the hosts pass sets, ADR 0010 pre-1.0). The private `variants()` is gone. Behaviour changes: the 3-byte
+  minimum is now 4; integer and float leaves and keys (decoded JSON strings included) that hold a set value are
+  withheld (`[redacted]`, `[redacted] 2`, ...); each object unwrap counts towards the depth cap of 32.
+- New `Redactor::maskThrowable(Throwable, RedactionSet|list<string>|null): Throwable`: masks the message of the
+  exception and of up to 16 behind it in place, keeping class, code, trace, `previous` and properties. Nothing calls
+  it yet (steps 5 and 6).
+- New capability `App\Contracts\Integrations\DeclaresSensitiveKeys` (`sensitiveKeys(string $operation): list<string>`,
+  detected with `instanceof`). Additive; no driver implements it yet (step 5 replaces `RegistrarGateway::codeKeys()`).
+- `App\Data\Billing\GatewayConfig`: new trailing `$secretSettingKeys` (filled by `GatewayManager::config()` from the
+  driver's Secret and SecretText fields), new `secrets(): list<string>`, `$settings` marked `#[\SensitiveParameter]`.
+  `secretValues()` (every setting of 8 characters or more, no caller) is removed. Billing masks with it in step 7.
+- `SecretTemplatePolicy::normalise()` (Notifications) now delegates to `RedactionSet::normalise()`; same result.
+
 ### Linking an existing registrar order (ADR 0009 Amendment 4, #365)
 
 - New capability interface `App\Contracts\Domains\Registrar\LinksExistingOrders` (detected with `instanceof`;
