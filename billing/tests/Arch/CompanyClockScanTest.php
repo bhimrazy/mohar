@@ -142,8 +142,8 @@ const HAND_CONVERSIONS = [
 
 /**
  * Hits that exist today, as "file: form" => count. The list may only shrink: each module PR removes its own entries. A
- * hit beyond the count fails (use todayDate() and dayBounds()); a listed hit that is gone fails until it is lowered here.
- * The run date is a date value (CompanyClock::todayDate()); a CalendarDate type is deferred to ADR 0013 Amendment 2.
+ * hit beyond the count fails (type the task with CalendarDate and use dayBounds()); a listed hit that is gone fails until
+ * it is lowered here. A task typed `CalendarDate $today` has none of these methods (ADR 0013 Amendment 2).
  */
 const HAND_CONVERSION_BASELINE = [
     'Modules/Billing/Database/Seeders/BillingHistorySeeder.php: an instant method on the run date' => 1,
@@ -171,7 +171,7 @@ test('no module converts the run date by hand beyond the baseline', function () 
     $over = array_filter($found, fn (int $hits, string $key): bool => $hits > ($baseline[$key] ?? 0), ARRAY_FILTER_USE_BOTH);
     $under = array_filter($baseline, fn (int $hits, string $key): bool => $hits > ($found[$key] ?? 0), ARRAY_FILTER_USE_BOTH);
 
-    expect($over)->toBe([], 'New hand conversion: use CompanyClock::todayDate() and dayBounds().')
+    expect($over)->toBe([], 'New hand conversion: type the run date as CalendarDate and use CompanyClock::dayBounds().')
         ->and($under)->toBe([], 'A baselined hit is gone: lower or remove it in HAND_CONVERSION_BASELINE.');
 });
 

@@ -22,6 +22,7 @@ use App\Modules\Support\Services\SupportPublicHelp;
 use App\Modules\Support\Services\SupportSettings;
 use App\Modules\Support\Services\TicketAccess;
 use App\Support\Automation\Automation;
+use App\Support\CalendarDate;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
@@ -31,7 +32,6 @@ use App\Support\Search\GlobalSearch;
 use App\Support\Seo\SitemapRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
-use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Builder;
@@ -335,8 +335,8 @@ class SupportServiceProvider extends ModuleServiceProvider
     private function registerAutomation(): void
     {
         $automation = $this->app->make(Automation::class);
-        $automation->task('support.auto_close', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(AutoCloseTickets::class)->handle($today->toDateString() === app(CompanyClock::class)->today()->toDateString() ? null : app(CompanyClock::class)->dayBounds($today)[1]), label: 'Close idle tickets', description: 'Closes tickets that have waited on the customer longer than the auto-close period.');
-        $automation->task('support.purge_inbound_raw', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PurgeInboundRaw::class)->handle(app(CompanyClock::class)->dayBounds($today)[0]), label: 'Purge raw inbound emails', description: 'Deletes stored raw inbound email payloads older than the retention period.');
-        $automation->task('support.prune_attachments', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneAttachments::class)->handle(app(CompanyClock::class)->dayBounds($today)[0]), label: 'Delete old ticket attachments', description: 'Deletes attachment files from tickets closed longer than the configured months (details stay).');
+        $automation->task('support.auto_close', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(AutoCloseTickets::class)->handle($today->equals(app(CompanyClock::class)->calendarDate()) ? null : app(CompanyClock::class)->dayBounds($today)[1]), label: 'Close idle tickets', description: 'Closes tickets that have waited on the customer longer than the auto-close period.');
+        $automation->task('support.purge_inbound_raw', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(PurgeInboundRaw::class)->handle(app(CompanyClock::class)->dayBounds($today)[0]), label: 'Purge raw inbound emails', description: 'Deletes stored raw inbound email payloads older than the retention period.');
+        $automation->task('support.prune_attachments', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(PruneAttachments::class)->handle(app(CompanyClock::class)->dayBounds($today)[0]), label: 'Delete old ticket attachments', description: 'Deletes attachment files from tickets closed longer than the configured months (details stay).');
     }
 }

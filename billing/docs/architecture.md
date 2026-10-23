@@ -128,13 +128,15 @@ prefix, suffix, number format incl. Indian lakh grouping) — `App\Support\Curre
 config from the shared `currencyFormats` prop. `Money::format()` ("24.99 USD") is for logs, audit and CLI only. Show an
 ISO code only where it identifies a currency (switchers, selects, settings, CSV columns, API, logs), not next to amounts.
 
-**Dates** — `CarbonImmutable` everywhere (`Date::use` is set). Store dates (`date`) for billing anchors
+**Dates** — `CarbonImmutable` for instants (`Date::use` is set). A company-calendar date in code is
+`App\Support\CalendarDate` (ADR 0013 Amendment 2): `CompanyClock::calendarDate()` gives today's, `CalendarDate::parse()`
+reads `Y-m-d`, and `CompanyClock::dayBounds()` is the only way to its instants. Store dates (`date`) for billing anchors
 (`next_due_date`), timestamps for events. Advance cycles with `BillingCycle::advance($date, anchorDay: $model->billing_anchor_day)` — store the
 original day-of-month as an anchor on recurring items to avoid drift. Query `date` columns with
 `whereDate()` (Eloquent stores date casts as `Y-m-d H:i:s`; exact matches break across databases).
 
 **Automation** — daily jobs are tasks in the central pipeline, never ad-hoc scheduler entries:
-`app(Automation::class)->task('services.suspensions', Automation::SUSPENSIONS, fn (CarbonImmutable $today) => $count)`.
+`app(Automation::class)->task('services.suspensions', Automation::SUSPENSIONS, fn (CalendarDate $today) => $count)`.
 Stages run in order EXCHANGE_RATES → RENEWALS → LATE_FEES → AUTO_CHARGE → REMINDERS → CANCELLATIONS → SUSPENSIONS →
 TERMINATIONS → SYNC → HOUSEKEEPING via `php artisan automation:run [--date=] [--only=]`; each task must be
 idempotent for its run date (recorded in `automation_runs`). Renewal invoicing must call

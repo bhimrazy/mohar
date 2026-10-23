@@ -12,6 +12,7 @@ use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\FiscalSnapshot;
 use App\Modules\Billing\Support\FiscalSnapshotCalculator;
 use App\Modules\Core\Models\Currency;
+use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
@@ -82,7 +83,7 @@ class FiscalSnapshotWriter
         $bs = null;
 
         try {
-            $bs = BikramSambat::fromAd(CarbonImmutable::parse($issueDate ?? $this->clock->localDate($at), 'UTC'));
+            $bs = BikramSambat::fromAd(CalendarDate::parse($issueDate ?? $this->clock->localDate($at)));
         } catch (OutOfRangeException) {
             // Outside 2000 to 2095 BS: the AD date alone is stored.
         }

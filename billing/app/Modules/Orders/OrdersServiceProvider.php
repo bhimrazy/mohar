@@ -34,6 +34,7 @@ use App\Modules\Orders\Support\Demo\DemoBilling;
 use App\Modules\Orders\Support\Demo\DemoServices;
 use App\Modules\Orders\Support\OrdersDashboard;
 use App\Support\Automation\Automation;
+use App\Support\CalendarDate;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
@@ -291,6 +292,6 @@ class OrdersServiceProvider extends ModuleServiceProvider
         $automation->task('orders.cancel_stale_pending', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => (int) $this->app->make(Settings::class)->get('orders.auto_cancel_unpaid_days', 0) > 0
             ? $this->app->make(CancelStalePendingOrders::class)->handle($today)
             : 0, label: 'Cancel stale unpaid orders', description: 'Cancels pending orders whose invoice is still unpaid after the configured number of days.');
-        $automation->task('orders.prune_carts', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $this->app->make(PruneExpiredCarts::class)->handle(), label: 'Delete expired carts', description: 'Removes shopping carts past their expiry.');
+        $automation->task('orders.prune_carts', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => $this->app->make(PruneExpiredCarts::class)->handle(), label: 'Delete expired carts', description: 'Removes shopping carts past their expiry.');
     }
 }

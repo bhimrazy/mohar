@@ -1,6 +1,6 @@
 # ADR 0013 — Company clock and time zones
 
-- Status: Accepted · 2026-10-19 (CTO, after the 2026-10-19 architecture review) · Owner: Principal architect. Amendment 1 (Accepted, 2026-10-23) keeps the registered key `system.timezone` and puts fiscal documents first in the rollout.
+- Status: Accepted · 2026-10-19 (CTO, after the 2026-10-19 architecture review) · Owner: Principal architect. Amendment 1 (Accepted, 2026-10-23) keeps the registered key `system.timezone` and puts fiscal documents first in the rollout. [Amendment (#PRNUM)](#amendment-prnum--2026-10-23-calendardate) (Accepted, 2026-10-23) adds the `CalendarDate` value.
 
 ## Context
 
@@ -195,3 +195,80 @@ numbers fiscal documents on the UTC calendar.
   behaviour change. Rejected.
 - **A fake `CompanyClock` in tests:** easy to freeze, but tests would then stop exercising the conversion from UTC
   to the local date. Rejected.
+
+## Amendment (#PRNUM) — 2026-10-23, `CalendarDate`
+
+Status: Accepted 2026-10-23 (CTO decision D6 of the 2026-10-23 architecture review). Called "Amendment 2" in that
+review and in Amendment 1; keyed by its PR under ADR 0027.
+
+### Context
+
+Amendment 1 left two "todays": `today()`, an instant at the company midnight, and `todayDate()`, the company date as
+a Carbon value at 00:00 UTC. The second is still an instant in type: it accepts `setTime()`, `endOfDay()` and `lt()`
+against a timestamp, and only an Arch scan with a baseline keeps tasks from converting it by hand. 30 automation
+closures, `DocumentNumbers::next()`, the BS conversion and `ReportQuery` periods take dates in this shape or as bare
+strings. Each module that moves onto the clock (Domains in #398, Billing in VAT PR 3, the importer in G3b) would move
+again if the date type changed after it.
+
+### Decision
+
+1. **The value.** `App\Support\CalendarDate`, `final readonly`, beside `App\Support\Money` and public kernel surface
+   in the same way (`@api`, ADR 0010). It holds `year`, `month` and `day`, and nothing else: no time, no zone.
+    - Made by `of(y, m, d)`, `parse('Y-m-d')` (exactly that form; `'today'`, a time or an offset is refused) and
+      `fromDateValue()` for a `date`-cast attribute or another date value. `fromDateValue()` refuses a value with a time
+      of day, so an instant cannot slip in; an instant goes through `CalendarDate::parse($clock->localDate($instant))`.
+    - Read by `toString()` (`Y-m-d`; also `Stringable` and `JsonSerializable`), `format()` for display, `compare()`,
+      `equals()`, `isBefore()`, `isAfter()` and `daysUntil()`.
+    - Arithmetic: `addDays()`, `addMonths()` and `addYears()`, negative amounts allowed. **Overflow rule:** months and
+      years keep the day of the month and clamp it to the last day of a shorter month (31 Jan + 1 month = 28 or 29
+      Feb; 29 Feb + 1 year = 28 Feb). The clamp is applied once and not carried (31 Jan + 1 month + 1 month = 28 Mar,
+      while 31 Jan + 2 months = 31 Mar). This is `BillingCycle::advance()`'s rule, so a cycle and a date agree.
+2. **To an instant only through `dayBounds()`.** `CompanyClock::dayBounds()` accepts a `CalendarDate` (a widened
+   parameter, compatible for callers). `CalendarDate` has no `toCarbon()`, `startOfDay()` or zone argument, and none
+   is to be added.
+3. **The clock.** `CompanyClock::calendarDate(): CalendarDate` is added; `todayDate()` keeps its Carbon return type.
+   Changing `todayDate()`'s return type was the first choice and is rejected for now: 33 calls in 24 module files use
+   Carbon methods on it (`lt`, `addDays`, query bindings), mostly in Services and Billing, with #398 and #385 open on
+   the same files. One kernel PR would rewrite all of them and conflict with wave 2. Modules move to `calendarDate()` once,
+   as part of their own clock move. When no in-repo caller of `todayDate()` remains, it gets `@deprecated` with ADR
+   0010's window and is then removed; it is never re-typed, so no module moves twice.
+4. **Automation tasks.** `Automation::run(string $key, CalendarDate $date)` runs a task. A handler whose first parameter
+   is typed `CalendarDate` gets the `CalendarDate`; any other gets the Carbon date value as before. `automation:run`
+   resolves the run date as a `CalendarDate` and accepts `--date` only as `Y-m-d`. Catalog, Migration, Orders (cart
+   pruning), Platform and Support tasks are typed in this PR. Billing (VAT PR 3), Services, Domains (#398), Kyc,
+   Notifications and Orders' stale-order cancelling move with their modules. When none is left, the Carbon branch is
+   removed (pre-1.0 breaking change, kernel changelog).
+5. **Document numbers.** `DocumentNumbers::next(string $sequence, CalendarDate $date)` and `format()` take a
+   `CalendarDate` (module code). Callers pass `CalendarDate::fromDateValue($invoice->issue_date)` or
+   `$clock->calendarDate()`.
+6. **Bikram Sambat.** `BikramSambat::fromAd()` accepts a `CalendarDate` (the `DateTimeInterface` form stays for its
+   existing callers); the fiscal snapshot passes one. `toAd()` returning a `CalendarDate` is a follow-up with VAT PR 3.
+7. **Report periods.** `ReportQuery::$from` and `$to` are `?CalendarDate` (a pre-1.0 breaking change: the only
+   in-repo reports are test reports, updated here; `Stringable` keeps string interpolation working). `startsAt` and
+   `endsAt` stay the instants from `dayBounds()`.
+8. **Storage and events are unchanged.** Date columns keep `date` casts and are read with `fromDateValue()`; a
+   `CalendarDate` Eloquent cast is added when the first module stores through one. Events carry `Y-m-d` strings (§8),
+   which is what `jsonSerialize()` gives.
+9. **Not added:** SQL helpers on the contract (`sqlLocalDate()`, asked for in #366: bucket in PHP with `dayBounds()`,
+   §6); a `today()` or `now()` factory on `CalendarDate` (only the clock says what today is); a second date type in any
+   module.
+
+### Tests
+
+Value semantics, strict parsing, month-end clamping, leap years (2028, 2100), `dayBounds()` round trips at the
+Kathmandu midnight (18:15 UTC), on 1 Shrawan 2083, and at New York midnight in winter, summer and on both DST days
+(23 and 25 hours); automation handing each handler its type; a yearly document sequence resetting at the Kathmandu
+new year (18:14:59 and 18:15:00 UTC on 31 December); the BS fiscal year turning at local midnight on 1 Shrawan.
+
+### Consequences
+
+- A task typed `CalendarDate $today` cannot call an instant method on the run date, so the hand-conversion baseline of
+  `CompanyClockScanTest` only shrinks as modules move.
+- Two ways to get today's date exist until `todayDate()` is deprecated: new code uses `calendarDate()`.
+
+### Alternatives considered
+
+- **Re-type `todayDate()` now:** one name, but 24 files rewritten in a kernel PR during wave 2. Rejected (decision 3).
+- **A Carbon subclass with the time methods disabled:** keeps call sites, but it is still an instant underneath and
+  `CarbonImmutable` parameters would accept it. Rejected.
+- **`Y-m-d` strings:** no type, no arithmetic and no month-end rule. Rejected.

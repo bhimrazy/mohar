@@ -3,12 +3,13 @@
 namespace App\Data\Reports;
 
 use App\Contracts\Core\CompanyClock;
+use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 
 /**
  * What one run of a report asks for: the validated filters, the acting user and the period resolved on the company
- * calendar (ADR 0013 Amendment 1). `from` and `to` are company dates (Y-m-d, both inclusive); `startsAt` and `endsAt`
- * are the UTC instants bounding them, [start, end), for querying timestamp columns.
+ * calendar (ADR 0013). `from` and `to` are company dates (both inclusive; CalendarDate since Amendment 2); `startsAt`
+ * and `endsAt` are the UTC instants bounding them, [start, end), for querying timestamp columns.
  *
  * @api
  */
@@ -20,8 +21,8 @@ final readonly class ReportQuery
     public function __construct(
         public array $filters,
         public ?int $userId,
-        public ?string $from = null,
-        public ?string $to = null,
+        public ?CalendarDate $from = null,
+        public ?CalendarDate $to = null,
         public ?CarbonImmutable $startsAt = null,
         public ?CarbonImmutable $endsAt = null,
     ) {}
@@ -33,8 +34,8 @@ final readonly class ReportQuery
      */
     public static function resolve(array $filters, ?int $userId, CompanyClock $clock): self
     {
-        $from = isset($filters['from']) && $filters['from'] !== '' ? (string) $filters['from'] : null;
-        $to = isset($filters['to']) && $filters['to'] !== '' ? (string) $filters['to'] : null;
+        $from = isset($filters['from']) && $filters['from'] !== '' ? CalendarDate::parse((string) $filters['from']) : null;
+        $to = isset($filters['to']) && $filters['to'] !== '' ? CalendarDate::parse((string) $filters['to']) : null;
 
         return new self(
             $filters,

@@ -28,6 +28,7 @@ use App\Modules\Platform\Support\ExchangeRateTask;
 use App\Modules\Platform\Support\PlatformClientLoginInvitations;
 use App\Modules\Platform\Support\PlatformDashboard;
 use App\Support\Automation\Automation;
+use App\Support\CalendarDate;
 use App\Support\Clients\ClientMergeRegistry;
 use App\Support\Currencies\ExchangeRateSources;
 use App\Support\Dashboard\Dashboard;
@@ -149,10 +150,10 @@ class PlatformServiceProvider extends ModuleServiceProvider
     private function registerAutomation(): void
     {
         $automation = $this->app->make(Automation::class);
-        // Retention cutoffs compare timestamps, so they start at the company midnight, not at the UTC one ($today is a date value).
-        $cutoff = fn (CarbonImmutable $today, int $days): CarbonImmutable => $this->app->make(CompanyClock::class)->dayBounds($today->subDays($days))[0];
+        // Retention cutoffs compare timestamps, so they start at the company midnight.
+        $cutoff = fn (CalendarDate $today, int $days): CarbonImmutable => $this->app->make(CompanyClock::class)->dayBounds($today->addDays(-$days))[0];
 
-        $automation->task('platform.prune_invitations', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): string => trans_choice(
+        $automation->task('platform.prune_invitations', Automation::HOUSEKEEPING, fn (CalendarDate $today): string => trans_choice(
             '{0} no invitations pruned|{1} 1 invitation pruned|[2,*] :count invitations pruned',
             StaffInvitation::query()
                 ->where(fn ($query) => $query
@@ -161,7 +162,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
                 ->delete(),
         ), label: 'Delete old staff invitations', description: 'Removes expired and used staff invitations.');
 
-        $automation->task('platform.prune_activity_log', Automation::HOUSEKEEPING, function (CarbonImmutable $today) use ($cutoff): string {
+        $automation->task('platform.prune_activity_log', Automation::HOUSEKEEPING, function (CalendarDate $today) use ($cutoff): string {
             $days = max(30, (int) $this->app->make(Settings::class)->get('platform.activity_log_retention_days', 365));
 
             // Entries tied to a client are kept until the client is deleted (spec §8).
