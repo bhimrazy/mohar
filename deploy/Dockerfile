@@ -154,8 +154,13 @@ RUN composer dump-autoload --optimize
 # The source with production vendor/ and the built public/build, nothing else: the release tarball for the
 # non-Docker install (install.md) and cPanel cron mode (cpanel.md). Export it with
 #   docker build -f deploy/Dockerfile --target release --output type=tar,dest=release.tar .
+FROM vendor AS release-tree
+# Front-end sources and dev tooling configs: the build is already in public/build, and Node never runs on these hosts.
+RUN rm -rf resources/js scripts package.json package-lock.json .npmrc .nvmrc vite.config.ts tsconfig.json components.json \
+    phpunit.xml phpstan.neon pint.json .editorconfig .gitattributes
+
 FROM scratch AS release
-COPY --from=vendor /app /billing
+COPY --from=release-tree /app /billing
 COPY --from=assets /app/public/build /billing/public/build
 
 # ------------------------------------------------------------------ prod: the runtime image
