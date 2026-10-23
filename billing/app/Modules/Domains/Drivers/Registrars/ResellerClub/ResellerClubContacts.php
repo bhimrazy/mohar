@@ -91,9 +91,7 @@ final class ResellerClubContacts
             throw new RegistrarException('ResellerClub did not return a customer id.');
         }
 
-        $this->refs->remember(new RegistrarRef(ResellerClubDriver::KEY, 'customer', 'client', $domain->clientId, $id));
-
-        return $id;
+        return $this->refs->remember(new RegistrarRef(ResellerClubDriver::KEY, 'customer', 'client', $domain->clientId, $id))->remoteId;
     }
 
     /**
@@ -200,9 +198,7 @@ final class ResellerClubContacts
             throw new RegistrarException('ResellerClub did not return a contact id.');
         }
 
-        $this->refs->remember(new RegistrarRef(ResellerClubDriver::KEY, 'contact', 'client', $domain->clientId, $id, $hash));
-
-        return $id;
+        return $this->refs->remember(new RegistrarRef(ResellerClubDriver::KEY, 'contact', 'client', $domain->clientId, $id, $hash))->remoteId;
     }
 
     /**

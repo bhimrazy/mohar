@@ -25,6 +25,7 @@ use App\Support\Domains\RegistrarException;
 use App\Support\Integrations\Endpoints;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Mohar\Simulators\Kernel\Processes;
 use Mohar\Simulators\Providers\ResellerClub\ResellerClubApi;
 use Mohar\Simulators\Providers\ResellerClub\ResellerClubSimulator;
@@ -161,6 +162,8 @@ test('in one-customer-per-client mode the order must be under that client\'s cus
     app(RegistrarRefs::class)->remember(new RegistrarRef(ResellerClubDriver::KEY, 'customer', 'client', $domain->client_id, $this->otherCustomer));
     expect(fn () => app(LinkRegistrarOrder::class)->handle($domain, $orderId))->toThrow(RegistrarException::class, 'different ResellerClub customer');
 
+    // First writer wins: a wrong recorded customer cannot be overwritten, so correct it by deleting the stored ref.
+    DB::table('registrar_refs')->where(['registrar_key' => ResellerClubDriver::KEY, 'ref_type' => 'customer', 'local_id' => $domain->client_id])->delete();
     app(RegistrarRefs::class)->remember(new RegistrarRef(ResellerClubDriver::KEY, 'customer', 'client', $domain->client_id, $this->customer));
 
     expect(app(LinkRegistrarOrder::class)->handle($domain, $orderId)['linked'])->toBeTrue();
