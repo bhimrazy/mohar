@@ -7,6 +7,11 @@ namespace App\Support;
  *
  * The table holds country codes only (1 to 3 digits), so no code is a prefix of another. Area codes inside
  * shared codes (+1 NANP, +7, +44 crown dependencies) are not modelled; those countries share one entry.
+ * Non-geographic codes (+800, +808, +870, +881 to +883) are not in the table, so they split to null.
+ *
+ * split() returns null for several reasons (not a phone, unknown code, no country for a national number, wrong
+ * length). Callers that need to tell typed-international input from national input can test
+ * str_starts_with($typed, '+').
  */
 final class CallingCodes
 {
@@ -24,7 +29,7 @@ final class CallingCodes
         '222' => 'MR', '223' => 'ML', '224' => 'GN', '225' => 'CI', '226' => 'BF', '227' => 'NE', '228' => 'TG',
         '229' => 'BJ', '230' => 'MU', '231' => 'LR', '232' => 'SL', '233' => 'GH', '234' => 'NG', '235' => 'TD',
         '236' => 'CF', '237' => 'CM', '238' => 'CV', '239' => 'ST', '240' => 'GQ', '241' => 'GA', '242' => 'CG',
-        '243' => 'CD', '244' => 'AO', '245' => 'GW', '246' => 'IO', '248' => 'SC', '249' => 'SD', '250' => 'RW',
+        '243' => 'CD', '244' => 'AO', '245' => 'GW', '246' => 'IO', '247' => 'AC', '248' => 'SC', '249' => 'SD', '250' => 'RW',
         '251' => 'ET', '252' => 'SO', '253' => 'DJ', '254' => 'KE', '255' => 'TZ', '256' => 'UG', '257' => 'BI',
         '258' => 'MZ', '260' => 'ZM', '261' => 'MG', '262' => 'RE YT TF', '263' => 'ZW', '264' => 'NA', '265' => 'MW',
         '266' => 'LS', '267' => 'BW', '268' => 'SZ', '269' => 'KM', '290' => 'SH', '291' => 'ER', '297' => 'AW',
@@ -47,6 +52,15 @@ final class CallingCodes
         '996' => 'KG', '998' => 'UZ',
     ];
 
+    // VA is listed under +39: +379 is assigned to the Vatican but unused. XK is not ISO 3166-1, so
+    // Countries::exists('XK') is false; +383 is kept so Kosovo numbers still split.
+
+    /** Codes whose national numbers keep a leading 0 (Italy, San Marino/Vatican landlines). */
+    private const KEEP_ZERO = ['39', '378'];
+
+    /** @var array<string, string>|null */
+    private static ?array $byCountry = null;
+
     /** E.164 allows 15 digits in all; the national part needs at least 4 to be a plausible subscriber number. */
     private const MAX_DIGITS = 15;
 
@@ -57,15 +71,17 @@ final class CallingCodes
      */
     public static function forCountry(string $country): ?string
     {
-        $country = strtoupper(trim($country));
+        if (self::$byCountry === null) {
+            self::$byCountry = [];
 
-        foreach (self::TABLE as $code => $countries) {
-            if (in_array($country, explode(' ', $countries), true)) {
-                return (string) $code;
+            foreach (self::TABLE as $code => $countries) {
+                foreach (explode(' ', $countries) as $iso) {
+                    self::$byCountry[$iso] = (string) $code;
+                }
             }
         }
 
-        return null;
+        return self::$byCountry[strtoupper(trim($country))] ?? null;
     }
 
     /**
@@ -79,11 +95,12 @@ final class CallingCodes
     }
 
     /**
-     * Split a free-text phone into calling code and national number (digits only, no trunk 0).
+     * Split a free-text phone into calling code and national number (digits only, trunk 0 removed).
      *
-     * Input with "+" or "00" is international and its prefix is matched against the table; anything else is a
-     * national number and takes the code of $country. Returns null when the text is not a phone number, the
-     * code is unknown, or no code can be chosen. Never throws.
+     * "+" and "00" start international input, whose prefix is matched against the table; anything else is a
+     * national number and takes the code of $country. One typed trunk 0 is dropped, except for Italy and San
+     * Marino/Vatican where it belongs to the number. Other exit prefixes (Australia's 0011, the US 011) cannot be
+     * told apart from a national number, so they return null rather than a wrong code. Never throws.
      *
      * @return array{code: string, national: string}|null
      */
@@ -96,23 +113,45 @@ final class CallingCodes
         }
 
         $rest = preg_replace('/^(?:\+|00)/', '', $phone, 1, $count);
-        $international = $count === 1;
 
-        if ($international) {
+        if ($count === 1) {
             // "+44 (0) 20 ..." writes the trunk zero in brackets; it is not part of the number.
             $digits = (string) preg_replace('/\D/', '', (string) preg_replace('/\(\s*0\s*\)/', '', (string) $rest));
             $code = self::codeOf($digits);
-            $national = $code === null ? '' : substr($digits, strlen($code));
+            $national = $code === null ? '' : self::withoutTrunk($code, substr($digits, strlen($code)));
         } else {
             $code = $country === null ? null : self::forCountry($country);
-            $national = ltrim((string) preg_replace('/\D/', '', $phone), '0');
+            $national = $code === null ? '' : self::withoutTrunk($code, (string) preg_replace('/\D/', '', $phone));
         }
 
-        if ($code === null || strlen($national) < self::MIN_NATIONAL || strlen($code) + strlen($national) > self::MAX_DIGITS) {
+        if ($code === null || ! self::plausible($code, $national)) {
             return null;
         }
 
         return ['code' => $code, 'national' => $national];
+    }
+
+    private static function withoutTrunk(string $code, string $digits): string
+    {
+        if ($code === '1' && strlen($digits) === 11 && $digits[0] === '1') {
+            return substr($digits, 1);
+        }
+
+        if (in_array($code, self::KEEP_ZERO, true) || ! str_starts_with($digits, '0')) {
+            return $digits;
+        }
+
+        return substr($digits, 1);
+    }
+
+    private static function plausible(string $code, string $national): bool
+    {
+        if (strlen($national) < self::MIN_NATIONAL || strlen($code) + strlen($national) > self::MAX_DIGITS) {
+            return false;
+        }
+
+        // NANP numbers are 10 digits and never start with 0 or 1; this also rejects 011 and 0011 exit prefixes.
+        return $code !== '1' || preg_match('/^[2-9]\d{9}$/', $national) === 1;
     }
 
     /** The table is prefix-free, so at most one of the first three digits matches. */
