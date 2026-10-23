@@ -137,8 +137,9 @@ becomes its first 46 bytes, `_`, and 8 hex digits of its SHA-256 (55 bytes in al
 workers stay within PostgreSQL's 63-byte name limit. It runs with `fsync=off`, `full_page_writes=off`,
 `wal_level=minimal`, `max_wal_senders=0` and `max_wal_size=256MB`: on the 2 GB tmpfs it used before, write-ahead log was about
 half of what filled the disk and crashed the server (2026-10-23). It moved to a volume the same day because a tmpfs is
-limited by the Docker VM's memory (3.58 GiB on the Mac), which was smaller than the data could grow. Today
-it uses about 595 MiB (`docker stats`), and it does not include the volume's data.
+limited by the Docker VM's memory (3.58 GiB on this Mac, `docker info`), which was smaller than the data could grow.
+With durability off, a killed container or a VM crash can corrupt the volume: if the server won't start, run
+`pg.sh --stop` and start it again.
 It has full fidelity and is already approved.
 
 ### 6. Testcontainers
@@ -185,7 +186,7 @@ memory comes from the cited source or `docker stats`.
 
 | Option                 | (a) preview        | (b) local tests          | (c) CI             | (d) tiny install          |
 | ---------------------- | ------------------ | ------------------------ | ------------------ | ------------------------- |
-| Docker tmpfs / compose | **yes** (volume)   | **yes** (`pg.sh`)        | **yes** (service)  | **yes** (compose)         |
+| Docker volume / compose | **yes** (volume)   | **yes** (`pg.sh`)        | **yes** (service)  | **yes** (compose)         |
 | Native packages        | yes, if no Docker  | possible                 | no gain            | **yes** (bare metal)      |
 | Portable bundles       | possible           | spike candidate          | no gain            | no (use OS packages)      |
 | PGlite                 | no                 | no                       | no                 | no                        |

@@ -9,7 +9,7 @@
 # Then run `composer test:pgsql` (or any artisan command) in the worktree's billing/ directory.
 # The data lives in the Docker volume mohar-pg-data, on disk: a tmpfs is limited by the Docker VM's memory, which
 # was smaller than the data. It is test data, so durability is off (no fsync, minimal WAL capped at 256 MB) and
-# `--stop` deletes the volume with the server.
+# `--stop` deletes the volume with the server; run it if a crash leaves the server unable to start.
 #
 # Slug limit: PostgreSQL names are at most 63 bytes, and a parallel worker adds _test_<n> (Laravel) to the database.
 # So billing_test_<slug> is kept whole while it is 55 bytes or less (a slug of up to 42 characters). A longer one
