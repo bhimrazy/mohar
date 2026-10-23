@@ -232,31 +232,108 @@ test('only a Nepal buyer has a PAN, and only Nepal business buyers without one a
         ->and(app(ReportRegistry::class)->get('vat_register')->summary($query)->withoutPan)->toBe(0);
 });
 
-test('the totals cost a fixed number of queries, whatever the size of the period, and never page with OFFSET', function () {
-    $client = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']);
+/**
+ * Foreign-currency documents at awkward stored rates: USD invoices to a Nepal client (so VAT applies), one export with
+ * both a taxable and an exempt part, and credit notes, so rounding meets .5 boundaries with both signs.
+ */
+function awkwardRateRegisterFixture(): void
+{
+    $client = Client::factory()->create(['country' => 'NP', 'currency' => 'USD', 'company_name' => 'Annapurna Cloud', 'tax_id' => '302222222']);
+    $rates = ['134.25', '151.939999996478', '0.5', '2.5', '0.333333333333'];
+    $invoices = onRegisterDay('2026-10-20', fn () => array_map(fn (int $amount) => issueInvoice($client, [$amount, 3]), [10_001, 7, 3, 12_345, 1]));
+
+    foreach ($invoices as $i => $invoice) {
+        DB::table('invoices')->where('id', $invoice->id)->update(['report_rate' => $rates[$i]]);
+    }
+
+    DB::table('invoices')->where('id', $invoices[3]->id)->update(['supply_class' => 'export', 'fiscal_exempt' => 3]);
+    onRegisterDay('2026-10-22', fn () => array_map(fn (int $i) => registerNote(NoteRequest::creditAmount($invoices[$i]->id, 5, 'goodwill', 'Rounding')), [0, 1, 2]));
+    onRegisterDay('2026-10-23', fn () => registerNote(NoteRequest::debit($invoices[4]->id, 3, true, 'price_correction', 'Rounding')));
+}
+
+function registerSummaryWith(?bool $sql, string $month = '2083-07'): App\Modules\Billing\Reports\RegisterSummary
+{
+    app()->forgetScopedInstances();
+    $documents = app(RegisterDocuments::class);
+    $documents->convertInSql = $sql;
+
+    return $documents->summary(RegisterPeriod::of(app(ReportExporter::class)->query('vat_register', ['month' => $month], auth()->id()), app(CompanyClock::class)), false);
+}
+
+test('the totals equal the sum of the rows, on awkward rates and both signs', function () {
+    awkwardRateRegisterFixture();
+    actingAsStaff(['reports.vat_register.view']);
+
+    $rows = registerRows('vat_register', ['month' => '2083-07']);
+    $sum = fn (string $key): int => array_sum(array_map(fn (array $row): int => $row[$key]?->amount ?? 0, $rows));
+    $net = registerSummaryWith(null)->net();
+
+    expect($rows)->toHaveCount(9)
+        ->and([$net['total_sales'], $net['taxable'], $net['exempt'], $net['vat'], $net['export_value']])
+        ->toBe([$sum('total_sales'), $sum('taxable'), $sum('exempt'), $sum('vat'), $sum('export_value')]);
+});
+
+test('on PostgreSQL the SQL conversion equals the per-document PHP conversion', function () {
+    if (DB::connection()->getDriverName() !== 'pgsql') {
+        $this->markTestSkipped('The SQL conversion runs on PostgreSQL only.');
+    }
+
+    awkwardRateRegisterFixture();
+    actingAsStaff(['reports.vat_register.view']);
+
+    $sql = registerSummaryWith(true);
+    $php = registerSummaryWith(false);
+
+    expect($sql->byKind)->toBe($php->byKind)->and($sql->byMonth)->toBe($php->byMonth)
+        ->and($sql->net()['vat'])->not->toBe(0);
+});
+
+test('the totals cost a fixed number of queries as converted documents and notes grow, and never page with OFFSET', function () {
+    $npr = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']);
+    $usd = Client::factory()->create(['country' => 'NP', 'currency' => 'USD']);
     actingAsStaff(['reports.vat_register.view']);
     $queries = [];
     DB::listen(function ($query) use (&$queries): void {
-        $queries[] = $query->sql;
+        $queries[] = strtolower($query->sql);
     });
-    // A fresh source each time: the summary is kept for the request.
     $summaryQueries = function () use (&$queries): array {
-        $period = RegisterPeriod::of(app(ReportExporter::class)->query('vat_register', ['month' => '2083-07'], auth()->id()), app(CompanyClock::class));
         $queries = [];
-        app()->make(RegisterDocuments::class, [])->summary($period, false);
-        app()->forgetScopedInstances();
+        registerSummaryWith(null);
 
-        return $queries;
+        return array_values(array_filter($queries, fn (string $sql): bool => ! str_contains($sql, 'settings')));
+    };
+    $seed = function (int $count) use ($npr, $usd): void {
+        foreach (range(1, $count) as $i) {
+            onRegisterDay('2026-10-20', fn () => issueInvoice($npr, [10_000]));
+            $invoice = onRegisterDay('2026-10-20', fn () => issueInvoice($usd, [10_001]));
+            onRegisterDay('2026-10-21', fn () => registerNote(NoteRequest::creditAmount($invoice->id, 113, 'goodwill', 'Budget')));
+        }
     };
 
-    onRegisterDay('2026-10-20', fn () => issueInvoice($client, [10_000]));
+    $seed(1);
     $small = $summaryQueries();
-    onRegisterDay('2026-10-21', fn () => array_map(fn () => issueInvoice($client, [10_000]), range(1, 12)));
+    $seed(8);
     $large = $summaryQueries();
 
     expect(count($large))->toBe(count($small))
-        ->and(collect($large)->filter(fn (string $sql): bool => str_contains(strtolower($sql), 'offset'))->all())->toBe([]);
+        ->and(array_filter($large, fn (string $sql): bool => str_contains($sql, 'offset')))->toBe([]);
+
+    // PostgreSQL converts in SQL, so no query reads documents one chunk at a time.
+    if (DB::connection()->getDriverName() === 'pgsql') {
+        expect(array_filter($large, fn (string $sql): bool => str_contains($sql, 'limit')))->toBe([]);
+    }
 });
+
+test('a refused fiscal year or range keeps its error and its value in the picker', function (array $filters, string $field) {
+    actingAsStaff(['reports.vat_register.view']);
+
+    $this->get(route('admin.billing.vat-register.index', $filters))->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->has("filterErrors.{$field}")
+            ->where('submitted', $filters));
+})->with([
+    'year' => [['year' => '2083.090'], 'year'],
+    'range over a year' => [['from' => '2025-01-01', 'to' => '2026-10-01'], 'to'],
+]);
 
 test('the screen shows the register with totals, header and warnings, and refuses without the view permission', function () {
     kartikRegisterFixture();

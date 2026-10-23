@@ -30,6 +30,9 @@ class RegisterDocuments
     /** @var array<string, RegisterSummary> */
     private array $summaries = [];
 
+    /** Convert in SQL (PostgreSQL) or in PHP; null follows the connection. Tests set it to compare the two paths. */
+    public ?bool $convertInSql = null;
+
     public function __construct(private FiscalSnapshotWriter $snapshots) {}
 
     /** The register is in rupees unless the tax settings name another reporting currency. */
@@ -80,14 +83,14 @@ class RegisterDocuments
      *
      * Each table is summed on its own through its period index, never through the sorted union. A document whose
      * conversion is the identity (in the register currency, rate 1 or none) is summed in SQL, which is exact for
-     * integers. A document converted with another rate is read with lazyById() and converted one by one, so half-up
-     * rounding stays per document. Query budget: a fixed number of queries per table, plus one per 1,000 converted
-     * documents (tests/Feature/Billing/VatRegisterTest).
+     * integers. A document converted with another rate is rounded one by one, half away from zero: in SQL on PostgreSQL,
+     * so the query count stays fixed; in PHP over lazyById() on SQLite, one more query per 1,000 converted documents
+     * (tests/Feature/Billing/VatRegisterTest).
      */
     public function summary(RegisterPeriod $period, bool $notesOnly): RegisterSummary
     {
         $currency = $this->currency();
-        $key = serialize([$period, $notesOnly, $currency]);
+        $key = serialize([$period, $notesOnly, $currency, $this->convertsInSql()]);
 
         if (isset($this->summaries[$key])) {
             return $this->summaries[$key];
@@ -128,15 +131,38 @@ class RegisterDocuments
             $summary->addAmounts((string) $group->kind, $group->month, $group->supply_class === 'export', $sign * (int) $group->taxable, $sign * (int) $group->exempt, $sign * (int) $group->tax);
         }
 
-        // Converted with a stored rate other than 1: per document, half up.
-        $this->base($table, $period)->where($hasRate)->where(fn (Builder $q): Builder => $q->where("{$table}.currency", '<>', $currency)->orWhere("{$table}.report_rate", '<>', 1))
-            ->selectRaw("{$table}.id, {$kind} as kind, {$table}.bs_period as month, {$table}.supply_class as supply_class, {$table}.report_rate as rate, {$amounts}")
-            ->lazyById(1000, "{$table}.id", 'id')
-            ->each(function (stdClass $row) use ($summary): void {
-                $rate = RegisterDocument::rate($row->rate);
-                $sign = $row->kind === 'credit' ? -1 : 1;
-                $summary->addAmounts((string) $row->kind, $row->month, $row->supply_class === 'export', self::convert($sign * (int) $row->taxable, $rate), self::convert($sign * (int) $row->exempt, $rate), self::convert($sign * (int) $row->tax, $rate));
-            });
+        // Converted with a stored rate other than 1: per document, rounded half away from zero, with the credit sign
+        // applied first. An export's value is rounded once, as taxable + exempt, the way its row shows it.
+        $converted = $this->base($table, $period)->where($hasRate)->where(fn (Builder $q): Builder => $q->where("{$table}.currency", '<>', $currency)->orWhere("{$table}.report_rate", '<>', 1));
+
+        if ($this->convertsInSql()) {
+            // PostgreSQL: round() on numeric is half away from zero, as Decimal::round() is.
+            $groups = DB::query()->fromSub($converted->selectRaw("{$kind} as kind, {$table}.bs_period as month, {$table}.supply_class as supply_class, {$table}.report_rate as rate, case when {$kind} = 'credit' then -1 else 1 end as sign, {$amounts}"), 'docs')
+                ->selectRaw('kind, month, supply_class, '
+                    .'cast(sum(round((sign * taxable)::numeric * rate)) as bigint) as taxable, '
+                    .'cast(sum(round((sign * exempt)::numeric * rate)) as bigint) as exempt, '
+                    .'cast(sum(round((sign * tax)::numeric * rate)) as bigint) as tax, '
+                    .'cast(sum(round((sign * (taxable + exempt))::numeric * rate)) as bigint) as sales')
+                ->groupBy('kind', 'month', 'supply_class')->get();
+
+            foreach ($groups as $group) {
+                $export = $group->supply_class === 'export';
+                $summary->addAmounts((string) $group->kind, $group->month, $export, $export ? (int) $group->sales : (int) $group->taxable, $export ? 0 : (int) $group->exempt, (int) $group->tax);
+            }
+        } else {
+            // SQLite (small installs): a decimal column comes back as a float, so convert each document in PHP.
+            $converted->selectRaw("{$table}.id, {$kind} as kind, {$table}.bs_period as month, {$table}.supply_class as supply_class, {$table}.report_rate as rate, {$amounts}")
+                ->lazyById(1000, "{$table}.id", 'id')
+                ->each(function (stdClass $row) use ($summary): void {
+                    $rate = RegisterDocument::rate($row->rate);
+                    $sign = $row->kind === 'credit' ? -1 : 1;
+                    $export = $row->supply_class === 'export';
+                    $summary->addAmounts((string) $row->kind, $row->month, $export,
+                        self::convert($sign * ($export ? (int) $row->taxable + (int) $row->exempt : (int) $row->taxable), $rate),
+                        $export ? 0 : self::convert($sign * (int) $row->exempt, $rate),
+                        self::convert($sign * (int) $row->tax, $rate));
+                });
+        }
 
         $summary->unconverted += $this->base($table, $period)->where("{$table}.currency", '<>', $currency)->where($noRate)->count();
         $summary->withoutPan += $this->base($table, $period)->where("{$buyer}->country", 'NP')
@@ -158,6 +184,11 @@ class RegisterDocuments
 
         return $period->scope(Invoice::query()->toBase(), 'invoices')
             ->whereNotNull('invoices.numbered_at')->whereNotNull('invoices.number')->where('invoices.kind', '<>', 'add_funds');
+    }
+
+    private function convertsInSql(): bool
+    {
+        return $this->convertInSql ?? DB::connection()->getDriverName() === 'pgsql';
     }
 
     /** Minor units converted with a stored rate (a decimal string), half up. */

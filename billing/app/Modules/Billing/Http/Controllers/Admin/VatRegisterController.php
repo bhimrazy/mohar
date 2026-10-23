@@ -43,6 +43,7 @@ class VatRegisterController extends Controller
         $this->authorize("reports.{$key}.view");
 
         $input = $this->filters($request, $clock);
+        $submitted = $input;
         $errors = [];
 
         try {
@@ -57,6 +58,12 @@ class VatRegisterController extends Controller
         $lastPage = intdiv(ReportQuery::MAX_OFFSET, self::PER_PAGE) + 1;
         $current = min(max(1, (int) $request->query('page', '1')), $lastPage);
         $page = $viewer->page($key, $query, self::PER_PAGE, ($current - 1) * self::PER_PAGE);
+
+        // A page past the end shows the last page, not an empty period.
+        if ($page->rows === [] && $page->total > 0) {
+            $current = min((int) ceil($page->total / self::PER_PAGE), $lastPage);
+            $page = $viewer->page($key, $query, self::PER_PAGE, ($current - 1) * self::PER_PAGE);
+        }
 
         /** @var RegisterReport $report */
         $report = $reports->get($key);
@@ -79,6 +86,8 @@ class VatRegisterController extends Controller
             'documents' => ['total' => $page->total, 'pageable' => $lastPage * self::PER_PAGE, 'hasExport' => $summary->hasExport(), 'currency' => $summary->currency],
             'filters' => (object) $input,
             'filterErrors' => (object) $errors,
+            // What was asked for, so a refused year or range stays in the picker beside its error.
+            'submitted' => (object) ($errors === [] ? [] : $submitted),
             'options' => $this->options($clock),
             'warnings' => ['withoutPan' => $summary->withoutPan, 'unconverted' => $summary->unconverted],
             'can' => ['export' => (bool) $user?->hasPermission("reports.{$key}.export")],

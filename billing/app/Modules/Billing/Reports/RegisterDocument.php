@@ -84,7 +84,7 @@ final readonly class RegisterDocument
             taxable: $export && $convert(0) !== null ? 0 : $convert((int) $row->taxable),
             exempt: $export && $convert(0) !== null ? 0 : $convert((int) $row->exempt),
             tax: $convert((int) $row->tax),
-            exportValue: $export ? $convert((int) $row->taxable + (int) $row->exempt) : 0,
+            exportValue: $export ? $convert((int) $row->taxable + (int) $row->exempt) : ($convert(0) === null ? null : 0),
             registerCurrency: $registerCurrency,
             lines: $detail['lines'] ?? [],
             reasonCode: $row->reason_code,

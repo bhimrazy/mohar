@@ -60,6 +60,7 @@ type Props = {
     };
     filters: Partial<Record<'month' | 'year' | 'from' | 'to', string>>;
     filterErrors: Record<string, string>;
+    submitted: Partial<Record<'month' | 'year' | 'from' | 'to', string>>;
     options: {
         months: SelectOption[];
         years: SelectOption[];
@@ -190,18 +191,23 @@ export default function VatRegister({
     period,
     filters,
     filterErrors,
+    submitted,
     options,
     documents,
     warnings,
     can,
 }: Props) {
-    const [kind, setKind] = useState<Kind>(period.kind);
-    const [month, setMonth] = useState(filters.month ?? options.lastClosed);
-    const [year, setYear] = useState(
-        filters.year ?? options.years[0]?.value ?? '',
+    // After a refused period the page shows the default month; the picker keeps what was asked for, beside its error.
+    const asked = { ...filters, ...submitted };
+    const [kind, setKind] = useState<Kind>(
+        submitted.year ? 'year' : submitted.from || submitted.to ? 'range' : submitted.month ? 'month' : period.kind,
     );
-    const [from, setFrom] = useState(filters.from ?? period.from);
-    const [to, setTo] = useState(filters.to ?? period.to);
+    const [month, setMonth] = useState(asked.month ?? options.lastClosed);
+    const [year, setYear] = useState(
+        asked.year ?? options.years[0]?.value ?? '',
+    );
+    const [from, setFrom] = useState(asked.from ?? period.from);
+    const [to, setTo] = useState(asked.to ?? period.to);
 
     const apply = (event: FormEvent) => {
         event.preventDefault();
