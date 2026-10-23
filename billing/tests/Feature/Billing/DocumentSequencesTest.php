@@ -1,10 +1,13 @@
 <?php
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\BillingSequence;
 use App\Modules\Billing\Services\CurrencyConverter;
 use App\Modules\Billing\Services\DocumentNumbers;
+use App\Modules\Billing\Support\BikramSambat;
 use App\Modules\Core\Models\Currency;
+use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -18,7 +21,7 @@ require_once __DIR__.'/helpers.php';
 
 function nextNumber(string $sequence, string $date = '2026-10-20'): string
 {
-    return app(DocumentNumbers::class)->next($sequence, CarbonImmutable::parse($date));
+    return app(DocumentNumbers::class)->next($sequence, CalendarDate::parse($date));
 }
 
 test('credit and debit notes have their own gap-free sequences and default formats', function () {
@@ -35,6 +38,34 @@ test('a note sequence reads its own format, padding and reset, not the invoice s
         ->and([nextNumber(DocumentNumbers::INVOICE, '2026-10-20'), nextNumber(DocumentNumbers::INVOICE, '2026-11-02'), nextNumber(DocumentNumbers::DEBIT_NOTE)])
         ->toBe(['INV-000001', 'INV-000001', 'DN-1']);
 });
+
+test('a yearly sequence resets at the company new year, not the UTC one', function () {
+    inCompanyTimezone('Asia/Kathmandu');
+    billingSettings(['number_format' => 'INV/{YEAR}/{NUMBER}', 'number_reset' => 'yearly']);
+    $numberAt = function (string $utc): string {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse($utc, 'UTC'));
+
+        return app(DocumentNumbers::class)->next(DocumentNumbers::INVOICE, app(CompanyClock::class)->calendarDate());
+    };
+
+    // 18:15 UTC on 31 December is midnight on 1 January in Kathmandu.
+    expect([$numberAt('2026-12-31 18:14:58'), $numberAt('2026-12-31 18:14:59'), $numberAt('2026-12-31 18:15:00')])
+        ->toBe(['INV/2026/1', 'INV/2026/2', 'INV/2027/1']);
+
+    CarbonImmutable::setTestNow();
+});
+
+test('the Nepali fiscal year of the company date turns at local midnight on 1 Shrawan', function (string $utc, string $fiscalYear) {
+    inCompanyTimezone('Asia/Kathmandu');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse($utc, 'UTC'));
+
+    expect(BikramSambat::fiscalYear(BikramSambat::fromAd(app(CompanyClock::class)->calendarDate())))->toBe($fiscalYear);
+
+    CarbonImmutable::setTestNow();
+})->with([
+    'last second of Asar 2083' => ['2026-07-16 18:14:59', '2082.083'],
+    '1 Shrawan 2083' => ['2026-07-16 18:15:00', '2083.084'],
+]);
 
 test('the increment setting never applies to a note sequence', function () {
     billingSettings(['number_increment' => 5]);

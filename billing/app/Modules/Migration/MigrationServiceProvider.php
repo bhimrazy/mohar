@@ -7,6 +7,7 @@ use App\Modules\Core\Support\InstallSecrets;
 use App\Modules\Migration\Models\MigrationRecord;
 use App\Modules\Migration\Models\MigrationRun;
 use App\Support\Automation\Automation;
+use App\Support\CalendarDate;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
@@ -15,7 +16,6 @@ use App\Support\Security\EncryptedModel;
 use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
-use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -52,7 +52,7 @@ class MigrationServiceProvider extends ModuleServiceProvider
             new SettingDefinition('migration.undo_days', 'Days an applied import keeps its rows', 'integer', 'After that its row details are purged; counts and outcomes stay.', rules: ['integer', 'min:1', 'max:30']),
         ], 'migration.runs.execute');
 
-        $this->app->make(Automation::class)->task('migration.purge', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $this->purgeExpired(),
+        $this->app->make(Automation::class)->task('migration.purge', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => $this->purgeExpired(),
             label: 'Purge expired client imports', description: 'Removes the rows of client imports that were never applied once they expire; counts stay.');
     }
 

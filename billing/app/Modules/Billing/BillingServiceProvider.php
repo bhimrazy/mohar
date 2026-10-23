@@ -48,6 +48,7 @@ use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Billing\Services\PaymentReconciler;
 use App\Modules\Billing\Services\Tax\BillingTaxIdRules;
 use App\Modules\Billing\Services\Tax\TaxEngine;
+use App\Modules\Billing\Support\BillingClientDashboard;
 use App\Modules\Billing\Support\BillingDashboard;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\InvoiceBsDates;
@@ -234,38 +235,7 @@ class BillingServiceProvider extends ModuleServiceProvider
     {
         $dashboard = $this->app->make(Dashboard::class);
         $this->app->make(BillingDashboard::class)->register($dashboard);
-
-        $dashboard->card('client', 'billing.unpaid', function (?User $user, Client $client): array {
-            $unpaid = Invoice::query()->where('client_id', $client->id)->whereIn('status', InvoiceStatus::payable());
-
-            return [
-                'label' => 'Unpaid invoices',
-                ...self::moneyValue(Money::of((int) (clone $unpaid)->sum('balance'), $client->currency)),
-                'hint' => (clone $unpaid)->count().' to pay',
-                'href' => route('client.invoices.index', ['status' => 'unpaid']),
-                'icon' => 'Receipt',
-            ];
-        }, order: 10);
-
-        $dashboard->card('client', 'billing.credit', fn (?User $user, Client $client): array => [
-            'label' => 'Credit balance',
-            ...self::moneyValue($this->app->make(CreditLedgerService::class)->balance($client->id, $client->currency)),
-            'href' => route('client.credit.index'),
-            'icon' => 'Wallet',
-        ], order: 20);
-    }
-
-    /**
-     * Card value for money: a display string plus the raw minor units for the frontend's formatMoney().
-     *
-     * @return array{value: string, money: array{amount: int, currency: string}}
-     */
-    private static function moneyValue(Money $money): array
-    {
-        return [
-            'value' => app(MoneyFormatter::class)->format($money),
-            'money' => ['amount' => $money->amount, 'currency' => $money->currency],
-        ];
+        $this->app->make(BillingClientDashboard::class)->register($dashboard);
     }
 
     /**

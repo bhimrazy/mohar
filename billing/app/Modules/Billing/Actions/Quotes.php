@@ -110,7 +110,7 @@ class Quotes
         }
 
         DB::transaction(function () use ($quote): void {
-            $quote->number ??= $this->numbers->next(DocumentNumbers::QUOTE, $this->clock->today());
+            $quote->number ??= $this->numbers->next(DocumentNumbers::QUOTE, $this->clock->calendarDate());
             $quote->stage = QuoteStage::Delivered;
             $quote->delivered_at = now();
             $quote->save();
