@@ -3,7 +3,9 @@
 namespace App\Providers;
 
 use App\Actions\Fortify\CreateNewUser;
+use App\Actions\Fortify\RememberValidatedLogin;
 use App\Actions\Fortify\ResetUserPassword;
+use App\Actions\Fortify\SignInValidatedUser;
 use App\Http\Responses\PasswordConfirmedResponse;
 use App\Http\Responses\PasswordResetFailedResponse;
 use App\Http\Responses\PasswordResetLinkRequestedResponse;
@@ -19,6 +21,9 @@ use Laravel\Fortify\Contracts\FailedPasswordResetLinkRequestResponse;
 use Laravel\Fortify\Contracts\FailedPasswordResetResponse;
 use Laravel\Fortify\Contracts\PasswordConfirmedResponse as PasswordConfirmedResponseContract;
 use Laravel\Fortify\Contracts\SuccessfulPasswordResetLinkRequestResponse;
+use Laravel\Fortify\Actions\CanonicalizeUsername;
+use Laravel\Fortify\Actions\EnsureLoginIsNotThrottled;
+use Laravel\Fortify\Actions\PrepareAuthenticatedSession;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
 
@@ -54,6 +59,15 @@ class FortifyServiceProvider extends ServiceProvider
     {
         Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
         Fortify::createUsersUsing(CreateNewUser::class);
+
+        // Fortify's default sign-in pipeline, with the password verified once instead of twice (see the two classes).
+        Fortify::authenticateThrough(fn (): array => array_filter([
+            config('fortify.limiters.login') ? null : EnsureLoginIsNotThrottled::class,
+            config('fortify.lowercase_usernames') ? CanonicalizeUsername::class : null,
+            Features::enabled(Features::twoFactorAuthentication()) ? RememberValidatedLogin::class : null,
+            SignInValidatedUser::class,
+            PrepareAuthenticatedSession::class,
+        ]));
     }
 
     /**
