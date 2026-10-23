@@ -8,7 +8,8 @@
 #                                                       and any idle billing_e2e_* left by an interrupted `simulate:e2e`
 # Then run `composer test:pgsql` (or any artisan command) in the worktree's billing/ directory.
 # The data lives in tmpfs: it is test data, fast, and disappears when the server stops.
-# WAL is kept small (no fsync, minimal level, 256 MB cap): on a 2 GB tmpfs it filled the disk and crashed the server.
+# 4 GB, with WAL kept small (no fsync, minimal level, 256 MB cap): WAL was about half of what filled the earlier 2 GB
+# tmpfs and crashed the server.
 #
 # Slug limit: PostgreSQL names are at most 63 bytes, and a parallel worker adds _test_<n> (Laravel) to the database.
 # So billing_test_<slug> is kept whole while it is 55 bytes or less (a slug of up to 42 characters). A longer one
