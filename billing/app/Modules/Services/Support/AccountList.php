@@ -2,9 +2,11 @@
 
 namespace App\Modules\Services\Support;
 
+use App\Modules\Core\Support\InstallSecrets;
 use App\Modules\Core\Support\Like;
 use App\Modules\Services\Models\ServerAccountImport;
-use Illuminate\Database\Query\Builder;
+use App\Modules\Services\Models\ServerAccountImportAccount;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use JsonException;
@@ -17,6 +19,9 @@ use JsonException;
  */
 class AccountList
 {
+    /** The install secret keying the email hash: it stays the same when APP_KEY is rotated. */
+    public const EMAIL_HASH_SECRET = 'services.import_email_hash';
+
     private const TABLE = 'server_account_import_accounts';
 
     private const INSERT_CHUNK = 200;
@@ -32,7 +37,7 @@ class AccountList
     {
         DB::table(self::TABLE)->where('server_account_import_id', $import->id)->delete();
 
-        foreach (array_chunk(array_values($rows), self::INSERT_CHUNK, preserve_keys: true) as $chunk) {
+        foreach (array_chunk($rows, self::INSERT_CHUNK, preserve_keys: true) as $chunk) {
             DB::table(self::TABLE)->insertOrIgnore(array_map(fn (array $row, int $position): array => [
                 'server_account_import_id' => $import->id,
                 'position' => $position,
@@ -55,7 +60,14 @@ class AccountList
     public function rows(ServerAccountImport $import, ?array $usernames = null): array
     {
         if ($usernames === null) {
-            return $this->decode($this->query($import)->orderBy('position')->get(['username', 'payload'])->all());
+            // One row at a time: the ciphertext of a large list is not held beside its decrypted rows.
+            $rows = [];
+
+            foreach ($this->query($import)->orderBy('position')->select(['username', 'payload'])->cursor() as $record) {
+                $rows[(string) $record->username] = $record->payload;
+            }
+
+            return $rows;
         }
 
         $found = [];
@@ -87,7 +99,7 @@ class AccountList
             }));
 
         return [
-            'rows' => array_values($this->decode($filtered()->orderBy('position')->offset(($page - 1) * $perPage)->limit($perPage)->get(['username', 'payload'])->all())),
+            'rows' => array_values($this->decode($filtered()->orderBy('position')->offset(($page - 1) * $perPage)->limit($perPage)->get(['username', 'payload'])->values()->all())),
             'total' => $filtered()->count(),
         ];
     }
@@ -169,22 +181,25 @@ class AccountList
             return;
         }
 
-        $this->replace($import, is_array($rows) ? $rows : []);
+        $this->replace($import, is_array($rows) ? array_values($rows) : []);
         DB::table('server_account_imports')->where('id', $import->id)->update(['accounts' => null]);
     }
 
     public static function emailHash(string $email): string
     {
-        return hash_hmac('sha256', mb_strtolower(trim($email)), (string) config('app.key'));
-    }
-
-    private function query(ServerAccountImport $import): Builder
-    {
-        return DB::table(self::TABLE)->where('server_account_import_id', $import->id);
+        return hash_hmac('sha256', mb_strtolower(trim($email)), app(InstallSecrets::class)->get(self::EMAIL_HASH_SECRET));
     }
 
     /**
-     * @param  list<object>  $records
+     * @return Builder<ServerAccountImportAccount>
+     */
+    private function query(ServerAccountImport $import): Builder
+    {
+        return ServerAccountImportAccount::query()->where('server_account_import_id', $import->id);
+    }
+
+    /**
+     * @param  array<int, ServerAccountImportAccount>  $records
      * @return array<string, array<string, mixed>>
      */
     private function decode(array $records): array
@@ -192,7 +207,7 @@ class AccountList
         $rows = [];
 
         foreach ($records as $record) {
-            $rows[(string) $record->username] = json_decode(Crypt::decryptString((string) $record->payload), true, flags: JSON_THROW_ON_ERROR);
+            $rows[(string) $record->username] = $record->payload;
         }
 
         return $rows;

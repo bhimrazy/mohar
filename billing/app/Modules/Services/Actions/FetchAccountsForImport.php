@@ -111,7 +111,8 @@ class FetchAccountsForImport
             ->select(['id', 'created_at', 'updated_at', ...$columns])
             ->with('requester:id,name')
             ->where('server_id', $server->id)
-            ->where('expires_at', '>', now())
+            // An import still running outlives its list's expiry (ServerAccountImport::pruneExpired()).
+            ->where(fn ($query) => $query->where('expires_at', '>', now())->orWhere('status', ServerAccountImport::IMPORTING))
             ->latest('id');
 
         // A failed fetch does not replace the last good list: that list stays current, the failure is shown beside it.

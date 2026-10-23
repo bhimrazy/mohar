@@ -17,7 +17,8 @@ use Illuminate\Support\Facades\DB;
  * One fetch of a server's accounts for Import accounts (cPanel spec §10), kept for HOURS hours (and, once an import has
  * run on it, for HOURS hours after that, so its report is seen). The accounts themselves are rows in
  * server_account_import_accounts (AccountList); the report lines are rows in server_account_import_report_lines, one
- * per account: deleted when the account is retried, and moved to the new list when a fetch replaces this one.
+ * per account: deleted when the account is retried, and moved to the new list when a fetch replaces this one. The
+ * `accounts` column is where the previous release stored the whole list; only AccountList::adopt() reads it.
  *
  * @property int $id
  * @property int $server_id
@@ -45,7 +46,6 @@ use Illuminate\Support\Facades\DB;
  * @property-read Server $server
  * @property-read User|null $requester
  */
-/** `accounts` is the column the previous release stored the whole list in; it is read only by AccountList::adopt(). */
 #[Hidden(['accounts'])]
 #[Fillable(['server_id', 'requested_by', 'status', 'account_count', 'proposed_count', 'unmatched_count', 'reseller_count', 'linked_count', 'missing', 'connection_user', 'selections', 'reviewed', 'imported_count', 'not_imported_count', 'stop_reason', 'error', 'fetched_at', 'expires_at'])]
 class ServerAccountImport extends Model
