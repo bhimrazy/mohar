@@ -6,6 +6,8 @@ use App\Events\Core\StaffDisabled;
 use App\Models\User;
 use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\LoginEmailChange;
+use App\Modules\Core\Support\LoginEmailChanged;
 use App\Modules\Platform\Services\PermissionGuard;
 use App\Modules\Platform\Support\AccountMail;
 use Illuminate\Support\Facades\DB;
@@ -14,14 +16,16 @@ use Illuminate\Validation\ValidationException;
 
 class UpdateStaff
 {
-    public function __construct(private PermissionGuard $guard, private ActivityLogger $activity, private AccountMail $mail) {}
+    public function __construct(private PermissionGuard $guard, private ActivityLogger $activity, private AccountMail $mail, private LoginEmailChange $emails) {}
 
     /**
      * @param  array{name: string, email: string, role_id: int, is_active: bool}  $data
+     * @return LoginEmailChanged which mails about an email change were delivered (both true when it did not change);
+     *                           the change is saved either way
      *
      * @throws ValidationException
      */
-    public function handle(User $actor, User $staff, array $data): User
+    public function handle(User $actor, User $staff, array $data): LoginEmailChanged
     {
         $role = Role::query()->findOrFail($data['role_id']);
         $roleChanged = $staff->role_id !== $role->id;
@@ -63,13 +67,15 @@ class UpdateStaff
 
         $staff->save();
 
+        $result = new LoginEmailChanged(verificationSent: true, oldAddressTold: true);
+
         if ($emailChanged) {
             // Both addresses hear about it: the old one so a takeover is noticed, the new one for the record.
-            $this->mail->notice('staff.email_changed', [$oldEmail, $newEmail], ['actor' => $actor->name, 'old_email' => $oldEmail, 'new_email' => $newEmail], 'staff:'.$staff->id, __('Your staff sign-in email was changed'), [
+            $noticed = $this->mail->notice('staff.email_changed', [$oldEmail, $newEmail], ['actor' => $actor->name, 'old_email' => $oldEmail, 'new_email' => $newEmail], 'staff:'.$staff->id, __('Your staff sign-in email was changed'), [
                 __(':actor changed the sign-in email of your staff account from :old to :new.', ['actor' => $actor->name, 'old' => $oldEmail, 'new' => $newEmail]),
             ]);
 
-            $staff->sendEmailVerificationNotification();
+            $result = new LoginEmailChanged($this->emails->sendVerification($staff), $noticed);
         }
 
         if ($deactivating) {
@@ -98,7 +104,7 @@ class UpdateStaff
             StaffDisabled::dispatch($staff->id);
         }
 
-        return $staff;
+        return $result;
     }
 
     /**
