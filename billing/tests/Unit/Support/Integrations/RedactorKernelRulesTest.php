@@ -50,6 +50,18 @@ test('a number that holds a value is withheld, as a leaf and inside a decoded JS
         ->and((new Redactor)->redact(['raw' => '{"citizenship":51824753556,"id":7}'], $set))->toBe(['raw' => '{"citizenship":"[redacted]","id":7}']);
 });
 
+test('a key shaped like an exponent number still reaches the answer patterns', function () {
+    expect(RedactionSet::of([], ['E1234567'])->matches('E1234567'))->toBeTrue();
+});
+
+test('matches() remembers only short texts', function () {
+    $set = RedactionSet::of(['hunter22x']);
+    $set->matches(str_repeat('a', 300));
+    $set->matches('short');
+
+    expect(array_keys((fn () => $this->matchCache)->call($set)))->toBe(['short']);
+});
+
 test('a key that holds a value is renamed and its value withheld, numbered when it repeats', function () {
     $redacted = (new Redactor)->redact([
         'hunter22x' => 'a',

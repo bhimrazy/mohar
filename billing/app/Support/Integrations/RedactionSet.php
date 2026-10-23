@@ -77,7 +77,7 @@ final class RedactionSet
     /** Texts up to this length are first checked against the forms' leading 4 bytes, which is cheaper than a scan per form. */
     private const SHORT_TEXT_BYTES = 256;
 
-    /** Results matches() remembers before it starts over (keys repeat in every object of a list). */
+    /** Results matches() remembers before it starts over (keys repeat in every object of a list); only texts up to SHORT_TEXT_BYTES are kept. */
     private const MATCH_CACHE_SIZE = 4096;
 
     /** @var list<string> lowercased values, for the decoded-word check */
@@ -279,13 +279,18 @@ final class RedactionSet
 
         // A number's digits (an integer or float leaf, a list index) can hold only a numeric form or a digit answer.
         if (self::isNumeric($text)) {
-            return $this->matchCache[$text] = $this->numericMatches(strtolower($text));
+            $matches = $this->numericMatches($text);
+        } else {
+            $masked = $this->mask($text, "\0");
+            // With answers, an unmatched text still comes back mb_scrub()bed.
+            $matches = $masked !== $text && ($this->answerPatterns === [] || $masked !== mb_scrub($text, 'UTF-8'));
         }
 
-        $masked = $this->mask($text, "\0");
+        if (strlen($text) <= self::SHORT_TEXT_BYTES) {
+            $this->matchCache[$text] = $matches;
+        }
 
-        // With answers, an unmatched text still comes back mb_scrub()bed.
-        return $this->matchCache[$text] = $masked !== $text && ($this->answerPatterns === [] || $masked !== mb_scrub($text, 'UTF-8'));
+        return $matches;
     }
 
     /**
@@ -498,7 +503,8 @@ final class RedactionSet
 
     private static function isNumeric(string $text): bool
     {
-        return strspn($text, '0123456789.-+eE') === strlen($text);
+        // No exponent letters: a key like E1234567 (a passport number) must reach the answer patterns.
+        return strspn($text, '0123456789.-+') === strlen($text);
     }
 
     private function numericMatches(string $text): bool
