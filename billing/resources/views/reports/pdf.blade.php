@@ -12,10 +12,10 @@
         table { width: 100%; border-collapse: collapse; }
         table.meta td { padding: 1px 12px 1px 0; vertical-align: top; }
         table.rows { margin-top: 10px; }
-        table.rows th { text-align: left; font-size: 8px; text-transform: uppercase; color: #6b7280; border-bottom: 1px solid #9ca3af; padding: 4px 3px; }
+        table.rows th { text-align: left; vertical-align: bottom; font-size: 8px; text-transform: uppercase; color: #6b7280; border-bottom: 1px solid #9ca3af; padding: 4px 3px; }
         table.rows { table-layout: fixed; }
-        table.rows td { white-space: nowrap; overflow: hidden; border-bottom: 1px solid #e5e7eb; padding: 3px; vertical-align: top; }
-        .right { text-align: right; }
+        table.rows td { word-wrap: break-word; overflow: hidden; border-bottom: 1px solid #e5e7eb; padding: 3px; vertical-align: top; }
+        table.rows th.right, .right { text-align: right; }
         tr.sum td { font-weight: bold; border-top: 1px solid #6b7280; background: #f3f4f6; }
         .page { page-break-after: always; }
         .page:last-of-type { page-break-after: auto; }
@@ -37,12 +37,12 @@
 @foreach ($pages as $index => $page)
     <div class="page">
         @if ($tableView)
-            @include($tableView, ['report' => $report, 'columns' => $columns, 'rows' => $page['rows'], 'totals' => $loop->last ? [...$page['totals'], ...$totals] : $page['totals']])
+            @include($tableView, ['report' => $report, 'columns' => $columns, 'widths' => $widths, 'rows' => $page['rows'], 'totals' => $loop->last ? [...$page['totals'], ...$totals] : $page['totals']])
         @else
             <table class="rows">
                 <thead><tr>
                     @foreach ($columns as $i => $column)
-                        <th class="{{ $right[$i] ? 'right' : '' }}">{{ $column->label }}</th>
+                        <th class="{{ $right[$i] ? 'right' : '' }}" style="width: {{ $widths[$i] }}">{{ $column->label }}</th>
                     @endforeach
                 </tr></thead>
                 <tbody>
