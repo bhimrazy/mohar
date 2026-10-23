@@ -31,6 +31,11 @@ test('credit and debit notes cannot share a format', function () {
     expect(array_keys($errors))->toBe(['billing.credit_note_format', 'billing.debit_note_format']);
 });
 
+test('formats that differ only in digits are refused, since they can produce the same number (#396 N1)', function () {
+    expect(array_keys(noteSettingErrors(['credit_note_format' => 'A{NUMBER}', 'debit_note_format' => 'A1{NUMBER}'])))->toBe(['billing.credit_note_format', 'billing.debit_note_format'])
+        ->and(noteSettingErrors(['credit_note_format' => 'CN-{YEAR}-{NUMBER}', 'debit_note_format' => 'CN-{NUMBER}']))->toBe([]);
+});
+
 test('a reset needs the period in the format', function (string $reset, string $format, bool $valid) {
     expect(noteSettingErrors(['credit_note_reset' => $reset, 'credit_note_format' => $format]) === [])->toBe($valid);
 })->with([

@@ -38,7 +38,7 @@ class UpdateContacts
 
             // The driver says how long the lock lasts; the date is the company's (ADR 0013).
             if (is_int($result->meta['transfer_lock_days'] ?? null)) {
-                $meta['transfer_lock_until'] = $this->clock->todayDate()->addDays($result->meta['transfer_lock_days'])->toDateString();
+                $meta['transfer_lock_until'] = $this->clock->calendarDate()->addDays($result->meta['transfer_lock_days'])->toString();
             }
         } else {
             $this->activity->log("Staff task: update contacts of {$domain->name} at the registrar", $domain, $domain->client_id);

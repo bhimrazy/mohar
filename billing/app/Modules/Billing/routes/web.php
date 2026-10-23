@@ -10,8 +10,10 @@ use App\Modules\Billing\Http\Controllers\Admin\InvoiceController as AdminInvoice
 use App\Modules\Billing\Http\Controllers\Admin\NepalVatController;
 use App\Modules\Billing\Http\Controllers\Admin\PaymentAttemptController;
 use App\Modules\Billing\Http\Controllers\Admin\QuoteController as AdminQuoteController;
+use App\Modules\Billing\Http\Controllers\Admin\TaxNoteController;
 use App\Modules\Billing\Http\Controllers\Admin\TaxRuleController;
 use App\Modules\Billing\Http\Controllers\Admin\TransactionController;
+use App\Modules\Billing\Http\Controllers\Admin\VatRegisterController;
 use App\Modules\Billing\Http\Controllers\Client\CreditController;
 use App\Modules\Billing\Http\Controllers\Client\InvoiceController;
 use App\Modules\Billing\Http\Controllers\Client\PaymentBatchController;
@@ -41,6 +43,8 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
         Route::post('credit', 'applyCredit')->middleware('password.recent')->name('credit.apply');
         Route::delete('credit', 'removeCredit')->middleware('password.recent')->name('credit.remove');
         Route::get('pdf', 'pdf')->name('pdf');
+        Route::get('notes/preview', [TaxNoteController::class, 'preview'])->name('notes.preview');
+        Route::post('notes', [TaxNoteController::class, 'store'])->middleware('password.recent')->name('notes.store');
     });
 
     Route::get('transactions', [TransactionController::class, 'index'])->name('transactions.index');
@@ -70,6 +74,8 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
     // Behind the feature flag until VAT PR 4 (ADR 0024); the gate runs before step-up, authorization and validation.
     Route::get('vat-mode', [NepalVatController::class, 'edit'])->middleware('feature:billing.nepal_vat_mode')->name('vat-mode.edit');
     Route::put('vat-mode', [NepalVatController::class, 'update'])->middleware(['feature:billing.nepal_vat_mode', 'password.recent'])->name('vat-mode.update');
+    Route::get('vat-register', [VatRegisterController::class, 'index'])->middleware('throttle:billing-registers')->name('vat-register.index');
+    Route::get('vat-register/export', [VatRegisterController::class, 'export'])->middleware(['password.recent', 'throttle:billing-registers'])->name('vat-register.export');
     Route::get('gateway-log', [GatewayLogController::class, 'index'])->name('gateway-log.index');
     Route::get('payment-attempts', [PaymentAttemptController::class, 'index'])->name('payment-attempts.index');
     Route::post('payment-attempts/{attempt}/check', [PaymentAttemptController::class, 'check'])->name('payment-attempts.check');

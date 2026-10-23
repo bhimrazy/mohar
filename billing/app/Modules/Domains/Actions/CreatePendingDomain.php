@@ -85,7 +85,7 @@ class CreatePendingDomain
             }
 
             $client = Client::query()->findOrFail($draft->clientId);
-            $today = $this->clock->todayDate();
+            $today = $this->clock->calendarDate()->toString();
 
             $domain = Domain::query()->create([
                 'client_id' => $client->id,

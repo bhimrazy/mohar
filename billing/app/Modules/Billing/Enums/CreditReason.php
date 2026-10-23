@@ -14,4 +14,6 @@ enum CreditReason: string
     case Reversal = 'reversal';
     /** An opening balance carried over by a client import, a correction from a later run, or its undo. */
     case Import = 'import';
+    case CreditNote = 'credit_note';
+    case CreditNoteReversed = 'credit_note_reversed';
 }

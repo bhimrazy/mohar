@@ -55,9 +55,13 @@ class Automation
     /** @var array<string, bool> */
     private array $takesCalendarDate = [];
 
+    /** @var array<string, bool> Tasks whose handler takes a run date that is not a CalendarDate. */
+    private array $takesCarbonDate = [];
+
     public function task(string $key, int $stage, Closure $handler, ?string $label = null, ?string $description = null): void
     {
         $this->takesCalendarDate[$key] = self::takesCalendarDate($handler, $key);
+        $this->takesCarbonDate[$key] = ! $this->takesCalendarDate[$key] && (new ReflectionFunction($handler))->getNumberOfParameters() > 0;
         $this->tasks[$key] = ['stage' => $stage, 'handler' => $handler, 'label' => $label ?? self::fallbackLabel($key), 'description' => $description];
     }
 
@@ -102,6 +106,24 @@ class Automation
         }
 
         return false;
+    }
+
+    /**
+     * Keys of the registered tasks whose handler does not take a `CalendarDate` first parameter: typed Carbon,
+     * `CarbonInterface` (also fully qualified), untyped, or any other type. They are read from the handlers by
+     * reflection, so handlers passed as variables or callables and package tasks count. For the arch baseline
+     * (CarbonRunDateTasksTest), not for modules.
+     *
+     * @internal
+     *
+     * @return list<string>
+     */
+    public function carbonDateTasks(): array
+    {
+        $keys = array_keys(array_filter($this->takesCarbonDate));
+        sort($keys);
+
+        return $keys;
     }
 
     /**

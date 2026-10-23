@@ -40,9 +40,13 @@ use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Reports\RegisterDocuments;
+use App\Modules\Billing\Reports\TaxNoteRegisterReport;
+use App\Modules\Billing\Reports\VatRegisterReport;
 use App\Modules\Billing\Services\BillingAutomation;
 use App\Modules\Billing\Services\BillingDirectory;
 use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Billing\Services\DocumentNumbers;
 use App\Modules\Billing\Services\InvoiceService;
 use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Billing\Services\PaymentReconciler;
@@ -67,6 +71,7 @@ use App\Support\Money;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Reports\ReportRegistry;
 use App\Support\Search\GlobalSearch;
 use App\Support\Security\EncryptedModel;
 use App\Support\Security\EncryptedStorage;
@@ -95,6 +100,8 @@ class BillingServiceProvider extends ModuleServiceProvider
         $this->app->singleton(BillingSettings::class);
         $this->app->singleton(TaxEngine::class);
         $this->app->singleton(CreditLedgerService::class);
+        // One per request: the register screen and its totals footer share one summary of the period.
+        $this->app->scoped(RegisterDocuments::class);
         $this->app->bind(Invoicer::class, InvoiceService::class);
         $this->app->bind(TaxCalculator::class, TaxEngine::class);
         $this->app->bind(CreditLedger::class, CreditLedgerService::class);
@@ -148,6 +155,11 @@ class BillingServiceProvider extends ModuleServiceProvider
 
         $this->app->make(ReferenceDataRegistry::class)->register(RegionalTaxDefaults::KEY, RegionalTaxDefaults::class, order: 110);
 
+        // The VAT registers (ADR 0024 §10, PR 6); the registry adds reports.{key}.view and the sensitive .export.
+        $reports = $this->app->make(ReportRegistry::class);
+        $reports->register('vat_register', VatRegisterReport::class);
+        $reports->register('tax_note_register', TaxNoteRegisterReport::class);
+
         Event::listen(OrderAccepted::class, RecordAcceptedOrder::class);
 
         // Opening credit balances of imported clients (client-import spec §6.12).
@@ -155,6 +167,10 @@ class BillingServiceProvider extends ModuleServiceProvider
 
         // Invoices, quotes, payments and credit are stored in the client's currency (client-import spec §6.4).
         $this->app->make(ClientCurrencyUsage::class)->register('billing', fn (array $clientIds): array => $this->app->make(BillingDirectory::class)->clientsWithDocuments($clientIds));
+
+        // Paging a register needs only the view permission (ADR 0025 Amendment (#428)), so cap how fast one user can page.
+        RateLimiter::for('billing-registers', fn (Request $request): Limit => Limit::perMinute(self::REGISTER_REQUESTS_PER_MINUTE)
+            ->by('billing-registers|'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
 
         // Each client pay request may open a provider session (Khalti initiate) with the merchant's key: cap it per
         // signed-in user so one account can't get the key throttled or flagged at the provider.
@@ -214,6 +230,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             $navigation->add('admin', new NavItem('Nepal VAT', 'admin.billing.vat-mode.edit', 'FileText', 'Setup', 44, 'billing.tax.manage', 'admin.billing.vat-mode.*'));
         }
         $navigation->add('admin', new NavItem('Tax rules', 'admin.billing.tax-rules.index', 'Percent', 'Setup', 41, 'billing.tax.manage', 'admin.billing.tax-rules.*'));
+        $navigation->add('admin', new NavItem('VAT register', 'admin.billing.vat-register.index', 'BookOpen', 'Billing', 45, 'reports.vat_register.view', 'admin.billing.vat-register.*'));
         $navigation->add('admin', new NavItem('Payment attempts', 'admin.billing.payment-attempts.index', 'Activity', 'Billing', 50, 'billing.payments.manage', 'admin.billing.payment-attempts.*'));
         $navigation->add('admin', new NavItem('Gateway log', 'admin.billing.gateway-log.index', 'Webhook', 'Setup', 42, 'billing.gateway_log.view', 'admin.billing.gateway-log.*'));
 
@@ -245,6 +262,9 @@ class BillingServiceProvider extends ModuleServiceProvider
     /** Client pay requests (invoice and batch) per user per minute. */
     public const PAY_REQUESTS_PER_MINUTE = 10;
 
+    /** Register screen and export requests per staff member per minute. */
+    public const REGISTER_REQUESTS_PER_MINUTE = 60;
+
     public const SENSITIVE_PERMISSIONS = [
         'billing.refunds.manage',
         'billing.payments.manage',
@@ -252,6 +272,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         'billing.credit.adjust',
         'billing.gateways.manage',
         'billing.tax.manage',
+        'billing.tax_notes.issue',
     ];
 
     private function registerPermissions(): void
@@ -270,6 +291,8 @@ class BillingServiceProvider extends ModuleServiceProvider
             'billing.gateways.manage' => 'Configure payment gateways',
             'billing.gateway_log.view' => 'View the gateway log',
             'billing.tax.manage' => 'Manage tax rules',
+            'billing.tax_notes.view' => 'View credit and debit notes',
+            'billing.tax_notes.issue' => 'Issue, reverse and settle credit and debit notes',
             'billing.settings.manage' => 'Change billing settings',
         ], sensitive: self::SENSITIVE_PERMISSIONS);
     }
@@ -283,7 +306,7 @@ class BillingServiceProvider extends ModuleServiceProvider
     private function noteNumbering(string $kind, string $label, string $other): array
     {
         return [
-            new SettingDefinition("billing.{$kind}_note_format", "{$label} number format", help: 'Tokens: {NUMBER} {YEAR} {MONTH} {DAY}. Required, must contain {NUMBER} and differ from the other note format.', rules: ['required', 'max:40', 'regex:/\{NUMBER\}/', "different:billing.{$other}_note_format", "note_period_token:billing.{$kind}_note_reset"]),
+            new SettingDefinition("billing.{$kind}_note_format", "{$label} number format", help: 'Tokens: {NUMBER} {YEAR} {MONTH} {DAY}. Required, must contain {NUMBER} and differ from the other note format.', rules: ['required', 'max:40', 'regex:/\{NUMBER\}/', "note_format_distinct:billing.{$other}_note_format", "note_period_token:billing.{$kind}_note_reset"]),
             new SettingDefinition("billing.{$kind}_note_padding", "{$label} number padding (digits)", 'integer', rules: ['min:0']),
             new SettingDefinition("billing.{$kind}_note_reset", "Reset {$label} numbering", 'select', options: ['never' => 'Never', 'yearly' => 'Yearly', 'monthly' => 'Monthly']),
         ];
@@ -294,6 +317,11 @@ class BillingServiceProvider extends ModuleServiceProvider
         $bool = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'boolean', $help);
         $int = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'integer', $help, rules: ['min:0']);
         $list = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'string', $help, rules: ['regex:/^\s*\d+(\s*,\s*\d+)*\s*$/']);
+
+        // The other format comes from the same save, or from the stored setting when the save leaves it out.
+        Validator::extend('note_format_distinct', fn (string $attribute, mixed $value, array $parameters, \Illuminate\Validation\Validator $validator): bool => ! DocumentNumbers::formatsCollide((string) $value,
+            (string) (Arr::has($validator->getData(), $parameters[0]) ? Arr::get($validator->getData(), $parameters[0]) : app(BillingSettings::class)->string(substr($parameters[0], strlen('billing.'))))),
+            __('The credit and debit note formats must differ in more than digits, or two notes could get the same number.'));
 
         Validator::extend('note_period_token', function (string $attribute, mixed $value, array $parameters, \Illuminate\Validation\Validator $validator): bool {
             $reset = Arr::get($validator->getData(), $parameters[0]);

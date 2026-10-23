@@ -481,6 +481,9 @@ naming the six callers of §5.4 and their lock order (their own rows, then Billi
 - **Tax rule changed** after numbering: the note uses the invoice's snapshot rates.
 - **Discount lines**: credited with their parent line, never on their own.
 - **Client changes PAN** after the invoice: the note keeps the invoice's buyer snapshot.
+- **Tax other than Nepal VAT** (until VAT PR 3): the snapshot stores every tax on the document and marks a taxed
+  document taxable, never export, so the register counts a foreign sales tax (for example a US state sales tax) as VAT.
+  PR 3 names the tax rules that are Nepal VAT; export comes only from an explicit tax rule (D6).
 - **Imported invoices** (importer phase 2): imported tax invoices get `numbered_at` and the snapshot at import and take
   notes; they are in the register only if dated on or after `enabled_from`.
 

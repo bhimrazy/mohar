@@ -37,6 +37,7 @@ test('a fresh install defaults to Nepal: country, NPR, Kathmandu time, VAT 13% a
         ->and($settings->get('core.date_format'))->toBe('j M Y')
         ->and($settings->get('billing.tax.home_country'))->toBe('NP')
         ->and($settings->get('billing.number_format'))->toBe('INV-{NUMBER}')
+        ->and([$settings->get('billing.number_padding'), $settings->get('billing.credit_note_padding'), $settings->get('billing.debit_note_padding')])->toBe([5, 5, 5])
         ->and($settings->get('billing.tax.enabled'))->toBeFalse()
         ->and(Currency::query()->where('is_default', true)->sole()->only(['code', 'exchange_rate']))->toBe(['code' => 'NPR', 'exchange_rate' => '1.000000000000'])
         ->and(Currency::query()->where('code', 'USD')->value('exchange_rate'))->toBe('0.006581545347');

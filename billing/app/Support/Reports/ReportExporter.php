@@ -190,11 +190,7 @@ final class ReportExporter
 
     private function authorize(Report $report, ReportQuery $query): User
     {
-        $user = $query->userId === null ? null : User::query()->find($query->userId);
-
-        if (! $user?->hasPermission("reports.{$report->key()}.export")) {
-            throw new AuthorizationException(__('You do not have permission to export this report.'));
-        }
+        $user = ReportAccess::authorize($report->key(), $query, 'export', __('You do not have permission to export this report.'));
 
         if ($report instanceof HasSensitiveExport && ! RequireRecentPasswordConfirmation::recentlyConfirmed(request())) {
             throw new HttpException(423, __('Password confirmation required.'));
