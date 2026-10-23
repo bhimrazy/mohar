@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-22 20:30 UTC by the CTO session, on the owner's Mac (the codespace hit its usage limit). Update this file whenever a PR merges, a workstream starts or
+Last updated: 2026-10-23 12:30 UTC by the CTO session, on the owner's Mac. Update this file whenever a PR merges, a workstream starts or
 stops, or the owner makes a decision. Keep it short: merges older than the current day move to `billing/docs/progress.md`, and history goes in `history.md` and `docs/reviews/`.
 
 ## Summary
@@ -9,34 +9,16 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
   `docs/reviews/2026-10-22-ceo.md`; rubric in `docs/reviews/readme.md`; the round-3 score on 10-20 was 53). Merges
   after that review are not scored yet; the next CEO round scores them. CTO engineering score: 63/100
   (`docs/reviews/2026-10-22-cto.md`).
-- Merged on 2026-10-22, last (after 17:20 UTC): the ResellerClub simulator (#332) and driver (#335), a timed-out gateway
-  refund kept pending (#336, closes #334), Khalti "Continue payment" (#328, #251), the Nepal-first demo seed (#330,
-  #39), flaky-test fixes (#326, #331), the VAT register and credit-note spec (#327), ADR 0024/0025 and ADR 0013
-  Amendment 1 (#329), registrar prep (#325), module-engineer on Sonnet (#333).
-- Merged on 2026-10-22, later (after the 10:30 UTC update): registrar contracts and drivers on the kernel (#262, #264,
-  #265; ADR 0009 PR C1 to C3), Laravel 13.36 (#242), the local merge gate (#188), macOS tooling (#271), deploy smoke
-  runs the full seed (#282), credit ledger idempotency key (#283), KYC image re-encode (#286), its backfill (#314),
-  browser resize (#312) and unlock races (#308), optional BS dates on invoices (#293), invitation rate default 100
-  an hour (#291), step-up window from `AUTH_STEP_UP_SECONDS` (#296) and downloads that ask for the password (#299),
-  Redactor void-container fix (#294), logout clears browser history (#304), `lock_timeout` for migration DDL
-  (#306), key-list dedupe (#300), Arch rule guards (#301), PostgreSQL test names within 63 bytes (#297), Stripe
-  smoke route guard (#295), `develop` built on every push and E2E only on `main` pushes (#319), the CEO and CTO
-  reviews (#315, #318; CTO engineering score 63/100), sizing and restore docs (#320), the Khalti and eSewa simulators (#321, closes #208), and the owner decisions
-  (#289) and pause state (#270) docs.
-- Merged on 2026-10-22 on the Mac: #266 hosted resume (#123), #256 chargebacks (#232, #230, #221), #259 importer B2b
-  opening balances, #268 password.recent in the kernel (#81), #276 Arch rules one per target (#275; Pest bug
-  pestphp/pest#1751), #253 key rotation (#25), #255 importer B2a invitations, #252 Redactor gaps (#190). #112 closed
-  (its §4 landed in #268; §1/§5 left for social sign-in).
-- Merged on 2026-10-22 (codespace): #237 client currency lock, #246 e2e in NPR, #248 currency code immutable, #249 KYC
-  history cleared, #261 server-import lock, #260 install requires a shared lock store (#64), #245 two-site docs.
-- Merged on 2026-10-22: the PHP 8.4.27 security patch for CVE-2026-109618/109619 through FrankenPHP 1.13.2, by
-  security exception (#243). Client KYC (#228, #231) merged on 2026-10-21; see the KYC rule below.
-- Merged on 2026-10-21: the client importer is complete (#184 confirm and apply, #201 review decisions, report and
-  errors CSV; #160–#163 earlier), `.np` registered by clients with the host's nameservers (#199), Nepal-first install
-  defaults (#215), billing reversals and the client lock order (#211), eSewa fixes from a REA capture of the UAT
-  sandbox (#213), deployment D4 (#167), ADR 0021 row locks (#227), billing go-live fixes (#229), the e2e fix (#234), the load-test harness and sizing guide (#108), the npm advisory fix (#206), audits only on
-  dependency changes (#210, #214), and the process review (#204). Details: `billing/docs/progress.md`.
+- Merged on 2026-10-23: the company clock for documents (#337, VAT PR 0a) and its first modules, Services (#361)
+  with the staff company-time notice (#363); credit and debit note events (#351, VAT 0b); the report registry and
+  export pipeline (#352, VAT 0c) with PDF wrapping and alignment (#360); registrar TLD attributes (#345); one
+  registrar lock per domain (#340); the phone-width storefront fix (#358); vite-plus 1.3.0 (#359); the simulator
+  scenario race fix (#371); the test PostgreSQL's 4 GB and small WAL (#375); standards and handoff docs (#339, #350).
+  Earlier merges: `billing/docs/progress.md`.
 - Owner decisions in force:
+    - 2026-10-23: typed Devanagari in report PDFs is a known limitation (no Devanagari font); the CSV keeps it. The
+      shared test PostgreSQL gets 4 GB and a small WAL (#375). Code comments: short, complete, never overstated
+      (global rule).
     - 2026-10-22, VAT: an invoice is a proforma until paid and becomes a tax invoice on payment; a credit note
       defaults to account credit; register exports are CSV and PDF (XLSX later); no CBMS integration for now.
       Single source: ADR 0024.
@@ -76,28 +58,33 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
 
 ## Open pull requests and running work
 
-| PR             | Workstream                                                | Status (2026-10-22 20:30 UTC)                                    |
-| -------------- | --------------------------------------------------------- | ---------------------------------------------------------------- |
-| #337           | Company clock (VAT PR 0a, ADR 0013 Amendment 1)           | Fix round 1 done; architect and re-reviewer re-checking.         |
-| not yet opened | TLD attributes (ADR 0009 Amendment 2), ResellerClub first | Building. Kernel change called out in the PR; architect reviews. |
-| not yet opened | Shared overlap guard for domain jobs (#14)                | Building. A blocked job is released, never dropped.              |
-| #128           | Gateway expansion spec                                    | Draft. Owner questions in the PR.                                |
-| this PR        | Handoff docs update                                       | Open.                                                            |
+Signed off and in the merge queue (`.worktrees/_review/merge-queue.sh`, which merges at the signed head once CI
+passes and refreshes changelog-only conflicts): #365 link an existing ResellerClub order, #362 eSewa signed
+COMPLETE then NOT_FOUND goes to staff review (closes #323), #369 VAT PR 1a (snapshot, fiscal backfill command,
+per-sequence numbering), #364 Notifications and Platform on the company clock, #374 one bcrypt check per sign-in and
+a cheaper dashboard roll-up (#205; load run not conclusive), #373 Namecheap simulator, then #376 Namecheap driver.
 
-Follow-up issues from #321: #323 (a signed eSewa COMPLETE followed by NOT_FOUND is abandoned, not reviewed);
-#322 (flaky `UnlockRacesTest`) is fixed (#326).
+| PR   | Workstream                                       | Status (2026-10-23 12:30 UTC)                              |
+| ---- | ------------------------------------------------ | ---------------------------------------------------------- |
+| #368 | Mask TLD answers in registrar result meta        | Ready; merges after #365 (both add an ADR 0009 amendment). |
+| —    | VAT PR 1b: note issuer (allocation, caps, races) | Building, stacked on #369.                                 |
+| —    | Domains on the company clock                     | Starts once #364 and #365 merge.                           |
+| —    | Step-up for logins without a password (#274)     | Building.                                                  |
+| —    | ADR 0023 Redactor redesign (#254)                | Architect drafting.                                        |
+| —    | ResellerClub phone country code doubled (#377)   | Building.                                                  |
+| #128 | Gateway expansion spec                           | Draft. Owner questions in the PR.                          |
 
-After each merge close the issue by hand (`develop` ignores closing keywords). When resolving Markdown conflicts, run
-`npx vp check --fix` before pushing (a hand-merged changelog failed CI on #252).
+After each merge close the issue by hand (`develop` ignores closing keywords). Signed-off PRs must be marked ready:
+CI skips drafts without the `ci` label.
 
-- #280 stays open on purpose: TLD attributes (in flight) are its last part.
-- Queue, in order: VAT PRs 0b, 0c, 1a… after #337; #338 (link an existing ResellerClub order); an ADR for
-  indeterminate provider outcomes (refunds, registrations) and ADR 0013 Amendment 2; issue triage (close stale follow-ups);
-  #241 vite-plus 1.3.0 (from 10-23 06:00 UTC); #254 Redactor follow-ups and ADR 0023 (the CTO review's redesign
-  after two fix rounds); #267, #216, #225, #273, #274; #244 Node and Debian images (after 10-28); tail latency
-  (#205). Done today and off the queue: #233, #126, #278, #279, #277, #263, #250, #257, #258, #269, #272, #208.
-- Proposed, awaiting the owner: changelog fragments (`billing/changelog.d/<pr>.md`, assembled at release) to end
-  changelog conflicts and the extra CI runs they cause (CTO review 2026-10-22, recommendation 2).
+- Queue, in order: VAT PR 1b, then 2–7 (ADR 0024); the Domains company-clock module; #267 registrar_refs
+  follow-ups; #378 Namecheap change-chain reads; an ADR for indeterminate provider outcomes and ADR 0013 Amendment 2;
+  #216, #225; #244 Node and Debian images (after 10-28); the rest of #205 (multi-second p95 on the client dashboard
+  and store at 40 users, cause not found).
+- Before enabling Namecheap: a sandbox check of the not-in-account error numbers (2016166, 2019166), the `.us`,
+  `.ca` and `.eu` extension details and the transfer texts (simulator README "verify" list).
+- Proposed, awaiting the owner: changelog fragments (`billing/changelog.d/<pr>.md`, assembled at release). Today
+  almost every merge hit a changelog-only conflict and needed an extra CI run.
 
 ## Open owner questions
 
@@ -106,6 +93,8 @@ After each merge close the issue by hand (`develop` ignores closing keywords). W
 - connectIPS merchant enrolment (weeks of lead time); a WHMCS dev licence or fake-data export for importer fixtures; a
   cPanel trial VPS.
 - Changelog fragments: adopt them or keep one `changelog.md` (proposed, see Queue).
+- Namecheap `.ca` and `.eu`: offered as built (a wrong detail name makes the registrar refuse the order, nothing is
+  bought), or kept off until a sandbox check.
 - Repository settings: auto-merge, delete head branches, and Actions write for the token (re-running flaky jobs).
 - Five behaviours in #211 ("Owner to confirm"), now merged with the conservative choice; confirm or change.
 - Business: licence and price in NPR, support model, security policy page, trademark search.

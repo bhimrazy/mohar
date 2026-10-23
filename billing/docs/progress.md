@@ -43,6 +43,19 @@ Living status board. Each workstream updates its row when it opens a PR for revi
 
 ## Timeline
 
+### 2026-10-23
+
+- Merged (list: `gh pr list --state merged --search "merged:2026-10-23"`):
+    - Company clock: documents read the company date (#337, ADR 0013 Amendment 1, VAT PR 0a), Services (#361), the
+      staff company-time notice and daylight-saving help (#363).
+    - VAT and reports: credit and debit note events (#351, PR 0b), the report registry, SafeCsv and synchronous CSV
+      and PDF (#352, PR 0c, ADR 0025), PDF wrapping and alignment (#360).
+    - Domains: registrar TLD attributes with ResellerClub `.us` and `.com.au` (#345, ADR 0009 Amendment 2), one
+      registrar lock per domain (#340).
+    - Storefront and tooling: phone-width cart and checkout (#358), vite-plus 1.3.0 (#359), the simulator scenario
+      race (#371), the test PostgreSQL's 4 GB and small WAL after two crashes (#375).
+    - Docs: handoff state and the Docker rule (#339), three ordering standards (#350).
+
 ### 2026-10-22
 
 - Merged, by area (list: `gh pr list --state merged --search "merged:2026-10-22"`):
