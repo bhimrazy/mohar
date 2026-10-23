@@ -3,6 +3,7 @@
 namespace App\Modules\Domains\Drivers\Registrars\Namecheap;
 
 use App\Data\Domains\Registrar\ContactSet;
+use App\Support\CallingCodes;
 use App\Support\Domains\RegistrarException;
 use SimpleXMLElement;
 
@@ -14,9 +15,6 @@ final class NamecheapContacts
 {
     /** Kernel role => Namecheap role prefix. */
     public const ROLES = ['registrant' => 'Registrant', 'admin' => 'Admin', 'tech' => 'Tech', 'billing' => 'AuxBilling'];
-
-    /** Calling codes for numbers typed without one, by ISO country; anything else must be typed with its +code. */
-    private const CALLING_CODES = ['NP' => '977', 'IN' => '91', 'BD' => '880', 'BT' => '975', 'LK' => '94', 'PK' => '92', 'CN' => '86', 'AE' => '971', 'SG' => '65', 'US' => '1', 'CA' => '1', 'GB' => '44', 'AU' => '61', 'NZ' => '64', 'DE' => '49', 'FR' => '33'];
 
     /**
      * All four roles as request parameters. A role the host did not send is filled from the registrant, as Namecheap
@@ -97,41 +95,28 @@ final class NamecheapContacts
     }
 
     /**
-     * A typed phone number as Namecheap's `+NNN.NNNN`: `+977.15550100`, `+977 1-5550100`, or a local `01-5550100`
-     * with the contact's country.
+     * A typed phone number as Namecheap's `+NNN.NNNN` (CallingCodes::split()): `+977.15550100`, `+9779841234567`, or a
+     * local `01-5550100` with the contact's country. Namecheap takes at most 14 digits after the code;
+     * split() already stops there (15 in all), the check keeps the cap if the table's rule changes.
+     *
+     * @throws RegistrarException
      */
     public static function phone(string $typed, string $country): string
     {
-        $typed = trim($typed);
+        $split = CallingCodes::split($typed, $country);
 
-        if (preg_match('/^\+(\d{1,3})[\s.\-]+(.+)$/', $typed, $match) === 1) {
-            return self::checked($match[1], (string) preg_replace('/\D/', '', $match[2]));
-        }
-
-        // `+9779841234567`: no separator, so the country code is the longest known one the digits start with.
-        if (str_starts_with($typed, '+')) {
-            $digits = (string) preg_replace('/\D/', '', $typed);
-
-            foreach ([3, 2, 1] as $length) {
-                if (in_array(substr($digits, 0, $length), self::CALLING_CODES, true)) {
-                    return self::checked(substr($digits, 0, $length), substr($digits, $length));
-                }
+        if ($split === null) {
+            if (preg_match('/^\s*(\+|00)/', $typed) === 1) {
+                throw new RegistrarException('The contact phone number\'s country code is not recognised or the number has no valid length; write it with its country code, for example +977.15550100.');
             }
 
-            throw new RegistrarException('The contact phone number\'s country code is not recognised; write it with a dot after the code, for example +977.15550100.');
+            throw new RegistrarException('Enter the contact phone number with its country code, for example +977.15550100.');
         }
 
-        $code = self::CALLING_CODES[$country] ?? throw new RegistrarException('Enter the contact phone number with its country code, for example +977.15550100.');
-
-        return self::checked($code, ltrim((string) preg_replace('/\D/', '', $typed), '0'));
-    }
-
-    private static function checked(string $code, string $number): string
-    {
-        if (strlen($number) < 4 || strlen($number) > 14) {
+        if (strlen($split['national']) > 14) {
             throw new RegistrarException('The contact phone number is not a valid length; enter it with its country code, for example +977.15550100.');
         }
 
-        return '+'.$code.'.'.$number;
+        return '+'.$split['code'].'.'.$split['national'];
     }
 }
