@@ -86,7 +86,7 @@ test('maskThrowable masks the chain in place and keeps class, code, previous and
         ->and($root->getCode())->toBe(7);
 });
 
-test('maskThrowable masks an Error and stops after 16 exceptions behind the first', function () {
+test('maskThrowable masks an Error, and withholds every message past 16 exceptions behind the first', function () {
     $chain = new Exception('hunter22x at 17');
 
     for ($i = 16; $i >= 0; $i--) {
@@ -104,13 +104,21 @@ test('maskThrowable masks an Error and stops after 16 exceptions behind the firs
 
     expect($error->getMessage())->toBe('[redacted] in a type error')
         ->and($messages[16])->toBe('[redacted] at 16')
-        ->and($messages[17])->toBe('hunter22x at 17');
+        ->and($messages[17])->toBe('[redacted]');
 });
 
-test('the mail normaliser is the kernel one', function () {
-    $text = 'Key: &amp;#x48;unter%2532';
+test('the mail normaliser decodes nested entities and percent-encoding', function () {
+    expect(SecretTemplatePolicy::normalise('Key: &amp;#x48;unter%2532'))->toBe('key: hunter2');
+});
 
-    expect(SecretTemplatePolicy::normalise($text))->toBe(RedactionSet::normalise($text))->toBe('key: hunter2');
+test('JSON \\u escapes of ASCII characters are masked inside a line, as Go and JSON_HEX_* write them', function () {
+    $secret = 'p&ss<w0rd>9';
+    $go = strtr($secret, ['&' => '\\u0026', '<' => '\\u003c', '>' => '\\u003e']);
+    $redactor = new Redactor;
+
+    expect($redactor->maskValues('HTTP 400: {"error":"invalid key '.$go.'"} retrying', [$secret]))->not->toContain('ss')
+        ->and($redactor->maskValues('body '.substr((string) json_encode($secret, JSON_HEX_AMP | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT), 1, -1), [$secret]))->toBe('body [redacted]')
+        ->and($redactor->maskValues('err \\u0068unter22x', ['hunter22x']))->toBe('err [redacted]');
 });
 
 test('a gateway config lists only its secret-typed settings', function () {

@@ -140,8 +140,9 @@ test('short answers do not extend a run of their kind; long ones match anywhere'
 
     expect($short->mask('year 2026, ref 20261, KTM1 and KTM12, ABKTM1'))->toBe('year [redacted], ref 20261, [redacted] and KTM12, ABKTM1')
         ->and($long->mask('+9779812345678 and 00९८१२३४५६७८ and 129812345678555'))->toBe('+977[redacted] and 00[redacted] and 12[redacted]555')
-        // four separators between two digits are past the bound
-        ->and($long->mask('98 - - 12345678'))->toBe('98 - - 12345678');
+        // a run of white space is one separator, as develop's guard() read it; four other separators are past the bound
+        ->and($long->mask('981    234 5678'))->toBe('[redacted]')
+        ->and($long->mask('98 -.- 12345678'))->toBe('98 -.- 12345678');
 });
 
 test('answers are matched on a scrubbed copy, and a pattern that fails withholds the text', function () {
@@ -190,6 +191,7 @@ test('masking stays linear with a 16-value set, a multi-line key among them', fu
     $set = RedactionSet::of($values, ['9812345678', 'Ram Bahadur']);
     $line = 'note=ordinary text with a value secret-value-3-DDDDDD and 981 234 5678 & more%20words ';
     $text = str_repeat($line, intdiv(1024 * 1024, strlen($line)));
+    memory_reset_peak_usage();
     $before = memory_get_usage();
 
     $started = hrtime(true);
@@ -204,4 +206,37 @@ test('masking stays linear with a 16-value set, a multi-line key among them', fu
         ->and(memory_get_peak_usage() - $before)->toBeLessThan(64 * 1024 * 1024)
         ->and($masked)->not->toContain('secret-value-3')->not->toContain('981 234 5678')
         ->and($redacted['body'])->not->toContain('secret-value-3');
+});
+
+test('structured JSON bodies stay inside the budget: keys and numbers are checked cheaply', function () {
+    $set = RedactionSet::of(array_map(fn (int $i): string => "secret-value-{$i}-xyzw", range(1, 16)), ['9812345678', 'Ram Bahadur']);
+    $bodies = [
+        'list of ints' => (string) json_encode(range(100000, 240000)),
+        'list of objects' => (string) json_encode(array_map(fn (int $i): array => ['id' => $i, 'name' => "domain{$i}.com.np", 'price' => $i * 13], range(1, 30000))),
+    ];
+
+    foreach ($bodies as $shape => $json) {
+        $started = hrtime(true);
+        $redacted = (new Redactor)->redact(['raw' => $json], $set);
+        $seconds = (hrtime(true) - $started) / 1e9;
+
+        expect(strlen($json))->toBeGreaterThan(900_000, $shape)
+            ->and($seconds)->toBeLessThan(2.0, $shape)
+            ->and($redacted['raw'])->toBe($json, $shape);
+    }
+});
+
+test('periodic text against an anchor makes one span, not one per byte', function () {
+    $set = RedactionSet::of(['Kq9mZ2abcdefgh00000000']);
+    $text = str_repeat('0', 1024 * 1024);
+    memory_reset_peak_usage();
+    $before = memory_get_usage();
+
+    $started = hrtime(true);
+    $masked = $set->mask($text);
+    $seconds = (hrtime(true) - $started) / 1e9;
+
+    expect($masked)->toBe('[redacted]')
+        ->and($seconds)->toBeLessThan(2.0)
+        ->and(memory_get_peak_usage() - $before)->toBeLessThan(16 * 1024 * 1024);
 });

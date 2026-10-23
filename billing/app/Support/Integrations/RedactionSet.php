@@ -8,13 +8,14 @@ namespace App\Support\Integrations;
  * are built once, when the set is made, and reused for every string it masks.
  *
  * Each value is trimmed, then matched as a substring, on bytes, in these forms:
- * - as typed, urlencode, rawurlencode, JSON-escaped and HTML-escaped, case-insensitively (ASCII case, on bytes);
+ * - as typed, urlencode, rawurlencode, JSON-escaped (`\/`, and `\u0026` for `&<>'"` as Go and JSON_HEX_* write it)
+ *   and HTML-escaped, case-insensitively (ASCII case, on bytes);
  * - base64 and base64url, case-sensitively: the whole encoding with and without padding, and the core that stays the
  *   same whatever bytes sit before or after it (0, 1 or 2 prefix bytes, the dependent edge characters dropped), built
  *   only when that core is 8 characters or more, since a shorter one would match inside ordinary words;
  * - hex in either case, for values of 8 bytes or more;
- * - entity and percent spellings: a word (a run without white space) holding `&` or `%` is decoded until stable (at
- *   most 6 passes) and masked whole when its decoded form holds a value;
+ * - other entity, percent and `\uXXXX` spellings: a word (a run without white space) holding `&`, `%` or `\u` is
+ *   decoded until stable (at most 6 passes) and masked whole when its decoded form holds a value;
  * - truncated echoes, for values of 16 bytes or more: from the value's first 8 bytes to the end of that run of token
  *   characters, and from the start of the run to the value's last 8 bytes. An anchor holding a non-token character,
  *   or one that is a known key-shape prefix (`sk_live_`) or the start of one, is not built.
@@ -22,7 +23,8 @@ namespace App\Support\Integrations;
  * Values are not regrouped: a provider does not regroup a random token.
  *
  * Each answer matches its letters and digits in order, case-insensitively (Unicode), with 0 to 3 separators between
- * two of them: any character that is not a letter or digit, or a percent-encoded byte (`(981) 234-5678`, `518%20247`).
+ * two of them: a run of white space, any other character that is not a letter or digit, or a percent-encoded byte
+ * (`(981) 234-5678`, `518    247`, `518%20247`).
  * A digit also matches its Devanagari form. An answer of 8 letters and digits or more matches anywhere (`9812345678`
  * in `+9779812345678`); a shorter one must not extend a run of the same kind (`2026` alone, not inside `20261`).
  * Answers are matched on an mb_scrub()bed copy, which is what is returned; if a pattern fails the text is withheld.
@@ -65,12 +67,18 @@ final class RedactionSet
     /** Answers from this many letters and digits match anywhere; shorter ones only outside a longer run of their kind. */
     private const ANSWER_ANYWHERE_FROM = 8;
 
-    /** Between two characters of an answer: up to 3 separators, possessive, so nothing backtracks. */
-    private const ANSWER_SEPARATORS = '(?:%[0-9A-Fa-f]{2}|[^\p{L}\p{N}]){0,3}+';
+    /** Between two characters of an answer: up to 3 separators (a white-space run counts as one), possessive, so nothing backtracks. */
+    private const ANSWER_SEPARATORS = '(?:%[0-9A-Fa-f]{2}|\s++|[^\p{L}\p{N}\s]){0,3}+';
 
     private const DIGIT_RUN = '0-9\x{0966}-\x{096F}';
 
     private const WHITE_SPACE = " \t\r\n\f\v";
+
+    /** Texts up to this length are first checked against the forms' leading 4 bytes, which is cheaper than a scan per form. */
+    private const SHORT_TEXT_BYTES = 256;
+
+    /** Results matches() remembers before it starts over (keys repeat in every object of a list). */
+    private const MATCH_CACHE_SIZE = 4096;
 
     /** @var list<string> lowercased values, for the decoded-word check */
     private array $values = [];
@@ -90,6 +98,21 @@ final class RedactionSet
     /** @var list<string> one `/iu` pattern per answer */
     private array $answerPatterns = [];
 
+    /** @var array<string, true> the first 4 bytes of every folded form and anchor */
+    private array $foldedGrams = [];
+
+    /** @var array<string, true> the first 4 bytes of every exact form */
+    private array $exactGrams = [];
+
+    /** @var array<string, bool> */
+    private array $matchCache = [];
+
+    /** @var list<string> lowercased forms and anchors made only of characters a number's digits can hold */
+    private array $numericForms = [];
+
+    /** @var list<string> patterns of answers made only of digits */
+    private array $numericAnswerPatterns = [];
+
     /**
      * @param  list<string>  $values
      * @param  list<string>  $answers
@@ -101,6 +124,10 @@ final class RedactionSet
 
             if ($pattern !== null) {
                 $this->answerPatterns[] = $pattern;
+
+                if (preg_match('/\p{L}/u', $answer) !== 1) {
+                    $this->numericAnswerPatterns[] = $pattern;
+                }
             }
         }
 
@@ -123,6 +150,20 @@ final class RedactionSet
         $this->exactForms = array_values(array_unique(array_diff($this->exactForms, $this->foldedForms)));
         $this->startAnchors = array_values(array_unique($this->startAnchors));
         $this->endAnchors = array_values(array_unique($this->endAnchors));
+
+        foreach ([...$this->foldedForms, ...$this->startAnchors, ...$this->endAnchors] as $form) {
+            $this->foldedGrams[substr($form, 0, self::MIN_MATCH_BYTES)] = true;
+        }
+
+        foreach ($this->exactForms as $form) {
+            $this->exactGrams[substr($form, 0, self::MIN_MATCH_BYTES)] = true;
+        }
+
+        foreach ([...$this->foldedForms, ...array_map('strtolower', $this->exactForms), ...$this->startAnchors, ...$this->endAnchors] as $form) {
+            if (self::isNumeric($form)) {
+                $this->numericForms[] = $form;
+            }
+        }
     }
 
     /**
@@ -160,6 +201,10 @@ final class RedactionSet
         $folded = strtolower($text);
         $spans = [];
 
+        if (strlen($text) <= self::SHORT_TEXT_BYTES && ! $this->mayHoldForm($text, $folded)) {
+            return $this->maskAnswers($this->maskDecodedWords($text, $mask), $mask);
+        }
+
         foreach ($this->foldedForms as $form) {
             $this->collect($spans, $folded, $form);
         }
@@ -180,17 +225,34 @@ final class RedactionSet
         }
 
         foreach ($this->endAnchors as $anchor) {
-            // A backward walk never goes below the previous span's end, so each byte is walked once per anchor.
-            $floor = 0;
+            // An occurrence inside the open span extends it; otherwise the backward walk stops at the previous span's
+            // end. Each byte is walked once per anchor, and periodic text (`000…`) makes one span, not one per byte.
+            $open = null;
 
             for ($at = strpos($folded, $anchor); $at !== false; $at = strpos($folded, $anchor, $at + 1)) {
+                if ($open !== null && $at <= $open[1]) {
+                    $open[1] = $at + self::ANCHOR_BYTES;
+
+                    continue;
+                }
+
+                $floor = $open[1] ?? 0;
+
+                if ($open !== null) {
+                    $spans[] = $open;
+                }
+
                 $start = $at;
 
                 while ($start > $floor && str_contains(self::TOKEN_CHARS, $text[$start - 1])) {
                     $start--;
                 }
 
-                $spans[] = [$start, $floor = $at + self::ANCHOR_BYTES];
+                $open = [$start, $at + self::ANCHOR_BYTES];
+            }
+
+            if ($open !== null) {
+                $spans[] = $open;
             }
         }
 
@@ -202,10 +264,28 @@ final class RedactionSet
      */
     public function matches(string $text): bool
     {
+        // Every form and answer is at least 4 bytes long.
+        if (strlen($text) < self::MIN_MATCH_BYTES || $this->isEmpty()) {
+            return false;
+        }
+
+        if (isset($this->matchCache[$text])) {
+            return $this->matchCache[$text];
+        }
+
+        if (count($this->matchCache) >= self::MATCH_CACHE_SIZE) {
+            $this->matchCache = [];
+        }
+
+        // A number's digits (an integer or float leaf, a list index) can hold only a numeric form or a digit answer.
+        if (self::isNumeric($text)) {
+            return $this->matchCache[$text] = $this->numericMatches(strtolower($text));
+        }
+
         $masked = $this->mask($text, "\0");
 
         // With answers, an unmatched text still comes back mb_scrub()bed.
-        return $masked !== $text && ($this->answerPatterns === [] || $masked !== mb_scrub($text, 'UTF-8'));
+        return $this->matchCache[$text] = $masked !== $text && ($this->answerPatterns === [] || $masked !== mb_scrub($text, 'UTF-8'));
     }
 
     /**
@@ -230,6 +310,21 @@ final class RedactionSet
         }
 
         return $text;
+    }
+
+    /** `\uXXXX` escapes (JSON, Go, JavaScript) decoded; an escape that is not a character is kept. */
+    private static function unescapeJson(string $text): string
+    {
+        if (! str_contains($text, '\\u')) {
+            return $text;
+        }
+
+        return (string) preg_replace_callback('/\\\\u([0-9A-Fa-f]{4})/', function (array $escape): string {
+            $code = (int) hexdec($escape[1]);
+
+            // A lone surrogate half is not a character.
+            return $code >= 0xD800 && $code <= 0xDFFF ? $escape[0] : mb_chr($code, 'UTF-8');
+        }, $text);
     }
 
     private function maskAnswers(string $text, string $mask): string
@@ -299,7 +394,7 @@ final class RedactionSet
             htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5),
         ];
 
-        foreach ([0, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE] as $flags) {
+        foreach ([0, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE, JSON_HEX_TAG | JSON_HEX_AMP, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT] as $flags) {
             $json = json_encode($value, $flags | JSON_INVALID_UTF8_SUBSTITUTE);
 
             if (is_string($json)) {
@@ -401,6 +496,40 @@ final class RedactionSet
         }
     }
 
+    private static function isNumeric(string $text): bool
+    {
+        return strspn($text, '0123456789.-+eE') === strlen($text);
+    }
+
+    private function numericMatches(string $text): bool
+    {
+        foreach ($this->numericForms as $form) {
+            if (str_contains($text, $form)) {
+                return true;
+            }
+        }
+
+        foreach ($this->numericAnswerPatterns as $pattern) {
+            if (preg_match($pattern, $text) !== 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Whether a short text holds the leading 4 bytes of any form or anchor; false means no form can match. */
+    private function mayHoldForm(string $text, string $folded): bool
+    {
+        for ($at = 0, $last = strlen($text) - self::MIN_MATCH_BYTES; $at <= $last; $at++) {
+            if (isset($this->foldedGrams[substr($folded, $at, self::MIN_MATCH_BYTES)]) || isset($this->exactGrams[substr($text, $at, self::MIN_MATCH_BYTES)])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * @param  list<array{int, int}>  $spans
      */
@@ -431,11 +560,12 @@ final class RedactionSet
     }
 
     /**
-     * A word holding `&` or `%` whose decoded form holds a value is masked whole (`&#x68;unter22x`, `hunter%2522x`).
+     * A word holding `&`, `%` or `\u` whose decoded form holds a value is masked whole (`&#x68;unter22x`,
+     * `hunter%2522x`, `\u0068unter22x`).
      */
     private function maskDecodedWords(string $text, string $mask): string
     {
-        if (strpbrk($text, '&%') === false) {
+        if (strpbrk($text, '&%') === false && ! str_contains($text, '\\u')) {
             return $text;
         }
 
@@ -451,7 +581,7 @@ final class RedactionSet
             $word = substr($text, $position, $wordLength);
             $position += $wordLength;
 
-            $output .= strpbrk($word, '&%') !== false && $this->decodedHoldsValue($word) ? $mask : $word;
+            $output .= (strpbrk($word, '&%') !== false || str_contains($word, '\\u')) && $this->decodedHoldsValue($word) ? $mask : $word;
         }
 
         return $output;
@@ -459,7 +589,7 @@ final class RedactionSet
 
     private function decodedHoldsValue(string $word): bool
     {
-        $decoded = strtolower(self::decode($word));
+        $decoded = strtolower(self::decode(self::unescapeJson($word)));
         // urlencode() writes a space as `+`, which rawurldecode() keeps.
         $spaced = strtr($decoded, '+', ' ');
 

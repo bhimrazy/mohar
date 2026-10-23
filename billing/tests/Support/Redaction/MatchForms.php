@@ -7,6 +7,10 @@ namespace Tests\Support\Redaction;
  * every token every way. The Redactor must leave nothing the reference can find. Forms outside a written bound are
  * not generated (offset base64 under 7 bytes, hex under 8, truncated echoes under 16, answers under 4 letters and
  * digits or with more than 3 separators), so a reference hit is a leak, not a bound.
+ *
+ * Where this derives from the implementation rather than from §2: the bounds above and isAnchor() (token characters,
+ * shape prefixes) restate RedactionSet's own rules, so a wrong bound there would be repeated here. The forms list is
+ * written from §2, and the reference decodes more than RedactionSet builds.
  */
 final class MatchForms
 {
@@ -29,6 +33,9 @@ final class MatchForms
             'rawurlencode' => rawurlencode($value),
             'urlencode twice' => urlencode(urlencode($value)),
             'json' => substr((string) json_encode($value), 1, -1),
+            'json hex' => substr((string) json_encode($value, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), 1, -1),
+            'go json' => strtr($value, ['&' => '\\u0026', '<' => '\\u003c', '>' => '\\u003e', '"' => '\\"', '\\' => '\\\\']),
+            'json every character' => implode('', array_map(fn (string $c): string => sprintf('\\u%04x', mb_ord($c)), mb_str_split($value))),
             'html401' => htmlspecialchars($value, ENT_QUOTES | ENT_HTML401),
             'html5' => htmlspecialchars($value, ENT_QUOTES | ENT_HTML5),
             'decimal entities' => implode('', array_map(fn (string $c): string => '&#'.mb_ord($c).';', mb_str_split($value))),

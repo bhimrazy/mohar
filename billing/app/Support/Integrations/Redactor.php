@@ -42,7 +42,7 @@ final class Redactor
     /** Nested values deeper than this are masked rather than walked (self-referencing object graphs). */
     private const MAX_DEPTH = 32;
 
-    /** Exceptions behind the first one whose messages maskThrowable() rewrites. */
+    /** Exceptions behind the first one whose messages maskThrowable() masks; those further down are withheld. */
     private const MAX_PREVIOUS = 16;
 
     /** A key is sensitive when it is exactly one of these. */
@@ -205,7 +205,12 @@ final class Redactor
 
     /**
      * Masks, in place, the message of $exception and of up to 16 exceptions behind it, with the shape rules and the
-     * set's values. The class, code, trace, flags and `previous` are kept, so the caller reports the original.
+     * set's values; any exception further down the chain has its message withheld whole (fail closed). The class,
+     * code, trace, flags and `previous` are kept, so the caller reports the original.
+     *
+     * Only messages are masked. Properties, what `context()` returns (Laravel merges it into the log record) and trace
+     * arguments (printed when `zend.exception_ignore_args` is off) are not: production keeps that setting on, and the
+     * log processor of ADR 0023 step 4 covers the rest.
      *
      * @template T of Throwable
      *
@@ -216,10 +221,12 @@ final class Redactor
     public function maskThrowable(Throwable $exception, RedactionSet|array|null $secrets = null): Throwable
     {
         $set = self::set($secrets ?? []);
+        $seen = new \SplObjectStorage;
 
-        for ($link = $exception, $hops = 0; $link !== null && $hops <= self::MAX_PREVIOUS; $link = $link->getPrevious(), $hops++) {
+        for ($link = $exception, $hops = 0; $link !== null && ! $seen->contains($link); $link = $link->getPrevious(), $hops++) {
+            $seen->attach($link);
             $message = $link->getMessage();
-            $masked = $this->maskString($message, $set, [], 0);
+            $masked = $hops <= self::MAX_PREVIOUS ? $this->maskString($message, $set, [], 0) : self::MASK;
 
             if ($masked !== $message) {
                 (new ReflectionProperty($link instanceof Exception ? Exception::class : Error::class, 'message'))->setValue($link, $masked);
