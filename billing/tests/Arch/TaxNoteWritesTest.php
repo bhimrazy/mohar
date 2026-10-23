@@ -12,7 +12,8 @@ const NOTE_WRITE_FORMS = [
     'raw SQL that writes a note table' => '/\b(update|insert\s+into|delete\s+from|truncate(\s+table)?)\s+["`]?tax_note(s|_lines)\b/i',
     'a bulk or quiet write through a note model' => '/\bTaxNote(Line)?\s*::[^;]*->\s*(update|delete|forceDelete|insert|insertOrIgnore|upsert|truncate|increment|decrement|saveQuietly|updateQuietly|deleteQuietly)\s*\(/s',
     'events switched off around a note model' => '/\bTaxNote(Line)?\s*::\s*withoutEvents\b/',
-    'a note query builder kept in a variable' => '/=\s*TaxNote(Line)?\s*::\s*(query|where\w*)\s*\(/',
+    // A builder kept for later can be written through; a statement that ends in a read is a plain read (#396 N3).
+    'a note query builder kept in a variable' => '/=\s*TaxNote(Line)?\s*::\s*(query|where\w*|with)\s*\((?![^;]*->\s*(get|first|firstOrFail|sole|find|findOrFail|value|pluck|sum|count|exists|doesntExist|paginate|simplePaginate|cursorPaginate)\s*\([^;]*\)\s*;)/s',
 ];
 
 /**
@@ -57,6 +58,15 @@ test('the scan recognises the writes it forbids', function (string $code) {
     'TaxNote::query()->first()->saveQuietly();',
     'TaxNote::withoutEvents(fn () => 1);',
     '$notes = TaxNote::query()->where("id", 1);',
+    '$notes = TaxNote::with("lines")->where("id", 1); $notes->update(["total" => 1]);',
+]);
+
+test('the scan lets plain reads through', function (string $code) {
+    expect(noteWritesIn("<?php {$code}", 'x'))->toBe([]);
+})->with([
+    '$notes = TaxNote::query()->with("lines")->where("invoice_id", 1)->orderBy("id")->get();',
+    '$note = TaxNote::query()->whereKey(1)->first();',
+    '$total = TaxNote::query()->where("invoice_id", 1)->sum("total");',
 ]);
 
 afterAll(fn () => releaseArchCache());

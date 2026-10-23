@@ -42,6 +42,7 @@ class InvoiceSettlement
         ?int $userId = null,
         int $taxableAmount = 0,
         int $taxAmount = 0,
+        ?int $taxNoteId = null,
     ): InvoiceAdjustment {
         $adjustment = $invoice->adjustments()->create([
             'kind' => $kind,
@@ -52,6 +53,7 @@ class InvoiceSettlement
             'description' => $description,
             'transaction_id' => $transactionId,
             'created_by' => $userId,
+            'tax_note_id' => $taxNoteId,
         ]);
 
         $invoice->adjustments_total += $adjustment->signedAmount();

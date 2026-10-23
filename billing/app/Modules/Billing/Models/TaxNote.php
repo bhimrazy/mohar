@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * A numbered credit or debit note against one invoice (ADR 0024). It is numbered in the transaction that creates it, so
@@ -25,18 +26,20 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $report_rate
  * @property string $bs_period
  * @property int $print_count
+ * @property int|null $reverses_tax_note_id the credit note this debit note reverses
  * @property string|null $cbms_status
  * @property string|null $cbms_reference
  * @property-read Invoice $invoice
  * @property-read Client $client
  * @property-read User|null $creator
  * @property-read Collection<int, TaxNoteLine> $lines
+ * @property-read TaxNote|null $reversal the debit note that reversed this credit note
  */
 #[Fillable([
     'kind', 'number', 'invoice_id', 'client_id', 'currency', 'issue_date', 'issued_at', 'invoice_number',
     'invoice_bs_issue_date', 'reason_code', 'reason_text', 'taxable_amount', 'exempt_amount', 'tax1_amount',
     'tax2_amount', 'total', 'report_currency', 'report_rate', 'supply_class', 'seller_snapshot', 'buyer_snapshot',
-    'bs_issue_date', 'bs_period', 'bs_fiscal_year', 'automatic', 'created_by', 'print_count', 'cbms_status', 'cbms_reference',
+    'bs_issue_date', 'bs_period', 'bs_fiscal_year', 'automatic', 'created_by', 'print_count', 'cbms_status', 'cbms_reference', 'reverses_tax_note_id',
 ])]
 class TaxNote extends Model
 {
@@ -102,5 +105,13 @@ class TaxNote extends Model
     public function lines(): HasMany
     {
         return $this->hasMany(TaxNoteLine::class)->orderBy('sort_order')->orderBy('id');
+    }
+
+    /**
+     * @return HasOne<TaxNote, $this>
+     */
+    public function reversal(): HasOne
+    {
+        return $this->hasOne(TaxNote::class, 'reverses_tax_note_id');
     }
 }

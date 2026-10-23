@@ -121,6 +121,10 @@ final class NoteAllocator
      */
     private function part(array $line, int $gross, string $currency): array
     {
+        if ($line['gross'] !== $line['net'] + $line['tax1'] + $line['tax2'] || $line['used_gross'] !== $line['used_net'] + $line['used_tax1'] + $line['used_tax2']) {
+            throw new \InvalidArgumentException("Line {$line['id']}: gross must equal net plus tax, for its value and for what is used.");
+        }
+
         $left = max(0, $line['gross'] - $line['used_gross']);
 
         if ($gross > $left) {

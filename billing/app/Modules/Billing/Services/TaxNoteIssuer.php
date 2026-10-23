@@ -11,6 +11,7 @@ use App\Modules\Billing\Data\NotePreview;
 use App\Modules\Billing\Data\NoteRequest;
 use App\Modules\Billing\Enums\AdjustmentKind;
 use App\Modules\Billing\Enums\AdjustmentReason;
+use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Enums\InvoiceKind;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\BillingException;
@@ -25,6 +26,7 @@ use App\Modules\Billing\Support\BikramSambat;
 use App\Modules\Billing\Support\BikramSambatDate;
 use App\Modules\Billing\Support\NoteAllocator;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\ActivityLogger;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -36,9 +38,10 @@ use OutOfRangeException;
  * plan's digest differs from the preview's.
  *
  * Lock order (ADR 0024 §4): payments, then the invoice, then the client, then the invoice's pending reservations, then the
- * sequence row, taken last. This slice settles to the balance only, so it takes no payment lock and posts no credit (it
- * locks the client for the order's sake); a note above the balance is refused until settlement to account credit or refund
- * exists.
+ * sequence row, taken last. A credit note reduces the balance first; the part above it goes to account credit when staff
+ * choose that settlement, and is refused otherwise (refund settlement comes with PR 4). A reversal repeats one credit
+ * note's lines as a debit note and takes back the account credit that note posted. The activity entry
+ * `billing.tax_note.issued` is written in the same transaction.
  *
  * Not yet handled, and refused with a message: invoices with discount lines (they are credited with their parent line).
  *
@@ -56,6 +59,8 @@ class TaxNoteIssuer
         private InvoiceSettlement $settlement,
         private DocumentNumbers $numbers,
         private CompanyClock $clock,
+        private CreditLedgerService $credit,
+        private ActivityLogger $activity,
     ) {}
 
     public function preview(NoteRequest $request): NotePreview
@@ -100,7 +105,7 @@ class TaxNoteIssuer
                 'report_rate' => $invoice->report_rate, 'supply_class' => $invoice->supply_class, 'seller_snapshot' => $invoice->seller_snapshot,
                 'buyer_snapshot' => $invoice->client_snapshot, 'bs_issue_date' => $bs->toIso(), 'bs_period' => BikramSambat::period($bs),
                 'bs_fiscal_year' => BikramSambat::fiscalYear($bs), 'automatic' => $request->automatic, 'created_by' => $request->userId,
-                'created_at' => $at, 'updated_at' => $at,
+                'reverses_tax_note_id' => $request->reverses, 'created_at' => $at, 'updated_at' => $at,
             ]);
             $note->save();
 
@@ -113,7 +118,14 @@ class TaxNoteIssuer
 
             // A note aimed at one line names it on its adjustment.
             $adjustment->forceFill(['tax_note_id' => $note->id, 'invoice_item_id' => count($plan->parts) === 1 ? $plan->parts[0]['item_id'] : null])->save();
+            $this->settleToCredit($invoice, $note, $plan, $request->userId);
             $this->afterNote($invoice, $credit);
+            $this->activity->log(__(':kind note :number issued', ['kind' => $credit ? __('Credit') : __('Debit'), 'number' => $number]), $note, $invoice->client_id, [
+                'tax_note_id' => $note->id, 'number' => $number, 'kind' => $request->kind, 'invoice_id' => $invoice->id, 'invoice_number' => $invoice->number,
+                'amount' => $plan->total, 'currency' => $invoice->currency, 'settlement' => $plan->settlement, 'to_credit' => $plan->toCredit,
+                'reason_code' => $request->reasonCode, 'reverses_tax_note_id' => $request->reverses,
+                'source' => $request->automatic ? ($request->source ?? 'automation') : 'staff',
+            ], 'billing.tax_note.issued');
             event($credit
                 ? new CreditNoteIssued($note->id, $number, $invoice->id, $invoice->client_id, $plan->total, $invoice->currency, $request->automatic)
                 : new DebitNoteIssued($note->id, $number, $invoice->id, $invoice->client_id, $plan->total, $invoice->currency, $request->automatic));
@@ -126,10 +138,19 @@ class TaxNoteIssuer
     {
         $this->guard($request, $invoice);
         $credit = $request->kind === 'credit';
-        $parts = $credit ? $this->creditParts($request, $invoice) : $this->debitParts($request, $invoice);
+        $parts = match (true) {
+            $credit => $this->creditParts($request, $invoice),
+            $request->reverses !== null => $this->reversalParts((int) $request->reverses, $invoice),
+            default => $this->debitParts($request, $invoice),
+        };
         $total = array_sum(array_column($parts, 'gross'));
-        $balanceAfter = $invoice->balance + ($credit ? -$total : $total);
         $money = fn (int $amount): string => Money::of($amount, $invoice->currency)->format();
+        $toCredit = match (true) {
+            $credit && $request->settlement === 'credit' => max(0, $total - $invoice->balance),
+            $request->reverses !== null => $this->creditPostedBy((int) $request->reverses),
+            default => 0,
+        };
+        $balanceAfter = $invoice->balance + ($credit ? $toCredit - $total : $total - $toCredit);
 
         if ($total <= 0) {
             throw new BillingException(__('A note needs an amount above zero.'));
@@ -143,8 +164,12 @@ class TaxNoteIssuer
             }
 
             if ($balanceAfter < 0) {
-                throw new BillingException(__('A credit note above the open balance of :amount needs a settlement to account credit or a refund, which is not available yet.', ['amount' => $money($invoice->balance)]));
+                throw new BillingException(__('A credit note above the open balance of :amount needs a settlement: choose account credit.', ['amount' => $money($invoice->balance)]));
             }
+        }
+
+        if ($toCredit > 0 && Client::query()->whereKey($invoice->client_id)->value('currency') !== $invoice->currency) {
+            throw new BillingException(__('Account credit is kept in the client currency, and this invoice is in :currency.', ['currency' => $invoice->currency]));
         }
 
         $net = fn (bool $taxable): int => array_sum(array_map(fn (array $part): int => $part['net'], array_filter($parts, fn (array $part): bool => $part['taxable'] === $taxable)));
@@ -153,7 +178,8 @@ class TaxNoteIssuer
 
         return new NotePreview(
             $request->kind, $parts, $total, $net(true), $net(false), $tax1, $tax2, $balanceAfter, $invoice->version,
-            hash('sha256', (string) json_encode([$request->kind, $invoice->id, $request->reasonCode, $total, $parts])),
+            hash('sha256', (string) json_encode([$request->kind, $invoice->id, $request->reasonCode, $total, $parts, $toCredit, $request->reverses])),
+            $toCredit > 0 ? 'credit' : 'balance', $toCredit,
         );
     }
 
@@ -175,13 +201,26 @@ class TaxNoteIssuer
             throw new BillingException(__('The company time zone is not valid; fix it before issuing a tax document.'));
         }
 
-        if ($request->kind === 'debit' && ! $invoice->status->isPayable()) {
-            throw new BillingException(__('A debit note can only be issued on an unpaid invoice for now.'));
+        if (($request->reasonCode === 'reverses_credit_note') !== ($request->reverses !== null)) {
+            throw new BillingException(__('Reverse a credit note from the note itself.'));
         }
 
-        // ADR 0024 §3: a debit note adds at most the invoice's original value, which also bounds the tax arithmetic.
-        if ($request->kind === 'debit' && (int) $request->amount > $invoice->fiscal_total) {
-            throw new BillingException(__('A debit note can add at most :amount, the value of the invoice.', ['amount' => Money::of($invoice->fiscal_total, $invoice->currency)->format()]));
+        if ($request->reverses !== null && ! $invoice->status->isPayable() && $invoice->status !== InvoiceStatus::Paid) {
+            throw new BillingException(__('A credit note can be reversed only while its invoice is unpaid or paid.'));
+        }
+
+        if ($request->kind === 'debit' && $request->reverses === null) {
+            if (! $invoice->status->isPayable()) {
+                throw new BillingException(__('A debit note can only be issued on an unpaid invoice for now.'));
+            }
+
+            // ADR 0024 §3: debit notes together add at most the invoice's original value, which also bounds the tax
+            // arithmetic. A reversal is bounded by its credit note instead, so it does not count.
+            $left = $invoice->fiscal_total - ($invoice->debited_total - $this->reversedTotal($invoice));
+
+            if ((int) $request->amount > $left) {
+                throw new BillingException(__('Debit notes can add at most the value of the invoice; :amount is left.', ['amount' => Money::of(max(0, $left), $invoice->currency)->format()]));
+            }
         }
 
         $this->bsDate($this->clock->localDate($this->clock->now()));
@@ -218,6 +257,69 @@ class TaxNoteIssuer
         [$net, $tax1, $tax2] = $request->taxable && $rates->hasTax() ? TaxMath::split($gross, $rates) : [$gross, 0, 0];
 
         return [['item_id' => null, 'description' => $request->reasonText, 'taxable' => $request->taxable, 'gross' => $gross, 'net' => $net, 'tax1' => $tax1, 'tax2' => $tax2]];
+    }
+
+    /**
+     * The credit note's own lines, repeated (vat-register §5.5). It must be a credit note of this invoice that no note has
+     * reversed yet; the unique `reverses_tax_note_id` holds that against a concurrent reversal.
+     *
+     * @return list<Part>
+     */
+    private function reversalParts(int $creditNoteId, Invoice $invoice): array
+    {
+        $note = TaxNote::query()->with('lines')->where('invoice_id', $invoice->id)->whereKey($creditNoteId)->first();
+
+        if ($note === null) {
+            throw new BillingException(__('That note is not on this invoice.'));
+        }
+
+        if ($note->kind !== 'credit') {
+            throw new BillingException($note->reverses_tax_note_id !== null
+                ? __('Debit note :number reverses a credit note and cannot itself be reversed.', ['number' => $note->number])
+                : __('Only a credit note can be reversed; correct debit note :number with a credit note.', ['number' => $note->number]));
+        }
+
+        if (TaxNote::query()->where('reverses_tax_note_id', $note->id)->exists()) {
+            throw new BillingException(__('Credit note :number is already reversed.', ['number' => $note->number]));
+        }
+
+        if ($invoice->status === InvoiceStatus::Cancelled) {
+            throw new BillingException(__('Credit note :number cancelled the invoice and cannot be reversed; raise a new invoice instead.', ['number' => $note->number]));
+        }
+
+        return array_values($note->lines->map(fn (TaxNoteLine $line): array => [
+            'item_id' => $line->invoice_item_id, 'description' => $line->description, 'taxable' => $line->taxable,
+            'gross' => $line->amount + $line->tax1_amount + $line->tax2_amount, 'net' => $line->amount, 'tax1' => $line->tax1_amount, 'tax2' => $line->tax2_amount,
+        ])->all());
+    }
+
+    /** The account credit a credit note posted, which its reversal takes back. */
+    private function creditPostedBy(int $creditNoteId): int
+    {
+        return (int) DB::table('invoice_adjustments')->where('tax_note_id', $creditNoteId)
+            ->where('reason', AdjustmentReason::CreditNoteToCredit->value)->where('kind', AdjustmentKind::Debit->value)->sum('amount');
+    }
+
+    private function reversedTotal(Invoice $invoice): int
+    {
+        return (int) TaxNote::query()->where('invoice_id', $invoice->id)->whereNotNull('reverses_tax_note_id')->sum('total');
+    }
+
+    /**
+     * The settlement rows of §4.4, each with the note's id: a credit note's part above the balance goes to account
+     * credit; a reversal takes back what its credit note posted, even into a negative balance, as other reversals do.
+     */
+    private function settleToCredit(Invoice $invoice, TaxNote $note, NotePreview $plan, ?int $userId): void
+    {
+        if ($plan->toCredit === 0) {
+            return;
+        }
+
+        $reversal = $note->reverses_tax_note_id !== null;
+        $text = $reversal ? __('Credit taken back by debit note :number', ['number' => $note->number]) : __('Credit note :number to account credit', ['number' => $note->number]);
+        $this->settlement->adjust($invoice, $reversal ? AdjustmentKind::Credit : AdjustmentKind::Debit, AdjustmentReason::CreditNoteToCredit, $plan->toCredit, $text, userId: $userId, taxNoteId: $note->id);
+        $this->credit->post($invoice->client_id, Money::of($reversal ? -$plan->toCredit : $plan->toCredit, $invoice->currency), $reversal ? CreditReason::CreditNoteReversed : CreditReason::CreditNote,
+            $invoice->id, description: $text, staffId: $userId, allowNegative: $reversal, taxNoteId: $note->id);
     }
 
     /**
@@ -272,8 +374,10 @@ class TaxNoteIssuer
     private function usedByNotes(Invoice $invoice): array
     {
         return TaxNoteLine::query()->join('tax_notes as n', 'n.id', '=', 'tax_note_lines.tax_note_id')
-            ->where('n.invoice_id', $invoice->id)->where('n.kind', 'credit')->whereNotNull('tax_note_lines.invoice_item_id')->groupBy('tax_note_lines.invoice_item_id')
-            ->selectRaw('tax_note_lines.invoice_item_id as item, sum(tax_note_lines.amount) as net, sum(tax_note_lines.tax1_amount) as tax1, sum(tax_note_lines.tax2_amount) as tax2')->toBase()->get()
+            ->where('n.invoice_id', $invoice->id)->whereNotNull('tax_note_lines.invoice_item_id')->groupBy('tax_note_lines.invoice_item_id')
+            ->selectRaw("tax_note_lines.invoice_item_id as item, sum(case when n.kind = 'credit' then tax_note_lines.amount else -tax_note_lines.amount end) as net, "
+                ."sum(case when n.kind = 'credit' then tax_note_lines.tax1_amount else -tax_note_lines.tax1_amount end) as tax1, "
+                ."sum(case when n.kind = 'credit' then tax_note_lines.tax2_amount else -tax_note_lines.tax2_amount end) as tax2")->toBase()->get()
             ->map(fn (\stdClass $row): array => ['item' => (int) $row->item, 'net' => (int) $row->net, 'tax1' => (int) $row->tax1, 'tax2' => (int) $row->tax2])->values()->all();
     }
 
@@ -333,10 +437,17 @@ class TaxNoteIssuer
     }
 
     /**
-     * A credit note that brings the balance to zero settles the invoice (paid), or cancels it when nothing was paid.
+     * A credit note that brings the balance to zero settles the invoice (paid), or cancels it when nothing was paid. A
+     * debit note that leaves a paid invoice owing again (a reversal of a note that settled it) makes it unpaid.
      */
     private function afterNote(Invoice $invoice, bool $credit): void
     {
+        if (! $credit && $invoice->status === InvoiceStatus::Paid && $invoice->balance > 0) {
+            $invoice->status = InvoiceStatus::Unpaid;
+            $invoice->paid_at = null;
+            $invoice->save();
+        }
+
         if (! $credit || $invoice->balance > 0) {
             AfterCommit::dispatch(new InvoiceModified($invoice->id, $invoice->client_id));
 
@@ -344,7 +455,9 @@ class TaxNoteIssuer
         }
 
         if ($invoice->amount_paid > 0 || $invoice->credit_applied > 0) {
-            $this->settlement->settle($invoice);
+            if (! $this->settlement->settle($invoice)) {
+                AfterCommit::dispatch(new InvoiceModified($invoice->id, $invoice->client_id));
+            }
 
             return;
         }
