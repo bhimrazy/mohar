@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services;
 
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Services\CatalogUsage;
 use App\Contracts\Services\ClientServiceDirectory;
@@ -202,7 +203,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
         ], 'services.cancellations.manage', 32);
 
         $dashboard->widget('admin', 'services.renewals', 'list', function (?User $user): array {
-            $today = CarbonImmutable::today();
+            $today = app(CompanyClock::class)->todayDate();
 
             return [
                 'title' => 'Renewals due in 7 days',
@@ -244,7 +245,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
                 ->whereIn('status', [ServiceStatus::Active->value, ServiceStatus::Suspended->value])
                 ->where('do_not_renew', false)
                 ->whereNotNull('next_due_date')
-                ->whereDate('next_due_date', '<=', CarbonImmutable::today()->addDays(30))
+                ->whereDate('next_due_date', '<=', app(CompanyClock::class)->todayDate()->addDays(30))
                 ->count(),
             'href' => route('client.services.index'),
             'icon' => 'Receipt',

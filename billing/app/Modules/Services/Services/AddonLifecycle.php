@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Services;
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Models\ServiceAddon;
@@ -15,6 +16,8 @@ class AddonLifecycle
 {
     /** Suspension reason used when an addon is suspended because its parent was. */
     public const PARENT_REASON = 'parent_suspended';
+
+    public function __construct(private CompanyClock $clock) {}
 
     public function transition(ServiceAddon $addon, ServiceStatus $target, ?string $reason = null): void
     {
@@ -31,7 +34,7 @@ class AddonLifecycle
         }
 
         if (in_array($target, [ServiceStatus::Terminated, ServiceStatus::Cancelled], true)) {
-            $attributes += ['termination_date' => CarbonImmutable::today()];
+            $attributes += ['termination_date' => $this->clock->todayDate()];
         }
 
         $addon->update($attributes);

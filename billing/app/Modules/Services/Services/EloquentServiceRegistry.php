@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Services;
 
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Services\ServiceRegistry;
 use App\Data\Services\AddonDraft;
 use App\Data\Services\ProvisionResult;
@@ -15,7 +16,6 @@ use App\Modules\Services\Models\ServiceAddon;
 use App\Modules\Services\Support\Catalog;
 use App\Modules\Services\Support\CommandOutcome;
 use App\Modules\Services\Support\ServiceSettings;
-use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -29,11 +29,11 @@ use InvalidArgumentException;
  */
 class EloquentServiceRegistry implements ServiceRegistry
 {
-    public function __construct(private ModuleCommandDispatcher $commands, private Catalog $catalog, private ServiceSettings $settings) {}
+    public function __construct(private ModuleCommandDispatcher $commands, private Catalog $catalog, private ServiceSettings $settings, private CompanyClock $clock) {}
 
     public function createPending(ServiceDraft $draft): int
     {
-        $today = CarbonImmutable::today();
+        $today = $this->clock->todayDate();
         $recurring = $draft->cycle->isRecurring();
 
         $product = $this->catalog->product($draft->productId);
@@ -67,7 +67,7 @@ class EloquentServiceRegistry implements ServiceRegistry
     public function createPendingAddon(AddonDraft $draft): int
     {
         $service = Service::query()->findOrFail($draft->serviceId);
-        $today = CarbonImmutable::today();
+        $today = $this->clock->todayDate();
         $recurring = $draft->cycle->isRecurring();
         $addonName = collect($this->catalog->priceBook()?->addonsFor($service->product_id, $service->currency) ?? [])
             ->firstWhere('id', $draft->addonId)['name'] ?? "Addon #{$draft->addonId}";
