@@ -2,6 +2,7 @@
 
 namespace App\Modules\Domains\Services;
 
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Domains\DomainPricing;
 use App\Modules\Core\Models\Client;
 use App\Modules\Domains\Models\Domain;
@@ -127,7 +128,7 @@ class DomainPricingService implements DomainPricing
      */
     public function renewalTerms(Domain $domain, string $currency, ?int $clientGroupId = null, ?CarbonImmutable $today = null): array
     {
-        $today ??= CarbonImmutable::today();
+        $today ??= app(CompanyClock::class)->todayDate();
         $expiry = $domain->expiry_date;
         $model = $this->tld($domain->tld);
 

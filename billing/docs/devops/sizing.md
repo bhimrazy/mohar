@@ -175,6 +175,12 @@ of 49.7 s and a 546 s billing day at 20 renewals per second.
 - **Web load during the billing day**, provisioning against a control panel, and a Redis-backed stack
   (`loadtest/README.md`, "Not covered yet").
 
-Two content errors from the run are open as follow-ups, not sizing facts: `cart_add` answered without the `?added=`
-key in 17 of 103 adds at 40 users (1 and 6 at 10 and 20), and at 5 users 12 of 32 client visits picked a client with
-no invoices.
+The two content errors of that run were harness artefacts, not sizing facts, and are fixed in the harness (the numbers
+above were measured before the fix):
+
+- `cart_add` answered without the `?added=` key in 17 of 103 adds at 40 users (1 and 6 at 10 and 20). The scenario
+  named its domains by virtual user and iteration, so each level reused the names of the orders the earlier levels
+  had placed, and the cart refuses a domain that already belongs to a service (`orders.block_duplicate_domains`).
+  Names now include the scenario start time. Found by reading the code, not re-measured on a runner.
+- At 5 users 12 of 32 client visits picked a client with no invoice in the seeded year (a one-time or long-cycle
+  service). An empty list is valid and is no longer counted as an error.

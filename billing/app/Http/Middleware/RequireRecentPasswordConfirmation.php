@@ -38,6 +38,12 @@ class RequireRecentPasswordConfirmation
 {
     public const ERROR_KEY = 'password_confirmation';
 
+    /** Machine-readable reason for a refusal because the login has no password (no secret data). */
+    public const NO_PASSWORD_CODE = 'password_not_set';
+
+    /** Validation error key that carries NO_PASSWORD_CODE for Inertia clients. */
+    public const REASON_KEY = 'step_up_reason';
+
     public const PROBE_HEADER = 'X-Step-Up-Check';
 
     /**
@@ -49,7 +55,7 @@ class RequireRecentPasswordConfirmation
         $confirmed = self::recentlyConfirmed($request);
 
         if ($safe && $request->hasHeader(self::PROBE_HEADER)) {
-            return $confirmed ? response()->noContent() : abort(423, __('Password confirmation required.'));
+            return $confirmed ? response()->noContent() : $this->locked($request);
         }
 
         if ($request->isMethod('HEAD')) {
@@ -65,14 +71,32 @@ class RequireRecentPasswordConfirmation
         }
 
         if ($request->expectsJson() && ! $request->header('X-Inertia')) {
-            abort(423, __('Password confirmation required.'));
+            return $this->locked($request);
         }
 
         if ($safe) {
             return $this->toConfirmPage();
         }
 
-        throw ValidationException::withMessages([self::ERROR_KEY => __('Confirm your password to continue.')]);
+        throw ValidationException::withMessages(
+            $this->hasNoPassword($request)
+                ? [self::ERROR_KEY => __('Your account has no password. Set a password to continue.'), self::REASON_KEY => self::NO_PASSWORD_CODE]
+                : [self::ERROR_KEY => __('Confirm your password to continue.')],
+        );
+    }
+
+    private function hasNoPassword(Request $request): bool
+    {
+        return $request->user() !== null && ! $request->user()->hasPassword();
+    }
+
+    private function locked(Request $request): Response
+    {
+        if ($this->hasNoPassword($request)) {
+            return response()->json(['message' => __('Your account has no password. Set a password to continue.'), 'code' => self::NO_PASSWORD_CODE], 423);
+        }
+
+        abort(423, __('Password confirmation required.'));
     }
 
     private function toConfirmPage(): Response
@@ -83,8 +107,16 @@ class RequireRecentPasswordConfirmation
         return redirect()->guest(route('password.confirm'));
     }
 
+    /**
+     * A login without a password is never confirmed, whatever the session holds: a passkey confirmation or a
+     * stale timestamp must not stand in for a password it does not have (ADR 0018 §4).
+     */
     public static function recentlyConfirmed(Request $request): bool
     {
+        if ($request->user() !== null && ! $request->user()->hasPassword()) {
+            return false;
+        }
+
         $confirmedAt = $request->hasSession() ? (int) $request->session()->get('auth.password_confirmed_at', 0) : 0;
 
         return time() - $confirmedAt < self::timeout();

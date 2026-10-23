@@ -11,9 +11,9 @@
 #      (no edits; stops on a conflict). Removed on exit, pass or fail. A PR already in develop gates develop itself.
 #      CI's change detection decides which steps run: a docs-only change takes the fast path (vp check, image sizes),
 #      the audits run only when a manifest, lockfile, .npmrc or workflow file changed.
-#   2. The policy checks before any dependency is installed or any PR code runs, as in CI: postgres pin, lockfiles
-#      in sync, audits, dependency cooldown and pinning. The cooldown checker is develop's copy, run against the PR's
-#      lockfiles, so a PR cannot weaken the check that judges it.
+#   2. The policy checks before any dependency is installed or any PR code runs, as in CI: changelog fragments,
+#      postgres pin, lockfiles in sync, audits, dependency cooldown and pinning. The changelog check and the cooldown
+#      checker are develop's copies, run against the PR's tree, so a PR cannot weaken the check that judges it.
 #   3. Dependencies: from the main checkout when composer.lock / package-lock.json equal its billing/ ones and its
 #      installed trees match those locks (vendor/ is copied, since links break Pest and the arch tests; node_modules/
 #      is a directory of symlinks), otherwise composer install / npm ci. Then .env, key:generate, wayfinder:generate.
@@ -244,6 +244,17 @@ fi
 # no plugins or scripts), npm audit on the lockfile, and develop's dependency checker (Node built-ins only). It is
 # placed inside the PR's billing/ so its app root (its parent directory) is the PR tree, and removed afterwards.
 policy_dir="$app/.merge-gate-policy"
+# CI's "Changelog fragments" step, with develop's copy of the scripts so a PR cannot weaken the check that judges it.
+# Not run for a PR already in develop (no merge commit) or before develop has the scripts.
+fragments=false
+if [ "$merged_already" = 0 ] && git -C "$dir" cat-file -e "$base:scripts/changelog-check.sh" 2> /dev/null; then
+    fragments=true
+    mkdir -p "$policy_dir" && git -C "$dir" archive "$base" scripts/changelog-check.sh scripts/changelog-assemble.sh \
+        | tar -x -C "$policy_dir" -f -
+fi
+when "$fragments" "changelog fragments" env BASE_REF=develop PR_NUMBER="$pr" \
+    bash "$policy_dir/scripts/changelog-check.sh" --marker-rev HEAD^2 HEAD^1 HEAD
+rm -rf "${policy_dir:?}"
 when "$code" "postgres pin matches compose.yaml" bash -c '
     pattern="postgres:[0-9.]+-alpine[0-9.]*@sha256:[0-9a-f]{64}"
     a=$(grep -Eo "$pattern" compose.yaml | sort -u); b=$(grep -Eo "$pattern" ../.github/workflows/ci.yml | sort -u)

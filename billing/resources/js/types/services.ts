@@ -122,6 +122,8 @@ export type ServerRow = {
     has_password: boolean;
     has_api_token: boolean;
     has_access_hash: boolean;
+    /** Stored credentials (password, api_token, access_hash) shorter than the minimum. */
+    credentials_short: string[];
     secure: boolean;
     port: number | null;
     max_accounts: number;
@@ -133,10 +135,11 @@ export type ServerRow = {
     currency: string;
     datacenter: string | null;
     status_url: string | null;
-    /** Driver settings: non-secret values, and whether each secret one is stored. */
+    /** Driver settings: non-secret values, whether each secret one is stored, and which stored ones are too short. */
     settings: {
         values: Record<string, string>;
         secrets_set: Record<string, boolean>;
+        secrets_short: string[];
     };
     groups?: { id: number; name: string }[];
 };

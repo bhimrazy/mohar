@@ -268,7 +268,7 @@ class SubmitToRegistrar
 
     private function succeeded(Domain $domain, RegistrarResult $result, ?int $staffId = null): ProvisionResult
     {
-        $today = CarbonImmutable::today();
+        $today = $this->dates->companyDate();
         $meta = RemoteIds::merge($domain->registrar_meta, $result->remote) ?? [];
         unset($meta['submission']);
         $resolved = ['last_error' => null, 'needs_review' => false, 'registrar_meta' => $meta ?: null, 'registrar_key' => $domain->registrar_key];

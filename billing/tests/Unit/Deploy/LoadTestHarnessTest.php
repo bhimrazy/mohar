@@ -95,6 +95,17 @@ test('bin/run and the overlay name exactly the blue services of the production s
     expect(array_values(array_diff($overlay[1], $production[1])))->toBe(['k6']);
 });
 
+test('bin/run removes the slice unit it writes and does not set the same limits twice', function () {
+    $run = loadtestFile('loadtest/bin/run');
+
+    expect($run)->toContain('rm -f "/etc/systemd/system/${slice}"')
+        ->and($run)->not->toContain('set-property');
+});
+
+test('the storefront scenario names its domains per scenario run, so levels do not collide', function () {
+    expect(loadtestFile('loadtest/k6/scenarios/storefront.js'))->toContain('lt-${exec.scenario.startTime}-${exec.vu.idInTest}');
+});
+
 test('every docs/devops page the load-test docs point at exists', function () {
     $pages = [];
     foreach (['loadtest/README.md', 'billing/docs/devops/ci.md', '.github/workflows/load-test.yml'] as $doc) {

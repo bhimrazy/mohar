@@ -415,7 +415,7 @@ Client area:
 Emitted after commit, as defined in ADR 0024 §6 (`DomainEvent`, `ShouldDispatchAfterCommit`, the int + currency
 pattern of `InvoiceRefunded`):
 
-- `CreditNoteIssued(int $taxNoteId, string $number, int $invoiceId, int $clientId, int $total, string $currency,
+- `CreditNoteIssued(int $taxNoteId, string $number, int $invoiceId, int $clientId, int $amount, string $currency,
   bool $automatic)` **MUST**
 - `DebitNoteIssued(...)` with the same fields. **MUST**
 - Existing events keep their meaning: `InvoiceCancelled` still fires on cancellation (after the note),

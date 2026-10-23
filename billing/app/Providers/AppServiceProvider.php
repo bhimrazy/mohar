@@ -14,6 +14,7 @@ use App\Support\Domains\RegistrarDriverRegistry;
 use App\Support\Events\WebhookEvents;
 use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Integrations\Endpoints;
+use App\Support\Integrations\StoredSecrets;
 use App\Support\Migration\ImportRegistry;
 use App\Support\Navigation\Navigation;
 use App\Support\Permissions\PermissionRegistry;
@@ -68,6 +69,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(SitemapRegistry::class);
         $this->app->singleton(Endpoints::class);
         $this->app->singleton(WebhookEvents::class);
+        $this->app->singleton(StoredSecrets::class);
     }
 
     /**
