@@ -1,6 +1,6 @@
 # ADR 0013 — Company clock and time zones
 
-- Status: Accepted · 2026-10-19 (CTO, after the 2026-10-19 architecture review) · Owner: Principal architect. Amendment 1 (Accepted, 2026-10-23) keeps the registered key `system.timezone` and puts fiscal documents first in the rollout. [Amendment (#PRNUM)](#amendment-prnum--2026-10-23-calendardate) (Accepted, 2026-10-23) adds the `CalendarDate` value.
+- Status: Accepted · 2026-10-19 (CTO, after the 2026-10-19 architecture review) · Owner: Principal architect. Amendment 1 (Accepted, 2026-10-23) keeps the registered key `system.timezone` and puts fiscal documents first in the rollout. [Amendment (#410)](#amendment-410--2026-10-23-calendardate) (Accepted, 2026-10-23) adds the `CalendarDate` value.
 
 ## Context
 
@@ -196,7 +196,7 @@ numbers fiscal documents on the UTC calendar.
 - **A fake `CompanyClock` in tests:** easy to freeze, but tests would then stop exercising the conversion from UTC
   to the local date. Rejected.
 
-## Amendment (#PRNUM) — 2026-10-23, `CalendarDate`
+## Amendment (#410) — 2026-10-23, `CalendarDate`
 
 Status: Accepted 2026-10-23 (CTO decision D6 of the 2026-10-23 architecture review). Called "Amendment 2" in that
 review and in Amendment 1; keyed by its PR under ADR 0027.

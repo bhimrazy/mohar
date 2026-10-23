@@ -1,4 +1,4 @@
-### `CalendarDate` for company dates, ADR 0013 amendment (#PRNUM)
+### `CalendarDate` for company dates, ADR 0013 amendment (#410)
 
 - New `App\Support\CalendarDate` (`@api`, `final readonly`): a company-calendar date with `year`, `month`, `day` and no
   time or zone. `of()`, `parse('Y-m-d')` (strict), `fromDateValue()` (a `date` cast; refuses a time of day),
