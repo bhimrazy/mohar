@@ -25,9 +25,6 @@ final class RegionalDefaults
     /** Unambiguous day-month-year ("24 Oct 2026"), the order Nepal uses; the Bikram Sambat calendar is not supported. */
     public const DATE_FORMAT = 'j M Y';
 
-    /** Marker setting written with the regional defaults: Billing reads it to apply its own defaults to the same install. */
-    public const MARKER = 'core.regional_defaults';
-
     private string $country = self::COUNTRY;
 
     private string $currency = self::CURRENCY;
