@@ -36,7 +36,7 @@ function rbRaceSeed(string $name, int $count): array
     return Invoice::query()->orderBy('id')->pluck('id')->map(fn ($id) => (int) $id)->all();
 }
 
-function rbStart(): string
+function rb385Start(): string
 {
     return (string) ((int) (microtime(true) * 1000) + 2_500);
 }
@@ -49,7 +49,7 @@ function rbRun(array $workers): array
 test('R1: a credit note against a late fee on the same invoice: the fee applies, the note applies or is stale, the caches match the reconcile pass', function () {
     [$id] = rbRaceSeed('rb385_r1', 1);
     $db = DB::connection()->getDatabaseName();
-    $s = rbStart();
+    $s = rb385Start();
     $r = rbRun(['note' => ['credit', $db, (string) $id, '5000', $s, '0'], 'fee' => ['latefee', $db, (string) $id, '0', $s, '0']]);
     $invoice = Invoice::query()->findOrFail($id);
 
@@ -61,7 +61,7 @@ test('R1: a credit note against a late fee on the same invoice: the fee applies,
 test('R2: a confirm whose preview predates a concurrent invoice edit is refused as stale', function () {
     [$id] = rbRaceSeed('rb385_r2', 1);
     $db = DB::connection()->getDatabaseName();
-    $s = rbStart();
+    $s = rb385Start();
     $r = rbRun(['note' => ['credit', $db, (string) $id, '5000', $s, '1'], 'edit' => ['edit', $db, (string) $id, '0', $s, '0']]);
 
     expect($r['edit']['outcome'])->toBe('edited')->and($r['note']['outcome'])->toBe('StaleNoteException')
@@ -71,7 +71,7 @@ test('R2: a confirm whose preview predates a concurrent invoice edit is refused 
 test('R3: credit and debit notes on six invoices at once, with a reconcile pass: two gap-free sequences, no deadlock', function () {
     $ids = rbRaceSeed('rb385_r3', 6);
     $db = DB::connection()->getDatabaseName();
-    $s = rbStart();
+    $s = rb385Start();
     $workers = ['rec' => ['reconcile', $db, '0', '0', $s, '0']];
     foreach ($ids as $i => $id) {
         $workers["c$i"] = ['credit', $db, (string) $id, '1000', $s, '0'];
@@ -91,7 +91,7 @@ test('R3: credit and debit notes on six invoices at once, with a reconcile pass:
 test('R4: a note and a refund-style finalise that holds the client before the sequence do not deadlock', function () {
     [$id] = rbRaceSeed('rb385_r4', 1);
     $db = DB::connection()->getDatabaseName();
-    $s = rbStart();
+    $s = rb385Start();
     // The finalise path (PR 4) locks the client, then asks for the next number; the note must take the client first too.
     $r = rbRun(['fin' => ['finalise', $db, (string) $id, '0', $s, '0'], 'note' => ['credit', $db, (string) $id, '1000', (string) ((int) $s + 150), '0']]);
 
