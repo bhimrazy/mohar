@@ -1,7 +1,7 @@
 # ADR 0027 — Parallel work: log fragments and amendment keys
 
-- Status: Proposed · 2026-10-23 · Owner: Principal architect. From the architecture review of 2026-10-23 (§5, D1, D2).
-  The changelog part needs the owner's decision (open since the CTO review of 2026-10-22).
+- Status: Accepted · 2026-10-23 · Owner: Principal architect. From the architecture review of 2026-10-23 (§5, D1, D2).
+  The owner adopted changelog fragments on 2026-10-23; #397 built the fragments, the assembler and the CI check.
 - Related: ADR 0010 (kernel changelog), `scripts/merge-queue.sh`, issue #83.
 
 ## Context
