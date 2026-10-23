@@ -71,9 +71,12 @@ use `Dispatchable`, carry ids not models, and are promoted to the kernel when an
 ### Exposure
 
 - Kernel events are public API (ADR 0010).
-- Exposure outside the process (webhooks, the future API event feed) goes through an explicit allow-list, which is
-  Notifications' `WebhookEventTypes` today. A module or package adds an entry through a registration method rather
-  than by editing that map: `WebhookEvents::register(InvoicePaid::class, 'invoice.paid', resource: InvoiceWebhookResource::class)`.
+- Exposure outside the process (webhooks, the future API event feed) goes through an explicit allow-list: the kernel
+  registry `App\Support\Events\WebhookEvents`. The module that owns an event, or a package, registers it in its own
+  provider rather than editing another module's list:
+  `app(WebhookEvents::class)->register(InvoicePaid::class, 'invoice.paid', 'invoice', 'invoiceId')` (event, type, merge-field
+  entity, id property). A type and an event class are each registered once. `tests/Arch/WebhookEventsScanTest.php` checks
+  that a module registers only its own events.
 
 ### Enforcement (arch tests)
 

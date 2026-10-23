@@ -2,8 +2,8 @@
 
 namespace App\Modules\Notifications\Http\Requests;
 
-use App\Modules\Notifications\Webhooks\WebhookEventTypes;
 use App\Modules\Notifications\Webhooks\WebhookUrlGuard;
+use App\Support\Events\WebhookEvents;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -25,7 +25,7 @@ class WebhookEndpointRequest extends FormRequest
             'url' => ['required', 'string', 'max:2048', 'url:https,http'],
             'description' => ['nullable', 'string', 'max:255'],
             'events' => ['required', 'array', 'min:1'],
-            'events.*' => ['string', Rule::in(['*', ...WebhookEventTypes::types()])],
+            'events.*' => ['string', Rule::in(['*', ...app(WebhookEvents::class)->types()])],
             'is_active' => ['boolean'],
         ];
     }

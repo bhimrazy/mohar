@@ -317,8 +317,7 @@ final class CreditNoteIssued implements DomainEvent, ShouldDispatchAfterCommit
 - **Dispatch:** the events implement `ShouldDispatchAfterCommit` (ADR 0011, as `PaymentReinstated` already does) and
   are dispatched with `event()`. They are **never** passed to `AfterCommit::dispatch`, which would defer them a
   second time.
-- Webhook types `credit_note.issued` and `debit_note.issued` go into `WebhookEventTypes::MAP` until the registration
-  method from ADR 0011 exists. They land together with the `tax_note` merge-field resolver (PR 5), so the first
+- Webhook types `credit_note.issued` and `debit_note.issued` are registered by Billing's provider with `WebhookEvents::register()`. They land together with the `tax_note` merge-field resolver (PR 5), so the first
   payload subscribers receive is the final snapshot, never the events' bare fields.
 - Existing events keep their meaning:
     - `InvoiceCancelled` fires after the cancelling note;
