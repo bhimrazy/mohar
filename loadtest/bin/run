@@ -85,7 +85,11 @@ cleanup() {
     else
         "${compose[@]}" --profile loadgen down -v --remove-orphans --timeout 30 >/dev/null 2>&1 || true
         rm -rf "$secrets"
-        [ -n "$slice" ] && sudo -n systemctl stop "$slice" >/dev/null 2>&1 || true
+        if [ -n "$slice" ]; then
+            sudo -n systemctl stop "$slice" >/dev/null 2>&1 || true
+            sudo -n rm -f "/etc/systemd/system/${slice}" || true
+            sudo -n systemctl daemon-reload >/dev/null 2>&1 || true
+        fi
     fi
 }
 trap cleanup EXIT
@@ -147,7 +151,6 @@ MemorySwapMax=0
 UNIT
         sudo -n systemctl daemon-reload
         sudo -n systemctl start "$slice"
-        sudo -n systemctl set-property --runtime "$slice" "CPUQuota=${cpu_quota}%" "MemoryMax=${PROFILE_MEMORY}" "MemorySwapMax=0"
         cgroup_parent="$slice"
         host_cap="systemd slice ${slice}: CPUQuota=${cpu_quota}% MemoryMax=${PROFILE_MEMORY}"
     elif [ "$driver" = cgroupfs ] && [ -f /sys/fs/cgroup/cgroup.controllers ]; then

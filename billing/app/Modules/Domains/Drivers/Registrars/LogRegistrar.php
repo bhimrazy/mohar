@@ -72,7 +72,7 @@ class LogRegistrar implements ChecksAvailability, DeclaresTldAttributes, LinksEx
     public function settingsFields(): array
     {
         return [
-            new SettingField('api_key', 'API key', FieldType::Secret, help: 'Any value works; "invalid" fails the connection test.'),
+            new SettingField('api_key', 'API key', FieldType::Secret, help: 'Any value of 8 characters or more works; "invalid-key" fails the connection test.'),
             new SettingField('simulate', 'Simulate failures', FieldType::Select, options: ['none' => 'Never fail', 'error' => 'Reject every command', 'timeout' => 'Time out every command']),
         ];
     }
@@ -277,7 +277,7 @@ class LogRegistrar implements ChecksAvailability, DeclaresTldAttributes, LinksEx
 
     public function testConnection(RegistrarConfig $config): ConnectionCheck
     {
-        return $config->setting('api_key') === 'invalid'
+        return $config->setting('api_key') === 'invalid-key'
             ? new ConnectionCheck(false, 'Authentication failed: invalid API key.')
             : new ConnectionCheck(true, 'Connected to the log registrar.');
     }
