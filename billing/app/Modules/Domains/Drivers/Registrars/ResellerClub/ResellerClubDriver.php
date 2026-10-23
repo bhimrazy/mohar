@@ -2,6 +2,7 @@
 
 namespace App\Modules\Domains\Drivers\Registrars\ResellerClub;
 
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Domains\Registrar\ChecksAvailability;
 use App\Contracts\Domains\Registrar\LinksExistingOrders;
 use App\Contracts\Domains\Registrar\ManagesContacts;
@@ -383,7 +384,7 @@ final class ResellerClubDriver implements ChecksAvailability, LinksExistingOrder
         return new RegistrarResult(
             self::status($answer),
             message: (string) (((array) $answer)['actionstatusdesc'] ?? ''),
-            meta: $locked ? ['transfer_lock_until' => CarbonImmutable::today()->addDays(60)->toDateString()] : [],
+            meta: $locked ? ['transfer_lock_until' => app(CompanyClock::class)->todayDate()->addDays(60)->toDateString()] : [],
         );
     }
 

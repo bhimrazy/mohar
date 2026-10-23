@@ -159,7 +159,7 @@ class SyncDomain
                 $this->dates->applyExpiry($domain, $result->expiryDate ?? $this->dates->extend($domain, 1));
                 $this->states->transition($domain, DomainStatus::Active, 'Transfer completed', [
                     ...$this->resolved($domain),
-                    'registration_date' => $domain->registration_date ?? CarbonImmutable::today(),
+                    'registration_date' => $domain->registration_date ?? $this->dates->companyDate(),
                     'expiry_date' => $domain->expiry_date,
                     'next_due_date' => $domain->next_due_date,
                     'next_invoice_date' => $domain->next_invoice_date,
@@ -227,7 +227,7 @@ class SyncDomain
                 $this->dates->applyExpiry($domain, $result->expiryDate ?? $this->dates->extend($domain, $domain->period_years));
                 $this->states->transition($domain, DomainStatus::Active, 'Registration confirmed by sync', [
                     ...$this->resolved($domain),
-                    'registration_date' => $domain->registration_date ?? CarbonImmutable::today(),
+                    'registration_date' => $domain->registration_date ?? $this->dates->companyDate(),
                     'expiry_date' => $domain->expiry_date,
                     'next_due_date' => $domain->next_due_date,
                     'next_invoice_date' => $domain->next_invoice_date,

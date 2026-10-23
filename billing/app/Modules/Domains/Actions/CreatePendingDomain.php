@@ -2,6 +2,7 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Contracts\Core\CompanyClock;
 use App\Data\Domains\DomainDraft;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
@@ -30,6 +31,7 @@ class CreatePendingDomain
         private ActivityLogger $activity,
         private BuildDomainContacts $contacts,
         private TldAttributeService $tldAttributes,
+        private CompanyClock $clock,
     ) {}
 
     /**
@@ -84,7 +86,7 @@ class CreatePendingDomain
             }
 
             $client = Client::query()->findOrFail($draft->clientId);
-            $today = CarbonImmutable::today();
+            $today = $this->clock->todayDate();
 
             $domain = Domain::query()->create([
                 'client_id' => $client->id,
