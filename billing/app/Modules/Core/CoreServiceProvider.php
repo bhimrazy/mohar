@@ -20,6 +20,8 @@ use App\Contracts\Services\CatalogUsage;
 use App\Contracts\Services\ClientServiceDirectory;
 use App\Contracts\Services\ProvisioningDrivers;
 use App\Contracts\Support\PublicHelpDirectory;
+use App\Events\Core\ClientRegistered;
+use App\Events\Core\ClientUpdated;
 use App\Models\User;
 use App\Modules\Core\Import\ClientImporter;
 use App\Modules\Core\Import\LoginImporter;
@@ -57,6 +59,7 @@ use App\Modules\Core\Support\NullSystemMailer;
 use App\Modules\Core\Support\NullTaxIdRules;
 use App\Modules\Core\Support\Settings;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Events\WebhookEvents;
 use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Migration\ImportRegistry;
 use App\Support\Modules\ModuleServiceProvider;
@@ -137,6 +140,10 @@ class CoreServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $webhooks = $this->app->make(WebhookEvents::class);
+        $webhooks->register(ClientRegistered::class, 'client.registered', 'client', 'clientId');
+        $webhooks->register(ClientUpdated::class, 'client.updated', 'client', 'clientId');
+
         // Encrypted values without an encrypted cast, for `security:reencrypt`: secret settings (a JSON string with the
         // "enc:v1:" prefix) and Fortify's two-factor secret and recovery codes (encrypted by Fortify itself).
         $encrypted = $this->app->make(EncryptedStorage::class);

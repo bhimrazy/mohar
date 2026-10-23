@@ -49,7 +49,12 @@ export function client() {
             );
         }
         think();
-    } else {
+    } else if (
+        !invoices ||
+        !invoices.props ||
+        invoices.props.invoices === undefined
+    ) {
+        // A client with no invoice in the seeded year (a long-cycle or one-time service) has an empty list: valid.
         contentErrors.add(1, { page: 'client_invoices' });
     }
 

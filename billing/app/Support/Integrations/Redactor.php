@@ -2,13 +2,19 @@
 
 namespace App\Support\Integrations;
 
+use Error;
+use Exception;
 use Illuminate\Contracts\Support\Arrayable;
 use JsonSerializable;
+use ReflectionProperty;
+use Throwable;
 
 /**
  * Removes secrets from integration logs and from messages shown to staff. All rules live here; the host redacts what
  * drivers return, and drivers never call this.
  *
+ * - Known values (credentials, request secrets) come as a RedactionSet, or as a list it is built from; see RedactionSet
+ *   for the forms they are matched in. A key or a number that holds one is withheld whole.
  * - redact(): module and registrar command logs. A key is sensitive when one of its words (`api_key`, `api-key`,
  *   `ApiKey` and `APIKey` all read as "api key"), a pair of adjacent words, or a run-together spelling (`eppcode`,
  *   `accesshash`) names a secret; a sensitive key hides its whole value. Matching whole words keeps `author`,
@@ -35,6 +41,9 @@ final class Redactor
 
     /** Nested values deeper than this are masked rather than walked (self-referencing object graphs). */
     private const MAX_DEPTH = 32;
+
+    /** Exceptions behind the first one whose messages maskThrowable() masks; those further down are withheld. */
+    private const MAX_PREVIOUS = 16;
 
     /** A key is sensitive when it is exactly one of these. */
     private const SENSITIVE_KEYS = ['key', 'pw', 'pwd', 'dv', 'phpsessid'];
@@ -150,14 +159,14 @@ final class Redactor
      * their public properties), so a DTO in a payload cannot carry a secret past the mask.
      *
      * @param  array<array-key, mixed>  $payload
-     * @param  list<string>  $secrets  values to mask wherever they appear
+     * @param  RedactionSet|list<string>  $secrets  values to mask wherever they appear
      * @param  list<string>  $sensitiveKeys  extra exact keys that are secret in this payload only, e.g. `url` in an SSO
      *                                       answer or `code` in an EPP code answer
      * @return array<array-key, mixed>
      */
-    public function redact(array $payload, array $secrets = [], array $sensitiveKeys = []): array
+    public function redact(array $payload, RedactionSet|array $secrets = [], array $sensitiveKeys = []): array
     {
-        return $this->redactWith($payload, $this->variants($secrets), array_map('strtolower', $sensitiveKeys), 0);
+        return $this->redactWith($payload, self::set($secrets), array_map('strtolower', $sensitiveKeys), 0);
     }
 
     /**
@@ -170,7 +179,7 @@ final class Redactor
     public function redactPayment(array $payload, int $depth = 0): array
     {
         foreach ($payload as $key => $value) {
-            $value = $this->unwrap($value);
+            $value = $this->unwrap($value, $depth);
 
             if ($depth >= self::MAX_DEPTH && (is_array($value) || is_object($value))) {
                 $payload[$key] = self::MASK;
@@ -179,7 +188,7 @@ final class Redactor
             } elseif (is_string($key) && ! in_array($key, self::PAYMENT_REFERENCES, true) && preg_match(self::PAYMENT_KEYS, $key) === 1) {
                 $payload[$key] = self::MASK;
             } else {
-                $payload[$key] = is_string($value) ? $this->scrubCardNumbers($this->maskString($value, [], [], $depth)) : $value;
+                $payload[$key] = is_string($value) ? $this->scrubCardNumbers($this->maskString($value, RedactionSet::empty(), [], $depth)) : $value;
             }
         }
 
@@ -187,20 +196,53 @@ final class Redactor
     }
 
     /**
-     * @param  list<string>  $secrets
+     * @param  RedactionSet|list<string>  $secrets
      */
-    public function maskValues(string $value, array $secrets): string
+    public function maskValues(string $value, RedactionSet|array $secrets): string
     {
-        return $this->maskString($value, $this->variants($secrets), [], 0);
+        return $this->maskString($value, self::set($secrets), [], 0);
+    }
+
+    /**
+     * Masks, in place, the message of $exception and of up to 16 exceptions behind it, with the shape rules and the
+     * set's values; any exception further down the chain has its message withheld whole (fail closed). The class,
+     * code, trace, flags and `previous` are kept, so the caller reports the original.
+     *
+     * Only messages are masked. Properties, what `context()` returns (Laravel merges it into the log record) and trace
+     * arguments (printed when `zend.exception_ignore_args` is off) are not: production keeps that setting on, and the
+     * log processor of ADR 0023 step 4 covers the rest.
+     *
+     * @template T of Throwable
+     *
+     * @param  T  $exception
+     * @param  RedactionSet|list<string>|null  $secrets
+     * @return T
+     */
+    public function maskThrowable(Throwable $exception, RedactionSet|array|null $secrets = null): Throwable
+    {
+        $set = self::set($secrets ?? []);
+        $seen = new \SplObjectStorage;
+
+        for ($link = $exception, $hops = 0; $link !== null && ! $seen->contains($link); $link = $link->getPrevious(), $hops++) {
+            $seen->attach($link);
+            $message = $link->getMessage();
+            $masked = $hops <= self::MAX_PREVIOUS ? $this->maskString($message, $set, [], 0) : self::MASK;
+
+            if ($masked !== $message) {
+                (new ReflectionProperty($link instanceof Exception ? Exception::class : Error::class, 'message'))->setValue($link, $masked);
+            }
+        }
+
+        return $exception;
     }
 
     /**
      * Raw driver output (a provider's response body or error text) made safe to show staff: JSON is redacted by key,
      * any text has known secrets masked, and the result is cut to $limit bytes.
      *
-     * @param  list<string>  $secrets
+     * @param  RedactionSet|list<string>  $secrets
      */
-    public function excerpt(string $raw, array $secrets = [], int $limit = self::EXCERPT_BYTES): string
+    public function excerpt(string $raw, RedactionSet|array $secrets = [], int $limit = self::EXCERPT_BYTES): string
     {
         $safe = $this->maskValues($raw, $secrets);
 
@@ -273,46 +315,70 @@ final class Redactor
 
     /**
      * @param  array<array-key, mixed>  $payload
-     * @param  list<string>  $variants
      * @param  list<string>  $sensitiveKeys
      * @return array<array-key, mixed>
      */
-    private function redactWith(array $payload, array $variants, array $sensitiveKeys, int $depth): array
+    private function redactWith(array $payload, RedactionSet $set, array $sensitiveKeys, int $depth): array
     {
         $redacted = [];
 
         foreach ($payload as $key => $value) {
-            $value = $this->unwrap($value);
+            $value = $this->unwrap($value, $depth);
 
-            if ($value !== null && $value !== '' && $value !== [] && $this->isSensitiveKey($key, $sensitiveKeys)) {
-                $redacted[$key] = self::MASK;
-
-                continue;
-            }
-
-            $redacted[$key] = match (true) {
-                is_array($value) => $depth >= self::MAX_DEPTH ? self::MASK : $this->redactWith($value, $variants, $sensitiveKeys, $depth + 1),
-                is_string($value) => $this->maskString($value, $variants, $sensitiveKeys, $depth),
+            $masked = match (true) {
+                $value !== null && $value !== '' && $value !== [] && $this->isSensitiveKey($key, $sensitiveKeys) => self::MASK,
+                is_array($value) => $depth >= self::MAX_DEPTH ? self::MASK : $this->redactWith($value, $set, $sensitiveKeys, $depth + 1),
+                is_string($value) => $this->maskString($value, $set, $sensitiveKeys, $depth),
+                is_int($value), is_float($value) => $set->matches((string) $value) ? self::MASK : $value,
                 default => $value,
             };
+
+            // A key that holds a value is renamed and its value withheld (`[redacted]`, `[redacted] 2`, ...).
+            if ($set->matches((string) $key)) {
+                $masked = self::MASK;
+
+                for ($name = self::MASK, $n = 2; array_key_exists($name, $redacted) || array_key_exists($name, $payload); $n++) {
+                    $name = self::MASK.' '.$n;
+                }
+
+                $key = $name;
+            }
+
+            $redacted[$key] = $masked;
         }
 
         return $redacted;
     }
 
-    private function unwrap(mixed $value): mixed
+    /**
+     * An object read as a value. Each unwrap counts towards the depth cap, so an object that returns itself (or a new
+     * object each time) ends masked at the cap.
+     */
+    private function unwrap(mixed $value, int $depth): mixed
     {
-        if (! is_object($value)) {
-            return $value;
+        for (; is_object($value); $depth++) {
+            if ($depth >= self::MAX_DEPTH) {
+                return self::MASK;
+            }
+
+            $value = match (true) {
+                $value instanceof Arrayable => $value->toArray(),
+                $value instanceof JsonSerializable => $value->jsonSerialize(),
+                $value instanceof \UnitEnum => $value instanceof \BackedEnum ? $value->value : $value->name,
+                $value instanceof \DateTimeInterface => $value->format(DATE_ATOM),
+                default => get_object_vars($value),
+            };
         }
 
-        return match (true) {
-            $value instanceof Arrayable => $value->toArray(),
-            $value instanceof JsonSerializable => $this->unwrap($value->jsonSerialize()),
-            $value instanceof \UnitEnum => $value instanceof \BackedEnum ? $value->value : $value->name,
-            $value instanceof \DateTimeInterface => $value->format(DATE_ATOM),
-            default => get_object_vars($value),
-        };
+        return $value;
+    }
+
+    /**
+     * @param  RedactionSet|list<string>  $secrets
+     */
+    private static function set(RedactionSet|array $secrets): RedactionSet
+    {
+        return $secrets instanceof RedactionSet ? $secrets : RedactionSet::of($secrets);
     }
 
     /**
@@ -320,10 +386,9 @@ final class Redactor
      * form bodies, headers, JSON or PHP text after a label) and XML. A string that is a whole JSON document is decoded
      * and redacted by key instead.
      *
-     * @param  list<string>  $variants
      * @param  list<string>  $sensitiveKeys
      */
-    private function maskString(string $value, array $variants, array $sensitiveKeys, int $depth): string
+    private function maskString(string $value, RedactionSet $set, array $sensitiveKeys, int $depth): string
     {
         $trimmed = ltrim($value);
 
@@ -331,16 +396,14 @@ final class Redactor
             $decoded = json_decode($value, true);
 
             if (is_array($decoded)) {
-                $redacted = $this->redactWith($decoded, $variants, $sensitiveKeys, $depth + 1);
+                $redacted = $this->redactWith($decoded, $set, $sensitiveKeys, $depth + 1);
 
                 // Nothing secret: keep the provider's own formatting rather than re-encoding it.
                 return $redacted === $decoded ? $value : (string) json_encode($redacted, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             }
         }
 
-        if ($variants !== []) {
-            $value = str_replace($variants, self::MASK, $value);
-        }
+        $value = $set->mask($value);
 
         $value = (string) preg_replace(self::SENSITIVE_VALUE_PATTERNS, self::MASK, $value);
         $value = (string) preg_replace(self::CLIENT_SECRET_PATTERN, '$1'.self::MASK, $value);
@@ -658,7 +721,10 @@ final class Redactor
                 continue;
             }
 
-            $nameLength = ctype_alpha($next) || $next === '_' ? strspn($value, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.:-', $open + 1) : 0;
+            // A byte >= 0x80 starts a name here as in voidContainerEnd(), so `<é t="<html>">` is a tag, not text (#309).
+            $nameLength = ctype_alpha($next) || $next === '_' || ($next !== '' && ord($next) >= 0x80)
+                ? strspn($value, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.:-'.self::highBytes(), $open + 1)
+                : 0;
 
             if ($nameLength === 0 && $next !== '/') {
                 $position = $open + 1; // a `<` that starts no tag is text
@@ -678,6 +744,14 @@ final class Redactor
         $from = null;
 
         return null;
+    }
+
+    /** Bytes 0x80 to 0xFF, which UTF-8 names are made of. */
+    private static function highBytes(): string
+    {
+        static $bytes = null;
+
+        return $bytes ??= implode('', array_map('chr', range(0x80, 0xFF)));
     }
 
     private function isNameByte(string $byte): bool
@@ -966,30 +1040,5 @@ final class Redactor
         }
 
         return $sum % 10 === 0;
-    }
-
-    /**
-     * Each secret plus the encoded forms it commonly appears in (URL-encoded, base64, Basic auth), longest first
-     * so a longer encoding is masked before a substring of it.
-     *
-     * @param  list<string>  $secrets
-     * @return list<string>
-     */
-    private function variants(array $secrets): array
-    {
-        $variants = [];
-
-        foreach ($secrets as $secret) {
-            if (strlen($secret) < 3) {
-                continue;
-            }
-
-            array_push($variants, $secret, urlencode($secret), rawurlencode($secret), base64_encode($secret), rtrim(base64_encode($secret), '='));
-        }
-
-        $variants = array_values(array_unique(array_filter($variants, fn (string $variant): bool => strlen($variant) >= 3)));
-        usort($variants, fn (string $a, string $b): int => strlen($b) <=> strlen($a));
-
-        return $variants;
     }
 }

@@ -33,7 +33,7 @@ the dependency policy runs **before** anything is installed (no package code —
 | #   | Step                                                                                                                                                                                                      | s (run 39279853998) |
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
 | 0   | runner + PostgreSQL service container (`postgres:18.6-alpine@sha256…`)                                                                                                                                    | 20                  |
-| 1   | checkout (depth 2 for PRs, full history for pushes) · docs-only detection · dependency diff base                                                                                                          | 3                   |
+| 1   | checkout (depth 2 for PRs, full history for pushes) · docs-only detection · dependency diff base · changelog fragments (PRs only, also on the fast path)                                                  | 3                   |
 | 2   | setup-php · setup-node (toolchain only, no project dependencies)                                                                                                                                          | 6                   |
 | 3   | postgres digest drift (ci.yml = compose.yaml)                                                                                                                                                             | 0                   |
 | 4   | `composer validate` on every code or dependency change · `composer audit --locked` · `npm audit --audit-level=high --package-lock-only` only when a manifest, lockfile, `.npmrc` or workflow file changed | 2                   |
@@ -160,6 +160,21 @@ Both use the standard Linux runner: 4 CPUs and 16 GB for a public repository (2 
 The repository is public, so the runner fits the small and medium profiles; `load-test.yml` skips the large profile
 (8 vCPU) there unless asked, because the runner is smaller than it is. Results and the guidance drawn from them are in
 `docs/devops/sizing.md`.
+
+## Changelog fragments
+
+On every PR, docs-only ones included, `scripts/changelog-check.sh` (ADR 0027) fails a direct edit of
+`billing/changelog.md` or `billing/docs/architecture/kernel-changelog.md` and points to the fragment folder
+(`billing/changelog.d/`, `billing/docs/architecture/kernel-changelog.d/`), and fails a malformed fragment
+(`scripts/changelog-assemble.sh --check`). It only warns when app code (`billing/{app,bootstrap,config,database,lang,resources,routes}/`)
+changes with no changelog fragment, or the kernel surface changes with no kernel-changelog fragment.
+
+- The assemble commit is allowed to edit the changelogs: the PR head (`HEAD^2` of the merge commit) carries the trailer
+  `Changelog-Assemble: yes`, and the diff only edits the two changelogs and deletes fragments. Keep that commit as the
+  PR's last one; a later commit or a merge of `develop` drops the marker.
+- PRs into `main` are not checked (a release PR carries `develop`'s assembled changelog). PRs up to #396, opened before
+  fragments, keep their direct edits with a warning (`LEGACY_MAX_PR` in the script; remove it once they have merged).
+- The local merge gate runs the same check with `develop`'s copy of both scripts.
 
 ## Local merge gate
 

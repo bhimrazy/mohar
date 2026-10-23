@@ -415,7 +415,7 @@ Client area:
 Emitted after commit, as defined in ADR 0024 §6 (`DomainEvent`, `ShouldDispatchAfterCommit`, the int + currency
 pattern of `InvoiceRefunded`):
 
-- `CreditNoteIssued(int $taxNoteId, string $number, int $invoiceId, int $clientId, int $total, string $currency,
+- `CreditNoteIssued(int $taxNoteId, string $number, int $invoiceId, int $clientId, int $amount, string $currency,
   bool $automatic)` **MUST**
 - `DebitNoteIssued(...)` with the same fields. **MUST**
 - Existing events keep their meaning: `InvoiceCancelled` still fires on cancellation (after the note),
@@ -425,7 +425,7 @@ pattern of `InvoiceRefunded`):
 Consumed by:
 
 - Notifications: "Credit note issued" / "Debit note issued" email with the PDF; webhook events `credit_note.issued`
-  and `debit_note.issued` (one class to one key in `WebhookEventTypes::MAP`); merge fields `tax_note.*` through
+  and `debit_note.issued` (one class to one key, registered by Billing's provider with `WebhookEvents::register()`); merge fields `tax_note.*` through
   `MergeFieldRegistry`. **MUST**
 - Affiliates and Services: none. Commission reversal stays on `PaymentReversed`; a note never suspends or cancels a
   service.

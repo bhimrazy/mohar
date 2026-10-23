@@ -45,7 +45,7 @@ class HandleInertiaRequests extends Middleware
             ...parent::share($request),
             'name' => fn (): string => app(BrandProvider::class)->brand()->name,
             'auth' => [
-                'user' => $request->user(),
+                'user' => $request->user() ? [...$request->user()->toArray(), 'has_password' => $request->user()->hasPassword()] : null,
             ],
             // Display settings per currency (prefix, suffix, grouping) so formatMoney matches server output.
             'currencyFormats' => fn (): array => array_map(fn (CurrencyDisplay $display): array => $display->toArray(), app(CurrencyDirectory::class)->displays()),

@@ -49,6 +49,7 @@ class SampleContext
             // Previews and test sends never generate a real token: these links are visibly fake and do nothing.
             'auth' => [
                 'reset_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/reset-password/SAMPLE-LINK-NOT-VALID'),
+                'set_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/settings/password/set/SAMPLE-LINK-NOT-VALID'),
                 'verify_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/email/verify/SAMPLE-LINK-NOT-VALID'),
                 'invite_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/invitation/SAMPLE-LINK-NOT-VALID'),
                 // Account links last an hour; invitations the configured number of days (the invitation templates).

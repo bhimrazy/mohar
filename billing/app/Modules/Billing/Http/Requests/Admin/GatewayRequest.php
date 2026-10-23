@@ -5,6 +5,7 @@ namespace App\Modules\Billing\Http\Requests\Admin;
 use App\Data\Integrations\SettingField;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Support\Integrations\KeepsSecretsOutOfOldInput;
+use App\Support\Integrations\SecretMinimumLength;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -31,7 +32,22 @@ class GatewayRequest extends FormRequest
             'settings' => ['array'],
             'settings.*' => ['nullable', 'string', 'max:5000'],
             'replacement' => ['nullable', 'string', Rule::in(array_keys(app(GatewayManager::class)->drivers()))],
+            ...collect($this->fields())->filter(fn (SettingField $field): bool => $field->isSecret())
+                ->mapWithKeys(fn (SettingField $field): array => ["settings.{$field->key}" => ['nullable', 'string', 'max:5000', new SecretMinimumLength($field)]])
+                ->all(),
         ];
+    }
+
+    /**
+     * @return list<SettingField>
+     */
+    private function fields(): array
+    {
+        $key = (string) $this->route('gateway');
+
+        return array_key_exists($key, app(GatewayManager::class)->drivers())
+            ? array_map(SettingField::fromArray(...), app(GatewayManager::class)->driver($key)->settingsFields())
+            : [];
     }
 
     /**
@@ -39,11 +55,6 @@ class GatewayRequest extends FormRequest
      */
     protected function secretInputPaths(): array
     {
-        $key = (string) $this->route('gateway');
-        $fields = array_key_exists($key, app(GatewayManager::class)->drivers())
-            ? array_map(SettingField::fromArray(...), app(GatewayManager::class)->driver($key)->settingsFields())
-            : [];
-
-        return $this->settingInputPaths('settings', $fields);
+        return $this->settingInputPaths('settings', $this->fields());
     }
 }

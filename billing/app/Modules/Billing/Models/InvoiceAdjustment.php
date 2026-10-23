@@ -24,11 +24,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $tax_amount
  * @property int|null $transaction_id
  * @property int|null $created_by
+ * @property int|null $tax_note_id set on the one value adjustment a note writes
+ * @property int|null $invoice_item_id
  * @property CarbonImmutable|null $created_at
  * @property-read Invoice $invoice
  * @property-read User|null $creator
  */
-#[Fillable(['invoice_id', 'kind', 'number', 'reason', 'description', 'amount', 'taxable_amount', 'tax_amount', 'transaction_id', 'created_by'])]
+#[Fillable(['invoice_id', 'kind', 'number', 'reason', 'description', 'amount', 'taxable_amount', 'tax_amount', 'transaction_id', 'created_by', 'tax_note_id', 'invoice_item_id'])]
 class InvoiceAdjustment extends Model
 {
     protected function casts(): array
