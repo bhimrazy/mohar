@@ -11,6 +11,7 @@ use App\Support\Currencies\Decimal;
 use Generator;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
+use stdClass;
 
 /**
  * The fiscal documents of a register period (vat-register §6.1): tax invoices by their numbering snapshot and credit
@@ -131,8 +132,8 @@ class RegisterDocuments
      * Line descriptions and quantities of each document, and for notes the settlement and the creator, read for one
      * chunk at a time.
      *
-     * @param  list<object>  $rows
-     * @return array<string, array{lines: list<array{description: string, quantity: int}>, settlement?: list<string>, creator?: string|null}>
+     * @param  array<int, stdClass>  $rows
+     * @return array<string, array{lines?: list<array{description: string, quantity: int}>, settlement?: list<string>, creator?: string|null}>
      */
     private function details(array $rows): array
     {
@@ -169,11 +170,12 @@ class RegisterDocuments
             $details[$kinds[$adjustment->tax_note_id].':'.$adjustment->tax_note_id]['settlement'][] = (string) $adjustment->reason;
         }
 
-        $creators = User::query()->whereIn('id', array_filter(array_map(fn (object $row): ?int => $row->created_by === null ? null : (int) $row->created_by, $rows)))->pluck('name', 'id');
+        $creators = User::query()->whereIn('id', array_filter(array_map(fn (stdClass $row): ?int => $row->created_by === null ? null : (int) $row->created_by, $rows)))->pluck('name', 'id');
 
         foreach ($rows as $row) {
             if ($row->kind !== 'invoice' && $row->created_by !== null) {
-                $details[$row->kind.':'.$row->doc_id]['creator'] = $creators[(int) $row->created_by] ?? null;
+                $name = $creators[(int) $row->created_by] ?? null;
+                $details[$row->kind.':'.$row->doc_id]['creator'] = is_string($name) ? $name : null;
             }
         }
 
@@ -182,10 +184,10 @@ class RegisterDocuments
 
     /**
      * @param  list<int>  $noteIds
-     * @return iterable<TaxNoteLine>
+     * @return iterable<stdClass>
      */
     private function noteLines(array $noteIds): iterable
     {
-        return TaxNoteLine::query()->whereIn('tax_note_id', $noteIds)->orderBy('sort_order')->orderBy('id')->get(['tax_note_id', 'description', 'quantity']);
+        return TaxNoteLine::query()->whereIn('tax_note_id', $noteIds)->orderBy('sort_order')->orderBy('id')->toBase()->get(['tax_note_id', 'description', 'quantity']);
     }
 }

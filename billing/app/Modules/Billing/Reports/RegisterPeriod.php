@@ -134,6 +134,9 @@ final readonly class RegisterPeriod
         return implode(' – ', array_unique($years));
     }
 
+    /**
+     * @param  'month'|'year'  $kind
+     */
     private static function months(string $kind, int $year, int $month, ?int $lastYear = null, ?int $lastMonth = null): self
     {
         $lastYear ??= $year;

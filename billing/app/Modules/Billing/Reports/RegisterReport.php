@@ -50,6 +50,14 @@ abstract class RegisterReport implements HasSensitiveExport, ProvidesCsvOptions,
         return $figures;
     }
 
+    /** A translated text cell; `__()` is typed to return an array for a group key. */
+    protected static function text(string $key): string
+    {
+        $text = __($key);
+
+        return is_string($text) ? $text : $key;
+    }
+
     public function category(): string
     {
         return 'billing';

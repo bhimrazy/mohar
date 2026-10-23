@@ -66,7 +66,7 @@ class VatRegisterReport extends RegisterReport
             'pan' => $document->pan,
             'goods' => $document->goods(),
             'quantity' => $document->quantity(),
-            'unit' => $document->lines === [] ? null : __('service'),
+            'unit' => $document->lines === [] ? null : self::text('service'),
             'total_sales' => $document->money($document->totalSales()),
             'exempt' => $document->money($document->exempt),
             'taxable' => $document->money($document->taxable),
@@ -75,7 +75,7 @@ class VatRegisterReport extends RegisterReport
             'export_country' => $document->exportValue !== 0 ? $document->country : null,
             'export_declaration' => null,
             'ad_date' => $document->issueDate,
-            'type' => __(RegisterDocument::KINDS[$document->kind]),
+            'type' => self::text(RegisterDocument::KINDS[$document->kind]),
             'reference' => $document->refNumber === null ? null : trim($document->refNumber.' '.($document->refBsDate !== null ? '('.$document->refBsDate.' BS)' : '')),
             'foreign' => $document->foreign(),
         ];

@@ -74,7 +74,7 @@ class TaxNoteRegisterReport extends RegisterReport
             'number' => $document->number,
             'bs_date' => $document->bsDate,
             'ad_date' => $document->issueDate,
-            'type' => __(RegisterDocument::KINDS[$document->kind]),
+            'type' => self::text(RegisterDocument::KINDS[$document->kind]),
             'invoice' => $document->refNumber,
             'invoice_bs_date' => $document->refBsDate,
             'buyer' => $document->buyer,
@@ -86,8 +86,8 @@ class TaxNoteRegisterReport extends RegisterReport
             'exempt' => $document->money($document->exempt),
             'vat' => $document->money($document->tax),
             'total' => $document->money($sales === null ? null : $sales + (int) $document->tax),
-            'settlement' => implode(', ', array_unique(array_map(fn (string $reason): string => __(self::SETTLEMENT[$reason] ?? ucfirst(str_replace('_', ' ', $reason))), $document->settlement))),
-            'created_by' => $document->automatic ? __('Automatic') : $document->creator,
+            'settlement' => implode(', ', array_unique(array_map(fn (string $reason): string => self::text(self::SETTLEMENT[$reason] ?? ucfirst(str_replace('_', ' ', $reason))), $document->settlement))),
+            'created_by' => $document->automatic ? self::text('Automatic') : $document->creator,
         ];
     }
 }

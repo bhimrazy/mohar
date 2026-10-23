@@ -4,6 +4,7 @@ namespace App\Modules\Billing\Reports;
 
 use App\Support\Money;
 use Carbon\CarbonImmutable;
+use stdClass;
 
 /**
  * One tax invoice, credit note or debit note as the registers show it. Amounts are in the register currency, signed
@@ -49,7 +50,7 @@ final readonly class RegisterDocument
     /**
      * @param  array{lines?: list<array{description: string, quantity: int}>, settlement?: list<string>, creator?: string|null}  $detail
      */
-    public static function from(object $row, string $registerCurrency, array $detail): self
+    public static function from(stdClass $row, string $registerCurrency, array $detail): self
     {
         $sign = $row->kind === 'credit' ? -1 : 1;
         $buyer = is_string($row->buyer) ? (array) json_decode($row->buyer, true) : (array) $row->buyer;
