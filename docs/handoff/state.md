@@ -50,7 +50,7 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
 
 - GitHub `bhimrazy/mohar` (public; the old name `bhimrazy/whmcs` redirects). `develop` = integration, `main` = release
   landing page (not yet cut).
-- App: `billing/` (Laravel 13.36, PHP 8.4, Inertia 3, React 19, Pest 5, vite-plus 1.1.0). Local setup:
+- App: `billing/` (Laravel 13.36, PHP 8.4, Inertia 3, React 19, Pest 5, vite-plus 1.3.0). Local setup:
   `billing/docs/devops/local-setup.md` and the docs-site page "Run locally". Production install:
   `billing/docs/devops/install.md`.
 - Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`. Process:
@@ -58,21 +58,21 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
 
 ## Open pull requests and running work
 
-Signed off and in the merge queue (`.worktrees/_review/merge-queue.sh`, which merges at the signed head once CI
+Signed off and in the merge queue (`scripts/merge-queue.sh`, which merges at the signed head once CI
 passes and refreshes changelog-only conflicts): #365 link an existing ResellerClub order, #362 eSewa signed
 COMPLETE then NOT_FOUND goes to staff review (closes #323), #369 VAT PR 1a (snapshot, fiscal backfill command,
 per-sequence numbering), #364 Notifications and Platform on the company clock, #374 one bcrypt check per sign-in and
-a cheaper dashboard roll-up (#205; load run not conclusive), #373 Namecheap simulator, then #376 Namecheap driver.
+a cheaper dashboard roll-up (#205; the runner load run was mixed: sign-in and p99 faster, p50 slower, no same-day baseline), #373 Namecheap simulator, then #376 Namecheap driver.
 
-| PR   | Workstream                                       | Status (2026-10-23 12:30 UTC)                              |
-| ---- | ------------------------------------------------ | ---------------------------------------------------------- |
-| #368 | Mask TLD answers in registrar result meta        | Ready; merges after #365 (both add an ADR 0009 amendment). |
-| —    | VAT PR 1b: note issuer (allocation, caps, races) | Building, stacked on #369.                                 |
-| —    | Domains on the company clock                     | Starts once #364 and #365 merge.                           |
-| —    | Step-up for logins without a password (#274)     | Building.                                                  |
-| —    | ADR 0023 Redactor redesign (#254)                | Architect drafting.                                        |
-| —    | ResellerClub phone country code doubled (#377)   | Building.                                                  |
-| #128 | Gateway expansion spec                           | Draft. Owner questions in the PR.                          |
+| PR   | Workstream                                       | Status (2026-10-23 12:30 UTC)                                                           |
+| ---- | ------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| #368 | Mask TLD answers in registrar result meta        | Signed off by review; still a draft until #365 merges (both add an ADR 0009 amendment). |
+| —    | VAT PR 1b: note issuer (allocation, caps, races) | Building, stacked on #369.                                                              |
+| —    | Domains on the company clock                     | Starts once #364 and #365 merge.                                                        |
+| —    | Step-up for logins without a password (#274)     | Building.                                                                               |
+| —    | ADR 0023 Redactor redesign (#254)                | Architect drafting.                                                                     |
+| —    | ResellerClub phone country code doubled (#377)   | Building.                                                                               |
+| #128 | Gateway expansion spec                           | Draft. Owner questions in the PR.                                                       |
 
 After each merge close the issue by hand (`develop` ignores closing keywords). Signed-off PRs must be marked ready:
 CI skips drafts without the `ci` label.
@@ -83,8 +83,9 @@ CI skips drafts without the `ci` label.
   and store at 40 users, cause not found).
 - Before enabling Namecheap: a sandbox check of the not-in-account error numbers (2016166, 2019166), the `.us`,
   `.ca` and `.eu` extension details and the transfer texts (simulator README "verify" list).
-- Proposed, awaiting the owner: changelog fragments (`billing/changelog.d/<pr>.md`, assembled at release). Today
-  almost every merge hit a changelog-only conflict and needed an extra CI run.
+- Proposed, awaiting the owner: changelog fragments (`billing/changelog.d/<pr>.md`, assembled at release). On
+  2026-10-23, nine PRs (#360, #361, #362, #364, #365, #368, #369, #371, #374) needed a changelog-only merge of
+  `develop` and another CI run before they could merge.
 
 ## Open owner questions
 
@@ -105,7 +106,7 @@ Go-live (label `go-live`): issues #11 and #126 are closed (#11 by PR #242, #126 
 
 ## Scheduled
 
-- From 2026-10-23 06:00 UTC: vite-plus 1.3.0 (#241). The Laravel 13.36 bump (#11) merged in #242.
+- Nothing scheduled.
 
 ## Local-only state on the codespaces
 
