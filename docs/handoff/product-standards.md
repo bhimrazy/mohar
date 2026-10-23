@@ -25,6 +25,16 @@ every item.
 - Every action that can fail shows its reason where the user acted; actions that can't succeed are disabled with
   the reason. (2026-10-18)
 
+## Forms and ordering
+
+- Details a registry or provider requires say in plain words who qualifies and what each choice means; when
+  eligibility depends on the customer's country or business, warn before payment, not after the registry refuses.
+  (2026-10-23)
+- Validation errors name the field by its label and never show field keys such as `tld_attributes.id`.
+  (2026-10-23)
+- What a customer enters at order time is shown back in the cart and at checkout before payment, with
+  identity numbers masked. (2026-10-23)
+
 ## Settings
 
 - Every setting changes behaviour; a setting nothing reads is a bug. (2026-10-18)
