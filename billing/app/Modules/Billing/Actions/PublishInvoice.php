@@ -9,6 +9,7 @@ use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Services\DocumentNumbers;
+use App\Modules\Billing\Services\FiscalSnapshotWriter;
 use App\Modules\Billing\Services\InvoiceCalculator;
 use App\Modules\Billing\Services\InvoiceSettlement;
 use App\Modules\Billing\Services\SellerDetails;
@@ -32,6 +33,7 @@ class PublishInvoice
         private BillingSettings $settings,
         private SellerDetails $seller,
         private CompanyClock $clock,
+        private FiscalSnapshotWriter $fiscal,
     ) {}
 
     /**
@@ -75,6 +77,7 @@ class PublishInvoice
                 $invoice->proforma_number = $this->numbers->next(DocumentNumbers::PROFORMA, $invoice->issue_date);
             } else {
                 $invoice->number = $this->numbers->next(DocumentNumbers::INVOICE, $invoice->issue_date);
+                $this->fiscal->stamp($invoice, $this->clock->now()->utc());
             }
 
             $invoice->seller_snapshot = $this->seller->snapshot();
