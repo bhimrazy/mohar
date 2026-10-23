@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Database\Seeders;
 
+use App\Contracts\Core\CompanyClock;
 use App\Enums\BillingCycle;
 use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Models\Client;
@@ -43,7 +44,8 @@ class ServicesSeeder extends DemoSeeder
             return;
         }
 
-        $today = CarbonImmutable::today();
+        $clock = app(CompanyClock::class);
+        $today = $clock->todayDate();
         $group = ServerGroup::query()->create(['name' => 'Shared hosting US', 'fill_type' => FillType::LeastFull]);
         $servers = collect([
             ['name' => 'Web 1', 'hostname' => 'web1.demo-host.net', 'ip_address' => '203.0.113.10', 'max_accounts' => 200, 'is_default' => true, 'datacenter' => 'Ashburn'],
@@ -79,7 +81,7 @@ class ServicesSeeder extends DemoSeeder
             $this->paidThrough($service, $today->addDays(($index * 5) % 28 + 2));
         }
 
-        $this->seedUsage($today);
+        $this->seedUsage($clock->dayBounds($today)[0]);
     }
 
     private function seedDemoClient(Client $demo, CarbonImmutable $today): void
@@ -176,16 +178,17 @@ class ServicesSeeder extends DemoSeeder
         $service->refresh();
     }
 
-    private function seedUsage(CarbonImmutable $today): void
+    /** @param  CarbonImmutable  $dayStart  the first instant of the company day */
+    private function seedUsage(CarbonImmutable $dayStart): void
     {
-        Service::query()->whereIn('status', [ServiceStatus::Active->value, ServiceStatus::Suspended->value])->orderBy('id')->each(function (Service $service) use ($today): void {
+        Service::query()->whereIn('status', [ServiceStatus::Active->value, ServiceStatus::Suspended->value])->orderBy('id')->each(function (Service $service) use ($dayStart): void {
             UsageSnapshot::query()->create([
                 'service_id' => $service->id,
                 'disk_used_mb' => 300 + ($service->id * 413) % 7000,
                 'disk_limit_mb' => 10240,
                 'bw_used_mb' => 2000 + ($service->id * 1777) % 60000,
                 'bw_limit_mb' => 102400,
-                'captured_at' => $today->setTime(4, 0),
+                'captured_at' => $dayStart->addHours(4),
             ]);
         });
     }

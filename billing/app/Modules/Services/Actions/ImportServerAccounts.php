@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Actions;
 
+use App\Contracts\Core\CompanyClock;
 use App\Data\Catalog\ProductSummary;
 use App\Enums\BillingCycle;
 use App\Events\Services\ServiceImported;
@@ -44,7 +45,7 @@ class ImportServerAccounts
     /** Accounts per queued chunk. */
     public const CHUNK = 100;
 
-    public function __construct(private AccountImportPlan $plan, private AccountImportMatcher $matcher, private ActivityLogger $activity) {}
+    public function __construct(private AccountImportPlan $plan, private AccountImportMatcher $matcher, private ActivityLogger $activity, private CompanyClock $clock) {}
 
     /**
      * Record staff choices under the server lock, so nothing is written once an import has started: for $usernames in
@@ -331,7 +332,7 @@ class ImportServerAccounts
             'first_payment_amount' => 0,
             'recurring_amount' => $row['amount'],
             'recurring_cycles_limit' => $product->recurringCycleLimit ?? 0,
-            'registration_date' => ($created ?? $now)->toDateString(),
+            'registration_date' => $this->clock->localDate($created ?? $now),
             'billing_anchor_day' => $row['anchor_day'],
             'next_due_date' => $due,
             'next_invoice_date' => $due,
