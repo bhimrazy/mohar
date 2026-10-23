@@ -19,7 +19,6 @@ use App\Modules\Services\Services\ModuleCommandDispatcher;
 use App\Modules\Services\Services\ServicePresenter;
 use App\Modules\Services\Support\CommandOutcome;
 use App\Modules\Services\Support\ServiceSettings;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
@@ -33,7 +32,7 @@ class ServiceActionController extends Controller
 
     public function __construct(private ClientContext $context) {}
 
-    public function cancel(CancellationRequestForm $request, int $service, RequestCancellation $cancellation, ServiceSettings $settings): RedirectResponse
+    public function cancel(CancellationRequestForm $request, int $service, RequestCancellation $cancellation, ServiceSettings $settings, CompanyClock $clock): RedirectResponse
     {
         $model = $this->owned($service);
 
@@ -41,7 +40,7 @@ class ServiceActionController extends Controller
             throw ValidationException::withMessages(['reason' => __('Please contact support to cancel this service.')]);
         }
 
-        $this->attempt(fn () => $cancellation->handle($model, $request->type(), $request->string('reason')->toString(), $request->user(), false, CarbonImmutable::today()), 'reason');
+        $this->attempt(fn () => $cancellation->handle($model, $request->type(), $request->string('reason')->toString(), $request->user(), false, $clock->todayDate()), 'reason');
         Inertia::flash('toast', ['type' => 'success', 'message' => __('We received your cancellation request for :label.', ['label' => $model->label()])]);
 
         return to_route('client.services.show', $model->id);

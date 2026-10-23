@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Http\Controllers\Admin;
 
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Services\Provisioning\ListsAccounts;
 use App\Enums\BillingCycle;
 use App\Http\Controllers\Controller;
@@ -148,7 +149,7 @@ class ServerImportController extends Controller
             'product_id' => ['sometimes', 'nullable', 'prohibited_if_accepted:ticked', 'integer', Rule::in(array_column($plan->productOptions($server), 'id'))],
             // Null: back to the account's default (monthly, or the product's first cycle; the next anniversary).
             'cycle' => ['sometimes', 'nullable', Rule::in(array_column(self::cycles(), 'value'))],
-            'next_due_date' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'after_or_equal:today', 'before:+5 years'],
+            'next_due_date' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'after_or_equal:'.app(CompanyClock::class)->todayDate()->toDateString(), 'before:+5 years'],
         ], [
             'client_id.prohibited' => __('Choosing a client needs the permission to view clients.'),
             'client_id.prohibited_if_accepted' => __('Choose the client for each account on its own.'),

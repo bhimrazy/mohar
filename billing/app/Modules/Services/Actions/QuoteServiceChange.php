@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Actions;
 
+use App\Contracts\Core\CompanyClock;
 use App\Data\Catalog\ProductSelection;
 use App\Enums\BillingCycle;
 use App\Modules\Services\Enums\ChangeKind;
@@ -23,7 +24,7 @@ use Carbon\CarbonImmutable;
  */
 class QuoteServiceChange
 {
-    public function __construct(private Catalog $catalog) {}
+    public function __construct(private Catalog $catalog, private CompanyClock $clock) {}
 
     /**
      * @throws ServiceActionException when the change is not allowed
@@ -149,7 +150,7 @@ class QuoteServiceChange
             ->where('service_id', $service->id)
             ->where('status', ChangeStatus::Applied->value)
             ->where(fn ($query) => $query
-                ->where('applied_at', '>=', $windowStart->startOfDay())
+                ->where('applied_at', '>=', $this->clock->dayBounds($windowStart)[0])
                 ->when($link?->updated_at !== null, fn ($query) => $query->orWhere('applied_at', '>=', $link?->updated_at)))
             ->orderByDesc('applied_at')
             ->orderByDesc('id')

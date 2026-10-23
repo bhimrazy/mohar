@@ -2,6 +2,7 @@
 
 use App\Modules\Core\Http\Controllers\Admin\ClientController;
 use App\Modules\Core\Http\Controllers\Admin\DashboardController as AdminDashboardController;
+use App\Modules\Core\Http\Controllers\Admin\StaffNoticeController;
 use App\Modules\Core\Http\Controllers\Client\AccountController;
 use App\Modules\Core\Http\Controllers\Client\DashboardController as ClientDashboardController;
 use Illuminate\Support\Facades\Route;
@@ -9,6 +10,7 @@ use Illuminate\Support\Facades\Route;
 Route::adminArea(function (): void {
     Route::get('/', AdminDashboardController::class)->name('dashboard');
     Route::resource('clients', ClientController::class)->except('destroy');
+    Route::post('notices/{notice}/dismiss', [StaffNoticeController::class, 'dismiss'])->where('notice', '[a-z_]+')->name('notices.dismiss');
 });
 
 Route::clientArea(function (): void {
