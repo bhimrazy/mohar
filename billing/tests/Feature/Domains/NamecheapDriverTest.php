@@ -10,6 +10,7 @@ use App\Enums\ReconcileStatus;
 use App\Modules\Domains\Drivers\Registrars\Namecheap\NamecheapClient;
 use App\Modules\Domains\Drivers\Registrars\Namecheap\NamecheapContacts;
 use App\Modules\Domains\Drivers\Registrars\Namecheap\NamecheapDriver;
+use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\Tld;
 use App\Support\Domains\RegistrarDriverRegistry;
 use App\Support\Domains\RegistrarException;
@@ -711,6 +712,8 @@ test('Namecheap declares extension details for .us, .ca and .eu only, as plain r
 });
 
 test('the host cleans extension answers against the declared fields, and a boolean confirmation is sent as YES', function () {
+    // A registrar that needs credentials declares no fields until its account is saved (#408).
+    RegistrarAccount::query()->create(['key' => 'namecheap', 'is_active' => true, 'test_mode' => true, 'settings' => []]);
     Tld::factory()->extension('.eu')->priced()->create(['registrar_key' => 'namecheap']);
     $errors = function (array $input): array {
         try {
