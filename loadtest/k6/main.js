@@ -32,6 +32,7 @@ export const client = arriving(clientScenario);
 export const storefront = arriving(storefrontScenario);
 export const admin = arriving(adminScenario);
 export const api = arriving(apiScenario);
+
 const MIX = { client: 0.5, storefront: 0.3, admin: 0.1, api: 0.1 };
 
 export const PAGES = [

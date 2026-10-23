@@ -118,7 +118,8 @@ test('every scenario arrives spread over START_SPREAD, and bin/run passes it to 
     }
     expect($main)->toContain("parseFloat(__ENV.START_SPREAD || '20')")
         ->and(loadtestFile('loadtest/bin/run'))->toContain('start_spread=20')
-        ->and(loadtestFile('loadtest/bin/run'))->toContain('-e START_SPREAD="$start_spread"');
+        ->and(loadtestFile('loadtest/bin/run'))->toContain('-e START_SPREAD="$start_spread"')
+        ->and(loadtestFile('loadtest/bin/run'))->toContain('[ "$start_spread" -ge "$(seconds "$d")" ]');
 });
 
 test('every docs/devops page the load-test docs point at exists', function () {

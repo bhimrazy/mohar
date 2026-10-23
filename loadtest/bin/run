@@ -52,6 +52,15 @@ profile_file="loadtest/profiles/${profile}.env"
 [ -f "$profile_file" ] || { echo "no profile $profile_file" >&2; exit 2; }
 case "$volume" in tiny|small|medium|large) ;; *) echo "unknown volume $volume" >&2; exit 2 ;; esac
 [[ "$start_spread" =~ ^[0-9]+$ ]] || { echo "--start-spread is whole seconds, for example 20" >&2; exit 2; }
+# A spread as long as a level would leave some virtual users without a single request. Checked here, before anything
+# runs; badly formed durations are reported further down.
+seconds() { case "$1" in *m) echo $(( ${1%m} * 60 )) ;; *) echo "${1%s}" ;; esac; }
+for d in "${level_duration:-$(. "$profile_file" && echo "$LEVEL_DURATION")}" "$warmup"; do
+    if [[ "$d" =~ ^[0-9]+[sm]$ ]] && [ "$start_spread" -ge "$(seconds "$d")" ]; then
+        echo "--start-spread ${start_spread} must be shorter than the level duration and the warm-up (${d})" >&2
+        exit 2
+    fi
+done
 
 run_id="${profile}-${volume}-$(date -u +%Y%m%dT%H%M%SZ)"
 results="${LOADTEST_RESULTS_DIR:-$root/loadtest/results/$run_id}"
