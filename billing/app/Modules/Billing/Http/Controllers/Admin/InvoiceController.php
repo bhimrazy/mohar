@@ -18,6 +18,7 @@ use App\Modules\Billing\Http\Resources\TransactionResource;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Billing\Services\TaxNoteIssuer;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\PaymentInProgress;
 use App\Modules\Core\Models\Client;
@@ -91,12 +92,13 @@ class InvoiceController extends Controller
         return to_route('admin.billing.invoices.show', $invoice);
     }
 
-    public function show(Request $request, Invoice $invoice, CreditLedgerService $credit, PaymentInProgress $inProgress): Response
+    public function show(Request $request, Invoice $invoice, CreditLedgerService $credit, PaymentInProgress $inProgress, TaxNoteIssuer $notes): Response
     {
         $this->authorize('billing.invoices.view');
 
         $invoice->load(['client', 'items', 'adjustments.creator:id,name']);
         $user = $request->user();
+        $notesEnabled = TaxNoteController::issuable($invoice) && $invoice->fiscal_total !== null;
 
         return Inertia::render('admin/billing/invoices/show', [
             'invoice' => new InvoiceResource($invoice),
@@ -106,10 +108,14 @@ class InvoiceController extends Controller
             'gateways' => $this->gatewayOptions(),
             'pay_methods' => PayMethodResource::collection(PayMethod::query()->where('client_id', $invoice->client_id)->usable()->orderByDesc('is_default')->orderBy('id')->get()
                 ->filter(fn (PayMethod $method): bool => $method->isUsable() && $this->gateways->supports($method->gateway, GatewayDriver::CAPTURE))->values()),
+            'tax_notes' => $invoice->numbered_at !== null ? TaxNoteController::panel($invoice) : [],
+            'notes_enabled' => $notesEnabled,
+            'creditable' => $notesEnabled ? ['total' => $notes->creditable($invoice), 'lines' => $notes->creditableLines($invoice)] : null,
             'can' => [
                 'manage' => $user?->hasPermission('billing.invoices.manage') ?? false,
                 'payments' => $user?->hasPermission('billing.payments.manage') ?? false,
                 'refunds' => $user?->hasPermission('billing.refunds.manage') ?? false,
+                'notes' => $user?->hasPermission('billing.notes.issue') ?? false,
             ],
         ]);
     }

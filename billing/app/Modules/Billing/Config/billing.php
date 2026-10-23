@@ -33,6 +33,8 @@ return [
     'debit_note_format' => 'DN-{NUMBER}',
     'debit_note_padding' => 0,
     'debit_note_reset' => 'never',
+    // Nepal VAT mode (ADR 0024 §8). Staff issue notes only while it is on; PR 3 adds enabling it from the settings.
+    'nepal_vat' => ['enabled' => false],
     'invoice_days_before_due' => 14,
 
     // Credit & add funds (§4.4, §4.5)

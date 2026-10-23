@@ -18,6 +18,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Schema;
 
 require_once __DIR__.'/helpers.php';
 
@@ -250,7 +251,8 @@ test('credit and debit numbers never collide, even when the stored formats are e
     $numbers = [issueNote(NoteRequest::creditAmount($invoice->id, 100, 'goodwill', 'c'))->number, issueNote(NoteRequest::debit($invoice->id, 100, true, 'other', 'd'))->number];
 
     expect($numbers[0])->not->toBe($numbers[1])->and($numbers)->toBe(['CN-1', 'DN-1']);
-})->with(['both empty' => ['', ''], 'equal' => ['N-{NUMBER}', 'N-{NUMBER}'], 'blank spaces' => ['  ', '  ']]);
+})->with(['both empty' => ['', ''], 'equal' => ['N-{NUMBER}', 'N-{NUMBER}'], 'blank spaces' => ['  ', '  '],
+    'the other side falls back to the same format (#396 N1)' => ['DN-{NUMBER}', ''], 'formats that differ only in digits (#396 N1)' => ['A{NUMBER}', 'A1{NUMBER}']]);
 
 test('rolling back the note references is refused while a note exists', function () {
     $invoice = issueInvoice(noteClient(), [10_000])->fresh(['items']);
@@ -259,3 +261,14 @@ test('rolling back the note references is refused while a note exists', function
 
     expect(fn () => $migration->down())->toThrow(RuntimeException::class, 'Rolling back would drop');
 });
+
+test('a refused rollback of the note migrations is refused by the newest one first and leaves them all in place (#396 N4)', function (string $file) {
+    $invoice = issueInvoice(noteClient(), [10_000])->fresh(['items']);
+    $user = User::factory()->create();
+    issueNote(NoteRequest::creditAmount($invoice->id, 100, 'goodwill', 'c', userId: $user->id));
+    $migration = require base_path("app/Modules/Billing/Database/Migrations/{$file}.php");
+
+    expect(fn () => $migration->down())->toThrow(RuntimeException::class, 'Restore a backup instead.')
+        ->and(fn () => DB::transaction(fn () => DB::table('users')->where('id', $user->id)->delete()))->toThrow(QueryException::class)
+        ->and(Schema::hasColumns('credit_ledger', ['tax_note_id']) && Schema::hasColumns('tax_notes', ['reverses_tax_note_id']))->toBeTrue();
+})->with(['2026_10_26_300720_add_note_settlement_and_reversal_columns', '2026_10_25_300710_restrict_deleting_the_issuer_of_a_tax_note']);

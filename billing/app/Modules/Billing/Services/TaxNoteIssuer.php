@@ -63,6 +63,26 @@ class TaxNoteIssuer
         private ActivityLogger $activity,
     ) {}
 
+    /** What can still be credited on the invoice: its value, plus debits, less credits and pending refund reservations. */
+    public function creditable(Invoice $invoice): int
+    {
+        return max(0, (int) $invoice->fiscal_total + $invoice->debited_total - $invoice->credited_total - $this->pending($invoice)['gross']);
+    }
+
+    /**
+     * Each line with the gross still creditable on it, for the by-line form; empty when the invoice takes no credit by line.
+     *
+     * @return list<array{id: int, description: string, left: int}>
+     */
+    public function creditableLines(Invoice $invoice): array
+    {
+        try {
+            return array_map(fn (array $line): array => ['id' => $line['id'], 'description' => $line['description'], 'left' => max(0, $line['gross'] - $line['used_gross'])], $this->lines($invoice));
+        } catch (BillingException) {
+            return [];
+        }
+    }
+
     public function preview(NoteRequest $request): NotePreview
     {
         return $this->plan($request, Invoice::query()->findOrFail($request->invoiceId));
@@ -157,7 +177,7 @@ class TaxNoteIssuer
         }
 
         if ($credit) {
-            $available = $invoice->fiscal_total + $invoice->debited_total - $invoice->credited_total - $this->pending($invoice)['gross'];
+            $available = $this->creditable($invoice);
 
             if ($total > $available) {
                 throw new BillingException(__('At most :amount can still be credited on this invoice.', ['amount' => $money(max(0, $available))]));
@@ -205,7 +225,7 @@ class TaxNoteIssuer
             throw new BillingException(__('Reverse a credit note from the note itself.'));
         }
 
-        if ($request->reverses !== null && ! $invoice->status->isPayable() && $invoice->status !== InvoiceStatus::Paid) {
+        if ($request->reverses !== null && ! in_array($invoice->status, [...InvoiceStatus::payable(), InvoiceStatus::Paid, InvoiceStatus::Cancelled], true)) {
             throw new BillingException(__('A credit note can be reversed only while its invoice is unpaid or paid.'));
         }
 
