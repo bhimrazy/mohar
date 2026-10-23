@@ -45,7 +45,7 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { formatDate } from '@/lib/date';
-import { expiryHint } from '@/types/domains';
+import { MANAGED_AT_REGISTRY, domainStatus, expiryHint } from '@/types/domains';
 import type { Domain, DomainContacts } from '@/types/domains';
 import { capabilityLabel } from '@/components/domains/capabilities';
 
@@ -187,7 +187,7 @@ export default function DomainShow({
                 <PageHeader
                     back={{ href: DomainController.index(), label: 'Domains' }}
                     title={domain.name_unicode}
-                    status={domain.status}
+                    status={domainStatus(domain)}
                     meta={
                         <>
                             {domain.client && (
@@ -372,7 +372,16 @@ export default function DomainShow({
                     <StatCard
                         label="Expires"
                         icon={CalendarClock}
-                        value={<DateTime value={domain.expiry_date} />}
+                        value={
+                            <DateTime
+                                value={domain.expiry_date}
+                                fallback={
+                                    domain.registered_by_client
+                                        ? MANAGED_AT_REGISTRY
+                                        : undefined
+                                }
+                            />
+                        }
                         hint={expiryHint(domain.days_until_expiry) ?? undefined}
                     />
                     <StatCard
@@ -394,7 +403,11 @@ export default function DomainShow({
                                 currency={domain.currency}
                             />
                         }
-                        hint={`${domain.period_years} year${domain.period_years === 1 ? '' : 's'} · auto-renew ${domain.auto_renew ? 'on' : 'off'}`}
+                        hint={
+                            domain.registered_by_client
+                                ? 'Renewed by the client at the registry'
+                                : `${domain.period_years} year${domain.period_years === 1 ? '' : 's'} · auto-renew ${domain.auto_renew ? 'on' : 'off'}`
+                        }
                     />
                     <StatCard
                         label="Last sync"

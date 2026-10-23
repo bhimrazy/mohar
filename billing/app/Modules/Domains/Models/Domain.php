@@ -177,6 +177,15 @@ class Domain extends Model
         return $this->hasMany(RegistrarCommandLog::class);
     }
 
+    /**
+     * Whether the client registered the name at the registry themselves (.np): never registered, renewed or
+     * expired here, so no expiry or auto-renew is tracked for it.
+     */
+    public function isRegisteredByClient(): bool
+    {
+        return $this->tldModel->registered_by_client;
+    }
+
     public function isFree(): bool
     {
         return $this->recurring_amount === 0;

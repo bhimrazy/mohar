@@ -318,7 +318,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
             ->all()), 'domains.domains.view');
 
         $this->app->make(MergeFieldRegistry::class)->register('domain', function (int $id): array {
-            $domain = Domain::query()->withTrashed()->findOrFail($id);
+            $domain = Domain::query()->withTrashed()->with('tldModel:id,registered_by_client')->findOrFail($id);
 
             return [
                 'domain_id' => $domain->id,
@@ -326,8 +326,12 @@ class DomainsServiceProvider extends ModuleServiceProvider
                 'domain' => $domain->name_unicode,
                 'domain_ascii' => $domain->name,
                 'status' => $domain->status->value,
+                // What to call the status: a name the client registered at the registry is not "Active" here.
+                'status_label' => $domain->isRegisteredByClient() && $domain->status === DomainStatus::Active ? __('Self-registered') : $domain->status->label(),
+                'registered_by_client' => $domain->isRegisteredByClient(),
                 'registration_date' => $domain->registration_date?->toDateString(),
                 'expiry_date' => $domain->expiry_date?->toDateString(),
+                'expiry_label' => $domain->expiry_date === null && $domain->isRegisteredByClient() ? __('At the registry') : null,
                 'next_due_date' => $domain->next_due_date->toDateString(),
                 'days_until_expiry' => $domain->expiry_date === null ? null : (int) CarbonImmutable::today()->diffInDays($domain->expiry_date, false),
                 'recurring_amount' => $domain->recurring_amount,

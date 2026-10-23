@@ -43,6 +43,7 @@ class DomainController extends Controller
 
         $domains = Domain::query()
             ->where('client_id', $this->context->id())
+            ->with('tldModel:id,registered_by_client')
             ->search($request->string('search')->toString())
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')->toString()))
             ->orderByRaw('case when expiry_date is null then 1 else 0 end')
@@ -60,7 +61,7 @@ class DomainController extends Controller
 
     public function show(int $domain, RegistrarDriverRegistry $registrars, DomainPricingService $pricing): Response
     {
-        $model = $this->domain($domain)->load('contacts');
+        $model = $this->domain($domain)->load(['contacts', 'tldModel:id,registered_by_client']);
         $client = $this->context->client();
         $contacts = [];
 
@@ -80,7 +81,7 @@ class DomainController extends Controller
             'canManage' => $model->status->allowsClientActions(),
             'canResubmitTransfer' => $model->type === 'transfer' && $model->status === DomainStatus::Pending && $model->provision_invoice_id !== null,
             'renewalTerms' => $pricing->renewalTerms($model, $model->currency, $client->client_group_id),
-            'canRenewNow' => $model->status->allowsClientActions() && (bool) app(Settings::class)->get('domains.enable_renewal_orders', true)
+            'canRenewNow' => $model->status->allowsClientActions() && ! $model->isRegisteredByClient() && (bool) app(Settings::class)->get('domains.enable_renewal_orders', true)
                 && ! ($model->isFree() && $model->linked_service_status === 'active'),
         ]);
     }

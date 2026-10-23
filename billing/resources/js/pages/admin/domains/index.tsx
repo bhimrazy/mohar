@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import TldController from '@/actions/App/Modules/Domains/Http/Controllers/Admin/TldController';
 import type { ResourcePaginated } from '@/types/app';
-import { expiryHint } from '@/types/domains';
+import { MANAGED_AT_REGISTRY, domainStatus, expiryHint } from '@/types/domains';
 import type { Domain } from '@/types/domains';
 
 type Props = {
@@ -60,7 +60,7 @@ const columns = (
     {
         key: 'status',
         header: 'Status',
-        cell: (domain) => <StatusBadge status={domain.status} />,
+        cell: (domain) => <StatusBadge status={domainStatus(domain)} />,
     },
     {
         key: 'registrar',
@@ -78,7 +78,14 @@ const columns = (
         header: 'Expires',
         cell: (domain) => (
             <span className="flex flex-col">
-                <DateTime value={domain.expiry_date} />
+                <DateTime
+                    value={domain.expiry_date}
+                    fallback={
+                        domain.registered_by_client
+                            ? MANAGED_AT_REGISTRY
+                            : undefined
+                    }
+                />
                 {domain.days_until_expiry !== null &&
                     domain.days_until_expiry <= 30 && (
                         <span className="text-xs text-muted-foreground">
@@ -92,7 +99,12 @@ const columns = (
         key: 'auto_renew',
         header: 'Auto-renew',
         hideOnMobile: true,
-        cell: (domain) => (domain.auto_renew ? 'On' : 'Off'),
+        cell: (domain) =>
+            domain.registered_by_client
+                ? 'At the registry'
+                : domain.auto_renew
+                  ? 'On'
+                  : 'Off',
     },
     {
         key: 'amount',
