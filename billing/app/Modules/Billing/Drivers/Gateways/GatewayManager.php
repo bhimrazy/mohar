@@ -7,6 +7,7 @@ use App\Contracts\Billing\GatewayRegistry;
 use App\Contracts\Billing\HostedPaymentDriver;
 use App\Contracts\Integrations\ProvidesLogo;
 use App\Data\Billing\GatewayConfig;
+use App\Data\Integrations\SettingField;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
 use App\Support\Billing\SandboxPolicy;
@@ -96,7 +97,18 @@ class GatewayManager implements GatewayRegistry
             settings: $settings,
             sandbox: filter_var($settings['sandbox'] ?? false, FILTER_VALIDATE_BOOLEAN),
             convertToCurrency: $gateway->convert_to_currency,
+            secretSettingKeys: $this->secretSettingKeys($gateway->key),
         );
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function secretSettingKeys(string $key): array
+    {
+        $fields = $this->has($key) ? array_map(SettingField::fromArray(...), $this->driver($key)->settingsFields()) : [];
+
+        return array_values(array_map(fn (SettingField $field): string => $field->key, array_filter($fields, fn (SettingField $field): bool => $field->isSecret())));
     }
 
     /**
