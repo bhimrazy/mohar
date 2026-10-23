@@ -8,7 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
-- **A phone typed as `+9779841234567` no longer gets its country code twice at ResellerClub (#377).** A number written with a `+` and no separator after the country code is now split at the longest known calling code (for example 977, 971, 44, 1) before it is sent; an unknown code is refused with an example of how to write it. Numbers with a separator, and local numbers, are unchanged.
+- **A phone typed as `+9779841234567` no longer gets its country code twice at ResellerClub (#377).** A number written with a `+` and no separator after the country code is now split at the longest calling code among the 15 countries the driver maps (977, 91, 880, 975, 94, 92, 86, 971, 65, 1, 44, 61, 64, 49, 33). A valid code outside those, typed without a separator (for example `+81…` or `+852…`), is now refused with an example of how to write it; before, it was sent with the wrong country code. A code with no number after it is refused. Numbers with a separator, and local numbers, are unchanged.
 
 - **Simulators no longer fail to start at random (#370).** A scenario's `scenario.json` is now written to a temporary file and renamed into place. Rewriting it in place (after the processes were spawned) could let a starting process read it empty, which failed CI with "did not become ready". Test-only tooling; no app change.
 

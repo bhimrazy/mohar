@@ -231,8 +231,9 @@ final class ResellerClubContacts
 
     /**
      * A typed phone number as ResellerClub's country code and number: `+977.15550100`, `+977 1-5550100`,
-     * `+9779841234567` (no separator: the longest known calling code the digits start with is the code), or a local
-     * `01-5550100` with the contact's country.
+     * `+9779841234567` (no separator: the code is the longest one in CALLING_CODES, the countries mapped here, that the
+     * digits start with; a valid code of another country typed without a separator, such as +81…, is refused with an
+     * example), or a local `01-5550100` with the contact's country.
      *
      * @return array{0: string, 1: string}
      */
@@ -248,7 +249,11 @@ final class ResellerClubContacts
             $digits = (string) preg_replace('/\D/', '', $typed);
 
             foreach ([3, 2, 1] as $length) {
-                if (in_array(substr($digits, 0, $length), self::CALLING_CODES, true)) {
+                if (strlen($digits) >= $length && in_array(substr($digits, 0, $length), self::CALLING_CODES, true)) {
+                    if (strlen($digits) === $length) {
+                        throw new RegistrarException('The contact phone number has a country code but no number; enter it like +977.15550100.');
+                    }
+
                     return [substr($digits, 0, $length), substr($digits, $length)];
                 }
             }
