@@ -6,6 +6,25 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Report registry and export pipeline (ADR 0025, VAT PR 0c)
+
+- New provider contract `App\Contracts\Reports\Report` (`key`, `label`, `category`, `filters`, `columns`, `rows`,
+  `count`) with optional capabilities `ProvidesTotals`, `ProvidesHeaderBlock`, `ProvidesLayouts`, `ProvidesPdfView`
+  and `ConfiguresExport` (`sensitiveExport()`, `csvBom()`), detected with `instanceof`. Rows are keyed by column key.
+- New DTOs `App\Data\Reports\ReportColumn`, `ReportFilter` and `ReportQuery` (validated filters, acting user id and
+  the period resolved with `CompanyClock::dayBounds()`), and enums `App\Enums\ColumnType` (closed: text, money,
+  integer, decimal, date, instant) and `ExportFormat` (open: csv, pdf).
+- New `App\Support\Reports\ReportRegistry` (`register(class)`, `has`, `get`, `all`; singleton in
+  `AppServiceProvider`): a duplicate or malformed key throws at boot, and it registers `reports.{key}.view` and
+  `reports.{key}.export` with `PermissionRegistry` (the export is sensitive when `ConfiguresExport` says so).
+- New `App\Support\Reports\ReportExporter` (`query()` validates filters, `export()` returns a streamed response):
+  permission check, step-up for sensitive exports, row limit, one `report.exported` entry. Writers implement
+  `ExportWriter`; CSV and PDF ship. New kernel view `resources/views/reports/pdf.blade.php`.
+- New `App\Support\Csv\SafeCsv` and `Verbatim`: the formula guard moved here from Migration's `ErrorsCsv`
+  (which now uses it). The guard covers text cells only.
+- New config `reports.csv_bom` (false) and `reports.sync_export_max_rows` (5000), exposed as Settings, Reports.
+  Additive; no schema change.
+
 ### Company clock contract (ADR 0013 Amendment 1, PR 0a)
 
 - New `App\Contracts\Core\CompanyClock`: `timezone()`, `now()`, `today()`, `todayDate()` (the company date as 00:00 UTC, the run-date shape), `dayBounds(date)` (the `[start, end)`

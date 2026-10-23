@@ -196,6 +196,11 @@ class CoreServiceProvider extends ModuleServiceProvider
             new SettingDefinition('core.social_x', 'X (Twitter) profile', help: 'An https:// link, shown in the website footer.', rules: ['nullable', 'url:https', 'max:255']),
         ], 'core.settings.update');
 
+        $this->app->make(SettingsRegistry::class)->section('reports', 'Reports', [
+            new SettingDefinition('reports.csv_bom', 'Start CSV exports with a byte order mark', 'boolean', 'Excel on Windows needs it to read Nepali and other non-English text. Reports that always need it (the VAT register) set it themselves.'),
+            new SettingDefinition('reports.sync_export_max_rows', 'Largest file exported at once (rows)', 'integer', 'A report with more rows is refused with a request to narrow the filters.', rules: ['required', 'integer', 'min:100', 'max:50000']),
+        ], 'core.settings.update');
+
         $this->app->make(GlobalSearch::class)->provider('Clients', fn (string $term): array => array_values(Client::query()
             ->search($term)->limit(5)->get()
             ->map(fn (Client $client): array => ['title' => $client->display_name, 'subtitle' => $client->email, 'href' => route('admin.clients.show', $client)])
