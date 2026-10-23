@@ -7,7 +7,7 @@ export function ActionErrors() {
     const { errors } = usePage().props as {
         errors?: Record<string, string | undefined>;
     };
-    const message = errors?.registrar ?? errors?.domain;
+    const message = errors?.registrar ?? errors?.domain ?? errors?.order_id;
 
     if (!message) {
         return null;

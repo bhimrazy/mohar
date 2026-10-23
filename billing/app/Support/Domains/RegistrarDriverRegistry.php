@@ -4,6 +4,7 @@ namespace App\Support\Domains;
 
 use App\Contracts\Domains\Registrar\ChecksAvailability;
 use App\Contracts\Domains\Registrar\DeclaresTldAttributes;
+use App\Contracts\Domains\Registrar\LinksExistingOrders;
 use App\Contracts\Domains\Registrar\ManagesContacts;
 use App\Contracts\Domains\Registrar\ManagesIdProtection;
 use App\Contracts\Domains\Registrar\ManagesLock;
@@ -64,6 +65,8 @@ final class RegistrarDriverRegistry extends DriverRegistry
 
     public const RECONCILE = 'reconcile';
 
+    public const LINK_ORDER = 'link_order';
+
     public const TEST_CONNECTION = 'test_connection';
 
     public const TLD_ATTRIBUTES = 'tld_attributes';
@@ -91,6 +94,7 @@ final class RegistrarDriverRegistry extends DriverRegistry
             self::SYNC => SyncsDomains::class,
             self::TRANSFER_SYNC => TransfersDomains::class,
             self::RECONCILE => ReconcilesSubmissions::class,
+            self::LINK_ORDER => LinksExistingOrders::class,
             self::TEST_CONNECTION => TestsRegistrarConnection::class,
             self::TLD_ATTRIBUTES => DeclaresTldAttributes::class,
         ];
