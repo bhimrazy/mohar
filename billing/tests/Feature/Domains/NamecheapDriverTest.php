@@ -140,7 +140,7 @@ test('a registration is sent as one POST to the sandbox with the sandbox credent
     $sent = ncSent('namecheap.domains.create');
 
     expect($result->status)->toBe('completed')
-        ->and($result->expiryDate->toDateString())->toBe(CarbonImmutable::now('UTC')->addYear()->toDateString())
+        ->and($result->expiryDate)->toBeNull()
         ->and($result->remote)->toBe(['domain_id' => 8_100_001, 'order_id' => 5_100_001])
         ->and($sent->method())->toBe('POST')
         ->and($sent->url())->toBe('https://api.sandbox.namecheap.com/xml.response')
@@ -593,7 +593,7 @@ test('contacts are read per role and written as all four with the billing role a
     $sent = ncSent('namecheap.domains.setContacts');
 
     expect($changed->status)->toBe('completed')
-        ->and($changed->meta['transfer_lock_until'])->toBe(CarbonImmutable::today()->addDays(60)->toDateString())
+        ->and($changed->meta['transfer_lock_days'])->toBe(60)
         ->and($sent['AuxBillingEmailAddress'])->toBe('asha@example.test')
         ->and($sent['RegistrantEmailAddress'])->toBe('asha@example.test')
         ->and($sent['DomainName'])->toBe('asha-sim.com');
