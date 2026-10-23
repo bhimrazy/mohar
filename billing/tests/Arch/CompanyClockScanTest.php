@@ -107,22 +107,24 @@ test('the scan allows the company clock and plain date handling', function () {
 
 const HAND_CONVERSIONS = [
     'shiftTimezone(' => '/shiftTimezone\s*\(/',
-    'an instant method on the run date' => '/\$today\s*->\s*(setTime|setTimeFrom|endOfDay|isToday|isSameDay|utc|setTimezone)\s*\(/',
+    // A chain such as `$today->subDays(3)->endOfDay()` is the same conversion.
+    'an instant method on the run date' => '/\$today(\s*->\s*\w+\([^)]*\))*\s*->\s*(setTime|setTimeFrom|endOfDay|isToday|isSameDay|utc|setTimezone)\s*\(/',
     'a timestamp column compared with the run date' => '/[\x27"]\w+_at[\x27"]\s*,\s*[\x27"][<>]=?[\x27"]\s*,\s*\$today\b/',
 ];
 
 /**
- * Hits that exist today, as "file: form". The list may only shrink: each module PR removes its own entries. A hit that
- * is not listed fails (use todayDate() and dayBounds()); a listed hit that is gone fails until it is removed here.
+ * Hits that exist today, as "file: form" => count. The list may only shrink: each module PR removes its own entries. A
+ * hit beyond the count fails (use todayDate() and dayBounds()); a listed hit that is gone fails until it is lowered here.
  * The run date is a date value (CompanyClock::todayDate()); a CalendarDate type is deferred to ADR 0013 Amendment 2.
  */
 const HAND_CONVERSION_BASELINE = [
-    'Modules/Domains/DomainsServiceProvider.php: a timestamp column compared with the run date',
-    'Modules/Notifications/Actions/PruneNotificationLogs.php: a timestamp column compared with the run date',
-    'Modules/Orders/Actions/CancelStalePendingOrders.php: a timestamp column compared with the run date',
-    'Modules/Platform/PlatformServiceProvider.php: a timestamp column compared with the run date',
-    'Modules/Services/Actions/PruneModuleLog.php: a timestamp column compared with the run date',
-    'Modules/Services/Database/Seeders/ServicesSeeder.php: an instant method on the run date',
+    'Modules/Billing/Database/Seeders/BillingHistorySeeder.php: an instant method on the run date' => 1,
+    'Modules/Domains/DomainsServiceProvider.php: a timestamp column compared with the run date' => 1,
+    'Modules/Notifications/Actions/PruneNotificationLogs.php: a timestamp column compared with the run date' => 2,
+    'Modules/Orders/Actions/CancelStalePendingOrders.php: a timestamp column compared with the run date' => 1,
+    'Modules/Platform/PlatformServiceProvider.php: a timestamp column compared with the run date' => 3,
+    'Modules/Services/Actions/PruneModuleLog.php: a timestamp column compared with the run date' => 1,
+    'Modules/Services/Database/Seeders/ServicesSeeder.php: an instant method on the run date' => 1,
 ];
 
 test('no module converts the run date by hand beyond the baseline', function () {
@@ -130,18 +132,23 @@ test('no module converts the run date by hand beyond the baseline', function () 
 
     foreach (billingDocumentCode('', true) as $path => $code) {
         foreach (HAND_CONVERSIONS as $label => $pattern) {
-            if (preg_match($pattern, $code) === 1) {
-                $found[] = "{$path}: {$label}";
+            $hits = preg_match_all($pattern, $code);
+
+            if ($hits > 0) {
+                $found["{$path}: {$label}"] = $hits;
             }
         }
     }
 
-    sort($found);
+    ksort($found);
     $baseline = HAND_CONVERSION_BASELINE;
-    sort($baseline);
+    ksort($baseline);
 
-    expect(array_values(array_diff($found, $baseline)))->toBe([], 'New hand conversion: use CompanyClock::todayDate() and dayBounds().')
-        ->and(array_values(array_diff($baseline, $found)))->toBe([], 'A baselined hit is gone: remove it from HAND_CONVERSION_BASELINE.');
+    $over = array_filter($found, fn (int $hits, string $key): bool => $hits > ($baseline[$key] ?? 0), ARRAY_FILTER_USE_BOTH);
+    $under = array_filter($baseline, fn (int $hits, string $key): bool => $hits > ($found[$key] ?? 0), ARRAY_FILTER_USE_BOTH);
+
+    expect($over)->toBe([], 'New hand conversion: use CompanyClock::todayDate() and dayBounds().')
+        ->and($under)->toBe([], 'A baselined hit is gone: lower or remove it in HAND_CONVERSION_BASELINE.');
 });
 
 test('the hand-conversion patterns see what they ban', function (string $label, string $code) {
@@ -151,6 +158,8 @@ test('the hand-conversion patterns see what they ban', function (string $label, 
     ['an instant method on the run date', '$today->endOfDay()'],
     ['an instant method on the run date', '$today->setTimeFrom(now())'],
     ['an instant method on the run date', '$today->isToday()'],
+    ['an instant method on the run date', '$today->subDays(3)->endOfDay()'],
+    ['an instant method on the run date', '$today->addDay()->setTimeFrom(now())'],
     ['a timestamp column compared with the run date', "->where('captured_at', '>=', \$today)"],
     ['a timestamp column compared with the run date', "->where('created_at', '<', \$today->subDays(3))"],
 ]);

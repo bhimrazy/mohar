@@ -15,7 +15,8 @@ use Closure;
  *
  * Tasks receive the run date as a date value (the shape of `CompanyClock::todayDate()`: 00:00 UTC on the company date,
  * like a `date` cast). Turn it into instants only with `CompanyClock::dayBounds()`; never `startOfDay()`, `endOfDay()`,
- * `setTime*()`, `isToday()` or `isSameDay()` on it. Tasks return a short summary (int count or string) for the run log.
+ * `setTime*()`, `isToday()` or `isSameDay()` on it. Name the parameter `$today`, so the arch scan (CompanyClockScanTest)
+ * can see it. Tasks return a short summary (int count or string) for the run log.
  * A task must be safe to re-run for the same date (it may be retried after a failure).
  */
 class Automation

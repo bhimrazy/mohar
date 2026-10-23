@@ -45,7 +45,7 @@ For a Kathmandu company, an invoice paid at 01:00 local time on the 5th counts a
     cast, a run date, `todayDate()`): compare date strings, or convert a date to instants through `dayBounds()`.
 
 4. **Calendar dates** are company-calendar dates without a time zone: `next_due_date`, invoice `date`/`due_date`,
-   `run_date`, promotion start and end, report periods. They are produced only by `CompanyClock::today()` or by
+   `run_date`, promotion start and end, report periods. They are produced only by `CompanyClock::todayDate()` (or the company date of `today()`) or by
    arithmetic on other calendar dates (`BillingCycle::advance`). Never call `CarbonImmutable::today()` or
    `now()->toDateString()` in module code. Pest's arch `not->toUse('today')` catches the helper; a small test that
    scans `app/Modules` for `::today(` and `->startOfDay()->toDateString()` catches the static forms, which the arch
@@ -157,11 +157,11 @@ numbers fiscal documents on the UTC calendar.
     - **`todayDate()`** names the date value (00:00 UTC of the company date, the shape of a `date` cast and of the run
       date that tasks receive: see the `Automation` docblock). The Arch scan bans hand conversions (`shiftTimezone(`,
       `setTime*`, `endOfDay`, `isToday`, `isSameDay`, `utc`, `setTimezone` on `$today`, and a `*_at` column compared
-      with `$today`) over `app/Modules`, with a baseline of existing hits that may only shrink. A distinct
+      with `$today`) over `app/Modules`, with a baseline of existing hits, counted per file, that may only shrink. A distinct
       `CalendarDate` value object for task signatures is deferred to Amendment 2.
     - **Invalid zone**: backward-compatible names (`Asia/Katmandu`, `Asia/Calcutta`) are accepted and mapped to their
       canonical zones. A real fallback to UTC is reported and shown as a dashboard warning. A VAT note must refuse
-      to be issued while the clock is in fallback (`CoreCompanyClock::isFallback()`, used from PR 4).
+      to be issued while the clock is in fallback (`CompanyClock::isFallback()`, used from PR 4).
 
 ### Migration of existing data
 
