@@ -126,3 +126,17 @@ answers for its own configuration (for example, `AccountLinks::problem()` for in
 contract and never test the class of a binding (`instanceof Null…`): a package's own unavailable binding, or a
 decorator around the null one, must answer the same way. Examples: `GatewayDirectory::available()`,
 `ClientLoginInvitations::problem()` (#255).
+
+## Amendment (#405) — 2026-10-23, event-keyed registries and kernel-owned keys
+
+`App\Support\Events\WebhookEvents` (ADR 0011) is an allowed exception to the `register(key, item)` shape: it is keyed
+by the event class, and the public webhook type is the second argument, `register(event, type, entity, idProperty, replace)`.
+
+- The type is a public name that subscribers store, so its pattern is `<area>.<action>` (`[a-z0-9_]+(\.[a-z0-9_]+)+`, up to
+  50 characters), not `[a-z0-9_]{1,50}`. A type and an event class are each registered once.
+- `entity` and `idProperty` are not validated at registration (nothing is resolved); an unknown entity falls back to the
+  event's scalar properties.
+- **Replace policy.** `replace: true` cannot take over a type whose registered event class is under `App\Events\`
+  (kernel-owned): it throws `LogicException`. Replacing a package-owned type is allowed and logged at warning with the
+  previous and new event class. Other registries keep the general rule above.
+- Types must be registered in a provider's `boot()`: the consuming listeners attach after all providers have booted.
