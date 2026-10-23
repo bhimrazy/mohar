@@ -14,6 +14,7 @@ use App\Modules\Platform\Actions\Staff\UpdateStaff;
 use App\Modules\Platform\Http\Requests\StaffRequest;
 use App\Modules\Platform\Models\StaffInvitation;
 use App\Modules\Platform\Services\PermissionGuard;
+use App\Modules\Platform\Support\AccountMail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -121,19 +122,25 @@ class StaffController extends Controller
         $actor = $request->user();
         abort_if($actor === null, 401);
 
-        $update->handle($actor, $staff, [
+        $mailed = $update->handle($actor, $staff, [
             'name' => $request->string('name')->toString(),
             'email' => $request->string('email')->toString(),
             'role_id' => $request->integer('role_id'),
             'is_active' => $request->boolean('is_active'),
         ]);
 
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('Staff member :name saved.', ['name' => $staff->name])]);
+        $name = $staff->name;
+        Inertia::flash('toast', match (true) {
+            $mailed->verificationSent && $mailed->oldAddressTold => ['type' => 'success', 'message' => __('Staff member :name saved.', ['name' => $name])],
+            $mailed->oldAddressTold => ['type' => 'warning', 'message' => __('Staff member :name saved, but the verification email could not be sent. Once mail works again, they can resend it from their profile page.', ['name' => $name])],
+            $mailed->verificationSent => ['type' => 'warning', 'message' => __('Staff member :name saved, but the notice to their previous email address could not be sent. The activity log has the details.', ['name' => $name])],
+            default => ['type' => 'warning', 'message' => __('Staff member :name saved, but neither the verification email nor the notice to their previous email address could be sent. Once mail works again, they can resend the verification email from their profile page.', ['name' => $name])],
+        });
 
         return to_route('admin.platform.staff.index');
     }
 
-    public function resetTwoFactor(Request $request, User $staff, ResetStaffTwoFactor $reset): RedirectResponse
+    public function resetTwoFactor(Request $request, User $staff, ResetStaffTwoFactor $reset, AccountMail $mail): RedirectResponse
     {
         $this->authorize('core.staff.manage');
         abort_unless($staff->is_staff, 404);
@@ -141,7 +148,7 @@ class StaffController extends Controller
         abort_if($actor === null, 401);
 
         $reset->handle($actor, $staff);
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('Two-factor authentication reset for :name.', ['name' => $staff->name])]);
+        Inertia::flash('toast', $mail->toast(['type' => 'success', 'message' => __('Two-factor authentication reset for :name.', ['name' => $staff->name])]));
 
         return back();
     }

@@ -14,6 +14,8 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -57,6 +59,24 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+
+        // "Re-send the verification email" with the mail server down: a warning to act on, not an error page. The
+        // handler has already reported the failure. Other routes keep the error page.
+        $exceptions->render(function (TransportExceptionInterface $e, Request $request) {
+            if (! $request->routeIs('verification.send')) {
+                return null;
+            }
+
+            $message = __('We couldn\'t send the email right now. Try again in a few minutes.');
+
+            if ($request->expectsJson() && ! $request->header('X-Inertia')) {
+                return response()->json(['message' => $message], 503);
+            }
+
+            Inertia::flash('toast', ['type' => 'warning', 'message' => $message]);
+
+            return back();
+        });
 
         // A branded page for the errors a person in a browser can reach (App\Http\Errors\BrandedErrorPage).
         $exceptions->respond(new BrandedErrorPage);
