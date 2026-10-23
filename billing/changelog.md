@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **Simulators no longer fail to start at random (#370).** A scenario's `scenario.json` is now written to a temporary file and renamed into place. Rewriting it in place (after the processes were spawned) could let a starting process read it empty, which failed CI with "did not become ready". Test-only tooling; no app change.
+
 - **Report PDFs: long names wrap, headings line up, dates sit next to the next column (#357).** A long text cell (a legal
   name) now wraps inside its column, and ends in an ellipsis once it would take more than four lines, instead of being
   cut mid-word with no marker; the CSV always holds the full text. The cut never splits a character (a Devanagari
