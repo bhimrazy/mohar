@@ -78,7 +78,7 @@ export default function Profile({
                                 <Input
                                     id="email"
                                     type="email"
-                                    className="mt-1 block w-full"
+                                    className="mt-1 block w-full read-only:bg-muted read-only:text-muted-foreground"
                                     defaultValue={auth.user.email}
                                     name="email"
                                     required
