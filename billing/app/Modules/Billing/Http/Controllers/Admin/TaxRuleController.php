@@ -5,6 +5,7 @@ namespace App\Modules\Billing\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Http\Requests\Admin\TaxRuleRequest;
 use App\Modules\Billing\Models\TaxRule;
+use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Support\ActivityLogger;
 use Illuminate\Http\RedirectResponse;
@@ -70,6 +71,15 @@ class TaxRuleController extends Controller
     public function destroy(TaxRule $taxRule): RedirectResponse
     {
         $this->authorize('billing.tax.manage');
+
+        $mode = app(NepalVatMode::class);
+
+        if (in_array($taxRule->id, [...$mode->vatRules(), $mode->exportRule()], true)) {
+            Inertia::flash('toast', ['type' => 'error', 'message' => __('This rule is used by Nepal VAT mode. Choose another rule there first.')]);
+
+            return back();
+        }
+
         $this->activity->log('Tax rule deleted', $taxRule, properties: ['rule' => $taxRule->only(['name', 'level', 'country', 'state', 'scope', 'rate'])]);
         $taxRule->delete();
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Tax rule deleted.')]);

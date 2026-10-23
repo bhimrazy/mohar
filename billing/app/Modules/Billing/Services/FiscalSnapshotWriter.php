@@ -33,6 +33,7 @@ class FiscalSnapshotWriter
         private CurrencyConverter $converter,
         private BillingSettings $settings,
         private CompanyClock $clock,
+        private NepalVatMode $mode,
     ) {}
 
     /**
@@ -55,18 +56,23 @@ class FiscalSnapshotWriter
             $published ? [] : $this->adjustmentRows(DB::table('invoice_adjustments')->where('invoice_id', $invoice->id)->whereIn('reason', FiscalSnapshotCalculator::VALUE_REASONS)->orderBy('id')->get()),
         );
         $reviews = $snapshot->reviews;
-        $invoice->forceFill($this->attributes($snapshot, $invoice->currency, $invoice->issue_date?->format('Y-m-d'), $at, $reviews));
+        // Nepal VAT is told apart from other tax by the rules the invoice was calculated with, once the mode is on.
+        $vat = $this->mode->enabled() ? $this->mode->classify($invoice->tax1_rule_id, $invoice->tax2_rule_id, $snapshot->tax1, $snapshot->tax2, [$invoice->tax1_name, $invoice->tax1_rate, $invoice->tax2_name, $invoice->tax2_rate]) : null;
+        $invoice->forceFill($this->attributes($snapshot, $invoice->currency, $invoice->issue_date?->format('Y-m-d'), $at, $reviews, $vat));
         $this->record($invoice->id, $reviews);
     }
 
     /**
      * The columns of the snapshot. `$issueDate` is the date printed on the document, a company-calendar date; without
      * one the company date of `$at` is used. A date outside the Bikram Sambat table leaves the BS fields empty.
+     * `$vat` is NepalVatMode::classify() when the mode is on; without it the class is taxable or exempt by the tax sum and
+     * the Nepal VAT flags stay empty.
      *
      * @param  list<array{reason: string, subject: string, detail: string}>  $reviews  gains the entries this adds
+     * @param  array{vat1: bool, vat2: bool, class: string}|null  $vat
      * @return array<string, mixed>
      */
-    public function attributes(FiscalSnapshot $snapshot, string $currency, ?string $issueDate, CarbonInterface $at, array &$reviews): array
+    public function attributes(FiscalSnapshot $snapshot, string $currency, ?string $issueDate, CarbonInterface $at, array &$reviews, ?array $vat = null): array
     {
         $reportCurrency = $this->memo !== null ? $this->memo['report'] : $this->reportCurrency();
         $rate = null;
@@ -96,7 +102,9 @@ class FiscalSnapshotWriter
             'fiscal_total' => $snapshot->total,
             'report_currency' => $reportCurrency,
             'report_rate' => $rate,
-            'supply_class' => $snapshot->supplyClass(),
+            'supply_class' => $vat['class'] ?? $snapshot->supplyClass(),
+            'fiscal_tax1_is_vat' => $vat['vat1'] ?? null,
+            'fiscal_tax2_is_vat' => $vat['vat2'] ?? null,
             'bs_issue_date' => $bs?->toIso(),
             'bs_period' => $bs !== null ? BikramSambat::period($bs) : null,
             'bs_fiscal_year' => $bs !== null ? BikramSambat::fiscalYear($bs) : null,

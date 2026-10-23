@@ -7,6 +7,7 @@ use App\Modules\Billing\Http\Controllers\Admin\GatewayController;
 use App\Modules\Billing\Http\Controllers\Admin\GatewayLogController;
 use App\Modules\Billing\Http\Controllers\Admin\InvoiceActionController;
 use App\Modules\Billing\Http\Controllers\Admin\InvoiceController as AdminInvoiceController;
+use App\Modules\Billing\Http\Controllers\Admin\NepalVatController;
 use App\Modules\Billing\Http\Controllers\Admin\PaymentAttemptController;
 use App\Modules\Billing\Http\Controllers\Admin\QuoteController as AdminQuoteController;
 use App\Modules\Billing\Http\Controllers\Admin\TaxRuleController;
@@ -66,6 +67,8 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
 
     Route::get('tax-rules', [TaxRuleController::class, 'index'])->name('tax-rules.index');
     Route::resource('tax-rules', TaxRuleController::class)->only(['store', 'update', 'destroy'])->parameters(['tax-rules' => 'taxRule'])->middleware('password.recent');
+    Route::get('vat-mode', [NepalVatController::class, 'edit'])->name('vat-mode.edit');
+    Route::put('vat-mode', [NepalVatController::class, 'update'])->middleware('password.recent')->name('vat-mode.update');
     Route::get('gateway-log', [GatewayLogController::class, 'index'])->name('gateway-log.index');
     Route::get('payment-attempts', [PaymentAttemptController::class, 'index'])->name('payment-attempts.index');
     Route::post('payment-attempts/{attempt}/check', [PaymentAttemptController::class, 'check'])->name('payment-attempts.check');
