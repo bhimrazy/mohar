@@ -212,12 +212,11 @@ class ExecuteModuleCommand
             ServerCapacityExhausted::dispatch($service->id, $service->product_id, $product?->serverGroupId);
             $result = DriverResult::fail($exception->getMessage());
         } catch (Throwable $exception) {
-            $secrets = $context?->secrets() ?? [];
-            report(new \RuntimeException($this->redactor->maskValues($exception->getMessage(), $secrets)));
+            report(new \RuntimeException($this->redactor->maskValues($exception->getMessage(), $this->secrets($context, $args))));
             $result = DriverResult::fail($exception->getMessage());
         }
 
-        $secrets = [...($context?->secrets() ?? []), ...(isset($args['password']) ? [(string) $args['password']] : [])];
+        $secrets = $this->secrets($context, $args);
         $error = $result->success ? null : $this->redactor->maskValues((string) $result->message, $secrets);
         $outcome = $result->outcome();
 
@@ -450,11 +449,22 @@ class ExecuteModuleCommand
         } catch (RetryableProvisioningException $exception) {
             throw $exception;
         } catch (Throwable $exception) {
-            $message = $this->redactor->maskValues($exception->getMessage(), $context->secrets());
+            $message = $this->redactor->maskValues($exception->getMessage(), $this->secrets($context, $args));
             report(new \RuntimeException($message));
 
             return DriverResult::unknown("The {$driver->name()} driver failed during the call: {$message}");
         }
+    }
+
+    /**
+     * The values to mask in anything this command reports or stores: the context's secrets and a new password.
+     *
+     * @param  array<string, mixed>  $args
+     * @return list<string>
+     */
+    private function secrets(?ProvisioningContext $context, array $args): array
+    {
+        return [...($context?->secrets() ?? []), ...(isset($args['password']) ? [(string) $args['password']] : [])];
     }
 
     /**
