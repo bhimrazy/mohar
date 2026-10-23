@@ -2,8 +2,8 @@
 
 namespace App\Modules\Orders\Console\Commands;
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Orders\Actions\CancelStalePendingOrders;
-use App\Modules\Orders\Services\CompanyClock;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -14,7 +14,7 @@ class CancelStalePending extends Command
 {
     public function handle(CancelStalePendingOrders $cancel, CompanyClock $clock): int
     {
-        $this->info("Cancelled {$cancel->handle($clock->today())} stale orders.");
+        $this->info("Cancelled {$cancel->handle($clock->todayDate())} stale orders.");
 
         return self::SUCCESS;
     }

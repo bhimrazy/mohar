@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Services;
 
+use App\Contracts\Core\CompanyClock;
 use App\Enums\BillableType;
 use App\Events\Billing\InvoicePaid;
 use App\Modules\Billing\Enums\AdjustmentKind;
@@ -15,7 +16,6 @@ use App\Modules\Billing\Models\InvoiceItem;
 use App\Modules\Billing\Support\AfterCommit;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Support\Money;
-use Carbon\CarbonImmutable;
 
 /**
  * Balance bookkeeping shared by every money action: adjustments (credit/debit notes) and the transition to paid.
@@ -27,6 +27,7 @@ class InvoiceSettlement
         private BillingSettings $settings,
         private DocumentNumbers $numbers,
         private CreditLedgerService $credit,
+        private CompanyClock $clock,
     ) {}
 
     public function adjust(
@@ -72,10 +73,11 @@ class InvoiceSettlement
         $invoice->paid_at = now();
 
         if ($invoice->number === null && $this->settings->bool('sequential_paid_numbering')) {
-            $invoice->number = $this->numbers->next(DocumentNumbers::INVOICE);
+            $today = $this->clock->today();
+            $invoice->number = $this->numbers->next(DocumentNumbers::INVOICE, $today);
 
             if ($this->settings->bool('set_issue_date_on_payment')) {
-                $invoice->issue_date = CarbonImmutable::today();
+                $invoice->issue_date = $today;
             }
         }
 

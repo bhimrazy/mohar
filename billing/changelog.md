@@ -14,6 +14,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **Documents are dated on the company's calendar (ADR 0013 Amendment 1).** Invoice issue and due dates, document
+  numbers (the yearly and monthly resets), quote validity, overdue checks, card expiry, the tax-rule effective date,
+  receipt dates, Bikram Sambat dates and the daily automation run date now come from the company time zone (Settings,
+  Company, `system.timezone`) instead of UTC. In Kathmandu an invoice published or paid at 00:05 is dated that day;
+  before, it carried the day before until 05:45. Upgrade and downgrade invoices are dated the same way. The daily
+  automation and the separate exchange-rate update start at their set time on the company's clock (they ran on server
+  time, UTC), and the automation page and the exchange-rate page show the next run in company time. A stored zone name
+  such as `Asia/Katmandu` or `Asia/Calcutta` is accepted and mapped to `Asia/Kathmandu` or `Asia/Kolkata`; a name that
+  is not a time zone at all falls back to UTC, is reported, and shows a warning on the admin dashboard. New read-only
+  command `php artisan billing:report-utc-dates` lists numbered invoices created, paid or last updated while the
+  company date differed from the UTC date (in Kathmandu, 00:00 to 05:45), so the owner and the accountant can judge
+  them; **existing invoices are not changed**. Upgrade notes: **the daily automation time and the exchange-rate update
+  time (`core.automation_time`, `platform.rates_update_time`) now mean company time**, where they meant UTC, so check
+  them once after upgrading (no stored value is converted). The first automation run after the upgrade uses the
+  company date, so one run date can be skipped (a Kathmandu install deployed between 21:15 and 03:00 UTC runs 18 Oct,
+  then 20 Oct); a date is never run twice, and the renewal, reminder, cancellation and suspension tasks select by `<=`
+  windows, so the next run takes what the skipped one would have. To run a skipped date, use `php artisan
+  automation:run --date=YYYY-MM-DD`. Core's `BusinessCalendar`, Orders' `CompanyClock` and Notifications' `MailClock`
+  are replaced by the `CompanyClock` contract. No schema or permission change.
+
 - **ResellerClub registrar (#280).** Hosts can register, transfer, renew and restore domains through ResellerClub:
   Admin → Domains → Registrars → ResellerClub takes the reseller id and API key (and separate demo credentials for
   test mode), one default customer or one customer per client, and an optional outbound proxy for the API allow-list.

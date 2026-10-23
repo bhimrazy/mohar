@@ -2,6 +2,7 @@
 
 namespace App\Modules\Orders\Pricing;
 
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Services\ClientServiceDirectory;
 use App\Modules\Core\Models\Client;
 use App\Modules\Orders\Enums\OrderItemStatus;
@@ -10,7 +11,6 @@ use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\OrderItem;
 use App\Modules\Orders\Models\Promotion;
 use App\Modules\Orders\Models\PromotionRedemption;
-use App\Modules\Orders\Services\CompanyClock;
 use App\Modules\Orders\Services\CurrencyConverter;
 use Illuminate\Database\Eloquent\Builder;
 

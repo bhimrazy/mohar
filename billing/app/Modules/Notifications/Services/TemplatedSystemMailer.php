@@ -9,7 +9,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Notifications\Data\EmailRequest;
 use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Models\EmailTemplate;
-use App\Modules\Notifications\Support\MailClock;
+use App\Modules\Notifications\Support\MailDates;
 use Carbon\CarbonInterface;
 use Throwable;
 
@@ -80,7 +80,7 @@ class TemplatedSystemMailer implements SystemMailer
     {
         array_walk_recursive($context, function (mixed &$value): void {
             if ($value instanceof CarbonInterface) {
-                $value = MailClock::dateTime($value);
+                $value = MailDates::dateTime($value);
             }
         });
 

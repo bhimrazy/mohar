@@ -2,6 +2,7 @@
 
 namespace App\Modules\Core\Support;
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Core\Models\AutomationRun;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
@@ -38,7 +39,7 @@ class AutomationStatus
 
     public function failedToday(): int
     {
-        return AutomationRun::query()->whereDate('run_date', CarbonImmutable::today())->where('status', 'failed')->count();
+        return AutomationRun::query()->whereDate('run_date', app(CompanyClock::class)->today()->toDateString())->where('status', 'failed')->count();
     }
 
     public function isStale(): bool

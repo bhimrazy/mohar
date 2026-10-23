@@ -57,7 +57,7 @@ use App\Modules\Notifications\Services\MergeContext;
 use App\Modules\Notifications\Services\NotificationMailer;
 use App\Modules\Notifications\Services\RecipientResolver;
 use App\Modules\Notifications\Support\EventKey;
-use App\Modules\Notifications\Support\MailClock;
+use App\Modules\Notifications\Support\MailDates;
 use App\Modules\Notifications\Webhooks\WebhookUrlGuard;
 use App\Support\Currencies\MoneyFormatter;
 use Closure;
@@ -709,7 +709,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         $dueDate = data_get($context, 'invoice.due_date');
 
         if (is_string($dueDate) && $dueDate !== '') {
-            data_set($context, 'invoice.days_overdue', max(0, -(int) MailClock::daysFromToday($dueDate)));
+            data_set($context, 'invoice.days_overdue', max(0, -(int) MailDates::daysFromToday($dueDate)));
         }
 
         return $context;

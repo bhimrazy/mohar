@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Http\Controllers\Admin;
 
+use App\Contracts\Core\CompanyClock;
 use App\Enums\BillingCycle;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Client;
@@ -61,7 +62,7 @@ class ServiceController extends Controller
 
         $service->load(['client', 'server', 'openCancellationRequest', 'latestUsage']);
         $user = $request->user();
-        $today = CarbonImmutable::today();
+        $today = app(CompanyClock::class)->todayDate();
 
         return Inertia::render('admin/services/show', [
             'service' => new ServiceResource($service),

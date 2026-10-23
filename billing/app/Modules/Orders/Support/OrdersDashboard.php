@@ -3,12 +3,12 @@
 namespace App\Modules\Orders\Support;
 
 use App\Contracts\Catalog\PriceBook;
+use App\Contracts\Core\CompanyClock;
 use App\Models\User;
 use App\Modules\Orders\Enums\OrderItemType;
 use App\Modules\Orders\Enums\OrderStatus;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\OrderItem;
-use App\Modules\Orders\Services\CompanyClock;
 use App\Support\Dashboard\Dashboard;
 use Carbon\CarbonImmutable;
 

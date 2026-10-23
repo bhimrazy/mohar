@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Core\CompanyClock;
 use App\Data\Billing\InvoiceDraft;
 use App\Data\Billing\InvoiceLineData;
 use App\Enums\BillableType;
@@ -35,6 +36,7 @@ class Quotes
         private IssueInvoice $issue,
         private BillingSettings $settings,
         private MoneyFormatter $money,
+        private CompanyClock $clock,
     ) {}
 
     /**
@@ -59,7 +61,7 @@ class Quotes
                 'client_id' => $client->id,
                 'subject' => $data['subject'],
                 'currency' => $client->currency,
-                'valid_until' => isset($data['valid_until']) ? CarbonImmutable::parse($data['valid_until']) : CarbonImmutable::today()->addDays($this->settings->int('quotes.valid_days', 30)),
+                'valid_until' => isset($data['valid_until']) ? CarbonImmutable::parse($data['valid_until']) : $this->clock->today()->addDays($this->settings->int('quotes.valid_days', 30)),
                 'proposal_text' => $data['proposal_text'] ?? null,
                 'customer_notes' => $data['customer_notes'] ?? null,
                 'admin_notes' => $data['admin_notes'] ?? null,
@@ -108,7 +110,7 @@ class Quotes
         }
 
         DB::transaction(function () use ($quote): void {
-            $quote->number ??= $this->numbers->next(DocumentNumbers::QUOTE);
+            $quote->number ??= $this->numbers->next(DocumentNumbers::QUOTE, $this->clock->today());
             $quote->stage = QuoteStage::Delivered;
             $quote->delivered_at = now();
             $quote->save();
@@ -124,7 +126,7 @@ class Quotes
         return DB::transaction(function () use ($quote): Quote {
             $quote = Quote::query()->lockForUpdate()->findOrFail($quote->id);
 
-            if (! $quote->stage->isOpen() || ($quote->valid_until !== null && $quote->valid_until->lt(CarbonImmutable::today()))) {
+            if (! $quote->stage->isOpen() || ($quote->valid_until !== null && $quote->valid_until->toDateString() < $this->clock->today()->toDateString())) {
                 throw new BillingException(__('This quote can no longer be accepted.'));
             }
 

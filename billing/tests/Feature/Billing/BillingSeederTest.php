@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Billing\Database\Seeders\BillingSeeder;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\TransactionType;
@@ -40,7 +41,7 @@ it('keeps seeded ledgers and numbering consistent', function () {
 
     $payments = Transaction::query()->with('invoice')->where('type', TransactionType::Payment)->get();
     expect($payments->pluck('occurred_at')->min()->lte(today()->subDays(80)))->toBeTrue()
-        ->and($payments->every(fn (Transaction $payment) => $payment->occurred_at->gte($payment->invoice->issue_date->startOfDay())))->toBeTrue();
+        ->and($payments->every(fn (Transaction $payment) => app(CompanyClock::class)->localDate($payment->occurred_at) >= $payment->invoice->issue_date->toDateString()))->toBeTrue();
 });
 
 it('bills as the demo Nepal seller: VAT on Nepal invoices, no Indian GST', function () {

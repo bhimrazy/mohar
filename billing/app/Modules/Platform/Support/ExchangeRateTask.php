@@ -2,6 +2,7 @@
 
 namespace App\Modules\Platform\Support;
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Core\Models\AutomationRun;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Actions\Currencies\UpdateExchangeRates;
@@ -20,7 +21,7 @@ class ExchangeRateTask
 {
     public const KEY = 'platform.exchange-rates';
 
-    public function __construct(private Settings $settings, private UpdateExchangeRates $update) {}
+    public function __construct(private Settings $settings, private UpdateExchangeRates $update, private CompanyClock $clock) {}
 
     /** "HH:MM" when rates are fetched at their own time, else null. */
     public function separateTime(): ?string
@@ -31,11 +32,11 @@ class ExchangeRateTask
     }
 
     /**
-     * When rates are next fetched: the separate time, else the daily automation time (server time).
+     * When rates are next fetched: the separate time, else the daily automation time (company time).
      */
     public function nextRun(?CarbonImmutable $now = null): CarbonImmutable
     {
-        $now ??= CarbonImmutable::now();
+        $now ??= $this->clock->now();
         $time = $this->separateTime()
             ?? (string) rescue(fn (): mixed => $this->settings->get('core.automation_time', '03:00'), '03:00', report: false);
         [$hour, $minute] = preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $time, $parts) === 1 ? [(int) $parts[1], (int) $parts[2]] : [3, 0];

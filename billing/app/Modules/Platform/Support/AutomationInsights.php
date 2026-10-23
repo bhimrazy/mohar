@@ -2,6 +2,7 @@
 
 namespace App\Modules\Platform\Support;
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Core\Models\AutomationRun;
 use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\Settings;
@@ -27,14 +28,14 @@ class AutomationInsights
     /** A heartbeat older than this means the scheduler has stopped. */
     public const STOPPED_AFTER_MINUTES = 60;
 
-    public function __construct(private AutomationStatus $status, private Automation $automation, private Settings $settings) {}
+    public function __construct(private AutomationStatus $status, private Automation $automation, private Settings $settings, private CompanyClock $clock) {}
 
     /**
      * @return array<string, mixed>
      */
     public function summary(): array
     {
-        $today = CarbonImmutable::today();
+        $today = $this->clock->today();
         $since = $today->subDays(self::DAYS - 1);
         $tasks = $this->automation->ordered();
         $runs = AutomationRun::query()
@@ -119,7 +120,7 @@ class AutomationInsights
     {
         $time = (string) $this->settings->get('core.automation_time', config('core.automation_time', '03:00'));
         [$hour, $minute] = array_map('intval', explode(':', $time) + [1 => 0]);
-        $next = $today->setTime($hour, $minute);
+        $next = CarbonImmutable::parse($today->toDateString().sprintf(' %02d:%02d', $hour, $minute), $this->clock->timezone());
 
         return $next->lte(now()) ? $next->addDay() : $next;
     }
