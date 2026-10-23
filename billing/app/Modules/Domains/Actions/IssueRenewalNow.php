@@ -11,6 +11,7 @@ use App\Modules\Domains\Exceptions\DomainActionNotAllowed;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainPricingService;
 use App\Modules\Domains\Services\RenewalInvoices;
+use Illuminate\Validation\ValidationException;
 
 /**
  * "Renew now" (spec §8): issue the renewal invoice for the current cycle immediately instead of waiting
@@ -33,6 +34,10 @@ class IssueRenewalNow
      */
     public function handle(Domain $domain, string $actor, ?int $years = null): InvoiceResult
     {
+        if ($domain->isRegisteredByClient()) {
+            throw ValidationException::withMessages(['domain' => __('Renewalction is handled at the registry for a name you registered yourself.', ['action' => 'Renewal'])]);
+        }
+
         if (! $this->invoices->available()) {
             throw new DomainActionNotAllowed('Renewal invoices cannot be created right now. Please try again later.');
         }

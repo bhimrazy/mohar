@@ -8,6 +8,7 @@ use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\RenewalInvoices;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Toggle auto-renew. Turning it off cancels the unpaid renewal invoice of the cycle (spec §4.3);
@@ -19,6 +20,10 @@ class SetAutoRenew
 
     public function handle(Domain $domain, bool $enabled): Domain
     {
+        if ($domain->isRegisteredByClient()) {
+            throw ValidationException::withMessages(['domain' => __('Auto-renewction is handled at the registry for a name you registered yourself.', ['action' => 'Auto-renew'])]);
+        }
+
         if ($domain->auto_renew === $enabled) {
             return $domain;
         }

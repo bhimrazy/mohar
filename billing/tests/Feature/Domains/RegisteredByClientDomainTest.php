@@ -2,6 +2,7 @@
 
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\DomainInvoice;
 use App\Modules\Domains\Models\Tld;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Domains\DomainFixtures;
@@ -55,4 +56,17 @@ test('mail merge fields name the status and expiry of a name registered at the r
         'registered_by_client' => false,
         'expiry_label' => null,
     ]);
+});
+
+test('auto-renew and renew now are refused for a name registered at the registry, with no change', function () {
+    $this->put(route('client.domains.auto-renew', $this->selfRegistered->id), ['enabled' => true])
+        ->assertSessionHasErrors('domain');
+    $this->post(route('client.domains.renew', $this->selfRegistered->id))
+        ->assertSessionHasErrors('domain');
+
+    expect($this->selfRegistered->fresh()->auto_renew)->toBeFalse()
+        ->and(DomainInvoice::query()->where('domain_id', $this->selfRegistered->id)->count())->toBe(0);
+
+    $this->put(route('client.domains.auto-renew', $this->sold->id), ['enabled' => false])->assertSessionHasNoErrors();
+    expect($this->sold->fresh()->auto_renew)->toBeFalse();
 });
