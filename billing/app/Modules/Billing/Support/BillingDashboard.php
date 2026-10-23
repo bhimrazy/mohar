@@ -36,7 +36,11 @@ class BillingDashboard
 
     /**
      * Seconds an older dataset is still served while the request that found it recomputes it after sending its
-     * response (Cache::flexible), so no visitor waits for the full-history aggregates once they have run (#441).
+     * response (Cache::flexible, #441), so the visitor who finds it stale is not the one who waits. A visitor still
+     * waits when there is nothing to serve: the first visit of a company day (the key holds the date) or after more
+     * than this many idle seconds. So does the stale visitor on a server without fastcgi_finish_request (Apache
+     * mod_php, `artisan serve`); FrankenPHP and PHP-FPM send the response first. Widgets carry `asOf`, the time the
+     * dataset was computed, so the page can say how old the figures are.
      */
     public const STALE_SECONDS = 600;
 
@@ -166,7 +170,7 @@ class BillingDashboard
             $data['income'],
             $this->consolidateDaily($data['income']),
             $view,
-            ['href' => route('admin.billing.transactions.index'), 'icon' => 'TrendingUp', 'primary' => true],
+            ['href' => route('admin.billing.transactions.index'), 'icon' => 'TrendingUp', 'primary' => true, 'asOf' => $data['computed_at']],
         );
     }
 
@@ -189,7 +193,7 @@ class BillingDashboard
             $data['receivables'],
             $this->consolidateBooks($data['receivables']),
             $view,
-            ['href' => route('admin.billing.invoices.index', ['status' => 'unpaid']), 'icon' => 'Receipt', 'primary' => true],
+            ['href' => route('admin.billing.invoices.index', ['status' => 'unpaid']), 'icon' => 'Receipt', 'primary' => true, 'asOf' => $data['computed_at']],
             self::EMPTY_BOOK,
         );
     }
@@ -220,7 +224,7 @@ class BillingDashboard
                 $data['receivables'],
                 $this->consolidateBooks($data['receivables']),
                 $view,
-                ['href' => route('admin.billing.invoices.index', ['status' => 'overdue']), 'icon' => 'AlertTriangle', 'tone' => 'danger', 'primary' => true],
+                ['href' => route('admin.billing.invoices.index', ['status' => 'overdue']), 'icon' => 'AlertTriangle', 'tone' => 'danger', 'primary' => true, 'asOf' => $data['computed_at']],
                 self::EMPTY_BOOK,
             ),
             'count' => array_sum(array_column($data['receivables'], 'overdue_count')),
@@ -263,6 +267,7 @@ class BillingDashboard
             'xFormat' => 'month',
             'href' => route('admin.billing.transactions.index'),
             'empty' => 'No income recorded yet. Payments you record appear here.',
+            'asOf' => $data['computed_at'],
             ...$view($consolidated, $rollup->defaultCode()),
             'variants' => array_combine($codes, array_map(fn (string $code): array => $view($data['income'][$code] ?? [], $code), $codes)) ?: (object) [],
         ];
@@ -297,6 +302,7 @@ class BillingDashboard
             'description' => 'This month, in each currency as received; shares at today\'s rates',
             'href' => route('admin.billing.transactions.index'),
             'empty' => 'No income this month yet.',
+            'asOf' => $data['computed_at'],
             'rows' => array_map(fn (string $code): array => [
                 'key' => $code,
                 'code' => $code,
@@ -592,20 +598,22 @@ class BillingDashboard
      * Per-currency figures shared by every Billing widget, cached briefly:
      * - income: net income per day for 24 months (one grouped query on transactions(type, occurred_at));
      * - receivables: open and recently closed invoices for the outstanding/overdue KPIs and their history;
-     * - tax: tax collected on invoices paid this month, per tax name and currency.
+     * - tax: tax collected on invoices paid this month, per tax name and currency;
+     * - computed_at: when it was computed, ISO 8601 in the company's time zone.
      *
-     * @return array{income: array<string, array<string, int>>, receivables: array<string, array<string, mixed>>, tax: list<array{label: string, money: array{amount: int, currency: string}}>}
+     * @return array{income: array<string, array<string, int>>, receivables: array<string, array<string, mixed>>, tax: list<array{label: string, money: array{amount: int, currency: string}}>, computed_at: string}
      */
     private function dataset(): array
     {
         $today = $this->companyDate();
 
-        /** @var array{income: array<string, array<string, int>>, receivables: array<string, array<string, mixed>>, tax: list<array{label: string, money: array{amount: int, currency: string}}>} */
+        /** @var array{income: array<string, array<string, int>>, receivables: array<string, array<string, mixed>>, tax: list<array{label: string, money: array{amount: int, currency: string}}>, computed_at: string} */
         // The dataset is the same for every user (permissions apply per widget); the key follows the local day.
         return Cache::flexible('dashboard.billing.'.$this->calendar->timezone().'.'.$today->toDateString(), [self::CACHE_SECONDS, self::STALE_SECONDS], fn (): array => [
             'income' => $this->incomeByDay($this->calendar->dayBounds($today->startOfMonth()->subMonths(23))[0]),
             'receivables' => $this->receivables($today),
             'tax' => $this->taxCollected($this->calendar->dayBounds($today->startOfMonth())[0]),
+            'computed_at' => $this->calendar->now()->toIso8601String(),
         ], ['seconds' => 30]);
     }
 

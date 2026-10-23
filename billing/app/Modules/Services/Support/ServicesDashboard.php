@@ -56,12 +56,13 @@ class ServicesDashboard
 
         $points[] = $today->toDateString();
         $monthAgo = $today->subMonthNoOverflow()->toDateString();
-        ['series' => $series, 'previous' => $previous, 'count' => $count] = Cache::flexible(
+        $figures = Cache::flexible(
             'dashboard.services.mrr.'.$today->toDateString(),
             [self::CACHE_SECONDS, self::STALE_SECONDS],
             fn (): array => $this->figures($today, $points, $monthAgo),
             ['seconds' => 30],
         );
+        ['series' => $series, 'previous' => $previous, 'count' => $count] = $figures;
 
         $card = fn (array $points, int $before, int $services, string $currency): array => [
             'value' => $rollup->format((int) end($points), $currency),
@@ -88,6 +89,7 @@ class ServicesDashboard
             'href' => route('admin.services.index', ['status' => 'active']),
             'icon' => 'Repeat',
             'primary' => true,
+            'asOf' => $figures['computed_at'],
             'variants' => $variants === [] ? (object) [] : $variants,
         ];
     }
@@ -97,7 +99,7 @@ class ServicesDashboard
      * currency) and cached briefly like Billing's dashboard dataset.
      *
      * @param  list<string>  $points  month ends, oldest first, then today
-     * @return array{series: array<string, list<int>>, previous: array<string, int>, count: array<string, int>}
+     * @return array{series: array<string, list<int>>, previous: array<string, int>, count: array<string, int>, computed_at: string}
      */
     private function figures(CarbonImmutable $today, array $points, string $monthAgo): array
     {
@@ -143,7 +145,7 @@ class ServicesDashboard
             $count[$code] = (int) $row->services;
         }
 
-        return ['series' => $series, 'previous' => $previous, 'count' => $count];
+        return ['series' => $series, 'previous' => $previous, 'count' => $count, 'computed_at' => app(CompanyClock::class)->now()->toIso8601String()];
     }
 
     /**

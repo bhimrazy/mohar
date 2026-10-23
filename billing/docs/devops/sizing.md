@@ -32,7 +32,7 @@ profile, 4 vCPU and 8 GB, which has not been measured). Every doc states these n
 | --------------------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Small: 2 vCPU, 4 GB** (the profile)         | under 2,000  | Enough, with a wide margin (inference). The small profile was measured at 50,000 clients, 25 times this volume, with 40 active users: median 120 ms per request, no errors.                                                  |
 | Small: 2 vCPU, 4 GB                           | 2,000–20,000 | Enough for the pages and the billing day (inference from the 50,000-client run, which is the larger data set). The tail at 40 active users (sign-in, dashboards) is the thing to watch; see "Where the small host runs out". |
-| Small: 2 vCPU, 4 GB (minimum and recommended) | 50,000       | Measured. At 40 active users: median 120 ms, p95 704 ms and p99 1.5 s over all pages, no errors; most pages have a p95 of 0.35–0.65 s, the admin dashboard 3.1 s; billing day 539 s.                                         |
+| Small: 2 vCPU, 4 GB (minimum and recommended) | 50,000       | Measured. At 40 active users: median 120 ms, p95 704 ms and p99 1.5 s over all pages, no errors; most pages have a p95 of 0.2–0.65 s, checkout 2.1 s and the admin dashboard 3.1 s; billing day 539 s.                       |
 | Medium: 4 vCPU, 8 GB                          | any          | Not measured. The next step when the small host's tail latency matters: 8 PHP threads instead of 4. It fits the public repository's runner and can be run from Actions.                                                      |
 | Large: 8 vCPU, 16 GB                          | above 50,000 | Not measured. The large profile needs 8 vCPU and the standard GitHub runner has 4, so it needs a larger or self-hosted runner (`loadtest/README.md`).                                                                        |
 
@@ -94,21 +94,24 @@ under 1 s). During the 40-user level the app container averaged 75% of one core 
 | Sign-in                    | 297 ms / 313 ms  | 671 ms / 1.4 s      | No                            |
 | All pages                  | 48 ms / 105 ms   | 120 ms / 704 ms     | p99 1.5 s                     |
 
-Lightly loaded, every page except the admin dashboard and sign-in meets the 200 ms target. At 40 users the cheap
-pages have a p95 of 0.35–0.65 s: requests waiting for one of the 4 PHP threads and for PostgreSQL on a host that is
-about 70% busy. The admin dashboard is the outlier at every level (see "Where the small host runs out").
+Lightly loaded, every page meets the 200 ms target except four: the admin dashboard (p95 960 ms), checkout (411 ms,
+one request), sign-in (313 ms) and the invoice PDF download (p50 224 ms, p95 239 ms). At 40 users most pages have a
+p95 of 0.2–0.65 s: requests waiting for one of the 4 PHP threads and for PostgreSQL on a host that is about 70% busy.
+Above that are the admin dashboard (3.1 s), checkout (2.1 s, 12 requests), sign-in (1.4 s), the invoice PDF
+(934 ms), the order confirmation (880 ms) and the sign-in form (817 ms). The admin dashboard is the outlier at every
+level (see "Where the small host runs out").
 
 ### Background work
 
-| Measure                           | Result                                                                                  |
-| --------------------------------- | --------------------------------------------------------------------------------------- |
-| Billing day (`automation:run`)    | 539.3 s                                                                                 |
-| Renewals                          | 12,055 in 486.7 s, 24.8 per second                                                      |
-| Reminders                         | 2,213 in 47.9 s                                                                         |
-| Queue drain after the billing day | 14,394 jobs in 122.4 s (117.6 per second), 0 failed                                     |
-| Invoice PDF (dompdf, one process) | p50 161 ms, p95 171 ms, 6.2 renders per second, 858 KB per file                         |
-| Slowest automation query          | the `email_messages` insert: 14,289 calls, 7.2 s in total                               |
-| Slowest web queries               | the admin dashboard's income, receivables and MRR aggregates: 400–490 ms each, 8–9 runs |
+| Measure                           | Result                                                                                                    |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Billing day (`automation:run`)    | 539.3 s                                                                                                   |
+| Renewals                          | 12,055 in 486.7 s, 24.8 per second                                                                        |
+| Reminders                         | 2,213 in 47.9 s                                                                                           |
+| Queue drain after the billing day | 14,394 jobs in 122.4 s (117.6 per second), 0 failed                                                       |
+| Invoice PDF (dompdf, one process) | p50 161 ms, p95 171 ms, 6.2 renders per second, 858 KB per file                                           |
+| Slowest automation query          | the `email_messages` insert: 14,289 calls, 7.2 s in total                                                 |
+| Slowest web queries               | the admin dashboard's income, receivables and MRR aggregates: means of 493, 486 and 397 ms, 8–9 runs each |
 
 ### Compared with the runs before PR #433
 
@@ -247,7 +250,7 @@ deploy at the large volume, treat deploys on a 4 GB host with a database of that
   users, 828 ms and 3.1 s at 40 (run 40000321793). Profiled locally for issue #441 (PostgreSQL 18, 20,000 clients):
   a visit with the cached figures takes about 100 ms and 65 queries, each under 5 ms. A visit that finds them
   expired also runs the income-per-day, receivables and MRR aggregates, which read most of `transactions`,
-  `invoices` and `services` (sequential and parallel scans, 35–52 ms each locally, 400–490 ms each on the runner),
+  `invoices` and `services` (sequential and parallel scans, 34–62 ms each locally, means of 397–493 ms on the runner),
   and took 218–290 ms locally. Until #441 the figures were cached for 60 s, so every minute one admin visit, or
   several at once, waited for them. Since #441 they stay fresh for 60 s and are then served for up to 10 minutes
   while the visit that found them stale recomputes them after its response has been sent (`Cache::flexible`; on

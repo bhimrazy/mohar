@@ -6,6 +6,7 @@ use App\Modules\Catalog\Models\Product;
 use App\Modules\Core\Models\AutomationRun;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\OrderItem;
 use App\Modules\Services\Models\Service;
@@ -140,4 +141,25 @@ test('past the fresh minute the dashboard serves its cached figures and refreshe
     expect($visit())->toBe([10_000, 2]); // stale figures sent, then recomputed after the response
 
     expect($visit())->toBe([15_000, 0]);
+});
+
+test('cached dashboard widgets say when their figures were computed, in the company time zone (#441)', function () {
+    $this->travelTo('2026-10-18 12:00:00');
+    Currency::factory()->create();
+    app(Settings::class)->set('system.timezone', 'Asia/Kathmandu');
+    actingAsStaff(['*', ...BillingServiceProvider::SENSITIVE_PERMISSIONS]);
+    Cache::flush();
+
+    $page = $this->get(route('admin.dashboard'))->assertOk()->viewData('page');
+    $widgets = collect($page['props']['widgets'])->keyBy('key');
+
+    // 12:00 UTC is 17:45 in Kathmandu.
+    expect($widgets['billing.income']['asOf'])->toBe('2026-10-18T17:45:00+05:45')
+        ->and($widgets['billing.unpaid']['asOf'])->toBe('2026-10-18T17:45:00+05:45')
+        ->and($widgets['services.mrr']['asOf'])->toBe('2026-10-18T17:45:00+05:45');
+
+    // 30 seconds later the cached figures keep the time they were computed.
+    $this->travel(30)->seconds();
+    expect(collect($this->get(route('admin.dashboard'))->viewData('page')['props']['widgets'])->keyBy('key')['billing.income']['asOf'])
+        ->toBe('2026-10-18T17:45:00+05:45');
 });
