@@ -4,7 +4,9 @@ namespace App\Modules\Billing\Services;
 
 use App\Modules\Billing\Models\InvoiceFiscalReview;
 use App\Modules\Billing\Support\FiscalSnapshotCalculator;
+use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Settings;
+use App\Support\Currencies\Decimal;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Database\Query\Builder;
@@ -32,6 +34,9 @@ class FiscalBackfill
 
     /** Adjustments one reconcile pass scans. */
     public const RECONCILE_ROWS = 20_000;
+
+    /** Seconds a value row must be old before the reconcile watermark moves past it (the drain bound of ADR 0024 §2). */
+    public const SAFE_AGE = 3600;
 
     /** Settings key: the last adjustment id the reconcile pass has looked at. */
     private const WATERMARK = 'billing.fiscal_reconcile_after';
@@ -80,21 +85,40 @@ class FiscalBackfill
 
     /**
      * Recompute `credited_total` and `debited_total` from the value adjustments after `numbered_at`, for the invoices
-     * that have an adjustment past the watermark, and list each invoice whose cache was wrong. The previous release's
+     * that have an adjustment above the watermark, and list each invoice whose cache was wrong. The previous release's
      * `adjust()` knows no caches, so during a blue-green switch or after a rollback it writes value rows the caches miss.
-     * Adjustment ids only grow, so a row written later is always past the watermark. Scans at most `$rows` adjustments.
+     *
+     * Ids are handed out at insert but rows become visible at commit, so a row can commit after a higher id is already
+     * visible. The watermark therefore moves only over rows older than `SAFE_AGE` (up to the first younger row), and every
+     * run scans everything above it again; the recompute is absolute, so a repeat changes nothing. A row held
+     * uncommitted for longer than `SAFE_AGE` is not covered: `mismatches()` is the backstop. Invoices are recomputed in
+     * chunks of `CHUNK`, each in its own transaction, and the watermark is saved after each chunk. Scans at most `$rows`
+     * adjustments.
      */
     public function reconcile(int $rows = self::RECONCILE_ROWS): int
     {
-        $after = (int) app(Settings::class)->get(self::WATERMARK, 0);
-        $scanned = DB::table('invoice_adjustments')->where('id', '>', $after)->orderBy('id')->limit($rows)->get(['id', 'invoice_id']);
+        $settings = app(Settings::class);
+        $watermark = (int) $settings->get(self::WATERMARK, 0);
+        $scanned = DB::table('invoice_adjustments')->where('id', '>', $watermark)->orderBy('id')->limit($rows)->get(['id', 'invoice_id', 'created_at']);
+        $cutoff = now()->subSeconds(self::SAFE_AGE);
+        $changed = 0;
+        $invoices = [];
+        $safe = $watermark;
+        $young = false;
 
-        if ($scanned->isEmpty()) {
-            return 0;
+        foreach ($scanned->values() as $index => $row) {
+            $young = $young || $this->at($row->created_at)->gte($cutoff);
+            $invoices[(int) $row->invoice_id] = true;
+            $safe = $young ? $safe : (int) $row->id;
+
+            if (count($invoices) >= self::CHUNK || $index === $scanned->count() - 1) {
+                $ids = array_keys($invoices);
+                sort($ids);
+                $changed += DB::transaction(fn (): int => $this->recompute($ids));
+                $settings->set(self::WATERMARK, $safe);
+                $invoices = [];
+            }
         }
-
-        $changed = DB::transaction(fn (): int => $this->recompute(array_values($scanned->pluck('invoice_id')->map(fn (mixed $id): int => (int) $id)->unique()->sort()->all())));
-        app(Settings::class)->set(self::WATERMARK, (int) $scanned->max('id'));
 
         return $changed;
     }
@@ -204,6 +228,7 @@ class FiscalBackfill
             }
 
             $attributes = $this->writer->attributes($snapshot, (string) $invoice->currency, $invoice->issue_date !== null ? substr((string) $invoice->issue_date, 0, 10) : null, $numberedAt, $reviews);
+            $this->legacyRate($invoice, $numberedAt, $transactions->get($invoice->id, collect()), $attributes, $reviews);
             $attributes['credited_total'] = (int) $later->where('kind', 'credit')->sum('amount');
             $attributes['debited_total'] = (int) $later->where('kind', 'debit')->sum('amount');
 
@@ -215,6 +240,33 @@ class FiscalBackfill
         }
 
         return [$filled, $listed];
+    }
+
+    /**
+     * The reporting rate of an old foreign-currency invoice is not stored anywhere: take the exchange rate of the payment
+     * that numbered it when that payment was converted into the reporting currency, else today's rate, listed as an estimate.
+     *
+     * @param  Collection<int, \stdClass>  $transactions
+     * @param  array<string, mixed>  $attributes
+     * @param  list<array{reason: string, subject: string, detail: string}>  $reviews
+     */
+    private function legacyRate(\stdClass $invoice, CarbonImmutable $numberedAt, Collection $transactions, array &$attributes, array &$reviews): void
+    {
+        $report = $attributes['report_currency'];
+
+        if ($report === null || $report === $invoice->currency) {
+            return;
+        }
+
+        $paid = $transactions->first(fn (\stdClass $row): bool => in_array($row->type, self::PAYMENT_TYPES, true) && $row->status === 'succeeded' && $row->gateway_currency === $report
+            && $row->exchange_rate !== null && Decimal::isPositive((string) $row->exchange_rate) && $row->created_at !== null && $this->at($row->created_at)->equalTo($numberedAt));
+
+        if ($paid !== null) {
+            $attributes['report_rate'] = Decimal::divide((string) $paid->exchange_rate, '1', Currency::RATE_SCALE);
+            $reviews = array_values(array_filter($reviews, fn (array $review): bool => $review['reason'] !== InvoiceFiscalReview::REPORT_RATE));
+        } elseif ($attributes['report_rate'] !== null) {
+            $reviews[] = ['reason' => InvoiceFiscalReview::REPORT_RATE_ESTIMATED, 'subject' => 'invoice', 'detail' => "report_rate is today's stored rate {$invoice->currency} to {$report}, not the rate at numbering (none was recorded)."];
+        }
     }
 
     /**

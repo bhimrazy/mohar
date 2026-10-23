@@ -91,9 +91,21 @@ invoices; chunks of 200 that lock only their own rows), safe to repeat, schedule
 (`withoutOverlapping`, `onOneServer`) and run by `deploy/bin/deploy` after the switch. It is tested on PostgreSQL.
 
 - **Reconcile.** Each run also recomputes `credited_total` and `debited_total` from the value adjustments after
-  `numbered_at`, for invoices with an adjustment past a watermark (adjustment ids only grow). The previous release's
+  `numbered_at`, for invoices with an adjustment above a watermark. Ids are handed out at insert but rows become visible at commit, so
+  the watermark moves only over rows older than one hour (the drain bound), up to the first younger row; each run
+  scans everything above it again, and the recompute is absolute, so a repeat changes nothing. Invoices are
+  recomputed 200 at a time, each chunk in its own transaction. A row held uncommitted for more than an hour is not
+  covered. The previous release's
   `adjust()` writes value rows without the caches. Every invoice it corrects goes on the review list as
   `cached_totals_reconciled`.
+- **Residual risks.** Timestamps have one-second precision, so a previous-release row stamped in the second of
+  numbering cannot be told from a row folded into the snapshot: the check accepts any cache between "after" and "at or
+  after" `numbered_at`. A clock stepped back by more than a second just after numbering has the opposite effect (a
+  correct cache is lowered and its entry reopened). Both are rare; the review list and `mismatches()` are the
+  backstop, and no column records the last adjustment id at numbering.
+- **Reporting rate of old invoices.** A foreign-currency invoice takes the exchange rate of the payment that numbered it
+  when that payment was converted into the reporting currency; otherwise today's stored rate, listed as
+  `report_rate_estimated`.
 
 - `numbered_at` is backfilled from the first instant at which the number can be shown to exist:
     - **Numbered at publish** (`proforma_number` is null). A draft carries no adjustments, so every value adjustment

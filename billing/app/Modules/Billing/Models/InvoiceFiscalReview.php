@@ -37,6 +37,9 @@ class InvoiceFiscalReview extends Model
 
     public const LINES_MISMATCH = 'lines_do_not_match_totals';
 
+    /** `report_rate` is today's rate, because the rate at numbering was not recorded. */
+    public const REPORT_RATE_ESTIMATED = 'report_rate_estimated';
+
     /** The cached credited/debited totals were wrong (written past by the previous release) and were recomputed. */
     public const CACHED_TOTALS = 'cached_totals_reconciled';
 

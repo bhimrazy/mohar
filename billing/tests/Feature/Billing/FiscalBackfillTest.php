@@ -260,3 +260,26 @@ test('the command is scheduled every five minutes, on one server and never overl
 
     expect($event)->expression->toBe('*/5 * * * *')->withoutOverlapping->toBeTrue()->onOneServer->toBeTrue();
 });
+
+test('an old foreign-currency invoice takes the rate of the payment that numbered it, else today\'s rate, listed as an estimate', function () {
+    $paid = legacyInvoice($this->client->id, ['currency' => 'USD', 'proforma_number' => 'PF-9', 'paid_at' => '2026-09-10 07:00:00']);
+    legacyLine($paid, 10_000, 1_300);
+    $payment = legacyPayment($paid, $this->client->id, 11_300, '2026-09-10 07:00:00', '2026-09-10 07:00:00');
+    DB::table('transactions')->where('id', $payment)->update(['gateway_currency' => 'NPR', 'exchange_rate' => '133.5']);
+
+    $published = legacyInvoice($this->client->id, ['currency' => 'USD']);
+    legacyLine($published, 10_000, 1_300);
+
+    $other = legacyInvoice($this->client->id, ['currency' => 'USD', 'proforma_number' => 'PF-10', 'paid_at' => '2026-09-11 07:00:00']);
+    legacyLine($other, 10_000, 1_300);
+    DB::table('transactions')->where('id', legacyPayment($other, $this->client->id, 11_300, '2026-09-11 07:00:00', '2026-09-11 07:00:00'))->update(['gateway_currency' => 'EUR', 'exchange_rate' => '0.9']);
+
+    runBackfill();
+
+    expect(Invoice::query()->findOrFail($paid)->report_rate)->toBe('133.500000000000')->and(reviewsOf($paid))->toBe([])
+        // No payment to take it from, and a payment converted into another currency: today's rate, listed.
+        ->and(Invoice::query()->findOrFail($published)->report_rate)->toBe('134.400000000000')
+        ->and(reviewsOf($published))->toBe([InvoiceFiscalReview::REPORT_RATE_ESTIMATED])
+        ->and(Invoice::query()->findOrFail($other)->report_rate)->toBe('134.400000000000')
+        ->and(reviewsOf($other))->toBe([InvoiceFiscalReview::REPORT_RATE_ESTIMATED]);
+});
