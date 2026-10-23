@@ -154,7 +154,6 @@ describe('changelog-assemble.sh', function () {
                 - **A fix.**
                 - **B fix.**
                   Continued.
-
                 - **Old fix.**
 
                 ### Topic heading (#1)
@@ -349,7 +348,16 @@ describe('changelog-check.sh', function () {
 
         $run = clfCheck($this->repo, env: ['BASE_REF' => 'main']);
 
-        expect($run->getExitCode())->toBe(0)->and($run->getOutput())->toContain('release PR into main');
+        expect($run->getExitCode())->toBe(0)->and($run->getOutput())->toContain('release PR or back-merge from main');
+    });
+
+    it('skips back-merges from main', function () {
+        $this->repo = clfRepo();
+        file_put_contents("{$this->repo}/billing/changelog.md", "\n- edited\n", FILE_APPEND);
+
+        $run = clfCheck($this->repo, env: ['BASE_REF' => 'develop', 'HEAD_REF' => 'main', 'PR_NUMBER' => '500']);
+
+        expect($run->getExitCode())->toBe(0)->and($run->getOutput())->toContain('release PR or back-merge from main');
     });
 
     it('warns, without failing, when app or kernel code changes with no fragment', function () {

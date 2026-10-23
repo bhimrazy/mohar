@@ -147,7 +147,7 @@ merge_app() {
         }
         inside && /^## / { inside = 0 }
         inside && /^### / && (substr(trimmed($0), 5) in add) && (substr(trimmed($0), 5) in have) && !used[substr(trimmed($0), 5)]++ {
-            print; printf "\n%s\n", add[substr(trimmed($0), 5)]; skipping = 1; next
+            print; printf "\n%s", add[substr(trimmed($0), 5)]; skipping = 1; next
         }
         { print }
         END { if (!found) { print "changelog-assemble: no \"" heading "\" heading" > "/dev/stderr"; exit 1 } }' "$1" "$1"

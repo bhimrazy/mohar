@@ -139,6 +139,7 @@ jobs:
               if: github.event_name == 'pull_request'
               env:
                   BASE_REF: ${{ github.base_ref }}
+                  HEAD_REF: ${{ github.head_ref }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: ../scripts/changelog-check.sh --marker-rev HEAD^2 HEAD^1 HEAD
 

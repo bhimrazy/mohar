@@ -96,8 +96,7 @@ After each merge close the issue by hand (`develop` ignores closing keywords). W
   #241 vite-plus 1.3.0 (from 10-23 06:00 UTC); #254 Redactor follow-ups and ADR 0023 (the CTO review's redesign
   after two fix rounds); #267, #216, #225, #273, #274; #244 Node and Debian images (after 10-28); tail latency
   (#205). Done today and off the queue: #233, #126, #278, #279, #277, #263, #250, #257, #258, #269, #272, #208.
-- Proposed, awaiting the owner: changelog fragments (`billing/changelog.d/<pr>.md`, assembled at release) to end
-  changelog conflicts and the extra CI runs they cause (CTO review 2026-10-22, recommendation 2).
+- Changelog fragments (`billing/changelog.d/`, assembled at release; owner decision 2026-10-23, #397).
 
 ## Open owner questions
 
@@ -105,8 +104,8 @@ After each merge close the issue by hand (`develop` ignores closing keywords). W
   accountant).
 - connectIPS merchant enrolment (weeks of lead time); a WHMCS dev licence or fake-data export for importer fixtures; a
   cPanel trial VPS.
-- Changelog fragments: adopt them or keep one `changelog.md` (proposed, see Queue).
-- Repository settings: auto-merge, delete head branches, and Actions write for the token (re-running flaky jobs).
+- Repository settings: Actions write for the token (re-running flaky jobs). Auto-merge and delete head branches are on
+  (2026-10-23).
 - Five behaviours in #211 ("Owner to confirm"), now merged with the conservative choice; confirm or change.
 - Business: licence and price in NPR, support model, security policy page, trademark search.
 

@@ -1,7 +1,7 @@
 # Changelog fragments
 
 A PR never edits `billing/changelog.md`. It adds one file here instead, named after its branch slug
-(`feature/vat-1b-notes` → `vat-1b-notes.md`) or its PR number (`412.md`). New files never conflict, so PRs merge
+(`feature/vat-1b-notes` → `vat-1b-notes.md`) or its PR number (`412.md`): lower-case letters, digits and hyphens only, with LF line endings. New files never conflict, so PRs merge
 without a changelog-only refresh (ADR 0027).
 
 The format is plain Markdown with headings, no frontmatter. Use one or more of these sections, each at most once, each
