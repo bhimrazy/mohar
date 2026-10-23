@@ -12,6 +12,7 @@ use App\Modules\Billing\Http\Controllers\Admin\QuoteController as AdminQuoteCont
 use App\Modules\Billing\Http\Controllers\Admin\TaxNoteController;
 use App\Modules\Billing\Http\Controllers\Admin\TaxRuleController;
 use App\Modules\Billing\Http\Controllers\Admin\TransactionController;
+use App\Modules\Billing\Http\Controllers\Admin\VatRegisterController;
 use App\Modules\Billing\Http\Controllers\Client\CreditController;
 use App\Modules\Billing\Http\Controllers\Client\InvoiceController;
 use App\Modules\Billing\Http\Controllers\Client\PaymentBatchController;
@@ -69,6 +70,8 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
 
     Route::get('tax-rules', [TaxRuleController::class, 'index'])->name('tax-rules.index');
     Route::resource('tax-rules', TaxRuleController::class)->only(['store', 'update', 'destroy'])->parameters(['tax-rules' => 'taxRule'])->middleware('password.recent');
+    Route::get('vat-register', [VatRegisterController::class, 'index'])->middleware('throttle:billing-registers')->name('vat-register.index');
+    Route::get('vat-register/export', [VatRegisterController::class, 'export'])->middleware(['password.recent', 'throttle:billing-registers'])->name('vat-register.export');
     Route::get('gateway-log', [GatewayLogController::class, 'index'])->name('gateway-log.index');
     Route::get('payment-attempts', [PaymentAttemptController::class, 'index'])->name('payment-attempts.index');
     Route::post('payment-attempts/{attempt}/check', [PaymentAttemptController::class, 'check'])->name('payment-attempts.check');

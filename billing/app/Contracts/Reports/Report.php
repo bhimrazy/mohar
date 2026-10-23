@@ -36,12 +36,14 @@ interface Report
     public function columns(ReportQuery $query): array;
 
     /**
-     * Rows keyed by column key, produced lazily, in the order they are written. Use `lazyById()` or `lazy()`: on
-     * PostgreSQL `cursor()` holds the whole result set in memory. The pipeline stops reading at its row limit.
+     * Rows keyed by column key, in the order they are written. Without a limit (an export), read lazily with
+     * `lazyById()` or `lazy()`: on PostgreSQL `cursor()` holds the whole result set in memory. The pipeline stops reading
+     * at its row limit.
      *
-     * When `$query->limit` is set, return only that page: skip `$query->offset` rows and yield at most `limit`. The
-     * order must be total (end with a unique key such as the id), or rows repeat or vanish between pages. `count()`
-     * is always called on a query without a page and counts all matching rows.
+     * When `$query->limit` is set (a screen page), return only that page: `orderBy()` in a total order (end with a
+     * unique key such as the id, or rows repeat or vanish between pages), then `offset($query->offset)`,
+     * `limit($query->limit)` and `get()`. `lazyById()` cannot be used here: it orders by id alone and ignores the
+     * offset. tests/Support/Reports/ReportConformance checks this for every report.
      *
      * A `money` cell is a `Money`; a `date` cell is a date value (00:00 UTC on that date, like a `date` cast), so an
      * instant must go through `CompanyClock::localDate()` or use an `instant` column.
@@ -50,5 +52,9 @@ interface Report
      */
     public function rows(ReportQuery $query): iterable;
 
+    /**
+     * All rows matching the filters, on a query without a page. The viewer calls it on every screen page, uncached,
+     * so it must be served by an index on the columns the filters use (a period column, for example).
+     */
     public function count(ReportQuery $query): int;
 }
