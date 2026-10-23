@@ -11,9 +11,11 @@ namespace App\Enums;
 enum ColumnType: string
 {
     case Text = 'text';
+    /** A `Money` value. The CSV gets the decimal string only; the report declares its own currency column. */
     case Money = 'money';
     case Integer = 'integer';
     case Decimal = 'decimal';
+    /** A calendar date (a `CarbonInterface` read by its own Y-m-d, like a `date` cast). An instant is an `Instant`. */
     case Date = 'date';
     case Instant = 'instant';
 }

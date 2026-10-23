@@ -15,6 +15,9 @@ interface ExportWriter
 
     public function extension(): string;
 
+    /** True when the whole file is built before the response starts (a failure then gives an error response). */
+    public function buffered(): bool;
+
     /**
      * @param  resource  $stream
      */

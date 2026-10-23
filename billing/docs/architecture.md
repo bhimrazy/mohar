@@ -41,6 +41,8 @@ loads only Core + Billing.
    `App\Http\Middleware\*` (kernel-owned HTTP middleware), `App\Models\User`, framework/vendor code.
    Middleware home: framework-level, module-agnostic middleware goes in `App\Http\Middleware`; middleware that
    needs Core models or services goes in `App\Modules\Core\Http\Middleware`.
+   Kernel `App\Support` services may use Core services (`ActivityLogger`, `Settings`), because Core always loads
+   (`ReportExporter` does, ADR 0025).
 2. A module must NOT import another module's classes (models, services, controllers). Cross-module calls go
    through a contract in `app/Contracts`; cross-module reactions go through events in `app/Events`.
 3. Exceptions: **Reports** (read model) may read other modules' tables via their models.

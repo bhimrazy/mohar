@@ -20,11 +20,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   adds `reports.<key>.view` and `reports.<key>.export` to the role editor under "Reports"; an export that carries
   tax or personal identifiers in bulk needs a recent password confirmation. CSV files are UTF-8, optionally with a
   byte order mark so Excel on Windows reads Nepali names (new settings **Reports**: `reports.csv_bom`, default off,
-  and `reports.sync_export_max_rows`, default 5,000; a larger export is refused with its row count and a request to
-  narrow the filters). A cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return is stored as text with a leading apostrophe,
+  `reports.sync_export_max_rows`, default 5,000, and `reports.sync_pdf_max_rows`, default 1,000, because a PDF is
+  built in memory; a larger export is refused with its row count and a request to narrow the filters; a file is
+  never written past its limit). A cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return is stored as text with a leading apostrophe,
   while amounts, counts and dates are written from their values, so a negative amount stays a number a spreadsheet
-  can sum. PDFs are A4 landscape with the brand, a page total after each page, grand totals and "Printed by ... at
-  ..." in company time. The client-import errors file now uses the same CSV writer (no change in its content). No
+  can sum. PDFs are A4 landscape with the brand, amounts in the currency's display (`Rs 1,23,456.00`), a page total after each page, totals kept per currency, grand totals and "Printed by ... at
+  ..." in company time. The client-import errors file now uses the same CSV writer (no change in its content). The activity entry lists only filters that are safe to log (not free text). Devanagari text typed by users does not render in PDFs (use the CSV). No
   report is registered yet (the VAT register follows), so nothing new is visible in menus. Queued exports and XLSX are
   deferred. Upgrade notes: no schema change; new permissions appear only when a report is registered.
 

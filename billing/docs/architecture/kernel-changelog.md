@@ -9,21 +9,30 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 ### Report registry and export pipeline (ADR 0025, VAT PR 0c)
 
 - New provider contract `App\Contracts\Reports\Report` (`key`, `label`, `category`, `filters`, `columns`, `rows`,
-  `count`) with optional capabilities `ProvidesTotals`, `ProvidesHeaderBlock`, `ProvidesLayouts`, `ProvidesPdfView`
-  and `ConfiguresExport` (`sensitiveExport()`, `csvBom()`), detected with `instanceof`. Rows are keyed by column key.
-- New DTOs `App\Data\Reports\ReportColumn`, `ReportFilter` and `ReportQuery` (validated filters, acting user id and
-  the period resolved with `CompanyClock::dayBounds()`), and enums `App\Enums\ColumnType` (closed: text, money,
-  integer, decimal, date, instant) and `ExportFormat` (open: csv, pdf).
-- New `App\Support\Reports\ReportRegistry` (`register(class)`, `has`, `get`, `all`; singleton in
-  `AppServiceProvider`): a duplicate or malformed key throws at boot, and it registers `reports.{key}.view` and
-  `reports.{key}.export` with `PermissionRegistry` (the export is sensitive when `ConfiguresExport` says so).
-- New `App\Support\Reports\ReportExporter` (`query()` validates filters, `export()` returns a streamed response):
-  permission check, step-up for sensitive exports, row limit, one `report.exported` entry. Writers implement
-  `ExportWriter`; CSV and PDF ship. New kernel view `resources/views/reports/pdf.blade.php`.
-- New `App\Support\Csv\SafeCsv` and `Verbatim`: the formula guard moved here from Migration's `ErrorsCsv`
-  (which now uses it). The guard covers text cells only.
-- New config `reports.csv_bom` (false) and `reports.sync_export_max_rows` (5000), exposed as Settings, Reports.
-  Additive; no schema change.
+  `count`) with optional capabilities `ProvidesTotals`, `ProvidesHeaderBlock`, `ProvidesLayouts`, `ProvidesPdfView`,
+  `ProvidesCsvOptions` (`csvBom()`) and the marker `HasSensitiveExport`, detected with `instanceof`. Rows are keyed by
+  column key; a money cell is a `Money`.
+- New DTOs `App\Data\Reports\ReportColumn`, `ReportFilter` (typed by `FilterType`; `loggable` says whether its
+  value may be written to the activity log) and `ReportQuery` (validated filters, acting user id, and the period
+  resolved with `CompanyClock::dayBounds()`), and enums `App\Enums\ColumnType` (closed: text, money, integer,
+  decimal, date, instant), `ExportFormat` (open: csv, pdf) and `FilterType` (open: date, text, select, boolean).
+- New `App\Support\Reports\ReportRegistry` (ADR 0012 shape: `register(string $key, class-string|Closure $report,
+  bool $replace = false)`, `has`, `keys`, `get`; singleton in `AppServiceProvider`). Registration builds nothing; a
+  duplicate key throws unless `replace`; it registers `reports.{key}.view` and `reports.{key}.export` with
+  `PermissionRegistry` (the export is sensitive when the class implements `HasSensitiveExport`).
+- `PermissionRegistry::register()` accepts a Closure as a label, called when `all()` is read (translated labels).
+- New `App\Support\Reports\ReportExporter` (`query()` validates typed filters and refuses unknown keys, `export()`
+  returns a response): permission check, step-up for sensitive exports, row limits (CSV `reports.sync_export_max_rows`,
+  PDF `reports.sync_pdf_max_rows`) enforced on the stream as well as on `count()`, one `report.exported` entry (loggable
+  filters only). Unknown report, layout or filter is a `ValidationException`. Writers implement `ExportWriter`; CSV
+  and PDF ship. PDF totals are per currency and amounts use `MoneyFormatter`. New kernel view
+  `resources/views/reports/pdf.blade.php`.
+- New `App\Support\Csv\SafeCsv` and `Verbatim`: the formula guard moved here from Migration's `ErrorsCsv` (which now
+  uses it) and also covers text after leading white space and the full-width `＝＋－＠`. The guard covers text cells
+  only. An arch rule keeps `fputcsv` inside `App\Support\Csv`.
+- Kernel `App\Support` services may use Core services (`docs/architecture.md`, dependency rules).
+- New config `reports.csv_bom` (false), `reports.sync_export_max_rows` (5000) and `reports.sync_pdf_max_rows`
+  (1000), exposed as Settings, Reports. Additive; no schema change.
 
 ### Company clock contract (ADR 0013 Amendment 1, PR 0a)
 

@@ -14,16 +14,17 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Tests\Support\Reports\DemoBomReport;
 use Tests\Support\Reports\DemoReport;
+use Tests\Support\Reports\DemoSensitiveReport;
 
 /**
  * The report registry and the synchronous export pipeline (ADR 0025).
  */
 beforeEach(function () {
     DemoReport::$rows = [DemoReport::row('Asha Rai', 1_000_000), DemoReport::row('सुनिता श्रेष्ठ', -130_000, 2)];
-    DemoReport::$sensitive = false;
-    DemoReport::$bom = null;
-    app(ReportRegistry::class)->register(DemoReport::class);
+    DemoBomReport::$bom = true;
+    app(ReportRegistry::class)->register('demo_sales', DemoReport::class);
 });
 
 /**
@@ -49,34 +50,52 @@ function parseCsv(string $body): array
     return array_map(fn (string $line): array => str_getcsv($line, ',', '"', ''), array_values(array_filter(explode("\n", $body), fn (string $line): bool => $line !== '')));
 }
 
-test('registering a report adds its two permissions, the export one sensitive when the report says so', function () {
-    $permissions = app(PermissionRegistry::class);
+test('registering a report adds its two permissions without building it; the export one is sensitive for a marked class', function () {
+    $permissions = new PermissionRegistry;
+    $registry = new ReportRegistry(app(Container::class), $permissions);
+    $built = 0;
 
-    expect($permissions->exists('reports.demo_sales.view'))->toBeTrue()
-        ->and($permissions->exists('reports.demo_sales.export'))->toBeTrue()
-        ->and($permissions->isSensitive('reports.demo_sales.export'))->toBeFalse();
+    $registry->register('demo_sales', function () use (&$built): Report {
+        $built++;
 
-    DemoReport::$sensitive = true;
-    $fresh = new ReportRegistry(app(Container::class), $sensitive = new PermissionRegistry);
-    $fresh->register(DemoReport::class);
+        return new DemoReport;
+    });
+    $registry->register('demo_secret', DemoSensitiveReport::class);
 
-    expect($sensitive->isSensitive('reports.demo_sales.export'))->toBeTrue()->and($sensitive->isSensitive('reports.demo_sales.view'))->toBeFalse();
+    expect($built)->toBe(0)->and($registry->keys())->toBe(['demo_sales', 'demo_secret'])
+        ->and($permissions->exists('reports.demo_sales.view'))->toBeTrue()
+        ->and($permissions->isSensitive('reports.demo_sales.export'))->toBeFalse()
+        ->and($permissions->isSensitive('reports.demo_secret.export'))->toBeTrue()
+        ->and($permissions->isSensitive('reports.demo_secret.view'))->toBeFalse()
+        ->and($permissions->all()['Reports']['reports.demo_sales.export'])->toBe('Export the report: Demo sales')
+        ->and($built)->toBe(1);
 });
 
-test('a duplicate or malformed report key fails when it is registered', function () {
-    expect(fn () => app(ReportRegistry::class)->register(DemoReport::class))->toThrow(LogicException::class, 'already registered');
+test('permission labels are translated when the list is read', function () {
+    $permissions = new PermissionRegistry;
+    (new ReportRegistry(app(Container::class), $permissions))->register('demo_sales', DemoReport::class);
+    app('translator')->addLines(['*.Export the report: :name' => 'रिपोर्ट निर्यात: :name'], 'ne');
+    app()->setLocale('ne');
 
-    $bad = new class extends DemoReport
-    {
-        public function key(): string
-        {
-            return 'Bad Key';
-        }
-    };
+    expect($permissions->all()['Reports']['reports.demo_sales.export'])->toBe('रिपोर्ट निर्यात: Demo sales');
+});
 
-    expect(fn () => app(ReportRegistry::class)->register($bad::class))->toThrow(InvalidArgumentException::class, 'Invalid report key');
-    expect(fn () => app(ReportRegistry::class)->register(stdClass::class))->toThrow(InvalidArgumentException::class);
-    expect(app(ReportRegistry::class)->get('demo_sales'))->toBeInstanceOf(Report::class);
+test('a duplicate key needs replace, a malformed key or class is refused, and the key must match on resolve', function () {
+    $registry = app(ReportRegistry::class);
+
+    expect(fn () => $registry->register('demo_sales', DemoReport::class))->toThrow(LogicException::class, 'already registered');
+    $replacement = new class extends DemoReport {};
+    $registry->register('demo_sales', $replacement::class, replace: true);
+    expect($registry->get('demo_sales'))->toBeInstanceOf($replacement::class);
+
+    expect(fn () => $registry->register('Bad Key', DemoReport::class))->toThrow(InvalidArgumentException::class, 'Invalid report key');
+    expect(fn () => $registry->register('x', stdClass::class))->toThrow(InvalidArgumentException::class);
+
+    $registry->register('wrong_key', DemoReport::class);
+    expect(fn () => $registry->get('wrong_key'))->toThrow(LogicException::class, 'reports its key as [demo_sales]');
+
+    $registry->register('demo_secret', fn () => new DemoSensitiveReport);
+    expect(fn () => $registry->get('demo_secret'))->toThrow(LogicException::class);
 });
 
 test('the CSV has the header block, headings, typed cells and the totals; money stays a number', function () {
@@ -93,32 +112,36 @@ test('the CSV has the header block, headings, typed cells and the totals; money 
         ->and($lines[2])->toBe(['Date', 'Buyer', 'Qty', 'Amount (Rs)'])
         ->and($lines[3])->toBe(['2026-10-20', 'Asha Rai', '1', '10000.00'])
         ->and($lines[4])->toBe(['2026-10-20', 'सुनिता श्रेष्ठ', '2', '-1300.00'])
-        ->and($lines[5])->toBe(['', 'Net', '', '8700.00']);
+        ->and($lines[5])->toBe(['', 'Net NPR', '', '8700.00']);
 });
 
-test('a layout picks the columns; an unknown layout is refused', function () {
+test('a layout picks the columns; an unknown layout or report is a validation error', function () {
     actingAsStaff(['reports.demo_sales.export']);
 
     $lines = parseCsv(runExport(layout: 'short')[1]);
     expect($lines[2])->toBe(['Buyer', 'Amount (Rs)'])->and($lines[3])->toBe(['Asha Rai', '10000.00']);
 
-    expect(fn () => runExport(layout: 'nope'))->toThrow(InvalidArgumentException::class);
+    expect(fn () => runExport(layout: 'nope'))->toThrow(ValidationException::class)
+        ->and(fn () => app(ReportExporter::class)->query('nope', [], 1))->toThrow(ValidationException::class);
 });
 
-test('the BOM follows the report, then the setting', function () {
-    actingAsStaff(['reports.demo_sales.export']);
+test('the BOM follows the report when it sets one, otherwise the setting', function () {
+    actingAsStaff(['reports.demo_sales.export', 'reports.demo_bom.export']);
+    app(ReportRegistry::class)->register('demo_bom', DemoBomReport::class);
+    $run = fn (string $key): string => (function () use ($key): string {
+        $exporter = app(ReportExporter::class);
+        $response = $exporter->export($key, $exporter->query($key, ['from' => '2026-10-01', 'to' => '2026-10-31'], auth()->id()), ExportFormat::Csv);
+        ob_start();
+        $response->sendContent();
 
-    DemoReport::$bom = true;
-    expect(runExport()[1])->toStartWith(SafeCsv::BOM);
+        return (string) ob_get_clean();
+    })();
 
-    DemoReport::$bom = null;
-    expect(runExport()[1])->not->toStartWith(SafeCsv::BOM);
+    expect($run('demo_bom'))->toStartWith(SafeCsv::BOM)->and($run('demo_sales'))->not->toStartWith(SafeCsv::BOM);
 
     app(Settings::class)->set('reports.csv_bom', true);
-    expect(runExport()[1])->toStartWith(SafeCsv::BOM);
-
-    DemoReport::$bom = false;
-    expect(runExport()[1])->not->toStartWith(SafeCsv::BOM);
+    DemoBomReport::$bom = false;
+    expect($run('demo_sales'))->toStartWith(SafeCsv::BOM)->and($run('demo_bom'))->not->toStartWith(SafeCsv::BOM);
 });
 
 test('text cells that start like a formula are neutralised, typed cells are not', function () {
@@ -163,10 +186,14 @@ test('export needs the export permission; viewing is not enough and nothing is l
 });
 
 test('a sensitive export needs a recent password confirmation', function () {
-    DemoReport::$sensitive = true;
-    actingAsStaff(['reports.demo_sales.export']);
+    app(ReportRegistry::class)->register('demo_secret', DemoSensitiveReport::class);
+    actingAsStaff(['reports.demo_secret.export']);
+    $run = fn () => (function () {
+        $exporter = app(ReportExporter::class);
+        $exporter->export('demo_secret', $exporter->query('demo_secret', ['from' => '2026-10-01', 'to' => '2026-10-31'], auth()->id()), ExportFormat::Csv);
+    })();
 
-    expect(fn () => runExport())->toThrow(HttpException::class, 'Password confirmation required.');
+    expect($run)->toThrow(HttpException::class, 'Password confirmation required.');
     expect(ActivityLog::query()->where('event', 'report.exported')->count())->toBe(0);
 
     // The check reads the request's session, as the step-up middleware does.
@@ -175,7 +202,7 @@ test('a sensitive export needs a recent password confirmation', function () {
     $request->session()->put('auth.password_confirmed_at', time());
     app()->instance('request', $request);
 
-    expect(fn () => runExport())->not->toThrow(HttpException::class);
+    expect($run)->not->toThrow(HttpException::class);
 });
 
 test('each export writes one report.exported entry with key, layout, format, filters and rows', function () {

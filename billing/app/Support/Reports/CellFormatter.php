@@ -5,6 +5,7 @@ namespace App\Support\Reports;
 use App\Contracts\Core\CompanyClock;
 use App\Enums\ColumnType;
 use App\Support\Csv\Verbatim;
+use App\Support\Currencies\MoneyFormatter;
 use App\Support\Money;
 use Carbon\CarbonInterface;
 
@@ -14,10 +15,11 @@ use Carbon\CarbonInterface;
  */
 final class CellFormatter
 {
-    public function __construct(private CompanyClock $clock) {}
+    public function __construct(private CompanyClock $clock, private MoneyFormatter $money) {}
 
     /**
-     * A cell for the CSV: typed values as Verbatim, anything else as a string for SafeCsv to check.
+     * A cell for the CSV: typed values as Verbatim (a money cell is the decimal string only), anything else as a
+     * string for SafeCsv to check.
      */
     public function csv(ColumnType $type, mixed $value): string|Verbatim|null
     {
@@ -31,7 +33,7 @@ final class CellFormatter
     }
 
     /**
-     * A cell for the PDF: amounts and counts with thousands separators.
+     * A cell for the PDF: money in the currency's configured display (Admin → Currencies, "Rs 1,23,456.00").
      */
     public function display(ColumnType $type, mixed $value): string
     {
@@ -39,49 +41,30 @@ final class CellFormatter
             return '';
         }
 
-        $formatted = $this->typed($type, $value);
-
-        if ($formatted === null) {
-            return $this->text($value);
+        if ($type === ColumnType::Money && $value instanceof Money) {
+            return $this->money->format($value);
         }
 
-        return match ($type) {
-            ColumnType::Money, ColumnType::Integer, ColumnType::Decimal => $this->group($formatted),
-            ColumnType::Instant => str_replace('T', ' ', substr($formatted, 0, 16)),
-            default => $formatted,
-        };
-    }
+        $formatted = $this->typed($type, $value);
 
-    /**
-     * An amount in minor units as a decimal string with two places, "-1300.00".
-     */
-    public static function minorToDecimal(int $minor): string
-    {
-        return ($minor < 0 ? '-' : '').intdiv(abs($minor), 100).'.'.str_pad((string) (abs($minor) % 100), 2, '0', STR_PAD_LEFT);
-    }
-
-    /**
-     * The minor units a money or integer cell contributes to a total, or null when it is not a number.
-     */
-    public static function summable(ColumnType $type, mixed $value): ?int
-    {
         return match (true) {
-            $type === ColumnType::Money && $value instanceof Money => $value->amount,
-            in_array($type, [ColumnType::Money, ColumnType::Integer], true) && is_int($value) => $value,
-            default => null,
+            $formatted === null => $this->text($value),
+            $type === ColumnType::Instant => str_replace('T', ' ', substr($formatted, 0, 16)),
+            default => $formatted,
         };
     }
 
     private function typed(ColumnType $type, mixed $value): ?string
     {
         return match ($type) {
-            ColumnType::Money => match (true) {
-                $value instanceof Money => self::minorToDecimal($value->amount),
-                is_int($value) => self::minorToDecimal($value),
+            ColumnType::Money => $value instanceof Money ? $value->toDecimal() : null,
+            ColumnType::Integer => is_int($value) || (is_string($value) && preg_match('/^-?\d+$/D', $value) === 1) ? (string) $value : null,
+            ColumnType::Decimal => match (true) {
+                is_int($value) => (string) $value,
+                is_float($value) => is_finite($value) ? rtrim(rtrim(sprintf('%.12F', $value), '0'), '.') : null,
+                is_string($value) => preg_match('/^-?\d+(\.\d+)?$/D', $value) === 1 ? $value : null,
                 default => null,
             },
-            ColumnType::Integer => is_int($value) || (is_string($value) && preg_match('/^-?\d+$/', $value) === 1) ? (string) $value : null,
-            ColumnType::Decimal => (is_int($value) || is_float($value) || (is_string($value) && preg_match('/^-?\d+(\.\d+)?$/', $value) === 1)) ? (string) $value : null,
             ColumnType::Date => $value instanceof CarbonInterface ? $value->format('Y-m-d') : null,
             ColumnType::Instant => $value instanceof CarbonInterface ? $value->setTimezone($this->clock->timezone())->toIso8601String() : null,
             ColumnType::Text => null,
@@ -92,18 +75,10 @@ final class CellFormatter
     {
         return match (true) {
             is_bool($value) => $value ? '1' : '0',
-            $value instanceof Money => self::minorToDecimal($value->amount),
+            $value instanceof Money => $value->toDecimal(),
             $value instanceof CarbonInterface => $value->toIso8601String(),
-            default => (string) $value,
+            is_scalar($value) => (string) $value,
+            default => '',
         };
-    }
-
-    private function group(string $number): string
-    {
-        [$whole, $fraction] = array_pad(explode('.', $number, 2), 2, null);
-        $sign = str_starts_with($whole, '-') ? '-' : '';
-        $grouped = (string) preg_replace('/\B(?=(\d{3})+(?!\d))/', ',', ltrim($whole, '-'));
-
-        return $sign.$grouped.($fraction !== null ? '.'.$fraction : '');
     }
 }

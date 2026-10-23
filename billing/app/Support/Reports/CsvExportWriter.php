@@ -28,6 +28,11 @@ final class CsvExportWriter implements ExportWriter
         return 'csv';
     }
 
+    public function buffered(): bool
+    {
+        return false;
+    }
+
     public function write(ExportContext $context, $stream): void
     {
         $csv = new SafeCsv($stream, $context->csvBom);
@@ -38,7 +43,7 @@ final class CsvExportWriter implements ExportWriter
 
         $csv->row(array_map(fn ($column): string => $column->label, $context->columns));
 
-        foreach ($context->report->rows($context->query) as $row) {
+        foreach ($context->rows as $row) {
             $csv->row($this->line($context, $row));
         }
 

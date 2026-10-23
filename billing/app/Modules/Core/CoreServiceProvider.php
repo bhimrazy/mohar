@@ -198,7 +198,8 @@ class CoreServiceProvider extends ModuleServiceProvider
 
         $this->app->make(SettingsRegistry::class)->section('reports', 'Reports', [
             new SettingDefinition('reports.csv_bom', 'Start CSV exports with a byte order mark', 'boolean', 'Excel on Windows needs it to read Nepali and other non-English text. Reports that always need it (the VAT register) set it themselves.'),
-            new SettingDefinition('reports.sync_export_max_rows', 'Largest file exported at once (rows)', 'integer', 'A report with more rows is refused with a request to narrow the filters.', rules: ['required', 'integer', 'min:100', 'max:50000']),
+            new SettingDefinition('reports.sync_export_max_rows', 'Largest CSV exported at once (rows)', 'integer', 'A report with more rows is refused with a request to narrow the filters.', rules: ['required', 'integer', 'min:100', 'max:50000']),
+            new SettingDefinition('reports.sync_pdf_max_rows', 'Largest PDF exported at once (rows)', 'integer', 'A PDF is built in memory, so its limit is lower. The server memory limit sets the practical maximum; keep it at 1,000 on a 256 MB server.', rules: ['required', 'integer', 'min:100', 'max:2000']),
         ], 'core.settings.update');
 
         $this->app->make(GlobalSearch::class)->provider('Clients', fn (string $term): array => array_values(Client::query()

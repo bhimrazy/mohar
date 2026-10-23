@@ -10,11 +10,12 @@ use Carbon\CarbonImmutable;
 
 /**
  * A report, implemented by the module or package that owns the data (ADR 0025, ADR 0010). Register it from a
- * service provider: `app(ReportRegistry::class)->register(VatRegisterReport::class)`. The registry adds the
- * permissions `reports.{key}.view` and `reports.{key}.export`; the export pipeline does the rest.
+ * service provider: `app(ReportRegistry::class)->register('vat_register', VatRegisterReport::class)`. Nothing is
+ * built until the report is used. The registry adds the permissions `reports.{key}.view` and
+ * `reports.{key}.export`; the export pipeline does the rest.
  *
  * Optional capabilities (ADR 0012), detected with `instanceof`: ProvidesTotals, ProvidesHeaderBlock,
- * ProvidesLayouts, ProvidesPdfView, ConfiguresExport.
+ * ProvidesLayouts, ProvidesPdfView, ProvidesCsvOptions, HasSensitiveExport (a marker).
  *
  * @api
  */
@@ -35,7 +36,11 @@ interface Report
     public function columns(ReportQuery $query): array;
 
     /**
-     * Rows keyed by column key, produced lazily (a cursor or a generator), in the order they are written.
+     * Rows keyed by column key, produced lazily, in the order they are written. Use `lazyById()` or `lazy()`: on
+     * PostgreSQL `cursor()` holds the whole result set in memory. The pipeline stops reading at its row limit.
+     *
+     * A `money` cell is a `Money`; a `date` cell is a date value (00:00 UTC on that date, like a `date` cast), so an
+     * instant must go through `CompanyClock::localDate()` or use an `instant` column.
      *
      * @return iterable<array<string, scalar|Money|CarbonImmutable|null>>
      */

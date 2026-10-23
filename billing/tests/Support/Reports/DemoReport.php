@@ -2,7 +2,6 @@
 
 namespace Tests\Support\Reports;
 
-use App\Contracts\Reports\ConfiguresExport;
 use App\Contracts\Reports\ProvidesHeaderBlock;
 use App\Contracts\Reports\ProvidesLayouts;
 use App\Contracts\Reports\ProvidesTotals;
@@ -11,6 +10,7 @@ use App\Data\Reports\ReportColumn;
 use App\Data\Reports\ReportFilter;
 use App\Data\Reports\ReportQuery;
 use App\Enums\ColumnType;
+use App\Enums\FilterType;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
 
@@ -18,18 +18,16 @@ use Carbon\CarbonImmutable;
  * A small report for the export pipeline tests: text, money, integer and date columns, a header block, totals and
  * two layouts.
  */
-class DemoReport implements ConfiguresExport, ProvidesHeaderBlock, ProvidesLayouts, ProvidesTotals, Report
+class DemoReport implements ProvidesHeaderBlock, ProvidesLayouts, ProvidesTotals, Report
 {
     /** @var list<array<string, mixed>> */
     public static array $rows = [];
 
-    public static bool $sensitive = false;
-
-    public static ?bool $bom = null;
+    protected string $key = 'demo_sales';
 
     public function key(): string
     {
-        return 'demo_sales';
+        return $this->key;
     }
 
     public function label(): string
@@ -45,8 +43,10 @@ class DemoReport implements ConfiguresExport, ProvidesHeaderBlock, ProvidesLayou
     public function filters(): array
     {
         return [
-            new ReportFilter('from', 'From', 'date', rules: ['required', 'date_format:Y-m-d']),
-            new ReportFilter('to', 'To', 'date', rules: ['required', 'date_format:Y-m-d', 'after_or_equal:from']),
+            new ReportFilter('from', 'From', FilterType::Date, rules: ['required']),
+            new ReportFilter('to', 'To', FilterType::Date, rules: ['required']),
+            new ReportFilter('buyer', 'Buyer', FilterType::Text),
+            new ReportFilter('status', 'Status', FilterType::Select, ['paid' => 'Paid', 'open' => 'Open']),
         ];
     }
 
@@ -72,7 +72,15 @@ class DemoReport implements ConfiguresExport, ProvidesHeaderBlock, ProvidesLayou
 
     public function totals(ReportQuery $query): array
     {
-        return [['name' => 'Net', 'amount' => Money::of(array_sum(array_map(fn (array $row): int => $row['amount']->amount, self::$rows)), 'NPR')]];
+        $byCurrency = [];
+
+        foreach (self::$rows as $row) {
+            $byCurrency[$row['amount']->currency] = ($byCurrency[$row['amount']->currency] ?? 0) + $row['amount']->amount;
+        }
+
+        ksort($byCurrency);
+
+        return array_map(fn (string $currency): array => ['name' => 'Net '.$currency, 'amount' => Money::of($byCurrency[$currency], $currency)], array_keys($byCurrency));
     }
 
     public function headerBlock(ReportQuery $query): array
@@ -90,16 +98,6 @@ class DemoReport implements ConfiguresExport, ProvidesHeaderBlock, ProvidesLayou
         $columns = $this->columns($query);
 
         return $layout === 'short' ? [$columns[1], $columns[3]] : $columns;
-    }
-
-    public function sensitiveExport(): bool
-    {
-        return self::$sensitive;
-    }
-
-    public function csvBom(): ?bool
-    {
-        return self::$bom;
     }
 
     public static function row(string $name, int $minor, int $qty = 1): array

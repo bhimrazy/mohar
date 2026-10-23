@@ -24,5 +24,6 @@ final readonly class ExportContext
         public bool $csvBom,
         public string $printedBy,
         public string $printedAt,
+        public CappedRows $rows,
     ) {}
 }
