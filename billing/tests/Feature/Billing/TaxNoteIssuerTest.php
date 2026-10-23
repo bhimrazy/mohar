@@ -2,6 +2,7 @@
 
 use App\Events\Billing\CreditNoteIssued;
 use App\Events\Billing\DebitNoteIssued;
+use App\Models\User;
 use App\Modules\Billing\Actions\CancelInvoiceItems;
 use App\Modules\Billing\Data\NoteRequest;
 use App\Modules\Billing\Enums\InvoiceStatus;
@@ -14,6 +15,7 @@ use App\Modules\Billing\Services\TaxNoteIssuer;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 
@@ -214,4 +216,13 @@ test('a debit note adds to the balance with tax from the invoice rates; a note n
 
     $discounted = issueInvoice(noteClient(), [10_000, -1_000])->fresh();
     expect(fn () => issueNote(NoteRequest::creditAmount($discounted->id, 100, 'goodwill', 'Discount')))->toThrow(BillingException::class, 'discount lines');
+});
+
+test('the staff user who issued a note cannot be deleted', function () {
+    $user = User::factory()->create();
+    $invoice = issueInvoice(noteClient(), [10_000])->fresh(['items']);
+    $note = issueNote(NoteRequest::creditAmount($invoice->id, 1_000, 'goodwill', 'Goodwill', userId: $user->id));
+
+    expect(fn () => DB::transaction(fn () => DB::table('users')->where('id', $user->id)->delete()))->toThrow(QueryException::class)
+        ->and($note->fresh()->created_by)->toBe($user->id);
 });
