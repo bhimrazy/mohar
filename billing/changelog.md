@@ -14,6 +14,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **Credit and debit note events (VAT PR 0b).** Two new kernel events, `CreditNoteIssued` and `DebitNoteIssued`, for the VAT credit-note work (ADR 0024 §6). Nothing emits them yet, so behaviour is unchanged. No schema or permission change.
+
 - **Documents are dated on the company's calendar (ADR 0013 Amendment 1).** Invoice issue and due dates, document
   numbers (the yearly and monthly resets), quote validity, overdue checks, card expiry, the tax-rule effective date,
   receipt dates, Bikram Sambat dates and the daily automation run date now come from the company time zone (Settings,
