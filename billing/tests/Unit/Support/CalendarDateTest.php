@@ -29,6 +29,30 @@ test('formats with date characters and escaped letters only', function () {
         ->and($date->format('N W z t L o y n M S'))->toBe('1 43 291 31 0 2026 26 10 Oct th');
 });
 
+test('a multibyte literal is not a format character, in any locale', function () {
+    $date = CalendarDate::parse('2026-10-19');
+    $locale = setlocale(LC_CTYPE, 0);
+    // ctype_alpha() follows the locale (on macOS it flags UTF-8 bytes); the ASCII-only check must not.
+    setlocale(LC_CTYPE, 'C.UTF-8', 'en_US.UTF-8', 'en_US.ISO-8859-1');
+
+    try {
+        expect($date->format('j F Y, वार l'))->toBe('19 October 2026, वार Monday')
+            ->and($date->format('Y मिति'))->toBe('2026 मिति')
+            ->and(fn () => $date->format('Y वार H'))->toThrow(InvalidArgumentException::class);
+
+        // Every byte from 0x80 is a literal, and every non-date ASCII letter is still refused.
+        for ($byte = 0x80; $byte <= 0xFF; $byte++) {
+            expect($date->format('Y'.chr($byte)))->toBe('2026'.chr($byte));
+        }
+
+        foreach (array_diff([...range('a', 'z'), ...range('A', 'Z')], str_split('dDjlNSwzWFmMntLoXxYy')) as $letter) {
+            expect(fn () => $date->format("मिति {$letter}"))->toThrow(InvalidArgumentException::class);
+        }
+    } finally {
+        setlocale(LC_CTYPE, $locale);
+    }
+});
+
 test('refuses a format character that prints a time, a zone or an instant', function (string $format) {
     expect(fn () => CalendarDate::parse('2026-10-19')->format($format))->toThrow(InvalidArgumentException::class);
 })->with(['U', 'c', 'r', 'H', 'e', 'Y-m-d H:i', 'P', 'T', 'u', 'G']);
