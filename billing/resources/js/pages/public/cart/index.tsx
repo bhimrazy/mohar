@@ -82,7 +82,7 @@ function CartItemCard({
                                         index > 0 && 'pl-3',
                                     )}
                                 >
-                                    <span className="min-w-0 truncate">
+                                    <span className="min-w-0 [overflow-wrap:anywhere]">
                                         {index === 0 ? 'Base plan' : part.label}
                                     </span>
                                     <Money
@@ -93,7 +93,7 @@ function CartItemCard({
                                 </div>
                             ))}
                         <div className="flex justify-between gap-4 text-muted-foreground">
-                            <span className="min-w-0 truncate">
+                            <span className="min-w-0 [overflow-wrap:anywhere]">
                                 {line.kind === 'product'
                                     ? line.breakdown.length > 1
                                         ? 'Plan total'

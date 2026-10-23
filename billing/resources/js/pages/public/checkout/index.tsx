@@ -192,10 +192,10 @@ export default function Checkout({
                                     />
                                 </span>
                                 <div className="min-w-0">
-                                    <p className="truncate font-medium">
+                                    <p className="font-medium [overflow-wrap:anywhere]">
                                         {account.name}
                                     </p>
-                                    <p className="truncate text-sm text-muted-foreground">
+                                    <p className="text-sm [overflow-wrap:anywhere] text-muted-foreground">
                                         {account.email} · billed in{' '}
                                         {account.currency}
                                     </p>
@@ -412,12 +412,12 @@ export default function Checkout({
                             {cart.items.map((item) => (
                                 <li key={item.key}>
                                     <div className="flex justify-between gap-4">
-                                        <span className="min-w-0 truncate">
-                                            {item.title}
+                                        <span className="min-w-0">
+                                            <span className="block">
+                                                {item.title}
+                                            </span>
                                             {(item.domain ?? item.subtitle) && (
-                                                <span className="text-muted-foreground">
-                                                    {' '}
-                                                    ·{' '}
+                                                <span className="block [overflow-wrap:anywhere] text-muted-foreground">
                                                     {item.domain ??
                                                         item.subtitle}
                                                 </span>
@@ -426,6 +426,7 @@ export default function Checkout({
                                         <Money
                                             amount={item.due_today}
                                             currency={cart.currency}
+                                            className="shrink-0"
                                         />
                                     </div>
                                     <ItemDetails details={item.details} />
