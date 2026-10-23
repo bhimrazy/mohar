@@ -83,9 +83,7 @@ CI skips drafts without the `ci` label.
   and store at 40 users, cause not found).
 - Before enabling Namecheap: a sandbox check of the not-in-account error numbers (2016166, 2019166), the `.us`,
   `.ca` and `.eu` extension details and the transfer texts (simulator README "verify" list).
-- Proposed, awaiting the owner: changelog fragments (`billing/changelog.d/<pr>.md`, assembled at release). On
-  2026-10-23, nine PRs (#360, #361, #362, #364, #365, #368, #369, #371, #374) needed a changelog-only merge of
-  `develop` and another CI run before they could merge.
+- Changelog fragments (`billing/changelog.d/`, assembled at release; owner decision 2026-10-23, #397).
 
 ## Open owner questions
 
@@ -93,10 +91,10 @@ CI skips drafts without the `ci` label.
   accountant).
 - connectIPS merchant enrolment (weeks of lead time); a WHMCS dev licence or fake-data export for importer fixtures; a
   cPanel trial VPS.
-- Changelog fragments: adopt them or keep one `changelog.md` (proposed, see Queue).
 - Namecheap `.ca` and `.eu`: offered as built (a wrong detail name makes the registrar refuse the order, nothing is
   bought), or kept off until a sandbox check.
-- Repository settings: auto-merge, delete head branches, and Actions write for the token (re-running flaky jobs).
+- Repository settings: Actions write for the token (re-running flaky jobs). Auto-merge and delete head branches are on
+  (2026-10-23).
 - Five behaviours in #211 ("Owner to confirm"), now merged with the conservative choice; confirm or change.
 - Business: licence and price in NPR, support model, security policy page, trademark search.
 
