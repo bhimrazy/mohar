@@ -1,12 +1,10 @@
 <?php
 
-use App\Modules\Billing\Enums\ReservationStatus;
 use App\Modules\Billing\Enums\TaxNoteKind;
 use App\Modules\Billing\Exceptions\ImmutableInvoiceException;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Billing\Models\TaxNoteLine;
-use App\Modules\Billing\Models\TaxNoteReservation;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Models\Currency;
 use Illuminate\Database\QueryException;
@@ -130,14 +128,16 @@ test('the database refuses to delete an invoice, a client or a note that a note 
     expect(TaxNote::query()->count())->toBe(1)->and($line->fresh())->not->toBeNull();
 });
 
-test('a reservation keeps its lines and one reservation per pending refund row', function () {
+test('a refund row has at most one reservation, and its lines go with it', function () {
     $invoice = issueInvoice(billingClient(['currency' => 'NPR']), [10_000]);
     $refund = Transaction::factory()->create(['client_id' => $invoice->client_id, 'invoice_id' => $invoice->id, 'type' => 'refund', 'status' => 'pending']);
-    $reservation = TaxNoteReservation::query()->create(['invoice_id' => $invoice->id, 'transaction_id' => $refund->id, 'reason_code' => 'refunded', 'digest' => str_repeat('a', 64)]);
-    $reservation->lines()->create(['invoice_item_id' => $invoice->items()->value('id'), 'unit_amount' => 1_000, 'amount' => 1_000, 'tax1_amount' => 130]);
+    $reservation = fn () => DB::table('tax_note_reservations')->insertGetId(['invoice_id' => $invoice->id, 'transaction_id' => $refund->id, 'reason_code' => 'refunded', 'digest' => 'a', 'created_at' => now(), 'updated_at' => now()]);
+    $id = $reservation();
+    DB::table('tax_note_reservation_lines')->insert(['reservation_id' => $id, 'unit_amount' => 1_000, 'amount' => 1_000, 'created_at' => now(), 'updated_at' => now()]);
 
-    expect($reservation->fresh())->status->toBe(ReservationStatus::Pending)
-        ->and($reservation->lines()->count())->toBe(1)
-        ->and(fn () => DB::transaction(fn () => TaxNoteReservation::query()->create(['invoice_id' => $invoice->id, 'transaction_id' => $refund->id, 'reason_code' => 'refunded', 'digest' => 'b'])))
-        ->toThrow(QueryException::class);
+    expect(DB::table('tax_note_reservations')->where('id', $id)->value('status'))->toBe('pending')
+        ->and(fn () => DB::transaction($reservation))->toThrow(QueryException::class);
+
+    DB::table('tax_note_reservations')->where('id', $id)->delete();
+    expect(DB::table('tax_note_reservation_lines')->count())->toBe(0);
 });

@@ -63,7 +63,7 @@ function legacyPayment(int $invoiceId, int $clientId, int $amount, string $creat
 /** The migration itself, as `php artisan migrate` runs it. */
 function runBackfillMigration(): void
 {
-    (require base_path('app/Modules/Billing/Database/Migrations/2026_10_24_300690_backfill_fiscal_snapshot_of_numbered_invoices.php'))->up();
+    (require base_path('app/Modules/Billing/Database/Migrations/2026_10_24_300680_backfill_fiscal_snapshot_of_numbered_invoices.php'))->up();
 }
 
 function reviewsOf(int $invoiceId): array
