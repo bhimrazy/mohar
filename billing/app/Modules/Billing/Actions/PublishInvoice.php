@@ -77,7 +77,7 @@ class PublishInvoice
                 $invoice->proforma_number = $this->numbers->next(DocumentNumbers::PROFORMA, $invoice->issue_date);
             } else {
                 $invoice->number = $this->numbers->next(DocumentNumbers::INVOICE, $invoice->issue_date);
-                $this->fiscal->stamp($invoice, $this->clock->now()->utc());
+                $this->fiscal->stamp($invoice, $this->clock->now()->utc(), published: true);
             }
 
             $invoice->seller_snapshot = $this->seller->snapshot();

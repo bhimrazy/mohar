@@ -35,9 +35,10 @@ class FiscalSnapshotWriter
     /**
      * Set the snapshot attributes on a invoice that is being numbered; the caller saves it. Add-funds invoices are
      * deposits, not supplies, and get none. Every value adjustment already on the invoice counts as before numbering,
-     * because the caller holds the invoice lock and may have written some in this transaction.
+     * because the caller holds the invoice lock and may have written some in this transaction. `$published` says the
+     * invoice was a draft a moment ago, which carries no adjustments, so they are not read.
      */
-    public function stamp(Invoice $invoice, CarbonImmutable $at): void
+    public function stamp(Invoice $invoice, CarbonImmutable $at, bool $published = false): void
     {
         if ($invoice->kind === InvoiceKind::AddFunds) {
             return;
@@ -46,7 +47,7 @@ class FiscalSnapshotWriter
         $snapshot = $this->calculator->compute(
             ['total' => $invoice->total, 'subtotal' => $invoice->subtotal, 'tax1_amount' => $invoice->tax1_amount, 'tax2_amount' => $invoice->tax2_amount, 'tax_inclusive' => $invoice->tax_inclusive],
             $this->itemRows(DB::table('invoice_items')->where('invoice_id', $invoice->id)->orderBy('id')->get()),
-            $this->adjustmentRows(DB::table('invoice_adjustments')->where('invoice_id', $invoice->id)->whereIn('reason', FiscalSnapshotCalculator::VALUE_REASONS)->orderBy('id')->get()),
+            $published ? [] : $this->adjustmentRows(DB::table('invoice_adjustments')->where('invoice_id', $invoice->id)->whereIn('reason', FiscalSnapshotCalculator::VALUE_REASONS)->orderBy('id')->get()),
         );
         $reviews = $snapshot->reviews;
         $invoice->forceFill($this->attributes($snapshot, $invoice->currency, $invoice->issue_date?->format('Y-m-d'), $at, $reviews));
