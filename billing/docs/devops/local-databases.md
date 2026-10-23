@@ -184,16 +184,16 @@ memory comes from the cited source or `docker stats`.
 | Testcontainers PHP               | yes                       | full (it's Docker)        | yes                        | same as Docker                  | MIT           | 1.1.0 2026-09-14                          |
 | SQLite                           | no (pdo_sqlite)           | none                      | one writer                 | instant / in-process            | public domain | mature                                    |
 
-| Option                 | (a) preview        | (b) local tests          | (c) CI             | (d) tiny install          |
-| ---------------------- | ------------------ | ------------------------ | ------------------ | ------------------------- |
+| Option                  | (a) preview        | (b) local tests          | (c) CI             | (d) tiny install          |
+| ----------------------- | ------------------ | ------------------------ | ------------------ | ------------------------- |
 | Docker volume / compose | **yes** (volume)   | **yes** (`pg.sh`)        | **yes** (service)  | **yes** (compose)         |
-| Native packages        | yes, if no Docker  | possible                 | no gain            | **yes** (bare metal)      |
-| Portable bundles       | possible           | spike candidate          | no gain            | no (use OS packages)      |
-| PGlite                 | no                 | no                       | no                 | no                        |
-| pgrust                 | no                 | no                       | no                 | no (immature, AGPL)       |
-| Neon Local             | no                 | no                       | no                 | no                        |
-| Testcontainers         | no                 | no (duplicates `pg.sh`)  | no                 | no                        |
-| SQLite                 | no (moving off it) | **yes** (fast loop only) | **yes** (as today) | no (install.md: dev only) |
+| Native packages         | yes, if no Docker  | possible                 | no gain            | **yes** (bare metal)      |
+| Portable bundles        | possible           | spike candidate          | no gain            | no (use OS packages)      |
+| PGlite                  | no                 | no                       | no                 | no                        |
+| pgrust                  | no                 | no                       | no                 | no (immature, AGPL)       |
+| Neon Local              | no                 | no                       | no                 | no                        |
+| Testcontainers          | no                 | no (duplicates `pg.sh`)  | no                 | no                        |
+| SQLite                  | no (moving off it) | **yes** (fast loop only) | **yes** (as today) | no (install.md: dev only) |
 
 ## Recommendation
 
