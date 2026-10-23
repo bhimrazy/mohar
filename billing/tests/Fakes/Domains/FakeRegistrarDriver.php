@@ -8,6 +8,7 @@ use App\Data\Domains\Registrar\ContactSet;
 use App\Data\Domains\Registrar\DomainInfo;
 use App\Data\Domains\Registrar\DomainRef;
 use App\Data\Domains\Registrar\EppCodeResult;
+use App\Data\Domains\Registrar\LinkedOrder;
 use App\Data\Domains\Registrar\RegistrarConfig;
 use App\Data\Domains\Registrar\RegistrarResult;
 use App\Data\Domains\Registrar\RegistrationRequest;
@@ -142,6 +143,11 @@ class FakeRegistrarDriver implements RegistrarDriver
     public function findSubmission(RegistrarConfig $config, DomainRef $domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup
     {
         return $this->script->record('reconcile', $domain->name, new SubmissionLookup(ReconcileStatus::Unknown));
+    }
+
+    public function lookupOrder(RegistrarConfig $config, DomainRef $domain, string $orderId): LinkedOrder
+    {
+        return $this->script->record('link_order', $domain->name, new LinkedOrder(['order_id' => (int) $orderId], 'active', $domain->expiryDate));
     }
 
     public function testConnection(RegistrarConfig $config): ConnectionCheck

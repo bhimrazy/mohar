@@ -1,4 +1,4 @@
-import { useForm } from '@inertiajs/react';
+import { useForm, usePage } from '@inertiajs/react';
 import type { FormEvent } from 'react';
 import DomainActionController from '@/actions/App/Modules/Domains/Http/Controllers/Admin/DomainActionController';
 import DomainController from '@/actions/App/Modules/Domains/Http/Controllers/Admin/DomainController';
@@ -450,6 +450,104 @@ export function MoveDialog({
                         >
                             {form.processing && <Spinner />}
                             Move domain
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+/**
+ * Link an order that already exists at the registrar to a domain imported or created by staff. The server checks it
+ * with the registrar and refuses with a reason shown under the field; the password is asked for first (step-up).
+ */
+export function LinkOrderDialog({
+    domain,
+    registrarName,
+    open,
+    onOpenChange,
+}: {
+    domain: Domain;
+    registrarName: string;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+}) {
+    const form = useForm({ order_id: '' });
+    // After a password step-up the request is repeated outside this form, so its refusal arrives as a page error.
+    const pageErrors = usePage().props.errors as
+        | Record<string, string | undefined>
+        | undefined;
+
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        form.submit(DomainActionController.linkOrder(domain.id), {
+            preserveScroll: true,
+            onSuccess: () => {
+                form.reset();
+                onOpenChange(false);
+            },
+        });
+    };
+
+    return (
+        <Dialog
+            open={open}
+            onOpenChange={(next) => {
+                if (!next) {
+                    form.reset();
+                    form.clearErrors();
+                }
+
+                onOpenChange(next);
+            }}
+        >
+            <DialogContent>
+                <form onSubmit={submit} className="grid gap-4">
+                    <DialogHeader>
+                        <DialogTitle>
+                            Link a {registrarName} order to{' '}
+                            {domain.name_unicode}
+                        </DialogTitle>
+                        <DialogDescription>
+                            Use this for a domain that was imported or added by
+                            hand. {registrarName} is asked for the order, and it
+                            is linked only if it is for exactly this name and
+                            belongs to your account. The domain is then synced
+                            with it.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <Field
+                        htmlFor="link-order-id"
+                        label="Order id"
+                        hint={`Shown on the order in the ${registrarName} panel.`}
+                        error={form.errors.order_id ?? pageErrors?.order_id}
+                    >
+                        <Input
+                            id="link-order-id"
+                            inputMode="numeric"
+                            autoComplete="off"
+                            value={form.data.order_id}
+                            onChange={(event) =>
+                                form.setData('order_id', event.target.value)
+                            }
+                            aria-invalid={!!form.errors.order_id}
+                        />
+                    </Field>
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => onOpenChange(false)}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="submit"
+                            disabled={form.processing || !form.data.order_id}
+                        >
+                            {form.processing && <Spinner />}
+                            Link order
                         </Button>
                     </DialogFooter>
                 </form>

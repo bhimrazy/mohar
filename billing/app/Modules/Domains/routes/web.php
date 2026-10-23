@@ -32,6 +32,7 @@ Route::adminArea(fn () => Route::prefix('domains')->name('domains.')->group(func
     Route::put('{domain}/lock', [DomainActionController::class, 'lock'])->whereNumber('domain')->name('lock');
     Route::put('{domain}/contacts', [DomainActionController::class, 'contacts'])->whereNumber('domain')->name('contacts');
     Route::post('{domain}/epp', [DomainActionController::class, 'epp'])->whereNumber('domain')->name('epp');
+    Route::post('{domain}/link-order', [DomainActionController::class, 'linkOrder'])->whereNumber('domain')->middleware(['password.recent', 'throttle:10,1'])->name('link-order');
     Route::post('{domain}/move', [DomainActionController::class, 'move'])->whereNumber('domain')->name('move');
     Route::post('{domain}/renewal-invoice', [DomainActionController::class, 'renewalInvoice'])->whereNumber('domain')->name('renewal-invoice');
     Route::post('{domain}/commands/{command}', [DomainActionController::class, 'command'])

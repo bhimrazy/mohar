@@ -302,7 +302,17 @@ Kernel shapes decided now:
 5. **Account state.** It decides whether the fields are shown and whether new orders are taken for the extension, not
    whether answers that were already collected are kept.
 
-## Amendment 5 — 2026-10-24, masking a registrar result (PR #368)
+## Amendment 4 — 2026-10-23, linking an existing order (PR #365)
+
+1. **Capability `link_order`** (`RegistrarDriverRegistry::LINK_ORDER`), the interface `LinksExistingOrders` with
+   `lookupOrder(RegistrarConfig, DomainRef, string $orderId): LinkedOrder`. It is read-only and runs only on a staff
+   member's request, for a domain the host holds without a recorded order id. The driver accepts the order only if it is in
+   our account, for exactly the domain's name, still holds it, and belongs to the customer the host uses for the
+   domain's client; it refuses with a plain message otherwise. The host records `remote.order_id` only when the answer
+   carries the order id that was typed, and itself refuses `.np` and other self-registered names. Nothing is ever
+   linked by searching for a name or by an email address. `LinkedOrder` carries `remote`, `status` and `expiryDate`.
+
+## Amendment 5 — 2026-10-23, masking a registrar result (PR #368)
 
 **`RegistrarResult::mapText(Closure $mask, string $withheld, int $maxDepth = 8)`** returns a copy with the message and
 everything in `meta` masked: string values and string keys, arrays walked. Anything it cannot check is replaced by the
