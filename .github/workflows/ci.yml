@@ -132,6 +132,16 @@ jobs:
                   echo "JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
                   echo "Code changes: $code · docs-site dependency changes: $deps · audits: $audit · dependency diff base: $base"
 
+            # ADR 0027: entries go in fragments, never straight into the two changelogs. PRs only, on the docs-only fast
+            # path too; git and awk only. HEAD^2 is the PR head (the merge commit's second parent), which carries the
+            # assemble marker.
+            - name: Changelog fragments
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.base_ref }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: ../scripts/changelog-check.sh --marker-rev HEAD^2 HEAD^1 HEAD
+
             - name: Set up PHP
               uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
               with:
