@@ -15,19 +15,19 @@ use App\Modules\Notifications\Models\EmailTemplateTranslation;
  */
 class TemplateCatalog
 {
-    /** @var array<string, array{key: string, type: string, audience: string, name: string, subject: string, body: string, preheader?: string|null, heading?: string, action_label?: string}>|null */
+    /** @var array<string, array{key: string, type: string, audience: string, name: string, subject: string, body: string, description?: string|null, preheader?: string|null, heading?: string, action_label?: string}>|null */
     private ?array $definitions = null;
 
     /** @var array{previous_release: string, fingerprints: array<string, array<string, string>>}|null */
     private ?array $previous = null;
 
     /**
-     * @return array<string, array{key: string, type: string, audience: string, name: string, subject: string, body: string, preheader?: string|null, heading?: string, action_label?: string}>
+     * @return array<string, array{key: string, type: string, audience: string, name: string, subject: string, body: string, description?: string|null, preheader?: string|null, heading?: string, action_label?: string}>
      */
     public function all(): array
     {
         if ($this->definitions === null) {
-            /** @var list<array{key: string, type: string, audience: string, name: string, subject: string, body: string, preheader?: string|null, heading?: string, action_label?: string}> $list */
+            /** @var list<array{key: string, type: string, audience: string, name: string, subject: string, body: string, description?: string|null, preheader?: string|null, heading?: string, action_label?: string}> $list */
             $list = require dirname(__DIR__).'/Resources/templates.php';
             $this->definitions = array_column($list, null, 'key');
         }
@@ -36,7 +36,7 @@ class TemplateCatalog
     }
 
     /**
-     * @return array{key: string, type: string, audience: string, name: string, subject: string, body: string, preheader?: string|null, heading?: string, action_label?: string}|null
+     * @return array{key: string, type: string, audience: string, name: string, subject: string, body: string, description?: string|null, preheader?: string|null, heading?: string, action_label?: string}|null
      */
     public function find(string $key): ?array
     {
@@ -118,7 +118,7 @@ class TemplateCatalog
     }
 
     /**
-     * @param  array{subject: string, body: string, preheader?: string|null, heading?: string, action_label?: string}  $definition
+     * @param  array{subject: string, body: string, description?: string|null, preheader?: string|null, heading?: string, action_label?: string}  $definition
      * @return array{subject: string, preheader: string|null, heading: string|null, body: string, action_label: string|null}
      */
     public static function shippedText(array $definition): array

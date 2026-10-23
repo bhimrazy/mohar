@@ -10,9 +10,13 @@ use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Orders\PaymentGuard;
 use App\Contracts\Orders\ShopperSession;
 use App\Contracts\Services\ServiceRegistry;
+use App\Events\Affiliates\AffiliateCommissionEarned;
 use App\Events\Billing\InvoicePaid;
 use App\Events\Domains\DomainRegistered;
 use App\Events\Domains\DomainTransferred;
+use App\Events\Orders\OrderCancelled;
+use App\Events\Orders\OrderMarkedFraud;
+use App\Events\Orders\OrderPlaced;
 use App\Events\Services\ServiceActivated;
 use App\Models\User;
 use App\Modules\Core\Support\Like;
@@ -38,6 +42,7 @@ use App\Support\CalendarDate;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Events\WebhookEvents;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Money;
 use App\Support\Navigation\Navigation;
@@ -72,6 +77,12 @@ class OrdersServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $webhooks = $this->app->make(WebhookEvents::class);
+        $webhooks->register(OrderPlaced::class, 'order.placed', 'order', 'orderId');
+        $webhooks->register(OrderMarkedFraud::class, 'order.fraud', 'order', 'orderId');
+        $webhooks->register(OrderCancelled::class, 'order.cancelled', 'order', 'orderId');
+        $webhooks->register(AffiliateCommissionEarned::class, 'affiliate.commission_earned', 'affiliate', 'affiliateId');
+
         $this->bindDemoContracts();
 
         $this->app->make(HttpKernel::class)->appendMiddlewareToGroup('web', CaptureReferralAndPromo::class);

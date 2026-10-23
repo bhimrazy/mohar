@@ -19,25 +19,11 @@ test('a remembered remote object is found again for the same local record and pa
         ->and($refs->find('resellerclub', 'customer', 'client', 43))->toBeNull();
 });
 
-test('remembering the same record again replaces it, and its secret is stored encrypted', function () {
-    $refs = app(RegistrarRefs::class);
-    $refs->remember(new RegistrarRef('opensrs', 'profile', 'client', 7, 'old', secret: 'Profile-Pass-1'));
-    $refs->remember(new RegistrarRef('opensrs', 'profile', 'client', 7, 'new', secret: 'Profile-Pass-2'));
+test('a secret is stored encrypted', function () {
+    app(RegistrarRefs::class)->remember(new RegistrarRef('opensrs', 'profile', 'client', 7, 'p-1', secret: 'Profile-Pass-1'));
 
-    $row = DB::table('registrar_refs')->sole();
-
-    expect($row->remote_id)->toBe('new')
-        ->and($row->secret)->not->toContain('Profile-Pass')
-        ->and($refs->find('opensrs', 'profile', 'client', 7)?->secret)->toBe('Profile-Pass-2');
-});
-
-test('remembering a record again without a secret erases the stored one, as the contract documents', function () {
-    $refs = app(RegistrarRefs::class);
-    $refs->remember(new RegistrarRef('opensrs', 'profile', 'client', 7, 'p-1', secret: 'Profile-Pass-1'));
-    $refs->remember(new RegistrarRef('opensrs', 'profile', 'client', 7, 'p-1'));
-
-    expect($refs->find('opensrs', 'profile', 'client', 7)?->secret)->toBeNull()
-        ->and(DB::table('registrar_refs')->sole()->secret)->toBeNull();
+    expect(DB::table('registrar_refs')->sole()->secret)->not->toContain('Profile-Pass')
+        ->and(app(RegistrarRefs::class)->find('opensrs', 'profile', 'client', 7)?->secret)->toBe('Profile-Pass-1');
 });
 
 // Adopted from review/pr-262-probes (#265): a value longer than its column is refused the same way on SQLite and
@@ -50,16 +36,15 @@ test('an over-long ref value is refused the same way on every database', functio
     'sha512 payload hash' => fn () => new RegistrarRef('resellerclub', 'contact', 'client', 1, '9', hash('sha512', 'contact')),
 ]);
 
-// Adopted from review/pr-262-probes (#265).
-test('remembering the same ref three times keeps one row and the last remote id', function () {
+test('remembering the same ref three times keeps one row and the first remote id', function () {
     $refs = app(RegistrarRefs::class);
 
     foreach (['1', '2', '3'] as $remote) {
-        $refs->remember(new RegistrarRef('resellerclub', 'customer', 'client', 5, $remote));
+        expect($refs->remember(new RegistrarRef('resellerclub', 'customer', 'client', 5, $remote))->remoteId)->toBe('1');
     }
 
     expect(DB::table('registrar_refs')->count())->toBe(1)
-        ->and($refs->find('resellerclub', 'customer', 'client', 5)?->remoteId)->toBe('3');
+        ->and($refs->find('resellerclub', 'customer', 'client', 5)?->remoteId)->toBe('1');
 });
 
 test('security:reencrypt moves a ref secret to the new key, which then reads it alone', function () {

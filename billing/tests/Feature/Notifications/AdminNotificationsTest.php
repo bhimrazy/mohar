@@ -55,6 +55,25 @@ it('lists templates and opens the editor with merge fields', function () {
             ->has('fields.invoice'));
 });
 
+it('lists a description and a sample-filled subject for each template', function () {
+    actingAsStaff(['notifications.templates.view']);
+    EmailTemplate::factory()->create(['key' => 'custom.promo', 'name' => 'Promo', 'is_system' => false]);
+
+    $this->get(route('admin.notifications.templates.index'))
+        ->assertOk()
+        ->assertInertia(function (Assert $page) {
+            $rows = collect($page->toArray()['props']['templates'])->keyBy('key');
+            $system = $rows->except('custom.promo');
+
+            expect($system->filter(fn ($row) => blank($row['description']))->keys()->all())->toBe([])
+                ->and($system->filter(fn ($row) => str_contains((string) $row['sample_subject'], '{{') || str_contains((string) $row['sample_subject'], '{%'))->keys()->all())->toBe([])
+                ->and($rows['invoice.created']['sample_subject'])->toContain('INV-2026-0101')
+                ->and($rows['invoice.created']['subject'])->toContain('{{ invoice.number }}')
+                ->and($rows['ticket.reply']['sample_subject'])->not->toContain('{{')
+                ->and($rows['custom.promo']['description'])->toBeNull();
+        });
+});
+
 it('previews unsaved text with sample data and reports syntax errors', function () {
     actingAsStaff(['notifications.templates.view']);
     $template = EmailTemplate::query()->where('key', 'invoice.created')->sole();

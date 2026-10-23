@@ -27,7 +27,7 @@ class EloquentRegistrarRefs implements RegistrarRefs
     /**
      * @throws InvalidArgumentException when a value is longer than its column (payloadHash is sha256 hex, 64 characters)
      */
-    public function remember(RegistrarRef $ref): void
+    public function remember(RegistrarRef $ref): RegistrarRef
     {
         foreach (self::MAX_LENGTHS as $field => $max) {
             if (mb_strlen($ref->{$field}) > $max) {
@@ -35,9 +35,12 @@ class EloquentRegistrarRefs implements RegistrarRefs
             }
         }
 
-        RegistrarRefRecord::query()->updateOrCreate(
+        // createOrFirst inserts and, on a unique-key conflict, reads the row that won, so the first writer is kept.
+        $record = RegistrarRefRecord::query()->createOrFirst(
             ['registrar_key' => $ref->registrarKey, 'ref_type' => $ref->refType, 'local_type' => $ref->localType, 'local_id' => $ref->localId, 'payload_hash' => $ref->payloadHash],
             ['remote_id' => $ref->remoteId, 'secret' => $ref->secret],
         );
+
+        return new RegistrarRef($record->registrar_key, $record->ref_type, $record->local_type, $record->local_id, $record->remote_id, $record->payload_hash, $record->secret);
     }
 }

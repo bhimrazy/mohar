@@ -162,6 +162,32 @@ The control plane answers only requests that carry `X-Sim-Token`:
 - **Using it from the app.** Set the printed `INTEGRATION_ENDPOINTS` (`namecheap.api`, the full `xml.response` URL), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`, and use the Namecheap registrar in sandbox mode with the printed user, key and client IP. The Namecheap driver reads this key (`tests/Namecheap/NamecheapDriverAgainstSimulatorTest.php` runs it against the simulator through the Domains host).
 - **Shapes.** Written from the public API reference only (no sandbox capture); `tests/Namecheap/NamecheapSimulatorTest.php` covers each scenario over the TLS port.
 
+### `whmcs`: WHMCS external API, for the migration connector (phase 2a, clients only)
+
+Built from the public developer reference only (pages used: the API overview, getting started, authentication, access control, response types, and the `WhmcsDetails`, `GetClients` and `GetClientsDetails` action pages on developers.whmcs.com). Nothing here comes from WHMCS source.
+
+- **API.** `POST /includes/api.php` (GET works too), the action in `action=`, matched case-insensitively: `WhmcsDetails`, `GetClients`, `GetClientsDetails`. Any other action answers an error.
+- **Credentials.** `WhmcsSimulator::IDENTIFIER` and `SECRET`, in `identifier`/`secret` or in the `username`/`password` fields the reference allows in their place. The legacy MD5 admin login is not simulated.
+- **Seed.** Five clients. `seed_clients` adds more with deterministic data: client _n_ is created at 2024-01-01 00:00 UTC plus _n_ x 90 minutes; every 10th is Inactive, every 25th Closed; every 3rd has a company and has never logged in.
+- **Paging.** `limitstart` (default 0), `limitnum` (default 25), `status`, `search` (prefix match on email, first, last and full name, company), `orderby` (`id` default, `firstname`, `lastname`, `companyname`, `email`, `groupid`, `datecreated`, `status`), `sorting`. Ties are broken by id. Offsets are applied to the live list on every call, so a change between calls shifts the pages as it would for an offset walk.
+- **Time.** Stored as UTC; `datecreated` is a date and `lastlogin` a datetime in the scenario's source zone (default `America/New_York`, which has daylight saving; set it with `configure`).
+- **Control actions.**
+    - `seed_clients` {count, overrides}: append clients; overrides are stored fields (`firstname`, `email`, `status`, `created_at` and `lastlogin_at` as UTC epoch seconds, ...).
+    - `update_client` {id, fields}, `remove_client` {id}.
+    - `schedule_change` {at_call, add_count, overrides, remove_ids}: applied as the Nth `GetClients` call arrives, before it is answered (a client added or removed mid-walk). Calls refused for credentials or IP count too.
+    - `configure` {timezone, ip_restricted, access_key, denied_actions, single_item_as_object, stringify_numbers}: `ip_restricted` refuses every call unless `accesskey` matches `access_key`; `denied_actions` stands for an API role that lacks an action; the last two switch on response shapes a connector has to normalise.
+    - `reset`.
+- **Assumptions, not facts.** The reference does not state these; each is a guess to confirm against a real installation:
+    - Success and error are both HTTP 200 with `result` and, on error, `message`. The message texts (`Authentication Failed`, `Invalid IP <address>`, `Invalid Permissions: ...`, ...) are ours, except the two the `GetClientsDetails` reference documents: clientid or email required, and client not found.
+    - The IP check comes before the credential check, and a wrong `accesskey` falls back to the IP check.
+    - Only JSON is answered, whatever `responsetype` says.
+    - `limitnum` of 0 or less means the default 25; there is no upper cap; an unknown `orderby` means `id`; a `status` outside Active, Inactive and Closed matches nothing; an empty page is `clients.client: []`.
+    - Numbers are JSON integers (use `stringify_numbers` for installations that send strings), money such as `credit` is a decimal string, and a lone result is a list (`single_item_as_object` makes it an object).
+    - `datecreated` in `GetClients` is `YYYY-MM-DD`; `lastlogin` is `YYYY-MM-DD HH:MM:SS`, or `0000-00-00 00:00:00` when the client never logged in.
+    - `GetClientsDetails` returns its fields both inside `client` and at the top level. Field names beyond those the reference lists, the email-preference keys and the `stats` keys (all zero here) are ours. Lookup by `email` is case-insensitive.
+    - The request log keeps the `identifier`; the redactor masks `secret`, `password` and `accesskey`.
+- **Using it from the app.** The source URL is the scenario's API URL, with the identifier and secret above. Set `OUTBOUND_ALLOW_LOOPBACK=true` (development only).
+
 ### Wallet scenarios and where each is proved
 
 `tests/Khalti/KhaltiDriverAgainstSimulatorTest.php` and `tests/Esewa/EsewaDriverAgainstSimulatorTest.php` run the unchanged drivers through the app's routes:

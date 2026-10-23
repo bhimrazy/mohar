@@ -51,6 +51,8 @@ class EmailTemplateController extends Controller
                 ->orWhereLike('key', '%'.$request->string('search')->toString().'%')))
             ->orderBy('type')->orderBy('name')->orderBy('id')->get();
 
+        $locale = $this->composer->defaultLocale();
+
         return Inertia::render('admin/notifications/templates/index', [
             'templates' => $templates->map(fn (EmailTemplate $template): array => [
                 'id' => $template->id,
@@ -60,7 +62,10 @@ class EmailTemplateController extends Controller
                 'audience' => $template->audience->value,
                 'is_system' => $template->is_system,
                 'is_enabled' => $template->is_enabled,
-                'subject' => $template->translationFor($this->composer->defaultLocale(), $this->composer->defaultLocale())?->subject,
+                'description' => $this->catalog->find($template->key)['description'] ?? null,
+                'subject' => $template->translationFor($locale, $locale)?->subject,
+                // Merge fields filled with sample data, as the editor preview does.
+                'sample_subject' => $this->composer->sampleSubject($template, $locale, $this->sampleFor($template)),
                 'locales' => $template->translations->pluck('locale')->sort()->values()->all(),
                 'updated_at' => $template->translations->max('updated_at')?->toIso8601String(),
             ])->values(),
@@ -68,6 +73,21 @@ class EmailTemplateController extends Controller
             'filters' => $request->only(['type', 'search']),
             'canManage' => $request->user()?->hasPermission('notifications.templates.manage') ?? false,
         ]);
+    }
+
+    /** @var array<string, array<string, mixed>> */
+    private array $sampleCache = [];
+
+    /**
+     * Templates whose sample data is identical share one build.
+     *
+     * @return array<string, mixed>
+     */
+    private function sampleFor(EmailTemplate $template): array
+    {
+        $group = $template->audience->value.(str_starts_with($template->key, 'invoice.overdue') ? ':overdue' : '').(str_contains($template->key, 'invitation') ? ':invitation' : '');
+
+        return $this->sampleCache[$group] ??= $this->samples->build($template->audience === TemplateAudience::Staff, $template->key);
     }
 
     public function create(): Response
