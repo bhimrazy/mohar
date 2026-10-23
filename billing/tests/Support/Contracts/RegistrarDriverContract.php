@@ -4,6 +4,7 @@ namespace Tests\Support\Contracts;
 
 use App\Contracts\Domains\Registrar\ChecksAvailability;
 use App\Contracts\Domains\Registrar\DeclaresTldAttributes;
+use App\Contracts\Domains\Registrar\LinksExistingOrders;
 use App\Contracts\Domains\Registrar\ManagesContacts;
 use App\Contracts\Domains\Registrar\ManagesIdProtection;
 use App\Contracts\Domains\Registrar\ManagesLock;
@@ -22,6 +23,7 @@ use App\Data\Domains\Registrar\ContactSet;
 use App\Data\Domains\Registrar\DomainInfo;
 use App\Data\Domains\Registrar\DomainRef;
 use App\Data\Domains\Registrar\EppCodeResult;
+use App\Data\Domains\Registrar\LinkedOrder;
 use App\Data\Domains\Registrar\RegistrarConfig;
 use App\Data\Domains\Registrar\RegistrarResult;
 use App\Data\Domains\Registrar\RegistrationRequest;
@@ -376,6 +378,7 @@ final class RegistrarDriverContract
                 'reconcile_register' => [SubmissionLookup::class, fn (): mixed => $driver->findSubmission($config, $domain, 'register', $since)],
                 'reconcile_renew' => [SubmissionLookup::class, fn (): mixed => $driver->findSubmission($config, $domain, 'renew', $since)],
             ],
+            LinksExistingOrders::class => fn (LinksExistingOrders $driver, RegistrarConfig $config): array => ['link_order' => [LinkedOrder::class, fn (): mixed => $driver->lookupOrder($config, $domain, '80000001')]],
             TestsRegistrarConnection::class => fn (TestsRegistrarConnection $driver, RegistrarConfig $config): array => ['test_connection' => [ConnectionCheck::class, fn (): mixed => $driver->testConnection($config)]],
         ];
     }
