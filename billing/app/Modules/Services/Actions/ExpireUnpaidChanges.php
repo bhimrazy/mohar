@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Actions;
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Services\Enums\ChangeStatus;
 use App\Modules\Services\Models\ServiceChange;
 use App\Modules\Services\Support\Billing;
@@ -14,7 +15,7 @@ use Illuminate\Support\Facades\DB;
  */
 class ExpireUnpaidChanges
 {
-    public function __construct(private Billing $billing) {}
+    public function __construct(private Billing $billing, private CompanyClock $clock) {}
 
     public function handle(CarbonImmutable $today): int
     {
@@ -23,7 +24,7 @@ class ExpireUnpaidChanges
         ServiceChange::query()
             ->where('status', ChangeStatus::PendingPayment->value)
             ->whereNotNull('expires_at')
-            ->where('expires_at', '<', $today->endOfDay())
+            ->where('expires_at', '<', $this->clock->dayBounds($today)[1])
             ->eachById(function (ServiceChange $change) use (&$count): void {
                 $expired = DB::transaction(function () use ($change): bool {
                     $locked = ServiceChange::query()->lockForUpdate()->find($change->id);

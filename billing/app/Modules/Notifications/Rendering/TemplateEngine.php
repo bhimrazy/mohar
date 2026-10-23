@@ -4,7 +4,7 @@ namespace App\Modules\Notifications\Rendering;
 
 use App\Data\Notifications\SensitiveValue;
 use App\Modules\Core\Support\DateFormats;
-use App\Modules\Notifications\Support\MailClock;
+use App\Modules\Notifications\Support\MailDates;
 use App\Support\Currencies\MoneyFormatter;
 
 /**
@@ -459,11 +459,11 @@ final class TemplateEngine
     }
 
     /**
-     * The date setting's format, in the company's time zone (MailClock); a value that is not a date is left as is.
+     * The date setting's format, in the company's time zone (MailDates); a value that is not a date is left as is.
      */
     private function formatDate(mixed $value, mixed $format): mixed
     {
-        $formatted = MailClock::date($value, is_string($format) && $format !== '' ? $format : ($this->options['date_format'] ?? DateFormats::current()), $this->options['locale'] ?? 'en');
+        $formatted = MailDates::date($value, is_string($format) && $format !== '' ? $format : ($this->options['date_format'] ?? DateFormats::current()), $this->options['locale'] ?? 'en');
 
         return $formatted ?? $value;
     }

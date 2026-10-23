@@ -4,6 +4,7 @@ namespace App\Modules\Billing\Http\Controllers\Admin;
 
 use App\Contracts\Billing\GatewayDriver;
 use App\Contracts\Billing\LooksUpRefunds;
+use App\Contracts\Core\CompanyClock;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\SaveDraftInvoice;
 use App\Modules\Billing\Actions\UpdateInvoiceDetails;
@@ -20,7 +21,6 @@ use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\PaymentInProgress;
 use App\Modules\Core\Models\Client;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -68,7 +68,7 @@ class InvoiceController extends Controller
         ]);
     }
 
-    public function create(Request $request, BillingSettings $settings): Response
+    public function create(Request $request, BillingSettings $settings, CompanyClock $clock): Response
     {
         $this->authorize('billing.invoices.manage');
 
@@ -77,7 +77,7 @@ class InvoiceController extends Controller
             'client' => $this->clientOption($request->integer('client') ?: null),
             'defaults' => [
                 'client_id' => $request->integer('client') ?: null,
-                'due_date' => CarbonImmutable::today()->addDays($settings->int('invoice_days_before_due', 14))->toDateString(),
+                'due_date' => $clock->today()->addDays($settings->int('invoice_days_before_due', 14))->toDateString(),
             ],
             ...$this->formOptions(),
         ]);

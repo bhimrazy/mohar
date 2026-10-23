@@ -3,6 +3,7 @@
 namespace App\Modules\Orders\Actions;
 
 use App\Contracts\Billing\Invoicer;
+use App\Contracts\Core\CompanyClock;
 use App\Data\Billing\InvoiceDraft;
 use App\Events\Orders\OrderSetPending;
 use App\Modules\Core\Support\ActivityLogger;
@@ -10,7 +11,6 @@ use App\Modules\Orders\Enums\OrderItemStatus;
 use App\Modules\Orders\Enums\OrderStatus;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Pricing\OrderInvoiceLines;
-use App\Modules\Orders\Services\CompanyClock;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 

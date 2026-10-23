@@ -4,7 +4,7 @@ namespace App\Modules\Notifications\Mail;
 
 use App\Contracts\Branding\BrandProvider;
 use App\Modules\Core\Support\Settings;
-use App\Modules\Notifications\Support\MailClock;
+use App\Modules\Notifications\Support\MailDates;
 
 /**
  * The system part of each email (design §3 and §9: "the operator edits copy, the system computes state"): status,
@@ -51,7 +51,7 @@ final class MailFramer
     private function invoice(string $key, array $context): MailFrame
     {
         $dueDate = $this->string($context, 'invoice.due_date');
-        $days = MailClock::daysFromToday($dueDate);
+        $days = MailDates::daysFromToday($dueDate);
         $due = $this->date($dueDate);
         $paid = strtolower((string) data_get($context, 'invoice.status')) === 'paid';
         $auto = $key === 'invoice.created_autocharge';
@@ -112,7 +112,7 @@ final class MailFramer
             amountLabel: $key === 'invoice.refunded' ? self::text('Refunded') : self::text('Credit'),
             statusTone: 'info',
             statusLabel: $key === 'invoice.refunded' ? self::text('Refunded') : self::text('Credit issued'),
-            statusWhen: $this->date(MailClock::today()),
+            statusWhen: $this->date(MailDates::today()),
             document: true,
             downloads: $this->invoiceDownload($context),
             reason: $this->billingReason($context),
@@ -231,9 +231,9 @@ final class MailFramer
             'auth.password_reset' => ['accent', self::text('Reset requested'), $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null],
             'auth.email_verification' => ['accent', self::text('Confirm your email'), null],
             'auth.user_invitation', 'client.migration_invitation' => ['accent', self::text('Invitation'), $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null],
-            'auth.password_changed' => ['warning', self::text('Password changed'), $this->date(MailClock::today())],
-            'auth.new_login_alert' => ['warning', self::text('New login'), $this->date(MailClock::today())],
-            default => ['info', self::text('Account change'), $this->date(MailClock::today())],
+            'auth.password_changed' => ['warning', self::text('Password changed'), $this->date(MailDates::today())],
+            'auth.new_login_alert' => ['warning', self::text('New login'), $this->date(MailDates::today())],
+            default => ['info', self::text('Account change'), $this->date(MailDates::today())],
         };
 
         return new MailFrame(label: self::text('Account security'), statusTone: $tone, statusLabel: $label, statusWhen: $when, security: true);
@@ -370,6 +370,6 @@ final class MailFramer
      */
     private function date(mixed $value): ?string
     {
-        return MailClock::date($value, null, $this->locale);
+        return MailDates::date($value, null, $this->locale);
     }
 }

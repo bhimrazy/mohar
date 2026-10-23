@@ -3,29 +3,28 @@
 namespace App\Modules\Domains\Jobs;
 
 use App\Modules\Domains\Actions\PerformRenewal;
+use App\Modules\Domains\Jobs\Concerns\GuardsDomainRegistrar;
 use App\Modules\Domains\Models\Domain;
 use App\Support\Queues;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Throwable;
 
 /**
  * Renew a domain at the registrar after its renewal invoice was paid (or on staff request).
- * Unique per domain and cycle, never overlapping another registrar job for the domain; PerformRenewal
+ * Unique per domain and cycle; waits for any other registrar job or sync of the domain (see GuardsDomainRegistrar); PerformRenewal
  * claims the cycle so a retry after an unknown outcome verifies instead of renewing again.
  */
 class RenewDomain implements ShouldBeUnique, ShouldQueue
 {
+    use GuardsDomainRegistrar;
     use Queueable;
-
-    public int $tries = 3;
 
     /** Seconds: above the drivers' HTTP timeouts (10 s connect + 90 s), below the registrar pool's 200 s (ADR 0017 §3). */
     public int $timeout = 180;
 
-    public int $uniqueFor = 3600;
+    public int $uniqueFor = 90000;
 
     public function __construct(
         public int $domainId,
@@ -40,14 +39,6 @@ class RenewDomain implements ShouldBeUnique, ShouldQueue
     public function uniqueId(): string
     {
         return 'domain:'.$this->domainId.':renew:'.($this->fromExpiry ?? 'none');
-    }
-
-    /**
-     * @return list<object>
-     */
-    public function middleware(): array
-    {
-        return [(new WithoutOverlapping('domain:'.$this->domainId))->dontRelease()->expireAfter(600)];
     }
 
     /**
@@ -72,7 +63,7 @@ class RenewDomain implements ShouldBeUnique, ShouldQueue
         $domain = Domain::query()->find($this->domainId);
 
         if ($domain !== null) {
-            app(PerformRenewal::class)->failed($domain, $exception->getMessage());
+            app(PerformRenewal::class)->failed($domain, $this->failureText($exception));
         }
     }
 }

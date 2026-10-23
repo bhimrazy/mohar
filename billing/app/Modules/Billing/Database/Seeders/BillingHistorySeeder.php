@@ -3,6 +3,7 @@
 namespace App\Modules\Billing\Database\Seeders;
 
 use App\Contracts\Billing\Invoicer;
+use App\Contracts\Core\CompanyClock;
 use App\Data\Billing\InvoiceDraft;
 use App\Data\Billing\InvoiceLineData;
 use App\Enums\BillableType;
@@ -63,7 +64,7 @@ class BillingHistorySeeder extends DemoSeeder
         }
 
         $previous = CarbonImmutable::getTestNow();
-        $today = CarbonImmutable::today();
+        $today = app(CompanyClock::class)->today();
         mt_srand(2026);
 
         $this->wallets = array_values(array_map(strval(...), Gateway::query()->whereIn('key', BillingSeeder::NEPAL_WALLETS)->where('is_active', true)->orderBy('key')->pluck('key')->all()));
@@ -263,9 +264,13 @@ class BillingHistorySeeder extends DemoSeeder
         return $at->isWeekend() ? $at->next(CarbonImmutable::MONDAY)->setTime($at->hour, $at->minute) : $at;
     }
 
+    /**
+     * Planned times are company-local (the demo company's day and hour), so each document is dated on its planned day.
+     */
     private function clock(CarbonImmutable $at): void
     {
-        Carbon::setTestNow($at);
-        CarbonImmutable::setTestNow($at);
+        $instant = CarbonImmutable::parse($at->format('Y-m-d H:i:s'), app(CompanyClock::class)->timezone())->utc();
+        Carbon::setTestNow($instant);
+        CarbonImmutable::setTestNow($instant);
     }
 }

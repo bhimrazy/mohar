@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Models;
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Billing\Database\Factories\PayMethodFactory;
 use App\Modules\Core\Models\Client;
 use Carbon\CarbonImmutable;
@@ -66,7 +67,7 @@ class PayMethod extends Model
             return false;
         }
 
-        $today ??= CarbonImmutable::today();
+        $today ??= app(CompanyClock::class)->todayDate();
 
         return CarbonImmutable::create($this->expiry_year, $this->expiry_month, 1)->endOfMonth()->lt($today);
     }

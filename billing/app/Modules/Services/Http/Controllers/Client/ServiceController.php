@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Http\Controllers\Client;
 
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Services\Provisioning\ChangesPassword;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Support\ClientContext;
@@ -12,7 +13,6 @@ use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\ServicePresenter;
 use App\Modules\Services\Support\ClientNameservers;
 use App\Modules\Services\Support\ServiceSettings;
-use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -41,7 +41,7 @@ class ServiceController extends Controller
         ]);
     }
 
-    public function show(int $service, ServicePresenter $presenter, ServiceSettings $settings, ClientNameservers $nameservers): Response
+    public function show(int $service, ServicePresenter $presenter, ServiceSettings $settings, ClientNameservers $nameservers, CompanyClock $clock): Response
     {
         $this->context->authorize('services');
 
@@ -66,7 +66,7 @@ class ServiceController extends Controller
             'usage' => $model->latestUsage?->only(['disk_used_mb', 'disk_limit_mb', 'bw_used_mb', 'bw_limit_mb', 'captured_at']),
             'cancellation' => $model->openCancellationRequest?->only(['id', 'type', 'process_after']),
             'cancellationTypes' => array_map(fn (CancellationType $type): array => ['value' => $type->value, 'label' => $type->label()], CancellationType::cases()),
-            'changeOptions' => Inertia::defer(fn (): array => $presenter->changeOptions($model, CarbonImmutable::today())),
+            'changeOptions' => Inertia::defer(fn (): array => $presenter->changeOptions($model, $clock->todayDate())),
             'creditOnDowngrade' => $settings->creditOnDowngrade(),
             'nameservers' => $nameservers->forService($model),
             'can' => [

@@ -3,6 +3,7 @@
 namespace App\Modules\Platform;
 
 use App\Contracts\Auth\ClientLoginInvitations;
+use App\Contracts\Core\CompanyClock;
 use App\Events\Core\ExchangeRatesUpdated;
 use App\Models\User;
 use App\Modules\Core\Models\Contact;
@@ -135,6 +136,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
         if ($time !== null) {
             $schedule->command('platform:update-exchange-rates')
                 ->dailyAt($time)
+                ->timezone((string) rescue(fn (): string => $this->app->make(CompanyClock::class)->timezone(), 'UTC', report: false))
                 ->name(ExchangeRateTask::KEY)
                 ->withoutOverlapping()
                 ->onOneServer();
@@ -234,7 +236,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
             new SettingDefinition('platform.rates_stale_after_days', 'Warn when automatic rates are older than (days)', 'integer', rules: ['min:1', 'max:60']),
             new SettingDefinition('platform.rates_manual_stale_after_days', 'Warn when manual rates are older than (days)', 'integer', 'Manual rates that nobody has changed for this long are flagged for review.', rules: ['min:1', 'max:365']),
             new SettingDefinition('platform.nrb_rate_type', 'Nepal Rastra Bank rate to use', 'select', 'NRB publishes a buying and a selling rate for each currency.', options: NrbRateSource::RATE_TYPES),
-            new SettingDefinition('platform.rates_update_time', 'Rate update time', help: 'Time of day (24-hour HH:MM, server time '.config('app.timezone').') to fetch rates, e.g. 17:00 after ECB publishes. Leave empty to fetch with the daily automation run.', rules: ['nullable', 'date_format:H:i']),
+            new SettingDefinition('platform.rates_update_time', 'Rate update time', help: 'Time of day (24-hour HH:MM, company time) to fetch rates, e.g. 17:00 after ECB publishes. Leave empty to fetch with the daily automation run.', rules: ['nullable', 'date_format:H:i']),
         ], 'core.currencies.rates');
 
         $this->app->make(SettingsRegistry::class)->section('security', 'Security', [

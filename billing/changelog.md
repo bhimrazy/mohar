@@ -8,9 +8,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **Registrar jobs for one domain no longer overlap, and none is dropped while waiting (#14).** Registering, transferring, renewing and syncing a domain now share one lock per domain (before, the three jobs only excluded their own kind). A job that finds the domain busy goes back on the queue and tries again after 30 to 45 seconds. The jobs no longer use a fixed number of tries (every wait counts as an attempt in Laravel, so a paid renewal could have failed just by queuing behind another job): they fail after 3 real errors, timeouts or crashes, or if they have not run 24 hours after they were queued, and then alert staff in plain words as before (the registrar queue can be down for hours and still run paid work when it returns). A sync that meets a busy domain skips it (the next hourly run picks it up; **Sync now** says another registrar action is running). Name-server, contact, lock and EPP-code changes stay outside the lock. Upgrade notes: the cache store must support atomic locks (Redis or database); on the `sync` queue driver a job that meets the lock is dropped, so use a real queue driver; the lock must not be taken inside a database transaction (the database cache store aborts a surrounding PostgreSQL transaction when the lock is taken); queued register, transfer and renew jobs keep their unique lock for 25 hours instead of 1. No schema or permission change.
+
 - **A refund that times out is no longer refunded twice (#334).** A gateway refund now fails and frees its amount only when the provider definitely declines it, or when nothing was ever sent. A timeout, a server error, a pending answer or a crashed request leaves the refund **Pending** (shown as "Being confirmed") with its amount reserved, and staff see "The refund is being confirmed with the provider" instead of an error that invites a retry; the invoice shows a banner ("Don't refund again until this is settled") and a second gateway refund of the same payment is refused. A pending refund settles on the same row, so the provider's idempotency key never changes, through the provider's refund callback (checked against the refund we sent: payment, amount and currency), **Check refund**, or staff. **Check refund** is offered for Stripe: it repeats the original request with the same idempotency key, so Stripe returns the refund it made or makes it once; after Stripe's 24-hour window it lists the payment's refunds instead and treats absence as "no such refund" only past 24 hours. A Check replay Stripe did not process (a rejected or missing key, an idempotency conflict) never releases the amount. A refund Stripe keeps answering "unknown" for three days can be settled by hand like the others. For Khalti, which cannot be asked, staff choose **Confirmed at the provider** (with the provider's refund reference, which is booked and deduped on) or **Not refunded** (releases the amount), 10 minutes after the request if it never answered. Both need a recent password confirmation and `billing.refunds.manage`, and are written to the activity log. A late error never undoes a refund the callback already booked. A provider refund that arrives for a refund already released is booked once (by the provider's refund id) and put on the review list. Releasing never restores more than the payment can still give back after a chargeback. The dashboard lists **Refunds waiting for the provider** (older than 10 minutes), the Transactions page has a "Waiting for provider" filter, and every transaction row shows a status. Stripe and Khalti server errors (5xx) now count as unknown, not declined. New provider contract `LooksUpRefunds`; `RefundRequest` gains an optional `sentAt` (kernel changelog). Schema: new partial index `transactions_refund_pending_index` (built concurrently on PostgreSQL). No new permission.
 
 ### Added
+
+- **Documents are dated on the company's calendar (ADR 0013 Amendment 1).** Invoice issue and due dates, document
+  numbers (the yearly and monthly resets), quote validity, overdue checks, card expiry, the tax-rule effective date,
+  receipt dates, Bikram Sambat dates and the daily automation run date now come from the company time zone (Settings,
+  Company, `system.timezone`) instead of UTC. In Kathmandu an invoice published or paid at 00:05 is dated that day;
+  before, it carried the day before until 05:45. Upgrade and downgrade invoices are dated the same way. The daily
+  automation and the separate exchange-rate update start at their set time on the company's clock (they ran on server
+  time, UTC), and the automation page and the exchange-rate page show the next run in company time. A stored zone name
+  such as `Asia/Katmandu` or `Asia/Calcutta` is accepted and mapped to `Asia/Kathmandu` or `Asia/Kolkata`; a name that
+  is not a time zone at all falls back to UTC, is reported, and shows a warning on the admin dashboard. New read-only
+  command `php artisan billing:report-utc-dates` lists numbered invoices created, paid or last updated while the
+  company date differed from the UTC date (in Kathmandu, 00:00 to 05:45), so the owner and the accountant can judge
+  them; **existing invoices are not changed**. Upgrade notes: **the daily automation time and the exchange-rate update
+  time (`core.automation_time`, `platform.rates_update_time`) now mean company time**, where they meant UTC, so check
+  them once after upgrading (no stored value is converted). The first automation run after the upgrade uses the
+  company date, so one run date can be skipped (a Kathmandu install deployed between 21:15 and 03:00 UTC runs 18 Oct,
+  then 20 Oct); a date is never run twice, and the renewal, reminder, cancellation and suspension tasks select by `<=`
+  windows, so the next run takes what the skipped one would have. To run a skipped date, use `php artisan
+  automation:run --date=YYYY-MM-DD`. Core's `BusinessCalendar`, Orders' `CompanyClock` and Notifications' `MailClock`
+  are replaced by the `CompanyClock` contract. No schema or permission change.
 
 - **Extension details for registrars.** When a domain is ordered, the registrar can now ask for the extra details a
   registry requires for that extension, and they are asked for where the domain is ordered: the domain search, the

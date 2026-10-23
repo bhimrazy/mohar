@@ -6,6 +6,24 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Company clock contract (ADR 0013 Amendment 1, PR 0a)
+
+- New `App\Contracts\Core\CompanyClock`: `timezone()`, `now()`, `today()`, `todayDate()` (the company date as 00:00 UTC, the run-date shape), `dayBounds(date)` (the `[start, end)`
+  UTC instants of one company day), `localDate(instant)` and `isFallback()`. Core implements it (`CoreCompanyClock`, bound in
+  `CoreServiceProvider`) on the setting `system.timezone`; an invalid stored zone falls back to UTC. Additive; no
+  setting rename or migration.
+- Removed, with every in-repo caller moved to the contract: Core's `BusinessCalendar` (now `CoreCompanyClock`, which
+  keeps `sqlZoneArgument()` and `sqlLocalDate()` for the two dashboards that still bucket in SQL), Orders'
+  `Services\CompanyClock`, and Notifications' `MailClock` (its formatting stays, as `Support\MailDates`). None was
+  public kernel surface; `BusinessCalendar::startOfDayUtc()` is `dayBounds()[0]`.
+- `automation:run` defaults its date to `CompanyClock::todayDate()`, and its schedule and the exchange-rate schedule use
+  `->timezone($clock->timezone())`: `core.automation_time` and `platform.rates_update_time` are company time. The
+  run date is passed to tasks as a date value (00:00 UTC of the company date); `today()` itself is 00:00 in the company
+  zone. A run date can be skipped once on deploy (tasks select by `<=` windows and catch up).
+- `isFallback()` is on the contract: true when the stored zone is not a valid time zone and dates
+  use UTC (reported once; shown as a dashboard warning). Backward-compatible names such as `Asia/Katmandu` are accepted.
+- Billing's `DocumentNumbers::next()` now requires the document date (module code, not kernel API).
+
 ### TLD attributes for registrar drivers (ADR 0009 Amendment 2)
 
 - New capability `App\Contracts\Domains\Registrar\DeclaresTldAttributes` (detected with `instanceof`; registry

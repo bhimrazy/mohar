@@ -4,6 +4,7 @@ namespace App\Modules\Orders\Pricing;
 
 use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Catalog\PriceBook;
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Domains\DomainPricing;
 use App\Data\Catalog\ProductSelection;
 use App\Data\Catalog\ProductSummary;
@@ -13,7 +14,6 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Orders\Data\CartItem;
 use App\Modules\Orders\Enums\CartItemKind;
 use App\Modules\Orders\Models\Promotion;
-use App\Modules\Orders\Services\CompanyClock;
 use App\Modules\Orders\Services\CurrencyConverter;
 use App\Modules\Orders\Services\CustomFieldRules;
 use App\Modules\Orders\Services\DomainGuard;

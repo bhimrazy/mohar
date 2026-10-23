@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Http\Controllers\Client;
 
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Services\Provisioning\ChangesPassword;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Support\ClientContext;
@@ -46,10 +47,10 @@ class ServiceActionController extends Controller
         return to_route('client.services.show', $model->id);
     }
 
-    public function change(ServiceChangeRequest $request, int $service, OrderServiceChange $order): RedirectResponse
+    public function change(ServiceChangeRequest $request, int $service, OrderServiceChange $order, CompanyClock $clock): RedirectResponse
     {
         $model = $this->owned($service);
-        $today = CarbonImmutable::today();
+        $today = $clock->todayDate();
 
         $change = $this->attempt(fn () => $order->handle($model, $request->integer('product_id'), $request->cycle(), $today), 'product_id');
 
