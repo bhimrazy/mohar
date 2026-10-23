@@ -72,7 +72,7 @@ type Props = {
         hasExport: boolean;
         currency: string;
     };
-    warnings: { withoutPan: number; unconverted: number };
+    warnings: { withoutPan: number; unconverted: number; unclassified: number };
     can: { export: boolean };
 };
 
@@ -399,6 +399,8 @@ export default function VatRegister({
             `${plural(warnings.withoutPan)} to a business buyer without a PAN. Their PAN column is blank; add the PAN to the client for later documents.`,
         warnings.unconverted > 0 &&
             `${plural(warnings.unconverted)} without a stored exchange rate into the register currency. Their amounts are blank and left out of the totals.`,
+        warnings.unclassified > 0 &&
+            `${plural(warnings.unclassified)} with tax that is not yet split into Nepal VAT and other tax. Their tax is left out of VAT; ask the person who runs the system to run billing:fiscal-vat-split.`,
     ].filter((notice): notice is string => typeof notice === 'string');
 
     return (

@@ -89,7 +89,7 @@ class VatRegisterController extends Controller
             // What was asked for, so a refused year or range stays in the picker beside its error.
             'submitted' => (object) ($errors === [] ? [] : $submitted),
             'options' => $this->options($clock),
-            'warnings' => ['withoutPan' => $summary->withoutPan, 'unconverted' => $summary->unconverted],
+            'warnings' => ['withoutPan' => $summary->withoutPan, 'unconverted' => $summary->unconverted, 'unclassified' => $summary->unclassified],
             'can' => ['export' => (bool) $user?->hasPermission("reports.{$key}.export")],
         ]);
     }

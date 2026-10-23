@@ -2,10 +2,12 @@
 
 namespace App\Modules\Billing\Support;
 
+use App\Contracts\Core\CompanyClock;
 use App\Models\User;
 use App\Modules\Billing\Enums\InvoiceKind;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\TaxNote;
+use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Billing\Services\TaxNoteIssuer;
 
 /**
@@ -15,15 +17,15 @@ use App\Modules\Billing\Services\TaxNoteIssuer;
  */
 class TaxNotePanel
 {
-    public function __construct(private BillingSettings $settings, private TaxNoteIssuer $issuer) {}
+    public function __construct(private NepalVatMode $mode, private TaxNoteIssuer $issuer, private CompanyClock $clock) {}
 
     /**
-     * Whether staff can issue notes on this invoice: Nepal VAT mode on, and a numbered tax invoice with its snapshot. The
-     * mode setting (`billing.nepal_vat.enabled`, off when unset) gets its definition and enable checks in VAT PR 3.
+     * Whether staff can issue notes on this invoice: Nepal VAT mode in effect (switched on and its start day reached), and a
+     * numbered tax invoice with its snapshot.
      */
     public function issuable(Invoice $invoice): bool
     {
-        return $this->settings->bool('nepal_vat.enabled') && $invoice->numbered_at !== null && $invoice->fiscal_total !== null && $invoice->kind !== InvoiceKind::AddFunds;
+        return $this->mode->inEffect($this->clock->now()) && $invoice->numbered_at !== null && $invoice->fiscal_total !== null && $invoice->kind !== InvoiceKind::AddFunds;
     }
 
     /**

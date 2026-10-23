@@ -65,6 +65,7 @@ class TaxNoteIssuer
         private ActivityLogger $activity,
         private MoneyFormatter $money,
         private BillingSettings $settings,
+        private NepalVatMode $mode,
     ) {}
 
     /** What can still be credited on the invoice: its value, plus debits, less credits and pending refund reservations. */
@@ -161,7 +162,7 @@ class TaxNoteIssuer
                 'issue_date' => $date, 'issued_at' => $at, 'invoice_number' => (string) $invoice->number, 'invoice_bs_issue_date' => $invoice->bs_issue_date,
                 'reason_code' => $request->reasonCode, 'reason_text' => $request->reasonText, 'taxable_amount' => $plan->taxable, 'exempt_amount' => $plan->exempt,
                 'tax1_amount' => $plan->tax1, 'tax2_amount' => $plan->tax2, 'total' => $plan->total, 'report_currency' => $invoice->report_currency,
-                'report_rate' => $invoice->report_rate, 'supply_class' => $invoice->supply_class, 'seller_snapshot' => $invoice->seller_snapshot,
+                'report_rate' => $invoice->report_rate, 'supply_class' => $invoice->supply_class, 'tax1_is_vat' => $invoice->fiscal_tax1_is_vat, 'tax2_is_vat' => $invoice->fiscal_tax2_is_vat, 'seller_snapshot' => $invoice->seller_snapshot,
                 'buyer_snapshot' => $invoice->client_snapshot, 'bs_issue_date' => $bs->toIso(), 'bs_period' => BikramSambat::period($bs),
                 'bs_fiscal_year' => BikramSambat::fiscalYear($bs), 'automatic' => $request->automatic, 'created_by' => $request->userId,
                 'reverses_tax_note_id' => $request->reverses, 'created_at' => $at, 'updated_at' => $at,
@@ -266,6 +267,11 @@ class TaxNoteIssuer
 
         if ($invoice->kind === InvoiceKind::AddFunds || $invoice->numbered_at === null || $invoice->fiscal_total === null) {
             throw new BillingException(__('Only a numbered tax invoice with a stored snapshot takes a note.'));
+        }
+
+        // A taxed invoice numbered before its tax was split into Nepal VAT and other tax would write a note the register cannot place.
+        if ($this->mode->enabled() && $invoice->fiscal_tax1_is_vat === null && (int) $invoice->fiscal_tax1 + (int) $invoice->fiscal_tax2 !== 0) {
+            throw new BillingException(__('This invoice\'s tax has not been split into Nepal VAT and other tax yet. Ask the person who runs the system to run "php artisan billing:fiscal-vat-split", then try again.'));
         }
 
         if ($this->clock->isFallback()) {
