@@ -3,6 +3,7 @@
 use App\Modules\Core\Support\LockTimeout;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -27,6 +28,11 @@ return new class extends Migration
 
     public function down(): void
     {
+        // 300700, rolled back next, refuses while a note exists; refusing here first leaves both in place.
+        if (DB::table('tax_notes')->exists()) {
+            throw new RuntimeException('Rolling back the note migrations is refused while credit and debit notes exist. Restore a backup instead.');
+        }
+
         $this->rekey(restrict: false);
     }
 

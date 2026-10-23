@@ -13,7 +13,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $id
  * @property int $tax_note_id
  * @property int|null $invoice_item_id null only for a late-fee debit note
+ * @property string $description
+ * @property bool $taxable
  * @property int $amount net
+ * @property int $tax1_amount
+ * @property int $tax2_amount
  * @property-read TaxNote $note
  */
 #[Fillable(['tax_note_id', 'invoice_item_id', 'description', 'quantity', 'unit_amount', 'amount', 'taxable', 'tax1_amount', 'tax2_amount', 'sort_order'])]

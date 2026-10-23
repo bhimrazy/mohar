@@ -43,6 +43,7 @@ use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\BillingAutomation;
 use App\Modules\Billing\Services\BillingDirectory;
 use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Billing\Services\DocumentNumbers;
 use App\Modules\Billing\Services\InvoiceService;
 use App\Modules\Billing\Services\PaymentReconciler;
 use App\Modules\Billing\Services\Tax\BillingTaxIdRules;
@@ -247,6 +248,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         'billing.credit.adjust',
         'billing.gateways.manage',
         'billing.tax.manage',
+        'billing.tax_notes.issue',
     ];
 
     private function registerPermissions(): void
@@ -265,6 +267,8 @@ class BillingServiceProvider extends ModuleServiceProvider
             'billing.gateways.manage' => 'Configure payment gateways',
             'billing.gateway_log.view' => 'View the gateway log',
             'billing.tax.manage' => 'Manage tax rules',
+            'billing.tax_notes.view' => 'View credit and debit notes',
+            'billing.tax_notes.issue' => 'Issue, reverse and settle credit and debit notes',
             'billing.settings.manage' => 'Change billing settings',
         ], sensitive: self::SENSITIVE_PERMISSIONS);
     }
@@ -278,7 +282,7 @@ class BillingServiceProvider extends ModuleServiceProvider
     private function noteNumbering(string $kind, string $label, string $other): array
     {
         return [
-            new SettingDefinition("billing.{$kind}_note_format", "{$label} number format", help: 'Tokens: {NUMBER} {YEAR} {MONTH} {DAY}. Required, must contain {NUMBER} and differ from the other note format.', rules: ['required', 'max:40', 'regex:/\{NUMBER\}/', "different:billing.{$other}_note_format", "note_period_token:billing.{$kind}_note_reset"]),
+            new SettingDefinition("billing.{$kind}_note_format", "{$label} number format", help: 'Tokens: {NUMBER} {YEAR} {MONTH} {DAY}. Required, must contain {NUMBER} and differ from the other note format.', rules: ['required', 'max:40', 'regex:/\{NUMBER\}/', "note_format_distinct:billing.{$other}_note_format", "note_period_token:billing.{$kind}_note_reset"]),
             new SettingDefinition("billing.{$kind}_note_padding", "{$label} number padding (digits)", 'integer', rules: ['min:0']),
             new SettingDefinition("billing.{$kind}_note_reset", "Reset {$label} numbering", 'select', options: ['never' => 'Never', 'yearly' => 'Yearly', 'monthly' => 'Monthly']),
         ];
@@ -289,6 +293,11 @@ class BillingServiceProvider extends ModuleServiceProvider
         $bool = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'boolean', $help);
         $int = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'integer', $help, rules: ['min:0']);
         $list = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'string', $help, rules: ['regex:/^\s*\d+(\s*,\s*\d+)*\s*$/']);
+
+        // The other format comes from the same save, or from the stored setting when the save leaves it out.
+        Validator::extend('note_format_distinct', fn (string $attribute, mixed $value, array $parameters, \Illuminate\Validation\Validator $validator): bool => ! DocumentNumbers::formatsCollide((string) $value,
+            (string) (Arr::has($validator->getData(), $parameters[0]) ? Arr::get($validator->getData(), $parameters[0]) : app(BillingSettings::class)->string(substr($parameters[0], strlen('billing.'))))),
+            __('The credit and debit note formats must differ in more than digits, or two notes could get the same number.'));
 
         Validator::extend('note_period_token', function (string $attribute, mixed $value, array $parameters, \Illuminate\Validation\Validator $validator): bool {
             $reset = Arr::get($validator->getData(), $parameters[0]);

@@ -5,6 +5,7 @@ namespace App\Modules\Billing\Models;
 use App\Models\User;
 use App\Modules\Billing\Exceptions\ImmutableInvoiceException;
 use App\Modules\Core\Models\Client;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
@@ -21,10 +22,19 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $number
  * @property int $invoice_id
  * @property int $client_id
+ * @property string $currency
+ * @property CarbonImmutable $issue_date
+ * @property string $bs_issue_date
+ * @property string $reason_code
+ * @property string $reason_text client-visible
+ * @property int $tax1_amount
+ * @property int $tax2_amount
+ * @property bool $automatic
  * @property int $total minor units, positive; the kind gives the direction
  * @property string|null $report_rate
  * @property string $bs_period
  * @property int $print_count
+ * @property int|null $reverses_tax_note_id the credit note this debit note reverses
  * @property string|null $cbms_status
  * @property string|null $cbms_reference
  * @property-read Invoice $invoice
@@ -36,7 +46,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'kind', 'number', 'invoice_id', 'client_id', 'currency', 'issue_date', 'issued_at', 'invoice_number',
     'invoice_bs_issue_date', 'reason_code', 'reason_text', 'taxable_amount', 'exempt_amount', 'tax1_amount',
     'tax2_amount', 'total', 'report_currency', 'report_rate', 'supply_class', 'seller_snapshot', 'buyer_snapshot',
-    'bs_issue_date', 'bs_period', 'bs_fiscal_year', 'automatic', 'created_by', 'print_count', 'cbms_status', 'cbms_reference',
+    'bs_issue_date', 'bs_period', 'bs_fiscal_year', 'automatic', 'created_by', 'print_count', 'cbms_status', 'cbms_reference', 'reverses_tax_note_id',
 ])]
 class TaxNote extends Model
 {

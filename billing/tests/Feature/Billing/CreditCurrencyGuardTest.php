@@ -30,11 +30,11 @@ function ledgerChangingCurrencyFirst(string $currency): void
     {
         public function __construct(private string $currency) {}
 
-        public function post(int $clientId, Money $amount, CreditReason $reason, ?int $invoiceId = null, ?int $transactionId = null, ?string $description = null, ?int $staffId = null, bool $allowNegative = false, ?string $gateway = null, ?string $externalRef = null, ?string $idempotencyKey = null): CreditLedgerEntry
+        public function post(int $clientId, Money $amount, CreditReason $reason, ?int $invoiceId = null, ?int $transactionId = null, ?string $description = null, ?int $staffId = null, bool $allowNegative = false, ?string $gateway = null, ?string $externalRef = null, ?string $idempotencyKey = null, ?int $taxNoteId = null): CreditLedgerEntry
         {
             Client::query()->whereKey($clientId)->update(['currency' => $this->currency]);
 
-            return parent::post($clientId, $amount, $reason, $invoiceId, $transactionId, $description, $staffId, $allowNegative, $gateway, $externalRef, $idempotencyKey);
+            return parent::post($clientId, $amount, $reason, $invoiceId, $transactionId, $description, $staffId, $allowNegative, $gateway, $externalRef, $idempotencyKey, $taxNoteId);
         }
     });
 }
