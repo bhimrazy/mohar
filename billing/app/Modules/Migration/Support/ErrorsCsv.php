@@ -3,11 +3,12 @@
 namespace App\Modules\Migration\Support;
 
 use App\Modules\Migration\Models\MigrationRun;
+use App\Support\Csv\SafeCsv;
 
 /**
  * The rows that were not imported, for fixing the file (client-import spec §5.5, AC 32): row number, column and
  * reason, then the row's original cells. Written straight to the response, never stored. A cell a spreadsheet would
- * run as a formula (=, +, -, @, tab or carriage return first) is prefixed with an apostrophe.
+ * run as a formula is neutralised by SafeCsv (ADR 0025).
  */
 final class ErrorsCsv
 {
@@ -18,7 +19,8 @@ final class ErrorsCsv
     {
         $header = $run->header ?? [];
         $columns = $run->mapping['columns'] ?? [];
-        fputcsv($out, array_map(self::safe(...), [__('Row'), __('Column'), __('Reason'), ...$header]), ',', '"', '');
+        $csv = new SafeCsv($out);
+        $csv->row([__('Row'), __('Column'), __('Reason'), ...$header]);
 
         $records = $run->records()->where(fn ($query) => $query->where('status', 'error')->orWhere('outcome', 'failed'))
             ->select(['id', 'row_number', 'raw', 'problems'])->lazyById(500);
@@ -28,13 +30,8 @@ final class ErrorsCsv
 
             foreach (array_filter($record->problems ?? [], fn (array $problem): bool => $problem['severity'] === 'error') as $problem) {
                 $index = isset($problem['field']) ? array_search($problem['field'], $columns, true) : false;
-                fputcsv($out, array_map(self::safe(...), [(string) $record->row_number, $index === false ? '' : (string) ($header[$index] ?? ''), $problem['message'], ...$cells]), ',', '"', '');
+                $csv->row([(string) $record->row_number, $index === false ? '' : (string) ($header[$index] ?? ''), $problem['message'], ...$cells]);
             }
         }
-    }
-
-    private static function safe(string $cell): string
-    {
-        return $cell !== '' && in_array($cell[0], ['=', '+', '-', '@', "\t", "\r"], true) ? "'".$cell : $cell;
     }
 }

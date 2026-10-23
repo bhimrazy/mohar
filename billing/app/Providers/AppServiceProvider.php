@@ -16,6 +16,7 @@ use App\Support\Integrations\Endpoints;
 use App\Support\Migration\ImportRegistry;
 use App\Support\Navigation\Navigation;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Reports\ReportRegistry;
 use App\Support\Search\GlobalSearch;
 use App\Support\Security\EncryptedStorage;
 use App\Support\Security\PasswordPolicy;
@@ -49,6 +50,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(Navigation::class);
         $this->app->singleton(Dashboard::class);
         $this->app->singleton(PermissionRegistry::class);
+        $this->app->singleton(ReportRegistry::class);
         $this->app->singleton(SettingsRegistry::class);
         $this->app->singleton(GlobalSearch::class);
         $this->app->singleton(Automation::class);

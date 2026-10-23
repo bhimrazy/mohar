@@ -2,6 +2,8 @@
 
 namespace App\Support\Permissions;
 
+use Closure;
+
 /**
  * Catalog of staff permissions for the role editor. Modules register theirs in bootModule():
  *
@@ -18,14 +20,14 @@ namespace App\Support\Permissions;
  */
 class PermissionRegistry
 {
-    /** @var array<string, array<string, string>> group => [permission => label] */
+    /** @var array<string, array<string, string|Closure(): string>> group => [permission => label, or a closure that returns it] */
     private array $groups = [];
 
     /** @var list<string> exact keys or "prefix.*" patterns */
     private array $sensitive = [];
 
     /**
-     * @param  array<string, string>  $permissions
+     * @param  array<string, string|Closure(): string>  $permissions  a closure is called when the list is read, so the label can be translated then
      * @param  list<string>  $sensitive  keys (or "prefix.*" patterns) that wildcards must never grant
      */
     public function register(string $group, array $permissions, array $sensitive = []): void
@@ -41,7 +43,7 @@ class PermissionRegistry
     {
         ksort($this->groups);
 
-        return $this->groups;
+        return array_map(fn (array $permissions): array => array_map(fn (string|Closure $label): string => $label instanceof Closure ? $label() : $label, $permissions), $this->groups);
     }
 
     public function exists(string $permission): bool
