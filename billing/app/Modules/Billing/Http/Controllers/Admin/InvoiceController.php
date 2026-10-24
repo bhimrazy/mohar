@@ -19,6 +19,7 @@ use App\Modules\Billing\Http\Resources\TransactionResource;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Billing\Services\InvoiceParties;
 use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Billing\Services\NoteRefusals;
 use App\Modules\Billing\Support\BillingSettings;
@@ -98,7 +99,7 @@ class InvoiceController extends Controller
         return to_route('admin.billing.invoices.show', $invoice);
     }
 
-    public function show(Request $request, Invoice $invoice, CreditLedgerService $credit, PaymentInProgress $inProgress, TaxNotePanel $notes): Response
+    public function show(Request $request, Invoice $invoice, CreditLedgerService $credit, PaymentInProgress $inProgress, TaxNotePanel $notes, InvoiceParties $parties): Response
     {
         $this->authorize('billing.invoices.view');
 
@@ -107,6 +108,7 @@ class InvoiceController extends Controller
 
         return Inertia::render('admin/billing/invoices/show', [
             'invoice' => new InvoiceResource($invoice),
+            'parties' => $parties->forInvoice($invoice),
             'transactions' => TransactionResource::collection($invoice->transactions()->get()),
             'credit_available' => $credit->balance($invoice->client_id, $invoice->currency)->amount,
             'payment_in_progress' => $invoice->status->isPayable() ? $inProgress->forInvoice($invoice, staff: true) : null,

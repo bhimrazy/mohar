@@ -23,6 +23,10 @@ import { StatCard } from '@/components/app/stat-card';
 import { StatusBadge } from '@/components/app/status-badge';
 import { FormDialog } from '@/components/billing/form-dialog';
 import { InvoiceDate } from '@/components/billing/invoice-date';
+import {
+    DOCUMENT_LABELS,
+    InvoicePartiesHeader,
+} from '@/components/billing/invoice-parties';
 import { InvoiceTotals } from '@/components/billing/invoice-totals';
 import { LineItems } from '@/components/billing/line-items';
 import { PaymentInProgressCard } from '@/components/billing/payment-in-progress';
@@ -32,6 +36,7 @@ import { SelectField } from '@/components/billing/select-field';
 import type {
     GatewayOption,
     Invoice,
+    InvoiceParties,
     PayMethod,
     Transaction,
 } from '@/components/billing/types';
@@ -77,11 +82,11 @@ import {
     releasedClass,
 } from '@/components/billing/pending-refund';
 import { show as showClient } from '@/actions/App/Modules/Core/Http/Controllers/Admin/ClientController';
-import { countryName } from '@/lib/country';
 import { labelWithCurrency } from '@/lib/money';
 
 type Props = {
     invoice: Invoice;
+    parties: InvoiceParties;
     transactions: Transaction[];
     credit_available: number;
     payment_in_progress: PaymentInProgressData | null;
@@ -285,6 +290,7 @@ function RefundDialog({
 
 export default function InvoiceShow({
     invoice,
+    parties,
     transactions,
     credit_available,
     payment_in_progress,
@@ -314,7 +320,6 @@ export default function InvoiceShow({
     const isDraft = invoice.status === 'draft';
     const isPayable = PAYABLE.includes(invoice.status) && invoice.balance > 0;
     const items = invoice.items ?? [];
-    const snapshot = invoice.client_snapshot ?? {};
     const close = (open: boolean) => !open && setDialog(null);
     const gatewayName = (key: string | null) =>
         gateways.find((gateway) => gateway.value === key)?.label ??
@@ -437,7 +442,7 @@ export default function InvoiceShow({
             <Page>
                 <PageHeader
                     back={{ href: index(), label: 'Invoices' }}
-                    title={invoice.number}
+                    title={`${DOCUMENT_LABELS[parties.document]} ${invoice.number}`}
                     status={invoice.display_status}
                     badges={
                         invoice.kind === 'add_funds' ? (
@@ -691,6 +696,25 @@ export default function InvoiceShow({
                                 }
                             />
                         )}
+                        <SectionCard flush>
+                            <InvoicePartiesHeader
+                                invoice={invoice}
+                                parties={parties}
+                                aside={
+                                    invoice.payment_gateway
+                                        ? [
+                                              {
+                                                  label: 'Payment method',
+                                                  value: gatewayName(
+                                                      invoice.payment_gateway,
+                                                  ),
+                                              },
+                                          ]
+                                        : []
+                                }
+                            />
+                        </SectionCard>
+
                         <SectionCard
                             title="Line items"
                             flush
@@ -828,59 +852,6 @@ export default function InvoiceShow({
                                         : 'Client is tax exempt.'}
                                 </p>
                             )}
-                        </SectionCard>
-
-                        <SectionCard title="Bill to">
-                            <DescriptionList
-                                columns={1}
-                                items={[
-                                    {
-                                        label: 'Name',
-                                        value: snapshot.company
-                                            ? `${snapshot.company} (${snapshot.name ?? ''})`
-                                            : snapshot.name,
-                                    },
-                                    {
-                                        label: 'Address',
-                                        value: [
-                                            snapshot.address_1,
-                                            snapshot.address_2,
-                                            [snapshot.postcode, snapshot.city]
-                                                .filter(Boolean)
-                                                .join(' '),
-                                            snapshot.state,
-                                            countryName(snapshot.country),
-                                        ]
-                                            .filter(Boolean)
-                                            .join(', '),
-                                    },
-                                    { label: 'Tax ID', value: snapshot.tax_id },
-                                    {
-                                        label: 'Gateway',
-                                        value: gatewayName(
-                                            invoice.payment_gateway,
-                                        ),
-                                    },
-                                    {
-                                        label: 'Issued',
-                                        value: invoice.issue_date && (
-                                            <InvoiceDate
-                                                value={invoice.issue_date}
-                                                bs={invoice.issue_date_bs}
-                                            />
-                                        ),
-                                    },
-                                    ...(invoice.proforma_number &&
-                                    invoice.legal_number
-                                        ? [
-                                              {
-                                                  label: 'Proforma number',
-                                                  value: invoice.proforma_number,
-                                              },
-                                          ]
-                                        : []),
-                                ]}
-                            />
                         </SectionCard>
 
                         {can.payments &&

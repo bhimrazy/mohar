@@ -28,22 +28,9 @@
             @if (! empty($seller['email']))
                 <span class="muted">{{ $seller['email'] }}</span><br>
             @endif
-            @if (! empty($seller['gstin']))
-                GSTIN: {{ $seller['gstin'] }}<br>
-            @endif
-            @php
-                $panIsVat = ! empty($seller['pan']) && ($seller['pan'] ?? null) === ($seller['vat_number'] ?? null);
-            @endphp
-            @if ($panIsVat)
-                PAN/VAT No.: {{ $seller['pan'] }}
-            @else
-                @if (! empty($seller['pan']))
-                    PAN: {{ $seller['pan'] }}<br>
-                @endif
-                @if (! empty($seller['vat_number']))
-                    {{ ($seller['country'] ?? null) === 'NP' && empty($seller['pan']) ? 'PAN/VAT No.' : 'VAT No.' }}: {{ $seller['vat_number'] }}
-                @endif
-            @endif
+            @foreach ($sellerTaxIds as $taxId)
+                {{ $taxId['label'] }}: {{ $taxId['value'] }}@if (! $loop->last)<br>@endif
+            @endforeach
         </td>
     </tr>
 </table>

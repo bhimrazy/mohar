@@ -5,8 +5,6 @@ namespace App\Modules\Billing\Services;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\Quote;
-use App\Modules\Billing\Services\Tax\IndianStates;
-use App\Modules\Billing\Services\Tax\VatNumber;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\InvoiceBsDates;
 use App\Modules\Core\Support\DateFormats;
@@ -67,45 +65,30 @@ class InvoicePdf
         $buyerCountry = is_string($buyer['country'] ?? null) ? strtoupper($buyer['country']) : null;
         $sellerCountry = is_string($seller['country'] ?? null) ? strtoupper($seller['country']) : null;
         $taxed = $invoice->tax1_amount + $invoice->tax2_amount > 0;
-        $indianGst = $sellerCountry === 'IN' && $buyerCountry === 'IN';
-        $placeOfSupply = null;
+        $placeOfSupply = InvoiceParties::placeOfSupply($seller, $buyer);
         $dateFormat = DateFormats::current();
-
-        if ($indianGst) {
-            $state = IndianStates::placeOfSupply(is_string($buyer['state'] ?? null) ? $buyer['state'] : null, is_string($buyer['tax_id'] ?? null) ? $buyer['tax_id'] : null);
-            $placeOfSupply = $state !== null ? IndianStates::label($state) : null;
-        }
 
         return [
             'invoice' => $invoice,
             'seller' => $seller,
             'buyer' => $buyer,
-            'title' => match (true) {
-                $invoice->number === null && $invoice->proforma_number !== null => __('Proforma Invoice'),
-                $taxed => __('Tax Invoice'),
+            'title' => match (InvoiceParties::documentType($invoice)) {
+                'proforma' => __('Proforma Invoice'),
+                'tax_invoice' => __('Tax Invoice'),
                 default => __('Invoice'),
             },
-            'buyerTaxLabel' => self::taxIdLabel($buyerCountry),
+            'sellerTaxIds' => InvoiceParties::sellerTaxIds($seller),
+            'buyerTaxLabel' => InvoiceParties::taxIdLabel($buyerCountry),
             'placeOfSupply' => $placeOfSupply,
-            'showSac' => $sellerCountry === 'IN' && ($indianGst || $taxed) && $invoice->items->contains(fn ($item) => $item->sac_code !== null),
+            'showSac' => $sellerCountry === 'IN' && ($buyerCountry === 'IN' || $taxed) && $invoice->items->contains(fn ($item) => $item->sac_code !== null),
             'money' => fn (int $amount): string => $this->money->format($amount, $invoice->currency),
             'date' => fn (?CarbonInterface $date): string => $date?->format($dateFormat) ?? '—',
-            'countryName' => fn (?string $code): string => $this->countryName($code),
+            'countryName' => fn (?string $code): string => InvoiceParties::countryName($code),
             // Issue and due dates: the AD date, and the BS date in brackets when that setting is on.
             'invoiceDate' => fn (?CarbonInterface $date): string => $date === null ? '—' : $date->format($dateFormat).(($bs = $this->bsDates->label($date)) !== null ? ' ('.$bs.')' : ''),
             'bsDates' => $this->bsDates->enabled(),
             'gatewayName' => fn (string $key): string => $this->gateways->has($key) ? $this->gateways->gateway($key)->display_name : ucfirst(str_replace('_', ' ', $key)),
         ];
-    }
-
-    public static function taxIdLabel(?string $country): string
-    {
-        return match (true) {
-            $country === 'IN' => 'GSTIN',
-            $country === 'NP' => 'PAN/VAT No.',
-            VatNumber::isEuCountry($country) => 'VAT ID',
-            default => 'Tax ID',
-        };
     }
 
     public function renderQuote(Quote $quote): string
@@ -128,20 +111,6 @@ class InvoicePdf
             'money' => fn (int $amount): string => $this->money->format($amount, $quote->currency),
             'date' => fn (?CarbonInterface $date): string => $date?->format($dateFormat) ?? '—',
         ];
-    }
-
-    /**
-     * "Nepal" for "NP"; the code itself when PHP's intl has no name for it.
-     */
-    private function countryName(?string $code): string
-    {
-        if ($code === null || $code === '') {
-            return '';
-        }
-
-        $name = class_exists(\Locale::class) ? \Locale::getDisplayRegion('-'.strtoupper($code), 'en') : false;
-
-        return is_string($name) && $name !== '' && $name !== strtoupper($code) ? $name : $code;
     }
 
     public function filename(Invoice $invoice): string

@@ -12,6 +12,10 @@ import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
 import { InvoiceDate } from '@/components/billing/invoice-date';
+import {
+    DOCUMENT_LABELS,
+    InvoicePartiesHeader,
+} from '@/components/billing/invoice-parties';
 import { InvoiceTotals } from '@/components/billing/invoice-totals';
 import { LineItems } from '@/components/billing/line-items';
 import { PayPanel } from '@/components/billing/pay-panel';
@@ -20,6 +24,7 @@ import type {
     Adjustment,
     Invoice,
     InvoiceItem,
+    InvoiceParties,
     PaymentInProgressData,
     PaymentOptions,
     Transaction,
@@ -44,6 +49,7 @@ import {
 
 type Props = {
     invoice: Invoice;
+    parties: InvoiceParties;
     items: InvoiceItem[];
     adjustments: Adjustment[];
     transactions: Transaction[];
@@ -111,6 +117,7 @@ function ApplyCreditForm({
 
 export default function ClientInvoiceShow({
     invoice,
+    parties,
     items,
     adjustments,
     transactions,
@@ -155,14 +162,15 @@ export default function ClientInvoiceShow({
             ),
         },
     ];
+    const title = `${DOCUMENT_LABELS[parties.document]} ${invoice.number}`;
 
     return (
         <>
-            <Head title={`Invoice ${invoice.number}`} />
+            <Head title={title} />
             <Page>
                 <PageHeader
                     back={{ href: index(), label: 'Invoices' }}
-                    title={`Invoice ${invoice.number}`}
+                    title={title}
                     status={invoice.display_status}
                     meta={
                         <>
@@ -304,11 +312,17 @@ export default function ClientInvoiceShow({
                                 </p>
                             </SectionCard>
                         )}
-                        <SectionCard title="Items" flush>
-                            <LineItems
-                                items={items}
-                                currency={invoice.currency}
+                        <SectionCard flush>
+                            <InvoicePartiesHeader
+                                invoice={invoice}
+                                parties={parties}
                             />
+                            <div className="border-t">
+                                <LineItems
+                                    items={items}
+                                    currency={invoice.currency}
+                                />
+                            </div>
                         </SectionCard>
                         {payments.length > 0 && (
                             <SectionCard title="Payments" flush>
