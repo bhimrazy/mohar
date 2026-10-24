@@ -300,6 +300,15 @@ class DomainsServiceProvider extends ModuleServiceProvider
         }, null, 40);
     }
 
+    /**
+     * @param  'string'|'email'|'country'  $type
+     * @param  list<mixed>  $rules
+     */
+    private function contactSetting(string $field, string $label, string $type = 'string', ?string $help = null, array $rules = ['max:255']): SettingDefinition
+    {
+        return new SettingDefinition('domains.default_contact.'.$field, $label, $type, $help, rules: ['nullable', ...$rules]);
+    }
+
     private function registerPermissionsAndSettings(): void
     {
         $this->app->make(PermissionRegistry::class)->register('Domains', [
@@ -341,11 +350,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
         ], 'domains.settings.manage');
 
         // One setting per field, so the contact is a form rather than JSON; registrars validate the details themselves.
-        /**
-         * @param  'string'|'email'|'country'  $type
-         * @param  list<mixed>  $rules
-         */
-        $contact = fn (string $field, string $label, string $type = 'string', ?string $help = null, array $rules = ['max:255']): SettingDefinition => new SettingDefinition('domains.default_contact.'.$field, $label, $type, $help, rules: ['nullable', ...$rules]);
+        $contact = $this->contactSetting(...);
         $registry->section('domains_contact', 'Domain contact', [
             $contact('first_name', 'First name', help: 'Admin, tech and billing contact of new domains when "Use the client profile" is off. The registrant is always the client.'),
             $contact('last_name', 'Last name'),
