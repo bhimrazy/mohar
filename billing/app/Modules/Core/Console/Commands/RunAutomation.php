@@ -24,19 +24,12 @@ class RunAutomation extends Command
     public const LOCK = 'automation:run';
 
     /**
-     * Whether a run (scheduled, console or "Run now") holds the shared lock right now.
+     * Whether a run (scheduled, console or "Run now") holds the shared lock right now. It only reads the lock: taking
+     * it, even briefly, could make a scheduled run starting at that instant skip the day (#132).
      */
     public static function inProgress(): bool
     {
-        $lock = Cache::lock(self::LOCK, 1);
-
-        if (! $lock->get()) {
-            return true;
-        }
-
-        $lock->release();
-
-        return false;
+        return Cache::lock(self::LOCK)->isLocked();
     }
 
     public function handle(Automation $automation, Redactor $redactor, CompanyClock $clock): int

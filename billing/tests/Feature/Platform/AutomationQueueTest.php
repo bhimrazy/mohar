@@ -169,6 +169,8 @@ test('run now during the scheduled run is refused, and a request queued before i
 
 // Review probe P1 (#122).
 test('after a worker is killed mid-run, run now is refused until the locks expire or are released', function () {
+    // A shared store, as production requires: the array store's isLocked() ignores expiry.
+    config(['cache.default' => 'database']);
     actingAsStaff(['core.automation.*']);
     runNow()->assertInertiaFlash('toast.type', 'success');
 
@@ -202,4 +204,26 @@ test('automation:release-locks frees both locks after confirmation, and nothing 
     expect(RunAutomation::inProgress())->toBeFalse()
         ->and(ActivityLog::query()->where('event', 'automation.locks_released')->exists())->toBeTrue();
     runNow()->assertInertiaFlash('toast.type', 'success');
+});
+
+test('checking for a run in progress never takes the run lock, so a scheduled run starting then is not skipped (#132)', function () {
+    config(['cache.default' => 'database']);
+    $writes = [];
+    DB::listen(function ($query) use (&$writes): void {
+        if (str_contains($query->sql, 'cache_locks') && ! str_starts_with(strtolower(ltrim($query->sql)), 'select')) {
+            $writes[] = $query->sql;
+        }
+    });
+
+    expect(RunAutomation::inProgress())->toBeFalse()
+        ->and($writes)->toBe([]);
+
+    $held = Cache::lock(RunAutomation::LOCK, 60);
+    $held->get();
+    $writes = [];
+
+    expect(RunAutomation::inProgress())->toBeTrue()
+        ->and($writes)->toBe([]);
+    $held->release();
+    expect(RunAutomation::inProgress())->toBeFalse();
 });
