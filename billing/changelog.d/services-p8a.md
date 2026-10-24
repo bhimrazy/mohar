@@ -13,6 +13,8 @@
   instead of `staff.provisioning_failed`. If the server check then finds the account, it is adopted with no failure
   mail. Upgrade note: `app:install` (run by the deploy) adds the new template; until it runs, unknown outcomes send no
   staff email.
+- **A missing email template is logged.** When an event's template row does not exist (before `app:install` adds a
+  new default, or after one was deleted), the log gets a warning naming the template key instead of nothing.
 
 ### Security
 

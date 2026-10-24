@@ -137,13 +137,22 @@ export function useCredentialsReveal(
                 setError(
                     response.status === 422
                         ? 'The password is incorrect.'
-                        : 'Could not confirm your password. Try again.',
+                        : response.status === 403
+                          ? // Staff signed in as a client cannot confirm the client's password (impersonation).
+                            "Staff signed in as a client can't reveal service passwords. Use the admin service page instead."
+                          : 'Could not confirm your password. Try again.',
                 );
 
                 return;
             }
 
             setNeedsConfirmation(false);
+        } catch {
+            setError(
+                'Could not confirm your password. Check your connection and try again.',
+            );
+
+            return;
         } finally {
             setProcessing(false);
         }

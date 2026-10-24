@@ -20,6 +20,7 @@ use App\Modules\Services\Services\ModuleCommandDispatcher;
 use App\Modules\Services\Services\ServicePresenter;
 use App\Modules\Services\Support\CommandOutcome;
 use App\Modules\Services\Support\ServiceSettings;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -94,28 +95,37 @@ class ServiceActionController extends Controller
      * cached, so it is in no page prop or history entry.
      *
      * The limit is counted here rather than by route throttling, so only requests past step-up use it up: the 423
-     * that opens the confirm dialog does not.
+     * that opens the confirm dialog does not. Every request past step-up counts, a 404 or 422 included.
      */
     public function revealPassword(Request $request, int $service, ActivityLogger $activity, ServicePresenter $presenter): JsonResponse
     {
         $key = 'services-password-reveal:'.$request->user()?->id;
 
-        if (RateLimiter::tooManyAttempts($key, self::REVEALS_PER_WINDOW)) {
+        // hit() increments atomically and returns the new count, so parallel requests cannot all pass a separate read.
+        if (RateLimiter::hit($key, self::REVEAL_WINDOW_SECONDS) > self::REVEALS_PER_WINDOW) {
             return response()->json(['message' => __('The password was shown too many times. Try again later.')], 429)
                 ->header('Retry-After', (string) RateLimiter::availableIn($key))
                 ->header('Cache-Control', 'no-store, private');
         }
 
-        RateLimiter::hit($key, self::REVEAL_WINDOW_SECONDS);
         $model = $this->owned($service);
 
         if (! $presenter->revealsPassword($model)) {
             return response()->json(['message' => __('No password is stored for this service.')], 422)->header('Cache-Control', 'no-store, private');
         }
 
+        // Decrypted before the audit row, so a value that cannot be read is never logged as revealed.
+        try {
+            $password = $model->password;
+        } catch (DecryptException $exception) {
+            report($exception);
+
+            return response()->json(['message' => __('The stored password could not be read. Please contact support.')], 422)->header('Cache-Control', 'no-store, private');
+        }
+
         $activity->log('Service password revealed in the client area', $model, $model->client_id);
 
-        return response()->json(['password' => $model->password])
+        return response()->json(['password' => $password])
             ->header('Cache-Control', 'no-store, private')
             ->header('Pragma', 'no-cache');
     }

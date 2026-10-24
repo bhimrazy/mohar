@@ -19,6 +19,7 @@ use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Rendering\TemplateSyntaxError;
 use App\Modules\Notifications\Support\SupportAddresses;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -44,7 +45,15 @@ class NotificationMailer
     {
         $template = EmailTemplate::query()->with('translations')->where('key', $request->templateKey)->first();
 
-        return $template === null ? [] : $this->sendTemplate($template, $request);
+        if ($template === null) {
+            // A default template is added by `app:install`; until it runs (or after an operator deletes one) nothing is
+            // sent, so say which key was missing. Only the key: the context may hold personal data.
+            Log::warning('Email not sent: no template with this key.', ['template_key' => $request->templateKey]);
+
+            return [];
+        }
+
+        return $this->sendTemplate($template, $request);
     }
 
     /**
