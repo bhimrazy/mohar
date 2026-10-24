@@ -8,13 +8,21 @@ type Props = {
     title: string;
     /** Other currencies that have what the visitor looked for. */
     soldIn: string[];
+    /** The signed-in client's billing currency (they cannot switch); null for guests. */
+    accountCurrency: string | null;
+    supportUrl: string | null;
 };
 
 /**
  * Says why nothing can be bought in the visitor's currency and, for guests, offers the currencies that can.
  * Signed-in clients shop in their account's currency, so they only get the explanation.
  */
-export function CurrencyUnavailable({ title, soldIn }: Props) {
+export function CurrencyUnavailable({
+    title,
+    soldIn,
+    accountCurrency,
+    supportUrl,
+}: Props) {
     const { can_switch_currency: canSwitch } = usePage<{
         can_switch_currency?: boolean;
     }>().props;
@@ -49,9 +57,17 @@ export function CurrencyUnavailable({ title, soldIn }: Props) {
                     </div>
                 ) : (
                     <p>
-                        It is sold in {soldIn.join(', ')}. Your account is
-                        billed in a different currency; contact support to order
-                        it.
+                        It is sold in {soldIn.join(' and ')}. Your account is
+                        billed in {accountCurrency}, so it can’t be ordered
+                        here.{' '}
+                        {supportUrl && (
+                            <a
+                                href={supportUrl}
+                                className="font-medium underline underline-offset-4"
+                            >
+                                Contact support
+                            </a>
+                        )}
                     </p>
                 )}
             </AlertDescription>

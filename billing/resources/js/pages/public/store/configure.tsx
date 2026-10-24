@@ -68,6 +68,9 @@ type Props = {
     cycles: PriceRow[];
     /** Other currencies this product can be bought in; only filled when it has no price in `currency`. */
     sold_in: string[];
+    /** The signed-in client's billing currency; null for guests. */
+    account_currency: string | null;
+    support_url: string | null;
     config_options: ConfigOption[];
     addons: Addon[];
     custom_fields: CustomField[];
@@ -196,6 +199,8 @@ export default function Configure({
     currency,
     cycles,
     sold_in: soldIn,
+    account_currency: accountCurrency,
+    support_url: supportUrl,
     config_options: configOptions,
     addons,
     custom_fields: customFields,
@@ -309,7 +314,41 @@ export default function Configure({
         );
 
     const monthlyRow = priceFor(cycles, 'monthly');
-    const unavailable = cycles.length === 0;
+
+    // No price in this currency: say so and offer the way out, with no totals or add-on prices that read as orderable.
+    if (cycles.length === 0) {
+        return (
+            <>
+                <Head title={product.name} />
+
+                <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 md:px-6 lg:py-12">
+                    <Link
+                        href={store.index.url()}
+                        className="-ml-1 inline-flex items-center gap-1 self-start rounded-md px-1 text-sm text-muted-foreground hover:text-foreground"
+                    >
+                        <ChevronLeft className="size-4" aria-hidden="true" />
+                        Back to store
+                    </Link>
+                    <div className="space-y-2">
+                        {product.group && (
+                            <p className="text-sm font-medium text-muted-foreground">
+                                {product.group}
+                            </p>
+                        )}
+                        <h1 className="text-3xl font-semibold tracking-tight">
+                            {product.name}
+                        </h1>
+                    </div>
+                    <CurrencyUnavailable
+                        title={`${product.name} is not sold in ${currency}`}
+                        soldIn={soldIn}
+                        accountCurrency={accountCurrency}
+                        supportUrl={supportUrl}
+                    />
+                </div>
+            </>
+        );
+    }
 
     return (
         <>
@@ -348,89 +387,75 @@ export default function Configure({
 
                     <InputError message={errors.product_id} />
 
-                    {unavailable && (
-                        <CurrencyUnavailable
-                            title={`${product.name} is not sold in ${currency}`}
-                            soldIn={soldIn}
-                        />
-                    )}
-
-                    {!unavailable && (
-                        <SectionCard
-                            title="Billing cycle"
-                            description="Longer terms cost less per month."
+                    <SectionCard
+                        title="Billing cycle"
+                        description="Longer terms cost less per month."
+                    >
+                        <div
+                            role="radiogroup"
+                            aria-label="Billing cycle"
+                            className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
                         >
-                            <div
-                                role="radiogroup"
-                                aria-label="Billing cycle"
-                                className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
-                            >
-                                {cycles.map((row) => {
-                                    const months = cycleMonths(row.cycle);
-                                    const saving =
-                                        monthlyRow && months && months > 1
-                                            ? Math.round(
-                                                  (1 -
-                                                      row.recurring /
-                                                          (monthlyRow.recurring *
-                                                              months)) *
-                                                      100,
-                                              )
-                                            : 0;
+                            {cycles.map((row) => {
+                                const months = cycleMonths(row.cycle);
+                                const saving =
+                                    monthlyRow && months && months > 1
+                                        ? Math.round(
+                                              (1 -
+                                                  row.recurring /
+                                                      (monthlyRow.recurring *
+                                                          months)) *
+                                                  100,
+                                          )
+                                        : 0;
 
-                                    return (
-                                        <ChoiceCard
-                                            key={row.cycle}
-                                            name="cycle"
-                                            value={row.cycle}
-                                            checked={
-                                                form.data.cycle === row.cycle
-                                            }
-                                            onChange={(value) =>
-                                                form.setData('cycle', value)
-                                            }
-                                        >
-                                            <span className="flex items-center justify-between gap-2 text-sm font-medium">
-                                                {cycleLabel(row.cycle)}
-                                                {saving > 0 && (
-                                                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                                                        Save {saving}%
-                                                    </span>
-                                                )}
-                                            </span>
-                                            <span className="text-lg font-semibold tabular-nums">
-                                                <Money
-                                                    amount={row.recurring}
-                                                    currency={currency}
-                                                />
-                                                <span className="text-sm font-normal text-muted-foreground">
-                                                    {cycleSuffix(row.cycle)}
+                                return (
+                                    <ChoiceCard
+                                        key={row.cycle}
+                                        name="cycle"
+                                        value={row.cycle}
+                                        checked={form.data.cycle === row.cycle}
+                                        onChange={(value) =>
+                                            form.setData('cycle', value)
+                                        }
+                                    >
+                                        <span className="flex items-center justify-between gap-2 text-sm font-medium">
+                                            {cycleLabel(row.cycle)}
+                                            {saving > 0 && (
+                                                <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                                                    Save {saving}%
                                                 </span>
+                                            )}
+                                        </span>
+                                        <span className="text-lg font-semibold tabular-nums">
+                                            <Money
+                                                amount={row.recurring}
+                                                currency={currency}
+                                            />
+                                            <span className="text-sm font-normal text-muted-foreground">
+                                                {cycleSuffix(row.cycle)}
                                             </span>
-                                            <span className="text-xs text-muted-foreground">
-                                                {row.setup > 0 ? (
-                                                    <>
-                                                        +{' '}
-                                                        <Money
-                                                            amount={row.setup}
-                                                            currency={currency}
-                                                        />{' '}
-                                                        setup
-                                                    </>
-                                                ) : (
-                                                    'No setup fee'
-                                                )}
-                                            </span>
-                                        </ChoiceCard>
-                                    );
-                                })}
-                            </div>
-                            <InputError
-                                message={errors.cycle}
-                                className="mt-2"
-                            />
-                        </SectionCard>
-                    )}
+                                        </span>
+                                        <span className="text-xs text-muted-foreground">
+                                            {row.setup > 0 ? (
+                                                <>
+                                                    +{' '}
+                                                    <Money
+                                                        amount={row.setup}
+                                                        currency={currency}
+                                                    />{' '}
+                                                    setup
+                                                </>
+                                            ) : (
+                                                'No setup fee'
+                                            )}
+                                        </span>
+                                    </ChoiceCard>
+                                );
+                            })}
+                        </div>
+                        <InputError message={errors.cycle} className="mt-2" />
+                    </SectionCard>
 
                     <SectionCard
                         title="Domain"
@@ -962,7 +987,6 @@ export default function Configure({
                             )}
                         </ul>
                         {quote &&
-                            !unavailable &&
                             quote.item.errors.length > 0 &&
                             (form.data.domain_name !== '' ||
                                 !product.requires_domain) && (
@@ -996,21 +1020,11 @@ export default function Configure({
                                 type="submit"
                                 className="w-full"
                                 size="lg"
-                                disabled={
-                                    form.processing ||
-                                    !product.in_stock ||
-                                    unavailable
-                                }
+                                disabled={form.processing || !product.in_stock}
                             >
                                 {form.processing && <Spinner />}
                                 {editing ? 'Update cart' : 'Add to cart'}
                             </Button>
-                            {unavailable && (
-                                <p className="mt-2 text-center text-sm text-muted-foreground">
-                                    Not sold in {currency}, so it can’t be added
-                                    to the cart.
-                                </p>
-                            )}
                             {!product.in_stock && (
                                 <p className="mt-2 text-center text-sm text-muted-foreground">
                                     This product is out of stock.

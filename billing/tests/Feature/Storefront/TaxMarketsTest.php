@@ -67,3 +67,14 @@ it('rejects a market that is not a country', function (): void {
 
     $this->put(route('admin.storefront.website.update'), marketsForm(['NPR' => 'Nepal']))->assertSessionHasErrors('prices.markets.NPR');
 });
+
+it('treats the same markets in another order as no change and accepts a form without the markets key', function (): void {
+    actingAsStaff(['storefront.content.manage']);
+    $form = marketsForm(['USD' => 'NP', 'NPR' => 'IN']);
+    $this->put(route('admin.storefront.website.update'), $form)->assertSessionHasNoErrors();
+
+    expect(SiteContent::changes(marketsForm(['USD' => 'NP', 'NPR' => 'IN']), marketsForm(['NPR' => 'IN', 'USD' => 'NP'])))->toBe([]);
+
+    unset($form['prices']['markets']);
+    $this->put(route('admin.storefront.website.update'), $form)->assertSessionHasNoErrors();
+});

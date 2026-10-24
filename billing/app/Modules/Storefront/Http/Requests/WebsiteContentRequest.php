@@ -64,7 +64,7 @@ class WebsiteContentRequest extends FormRequest
             'prices.tax_inclusive.*' => ['distinct', Rule::in($currencies)],
             'prices.notes' => ['present', 'array'],
             'prices.notes.*' => ['nullable', 'string', 'max:80', $plain],
-            'prices.markets' => ['present', 'array'],
+            'prices.markets' => ['sometimes', 'array'],
             'prices.markets.*' => ['nullable', 'string', Rule::in(Countries::CODES)],
         ];
     }
@@ -90,7 +90,7 @@ class WebsiteContentRequest extends FormRequest
     {
         $data = $this->validated();
         $currencies = array_map(fn ($display): string => $display->code, app(CurrencyDirectory::class)->displays());
-        $data['prices']['markets'] = array_intersect_key((array) $data['prices']['markets'], array_flip($currencies));
+        $data['prices']['markets'] = array_intersect_key((array) ($data['prices']['markets'] ?? []), array_flip($currencies));
         $data['prices']['notes'] = array_intersect_key((array) $data['prices']['notes'], array_flip($currencies));
         array_walk_recursive($data, function (mixed &$value): void {
             $value = $value === null ? '' : $value;

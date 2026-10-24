@@ -8,8 +8,8 @@ use App\Enums\BillableType;
 
 /**
  * How prices read on public pages in one currency (spec §5.4): with or without tax, and the tax statement shown under
- * every price group and in the footer. Each currency is priced for its own market (set per currency in Admin → Website
- * → Prices and tax; `storefront.tax_markets` is the default: NPR for Nepal, INR for India), and the rates come from Billing's tax rules for that country: "+13% VAT at checkout" for NPR,
+ * every price group and in the footer. Each currency is priced for its own market (Admin → Website → Prices and tax;
+ * `storefront.tax_markets` is the default: NPR for Nepal, INR for India), and the rates come from Billing's tax rules for that country: "+13% VAT at checkout" for NPR,
  * "+18% GST at checkout" for INR. A currency sold across markets (USD) gets the neutral statement. Showing prices with
  * tax is a per-currency choice, off by default; when Billing already prices tax-inclusive, amounts are shown as they
  * are. Until the TaxDisplay contract (spec K6) exists this probes TaxCalculator with one taxable line.

@@ -1,8 +1,10 @@
 <?php
 
 use App\Enums\BillingCycle;
+use App\Models\User;
 use App\Modules\Catalog\Models\Product;
 use App\Modules\Catalog\Models\ProductGroup;
+use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Orders\Services\CartManager;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -27,13 +29,16 @@ it('explains an empty store and names the currencies that have products', functi
 
     $this->get(route('store.index'))->assertInertia(fn (Assert $page) => $page
         ->where('groups', [])
-        ->where('sold_in', ['USD']));
+        ->where('sold_in', ['USD'])
+        ->where('hide_tax_note', true)
+        ->where('account_currency', null));
 });
 
 it('opens an unpriced product with the reason and where it is sold, and refuses it in the cart', function () {
     $this->get(route('store.products.show', $this->usdOnly))->assertOk()->assertInertia(fn (Assert $page) => $page
         ->component('public/store/configure')
         ->where('cycles', [])
+        ->where('hide_tax_note', true)
         ->where('sold_in', ['USD']));
 
     $this->post(route('store.cart.products.store', $this->usdOnly), ['cycle' => 'monthly'])
@@ -47,4 +52,17 @@ it('adds the product once the visitor switches to a currency it is priced in', f
     $this->withSession([CartManager::SESSION_CURRENCY => 'USD'])
         ->post(route('store.cart.products.store', $this->usdOnly), ['cycle' => 'monthly'])
         ->assertSessionHasNoErrors();
+});
+
+it('tells a signed-in client their account currency and where to ask, without a switch', function () {
+    Product::query()->whereKey($this->nprToo->id)->delete();
+    $client = Client::factory()->create(['currency' => 'NPR']);
+    $user = User::factory()->create(['email' => $client->email]);
+    $client->users()->attach($user, ['is_owner' => true]);
+    $this->actingAs($user);
+
+    $this->get(route('store.index'))->assertInertia(fn (Assert $page) => $page
+        ->where('account_currency', 'NPR')
+        ->where('can_switch_currency', false)
+        ->where('support_url', route('support.tickets.create')));
 });

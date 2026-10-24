@@ -106,6 +106,7 @@ final class SiteContent
             fn (mixed $country, mixed $code): bool => is_string($code) && is_string($country) && ($country === '' || Countries::exists($country)),
             ARRAY_FILTER_USE_BOTH,
         );
+        ksort($result['prices']['markets']);
         $result['prices']['notes'] = array_filter((array) $result['prices']['notes'], fn (mixed $note): bool => is_string($note) && trim($note) !== '');
 
         return $result;

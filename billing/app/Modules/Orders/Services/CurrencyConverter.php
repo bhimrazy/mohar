@@ -23,6 +23,6 @@ class CurrencyConverter
 
         $target = $this->currencies[$currency] ??= Currency::query()->where('code', strtoupper($currency))->first();
 
-        return $target === null ? $amount : $target->priceFromDefault($amount);
+        return $target === null ? $amount : $target->priceFromDefault($amount, $default);
     }
 }

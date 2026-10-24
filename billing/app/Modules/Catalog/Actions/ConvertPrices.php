@@ -25,7 +25,8 @@ use Illuminate\Support\Facades\DB;
  * buffer and rounding rule (Currency::priceFromDefault()). Rows staff set manually are skipped, and enabled
  * converted rows whose default-currency source is gone are turned off. Only rows that change are written,
  * so a run with unchanged rates writes nothing. Existing services keep their stored recurring amounts. Every
- * row written or turned off dispatches ProductPriceChanged once the run commits, like a manual price edit.
+ * row written or turned off dispatches ProductPriceChanged once the run commits, like a manual price edit (one
+ * event per row, as the event is per currency and cycle; a setup-fee-only change reports the same old and new amount).
  */
 class ConvertPrices implements PriceConverter
 {
@@ -91,9 +92,11 @@ class ConvertPrices implements PriceConverter
 
         $this->activity->log('Prices converted from the default currency', null, null, ['written' => $written, 'disabled' => $disabled, 'currency' => $default->code]);
 
-        foreach ($events as [$type, $id, $currency, $cycle, $old, $new]) {
-            ProductPriceChanged::dispatch($type, $id, $currency, $cycle, $old, $new);
-        }
+        DB::afterCommit(function () use ($events): void {
+            foreach ($events as [$type, $id, $currency, $cycle, $old, $new]) {
+                ProductPriceChanged::dispatch($type, $id, $currency, $cycle, $old, $new);
+            }
+        });
 
         return $written + $disabled;
     }

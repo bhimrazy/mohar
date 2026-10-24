@@ -9,6 +9,7 @@ use App\Modules\Catalog\Models\Product;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Domains\Services\RenewalInvoices;
 use App\Modules\Orders\Services\CurrencyConverter;
+use App\Support\Dashboard\Dashboard;
 use Illuminate\Support\Facades\Event;
 use Tests\Fakes\Catalog\FakeProvisioningDrivers;
 
@@ -100,5 +101,30 @@ describe('driver change resets secrets', function () {
         ])->assertSessionHasNoErrors();
 
         expect($addon->fresh()->driver_config)->toBe(['api_token' => '']);
+    });
+});
+
+describe('buffer and unpriced warning', function () {
+    it('carries the currency buffer into converted promotion and minimum-cart amounts', function () {
+        $this->npr->update(['price_buffer_percent' => '3', 'price_rounding' => PriceRounding::Tens]);
+
+        // 10.00 × 151.94 = 1519.40, +3% = 1564.98, nearest 10 = 1560.00
+        expect(app(CurrencyConverter::class)->fromDefault(1000, 'NPR'))->toBe(156_000);
+    });
+
+    it('warns staff how many sellable products have no price in the default currency', function () {
+        Currency::query()->where('code', 'USD')->update(['is_default' => false]);
+        $this->npr->update(['is_default' => true]);
+        Product::factory()->withPrice('NPR', BillingCycle::Monthly, 100_000)->create();
+        Product::factory()->withPrice('USD', BillingCycle::Monthly, 1000)->create();
+        Product::factory()->withPrice('NPR', BillingCycle::Monthly, 100_000, enabled: false)->create();
+        Product::factory()->hidden()->create();
+        Product::factory()->retired()->create();
+        Product::factory()->free()->create();
+        $user = actingAsStaff(['catalog.products.view']);
+
+        $todos = collect(app(Dashboard::class)->resolveTodos('admin', $user))->keyBy('key');
+
+        expect($todos['catalog.unpriced_products'])->label->toBe('Products with no NPR price')->count->toBe(2);
     });
 });

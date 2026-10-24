@@ -21,6 +21,8 @@ type Props = {
     currency: string;
     /** Other currencies with products to buy; only filled when the store is empty in `currency`. */
     sold_in: string[];
+    account_currency: string | null;
+    support_url: string | null;
     /** A domain the visitor already owns, carried from the domain search into "Use a domain I own". */
     existingDomain: string | null;
 };
@@ -162,6 +164,8 @@ export default function StoreIndex({
     groups,
     currency,
     sold_in: soldIn,
+    account_currency: accountCurrency,
+    support_url: supportUrl,
     existingDomain,
 }: Props) {
     const visible = groups.filter((group) => group.products.length > 0);
@@ -218,8 +222,10 @@ export default function StoreIndex({
 
                 {visible.length === 0 && (
                     <CurrencyUnavailable
-                        title={`No products are priced in ${currency}`}
+                        title={`Nothing is on sale in ${currency} right now`}
                         soldIn={soldIn}
+                        accountCurrency={accountCurrency}
+                        supportUrl={supportUrl}
                     />
                 )}
 

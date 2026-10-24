@@ -18,6 +18,7 @@ use App\Modules\Orders\Services\TldAttributeInput;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -41,6 +42,9 @@ class StoreController extends Controller
             // Products unpriced in the visitor's currency are left out; an empty store says where products are sold.
             'sold_in' => $groups === [] ? $this->currenciesSelling(fn (string $code): bool => $this->priceBook->storefront($code) !== [], $currency) : [],
             'existingDomain' => $this->existingDomain($request),
+            'hide_tax_note' => $groups === [],
+            'account_currency' => $request->user() === null ? null : $currency,
+            'support_url' => Route::has('support.tickets.create') ? route('support.tickets.create') : null,
             ...$this->carts->storeProps($request),
         ]);
     }
@@ -98,6 +102,9 @@ class StoreController extends Controller
             ],
             'currency' => $currency,
             'cycles' => $cycles,
+            'hide_tax_note' => $cycles === [],
+            'account_currency' => $request->user() === null ? null : $currency,
+            'support_url' => Route::has('support.tickets.create') ? route('support.tickets.create') : null,
             'sold_in' => $cycles === [] ? $this->currenciesSelling(fn (string $code): bool => $this->priceBook->availableCycles($product, $code) !== [], $currency) : [],
             'config_options' => $this->priceBook->configOptionsFor($product, $currency),
             'addons' => $this->priceBook->addonsFor($product, $currency),

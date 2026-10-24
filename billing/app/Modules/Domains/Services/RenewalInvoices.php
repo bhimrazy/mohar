@@ -155,6 +155,6 @@ class RenewalInvoices
 
         $target = Currency::query()->where('code', $currency)->first();
 
-        return $target === null ? $amount : $target->priceFromDefault($amount);
+        return $target === null ? $amount : $target->priceFromDefault($amount, $default);
     }
 }
