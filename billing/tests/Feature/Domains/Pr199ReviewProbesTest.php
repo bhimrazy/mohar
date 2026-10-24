@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\Domains\DomainNameRules;
 use App\Contracts\Domains\DomainRegistry;
 use App\Data\Domains\DomainDraft;
 use App\Modules\Core\Models\Client;
@@ -82,7 +83,7 @@ test('probe: second-level validation edge cases', function (string $name, bool $
     expect(DomainGuard::isValidName($name))->toBe($valid);
 
     if ($valid) {
-        expect(DomainGuard::registryLevelError($name) === null)->toBe($levelOk);
+        expect(app(DomainNameRules::class)->registryLevelError($name) === null)->toBe($levelOk);
     }
 })->with([
     'the second level itself' => ['com.np', true, false],

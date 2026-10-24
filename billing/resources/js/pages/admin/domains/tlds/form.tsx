@@ -33,6 +33,7 @@ type Tld = {
     allow_register: boolean;
     allow_transfer: boolean;
     registered_by_client: boolean;
+    how_to_url: string | null;
     grace_days: number;
     grace_fee: number;
     redemption_days: number;
@@ -83,6 +84,7 @@ function SettingsForm({
         registered_by_client: (tld?.registered_by_client ?? null) as
             | boolean
             | null,
+        how_to_url: tld?.how_to_url ?? '',
         grace_days: String(tld?.grace_days ?? 0),
         grace_fee: decimal(tld?.grace_fee ?? 0),
         redemption_days: String(tld?.redemption_days ?? 0),
@@ -134,6 +136,7 @@ function SettingsForm({
     const text = (
         key:
             | 'extension'
+            | 'how_to_url'
             | 'min_years'
             | 'max_years'
             | 'grace_days'
@@ -288,6 +291,16 @@ function SettingsForm({
                             }
                         />
                     </label>
+                </div>
+                <div className="mt-4 grid items-start gap-4 sm:grid-cols-2">
+                    {text(
+                        'how_to_url',
+                        'How-to link for clients',
+                        'Shown in domain search and on the client domain page for extensions the client registers. Empty uses the default in Domains settings. https only.',
+                        true,
+                    )}
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
                     {toggles.map(([key, label]) => (
                         <label
                             key={key}

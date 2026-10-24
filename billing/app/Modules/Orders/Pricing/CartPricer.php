@@ -5,6 +5,7 @@ namespace App\Modules\Orders\Pricing;
 use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Catalog\PriceBook;
 use App\Contracts\Core\CompanyClock;
+use App\Contracts\Domains\DomainNameRules;
 use App\Contracts\Domains\DomainPricing;
 use App\Data\Catalog\ProductSelection;
 use App\Data\Catalog\ProductSummary;
@@ -36,6 +37,7 @@ class CartPricer
         private CompanyClock $clock,
         private Settings $settings,
         private DomainGuard $domainGuard,
+        private DomainNameRules $nameRules,
         private CustomFieldRules $customFieldRules,
         private TldAttributeInput $tldAttributes,
     ) {}
@@ -83,6 +85,13 @@ class CartPricer
 
         if ($product->requiresDomain && $item->domain() === null) {
             $priced->errors[] = __('Choose a domain for :product.', ['product' => $product->name]);
+        }
+
+        // Every order passes through here, staff orders included, so the registry's naming rule cannot be skipped.
+        if ($item->domain() !== null && ! DomainGuard::isValidName($item->domain())) {
+            $priced->errors[] = __('Enter a valid domain name, for example example.com.');
+        } elseif ($item->domain() !== null && ($levelError = $this->nameRules->registryLevelError($item->domain())) !== null) {
+            $priced->errors[] = $levelError;
         }
 
         if ($item->domain() !== null && $this->settings->get('orders.block_duplicate_domains', true) && $this->domainGuard->isAttachedToService($item->domain())) {

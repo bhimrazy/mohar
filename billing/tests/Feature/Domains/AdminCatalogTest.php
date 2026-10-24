@@ -58,6 +58,16 @@ test('staff create a TLD with a normalised extension', function () {
     $this->get(route('admin.domains.tlds.edit', $tld))->assertInertia(fn (Assert $page) => $page->component('admin/domains/tlds/form')->where('tld.id', $tld->id));
 });
 
+test('a TLD how-to link is stored when https and refused otherwise', function () {
+    actingAsStaff(['domains.tlds.*']);
+
+    $this->post(route('admin.domains.tlds.store'), tldPayload(['how_to_url' => 'http://example.com/guide']))->assertSessionHasErrors('how_to_url');
+    $this->post(route('admin.domains.tlds.store'), tldPayload(['how_to_url' => 'javascript:alert(1)']))->assertSessionHasErrors('how_to_url');
+    $this->post(route('admin.domains.tlds.store'), tldPayload(['how_to_url' => 'https://example.com/guide']))->assertRedirect();
+
+    expect(Tld::query()->sole()->how_to_url)->toBe('https://example.com/guide');
+});
+
 test('TLD validation rejects duplicates and bad terms', function () {
     actingAsStaff(['domains.tlds.*']);
     DomainFixtures::com('log');
