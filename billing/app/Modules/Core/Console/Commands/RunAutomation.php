@@ -67,12 +67,12 @@ class RunAutomation extends Command
             return self::FAILURE;
         }
 
-        $today = $clock->calendarDate();
-        $oldest = app(AutomationLogRetention::class)->oldestRunDate($today);
+        $retention = app(AutomationLogRetention::class);
 
         // Older run rows are pruned, so such a date would run every task again (ADR 0013 Amendment (#460)).
-        if ($date->isBefore($oldest)) {
-            $this->components->error("Run dates before {$oldest} are past the automation log retention and cannot be run.");
+        if (! $retention->mayRun($date, $clock->calendarDate())) {
+            $pruned = $retention->prunedThrough();
+            $this->components->error('Run dates before '.$retention->oldestRunDate($clock->calendarDate()).($pruned === null ? '' : ", or on or before {$pruned},").' are past the automation log retention and cannot be run.');
 
             return self::FAILURE;
         }

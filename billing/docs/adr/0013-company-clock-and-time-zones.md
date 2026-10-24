@@ -294,8 +294,9 @@ Automation runs are now pruned (`platform.automation_log_retention_days`, 365 by
 the (run date, task) key that stops a date running twice, so the rule above holds only inside the retention window:
 
 1. `automation:run --date` refuses a date before today minus the retention (`Core\Support\AutomationLogRetention`).
-   The prune deletes only rows before that same date, and keeps each task's latest run. A date whose rows are gone
-   can therefore no longer be run.
+   The prune deletes only rows before that same date, keeps each task's latest run, and records the last date it
+   deleted through (`core.automation_log_pruned_through`). `automation:run` also refuses that date and every earlier
+   one, whatever the retention is set to later, so raising it never reopens a pruned date.
 2. Retention tasks count their window from the run date capped at the company today (`Core\Support\RetentionRunDate`),
    so a rehearsal with a future `--date` never widens a cutoff. Every other task, including the rest of the
    housekeeping stage (auto-close of idle tickets), still gets the date given.

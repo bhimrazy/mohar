@@ -57,16 +57,9 @@ return [
     'prune_batch' => 500,
 
     /**
-     * Orphan sweep (#298): image files no document refers to are deleted once older than orphan_min_age_hours (at
-     * least 24). One run looks at most at orphan_scan_limit files and deletes at most orphan_delete_limit.
+     * Orphan check (#298): image files no document refers to are listed for staff once older than orphan_min_age_hours
+     * (at least 24). One daily run looks at most at orphan_scan_limit files. Nothing is deleted without staff.
      */
     'orphan_min_age_hours' => 24,
     'orphan_scan_limit' => 5000,
-    'orphan_delete_limit' => 200,
-
-    /**
-     * Circuit breaker: a run that finds more unreferenced files than this, or any while there are no documents at all,
-     * deletes nothing and reports it (a restored database, or another install sharing the bucket).
-     */
-    'orphan_breaker' => 20,
 ];

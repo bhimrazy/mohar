@@ -27,9 +27,16 @@ class PruneSystemTables
      */
     public function automationLog(CalendarDate $today): int
     {
-        return ChunkedDelete::run(AutomationRun::query()
-            ->where('run_date', '<', $this->retention->oldestRunDate($today)->toString())
+        $oldest = $this->retention->oldestRunDate($today);
+        $deleted = ChunkedDelete::run(AutomationRun::query()
+            ->where('run_date', '<', $oldest->toString())
             ->whereNotIn('id', AutomationRun::query()->selectRaw('max(id)')->groupBy('task')));
+
+        if ($deleted > 0) {
+            $this->retention->markPrunedBefore($oldest);
+        }
+
+        return $deleted;
     }
 
     /**
