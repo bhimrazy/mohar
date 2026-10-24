@@ -13,9 +13,9 @@ card, watch the hosting account get created, and answer a support ticket. It tak
 ## Before you start
 
 You need a local copy with the demo data. Follow [Run it on your computer](../run-locally/), which ends with
-`php artisan migrate:fresh --seed`. Keep the queue workers running: they send the emails, create the hosting account
-and run the automation. `composer dev` starts them for you; with Docker, start the two `queue:work` commands from
-that page.
+`php artisan migrate:fresh --seed`. Keep the queue workers and the scheduler running: they send the emails, create
+the hosting account and run the automation. `composer dev` starts them all for you; with Docker, start the
+`queue:work` and `schedule:work` commands from that page.
 
 The demo data is a made-up Nepali host, **Example Hosting**, with about 20 clients, a year of invoices, tickets,
 domains and three demo servers. It creates two accounts, both with the password `password`:
@@ -251,12 +251,12 @@ in **Setup → Email log**. Details:
    and **Tax collected this month** shows the VAT.
 
 2. Go to **Billing → VAT register**. Choose a period by **BS month**, **BS fiscal year** or **AD date range**. The
-   header shows your PAN, company name, fiscal year and tax period. **Export CSV** downloads the register; it is a
-   sensitive action, so it asks for your password first (once every 15 minutes).
+   header shows your PAN, company name, fiscal year and tax period, and the list shows the demo's tax invoices and
+   credit notes with their taxable value and VAT. **Export CSV** downloads the register; it is a sensitive action, so
+   it asks for your password first (once every 15 minutes).
 
-    On the demo data the register is empty and says it starts with Nepal VAT mode. That mode is not switched on in
-    the demo, and the page that switches it on is still behind a feature flag, so you cannot fill the register in
-    this tour yet.
+3. Go to **Setup → Nepal VAT**. Nepal VAT mode is on in the demo, from the start of its invoice history. While it
+   is on, a paid invoice becomes a numbered tax invoice, and corrections are made with credit and debit notes.
 
 </Steps>
 
@@ -266,9 +266,9 @@ The register is laid out by Nepali tax period, from the amounts stored when each
 
 <Steps>
 
-1. Go to **Setup → Automation**. On a fresh local copy, a red box says **The scheduler has never run on this
-   server** and shows the cron line to add. The charts show the demo's history: runs per day, items processed
-   today and time per stage.
+1. Go to **Setup → Automation**. **System health** shows the scheduler running while `composer dev` (or
+   `schedule:work`) is up; if it is not, it warns that the scheduler has stopped and shows the cron line a server
+   needs. The charts show the demo's history: runs per day, items processed today and time per stage.
 
 2. Select **Run today's pipeline**, then **Run pipeline** in the dialog. You see "Automation run queued. Results
    appear in the run log." Tasks that already succeeded today are skipped.
