@@ -297,7 +297,7 @@ export default function PaymentAttempts({ attempts, statuses }: Props) {
                 />
                 <FilterBar
                     searchParam={null}
-                    filterKeys={['status', 'late', 'check']}
+                    filterKeys={['status', 'late', 'check', 'review']}
                     filters={
                         <>
                             <FilterSelect
@@ -314,7 +314,7 @@ export default function PaymentAttempts({ attempts, statuses }: Props) {
                             <FilterSelect
                                 name="check"
                                 label="Flags"
-                                allLabel="All attempts"
+                                allLabel="Any flag"
                                 options={CHECK_OPTIONS}
                             />
                         </>

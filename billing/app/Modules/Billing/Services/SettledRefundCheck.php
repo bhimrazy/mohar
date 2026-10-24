@@ -7,8 +7,10 @@ use App\Contracts\Billing\HostedPaymentDriver;
 use App\Data\Billing\LookupResult;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
+use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Enums\TransactionStatus;
 use App\Modules\Billing\Enums\TransactionType;
+use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Support\BillingSettings;
@@ -104,7 +106,7 @@ class SettledRefundCheck
                     continue;
                 }
 
-                $this->apply($attempt, $result);
+                $this->applyAnswer($attempt, $result);
             } catch (Throwable $exception) {
                 $tripped[$attempt->gateway] = true;
                 report($exception);
@@ -131,11 +133,13 @@ class SettledRefundCheck
      * Applies one answer under the payment's lock, then the attempt's (the provider refund callback's order), so a staff
      * refund of the same payment, which reserves under the payment's lock, is either seen here or comes after the flag.
      * Flags only a refund the payment's own refund rows (succeeded or pending) do not account for: a full refund while
-     * they total less than the payment, or a partial one while there are none. A partial refund after one recorded here is not told apart (neither
-     * provider reports the refunded amount). The same status is flagged once; a partial refund that later becomes full
-     * is flagged again.
+     * they total less than the payment, or a partial one while there are none. A partial refund after one recorded here
+     * is not told apart (neither provider reports the refunded amount). The same status is flagged once; a partial
+     * refund that later becomes full is flagged again.
+     *
+     * @internal public for the race tests, which apply an answer looked up beforehand; run() is the only caller in the app
      */
-    private function apply(PaymentAttempt $attempt, LookupResult $result): void
+    public function applyAnswer(PaymentAttempt $attempt, LookupResult $result): void
     {
         DB::transaction(function () use ($attempt, $result): void {
             $payment = Transaction::query()->lockForUpdate()->find($attempt->transaction_id);
@@ -148,9 +152,7 @@ class SettledRefundCheck
             $locked->last_lookup_at = now();
             $locked->lookup_count++;
             $full = $result->status === LookupResult::REFUNDED;
-            // refundable_remaining also leaves out what went to account credit, so the payment's own refund rows are counted.
-            $known = (int) Transaction::query()->where('parent_transaction_id', $payment->id)->where('type', TransactionType::Refund)
-                ->whereIn('status', [TransactionStatus::Succeeded, TransactionStatus::Pending])->sum('amount_out');
+            $known = $this->refundedAtProvider($payment);
             $uncovered = $full ? $known < $payment->amount_in : $known === 0;
             $flagged = $locked->raw[self::RAW_KEY]['status'] ?? null;
 
@@ -160,16 +162,24 @@ class SettledRefundCheck
                 return;
             }
 
+            // An open late or credit flag is kept beside this one: its reason stays in the review reason and in raw.
+            $previous = $locked->needsCheck() && $locked->check_reason !== PaymentAttempt::CHECK_PORTAL_REFUND
+                ? ['check_reason' => $locked->check_reason, 'review_reason' => $locked->review_reason]
+                : ($locked->raw[self::RAW_KEY]['previous_check'] ?? null);
+            $credited = (int) CreditLedgerEntry::query()->where('transaction_id', $payment->id)->where('amount', '>', 0)->sum('amount');
+            $was = is_array($previous) && is_string($previous['review_reason'] ?? null) ? '; was: '.$previous['review_reason'] : '';
+
             $locked->check_reason = PaymentAttempt::CHECK_PORTAL_REFUND;
             $locked->late_checked_at = null;
-            $locked->review_reason = $full
-                ? 'Refunded in full at the provider, but not recorded here: record the refund on the invoice'
-                : 'Partly refunded at the provider, but no refund recorded here: record the refund on the invoice';
-            $locked->raw = [...($locked->raw ?? []), self::RAW_KEY => [
+            $locked->review_reason = mb_substr(($full ? 'Refunded in full at the provider, but not recorded here: ' : 'Partly refunded at the provider, but no refund recorded here: ')
+                .self::instruction($credited, $payment->amount_in).$was, 0, 191);
+            $locked->raw = [...($locked->raw ?? []), self::RAW_KEY => array_filter([
                 'status' => $result->status,
                 'seen_at' => now()->toIso8601String(),
                 'refunded_here' => $known,
-            ]];
+                'credited' => $credited,
+                'previous_check' => $previous,
+            ], fn (mixed $value): bool => $value !== null)];
             $locked->save();
 
             $this->activity->log(self::NOTE, $payment, $locked->client_id, [
@@ -179,8 +189,38 @@ class SettledRefundCheck
                 'provider_status' => $result->status,
                 'amount' => $payment->amount_in,
                 'refunded_here' => $known,
+                'credited' => $credited,
+                'previous_check' => $previous['check_reason'] ?? null,
                 'currency' => $payment->currency,
             ], 'billing.payment.portal_refund');
         });
+    }
+
+    /**
+     * What this payment's refund rows (succeeded or pending) paid back through the provider or recorded as paid outside.
+     * A refund to account credit is left out: the money stayed with the client as credit, so a portal refund on top of
+     * it pays the client twice. Such a row is never pending, and its refund_to_credit ledger line is written in the same
+     * transaction (RefundTransaction), so the ledger tells it apart for old rows too.
+     */
+    private function refundedAtProvider(Transaction $payment): int
+    {
+        return (int) Transaction::query()->where('parent_transaction_id', $payment->id)->where('type', TransactionType::Refund)
+            ->whereIn('status', [TransactionStatus::Succeeded, TransactionStatus::Pending])
+            ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('credit_ledger')
+                ->whereColumn('credit_ledger.transaction_id', 'transactions.id')->where('credit_ledger.reason', CreditReason::RefundToCredit->value))
+            ->sum('amount_out');
+    }
+
+    /**
+     * Where staff record the refund: on the invoice for the part the payment paid there, with Refund account credit
+     * for the part it left as account credit (the invoice's refund refuses that part).
+     */
+    private static function instruction(int $credited, int $amount): string
+    {
+        return match (true) {
+            $credited <= 0 => 'record the refund on the invoice',
+            $credited >= $amount => 'the payment went to account credit, so record it with Refund account credit',
+            default => 'record it on the invoice, and the part kept as account credit with Refund account credit',
+        };
     }
 }

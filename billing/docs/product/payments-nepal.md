@@ -318,8 +318,10 @@ expires_at, last_lookup_at, lookup_count, raw (redacted json), timestamps`, with
 ### 3.4 Refunds
 
 Khalti declares `refund` (and `partial_refund` only once its unit is proven, see §8.2) and uses the existing `refund(Gateway, Transaction, Money)`.
-Every other driver omits `refund`. Staff then use `record_only` / `to_credit` (§4.7) after refunding in the
-provider portal, and the UI shows "Refund in the eSewa/ConnectIPS portal first."
+Every other driver omits `refund`. After refunding in the provider portal, staff record it with `record_only` (§4.7),
+and the UI shows "Refund in the eSewa/ConnectIPS portal first." `to_credit` is never the way to record a portal
+refund: it gives the client the same amount again as account credit. The part of a payment that went to account
+credit is recorded with Refund account credit (recorded) instead.
 
 ### 3.5 Refunds seen by lookup
 
@@ -336,15 +338,17 @@ customer with credit they never had.
   task calls no provider again. The query reads `payment_attempts_created_at_index` (a week of attempts, not the table),
   least recently looked up first, at most `billing.gateways.refund_checks_per_run` (300, at most 1,000), with a 10-minute
   deadline. A transient error (`retryable`) stops that gateway for the run and leaves the attempt unstamped.
-- **What is flagged:** a `refunded` answer while the payment's own refund rows (succeeded or pending, including credit
-  refunds) total less than the payment, or a `partially_refunded` answer while it has none. The answer is applied under
+- **What is flagged:** a `refunded` answer while the payment's own refund rows (succeeded or pending, including payouts
+  of account credit through the gateway, but never refunds to account credit, which pay nothing out) total less than the payment, or a `partially_refunded` answer while it has none. The answer is applied under
   the payment's lock, then the attempt's, the order the provider refund callback uses; a staff refund reserves under the
   payment's lock, so it is either counted or comes after the flag (race tests on PostgreSQL). Neither provider reports the
   refunded amount, so a second partial portal refund after one recorded here is not told apart.
 - **What happens:** no money moves. The attempt gets `check_reason = portal_refund` (to-do "Refunds made at the provider to
-  record", `billing.payments.manage`), a review reason, `raw.portal_refund` (status, time, amount refunded here) and an
-  activity entry `billing.payment.portal_refund`. Staff record the refund on the invoice (Refund → record) and mark the
-  payment checked. The same status is not flagged twice; a partial refund that becomes full is flagged again.
+  record", `billing.payments.manage`), a review reason, `raw.portal_refund` (status, time, amount refunded here, amount
+  the payment left as credit) and an activity entry `billing.payment.portal_refund`. Staff record the refund on the
+  invoice (Refund → record); for the part the payment left as account credit, which the invoice's refund refuses, the
+  reason points to Refund account credit. Then they mark the payment checked. An open late or credit flag on the same
+  attempt is not lost: it is kept in `raw.portal_refund.previous_check` and after "; was:" in the review reason. The same status is not flagged twice; a partial refund that becomes full is flagged again.
 - **Khalti bank-funded payments** stay manual for v1 (no payer mobile number stored): every refund Khalti declines tells
   staff to refund a bank-funded payment in the Khalti portal and record it.
 

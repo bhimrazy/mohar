@@ -54,7 +54,7 @@ try {
             $result = $gateways->during($config, fn (): LookupResult => $driver->lookup($config, $attempt->toRef()));
             $check = app(SettledRefundCheck::class);
             $wait();
-            (new ReflectionMethod($check, 'apply'))->invoke($check, $attempt, $result);
+            $check->applyAnswer($attempt, $result);
             $print(['outcome' => 'checked', 'status' => $result->status]);
             break;
         default:

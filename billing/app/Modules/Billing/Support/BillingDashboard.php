@@ -97,7 +97,7 @@ class BillingDashboard
         $dashboard->todo('admin', 'billing.payment_review', fn (?User $user): array => [
             'label' => 'Gateway payments to review',
             'count' => $this->ambiguousAttempts(),
-            'href' => route('admin.billing.payment-attempts.index', ['status' => 'ambiguous']),
+            'href' => route('admin.billing.payment-attempts.index', ['review' => 1]),
             'tone' => 'danger',
             'icon' => 'CreditCard',
         ], 'billing.payments.manage', 13);
