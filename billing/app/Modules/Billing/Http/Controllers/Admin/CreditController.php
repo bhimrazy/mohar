@@ -115,6 +115,7 @@ class CreditController extends Controller
     /**
      * Payments of this client the gateway can still refund, newest first, for the gateway variant of Refund credit.
      *
+     * @param  Collection<string, string>  $names
      * @return list<array{id: int, label: string, gateway: string, refundable: int, currency: string}>
      */
     private function refundablePayments(Client $client, GatewayManager $gateways, Collection $names): array
