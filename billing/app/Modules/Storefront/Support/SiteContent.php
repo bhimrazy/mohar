@@ -107,9 +107,25 @@ final class SiteContent
             ARRAY_FILTER_USE_BOTH,
         );
         ksort($result['prices']['markets']);
+        // No market means no tax is shown, so such a currency is never tax-inclusive.
+        $result['prices']['tax_inclusive'] = array_values(array_filter(
+            $result['prices']['tax_inclusive'],
+            fn (string $code): bool => (self::effectiveMarkets($result['prices']['markets'])[$code] ?? '') !== '',
+        ));
         $result['prices']['notes'] = array_filter((array) $result['prices']['notes'], fn (mixed $note): bool => is_string($note) && trim($note) !== '');
 
         return $result;
+    }
+
+    /**
+     * Currency => market after the storefront.tax_markets defaults; '' means no market.
+     *
+     * @param  array<string, string>  $markets
+     * @return array<string, string>
+     */
+    private static function effectiveMarkets(array $markets): array
+    {
+        return $markets + (array) config('storefront.tax_markets', []);
     }
 
     /**
@@ -158,8 +174,22 @@ final class SiteContent
             'prices' => 'Price and tax display changed',
         ];
 
+        // Prices compare by effective market, so choosing the market that is already the default is no change.
+        $comparable = function (array $content): array {
+            $prices = $content['prices'];
+            $effective = self::effectiveMarkets($prices['markets']);
+            ksort($effective);
+            $prices['markets'] = $effective;
+
+            return $prices;
+        };
+
         foreach ($labels as $path => $label) {
-            if (data_get($from, $path) !== data_get($to, $path)) {
+            $unchanged = $path === 'prices'
+                ? $comparable($from) === $comparable($to)
+                : data_get($from, $path) === data_get($to, $path);
+
+            if (! $unchanged) {
                 $changes[] = $label;
             }
         }

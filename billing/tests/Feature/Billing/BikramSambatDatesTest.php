@@ -6,7 +6,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Mail\TemplatedMail;
-use App\Support\Settings\SettingsRegistry;
+use App\Modules\Platform\Services\SettingsCatalog;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Mail;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -48,13 +48,8 @@ test('staff turn the setting on from Admin → Settings → Billing', function (
 
     // The page posts the whole Billing section: every current value, with this one switched on.
     $payload = [];
-    foreach (app(SettingsRegistry::class)->sections()['billing']['settings'] as $definition) {
-        $value = app(Settings::class)->get($definition->key);
-        data_set($payload, $definition->key, match (true) {
-            is_array($value) => implode(', ', $value),
-            is_int($value), is_float($value) => (string) $value,
-            default => $value,
-        });
+    foreach (app(SettingsCatalog::class)->fields('billing') as $field) {
+        data_set($payload, $field['key'], is_int($field['value']) || is_float($field['value']) ? (string) $field['value'] : $field['value']);
     }
     data_set($payload, 'billing.show_bs_dates', true);
 

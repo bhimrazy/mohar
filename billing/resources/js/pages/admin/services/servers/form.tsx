@@ -1,5 +1,6 @@
 import { Link, router, useForm, usePage } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
+import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Field } from '@/components/app/field';
 import { FormActions } from '@/components/app/form-actions';
@@ -47,6 +48,8 @@ type Props = {
         Record<string, Record<string, string>> | null
     >;
     currencies: string[];
+    /** Shortest credential in bytes (SettingField::MIN_SECRET_BYTES). */
+    minSecretLength: number;
 };
 
 /** Non-secret defaults of a driver's server settings, so the values the form shows are the values it submits. */
@@ -73,6 +76,7 @@ export default function ServerForm({
     driverFields,
     driverConnectionFields,
     currencies,
+    minSecretLength,
 }: Props) {
     const form = useForm({
         name: server?.name ?? '',
@@ -120,6 +124,20 @@ export default function ServerForm({
                 ? ServerController.update(server.id)
                 : ServerController.store(),
         );
+    };
+
+    const [blurred, setBlurred] = useState<string[]>([]);
+    const shortError = (
+        name: 'password' | 'api_token' | 'access_hash',
+        label: string,
+    ) => {
+        const value = data[name].trim();
+
+        return blurred.includes(name) &&
+            value !== '' &&
+            new TextEncoder().encode(value).length < minSecretLength
+            ? `${label} must be at least ${minSecretLength} characters. A shorter secret cannot be kept out of logs.`
+            : undefined;
     };
 
     const text = (name: Exclude<keyof typeof data, 'settings'>) => ({
@@ -210,7 +228,7 @@ export default function ServerForm({
             ? retargeted
                 ? 'The address changed: enter it again.'
                 : server?.credentials_short.includes(key)
-                  ? shortSecretHint(8) // SettingField::MIN_SECRET_BYTES
+                  ? shortSecretHint(minSecretLength)
                   : 'Stored encrypted. Leave blank to keep it.'
             : undefined;
 
@@ -441,10 +459,19 @@ export default function ServerForm({
                                         server?.has_password,
                                         'password',
                                     )}
-                                    error={errors.password}
+                                    error={
+                                        errors.password ??
+                                        shortError('password', 'Password')
+                                    }
                                 >
                                     <Input
                                         {...text('password')}
+                                        onBlur={() =>
+                                            setBlurred((list) => [
+                                                ...list,
+                                                'password',
+                                            ])
+                                        }
                                         type="password"
                                         autoComplete="new-password"
                                     />
@@ -459,10 +486,19 @@ export default function ServerForm({
                                         server?.has_api_token,
                                         'api_token',
                                     )}
-                                    error={errors.api_token}
+                                    error={
+                                        errors.api_token ??
+                                        shortError('api_token', 'API token')
+                                    }
                                 >
                                     <Input
                                         {...text('api_token')}
+                                        onBlur={() =>
+                                            setBlurred((list) => [
+                                                ...list,
+                                                'api_token',
+                                            ])
+                                        }
                                         type="password"
                                         autoComplete="off"
                                     />
@@ -477,10 +513,19 @@ export default function ServerForm({
                                         server?.has_access_hash,
                                         'access_hash',
                                     )}
-                                    error={errors.access_hash}
+                                    error={
+                                        errors.access_hash ??
+                                        shortError('access_hash', 'Access hash')
+                                    }
                                 >
                                     <Input
                                         {...text('access_hash')}
+                                        onBlur={() =>
+                                            setBlurred((list) => [
+                                                ...list,
+                                                'access_hash',
+                                            ])
+                                        }
                                         type="password"
                                         autoComplete="off"
                                     />

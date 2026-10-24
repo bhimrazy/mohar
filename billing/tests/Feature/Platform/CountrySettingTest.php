@@ -69,7 +69,7 @@ function billingSectionInput(array $override = []): array
 
     foreach (app(SettingsCatalog::class)->fields(billingSectionKey()) as $field) {
         $value = $field['value'];
-        Arr::set($input, $field['key'], is_bool($value) ? $value : (is_array($value) ? implode(',', $value) : (string) ($value ?? '')));
+        Arr::set($input, $field['key'], is_bool($value) || is_array($value) ? $value : (string) ($value ?? ''));
     }
 
     foreach ($override as $key => $value) {

@@ -47,7 +47,7 @@ test('probe: the "How to register" URL setting accepts https only', function (st
     actingAsStaff(['*']);
     session(['auth.password_confirmed_at' => time()]);
 
-    $response = $this->put(route('admin.platform.settings.update', ['section' => 'domains']), ['domains' => ['self_registration_url' => $url]]);
+    $response = $this->put(route('admin.platform.settings.update', ['section' => 'domains_search']), ['domains' => ['self_registration_url' => $url]]);
 
     $ok ? $response->assertSessionDoesntHaveErrors(['domains.self_registration_url'])
         : $response->assertSessionHasErrors(['domains.self_registration_url']);

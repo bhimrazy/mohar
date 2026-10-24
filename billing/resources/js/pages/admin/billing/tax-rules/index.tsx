@@ -3,6 +3,7 @@ import { Head } from '@/components/app/head';
 import { Percent, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
+import { CountrySelect } from '@/components/app/country-select';
 import { DataTable } from '@/components/app/data-table';
 import type { DataTableColumn } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
@@ -48,6 +49,9 @@ type Props = {
         home_state: string;
     };
 };
+
+const countryName = (code: string) =>
+    new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code;
 
 function RuleDialog({
     rule,
@@ -154,18 +158,14 @@ function RuleDialog({
                         htmlFor="rule-country"
                         label="Country"
                         optional
-                        hint="ISO code; empty = all"
                         error={form.errors.country}
                     >
-                        <Input
+                        <CountrySelect
                             id="rule-country"
-                            maxLength={2}
                             value={form.data.country}
-                            onChange={(event) =>
-                                form.setData(
-                                    'country',
-                                    event.target.value.toUpperCase(),
-                                )
+                            emptyLabel="All countries"
+                            onValueChange={(value) =>
+                                form.setData('country', value)
                             }
                         />
                     </Field>
@@ -261,7 +261,7 @@ export default function TaxRulesIndex({
             cell: (rule) =>
                 rule.country
                     ? [
-                          rule.country,
+                          countryName(rule.country),
                           rule.state,
                           rule.scope === 'home_state'
                               ? 'Intra-state'

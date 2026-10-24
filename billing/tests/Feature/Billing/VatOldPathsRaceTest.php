@@ -28,7 +28,7 @@ function seedOldPathRaces(): array
     test()->useSeededDatabase('vat_old_path_races', function (): void {
         Currency::factory()->create();
         Currency::factory()->npr()->create();
-        billingSettings(['tax.enabled' => true, 'tax.home_country' => 'NP', 'tax.home_state' => '', 'tax.report_currency' => 'NPR', 'late_fee.type' => 'fixed', 'late_fee.amount' => 1_130, 'late_fee.minimum' => 0]);
+        billingSettings(['tax.enabled' => true, 'tax.home_country' => 'NP', 'tax.home_state' => '', 'tax.report_currency' => 'NPR', 'late_fee.type' => 'fixed', 'late_fee.fixed_amount' => 1_130, 'late_fee.minimum' => 0]);
         useNepalVatRule(TaxRule::factory()->create(['name' => 'VAT', 'level' => 1, 'country' => 'NP', 'rate' => '13.000']));
         User::factory()->staff(['billing.*'])->create();
         $client = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR', 'email' => 'vat-old-path-races@example.test']);

@@ -5,6 +5,7 @@ namespace App\Modules\Billing;
 use App\Contracts\Billing\CreditLedger;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\GatewayRegistry;
+use App\Contracts\Billing\InvoiceNumbers;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Billing\TaxCalculator;
@@ -112,6 +113,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $this->app->bind(TaxIdRules::class, BillingTaxIdRules::class);
         $this->app->bind(GatewayDirectory::class, BillingDirectory::class);
         $this->app->bind(InvoiceQueries::class, BillingDirectory::class);
+        $this->app->bind(InvoiceNumbers::class, BillingDirectory::class);
 
         $this->app->singleton(GatewayRegistry::class, fn (): GatewayManager => $this->app->make(GatewayManager::class));
         $this->app->singleton(GatewayManager::class, function (): GatewayManager {
@@ -321,6 +323,8 @@ class BillingServiceProvider extends ModuleServiceProvider
     {
         $bool = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'boolean', $help);
         $int = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'integer', $help, rules: ['min:0']);
+        // Money settings carry no currency: the same amount applies in each client's or invoice's currency.
+        $money = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'money', trim(($help ?? '').' The same amount applies in each client\'s currency.'));
         $list = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'string', $help, rules: ['regex:/^\s*\d+(\s*,\s*\d+)*\s*$/']);
 
         // The other format comes from the same save, or from the stored setting when the save leaves it out.
@@ -362,9 +366,9 @@ class BillingServiceProvider extends ModuleServiceProvider
             $int('invoice_days_before_due', 'Days until due for manual invoices'),
             $bool('credit.auto_apply_on_generate', 'Apply credit to generated invoices'),
             $bool('credit.tax_add_funds', 'Charge tax on add funds'),
-            $int('credit.min_deposit', 'Minimum deposit (minor units)'),
-            $int('credit.max_deposit', 'Maximum deposit (minor units)'),
-            $int('credit.max_balance', 'Maximum credit balance (minor units)'),
+            $money('credit.min_deposit', 'Minimum deposit'),
+            $money('credit.max_deposit', 'Maximum deposit', '0 means no maximum.'),
+            $money('credit.max_balance', 'Maximum credit balance', '0 means no maximum.'),
             $bool('credit.require_accepted_order', 'Require an accepted order before adding funds'),
             $bool('mass_pay_enabled', 'Allow paying several invoices at once'),
             $bool('separate_invoices', 'Separate invoice per renewal item', 'Off: renewal lines raised together are grouped on one invoice per client and due date. Clients can override this.'),
@@ -377,15 +381,16 @@ class BillingServiceProvider extends ModuleServiceProvider
             $bool('tax.compound', 'Compound level 2 tax'),
             new SettingDefinition('billing.tax.calculation', 'Tax calculation', 'select', options: ['per_line' => 'Per line', 'per_invoice' => 'Per invoice']),
             new SettingDefinition('billing.tax.rounding', 'Tax rounding', 'select', options: ['half_up' => 'Half up', 'half_even' => 'Half even', 'down' => 'Down', 'up' => 'Up']),
-            new SettingDefinition('billing.tax.apply_to', 'Taxed item kinds', help: 'Comma-separated: service, addon, domain, setup, late_fee, manual', rules: ['max:200']),
+            new SettingDefinition('billing.tax.apply_to', 'Taxed item kinds', 'multiselect', 'Invoice lines of these kinds are taxed when tax is on.', options: ['service' => 'Services', 'addon' => 'Add-ons', 'domain' => 'Domains', 'setup' => 'Setup fees', 'late_fee' => 'Late fees', 'manual' => 'Manual lines']),
             new SettingDefinition('billing.tax.home_country', 'Seller tax country', 'country', 'The country your business charges tax from, usually where it is registered. Tax rules for other countries and India GST state rules are judged against it.'),
             new SettingDefinition('billing.tax.home_state', 'Seller state', help: 'State of registration, e.g. MH. India GST: CGST+SGST in this state, IGST elsewhere.', rules: ['max:100']),
             $bool('vat.enabled', 'Enable EU VAT rules'),
             new SettingDefinition('billing.vat.home_country', 'VAT home country', 'country', 'The EU country you are VAT-registered in. Required when EU VAT rules are on; it decides which customers get reverse charge.', rules: [new EuVatHomeCountry]),
             $bool('vat.auto_exempt_on_valid_id', 'Reverse charge for valid EU VAT IDs'),
             new SettingDefinition('billing.late_fee.type', 'Late fee type', 'select', options: ['percent' => 'Percent', 'fixed' => 'Fixed amount']),
-            new SettingDefinition('billing.late_fee.amount', 'Late fee amount', help: 'Percent, or minor units when fixed. 0 turns late fees off.', rules: ['numeric', 'min:0']),
-            $int('late_fee.minimum', 'Minimum late fee (minor units)'),
+            new SettingDefinition('billing.late_fee.amount', 'Late fee percent', help: 'Of the invoice balance or total, when the type is Percent. 0 turns percent late fees off.', rules: ['numeric', 'min:0', 'max:100']),
+            $money('late_fee.fixed_amount', 'Fixed late fee', 'When the type is Fixed amount. 0 turns fixed late fees off.'),
+            $money('late_fee.minimum', 'Minimum late fee'),
             $int('late_fee.days_overdue', 'Days overdue before the late fee'),
             new SettingDefinition('billing.late_fee.base', 'Late fee base', 'select', options: ['balance' => 'Balance', 'total' => 'Total']),
             $int('capture.days_before_due', 'Capture days before due'),

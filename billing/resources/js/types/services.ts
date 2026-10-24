@@ -103,6 +103,8 @@ export type ModuleCommandRow = {
     driver: string;
     command: string;
     initiator: string;
+    /** "System", the staff member's name or "Client"; `initiator` is the stored key. */
+    initiator_label: string;
     attempt: number;
     success: boolean;
     error: string | null;
