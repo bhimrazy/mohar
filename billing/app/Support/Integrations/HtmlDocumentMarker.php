@@ -40,7 +40,12 @@ final class HtmlDocumentMarker
         return strspn($value, self::nameStartBytes(), $offset, 1) === 0 ? 0 : strspn($value, self::nameBytes(), $offset);
     }
 
-    /** Whether a marker starts before $offset, outside every span skipped so far. Once true, it stays true. */
+    /**
+     * Whether a marker starts before $offset, outside every span skipped so far. Once true, it stays true. It moves the
+     * walk on, so a later call resumes where this one stopped.
+     *
+     * @phpstan-impure
+     */
     public function before(int $offset): bool
     {
         $this->seen = $this->seen || ($this->from !== null && $this->next($offset) !== null);
