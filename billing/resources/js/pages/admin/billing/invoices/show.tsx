@@ -254,6 +254,26 @@ function RefundDialog({
                                 service due dates, affiliate commission)
                             </Label>
                         </div>
+                        <Field
+                            className="content-start"
+                            htmlFor="refund-reason"
+                            label="Reason"
+                            optional
+                            hint="Printed on the credit note when the invoice is a numbered tax invoice (Nepal VAT mode), where it is required."
+                            error={form.errors.description}
+                        >
+                            <Textarea
+                                id="refund-reason"
+                                maxLength={255}
+                                value={form.data.description}
+                                onChange={(event) =>
+                                    form.setData(
+                                        'description',
+                                        event.target.value,
+                                    )
+                                }
+                            />
+                        </Field>
                     </div>
                 );
             }}
