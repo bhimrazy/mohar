@@ -512,3 +512,27 @@ Single source for these rules; `vat-register.md` §3 refers here. They extend §
 - **Arch test.** `tests/Arch/ValueAdjustmentWritersTest.php`: every file that writes an old-style value adjustment reads
   `inEffectLocked()`, except the refund path, which VAT PR 4 replaces (listed in the test).
 - **Enable-time refusal added:** a refund recorded the old way (pending, no reservation) on a numbered invoice.
+
+### 4a: the refund reservation (VAT PR 4, first part)
+
+PR 4 is built in steps. This one is the §5 state machine for **staff refunds** of a payment on a numbered tax invoice.
+
+- **Reserve.** With the mode switched on (`NepalVatMode::enabledLocked()`, a shared lock on the `enabled` row, before the
+  start day too), a refund by a staff member of a payment on a paid, numbered, non-add-funds invoice locks payment, invoice and
+  client (§4), checks both caps through the note plan, and writes the pending refund row and a `tax_note_reservations` row
+  with its full allocation (`tax_note_reservation_lines`). No number is taken. The staff member must give a reason
+  (`description`), which is printed on the note (`refunded`). A refund to account credit is refused there: a credit note settled
+  to account credit does that. A payment that placed account credit is refused until the credit-first split is built.
+- **Finalise** (`RefundTransaction::finalise`, reached by the request, the provider callback, Check refund and staff resolution,
+  one transaction under the §4 order with the reservation locked): with the transaction's own instant `$at`, if the mode is in
+  effect at `$at` the reserved allocation is issued as the note (`TaxNoteIssuer::issueReserved`), the refund row gets its
+  `tax_note_id` (new nullable `transactions.tax_note_id`), `amount_paid` falls by the refund and the reservation is `finalised`;
+  before the start day the old-style `refund` adjustment is written, dated `$at`, and the reservation is finalised without a
+  note. An excess that makes the balance negative (a payment that arrived meanwhile) goes to account credit with the note's id.
+  A refund row already settled is a no-op, so a late `ERROR`, `PENDING` or `DECLINED` changes nothing.
+- **Release** (`DECLINED`, Check refund's "no such refund", staff "not refunded"): the refund row fails, `refundable_remaining`
+  returns, the reservation is `released`, and no note or number exists. `ERROR` and `PENDING` leave everything pending; the
+  existing "Refund outcome not known yet" and Check refund apply.
+- **Not yet built (later PR 4 steps):** the credit-first split of a payment that placed account credit; refunds that the provider
+  reports without a reservation of ours (still booked the old way, which is why the arch test still lists `RefundTransaction`);
+  `RefundAccountCredit` (§5a); lifting the feature flag and deleting the interim refusals.
