@@ -7,6 +7,7 @@ use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Billing\Reports\RegisterDocuments;
 use App\Modules\Billing\Reports\RegisterPeriod;
 use App\Modules\Billing\Reports\RegisterSummary;
+use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Billing\Services\TaxNoteIssuer;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
@@ -118,4 +119,18 @@ test('only documents dated on or after the start day are listed, and earlier mon
         ->assertInertia(fn (AssertableInertia $page) => $page->where('documents.total', 1)->where('mode.started', true));
 
     expect($later->fresh()->fiscal_tax1_is_vat)->toBeTrue();
+});
+
+test('documents numbered while the mode was on stay in the register after it is switched off', function () {
+    useNepalVatRule($this->vat);
+    modeRegDay('2026-10-20', fn () => issueInvoice(Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']), [10_000]));
+    actingAsStaff(['reports.vat_register.view']);
+    confirmPassword();
+
+    // Switching off is allowed while no note exists; the register is keyed on the start day, not on the switch.
+    app(NepalVatMode::class)->apply(auth()->user(), ['enabled' => false, 'enabled_from' => null, 'vat_rules' => [$this->vat->id], 'export_rule' => null]);
+
+    expect(app(NepalVatMode::class)->enabled())->toBeFalse()
+        ->and(array_column(modeRegRows(), 'vat'))->toBe([1_300]);
+    $this->get(route('admin.billing.vat-register.index', ['month' => '2083-07']))->assertInertia(fn (AssertableInertia $page) => $page->where('mode.enabled', true)->where('documents.total', 1));
 });

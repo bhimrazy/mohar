@@ -282,9 +282,9 @@ class TaxNoteIssuer
         return $note;
     }
 
-    public function plan(NoteRequest $request, Invoice $invoice): NotePreview
+    public function plan(NoteRequest $request, Invoice $invoice, bool $reserving = false): NotePreview
     {
-        $this->guard($request, $invoice);
+        $this->guard($request, $invoice, $reserving);
         $credit = $request->kind === 'credit';
         $parts = match (true) {
             $credit => $this->creditParts($request, $invoice),
@@ -334,14 +334,17 @@ class TaxNoteIssuer
         );
     }
 
-    /** Why notes cannot be issued at all now: the mode is off, or it has not reached its start day. */
-    public function modeBlocked(): ?string
+    /**
+     * Why notes cannot be issued at all now: the mode is off, or it has not reached its start day. A refund reserves its note
+     * from the mode being switched on, so `$beforeStart` lets the start day pass (ADR 0024 §5).
+     */
+    public function modeBlocked(bool $beforeStart = false): ?string
     {
         if (! $this->mode->enabled()) {
             return (string) __('Notes can be issued only while Nepal VAT mode is on.');
         }
 
-        return $this->mode->inEffect($this->clock->now()) ? null : (string) __('Nepal VAT mode starts on :date; notes can be issued from then.', ['date' => $this->mode->enabledFrom()]);
+        return $beforeStart || $this->mode->inEffect($this->clock->now()) ? null : (string) __('Nepal VAT mode starts on :date; notes can be issued from then.', ['date' => $this->mode->enabledFrom()]);
     }
 
     /** A taxed invoice whose tax was never split into Nepal VAT and other tax takes no note, now or later. */
@@ -354,7 +357,7 @@ class TaxNoteIssuer
         return __('This invoice\'s tax was never split into Nepal VAT and other tax, so it takes no note. Ask the person who runs the system to run "php artisan billing:fiscal-vat-split" first.');
     }
 
-    private function guard(NoteRequest $request, Invoice $invoice): void
+    private function guard(NoteRequest $request, Invoice $invoice, bool $reserving = false): void
     {
         if (! in_array($request->reasonCode, $request->kind === 'credit' ? self::CREDIT_REASONS : self::DEBIT_REASONS, true)) {
             throw new BillingException(__('Choose a reason for the note.'));
@@ -370,7 +373,7 @@ class TaxNoteIssuer
 
         // Notes exist only while the mode is in effect, and a taxed invoice without flags would write a note the register cannot
         // place (a note's flags are copied once and never change).
-        if (($blocked = $this->modeBlocked() ?? $this->unclassifiedBlock($invoice)) !== null) {
+        if (($blocked = $this->modeBlocked($reserving) ?? $this->unclassifiedBlock($invoice)) !== null) {
             throw new BillingException($blocked);
         }
 

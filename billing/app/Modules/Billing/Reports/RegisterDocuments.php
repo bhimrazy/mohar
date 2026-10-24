@@ -230,14 +230,15 @@ class RegisterDocuments
     }
 
     /**
-     * Only documents dated on or after `enabled_from` are in the register (vat-register §6.1); with the mode never switched on,
-     * none are, because no invoice of that time carries the Nepal VAT flags.
+     * Only documents dated on or after `enabled_from` are in the register (vat-register §6.1), whether or not the mode is still on;
+     * with the mode never switched on, none are, because no invoice of that time carries the Nepal VAT flags.
      *
      * @param  'invoices'|'tax_notes'  $table
      */
     private function sinceMode(Builder $query, string $table): Builder
     {
-        $from = $this->mode->enabled() ? $this->mode->enabledFrom() : null;
+        // Kept after the mode is switched off: documents numbered while it was on stay in the register (ADR 0024 §8).
+        $from = $this->mode->enabledFrom();
 
         return $from === null ? $query->whereRaw('1 = 0') : $query->where("{$table}.issue_date", '>=', $from);
     }

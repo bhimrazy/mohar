@@ -29,7 +29,7 @@ class RefundReservations
      */
     public function reserve(Invoice $invoice, Transaction $refund, int $gross, string $reasonText, ?int $userId): void
     {
-        $plan = $this->issuer->plan(NoteRequest::creditAmount($invoice->id, $gross, self::REASON_CODE, $reasonText, false, $userId, 'refund'), $invoice);
+        $plan = $this->issuer->plan(NoteRequest::creditAmount($invoice->id, $gross, self::REASON_CODE, $reasonText, false, $userId, 'refund'), $invoice, reserving: true);
         $now = now();
         $id = DB::table('tax_note_reservations')->insertGetId([
             'invoice_id' => $invoice->id, 'transaction_id' => $refund->id, 'reason_code' => self::REASON_CODE, 'reason_text' => mb_substr($reasonText, 0, 500),
