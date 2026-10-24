@@ -513,7 +513,7 @@ class RefundTransaction
                 ->orWhere(fn ($refunded) => $refunded->whereIn('transaction_id', $refunds)->where('reason', CreditReason::RefundToCredit)))->sum('amount');
         $moved = -(int) CreditLedgerEntry::query()->where('currency', $payment->currency)->where('transaction_id', $payment->id)->whereNotNull('gateway')->sum('amount');
 
-        return max(0, $placed - $moved);
+        return max(0, $placed - $moved - Transaction::creditPaidOut([$payment->id], $payment->currency));
     }
 
     /**

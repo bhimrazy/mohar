@@ -25,7 +25,7 @@ use Throwable;
  * before the provider is called, so the credit cannot be spent meanwhile; it carries the refund row's id, and a decline
  * reverses it with `credit_refund_released`. Callbacks, Check refund and staff reach a pending row through
  * `RefundTransaction`, which hands every `credit_refund` row to `settle()` and `returnPayout()` here.
- * Locks run payment, then client; the refund row is taken after both.
+ * Settle and release lock the refund row, then the payment and the client; reserving locks the payment and then the client (the row does not exist yet).
  */
 class RefundAccountCredit
 {
@@ -109,9 +109,10 @@ class RefundAccountCredit
     public function settle(Transaction $refund, ?string $providerRefundId, array $raw = []): Transaction
     {
         return DB::transaction(function () use ($refund, $providerRefundId, $raw): Transaction {
-            $payment = Transaction::query()->lockForUpdate()->find($refund->parent_transaction_id);
-            $client = Client::query()->whereKey($refund->client_id)->lockForUpdate()->firstOrFail();
+            // The refund row first, then payment and client: the order release and the invoice path's finalise take.
             $locked = Transaction::query()->lockForUpdate()->findOrFail($refund->id);
+            $payment = Transaction::query()->lockForUpdate()->find($locked->parent_transaction_id);
+            $client = Client::query()->whereKey($locked->client_id)->lockForUpdate()->firstOrFail();
 
             if ($locked->status === TransactionStatus::Succeeded) {
                 return $locked;
@@ -152,6 +153,26 @@ class RefundAccountCredit
             $locked->save();
 
             return $locked;
+        });
+    }
+
+    /**
+     * The provider paid a credit refund we cannot book from its callback (a different amount, or no refund id) after the row was marked
+     * failed: its payout is back in the balance, so put the row on Disputes to review. Returns whether it was put there. A row that is
+     * pending is already on the waiting list, and a settled one needs nothing.
+     */
+    public function flagLateForReview(Transaction $refund, string $why): bool
+    {
+        return DB::transaction(function () use ($refund, $why): bool {
+            $locked = Transaction::query()->lockForUpdate()->find($refund->id);
+
+            if ($locked === null || $locked->status !== TransactionStatus::Failed) {
+                return false;
+            }
+
+            $locked->forceFill(['review_amount' => max($locked->review_amount ?? 0, $locked->amount_out), 'reviewed_at' => null, 'description' => mb_substr((string) __('Credit refund reported paid by the provider after a decline (:why)', ['why' => $why]), 0, 255)])->save();
+
+            return true;
         });
     }
 

@@ -4,6 +4,7 @@ namespace App\Modules\Billing\Models;
 
 use App\Models\User;
 use App\Modules\Billing\Database\Factories\TransactionFactory;
+use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Enums\TransactionStatus;
 use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Core\Models\Client;
@@ -137,6 +138,20 @@ class Transaction extends Model
     public function isCreditRefund(): bool
     {
         return $this->purpose === self::PURPOSE_CREDIT_REFUND;
+    }
+
+    /**
+     * Account credit that credit refunds of these payments paid out, net of the payouts they gave back. Such a payout is tied to its
+     * refund row (not the payment), so "credit this payment placed" must subtract it or a later refund takes the same credit twice.
+     *
+     * @param  list<int>  $paymentIds
+     */
+    public static function creditPaidOut(array $paymentIds, string $currency): int
+    {
+        $refunds = self::query()->whereIn('parent_transaction_id', $paymentIds)->where('purpose', self::PURPOSE_CREDIT_REFUND)->select('id');
+
+        return -(int) CreditLedgerEntry::query()->where('currency', $currency)->whereIn('transaction_id', $refunds)
+            ->whereIn('reason', [CreditReason::CreditRefunded, CreditReason::CreditRefundReleased])->sum('amount');
     }
 
     public function isRefundable(): bool

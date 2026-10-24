@@ -82,7 +82,7 @@ test('the provider callback against a release of one pending credit refund: paid
     ], script: __DIR__.'/Support/credit-refund-worker.php');
 
     // Callback first: settled, the release only tells staff. Release first: the callback finds the failed row and pays it after a decline.
-    expect($results['callback']['status'])->toBe(200)
+    expect($results['callback']['status'])->toBe(200)->and($results['callback']['outcome'])->toBe('settled')->and($results['release']['outcome'])->toBe('released')
         ->and(Transaction::query()->findOrFail($ids['refund'])->status)->toBe(TransactionStatus::Succeeded)
         ->and(app(CreditLedgerService::class)->balance($ids['client'], 'NPR')->amount)->toBe(2_000)
         ->and(CreditLedgerEntry::query()->where('client_id', $ids['client'])->whereIn('reason', ['credit_refunded', 'credit_refund_released'])->sum('amount'))->toEqual(-8_000);
