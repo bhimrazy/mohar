@@ -3,6 +3,7 @@
 use App\Contracts\Auth\AuthMailer;
 use App\Events\Billing\InvoiceCreated;
 use App\Events\Domains\DomainExpiryDigest;
+use App\Events\Services\ProvisioningFailed;
 use App\Events\Support\TicketReplied;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
@@ -173,3 +174,16 @@ it('notifies subscribed staff and marks the message failed when a template does 
         ->and(loggedRecipients('staff.template_render_failed'))->toBe(['admin@example.test']);
     Mail::assertSent(TemplatedMail::class, 1);
 });
+
+it('tells staff of a failure, or of an unknown outcome that is being checked (#147)', function (bool $unknown, string $sent, string $notSent) {
+    fullAdministrator('ops@example.test');
+
+    $this->listener->provisioningFailed(new ProvisioningFailed(7, $this->client->id, 'create', 'cURL error 28: timed out', outcomeUnknown: $unknown));
+
+    expect(loggedRecipients($sent))->toBe(['ops@example.test'])
+        ->and(loggedRecipients($notSent))->toBe([])
+        ->and(mailedTo($unknown ? 'Checking the outcome' : 'Provisioning failed'))->toBe(['ops@example.test']);
+})->with([
+    'failed' => [false, 'staff.provisioning_failed', 'staff.provisioning_unknown'],
+    'outcome unknown' => [true, 'staff.provisioning_unknown', 'staff.provisioning_failed'],
+]);
