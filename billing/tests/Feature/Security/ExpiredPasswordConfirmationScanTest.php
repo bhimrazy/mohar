@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\RequirePasswordUnlessExpired;
 use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
@@ -21,12 +22,25 @@ function expiredConfirmationRoutes(): array
     $confirms = fn (mixed $middleware): bool => is_string($middleware) && (
         preg_match('/^password\.(confirm|recent)(:|$)/', $middleware) === 1
         || str_starts_with($middleware, RequirePassword::class)
+        || str_starts_with($middleware, RequirePasswordUnlessExpired::class)
         || str_starts_with($middleware, RequireRecentPasswordConfirmation::class)
     );
 
     return collect(Route::getRoutes()->getRoutes())
-        ->filter(fn (RoutingRoute $route): bool => $route->getName() !== null && collect($route->gatherMiddleware())->contains($confirms))
+        ->filter(fn (RoutingRoute $route): bool => collect($route->gatherMiddleware())->contains($confirms))
         ->all();
+}
+
+/** A route's address with its parameters filled; a route without a name is called by it. */
+function expiredScanUrl(RoutingRoute $route, array $parameters): string
+{
+    if ($route->getName() !== null) {
+        return route($route->getName(), $parameters);
+    }
+
+    $path = (string) preg_replace_callback('/\{(\w+)\??\}/', fn (array $match): string => (string) ($parameters[$match[1]] ?? '1'), $route->uri());
+
+    return url($path);
 }
 
 function refusedAsUnconfirmed(TestResponse $response): bool
@@ -54,7 +68,7 @@ test('every route behind a password confirmation refuses an expired one-time pas
     $leaked = [];
 
     foreach ($routes as $route) {
-        $name = $route->getName();
+        $name = $route->getName() ?? '(unnamed) '.implode('|', $route->methods()).' /'.$route->uri();
         // Staff with 2FA, so the staff-security redirect does not answer first; every permission, so none refuses first.
         $user = User::factory()->staff(['*'])->withTwoFactor()->create(['password_expires_at' => now()->addMinute()])->refresh();
         // Linked to a client account, so client-area routes reach the confirmation instead of redirecting staff away.
@@ -73,7 +87,7 @@ test('every route behind a password confirmation refuses an expired one-time pas
         }
 
         $method = collect($route->methods())->first(fn (string $method): bool => $method !== 'HEAD');
-        $response = $this->call($method, route($name, $parameters), [], [], [], ['HTTP_ACCEPT' => 'text/html', 'HTTP_REFERER' => url('/')]);
+        $response = $this->call($method, expiredScanUrl($route, $parameters), [], [], [], ['HTTP_ACCEPT' => 'text/html', 'HTTP_REFERER' => url('/')]);
         $seen[] = $name;
 
         if (! refusedAsUnconfirmed($response)) {

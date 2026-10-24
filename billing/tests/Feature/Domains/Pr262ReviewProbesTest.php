@@ -105,3 +105,5 @@ test('probe: a self-registered TLD search calls no registrar driver', function (
     expect($fake->commands())->toBe([])
         ->and(RegistrarCommandLog::query()->count())->toBe(0);
 });
+
+afterAll(fn () => releaseArchCache());
