@@ -317,7 +317,9 @@ const accountColumns = (
                             ? change.server === 'Suspended'
                                 ? 'Suspend here too'
                                 : 'Mark active here'
-                            : `Use ${change.label.toLowerCase()} ${change.server}`}
+                            : change.field === 'ip'
+                              ? `Use IP ${change.server}`
+                              : `Use domain ${change.server}`}
                     </Button>
                 ))}
                 {row.category === 'ignored' && (

@@ -105,7 +105,7 @@ class AcceptServerValues
                 match ($change['field']) {
                     'domain' => $service->update(['domain' => $change['server']]),
                     'ip' => $service->update(['driver_data' => [...($service->driver_data ?? []), 'ip' => $change['server']]]),
-                    'status' => $this->setStatus($service, $account),
+                    default => $this->setStatus($service, $account),
                 };
             }
 

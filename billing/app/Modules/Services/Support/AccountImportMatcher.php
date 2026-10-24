@@ -365,6 +365,7 @@ class AccountImportMatcher
     /**
      * Live services on the server by username: one query, plain rows, no models.
      *
+     * @param  list<string>|null  $usernames  only those holding one of these lower-case usernames
      * @return Collection<string, stdClass>
      */
     private function liveServices(Server $server, ?array $usernames = null): Collection

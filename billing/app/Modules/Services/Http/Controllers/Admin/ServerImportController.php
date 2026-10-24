@@ -102,7 +102,7 @@ class ServerImportController extends Controller
             'included' => count(array_filter($import === null ? [] : ($import->selections ?? []), fn (array $choice): bool => (bool) ($choice['include'] ?? false))),
             'productOptions' => $ready ? $plan->productOptions($server) : [],
             'cycles' => AccountImportPlan::cycles(),
-            'pricedCycles' => $ready ? $plan->pricedCycles($server, Currency::query()->pluck('code')->all()) : (object) [],
+            'pricedCycles' => $ready ? $plan->pricedCycles($server, array_values(array_map(fn (Currency $currency): string => $currency->code, Currency::query()->get(['code'])->all()))) : (object) [],
         ]);
     }
 

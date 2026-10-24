@@ -235,7 +235,7 @@ class AccountList
 
             $last = (int) $records->last()->position;
 
-            yield $records->map(fn (ServerAccountImportAccount $record): array => ['username' => (string) $record->username, 'payload' => $record->payload, 'category' => (string) $record->category])->all();
+            yield array_values(array_map(fn (ServerAccountImportAccount $record): array => ['username' => (string) $record->username, 'payload' => $record->payload, 'category' => (string) $record->category], $records->all()));
         }
     }
 
