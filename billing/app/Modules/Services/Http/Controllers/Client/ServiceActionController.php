@@ -21,6 +21,7 @@ use App\Modules\Services\Services\ServicePresenter;
 use App\Modules\Services\Support\CommandOutcome;
 use App\Modules\Services\Support\ServiceSettings;
 use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Contracts\Encryption\StringEncrypter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -97,7 +98,7 @@ class ServiceActionController extends Controller
      * The limit is counted here rather than by route throttling, so only requests past step-up use it up: the 423
      * that opens the confirm dialog does not. Every request past step-up counts, a 404 or 422 included.
      */
-    public function revealPassword(Request $request, int $service, ActivityLogger $activity, ServicePresenter $presenter): JsonResponse
+    public function revealPassword(Request $request, int $service, ActivityLogger $activity, ServicePresenter $presenter, StringEncrypter $encrypter): JsonResponse
     {
         $key = 'services-password-reveal:'.$request->user()?->id;
 
@@ -114,9 +115,10 @@ class ServiceActionController extends Controller
             return response()->json(['message' => __('No password is stored for this service.')], 422)->header('Cache-Control', 'no-store, private');
         }
 
-        // Decrypted before the audit row, so a value that cannot be read is never logged as revealed.
+        // Decrypted explicitly (as the `encrypted` cast does) before the audit row, so a value that cannot be read is
+        // never logged as revealed.
         try {
-            $password = $model->password;
+            $password = $encrypter->decryptString((string) $model->getRawOriginal('password'));
         } catch (DecryptException $exception) {
             report($exception);
 
