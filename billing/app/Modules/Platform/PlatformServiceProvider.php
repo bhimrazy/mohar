@@ -83,6 +83,8 @@ class PlatformServiceProvider extends ModuleServiceProvider
 
         // "Run now" jobs run on their own connection (App\Support\Queues); the dev runner must consume it too.
         DevCommands::artisan('queue:listen '.Queues::AUTOMATION.' --queue='.Queues::AUTOMATION.' --tries=1 --timeout=0', 'automation-queue');
+        // Without it a local copy reports the scheduler as stopped and the daily run never starts.
+        DevCommands::artisan('schedule:work', 'scheduler');
 
         $this->registerNavigation();
         $this->registerPermissions();
