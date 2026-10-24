@@ -98,7 +98,7 @@ Session wrapped on the owner's request 2026-10-24. No agents running. Resume in 
 
 After each merge close the issue by hand (`develop` ignores closing keywords). Signed-off PRs must be marked ready:
 CI skips drafts without the `ci` label. Review follow-ups go into the open PR's fix round or a planned package, not
-new issues. Wave plan: scratchpad `issue-triage.md` (34 packages, 7 waves); Wave 1 still to start: P8a Services
+new issues. Wave plan: `docs/handoff/issue-plan.md` (34 packages, 7 waves; triage of 2026-10-23); Wave 1 still to start: P8a Services
 (#44, #147, #146; after #450 merges, both change `SendEventEmails`).
 
 - Queue after these: VAT PRs 4, 5 and 7; #431 (report query budget, conformance kit); #436 (last Domains `todayDate`
