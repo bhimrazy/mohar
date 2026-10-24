@@ -22,25 +22,45 @@ test('the parity corpus is deterministic and covers the probe files and the gene
         ->and($corpus)->toContain("token:\nQWxhZGRpbjpvcGVuc2VzYW1l==", '<param name="password"><value>VOIDNEST1</value></param>', "password:\nhunter2:", 'api-key=PARKEY2');
 });
 
-test('everything develop masks stays masked', function () {
+/**
+ * Tokens develop masks in each input that this Redactor leaves readable, with $secrets as the set.
+ *
+ * @param  list<string>  $inputs
+ * @param  list<string>  $secrets
+ * @return list<string>
+ */
+function redactorParityLeaks(array $inputs, array $secrets): array
+{
     $develop = new DevelopRedactor;
     $redactor = new Redactor;
     $leaks = [];
 
-    foreach (RedactorParity::corpus() as $input) {
+    foreach ($inputs as $input) {
         $surfaces = [
-            'maskValues' => [$develop->maskValues($input, []), $redactor->maskValues($input, [])],
-            'redact' => [(string) $develop->redact(['note' => $input])['note'], (string) $redactor->redact(['note' => $input])['note']],
+            'maskValues' => [$develop->maskValues($input, $secrets), $redactor->maskValues($input, $secrets)],
+            'redact' => [(string) $develop->redact(['note' => $input], $secrets)['note'], (string) $redactor->redact(['note' => $input], $secrets)['note']],
         ];
 
         foreach ($surfaces as $surface => [$before, $after]) {
             foreach (RedactorParity::maskedTokens($input, $before) as $token) {
-                if (str_contains($after, $token)) {
+                if (str_contains($after, $token) && ! RedactorParity::namesMaskedValue($after, $token)) {
                     $leaks[] = $surface.' '.json_encode($input).' leaks '.$token;
                 }
             }
         }
     }
 
-    expect($leaks)->toBe([]);
+    return $leaks;
+}
+
+test('everything develop masks stays masked', function () {
+    expect(redactorParityLeaks(RedactorParity::corpus(), []))->toBe([]);
+});
+
+// With a set, the value mask runs before the pair rules, so a pair rule must still end a value that holds a mask (#452 B1).
+test('everything develop masks stays masked with a secret spliced next to a masked value', function () {
+    $inputs = RedactorParity::withSecret('FZSECRETpw77');
+
+    expect(count($inputs))->toBeGreaterThan(5000)
+        ->and(redactorParityLeaks($inputs, ['FZSECRETpw77']))->toBe([]);
 });

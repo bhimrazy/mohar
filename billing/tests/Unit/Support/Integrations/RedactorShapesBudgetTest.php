@@ -35,6 +35,8 @@ test('a 1 MB adversarial input is masked in under 2 s with bounded memory', func
     'encoded pairs' => [fn (): string => '%3Fa%3D'],
     'cli flags' => [fn (): string => ' -u a:b'],
     'long names' => [fn (): string => str_repeat('n', 300).'='],
+    'chained tail pairs' => [fn (): string => 'pw=a;token: b;'],
+    'tail labels before text' => [fn (): string => 'pw=a;token: '.str_repeat('x', 40).' '],
 ]);
 
 /*
@@ -65,6 +67,8 @@ test('the shapes that once ran quadratic scale linearly from 512 KB to 4 MB', fu
     'void-named XML elements with CDATA' => [fn (): string => '<param name="password"><![CDATA[x]]>'],
     'labels with the value on the next line' => [fn (): string => "pw:\n"],
     'session ids with a joined tail' => [fn (): string => 'Session: cs_live_a1B2c3D4:'],
+    'chained tail pairs' => [fn (): string => 'pw=a;token: b;'],
+    'tail pairs that hold a pair' => [fn (): string => 'pw=a;token: x=y;'],
 ]);
 
 test('masking a body with one void-named secret element uses bounded memory (#278)', function (string $unit) {

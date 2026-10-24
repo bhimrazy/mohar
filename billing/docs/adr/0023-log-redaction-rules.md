@@ -321,10 +321,18 @@ missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this s
 - **Bound.** Each outermost `redact()`, `redactPayment()`, `maskValues()` or `maskThrowable()` call (per message) reads
   at most 50,000 values through objects: each object it unwraps, and every entry under one. Past that, those values
   are masked (`[redacted]`), keys still checked. Plain arrays and decoded JSON text are not counted, since they are
-  bounded by the input (the §2 budget test keeps a 1 MB JSON body intact). A call made from inside `jsonSerialize()`
-  or `toArray()` on the same instance shares the outer budget. §4 "Objects" now has this bound as well as the depth cap.
+  bounded by the input (the §2 budget test keeps a 1 MB JSON body intact). The budget belongs to the outermost call,
+  not to an instance: a call made from inside `jsonSerialize()` or `toArray()`, on the same instance or on a new
+  `app(Redactor::class)`, shares it. §4 "Objects" now has this bound as well as the depth cap.
 - **Why.** A `JsonSerializable` that returns two new copies of itself stays under the depth cap of 32 and builds 2^32
   nodes, which exhausts memory (#399). With the budget it peaks at about 4 MB.
 - **Known gap.** The budget counts values, not bytes. An object that returns the same large string again and again
   costs one text pass per copy, up to the budget. Only code (a driver or package object) can do this, not provider
   input, so it is a bound, not a leak.
+- **Tail pairs** (rule change, with corpus cases). An unquoted secret value runs on through a soft end with more text
+  after it (`passwd=ab;cd`, since #252), so it can take in the next pair's name (`pw=ab;token: x`) and leave that
+  pair's value readable. When a masked value ends in a secret label, the value after it is masked as that pair's
+  value, if it is unquoted, up to any pair or tag the text pass would find in it. It only adds masks, and the scan
+  stays linear. The parity guard also runs with a secret spliced next to each masked value, and with a soft end and a
+  following pair in its generated shapes. A pair name develop showed may stay readable when its value is masked
+  (`RedactorParity::namesMaskedValue`).

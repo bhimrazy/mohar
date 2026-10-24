@@ -2,6 +2,9 @@
 
 namespace Tests\Support\Redaction;
 
+use App\Support\Integrations\Redactor;
+use Tests\Fixtures\Redactor\DevelopRedactor;
+
 /**
  * The parity guard of #252 (RedactorParityTest): a deterministic corpus, and the rule for what develop masked by
  * over-redaction that the Redactor now leaves readable on purpose. The corpus is every string literal in the Redactor
@@ -51,7 +54,9 @@ final class RedactorParity
         $names = ['password', 'api_key', 'token', 'client_secret', 'Authorization', 'access_token', 'Session', 'hash', 'domain'];
         $values = ['PARSECRET1', 'QWxhZGRpbjpvcGVuc2VzYW1l==', 'abcPAR=def', 'hunter2:PARNEXT', 'cs_live_a1B2c3D4', 'pi_a1B2c3D4.', 'Bearer PARBEARER'];
         $separators = ['=', ':', ': ', ' = ', ' : ', ":\t", '=>', ":\n", ":\r\n", "=\r\n", ":\r", ": \n  "];
-        $wraps = [['', ''], ['msg ', "\nHost: a.test"], ['a:b:', '&next=1'], ['url?x=1&', ';'], ['(', ') retry'], ['', "\r\nContent-Type: text/plain"]];
+        $wraps = [['', ''], ['msg ', "\nHost: a.test"], ['a:b:', '&next=1'], ['url?x=1&', ';'], ['(', ') retry'], ['', "\r\nContent-Type: text/plain"],
+            // A soft end, then another pair whose value starts after a blank or line break (#452 B1).
+            ['', ';token: PARTAIL1'], ['', ',password: PARTAIL2'], ['', "]:b:token:\r\nPARTAIL3"]];
         $variants = [];
 
         foreach ($names as $name) {
@@ -210,5 +215,46 @@ final class RedactorParity
             fn (string $token): bool => $token !== 'redacted' && ! str_contains($output, $token)
                 && ! self::readableOnPurpose($input, $token),
         ));
+    }
+
+    /**
+     * Whether $token is only a pair's name in $output: it reads as a secret name, and every occurrence is followed by a
+     * separator and a mask. Develop before #252 hid such a name inside a longer masked run; since then the name of a
+     * masked value stays readable. A value is not a secret name, so this never hides one.
+     */
+    public static function namesMaskedValue(string $output, string $token): bool
+    {
+        $quoted = preg_quote($token, '/');
+        $occurrences = preg_match_all('/(?<![A-Za-z0-9_])'.$quoted.'(?![A-Za-z0-9_])/', $output);
+        $labels = preg_match_all('/(?<![A-Za-z0-9_])'.$quoted.'[ \t]*(?:=>?|:)\s*\[redacted\]/', $output);
+
+        return $occurrences > 0 && $labels === $occurrences && (new Redactor)->isSensitiveKey($token);
+    }
+
+    /**
+     * The corpus with `ab` and $secret spliced next to the first token develop masks, once before it and once after
+     * it, so the set masks part of a value (the mask may end the value) and the pair rules must still end that value
+     * where develop did. Inputs where develop masks nothing are left out.
+     *
+     * @return list<string>
+     */
+    public static function withSecret(string $secret): array
+    {
+        $develop = new DevelopRedactor;
+        $inputs = [];
+
+        foreach (self::corpus() as $input) {
+            $token = self::maskedTokens($input, $develop->maskValues($input, []))[0] ?? null;
+
+            if ($token === null || preg_match('/(?<![A-Za-z0-9_])'.preg_quote($token, '/').'(?![A-Za-z0-9_])/', $input, $found, PREG_OFFSET_CAPTURE) !== 1) {
+                continue;
+            }
+
+            $at = $found[0][1];
+            $inputs[] = substr($input, 0, $at).'ab'.$secret.substr($input, $at);
+            $inputs[] = substr($input, 0, $at + strlen($token)).'ab'.$secret.substr($input, $at + strlen($token));
+        }
+
+        return array_values(array_unique($inputs));
     }
 }

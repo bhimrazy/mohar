@@ -180,14 +180,64 @@ test('#399: an object that fans out is read only up to the node budget, and the 
         ->and(json_encode($redacted))->toContain('[redacted]')->not->toContain('leaf');
 })->with(['redact', 'redactPayment']);
 
-test('#399: the node budget starts over on every call', function () {
+test('#399: the node budget starts over on every call, seen through an object', function () {
     $redactor = new Redactor;
     $reads = 0;
     memory_reset_peak_usage();
     $before = memory_get_usage();
     $redactor->redact(['answer' => redactorFanOut($reads, PHP_INT_MAX)]);
 
+    // Only values reached through an object count, so only an object shows a budget left spent.
     expect(memory_get_peak_usage() - $before)->toBeLessThan(32 * 1024 * 1024)
-        ->and($redactor->redact(['id' => 7, 'note' => 'ok']))->toBe(['id' => 7, 'note' => 'ok'])
-        ->and($redactor->redactPayment(['id' => 'pi_1']))->toBe(['id' => 'pi_1']);
+        ->and($redactor->redact(['o' => (object) ['note' => 'ok']]))->toBe(['o' => ['note' => 'ok']])
+        ->and($redactor->redactPayment(['o' => (object) ['id' => 'pi_1']]))->toBe(['o' => ['id' => 'pi_1']])
+        ->and((new Redactor)->redact(['o' => (object) ['note' => 'ok']]))->toBe(['o' => ['note' => 'ok']]);
+});
+
+test('#399: a call made from inside an unwrap shares the outer budget, on a new instance too', function () {
+    $reads = 0;
+    $nested = function () use (&$reads): JsonSerializable {
+        return new class($reads) implements JsonSerializable
+        {
+            public function __construct(private int &$reads) {}
+
+            public function jsonSerialize(): mixed
+            {
+                return (new Redactor)->redact(['fan' => redactorFanOut($this->reads, 400_000)]);
+            }
+        };
+    };
+
+    (new Redactor)->redact(array_map(fn (): JsonSerializable => $nested(), range(1, 8)));
+
+    // One budget for all eight nested calls reads about 25,000; a budget per instance reads twice that before the
+    // outer call's own budget masks the rest.
+    expect($reads)->toBeLessThan(40_000);
+});
+
+test('PR452-B1: a pair after a value the set masked in part keeps its value masked', function (string $input, array $secrets, string $leak) {
+    expect((new Redactor)->maskValues($input, $secrets))->not->toContain($leak)
+        ->and(json_encode((new Redactor)->redact(['note' => $input], $secrets)))->not->toContain($leak);
+})->with([
+    'semicolon then name: value' => ['pw=abFZSECRETpw77;token: PR452LEAK1', ['FZSECRETpw77'], 'PR452LEAK1'],
+    'comma then name: value' => ['key=abFZSECRETpw77,password: PR452LEAK2', ['FZSECRETpw77'], 'PR452LEAK2'],
+    'bracket then name, value on the next line' => ["api_key=abcFZSECRETpw77]:b:token:\r\nPR452LEAK3", ['FZSECRETpw77'], 'PR452LEAK3'],
+    'text already holding a mask' => ['auth=x[redacted];token: PR452LEAK4', [], 'PR452LEAK4'],
+    'name = value after a mask in the text' => ['url?x=1&Authorization: Bearer FZBEARER1[redacted]]Session = PR452LEAK5:x;', [], 'PR452LEAK5'],
+]);
+
+test('PR452: a secret value that runs on through a soft end into the next pair masks that pair\'s value too', function (string $input, string $leak) {
+    expect((new Redactor)->maskValues($input, []))->not->toContain($leak)
+        ->and((string) (new Redactor)->redact(['note' => $input])['note'])->not->toContain($leak);
+})->with([
+    'semicolon, then name: value' => ['pw=ab;token: PR452TAIL1 next', 'PR452TAIL1'],
+    'value on the next line' => ["pw=ab;token:\r\nPR452TAIL2", 'PR452TAIL2'],
+    'name = value' => ['pw=ab,token = PR452TAIL3', 'PR452TAIL3'],
+    'a chain of pairs' => ['pw=ab;token: x;password: PR452TAIL4', 'PR452TAIL4'],
+    'cut before a pair inside it' => ['pw=ab;token: PR452TAIL5;id=7', 'PR452TAIL5'],
+]);
+
+test('PR452: a pair after a secret value that names nothing secret keeps what develop kept', function () {
+    expect((new Redactor)->maskValues('pw=ab;user: bob, id=7', []))->toBe('pw=[redacted] bob, id=7')
+        ->and((new Redactor)->maskValues('pw=ab;token: x=y;', []))->toBe('pw=[redacted] x=y;');
 });
