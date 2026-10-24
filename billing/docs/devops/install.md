@@ -197,15 +197,18 @@ php artisan app:install
       password, and it stops working 24 hours after it was printed. Run it in a terminal you trust, not in a CI job
       whose log others can read.
     - `php artisan app:admin-password you@example.com` gives an existing full administrator a new one-time password
-      on the same terms: the way back in when the first one expired or was lost. Other staff use "Forgot password"
-      or Admin → Staff.
+      on the same terms: the way back in when the first one expired or was lost. It also signs out every session and
+      remember-me cookie of the old password, and mails the administrator. Other staff use "Forgot password" or
+      Admin → Staff.
     - Two-factor setup is required at the first sign-in to the admin area (`security.staff_2fa_required`, on by
       default).
     - If a full administrator already exists, it creates none. Pass `--additional-admin` to add one. It never promotes
       an existing account: use Admin → Staff for that.
 
-One install runs at a time: after the pre-flight it takes a lock in the shared cache store, and a second run started
-meanwhile stops with "Another app:install is running". The command exits non-zero when a check fails, another
+One install runs at a time: after the pre-flight it takes a 15-minute lock in the shared cache store, and a second
+run started meanwhile stops with "Another app:install is running". A run that was killed before it finished (a lost
+SSH session, an out-of-memory container) leaves the lock until it expires: wait, or, when you are sure no install is
+running, `php artisan app:install --release-lock`. The command exits non-zero when a check fails, another
 install holds the lock or no administrator could be created, so scripts can stop on it.
 
 ## 5. Web server

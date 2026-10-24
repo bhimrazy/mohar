@@ -253,7 +253,7 @@ function refusedForStepUp(TestResponse $response): bool
 }
 
 /**
- * @return array{sensitive: array<string, list<string>>, missing: list<string>, unresolved: list<string>, unchecked: list<string>}
+ * @return array{sensitive: array<string, list<string>>, missing: list<string>, unresolved: list<string>, unchecked: list<string>, without_permission: list<string>}
  */
 function scanSensitiveRoutes(): array
 {
@@ -272,7 +272,7 @@ function scanSensitiveRoutes(): array
     $admin = User::factory()->staff(['*'])->create(['email' => 'step-up-scan@example.test']);
     // The loop resets unique fakes, so nothing kept across calls may hold a faked unique value.
     $admin->role->update(['name' => 'Step-up scan administrator']);
-    $result = ['sensitive' => [], 'missing' => [], 'unresolved' => [], 'unchecked' => []];
+    $result = ['sensitive' => [], 'missing' => [], 'unresolved' => [], 'unchecked' => [], 'without_permission' => []];
 
     foreach (Route::getRoutes()->getRoutes() as $route) {
         $name = $route->getName();
@@ -332,8 +332,12 @@ function scanSensitiveRoutes(): array
                     continue;
                 }
 
-                if ($checked === [] && ! array_key_exists($name, STEP_UP_NO_PERMISSION)) {
-                    $result['unchecked'][] = "{$label} ({$status})";
+                if ($checked === []) {
+                    if (array_key_exists($name, STEP_UP_NO_PERMISSION)) {
+                        $result['without_permission'][] = $name;
+                    } else {
+                        $result['unchecked'][] = "{$label} ({$status})";
+                    }
 
                     continue;
                 }
@@ -378,6 +382,8 @@ test('every admin route that checks a sensitive permission refuses to run withou
             'admin.platform.currencies.rates.refresh',
             'admin.billing.invoices.bulk[mark_paid]',
         ])
+        // A route that is gone, or now checks a permission, leaves its entry stale (#459).
+        ->and(array_values(array_diff(array_keys(STEP_UP_NO_PERMISSION), $scan['without_permission'])))->toBe([])
         ->and(array_diff(array_keys(STEP_UP_EXEMPT), array_map(fn (string $label): string => explode('[', $label)[0], array_keys($scan['sensitive']))))->toBe([]);
 });
 

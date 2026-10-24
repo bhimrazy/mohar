@@ -176,3 +176,26 @@ A login always keeps at least one way to sign in:
   sees a warning and the activity log records the outcome.
 - `SensitiveRouteStepUpTest` lists the routes known to write `users.email` and checks each refuses without step-up.
   A new route that changes a login's email is added there.
+
+## Amendment (#459) — 2026-10-24, one-time password expiry and the step-up download key
+
+- **Expiry is a property of the password.** A one-time password (from `app:install --admin-email` or
+  `app:admin-password`) carries `users.password_expires_at`, 24 hours after it was issued. Only the password method
+  enforces it, so `SignInGate` does not; passkey sign-in is unaffected. `User::passwordExpired()` is the one check.
+- **Where it is refused** (`App\Actions\Fortify\RefuseExpiredPassword`, always after the password itself checked out,
+  so the message tells nothing to someone without it):
+    - at password sign-in, before the two-factor challenge (`RememberValidatedLogin`) and on Fortify's fallback step
+      (`SignInValidatedUser`), because the challenge signs in without the pipeline's later steps;
+    - when a challenge started before the expiry is completed after it (a `ValidTwoFactorAuthenticationCodeProvided`
+      listener clears `login.id` and returns to the login page);
+    - at step-up (§4): `password.recent` treats a login with an expired one-time password as not confirmed, even in a
+      session that confirmed before the expiry, and `confirm-password` refuses it. Such a login recovers with "Forgot
+      password" or `app:admin-password`.
+    - Each refusal writes `auth.password_expired` (the step only, no secret).
+- **Any password change clears it**, with the forced change, in the `User` saving hook, unless the same save sets a
+  new expiry: that save writes a one-time password, so the issuer needs one save.
+- **A reissue ends the old credential's access**: `app:admin-password` rotates the remember token and deletes the
+  login's stored sessions (`LoginSessions`), and mails the administrator (`staff.password_reissued`).
+- **The step-up download key holds a URL.** `RequireRecentPasswordConfirmation::DOWNLOAD_KEY` stores the file URL that
+  sent the person to the confirm page, not a flag. The page calls itself a download only while that URL equals
+  `url.intended`, and a dialog (JSON) confirm drops `url.intended` only when it is that download.

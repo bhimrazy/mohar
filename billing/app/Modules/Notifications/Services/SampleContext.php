@@ -118,6 +118,7 @@ class SampleContext
             'notice' => [
                 'account' => 'Example Studio', 'email' => 'sam@example.test', 'actor' => 'Sam Rivera', 'section' => 'Security',
                 'changes' => 'Require two-step sign-in', 'old_email' => 'sam@example.test', 'new_email' => 'sam.rivera@example.test',
+                'run_by' => 'console: deploy@billing-1', 'expires_in' => '24 hours',
             ],
             'credit_note' => ['amount' => '$10.00'],
             'template' => ['key' => 'invoice.created', 'name' => 'Invoice created', 'error' => 'Line 3: "{% if %}" is never closed.', 'admin_url' => url('/admin/notifications/templates/1/edit')],

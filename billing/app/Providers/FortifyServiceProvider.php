@@ -11,7 +11,6 @@ use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Http\Responses\PasswordConfirmedResponse;
 use App\Http\Responses\PasswordResetFailedResponse;
 use App\Http\Responses\PasswordResetLinkRequestedResponse;
-use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Http\Request;
@@ -92,7 +91,7 @@ class FortifyServiceProvider extends ServiceProvider
 
         // A two-factor challenge started before the expiry and completed after it (#459): refused before the login.
         Event::listen(ValidTwoFactorAuthenticationCodeProvided::class, function (ValidTwoFactorAuthenticationCodeProvided $event): void {
-            if ($event->user instanceof User && $event->user->passwordExpired()) {
+            if ($event->user->passwordExpired()) {
                 request()->session()->forget(['login.id', 'login.remember']);
             }
 
