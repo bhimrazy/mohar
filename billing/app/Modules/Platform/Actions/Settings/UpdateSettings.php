@@ -64,9 +64,10 @@ class UpdateSettings
             }
 
             $value = $this->catalog->cast($definition, $raw);
-            $current = $this->settings->get($definition->key);
+            $current = $this->catalog->current($definition);
 
-            if ($value === $current) {
+            // A blank config default ('') and a cleared field (null), or 0 and "0", are the same setting.
+            if ($value === $current || ($value === null && $current === '') || (is_numeric($value) && is_numeric($current) && (string) $value === (string) $current)) {
                 continue;
             }
 

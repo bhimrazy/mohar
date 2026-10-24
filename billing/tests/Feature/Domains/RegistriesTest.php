@@ -98,10 +98,14 @@ test('every checked permission and tunable setting is registered', function () {
     }
 
     $sections = app(SettingsRegistry::class)->sections();
-    $registered = collect([...$sections['domains']['settings'], ...$sections['domains_conversion']['settings']])->pluck('key')->all();
+    $registered = collect($sections)->filter(fn (array $section, string $key): bool => str_starts_with($key, 'domains'))
+        ->flatMap(fn (array $section) => collect($section['settings'])->pluck('key'))
+        // The default contact is edited field by field.
+        ->map(fn (string $key): string => str_starts_with($key, 'domains.default_contact.') ? 'domains.default_contact' : $key)->all();
     $defaults = array_map(fn (string $key): string => "domains.{$key}", array_keys(config('domains')));
 
-    expect(array_diff($defaults, $registered))->toBe([]);
+    // The cart route is a developer setting, left out of the UI on purpose.
+    expect(array_values(array_diff($defaults, $registered)))->toBe(['domains.order_route']);
 });
 
 test('needs-attention todos count expiring and failed domains', function () {

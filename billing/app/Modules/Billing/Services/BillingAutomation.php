@@ -45,7 +45,7 @@ class BillingAutomation
      */
     public function lateFees(CarbonImmutable $today): int
     {
-        if ($this->settings->float('late_fee.amount') <= 0) {
+        if (! ApplyLateFee::enabled($this->settings)) {
             return 0;
         }
 

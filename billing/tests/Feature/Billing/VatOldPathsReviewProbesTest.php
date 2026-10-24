@@ -35,7 +35,7 @@ beforeEach(function () {
     Currency::factory()->npr()->create();
     billingSettings(['tax.enabled' => true, 'tax.home_country' => 'NP', 'tax.home_state' => '', 'tax.report_currency' => 'NPR']);
     useNepalVatRule(TaxRule::factory()->create(['name' => 'VAT', 'level' => 1, 'country' => 'NP', 'rate' => '13.000']));
-    billingSettings(['late_fee.type' => 'fixed', 'late_fee.amount' => 1_130, 'late_fee.minimum' => 0]);
+    billingSettings(['late_fee.type' => 'fixed', 'late_fee.fixed_amount' => 1_130, 'late_fee.minimum' => 0]);
 });
 
 afterEach(fn () => CarbonImmutable::setTestNow());

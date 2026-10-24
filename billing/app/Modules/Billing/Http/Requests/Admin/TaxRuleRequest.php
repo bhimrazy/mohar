@@ -3,6 +3,7 @@
 namespace App\Modules\Billing\Http\Requests\Admin;
 
 use App\Modules\Billing\Models\TaxRule;
+use App\Support\Countries;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -16,7 +17,7 @@ class TaxRuleRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         $this->merge([
-            'country' => $this->filled('country') ? strtoupper((string) $this->input('country')) : null,
+            'country' => $this->filled('country') ? Countries::normalize((string) $this->input('country')) : null,
             'state' => $this->filled('state') ? $this->input('state') : null,
             'scope' => $this->filled('scope') && $this->input('scope') !== 'any' ? $this->input('scope') : null,
         ]);
@@ -30,7 +31,7 @@ class TaxRuleRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:100'],
             'level' => ['required', 'integer', 'in:1,2'],
-            'country' => ['nullable', 'string', 'size:2', 'alpha'],
+            'country' => ['nullable', 'string', fn (string $attribute, mixed $value, \Closure $fail) => Countries::exists((string) $value) ?: $fail('Country must be chosen from the list.')],
             'state' => ['nullable', 'string', 'max:100'],
             'scope' => ['nullable', Rule::in([TaxRule::HOME_STATE, TaxRule::OTHER_STATE])],
             'rate' => ['required', 'numeric', 'min:0', 'max:100', 'regex:/^\d{1,3}(\.\d{1,3})?$/'],

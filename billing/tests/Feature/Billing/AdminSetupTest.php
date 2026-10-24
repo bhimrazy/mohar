@@ -75,6 +75,18 @@ test('gateway configuration requires its permission', function () {
     $this->put(route('admin.billing.gateways.update', 'bank_transfer'), ['display_name' => 'X'])->assertForbidden();
 });
 
+test('a tax rule country must be a known country and is stored as its ISO code', function () {
+    actingAsStaff(['billing.tax.manage']);
+    $rule = ['name' => 'VAT', 'level' => 1, 'rate' => '13'];
+
+    $this->post(route('admin.billing.tax-rules.store'), $rule + ['country' => 'Nepal'])
+        ->assertSessionHasErrors(['country' => 'Country must be chosen from the list.']);
+    $this->post(route('admin.billing.tax-rules.store'), $rule + ['country' => ' np '])->assertSessionHasNoErrors();
+    $this->post(route('admin.billing.tax-rules.store'), $rule + ['country' => ''])->assertSessionHasNoErrors();
+
+    expect(TaxRule::query()->orderBy('id')->pluck('country')->all())->toBe(['NP', null]);
+});
+
 test('tax rules are created, validated, updated and deleted', function () {
     actingAsStaff(['billing.tax.manage']);
 

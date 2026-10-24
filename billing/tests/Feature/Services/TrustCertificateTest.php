@@ -1,6 +1,7 @@
 <?php
 
 use App\Data\Integrations\ResolvedAddress;
+use App\Data\Integrations\SettingField;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\CertificateInspector;
@@ -184,4 +185,11 @@ test('switching to password sign-in without a password is refused, and the token
 
     $this->post(route('admin.services.servers.store'), [...$form, 'name' => 'No credential'])
         ->assertSessionHasErrors(['api_token' => 'Enter the API token, or keep signing in with the password.']);
+});
+
+test('the server form receives the minimum credential length for its on-blur check', function () {
+    actingAsStaff();
+
+    $this->get(route('admin.services.servers.create'))
+        ->assertInertia(fn ($page) => $page->component('admin/services/servers/form')->where('minSecretLength', SettingField::MIN_SECRET_BYTES));
 });
