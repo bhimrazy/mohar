@@ -22,6 +22,9 @@ final class FirstAdministrator
 {
     public const GENERATED_PASSWORD_LENGTH = 24;
 
+    /** A generated one-time password stops signing in after this long (#60); app:admin-password issues a new one. */
+    public const ONE_TIME_PASSWORD_HOURS = 24;
+
     /** @var (Closure(): string)|null */
     private static ?Closure $passwordGenerator = null;
 
@@ -115,6 +118,7 @@ final class FirstAdministrator
                 'role_id' => $role->id,
                 'email_verified_at' => now(),
                 'must_change_password' => $temporary,
+                'password_expires_at' => $temporary ? now()->addHours(self::ONE_TIME_PASSWORD_HOURS) : null,
             ])->save();
 
             $this->activity->log('Full administrator created by the installer', $user, properties: ['email' => $user->email, 'one_time_password' => $temporary], event: 'staff.created');
@@ -125,5 +129,33 @@ final class FirstAdministrator
         StaffCreated::dispatch($user->id);
 
         return $user;
+    }
+
+    /**
+     * Replace a full administrator's password with a new generated one-time password (app:admin-password): the
+     * recovery path once the first one expired, or when it was lost. Returns the password, which is never stored.
+     *
+     * @throws AdministratorRefused
+     */
+    public function reissue(User $user): string
+    {
+        if (! $this->isFullAdministrator($user)) {
+            throw new AdministratorRefused("{$user->email} is not an active full administrator. Other staff reset their password with \"Forgot password\" or from Admin → Staff.");
+        }
+
+        $password = self::generatePassword();
+
+        DB::transaction(function () use ($user, $password): void {
+            // Saving a new password clears both flags, so they are set in a second save, as in create().
+            $user->forceFill(['password' => $password])->save();
+            $user->forceFill([
+                'must_change_password' => true,
+                'password_expires_at' => now()->addHours(self::ONE_TIME_PASSWORD_HOURS),
+            ])->save();
+
+            $this->activity->log('One-time password issued from the command line', $user, properties: ['email' => $user->email], event: 'staff.password_reissued');
+        });
+
+        return $password;
     }
 }

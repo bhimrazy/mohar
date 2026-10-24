@@ -547,4 +547,11 @@ test('in production the pre-flight warns when APP_URL is not the public https ad
     'http' => ['http://billing.example.test', true],
     'localhost' => ['https://localhost', true],
     'public https' => ['https://billing.example.test', false],
+    // #60: other local and unspecified hosts, and the scheme in capitals.
+    'unspecified IPv4' => ['https://0.0.0.0', true],
+    'IPv6 loopback' => ['https://[::1]', true],
+    'other loopback' => ['https://127.0.0.2', true],
+    'mDNS .local' => ['https://billing.local', true],
+    'localhost subdomain' => ['https://billing.localhost', true],
+    'upper-case scheme' => ['HTTPS://billing.example.test', false],
 ]);

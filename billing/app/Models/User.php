@@ -41,6 +41,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property CarbonInterface|null $invited_at
  * @property bool $must_change_password
  * @property CarbonInterface|null $password_changed_at
+ * @property CarbonInterface|null $password_expires_at a one-time password stops signing in at this time (#60)
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -60,7 +61,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     ];
 
     /**
-     * Changing the password records when and clears a pending forced change (admin-set temporary password). Changing
+     * Changing the password records when and clears a pending forced change and a one-time password's expiry. Changing
      * the email of an existing client login (not staff: the test LoginImporter::linkable() uses) removes its
      * verification, unless the same save sets it: "verified since" then also means "unchanged since" (the client
      * import links a login only when that is 30 days or more). Staff are exempt here: UpdateStaff and LoginEmailChange
@@ -79,6 +80,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
             if ($user->isDirty('password')) {
                 $user->password_changed_at = now();
                 $user->must_change_password = false;
+                $user->password_expires_at = null;
             }
 
             if ($user->exists && ! $user->is_staff && $user->isDirty('email') && ! $user->isDirty('email_verified_at')) {
@@ -94,6 +96,14 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function hasPassword(): bool
     {
         return is_string($this->password) && $this->password !== '';
+    }
+
+    /**
+     * Whether the password is a one-time password past its expiry. Such a password no longer signs in.
+     */
+    public function passwordExpired(): bool
+    {
+        return $this->password_expires_at !== null && ! $this->password_expires_at->isFuture();
     }
 
     /**
@@ -113,6 +123,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
             'invited_at' => 'datetime',
             'must_change_password' => 'boolean',
             'password_changed_at' => 'datetime',
+            'password_expires_at' => 'datetime',
         ];
     }
 

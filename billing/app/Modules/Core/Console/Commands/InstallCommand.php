@@ -18,6 +18,8 @@ use App\Support\Security\PasswordPolicy;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Validator;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -29,7 +31,7 @@ use function Laravel\Prompts\text;
 /**
  * The production install path (docs/devops/install.md): pre-flight checks, reference data from every module's
  * InstallsReferenceData, and the first full administrator. Safe to re-run: reference data is idempotent and a second
- * administrator is created only with --additional-admin. It never creates demo data.
+ * administrator is created only with --additional-admin. One run at a time (LOCK). It never creates demo data.
  */
 #[Signature('app:install
     {--admin-name= : Name of the full administrator to create}
@@ -41,12 +43,40 @@ use function Laravel\Prompts\text;
 #[Description('Check the environment, install reference data and create the first full administrator')]
 class InstallCommand extends Command
 {
+    /** Cache lock held for the whole install after the pre-flight, so two runs never write the same rows at once. */
+    public const LOCK = 'app:install';
+
+    /** Long enough for the prompts of an interactive install; released as soon as the run ends. */
+    private const LOCK_SECONDS = 900;
+
     public function handle(EnvironmentChecks $environment, ReferenceDataInstaller $installer, FirstAdministrator $administrators, RegionalDefaults $regional): int
     {
         if (! $this->preflight($environment->run())) {
             return self::FAILURE;
         }
 
+        $lock = Cache::lock(self::LOCK, self::LOCK_SECONDS);
+
+        if (! $lock->get()) {
+            $this->components->error('Another app:install is running. Wait for it to finish, then run `php artisan app:install` again.');
+
+            return self::FAILURE;
+        }
+
+        try {
+            return $this->install($installer, $administrators, $regional);
+        } catch (UniqueConstraintViolationException) {
+            // The lock only serialises runs that share the cache store; a run on another store can still collide.
+            $this->components->error('Another install wrote the same rows at the same time, so this one stopped. Run `php artisan app:install` again: it keeps what exists and adds only what is missing.');
+
+            return self::FAILURE;
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function install(ReferenceDataInstaller $installer, FirstAdministrator $administrators, RegionalDefaults $regional): int
+    {
         if (! $this->regional($regional)) {
             return self::FAILURE;
         }
@@ -248,7 +278,7 @@ class InstallCommand extends Command
             return self::FAILURE;
         }
 
-        $this->components->info("Full administrator {$email} created with a one-time password. It is shown once and must be changed at first sign-in, followed by two-factor setup:");
+        $this->components->info("Full administrator {$email} created with a one-time password. It is shown once, works for ".FirstAdministrator::ONE_TIME_PASSWORD_HOURS.' hours and must be changed at first sign-in, followed by two-factor setup:');
         // Raw: a generated password can contain "<info>", "</>" or "\<", which the console formatter would rewrite.
         $this->output->writeln('  '.$password, OutputInterface::OUTPUT_RAW);
         $this->newLine();
