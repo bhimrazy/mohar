@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * @property int $id
+ * @property int|null $tax_note_id the credit note a refund became (ADR 0024 §5)
  * @property int $client_id
  * @property int|null $invoice_id
  * @property int|null $payment_batch_id
@@ -54,7 +55,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'client_id', 'invoice_id', 'payment_batch_id', 'pay_method_id', 'gateway', 'gateway_txn_id', 'type', 'status',
     'amount_in', 'amount_out', 'fee', 'currency', 'gateway_amount', 'gateway_currency', 'exchange_rate',
     'refundable_remaining', 'parent_transaction_id', 'description', 'raw', 'created_by', 'occurred_at', 'review_amount',
-    'reviewed_at',
+    'reviewed_at', 'tax_note_id',
 ])]
 class Transaction extends Model
 {
