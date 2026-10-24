@@ -355,75 +355,82 @@ export default function Configure({
                         />
                     )}
 
-                    <SectionCard
-                        title="Billing cycle"
-                        description="Longer terms cost less per month."
-                    >
-                        <div
-                            role="radiogroup"
-                            aria-label="Billing cycle"
-                            className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+                    {!unavailable && (
+                        <SectionCard
+                            title="Billing cycle"
+                            description="Longer terms cost less per month."
                         >
-                            {cycles.map((row) => {
-                                const months = cycleMonths(row.cycle);
-                                const saving =
-                                    monthlyRow && months && months > 1
-                                        ? Math.round(
-                                              (1 -
-                                                  row.recurring /
-                                                      (monthlyRow.recurring *
-                                                          months)) *
-                                                  100,
-                                          )
-                                        : 0;
+                            <div
+                                role="radiogroup"
+                                aria-label="Billing cycle"
+                                className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+                            >
+                                {cycles.map((row) => {
+                                    const months = cycleMonths(row.cycle);
+                                    const saving =
+                                        monthlyRow && months && months > 1
+                                            ? Math.round(
+                                                  (1 -
+                                                      row.recurring /
+                                                          (monthlyRow.recurring *
+                                                              months)) *
+                                                      100,
+                                              )
+                                            : 0;
 
-                                return (
-                                    <ChoiceCard
-                                        key={row.cycle}
-                                        name="cycle"
-                                        value={row.cycle}
-                                        checked={form.data.cycle === row.cycle}
-                                        onChange={(value) =>
-                                            form.setData('cycle', value)
-                                        }
-                                    >
-                                        <span className="flex items-center justify-between gap-2 text-sm font-medium">
-                                            {cycleLabel(row.cycle)}
-                                            {saving > 0 && (
-                                                <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                                                    Save {saving}%
-                                                </span>
-                                            )}
-                                        </span>
-                                        <span className="text-lg font-semibold tabular-nums">
-                                            <Money
-                                                amount={row.recurring}
-                                                currency={currency}
-                                            />
-                                            <span className="text-sm font-normal text-muted-foreground">
-                                                {cycleSuffix(row.cycle)}
+                                    return (
+                                        <ChoiceCard
+                                            key={row.cycle}
+                                            name="cycle"
+                                            value={row.cycle}
+                                            checked={
+                                                form.data.cycle === row.cycle
+                                            }
+                                            onChange={(value) =>
+                                                form.setData('cycle', value)
+                                            }
+                                        >
+                                            <span className="flex items-center justify-between gap-2 text-sm font-medium">
+                                                {cycleLabel(row.cycle)}
+                                                {saving > 0 && (
+                                                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                                                        Save {saving}%
+                                                    </span>
+                                                )}
                                             </span>
-                                        </span>
-                                        <span className="text-xs text-muted-foreground">
-                                            {row.setup > 0 ? (
-                                                <>
-                                                    +{' '}
-                                                    <Money
-                                                        amount={row.setup}
-                                                        currency={currency}
-                                                    />{' '}
-                                                    setup
-                                                </>
-                                            ) : (
-                                                'No setup fee'
-                                            )}
-                                        </span>
-                                    </ChoiceCard>
-                                );
-                            })}
-                        </div>
-                        <InputError message={errors.cycle} className="mt-2" />
-                    </SectionCard>
+                                            <span className="text-lg font-semibold tabular-nums">
+                                                <Money
+                                                    amount={row.recurring}
+                                                    currency={currency}
+                                                />
+                                                <span className="text-sm font-normal text-muted-foreground">
+                                                    {cycleSuffix(row.cycle)}
+                                                </span>
+                                            </span>
+                                            <span className="text-xs text-muted-foreground">
+                                                {row.setup > 0 ? (
+                                                    <>
+                                                        +{' '}
+                                                        <Money
+                                                            amount={row.setup}
+                                                            currency={currency}
+                                                        />{' '}
+                                                        setup
+                                                    </>
+                                                ) : (
+                                                    'No setup fee'
+                                                )}
+                                            </span>
+                                        </ChoiceCard>
+                                    );
+                                })}
+                            </div>
+                            <InputError
+                                message={errors.cycle}
+                                className="mt-2"
+                            />
+                        </SectionCard>
+                    )}
 
                     <SectionCard
                         title="Domain"
@@ -955,6 +962,7 @@ export default function Configure({
                             )}
                         </ul>
                         {quote &&
+                            !unavailable &&
                             quote.item.errors.length > 0 &&
                             (form.data.domain_name !== '' ||
                                 !product.requires_domain) && (
