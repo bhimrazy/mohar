@@ -315,3 +315,16 @@ missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this s
 - **Re-wrapping exceptions in `RuntimeException`.** It loses the class, the retry flag and the cause.
 - **A third-party redaction package.** It would need approval and the 7-day cooldown (ADR 0007), and our shapes (XML
   items, eSewa values with `&`, regrouped answers) would still need our own rules.
+
+## Amendment (#452) — 2026-10-24, node budget
+
+- **Bound.** Each outermost `redact()`, `redactPayment()`, `maskValues()` or `maskThrowable()` call (per message) reads
+  at most 50,000 values through objects: each object it unwraps, and every entry under one. Past that, those values
+  are masked (`[redacted]`), keys still checked. Plain arrays and decoded JSON text are not counted, since they are
+  bounded by the input (the §2 budget test keeps a 1 MB JSON body intact). A call made from inside `jsonSerialize()`
+  or `toArray()` on the same instance shares the outer budget. §4 "Objects" now has this bound as well as the depth cap.
+- **Why.** A `JsonSerializable` that returns two new copies of itself stays under the depth cap of 32 and builds 2^32
+  nodes, which exhausts memory (#399). With the budget it peaks at about 4 MB.
+- **Known gap.** The budget counts values, not bytes. An object that returns the same large string again and again
+  costs one text pass per copy, up to the budget. Only code (a driver or package object) can do this, not provider
+  input, so it is a bound, not a leak.
