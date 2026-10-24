@@ -93,7 +93,7 @@ databases:
 DB_DATABASE=billing_test_orders composer test:pgsql
 ```
 
-CI runs the same gates in one job — see [ci.md](ci.md) for the step list, triggers and caching, and
+CI runs the same gates in parallel jobs — see [ci.md](ci.md) for the jobs, triggers and caching, and
 [dependency-policy.md](dependency-policy.md) for pinning, the 7-day cooldown and `composer deps:check`.
 `composer ci` runs, in order: `deps:check` (lockfiles in sync, `composer audit`, `npm audit`, dependency
 cooldown and binding checks — needs network), Pint, Wayfinder, `vp check`, tsc, Vitest (`npm test`), Larastan,

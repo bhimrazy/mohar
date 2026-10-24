@@ -87,8 +87,9 @@ test('scenario ports are distinct and never the forbidden ones', function () {
 });
 
 test('scenario ports stay out of the ephemeral range, where other processes\' outgoing connections take their ports', function () {
+    // Without /proc (macOS) Scenario assumes Linux's default start, 32768.
     $range = preg_split('/\s+/', trim((string) @file_get_contents('/proc/sys/net/ipv4/ip_local_port_range')));
-    $ephemeralStart = (int) ($range[0] ?? 32768);
+    $ephemeralStart = isset($range[0]) && ctype_digit($range[0]) ? (int) $range[0] : 32768;
 
     $ports = Scenario::freePorts(30);
 
