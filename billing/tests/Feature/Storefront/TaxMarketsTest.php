@@ -78,3 +78,18 @@ it('treats the same markets in another order as no change and accepts a form wit
     unset($form['prices']['markets']);
     $this->put(route('admin.storefront.website.update'), $form)->assertSessionHasNoErrors();
 });
+
+it('does not report a price change for the market that is already the default', function (): void {
+    expect(SiteContent::changes(marketsForm([]), marketsForm(['NPR' => 'NP'])))->toBe([])
+        ->and(SiteContent::changes(marketsForm([]), marketsForm(['NPR' => 'IN'])))->toBe(['Price and tax display changed'])
+        ->and(SiteContent::changes(marketsForm([]), marketsForm(['NPR' => ''])))->toBe(['Price and tax display changed']);
+});
+
+it('drops tax-inclusive display for a currency with no market', function (): void {
+    $prices = fn (array $markets, array $inclusive): array => SiteContent::normalise(marketsForm($markets, $inclusive))['prices']['tax_inclusive'];
+
+    expect($prices(['NPR' => ''], ['NPR']))->toBe([])
+        ->and($prices([], ['USD']))->toBe([])
+        ->and($prices([], ['NPR']))->toBe(['NPR'])
+        ->and($prices(['USD' => 'NP'], ['USD']))->toBe(['USD']);
+});

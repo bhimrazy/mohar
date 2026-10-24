@@ -884,7 +884,7 @@ export default function Website({
                                             <Field
                                                 htmlFor={`market-${currency.code}`}
                                                 label="Priced for"
-                                                hint="The country whose tax rules apply to these prices."
+                                                hint="Only sets the tax note and the tax-inclusive display here. Invoices are taxed by the buyer's country and your tax rules."
                                             >
                                                 <CountrySelect
                                                     id={`market-${currency.code}`}
