@@ -91,7 +91,7 @@ test('a collections invoice paid again gets a new paid_at but keeps its number, 
 });
 
 test('a proforma with a late fee and a line cancelled by the settling call stores fee and cancellation (AC 8)', function () {
-    billingSettings(['sequential_paid_numbering' => true, 'late_fee.type' => 'fixed', 'late_fee.amount' => 500]);
+    billingSettings(['sequential_paid_numbering' => true, 'late_fee.type' => 'fixed', 'late_fee.fixed_amount' => 500]);
     $invoice = issueInvoice(nepalClient(), [10_000, 4_000]);
     $second = $invoice->items()->orderBy('id')->get()->last();
 

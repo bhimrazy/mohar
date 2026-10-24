@@ -96,7 +96,8 @@ return [
     // Automation (§7)
     'late_fee' => [
         'type' => 'percent', // percent|fixed
-        'amount' => 0, // percent value, or minor units when fixed; 0 = off
+        'amount' => 0, // percent, when type is percent; 0 = off
+        'fixed_amount' => 0, // minor units, when type is fixed; 0 = off
         'minimum' => 0,
         'days_overdue' => 7,
         'base' => 'balance', // balance|total
