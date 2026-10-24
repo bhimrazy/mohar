@@ -109,7 +109,7 @@ export default function ClientInvoices({
                             <Button
                                 onClick={() => router.post(createBatch.url())}
                             >
-                                Pay all{' '}
+                                Pay all
                                 <Money
                                     amount={summary.unpaid_total}
                                     currency={summary.currency}

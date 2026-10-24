@@ -8,6 +8,8 @@ use App\Events\Core\ClientMerged;
 use App\Events\Core\ClientReopened;
 use App\Models\User;
 use App\Modules\Core\Support\RequestMemo;
+use App\Modules\Core\Support\RetentionRunDate;
+use App\Modules\Kyc\Actions\FindOrphanFiles;
 use App\Modules\Kyc\Actions\PruneDocuments;
 use App\Modules\Kyc\Enums\DocumentStatus;
 use App\Modules\Kyc\Enums\KycStatus;
@@ -16,9 +18,11 @@ use App\Modules\Kyc\Http\Middleware\ClearEndedReviewHistory;
 use App\Modules\Kyc\Http\Middleware\ShareKycBanner;
 use App\Modules\Kyc\Listeners\ScheduleDocumentRetention;
 use App\Modules\Kyc\Models\KycDocument;
+use App\Modules\Kyc\Models\KycOrphanFile;
 use App\Modules\Kyc\Services\KycVerification;
 use App\Modules\Kyc\Services\ReviewUnlocks;
 use App\Support\Automation\Automation;
+use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
@@ -116,7 +120,15 @@ class KycServiceProvider extends ModuleServiceProvider
             new SettingDefinition('kyc.phone_country_code', 'Default phone country code', help: 'Added to numbers entered without one, for example +977.', rules: ['regex:/^\+\d{1,4}$/']),
         ], 'kyc.settings.manage');
 
-        $this->app->make(Automation::class)->task('kyc.prune_documents', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneDocuments::class)->handle($today),
+        $this->app->make(Automation::class)->task('kyc.prune_documents', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneDocuments::class)->handle(RetentionRunDate::ofCarbon($today)),
             label: 'Delete identity documents past retention', description: 'Deletes replaced identity documents, and those of accounts closed 90 days ago.');
+        $this->app->make(Automation::class)->task('kyc.find_orphan_files', Automation::HOUSEKEEPING, fn (): int => app(FindOrphanFiles::class)->handle(),
+            label: 'Find identity images without a document', description: 'Lists identity image files older than a day that no document refers to, for staff to delete. Deletes nothing.');
+        $this->app->make(Dashboard::class)->todo('admin', 'kyc.orphan_files', fn (?User $user): array => [
+            'label' => 'Identity images without a document',
+            'count' => KycOrphanFile::query()->count(),
+            'href' => route('admin.kyc.orphans.index'),
+            'tone' => 'warning',
+        ], ReviewController::PERMISSION, 60);
     }
 }

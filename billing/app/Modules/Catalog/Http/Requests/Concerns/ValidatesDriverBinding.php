@@ -71,13 +71,22 @@ trait ValidatesDriverBinding
     abstract protected function storedDriverConfig(): ?array;
 
     /**
-     * Submitted settings; a blank secret keeps its stored value (secrets are never sent to the browser).
+     * The driver key stored for the product/addon being edited (null when creating).
+     */
+    abstract protected function storedDriver(): ?string;
+
+    /**
+     * Submitted settings; a blank secret keeps its stored value (secrets are never sent to the browser), but only
+     * while the driver is unchanged: another driver never inherits the previous one's credentials.
      *
      * @return array<string, string>
      */
     protected function driverConfig(): array
     {
-        return app(DriverSecrets::class)->merge((string) $this->input('provisioning_driver'), $this->submittedDriverConfig(), $this->storedDriverConfig());
+        $driver = (string) $this->input('provisioning_driver');
+        $stored = $this->storedDriver() === $driver ? $this->storedDriverConfig() : null;
+
+        return app(DriverSecrets::class)->merge($driver, $this->submittedDriverConfig(), $stored);
     }
 
     /**

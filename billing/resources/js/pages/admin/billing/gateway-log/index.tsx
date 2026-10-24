@@ -8,10 +8,10 @@ import { EmptyState } from '@/components/app/empty-state';
 import { FilterBar, FilterSelect } from '@/components/app/filter-bar';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
-import { Pagination } from '@/components/app/pagination';
+import { SimplePagination } from '@/components/app/pagination';
 import { humanize } from '@/components/billing/types';
 import { show as showInvoice } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/InvoiceController';
-import type { LaravelPaginated, SelectOption } from '@/types/app';
+import type { LaravelSimplePaginated, SelectOption } from '@/types/app';
 
 type Entry = {
     id: number;
@@ -24,7 +24,7 @@ type Entry = {
 };
 
 type Props = {
-    entries: LaravelPaginated<Entry>;
+    entries: LaravelSimplePaginated<Entry>;
     filters: Record<string, string>;
     gateways: SelectOption[];
 };
@@ -125,7 +125,10 @@ export default function GatewayLogIndex({ entries, gateways }: Props) {
                         />
                     }
                     footer={
-                        <Pagination paginator={entries} itemLabel="entries" />
+                        <SimplePagination
+                            paginator={entries}
+                            itemLabel="entries"
+                        />
                     }
                 />
             </Page>

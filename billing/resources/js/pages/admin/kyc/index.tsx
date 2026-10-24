@@ -1,4 +1,12 @@
-import { CircleDashed, Clock, ShieldCheck, ShieldX } from 'lucide-react';
+import { Link } from '@inertiajs/react';
+import {
+    CircleDashed,
+    Clock,
+    FileX2,
+    ShieldCheck,
+    ShieldX,
+} from 'lucide-react';
+import OrphanFileController from '@/actions/App/Modules/Kyc/Http/Controllers/Admin/OrphanFileController';
 import ReviewController from '@/actions/App/Modules/Kyc/Http/Controllers/Admin/ReviewController';
 import { DataTable } from '@/components/app/data-table';
 import type { DataTableColumn } from '@/components/app/data-table';
@@ -13,6 +21,7 @@ import { SectionCard } from '@/components/app/section-card';
 import { StatCard } from '@/components/app/stat-card';
 import { StatusBadge } from '@/components/app/status-badge';
 import { KYC_TONE } from '@/components/kyc/kyc-tone';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import type { LaravelPaginated } from '@/types/app';
 
 type Row = {
@@ -33,6 +42,7 @@ type Props = {
     };
     filters: { status: string; q: string };
     clients: LaravelPaginated<Row>;
+    orphanFiles: number | null;
 };
 
 const columns: DataTableColumn<Row>[] = [
@@ -83,7 +93,12 @@ const columns: DataTableColumn<Row>[] = [
 const filterHref = (status: string) =>
     ReviewController.index({ query: { status } });
 
-export default function KycQueue({ counts, filters, clients }: Props) {
+export default function KycQueue({
+    counts,
+    filters,
+    clients,
+    orphanFiles,
+}: Props) {
     return (
         <>
             <Head title="Identity verification" />
@@ -92,6 +107,27 @@ export default function KycQueue({ counts, filters, clients }: Props) {
                     title="Identity verification"
                     description="Find any client's verification status and review the documents waiting for a decision. Verification never blocks a client."
                 />
+                {orphanFiles !== null && orphanFiles > 0 && (
+                    <Alert>
+                        <FileX2 />
+                        <AlertTitle>
+                            {orphanFiles === 1
+                                ? '1 identity image has no document'
+                                : `${orphanFiles} identity images have no document`}
+                        </AlertTitle>
+                        <AlertDescription>
+                            <p>
+                                Usually left by an upload that stopped partway.{' '}
+                                <Link
+                                    href={OrphanFileController.index()}
+                                    className="font-medium underline underline-offset-4"
+                                >
+                                    Review and delete them
+                                </Link>
+                            </p>
+                        </AlertDescription>
+                    </Alert>
+                )}
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     <StatCard
                         label="Pending review"

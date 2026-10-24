@@ -108,6 +108,7 @@ type Props = {
     statusTargets: SelectOption[];
     changeOptions?: ChangeOptions;
     creditOnDowngrade: boolean;
+    paymentGatewayLabel: string | null;
     can: {
         manage: boolean;
         provision: boolean;
@@ -167,6 +168,7 @@ export default function ServiceShow({
     statusTargets,
     changeOptions,
     creditOnDowngrade,
+    paymentGatewayLabel,
     can,
 }: Props) {
     const { errors } = usePage().props as { errors: Record<string, string> };
@@ -487,7 +489,7 @@ export default function ServiceShow({
                                     },
                                     {
                                         label: 'Payment method',
-                                        value: service.payment_gateway,
+                                        value: paymentGatewayLabel,
                                     },
                                     {
                                         label: 'Suspension reason',

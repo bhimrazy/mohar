@@ -35,7 +35,8 @@ integration notes with modules already merged, Nepal defaults where relevant>.
 Order of work: <phases, and what "done" means for each>.
 Checks before the PR: confirm-then-apply flows act on a digest-bound snapshot re-read under lock; scheduled
 queries name their index and cap work per run; email ownership only from a verified login, staff or an import;
-touched tests plus tests/Arch on SQLite and PostgreSQL; phpstan, pint, tsc, vp check through scripts/heavy.sh.
+tests through $MOHAR_ROOT/scripts/test.sh --changed, then --changed --pgsql (never hand-picked directories);
+phpstan, pint, tsc, vp check through scripts/heavy.sh.
 Draft PR, no `ci` label; `[skip ci]` on WIP commits, not on the final head.
 Merge origin/develop (no rebase); squash only against a fixed SHA, never a moving origin/develop.
 ```
@@ -69,7 +70,7 @@ cd $MOHAR_ROOT/.worktrees/<slug>/billing && export XDEBUG_MODE=off && H=$MOHAR_R
 && $H composer install -q && $H npm ci --silent && php artisan wayfinder:generate --with-form \
 && vendor/bin/pint --dirty --format agent && $H vendor/bin/phpstan analyse --memory-limit=1G \
 && npx tsc --noEmit && npx vp check && npm test && $H npm run build \
-&& $H php artisan test --compact tests/Arch <touched suites> \
+&& $MOHAR_ROOT/scripts/test.sh --changed && $MOHAR_ROOT/scripts/test.sh --changed --pgsql \
 && git push origin feature/<slug>
 gh pr ready <n>                       # only once no review at this head says "Changes requested"
 gh pr checks <n> --watch              # CI runs the full suite on SQLite and PostgreSQL

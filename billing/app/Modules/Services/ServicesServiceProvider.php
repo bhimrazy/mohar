@@ -24,11 +24,13 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\InstallSecrets;
 use App\Modules\Core\Support\RequestMemo;
+use App\Modules\Core\Support\RetentionRunDate;
 use App\Modules\Services\Actions\CompleteLimitedServices;
 use App\Modules\Services\Actions\ExpireUnpaidChanges;
 use App\Modules\Services\Actions\GenerateRenewals;
 use App\Modules\Services\Actions\ProcessCancellations;
 use App\Modules\Services\Actions\PruneModuleLog;
+use App\Modules\Services\Actions\PruneUsageSnapshots;
 use App\Modules\Services\Actions\SuspendOverdueServices;
 use App\Modules\Services\Actions\SyncUsage;
 use App\Modules\Services\Actions\TerminateOverdueServices;
@@ -56,6 +58,7 @@ use App\Modules\Services\Support\ClientNameservers;
 use App\Modules\Services\Support\ServerSettings;
 use App\Modules\Services\Support\ServicesDashboard;
 use App\Support\Automation\Automation;
+use App\Support\CalendarDate;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Events\WebhookEvents;
@@ -170,7 +173,8 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $automation->task('services.complete-limited', Automation::TERMINATIONS, fn (CarbonImmutable $today): int => app(CompleteLimitedServices::class)->handle($today), label: 'Complete fixed-term services', description: 'Marks services with a renewal limit as completed after their last paid period.');
         $automation->task('services.usage-sync', Automation::SYNC, fn (CarbonImmutable $today): int => app(SyncUsage::class)->handle($today), label: 'Sync usage from servers', description: 'Records one usage snapshot per service from each server.');
         $automation->task('services.import-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => ServerAccountImport::pruneExpired(), label: 'Discard expired account imports', description: 'Deletes up to 100 account lists (about 50,000 accounts) a run that were fetched for import more than a day ago (or finished an import more than a day ago); they hold client emails. A list still being imported is kept.');
-        $automation->task('services.module-log-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneModuleLog::class)->handle($today), label: 'Prune the module log', description: 'Deletes provisioning module log entries older than the retention period.');
+        $automation->task('services.module-log-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneModuleLog::class)->handle(RetentionRunDate::ofCarbon($today)), label: 'Prune the module log', description: 'Deletes provisioning module log entries older than the retention period.');
+        $automation->task('services.usage_prune', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(PruneUsageSnapshots::class)->handle(RetentionRunDate::of($today)), label: 'Prune usage history', description: 'Deletes disk and bandwidth snapshots older than the retention period, keeping each service\'s latest.');
     }
 
     private function registerNavigation(): void
@@ -381,6 +385,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
             new SettingDefinition('services.module.max_attempts', 'Attempts for retryable module actions', 'integer', rules: ['integer', 'min:1', 'max:10']),
             new SettingDefinition('services.module.lock_wait_seconds', 'Seconds a module action waits for another action on the same service', 'integer', rules: ['integer', 'min:1', 'max:120']),
             new SettingDefinition('services.module_log.retention_days', 'Module log retention (days)', 'integer', rules: ['integer', 'min:1', 'max:3650']),
+            new SettingDefinition('services.usage.retention_days', 'Keep disk and bandwidth usage history for (days)', 'integer', 'Older daily snapshots are deleted by the daily automation; each service keeps its latest one (90 to 3,650).', rules: ['integer', 'min:90', 'max:3650']),
             new SettingDefinition('services.random_usernames', 'Generate random usernames instead of using the domain', 'boolean'),
         ], 'services.settings.manage');
     }

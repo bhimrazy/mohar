@@ -62,3 +62,31 @@ export function HostBrand({
         </span>
     );
 }
+
+/** The host's uploaded mark, else the first letter of the host's name on the accent colour. */
+export function HostMark({ className }: { className?: string }) {
+    const { brand } = usePage().props;
+
+    if (brand.hasUploadedMark) {
+        return (
+            <img
+                src={brand.mark}
+                alt=""
+                aria-hidden="true"
+                className={cn('shrink-0 rounded-md object-contain', className)}
+            />
+        );
+    }
+
+    return (
+        <span
+            aria-hidden="true"
+            className={cn(
+                'shrink-0 items-center justify-center rounded-md bg-primary font-display text-sm font-semibold text-primary-foreground',
+                className,
+            )}
+        >
+            {brand.name.trim().charAt(0).toUpperCase()}
+        </span>
+    );
+}

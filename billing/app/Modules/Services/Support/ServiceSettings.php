@@ -141,6 +141,11 @@ class ServiceSettings
         return $this->int('services.module_log.retention_days', 30);
     }
 
+    public function usageRetentionDays(): int
+    {
+        return max(90, $this->int('services.usage.retention_days', 395));
+    }
+
     public function randomUsernames(): bool
     {
         return $this->bool('services.random_usernames', false);

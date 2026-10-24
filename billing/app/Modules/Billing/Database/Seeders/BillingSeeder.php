@@ -116,7 +116,7 @@ class BillingSeeder extends DemoSeeder
             ['daysAgo' => 30, 'hour' => 10, 'run' => fn () => $cancel->handle($issue($demo, [new InvoiceLineData('Pro Hosting (cancelled order)', self::NPR_PRO)], 'bank_transfer'), note: 'Order cancelled by customer')],
             // Overdue with a partial bank transfer.
             ['daysAgo' => 24, 'hour' => 11, 'run' => function () use (&$overdue, $issue, $demo, $service, $on): void {
-                $overdue = $issue($demo, [$service('VPS Small — vps.himallabs.com.np', self::NPR_VPS_SMALL, 2, $on())], 'bank_transfer');
+                $overdue = $issue($demo, [$service('VPS S — vps.himallabs.io', self::NPR_VPS_SMALL, 2, $on())], 'bank_transfer');
             }],
             ['daysAgo' => 20, 'hour' => 14, 'run' => function () use (&$overdue, $pay): void {
                 $pay->handle($overdue->refresh(), new PaymentData(100_000, 'bank_transfer', 'WIRE-'.random_int(10000, 99999)));
@@ -124,7 +124,7 @@ class BillingSeeder extends DemoSeeder
             // Paid through eSewa or Khalti.
             ['daysAgo' => 12, 'hour' => 10, 'run' => function () use (&$paid, $issue, $demo, $service, $on, $wallet): void {
                 $paid = $issue($demo, [
-                    $service('Business Hosting — himallabs.com.np', self::NPR_BUSINESS, 1, $on()->subMonth()),
+                    $service('Business — himallabs.io', self::NPR_BUSINESS, 1, $on()->subMonth()),
                     new InvoiceLineData('Domain renewal — himallabs.com', self::NPR_DOMAIN_COM_RENEWAL, billableType: BillableType::Domain, billableId: 1),
                 ], $wallet(0));
             }],
@@ -132,15 +132,15 @@ class BillingSeeder extends DemoSeeder
                 $pay->handle($paid->refresh(), new PaymentData($paid->balance, $paid->payment_gateway, strtoupper(substr((string) $paid->payment_gateway, 0, 3)).'-'.random_int(100000, 999999)));
             }],
             // Due soon.
-            ['daysAgo' => 9, 'hour' => 10, 'run' => fn () => $issue($demo, [$service('Business Hosting — himallabs.com.np', self::NPR_BUSINESS, 1, $on()), new InvoiceLineData('Daily backups add-on', self::NPR_BACKUPS, billableType: BillableType::ServiceAddon, billableId: 3)], $wallet(1))],
+            ['daysAgo' => 9, 'hour' => 10, 'run' => fn () => $issue($demo, [$service('Business — himallabs.io', self::NPR_BUSINESS, 1, $on()), new InvoiceLineData('Daily backups add-on', self::NPR_BACKUPS, billableType: BillableType::ServiceAddon, billableId: 3)], $wallet(1))],
         ];
 
-        // Starter Hosting for the first Nepali clients, paid for every third one, issued over the last ten days.
+        // Starter for the first Nepali clients, paid for every third one, issued over the last ten days.
         $others = Client::query()->whereKeyNot($demo->id)->where('currency', 'NPR')->orderBy('id')->limit(6)->get();
 
         foreach ($others as $index => $client) {
             $scenario[] = ['daysAgo' => 10 - $index, 'hour' => 12, 'run' => function () use ($issue, $pay, $refund, $service, $client, $index, $on, $wallet): void {
-                $invoice = $issue($client, [$service('Starter Hosting', self::NPR_STARTER, 100 + $index, $on())], $index % 2 === 0 ? 'bank_transfer' : $wallet($index));
+                $invoice = $issue($client, [$service('Starter', self::NPR_STARTER, 100 + $index, $on())], $index % 2 === 0 ? 'bank_transfer' : $wallet($index));
 
                 if ($index % 3 === 0) {
                     $payment = $pay->handle($invoice, new PaymentData($invoice->balance, $invoice->payment_gateway ?? 'manual', 'TX-'.Str::upper(Str::random(8))));
@@ -155,7 +155,7 @@ class BillingSeeder extends DemoSeeder
 
         if ($us !== null) {
             $scenario[] = ['daysAgo' => 6, 'hour' => 13, 'run' => function () use ($issue, $service, $us, $on, $online): void {
-                $issue($us, [$service('Business Hosting', 2_499, 150, $on())], $online);
+                $issue($us, [$service('Business', 2_499, 150, $on())], $online);
             }];
 
             if (self::sandboxAllowed()) {
@@ -268,7 +268,7 @@ class BillingSeeder extends DemoSeeder
     private function marketInvoices(\Closure $issue, ApplyPayment $pay, CarbonImmutable $today): void
     {
         foreach (self::marketClients() as $index => $market) {
-            $invoice = $issue($market['client'], [new InvoiceLineData('Business Hosting (annual)', $market['amount'], billableType: BillableType::Service, billableId: 500 + $index, periodStart: $today, periodEnd: $today->addYear())], 'bank_transfer', 7);
+            $invoice = $issue($market['client'], [new InvoiceLineData('Business (annual)', $market['amount'], billableType: BillableType::Service, billableId: 500 + $index, periodStart: $today, periodEnd: $today->addYear())], 'bank_transfer', 7);
 
             if ($index === 0) {
                 $pay->handle($invoice, new PaymentData($invoice->balance, 'bank_transfer', 'NEFT-'.(310000 + $index)));

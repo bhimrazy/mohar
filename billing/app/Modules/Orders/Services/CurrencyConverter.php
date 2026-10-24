@@ -6,7 +6,7 @@ use App\Modules\Core\Models\Currency;
 
 /**
  * Converts amounts defined in the default currency (promotion values, minimum cart amounts) into a
- * cart currency at the current exchange rate, rounded to the minor unit.
+ * cart currency at the current exchange rate and the currency's price rounding rule (the same rule as converted catalog prices).
  */
 class CurrencyConverter
 {
@@ -23,6 +23,6 @@ class CurrencyConverter
 
         $target = $this->currencies[$currency] ??= Currency::query()->where('code', strtoupper($currency))->first();
 
-        return $target === null ? $amount : $target->fromDefault($amount);
+        return $target === null ? $amount : $target->priceFromDefault($amount, $default);
     }
 }

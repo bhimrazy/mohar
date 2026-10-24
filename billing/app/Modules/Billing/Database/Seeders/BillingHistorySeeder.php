@@ -40,9 +40,9 @@ class BillingHistorySeeder extends DemoSeeder
 
     /** Monthly plan prices in minor units per currency. */
     private const PLANS = [
-        'USD' => [['Starter Hosting', 999], ['Business Hosting', 2_499], ['VPS Pro', 4_900], ['Dedicated Server', 12_900], ['Managed WordPress', 1_900]],
-        'INR' => [['Starter Hosting', 49_900], ['Business Hosting', 149_900], ['VPS Pro', 399_900]],
-        'NPR' => [['Starter Hosting', 99_900], ['Business Hosting', 250_000], ['VPS Pro', 650_000]],
+        'USD' => [['Starter', 999], ['Business', 2_499], ['VPS M', 4_900], ['Dedicated Server', 12_900], ['Managed WordPress', 1_900]],
+        'INR' => [['Starter', 49_900], ['Business', 149_900], ['VPS M', 399_900]],
+        'NPR' => [['Starter', 99_900], ['Business', 250_000], ['VPS M', 650_000]],
     ];
 
     private int $billable = 10_000;

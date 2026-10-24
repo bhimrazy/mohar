@@ -104,7 +104,7 @@ class Currency extends Model
     public static function default(): self
     {
         return static::query()->where('is_default', true)->first()
-            ?? static::query()->firstOrCreate(['code' => 'USD'], ['name' => 'US Dollar', 'prefix' => '$', 'is_default' => true]);
+            ?? static::query()->firstOrCreate(['code' => 'USD'], ['name' => 'US Dollar', 'prefix' => '$', 'is_default' => true])->refresh();
     }
 
     /**

@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { useQueryParams } from '@/components/app/use-query-params';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { Paginated, PaginatorMeta } from '@/types/app';
+import type { Paginated, PaginatorMeta, SimplePaginated } from '@/types/app';
 
 type PaginationProps = {
     paginator: Paginated<unknown>;
@@ -165,6 +165,89 @@ export function Pagination({
 
                     <PageLink
                         href={current < last ? pageHref(current + 1) : null}
+                        label="Next page"
+                        only={only}
+                    >
+                        <span className="hidden sm:inline">Next</span>
+                        <ChevronRight />
+                    </PageLink>
+                </nav>
+            )}
+        </div>
+    );
+}
+
+type SimplePaginationProps = Omit<PaginationProps, 'paginator'> & {
+    paginator: SimplePaginated<unknown>;
+};
+
+/**
+ * Previous and next links for a `->simplePaginate()` list (large logs): it
+ * knows whether a next page exists, not how many pages there are.
+ */
+export function SimplePagination({
+    paginator,
+    pageName = 'page',
+    only,
+    itemLabel = 'results',
+    className,
+}: SimplePaginationProps) {
+    const { hrefWith } = useQueryParams();
+    const meta = 'meta' in paginator ? paginator.meta : paginator;
+    // A missing link (undefined) means no next page, like null.
+    const hasNext =
+        ('meta' in paginator
+            ? paginator.links.next
+            : paginator.next_page_url) != null;
+    const { current_page: current, from, to } = meta;
+
+    if (from === null && current === 1) {
+        return null;
+    }
+
+    const pageHref = (page: number) =>
+        hrefWith({ [pageName]: page === 1 ? null : page });
+
+    return (
+        <div
+            data-slot="pagination"
+            className={cn(
+                'flex flex-col items-center justify-between gap-3 text-sm sm:flex-row',
+                className,
+            )}
+        >
+            <p className="text-muted-foreground tabular-nums">
+                {from === null ? (
+                    <>No more {itemLabel}</>
+                ) : (
+                    <>
+                        Showing{' '}
+                        <span className="font-medium text-foreground">
+                            {from.toLocaleString()}–{to?.toLocaleString()}
+                        </span>{' '}
+                        {itemLabel}
+                    </>
+                )}
+            </p>
+
+            {(current > 1 || hasNext) && (
+                <nav
+                    aria-label="Pagination"
+                    className="flex items-center gap-1"
+                >
+                    <PageLink
+                        href={current > 1 ? pageHref(current - 1) : null}
+                        label="Previous page"
+                        only={only}
+                    >
+                        <ChevronLeft />
+                        <span className="hidden sm:inline">Previous</span>
+                    </PageLink>
+                    <span className="px-2 text-muted-foreground tabular-nums">
+                        Page {current.toLocaleString()}
+                    </span>
+                    <PageLink
+                        href={hasNext ? pageHref(current + 1) : null}
                         label="Next page"
                         only={only}
                     >

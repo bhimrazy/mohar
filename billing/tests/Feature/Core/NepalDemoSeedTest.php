@@ -45,11 +45,11 @@ it('bills each showcase line at its own price: the service for hosting, the TLD 
     $service = fn (string $name) => Service::query()->where('client_id', $demo->id)->where('product_name', $name)->value('recurring_amount');
     $renewal = TldPrice::query()->where('currency', 'NPR')->where('years', 1)->whereHas('tld', fn ($query) => $query->where('extension', '.com'))->value('renew');
 
-    expect($line('Business Hosting'))->toBe($service('Business Hosting'))->toBe(197_370)
-        ->and($line('VPS Small'))->toBe(288_686)
+    expect($line('Business — himallabs.io'))->toBe($service('Business'))->toBe(197_370)
+        ->and($line('VPS S — vps.himallabs.io'))->toBe($service('VPS S'))->toBe(288_686)
         ->and($line('Daily backups'))->toBe(ServiceAddon::query()->where('currency', 'NPR')->value('recurring_amount'))
         ->and($line('Domain renewal — himallabs.com'))->toBe($renewal)->toBe(227_900)
-        ->and($line('Business Hosting'))->not->toBe($line('Domain renewal'))
+        ->and($line('Business — himallabs.io'))->not->toBe($line('Domain renewal'))
         ->and($lines->pluck('description')->filter(fn (string $text) => str_contains($text, 'Domain') && str_contains($text, '.np'))->all())->toBe([])
         ->and($lines->pluck('description')->filter(fn (string $text) => str_contains($text, 'himal-labs'))->all())->toBe([]);
 });

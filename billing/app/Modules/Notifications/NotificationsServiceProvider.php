@@ -6,6 +6,7 @@ use App\Contracts\Auth\AuthMailer;
 use App\Contracts\Notifications\EmailTemplates;
 use App\Contracts\Notifications\SystemMailer;
 use App\Models\User;
+use App\Modules\Core\Support\RetentionRunDate;
 use App\Modules\Notifications\Actions\PruneNotificationLogs;
 use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Install\DefaultTemplates;
@@ -91,16 +92,16 @@ class NotificationsServiceProvider extends ModuleServiceProvider
 
         $this->app->make(ReferenceDataRegistry::class)->register(DefaultTemplates::KEY, DefaultTemplates::class, order: 100);
 
-        $this->app->make(Automation::class)->task('notifications.prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneNotificationLogs::class)->handle($today));
+        $this->app->make(Automation::class)->task('notifications.prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneNotificationLogs::class)->handle(RetentionRunDate::ofCarbon($today)));
     }
 
     private function registerNavigation(): void
     {
         $navigation = $this->app->make(Navigation::class);
         $navigation->add('admin', new NavItem('Email templates', 'admin.notifications.templates.index', 'Mail', 'Setup', 40, 'notifications.templates.view', 'admin.notifications.templates.*'));
-        $navigation->add('admin', new NavItem('Email log', 'admin.notifications.emails.index', 'Inbox', 'Setup', 41, 'notifications.log.view', 'admin.notifications.emails.*'));
-        $navigation->add('admin', new NavItem('Staff email alerts', 'admin.notifications.subscriptions.edit', 'UserCog', 'Setup', 42, 'notifications.subscriptions.manage', 'admin.notifications.subscriptions.*'));
-        $navigation->add('admin', new NavItem('Webhooks', 'admin.notifications.webhooks.index', 'Webhook', 'Setup', 43, 'notifications.webhooks.manage', 'admin.notifications.webhooks.*'));
+        $navigation->add('admin', new NavItem('Email log', 'admin.notifications.emails.index', 'Inbox', 'Setup', 91, 'notifications.log.view', 'admin.notifications.emails.*'));
+        $navigation->add('admin', new NavItem('Staff email alerts', 'admin.notifications.subscriptions.edit', 'UserCog', 'Setup', 41, 'notifications.subscriptions.manage', 'admin.notifications.subscriptions.*'));
+        $navigation->add('admin', new NavItem('Webhooks', 'admin.notifications.webhooks.index', 'Webhook', 'Setup', 42, 'notifications.webhooks.manage', 'admin.notifications.webhooks.*'));
         $navigation->add('admin-client', new NavItem('Emails', 'admin.notifications.emails.index', 'Mail', order: 80, permission: 'notifications.log.view'));
 
         $navigation->add('client', new NavItem('Email preferences', 'client.notifications.preferences.edit', 'Mail', 'Setup', 91, null, 'client.notifications.preferences.*'));

@@ -45,7 +45,9 @@ test('every billing permission used by the module is registered', function () {
 });
 
 test('every billing config default has a setting definition', function () {
-    $keys = collect(app(SettingsRegistry::class)->sections()['billing']['settings'])->map(fn (SettingDefinition $definition) => $definition->key);
+    // Billing's own section, and the gateway log retention in its security-tier section.
+    $sections = app(SettingsRegistry::class)->sections();
+    $keys = collect([...$sections['billing']['settings'], ...$sections['billing_retention']['settings']])->map(fn (SettingDefinition $definition) => $definition->key);
     $defaults = collect(Arr::dot(config('billing')))->keys()
         ->map(fn (string $key) => 'billing.'.preg_replace('/\.\d+$/', '', $key))->unique();
 
@@ -65,7 +67,7 @@ test('every registered gateway declares REDIRECT exactly when it is a hosted pay
 test('billing automation tasks are registered in pipeline order', function () {
     $tasks = array_keys(array_filter(app(Automation::class)->ordered(), fn ($task, $key) => str_starts_with($key, 'billing.'), ARRAY_FILTER_USE_BOTH));
 
-    expect($tasks)->toBe(['billing.late_fees', 'billing.auto_capture', 'billing.reminders', 'billing.auto_cancel', 'billing.payment_reconciliation', 'billing.housekeeping']);
+    expect($tasks)->toBe(['billing.late_fees', 'billing.auto_capture', 'billing.reminders', 'billing.auto_cancel', 'billing.payment_reconciliation', 'billing.housekeeping', 'billing.gateway_log_prune']);
 });
 
 test('navigation shows billing items according to permissions', function () {
