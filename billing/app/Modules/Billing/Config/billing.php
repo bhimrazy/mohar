@@ -63,6 +63,8 @@ return [
         'late_lookups_per_run' => 100,
         'http_timeout_seconds' => 15,
         'ambiguous_alert_minutes' => 30,
+        // Gateway log entries (request and response payloads) are deleted after this many days (90 to 3,650).
+        'log_retention_days' => 180,
     ],
 
     // Refunds & reversals (§4.7, §4.8)

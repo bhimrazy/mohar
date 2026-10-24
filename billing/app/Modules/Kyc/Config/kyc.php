@@ -55,4 +55,12 @@ return [
 
     /** Most documents the daily retention task deletes in one run; the rest wait for the next run. */
     'prune_batch' => 500,
+
+    /**
+     * Orphan sweep (#298): image files no document refers to are deleted once older than orphan_min_age_hours (at
+     * least 24). One run looks at most at orphan_scan_limit files and deletes at most orphan_delete_limit.
+     */
+    'orphan_min_age_hours' => 24,
+    'orphan_scan_limit' => 5000,
+    'orphan_delete_limit' => 200,
 ];

@@ -25,6 +25,7 @@ use App\Events\Billing\PaymentReversed;
 use App\Events\Billing\QuoteAccepted;
 use App\Events\Orders\OrderAccepted;
 use App\Models\User;
+use App\Modules\Billing\Actions\PruneGatewayLog;
 use App\Modules\Billing\Drivers\Gateways\BankTransferDriver;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\ManualDriver;
@@ -60,6 +61,7 @@ use App\Modules\Billing\Support\InvoiceBsDates;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Support\Automation\Automation;
+use App\Support\CalendarDate;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
@@ -215,6 +217,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $automation->task('billing.payment_reconciliation', Automation::SYNC, fn (CarbonImmutable $today): int => $this->app->make(PaymentReconciler::class)->run(), label: 'Reconcile gateway payments', description: 'Looks up pending and unclear gateway payments whose customer never returned.');
         $automation->task('billing.auto_cancel', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $tasks()->autoCancel($today), label: 'Cancel unpaid overdue invoices', description: 'Cancels overdue invoices that have no payments and no credit applied.');
         $automation->task('billing.housekeeping', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $tasks()->housekeeping($today), label: 'Expire old quotes', description: 'Marks quotes past their validity date as expired.');
+        $automation->task('billing.gateway_log_prune', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => $this->app->make(PruneGatewayLog::class)->handle($today), label: 'Prune the gateway log', description: 'Deletes gateway log entries older than the retention period.');
     }
 
     private function registerNavigation(): void
@@ -397,6 +400,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             new SettingDefinition('billing.gateways.late_lookups_per_run', 'Hosted payments: late checks per hourly run', 'integer', 'At most this many closed payments are looked up each hour (1 to 1,000).', rules: ['min:1', 'max:1000']),
             $int('gateways.http_timeout_seconds', 'Gateway HTTP timeout (seconds)'),
             $int('gateways.ambiguous_alert_minutes', 'Alert staff about unresolved payments after (minutes)'),
+            new SettingDefinition('billing.gateways.log_retention_days', 'Keep the gateway log for (days)', 'integer', 'Gateway requests, responses and callbacks older than this are deleted by the daily automation (90 to 3,650).', rules: ['min:90', 'max:3650']),
             $bool('quotes.require_tos', 'Quotes require accepting terms'),
             $bool('quotes.auto_invoice_on_accept', 'Invoice quotes automatically on acceptance'),
             $int('quotes.valid_days', 'Default quote validity (days)'),

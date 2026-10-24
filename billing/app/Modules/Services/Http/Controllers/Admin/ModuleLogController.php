@@ -46,7 +46,8 @@ class ModuleLogController extends Controller
                 ->when($request->filled('command'), fn (Builder $query) => $query->where('command', $request->string('command')->toString()))
                 ->when($request->filled('search'), fn (Builder $query) => $query->whereHas('service', fn (Builder $services) => $services->search($request->string('search')->toString())))
                 ->orderByDesc('id')
-                ->paginate(25)
+                // No count(*) over the whole log (#49).
+                ->simplePaginate(25)
                 ->withQueryString()) : null,
             'queue' => $tab === 'queue' ? ModuleQueueItem::query()
                 ->with('service.server')
