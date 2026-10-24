@@ -58,6 +58,8 @@ type Props = {
     /** Nameservers the service's domain should use: the server's, else the default setting. */
     nameservers: string[];
     can: { cancel: boolean; changePassword: boolean; revealPassword: boolean };
+    /** Set when staff are signed in as the client: Show password is disabled with this reason. */
+    revealBlockedReason: string | null;
 };
 
 export default function ClientServiceShow({
@@ -70,6 +72,7 @@ export default function ClientServiceShow({
     creditOnDowngrade,
     nameservers,
     can,
+    revealBlockedReason,
 }: Props) {
     const [cancelOpen, setCancelOpen] = useState(false);
     const [copiedNameservers, copy] = useClipboard();
@@ -188,6 +191,9 @@ export default function ClientServiceShow({
                                                   label: 'Password',
                                                   value: (
                                                       <PasswordReveal
+                                                          disabledReason={
+                                                              revealBlockedReason
+                                                          }
                                                           url={
                                                               ServiceActionController.revealPassword(
                                                                   service.id,

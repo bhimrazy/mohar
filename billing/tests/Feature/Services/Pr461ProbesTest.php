@@ -28,6 +28,11 @@ test('probe: staff signed in as the client cannot step up, so cannot reveal', fu
     test()->get((string) $r->headers->get('X-Inertia-Location'))->assertRedirect(route('client.dashboard'));
     $this->assertAuthenticatedAs($owner);
 
+    // The page shows the action disabled with the reason, so the dialog never opens.
+    $this->get(route('client.services.show', $service->id))->assertInertia(fn (Assert $p) => $p
+        ->where('can.revealPassword', true)
+        ->where('revealBlockedReason', "Staff signed in as a client can't reveal service passwords. Use the admin service page instead."));
+
     $this->postJson(route('client.services.password.reveal', $service->id))->assertStatus(423);
     $this->postJson(route('password.confirm.store'), ['password' => 'password'])->assertForbidden();
     $this->postJson(route('client.services.password.reveal', $service->id))->assertStatus(423)->assertJsonMissing(['password' => 'Hosting-Secret-91']);
@@ -75,7 +80,7 @@ test('probe: an undecryptable stored password gives a clear error and no "reveal
 
     $this->postJson(route('client.services.password.reveal', $service->id))
         ->assertUnprocessable()
-        ->assertJson(['message' => 'The stored password could not be read. Please contact support.'])
+        ->assertJson(['message' => 'The stored password could not be read. Set a new one with Change password on this page.'])
         ->assertJsonMissingPath('password');
     expect(p461audits())->toBe(0);
 });

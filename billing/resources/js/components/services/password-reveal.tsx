@@ -1,5 +1,5 @@
 import { Check, Copy, Eye, EyeOff } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { SetPasswordButton } from '@/components/app/set-password-button';
 import { Field } from '@/components/app/field';
 import InputError from '@/components/input-error';
@@ -16,24 +16,41 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 
-/** How long a revealed password stays on screen (#44). */
+/** How long a revealed password stays on screen (#44), in the client area and the admin area alike. */
 const VISIBLE_SECONDS = 60;
 
+type Props = {
+    /** The step-up protected endpoint that answers `{ password }`. */
+    url: string;
+    /** Why the password can't be shown here (staff signed in as the client): the button is disabled with it. */
+    disabledReason?: string | null;
+};
+
 /**
- * The hosting password row of the client service page: hidden until asked for, then fetched
- * from the step-up protected endpoint, shown for 60 seconds with a copy button.
+ * A service password row: hidden until asked for, then fetched from the step-up protected endpoint and shown for 60
+ * seconds with a copy button. Used on the client and the admin service pages, so both use the same words.
  */
-export function PasswordReveal({ url }: { url: string }) {
+export function PasswordReveal({ url, disabledReason = null }: Props) {
     const credentials = useCredentialsReveal(url, {
         hideAfterSeconds: VISIBLE_SECONDS,
     });
     const [accountPassword, setAccountPassword] = useState('');
     const [copied, setCopied] = useState(false);
+    const [announcement, setAnnouncement] = useState('');
+    const [hiddenOnce, setHiddenOnce] = useState(false);
     const shown = credentials.password !== null;
+    const wasShown = useRef(false);
 
     useEffect(() => {
-        if (!shown) {
+        if (shown) {
+            wasShown.current = true;
+            setAnnouncement(
+                `Password shown. Hidden again in ${VISIBLE_SECONDS} seconds.`,
+            );
+        } else if (wasShown.current) {
             setCopied(false);
+            setHiddenOnce(true);
+            setAnnouncement('Password hidden.');
         }
     }, [shown]);
 
@@ -49,6 +66,14 @@ export function PasswordReveal({ url }: { url: string }) {
             setCopied(false);
         }
     };
+
+    const status = shown
+        ? `Hidden again in ${credentials.secondsLeft ?? VISIBLE_SECONDS} seconds.`
+        : disabledReason
+          ? disabledReason
+          : hiddenOnce
+            ? 'Hidden. Show it again if you need it.'
+            : `Shown for ${VISIBLE_SECONDS} seconds after you confirm your password.`;
 
     return (
         <div className="grid gap-1.5">
@@ -71,7 +96,10 @@ export function PasswordReveal({ url }: { url: string }) {
                     type="button"
                     variant="ghost"
                     size="sm"
-                    disabled={credentials.processing}
+                    disabled={credentials.processing || Boolean(disabledReason)}
+                    aria-describedby={
+                        disabledReason ? 'password-reveal-status' : undefined
+                    }
                     onClick={() =>
                         shown ? credentials.hide() : void credentials.reveal()
                     }
@@ -80,29 +108,37 @@ export function PasswordReveal({ url }: { url: string }) {
                     {shown ? 'Hide' : 'Show password'}
                 </Button>
             </div>
-            {shown && credentials.secondsLeft !== null && (
-                <p className="text-xs text-muted-foreground" aria-live="polite">
-                    Hidden again in {credentials.secondsLeft} s.
-                </p>
-            )}
+            {/* Always rendered, so the row keeps its height when the password appears or hides. */}
+            <p
+                id="password-reveal-status"
+                className="min-h-4 text-xs text-muted-foreground"
+            >
+                {status}
+            </p>
+            <span className="sr-only" aria-live="polite">
+                {announcement}
+            </span>
             {!credentials.needsConfirmation && (
                 <InputError message={credentials.error ?? undefined} />
             )}
 
             <FormDialog
                 open={credentials.needsConfirmation && !credentials.noPassword}
-                onOpenChange={(open) =>
-                    !open && credentials.cancelConfirmation()
-                }
+                onOpenChange={(open) => {
+                    if (!open) {
+                        credentials.cancelConfirmation();
+                        setAccountPassword('');
+                    }
+                }}
                 title="Confirm your password"
-                description="Showing your hosting password needs your account password. Each time it is shown is recorded."
+                description="Showing this password needs your account password. Each time it is shown is recorded in the activity log."
                 submitLabel="Confirm and show"
                 processing={credentials.processing}
                 disabled={accountPassword === ''}
                 onSubmit={() => {
                     void credentials
                         .confirm(accountPassword)
-                        .then(() => setAccountPassword(''));
+                        .then((accepted) => accepted && setAccountPassword(''));
                 }}
             >
                 <Field
@@ -133,9 +169,9 @@ export function PasswordReveal({ url }: { url: string }) {
                     <DialogHeader>
                         <DialogTitle>Set a password to continue</DialogTitle>
                         <DialogDescription>
-                            Showing your hosting password needs your account
-                            password, and your account has none yet. We can
-                            email you a link to set one; then try again.
+                            Showing this password needs your account password,
+                            and your account has none yet. We can email you a
+                            link to set one; then try again.
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>

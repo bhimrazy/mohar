@@ -106,7 +106,11 @@ export function useCredentialsReveal(
                 setError(
                     response.status === 422 && body.message
                         ? body.message
-                        : 'Could not reveal the password.',
+                        : response.status === 419 || response.status === 401
+                          ? 'Your session expired. Reload the page, log in again if asked, and try again.'
+                          : response.status === 403 || response.status === 404
+                            ? "You can't see this service's password from this account. Reload the page to check your access."
+                            : 'Could not show the password. Reload the page and try again; if it keeps failing, contact support.',
                 );
 
                 return;
@@ -116,14 +120,15 @@ export function useCredentialsReveal(
             setPassword(data.password);
         } catch {
             setError(
-                'Could not reveal the password. Check your connection and try again.',
+                'Could not show the password. Check your connection and try again.',
             );
         } finally {
             setProcessing(false);
         }
     };
 
-    const confirm = async (accountPassword: string) => {
+    /** Confirms the account password, then reveals. Resolves true when the password was accepted. */
+    const confirm = async (accountPassword: string): Promise<boolean> => {
         setProcessing(true);
         setError(null);
 
@@ -137,13 +142,14 @@ export function useCredentialsReveal(
                 setError(
                     response.status === 422
                         ? 'The password is incorrect.'
-                        : response.status === 403
-                          ? // Staff signed in as a client cannot confirm the client's password (impersonation).
-                            "Staff signed in as a client can't reveal service passwords. Use the admin service page instead."
-                          : 'Could not confirm your password. Try again.',
+                        : response.status === 419 || response.status === 401
+                          ? 'Your session expired. Reload the page, log in again if asked, and try again.'
+                          : response.status === 429
+                            ? 'Too many attempts. Wait a minute, then try again.'
+                            : 'Could not confirm your password. Reload the page and try again.',
                 );
 
-                return;
+                return false;
             }
 
             setNeedsConfirmation(false);
@@ -152,12 +158,14 @@ export function useCredentialsReveal(
                 'Could not confirm your password. Check your connection and try again.',
             );
 
-            return;
+            return false;
         } finally {
             setProcessing(false);
         }
 
         await reveal();
+
+        return true;
     };
 
     return {

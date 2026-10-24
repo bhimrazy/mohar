@@ -64,6 +64,7 @@ use App\Modules\Notifications\Webhooks\WebhookUrlGuard;
 use App\Support\Currencies\MoneyFormatter;
 use Closure;
 use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
+use Illuminate\Support\Facades\Route;
 use Throwable;
 
 /**
@@ -239,8 +240,30 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         $this->staffMail($event->outcomeUnknown ? 'staff.provisioning_unknown' : 'staff.provisioning_failed', StaffCategory::System, [
             ...$this->context->client($event->clientId),
             ...$this->context->service($event->serviceId),
-            'failure' => ['action' => $event->action, 'error' => $event->error],
+            'failure' => [
+                'action' => $event->action,
+                'action_label' => self::provisioningActionLabel($event->action),
+                'error' => $event->error,
+                // Named route, not a Services class: Notifications works without Services loaded.
+                'log_url' => Route::has('admin.services.module-log.index') ? route('admin.services.module-log.index') : null,
+            ],
         ], $event, $event->clientId, 'service', $event->serviceId);
+    }
+
+    /**
+     * The provisioning command in words for staff mail ("creating the account"); unknown commands read as their key.
+     */
+    private static function provisioningActionLabel(string $action): string
+    {
+        return match ($action) {
+            'create' => __('creating the account'),
+            'suspend' => __('suspending the account'),
+            'unsuspend' => __('unsuspending the account'),
+            'terminate' => __('terminating the account'),
+            'change_package' => __('changing the package'),
+            'change_password' => __('changing the password'),
+            default => str_replace('_', ' ', $action),
+        };
     }
 
     public function serviceSuspended(ServiceSuspended $event): void

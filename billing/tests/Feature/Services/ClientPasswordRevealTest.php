@@ -56,7 +56,8 @@ test('the service page offers the reveal but never carries the password', functi
     $page = $this->get(route('client.services.show', $this->service->id))
         ->assertInertia(fn (Assert $page) => $page->component('client/services/show')
             ->missing('service.password')
-            ->where('can.revealPassword', true));
+            ->where('can.revealPassword', true)
+            ->where('revealBlockedReason', null));
 
     expect($page->getContent())->not->toContain('Hosting-Secret-91');
 });

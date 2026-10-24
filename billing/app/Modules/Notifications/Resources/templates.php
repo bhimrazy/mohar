@@ -717,19 +717,19 @@ The {{ failure.action }} action failed for {{ client.full_name }}'s {{ service.p
 
 [Open service]({{ service.admin_url }})
 MD),
-    $staff('staff.provisioning_unknown', 'Provisioning outcome unknown', 'Checking the outcome: {{ service.product_name }} ({{ failure.action }})', <<<'MD'
+    $staff('staff.provisioning_unknown', 'Provisioning outcome unknown', 'Checking the outcome: {{ failure.action_label }} for {{ service.product_name }}', <<<'MD'
 # Outcome unknown, being checked
 
-The {{ failure.action }} action for {{ client.full_name }}'s {{ service.product_name }} got no clear answer from the server. It may have completed, so it is not retried.
+The server gave no clear answer while {{ failure.action_label }} for {{ client.full_name }}'s {{ service.product_name }}. It may have completed, so it is not retried.
 
 | Service | {{ service.product_name }} |
 |---|---|
 | Domain | {{ service.domain | default('—') }} |
 | Details | {{ failure.error }} |
 
-Where the server can be checked, it is checked automatically for the next hour, and a confirmed result is applied without another email. Until then the entry stays in the module queue, where you can check it yourself.
+Where the server can be checked, it is checked automatically for the next hour, and a confirmed result is applied without another email. Until then the entry stays open in the Module log, where you can check it yourself.
 
-[Open service]({{ service.admin_url }})
+{% if failure.log_url %}[Open the Module log]({{ failure.log_url }}){% else %}[Open service]({{ service.admin_url }}){% endif %}
 MD),
     $staff('staff.registrar_action_failed', 'Registrar action failed', 'Registrar action failed: {{ domain.domain }}', <<<'MD'
 # Registrar action failed

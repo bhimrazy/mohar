@@ -122,7 +122,12 @@ class ServiceActionController extends Controller
         } catch (DecryptException $exception) {
             report($exception);
 
-            return response()->json(['message' => __('The stored password could not be read. Please contact support.')], 422)->header('Cache-Control', 'no-store, private');
+            // Point to the fix on this page when the panel lets the client set a password.
+            $message = $presenter->driver($model) instanceof ChangesPassword
+                ? __('The stored password could not be read. Set a new one with Change password on this page.')
+                : __('The stored password could not be read. Contact support and we will set a new one.');
+
+            return response()->json(['message' => $message], 422)->header('Cache-Control', 'no-store, private');
         }
 
         $activity->log('Service password revealed in the client area', $model, $model->client_id);

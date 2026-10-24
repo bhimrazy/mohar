@@ -219,7 +219,9 @@ Password row with "Show password". The value is fetched on demand from `POST cli
 request needs `password.recent` (ADR 0018 §4; a login without a password is offered "Set a password"), the services area
 of the account (owner, or a user granted `services`), and is limited to 5 reveals per 10 minutes per login across all
 services. Each reveal writes "Service password revealed in the client area" to the activity log (who, which service,
-when; never the value). Panels that sign in only by SSO store no password, so the row is not shown. **MUST**
+when; never the value). Panels that sign in only by SSO store no password, so the row is not shown. Staff signed in as the client
+see the action disabled with the reason (they cannot confirm the client's password). The admin reveal uses the same
+row: same words, 60 seconds, copy button. **MUST**
 
 ## 13. Events emitted
 
