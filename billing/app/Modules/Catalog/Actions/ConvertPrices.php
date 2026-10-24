@@ -5,6 +5,7 @@ namespace App\Modules\Catalog\Actions;
 use App\Contracts\Currencies\PriceConverter;
 use App\Data\Currencies\PriceChange;
 use App\Data\Currencies\PriceConversionPreview;
+use App\Events\Catalog\ProductPriceChanged;
 use App\Modules\Catalog\Models\Addon;
 use App\Modules\Catalog\Models\ConfigOptionValue;
 use App\Modules\Catalog\Models\Price;
@@ -23,7 +24,8 @@ use Illuminate\Support\Facades\DB;
  * Regenerate non-default-currency price rows from the default currency: exchange rate, the currency's FX
  * buffer and rounding rule (Currency::priceFromDefault()). Rows staff set manually are skipped, and enabled
  * converted rows whose default-currency source is gone are turned off. Only rows that change are written,
- * so a run with unchanged rates writes nothing. Existing services keep their stored recurring amounts.
+ * so a run with unchanged rates writes nothing. Existing services keep their stored recurring amounts. Every
+ * row written or turned off dispatches ProductPriceChanged once the run commits, like a manual price edit.
  */
 class ConvertPrices implements PriceConverter
 {
@@ -64,22 +66,34 @@ class ConvertPrices implements PriceConverter
         $written = 0;
         $disabled = 0;
         $default = Currency::default();
+        $events = [];
 
-        DB::transaction(function () use (&$written, &$disabled, $default): void {
-            $written = $this->plan($default, function (?Price $existing, Price $source, Currency $currency, int $amount, int $setupFee): void {
+        DB::transaction(function () use (&$written, &$disabled, &$events, $default): void {
+            $written = $this->plan($default, function (?Price $existing, Price $source, Currency $currency, int $amount, int $setupFee) use (&$events): void {
                 $attributes = ['enabled' => $source->enabled, 'amount' => $amount, 'setup_fee' => $setupFee];
+                $old = $existing?->amount;
 
                 if ($existing === null) {
                     Price::query()->create(['priceable_type' => $source->priceable_type, 'priceable_id' => $source->priceable_id, 'currency' => $currency->code, 'cycle' => $source->cycle, ...$attributes]);
                 } else {
                     $existing->update($attributes);
                 }
+
+                $events[] = [$source->priceable_type, $source->priceable_id, $currency->code, $source->cycle->value, $old, $amount];
             });
 
-            $disabled = $this->orphans($default)->update(['enabled' => false]);
+            $orphans = $this->orphans($default);
+            $orphans->clone()->orderBy('id')->each(function (Price $price) use (&$events): void {
+                $events[] = [$price->priceable_type, $price->priceable_id, $price->currency, $price->cycle->value, $price->amount, null];
+            });
+            $disabled = $orphans->update(['enabled' => false]);
         });
 
         $this->activity->log('Prices converted from the default currency', null, null, ['written' => $written, 'disabled' => $disabled, 'currency' => $default->code]);
+
+        foreach ($events as [$type, $id, $currency, $cycle, $old, $new]) {
+            ProductPriceChanged::dispatch($type, $id, $currency, $cycle, $old, $new);
+        }
 
         return $written + $disabled;
     }

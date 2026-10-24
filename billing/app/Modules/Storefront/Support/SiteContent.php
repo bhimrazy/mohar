@@ -2,6 +2,8 @@
 
 namespace App\Modules\Storefront\Support;
 
+use App\Support\Countries;
+
 /**
  * The website content schema (version 1): what the host controls in Admin → Website. Stored per revision as JSON;
  * normalise() is the only way content is read, so unknown keys are dropped and missing ones take defaults.
@@ -45,7 +47,7 @@ final class SiteContent
             'header' => ['products' => 'auto', 'menu_label' => 'Hosting'],
             'seo' => ['title' => '', 'description' => '', 'noindex' => false],
             'legal' => ['terms_url' => '', 'privacy_url' => '', 'refund_url' => ''],
-            'prices' => ['tax_inclusive' => [], 'notes' => []],
+            'prices' => ['tax_inclusive' => [], 'notes' => [], 'markets' => []],
         ];
     }
 
@@ -97,6 +99,13 @@ final class SiteContent
         $result['trust_facts'] = array_values(array_filter($result['trust_facts'], is_array(...)));
         $result['featured']['group_ids'] = array_values(array_map(intval(...), (array) $result['featured']['group_ids']));
         $result['prices']['tax_inclusive'] = array_values(array_filter((array) $result['prices']['tax_inclusive'], is_string(...)));
+        // Currency => ISO country its prices are for; '' means sold across markets. A currency not listed uses the
+        // storefront.tax_markets default.
+        $result['prices']['markets'] = array_filter(
+            (array) $result['prices']['markets'],
+            fn (mixed $country, mixed $code): bool => is_string($code) && is_string($country) && ($country === '' || Countries::exists($country)),
+            ARRAY_FILTER_USE_BOTH,
+        );
         $result['prices']['notes'] = array_filter((array) $result['prices']['notes'], fn (mixed $note): bool => is_string($note) && trim($note) !== '');
 
         return $result;

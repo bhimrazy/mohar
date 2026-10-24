@@ -56,6 +56,13 @@ class ProductProvisioningRequest extends FormRequest
         return $product instanceof Product ? $product->driver_config : null;
     }
 
+    protected function storedDriver(): ?string
+    {
+        $product = $this->route('product');
+
+        return $product instanceof Product ? $product->provisioning_driver : null;
+    }
+
     /**
      * @return array{provisioning_driver: string, server_group_id: ?int, driver_config: array<string, string>}
      */

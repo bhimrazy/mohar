@@ -12,6 +12,7 @@ import type { ReactNode } from 'react';
 import CartController from '@/actions/App/Modules/Orders/Http/Controllers/Public/CartController';
 import StoreController from '@/actions/App/Modules/Orders/Http/Controllers/Public/StoreController';
 import { Field } from '@/components/app/field';
+import { CurrencyUnavailable } from '@/components/orders/currency-unavailable';
 import { Money } from '@/components/app/money';
 import { SectionCard } from '@/components/app/section-card';
 import InputError from '@/components/input-error';
@@ -65,6 +66,8 @@ type Props = {
     };
     currency: string;
     cycles: PriceRow[];
+    /** Other currencies this product can be bought in; only filled when it has no price in `currency`. */
+    sold_in: string[];
     config_options: ConfigOption[];
     addons: Addon[];
     custom_fields: CustomField[];
@@ -192,6 +195,7 @@ export default function Configure({
     product,
     currency,
     cycles,
+    sold_in: soldIn,
     config_options: configOptions,
     addons,
     custom_fields: customFields,
@@ -305,6 +309,7 @@ export default function Configure({
         );
 
     const monthlyRow = priceFor(cycles, 'monthly');
+    const unavailable = cycles.length === 0;
 
     return (
         <>
@@ -342,6 +347,13 @@ export default function Configure({
                     </header>
 
                     <InputError message={errors.product_id} />
+
+                    {unavailable && (
+                        <CurrencyUnavailable
+                            title={`${product.name} is not sold in ${currency}`}
+                            soldIn={soldIn}
+                        />
+                    )}
 
                     <SectionCard
                         title="Billing cycle"
@@ -976,11 +988,21 @@ export default function Configure({
                                 type="submit"
                                 className="w-full"
                                 size="lg"
-                                disabled={form.processing || !product.in_stock}
+                                disabled={
+                                    form.processing ||
+                                    !product.in_stock ||
+                                    unavailable
+                                }
                             >
                                 {form.processing && <Spinner />}
                                 {editing ? 'Update cart' : 'Add to cart'}
                             </Button>
+                            {unavailable && (
+                                <p className="mt-2 text-center text-sm text-muted-foreground">
+                                    Not sold in {currency}, so it can’t be added
+                                    to the cart.
+                                </p>
+                            )}
                             {!product.in_stock && (
                                 <p className="mt-2 text-center text-sm text-muted-foreground">
                                     This product is out of stock.

@@ -2,6 +2,7 @@ import { Form, Link } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import { Check, Globe, Search } from 'lucide-react';
 import { Money } from '@/components/app/money';
+import { CurrencyUnavailable } from '@/components/orders/currency-unavailable';
 import { StorefrontHero } from '@/components/orders/storefront-hero';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,8 @@ import type { PriceRow, StoreGroup, StoreProduct } from '@/types/orders';
 type Props = {
     groups: StoreGroup[];
     currency: string;
+    /** Other currencies with products to buy; only filled when the store is empty in `currency`. */
+    sold_in: string[];
     /** A domain the visitor already owns, carried from the domain search into "Use a domain I own". */
     existingDomain: string | null;
 };
@@ -158,6 +161,7 @@ function ProductCard({
 export default function StoreIndex({
     groups,
     currency,
+    sold_in: soldIn,
     existingDomain,
 }: Props) {
     const visible = groups.filter((group) => group.products.length > 0);
@@ -213,9 +217,10 @@ export default function StoreIndex({
                 )}
 
                 {visible.length === 0 && (
-                    <p className="text-center text-muted-foreground">
-                        No products are available in {currency} right now.
-                    </p>
+                    <CurrencyUnavailable
+                        title={`No products are priced in ${currency}`}
+                        soldIn={soldIn}
+                    />
                 )}
 
                 {visible.map((group) => (

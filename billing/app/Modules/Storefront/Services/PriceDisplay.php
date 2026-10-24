@@ -8,8 +8,8 @@ use App\Enums\BillableType;
 
 /**
  * How prices read on public pages in one currency (spec §5.4): with or without tax, and the tax statement shown under
- * every price group and in the footer. Each currency is priced for its own market (`storefront.tax_markets`: NPR for
- * Nepal, INR for India), and the rates come from Billing's tax rules for that country: "+13% VAT at checkout" for NPR,
+ * every price group and in the footer. Each currency is priced for its own market (set per currency in Admin → Website
+ * → Prices and tax; `storefront.tax_markets` is the default: NPR for Nepal, INR for India), and the rates come from Billing's tax rules for that country: "+13% VAT at checkout" for NPR,
  * "+18% GST at checkout" for INR. A currency sold across markets (USD) gets the neutral statement. Showing prices with
  * tax is a per-currency choice, off by default; when Billing already prices tax-inclusive, amounts are shown as they
  * are. Until the TaxDisplay contract (spec K6) exists this probes TaxCalculator with one taxable line.
@@ -26,10 +26,11 @@ class PriceDisplay
      */
     public function forCurrency(string $currency, array $content): array
     {
-        [$taxes, $total] = $this->taxes($currency);
+        $market = self::market($currency, $content);
+        [$taxes, $total] = $this->taxes($currency, $market);
         // Customers know the market's tax by its family name (GST, whether Billing applies IGST or CGST + SGST); a
         // market without one in storefront.tax_families shows Billing's rule names.
-        $family = config('storefront.tax_families.'.config('storefront.tax_markets.'.strtoupper($currency)));
+        $family = config('storefront.tax_families.'.$market);
         $label = is_string($family) && $family !== ''
             ? $this->percent(array_sum(array_column($taxes, 'rate'))).' '.$family
             : implode(' + ', array_map(fn (array $tax): string => $this->percent($tax['rate']).' '.$tax['name'], $taxes));
@@ -52,6 +53,20 @@ class PriceDisplay
     }
 
     /**
+     * The country a currency is priced for: the host's choice in the site content ('' = sold across markets), else the
+     * `storefront.tax_markets` default. Null when none.
+     *
+     * @param  array<string, mixed>  $content  normalised site content
+     */
+    public static function market(string $currency, array $content): ?string
+    {
+        $currency = strtoupper($currency);
+        $chosen = $content['prices']['markets'][$currency] ?? config('storefront.tax_markets.'.$currency);
+
+        return is_string($chosen) && $chosen !== '' ? $chosen : null;
+    }
+
+    /**
      * An amount as visitors see it under the display (minor units, rounded half up).
      *
      * @param  array{multiplier: int}  $display
@@ -64,15 +79,9 @@ class PriceDisplay
     /**
      * @return array{0: list<array{name: string, rate: float}>, 1: int} taxes that apply, and the total on BASE
      */
-    private function taxes(string $currency): array
+    private function taxes(string $currency, ?string $country): array
     {
-        if (! app()->bound(TaxCalculator::class)) {
-            return [[], self::BASE];
-        }
-
-        $country = config('storefront.tax_markets.'.strtoupper($currency));
-
-        if (! is_string($country) || $country === '') {
+        if ($country === null || ! app()->bound(TaxCalculator::class)) {
             return [[], self::BASE];
         }
 
