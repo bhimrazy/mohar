@@ -7,6 +7,7 @@ import { Field } from '@/components/app/field';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
+import { CountrySelect } from '@/components/app/country-select';
 import { SelectField } from '@/components/app/select-field';
 import { SwitchField } from '@/components/app/switch-field';
 import PasswordInput from '@/components/password-input';
@@ -22,10 +23,18 @@ const SEARCHABLE = new Set(['system.timezone']);
 type SettingField = {
     key: string;
     label: string;
-    type: 'string' | 'text' | 'integer' | 'boolean' | 'select' | 'email';
+    type:
+        | 'string'
+        | 'text'
+        | 'integer'
+        | 'boolean'
+        | 'select'
+        | 'email'
+        | 'country';
     help: string | null;
     options: { value: string; label: string }[];
     secret: boolean;
+    required: boolean;
     value: unknown;
     is_set: boolean;
     locked_reason: string | null;
@@ -205,7 +214,22 @@ export default function SettingsEdit({ sections, section }: Props) {
                                                     : (help ?? undefined)
                                             }
                                         >
-                                            {field.type === 'select' ? (
+                                            {field.type === 'country' ? (
+                                                <CountrySelect
+                                                    id={id}
+                                                    value={String(value)}
+                                                    onValueChange={(next) =>
+                                                        set(field.key, next)
+                                                    }
+                                                    emptyLabel={
+                                                        field.required
+                                                            ? undefined
+                                                            : 'Not set'
+                                                    }
+                                                    disabled={disabled}
+                                                    invalid={Boolean(error)}
+                                                />
+                                            ) : field.type === 'select' ? (
                                                 <SelectField
                                                     id={id}
                                                     value={String(value)}

@@ -194,7 +194,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->make(SettingsRegistry::class)->section('company', 'Company', [
             new SettingDefinition('core.company_name', 'Company name', rules: ['required', 'max:150']),
             new SettingDefinition('core.company_email', 'Billing email address', 'email', 'Shown on invoices and used as the reply-to for client email.', rules: ['required']),
-            new SettingDefinition('core.default_country', 'Default country', help: 'Two-letter ISO code pre-selected for new clients.', rules: ['required', 'size:2', 'alpha']),
+            new SettingDefinition('core.default_country', 'Default country', 'country', 'Pre-selected for new clients.', rules: ['required']),
             new SettingDefinition('system.timezone', 'Company time zone', 'select', 'What "today" means for due dates and overdue days, and the time zone dates and times are shown in. The daily run starts at the company time set below. Changing it moves the day boundary once.', options: array_combine(RegionalDefaults::timezones(), RegionalDefaults::timezones()), rules: ['timezone:all']),
             new SettingDefinition('core.date_format', 'Date format', 'select', options: DateFormats::OPTIONS),
             new SettingDefinition('core.automation_time', 'Daily automation time', help: 'Company time (HH:MM, in the time zone above) when the daily automation pipeline runs. In a time zone with daylight saving, the run can be skipped or happen twice on the day the clocks change. Nepal has no daylight saving, so runs in Nepal time are never skipped or repeated.', rules: ['required', 'date_format:H:i']),
