@@ -10,6 +10,7 @@ use App\Modules\Catalog\Models\Product;
 use App\Modules\Catalog\Models\ProductGroup;
 use App\Modules\Core\Database\Seeders\CoreSeeder;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Notifications\Services\TemplateCatalog;
 
 beforeEach(function () {
     $this->seed(CoreSeeder::class);
@@ -40,6 +41,16 @@ it('binds demo products only to drivers and gateways that ship with the platform
 
     expect(array_diff($drivers, ['none', 'log']))->toBe([])
         ->and(array_diff($gateways, ['manual', 'bank_transfer', 'sandbox_card']))->toBe([]);
+});
+
+it('points demo products at welcome emails that exist', function () {
+    $keys = Product::query()->whereNotNull('welcome_email_key')->pluck('welcome_email_key')->unique();
+
+    expect($keys)->not->toBeEmpty();
+
+    foreach ($keys as $key) {
+        expect(app(TemplateCatalog::class)->find($key))->not->toBeNull("Missing template {$key}");
+    }
 });
 
 it('rounds seeded setup fees and option prices in NPR like converted base prices', function () {

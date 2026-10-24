@@ -952,8 +952,12 @@ export default function Configure({
                                                 ? product.name
                                                 : line.description}
                                         </span>
+                                        {/* The base price; the parts below (options, discount) add up to the total. */}
                                         <Money
-                                            amount={line.recurring}
+                                            amount={
+                                                line.breakdown[0]?.recurring ??
+                                                line.recurring
+                                            }
                                             currency={currency}
                                         />
                                     </div>

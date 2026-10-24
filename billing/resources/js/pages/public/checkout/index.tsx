@@ -1,4 +1,4 @@
-import { Link, useForm } from '@inertiajs/react';
+import { Link, useForm, usePage } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import {
     AlertTriangle,
@@ -12,6 +12,7 @@ import {
 import { useMemo, useState } from 'react';
 import CheckoutController from '@/actions/App/Modules/Orders/Http/Controllers/Public/CheckoutController';
 import { Field } from '@/components/app/field';
+import { GatewayLogo } from '@/components/billing/gateway-logo';
 import { Money } from '@/components/app/money';
 import { SectionCard } from '@/components/app/section-card';
 import InputError from '@/components/input-error';
@@ -33,6 +34,7 @@ import { cn } from '@/lib/utils';
 import store from '@/routes/store';
 import type { SelectOption } from '@/types/app';
 import type { PricedCart } from '@/types/orders';
+import type { PaymentMark } from '@/types/storefront';
 
 type Props = {
     cart: PricedCart;
@@ -78,6 +80,10 @@ export default function Checkout({
     support_email: supportEmail,
     login_url: loginUrl,
 }: Props) {
+    // Official logos come from the public layout's accepted-payment marks, matched by gateway key.
+    const { site } = usePage<{ site?: { payments?: PaymentMark[] } }>().props;
+    const logoFor = (key: string) =>
+        site?.payments?.find((mark) => mark.key === key)?.logo ?? null;
     const [mode, setMode] = useState<'register' | 'login'>('register');
     const form = useForm<CheckoutForm>({
         payment_gateway: gateways[0]?.value ?? '',
@@ -367,7 +373,11 @@ export default function Checkout({
                                             }
                                             className="size-4 accent-primary"
                                         />
-                                        {gateway.label}
+                                        <GatewayLogo
+                                            name={gateway.label}
+                                            logo={logoFor(gateway.value)}
+                                            className="h-7 max-w-24"
+                                        />
                                     </label>
                                 ))}
                             </div>

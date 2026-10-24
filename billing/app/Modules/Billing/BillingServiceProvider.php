@@ -230,14 +230,14 @@ class BillingServiceProvider extends ModuleServiceProvider
         $navigation->add('admin', new NavItem('Transactions', 'admin.billing.transactions.index', 'ArrowLeftRight', 'Billing', 20, 'billing.transactions.view', 'admin.billing.transactions.*'));
         $navigation->add('admin', new NavItem('Quotes', 'admin.billing.quotes.index', 'ClipboardList', 'Billing', 30, 'billing.quotes.view', 'admin.billing.quotes.*'));
         $navigation->add('admin', new NavItem('Account credit', 'admin.billing.credit.index', 'Wallet', 'Billing', 40, 'billing.credit.manage', 'admin.billing.credit.*'));
-        $navigation->add('admin', new NavItem('Gateways', 'admin.billing.gateways.index', 'CreditCard', 'Setup', 40, 'billing.gateways.manage', 'admin.billing.gateways.*'));
+        $navigation->add('admin', new NavItem('Gateways', 'admin.billing.gateways.index', 'CreditCard', 'Setup', 33, 'billing.gateways.manage', 'admin.billing.gateways.*'));
         if (config('features.billing.nepal_vat_mode')) {
-            $navigation->add('admin', new NavItem('Nepal VAT', 'admin.billing.vat-mode.edit', 'FileText', 'Setup', 44, 'billing.tax.manage', 'admin.billing.vat-mode.*'));
+            $navigation->add('admin', new NavItem('Nepal VAT', 'admin.billing.vat-mode.edit', 'FileText', 'Setup', 32, 'billing.tax.manage', 'admin.billing.vat-mode.*'));
         }
-        $navigation->add('admin', new NavItem('Tax rules', 'admin.billing.tax-rules.index', 'Percent', 'Setup', 41, 'billing.tax.manage', 'admin.billing.tax-rules.*'));
+        $navigation->add('admin', new NavItem('Tax rules', 'admin.billing.tax-rules.index', 'Percent', 'Setup', 31, 'billing.tax.manage', 'admin.billing.tax-rules.*'));
         $navigation->add('admin', new NavItem('VAT register', 'admin.billing.vat-register.index', 'BookOpen', 'Billing', 45, 'reports.vat_register.view', 'admin.billing.vat-register.*'));
         $navigation->add('admin', new NavItem('Payment attempts', 'admin.billing.payment-attempts.index', 'Activity', 'Billing', 50, 'billing.payments.manage', 'admin.billing.payment-attempts.*'));
-        $navigation->add('admin', new NavItem('Gateway log', 'admin.billing.gateway-log.index', 'Webhook', 'Setup', 42, 'billing.gateway_log.view', 'admin.billing.gateway-log.*'));
+        $navigation->add('admin', new NavItem('Gateway log', 'admin.billing.gateway-log.index', 'Webhook', 'Setup', 92, 'billing.gateway_log.view', 'admin.billing.gateway-log.*'));
 
         $navigation->add('client', new NavItem('Invoices', 'client.invoices.index', 'Receipt', 'Billing', 10, activePattern: 'client.invoices.*'));
         $navigation->add('client', new NavItem('Quotes', 'client.quotes.index', 'ClipboardList', 'Billing', 20, activePattern: 'client.quotes.*'));

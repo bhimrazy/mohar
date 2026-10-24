@@ -102,10 +102,10 @@ class CatalogServiceProvider extends ModuleServiceProvider
     private function registerNavigation(): void
     {
         $navigation = $this->app->make(Navigation::class);
-        $navigation->add('admin', new NavItem('Products', 'admin.catalog.products.index', 'Package', 'Setup', 10, 'catalog.products.view', 'admin.catalog.products.*'));
-        $navigation->add('admin', new NavItem('Product groups', 'admin.catalog.groups.index', 'Boxes', 'Setup', 11, 'catalog.products.view', 'admin.catalog.groups.*'));
-        $navigation->add('admin', new NavItem('Configurable options', 'admin.catalog.option-groups.index', 'SlidersHorizontal', 'Setup', 12, 'catalog.options.view', 'admin.catalog.option-groups.*'));
-        $navigation->add('admin', new NavItem('Addons', 'admin.catalog.addons.index', 'Puzzle', 'Setup', 13, 'catalog.addons.view', 'admin.catalog.addons.*'));
+        $navigation->add('admin', new NavItem('Products', 'admin.catalog.products.index', 'Package', 'Setup', 20, 'catalog.products.view', 'admin.catalog.products.*'));
+        $navigation->add('admin', new NavItem('Product groups', 'admin.catalog.groups.index', 'Boxes', 'Setup', 21, 'catalog.products.view', 'admin.catalog.groups.*'));
+        $navigation->add('admin', new NavItem('Configurable options', 'admin.catalog.option-groups.index', 'SlidersHorizontal', 'Setup', 22, 'catalog.options.view', 'admin.catalog.option-groups.*'));
+        $navigation->add('admin', new NavItem('Addons', 'admin.catalog.addons.index', 'Puzzle', 'Setup', 23, 'catalog.addons.view', 'admin.catalog.addons.*'));
     }
 
     private function registerPermissions(): void
