@@ -4,6 +4,7 @@ namespace App\Modules\Platform\Actions\Housekeeping;
 
 use App\Contracts\Core\CompanyClock;
 use App\Modules\Core\Models\AutomationRun;
+use App\Modules\Core\Support\AutomationLogRetention;
 use App\Modules\Core\Support\ChunkedDelete;
 use App\Modules\Core\Support\Settings;
 use App\Support\CalendarDate;
@@ -15,22 +16,19 @@ use Illuminate\Support\Facades\DB;
  */
 class PruneSystemTables
 {
-    public const AUTOMATION_LOG_MIN_DAYS = 90;
-
     public const FAILED_JOBS_MIN_DAYS = 7;
 
-    public function __construct(private Settings $settings, private CompanyClock $clock) {}
+    public function __construct(private Settings $settings, private CompanyClock $clock, private AutomationLogRetention $retention) {}
 
     /**
-     * Automation runs older than the retention period; each task's latest run is kept, because the automation page
-     * shows it. Reads automation_runs_run_date_task_unique.
+     * Automation runs of dates `automation:run` no longer accepts (AutomationLogRetention); each task's latest run is
+     * kept, because the automation page shows it. The table is small: the plan is the primary key with a hashed
+     * max(id) per task.
      */
     public function automationLog(CalendarDate $today): int
     {
-        $days = max(self::AUTOMATION_LOG_MIN_DAYS, (int) $this->settings->get('platform.automation_log_retention_days', 365));
-
         return ChunkedDelete::run(AutomationRun::query()
-            ->whereDate('run_date', '<', $today->addDays(-$days)->toString())
+            ->where('run_date', '<', $this->retention->oldestRunDate($today)->toString())
             ->whereNotIn('id', AutomationRun::query()->selectRaw('max(id)')->groupBy('task')));
     }
 

@@ -5,6 +5,7 @@ namespace App\Modules\Core\Console\Commands;
 use App\Contracts\Core\CompanyClock;
 use App\Events\Core\AutomationRunCompleted;
 use App\Modules\Core\Models\AutomationRun;
+use App\Modules\Core\Support\AutomationLogRetention;
 use App\Support\Automation\Automation;
 use App\Support\CalendarDate;
 use App\Support\Integrations\Redactor;
@@ -66,9 +67,20 @@ class RunAutomation extends Command
             return self::FAILURE;
         }
 
-        $failed = false;
+        $today = $clock->calendarDate();
+        $oldest = app(AutomationLogRetention::class)->oldestRunDate($today);
 
-        foreach (array_keys($automation->ordered()) as $key) {
+        // Older run rows are pruned, so such a date would run every task again (ADR 0013 Amendment (#460)).
+        if ($date->isBefore($oldest)) {
+            $this->components->error("Run dates before {$oldest} are past the automation log retention and cannot be run.");
+
+            return self::FAILURE;
+        }
+
+        $failed = false;
+        $tasks = $automation->ordered();
+
+        foreach (array_keys($tasks) as $key) {
             if ($this->option('only') && $this->option('only') !== $key) {
                 continue;
             }
@@ -85,7 +97,8 @@ class RunAutomation extends Command
             $started = hrtime(true);
 
             try {
-                $summary = $automation->run($key, $date);
+                // A future run date never widens a housekeeping cutoff: those tasks run as of today.
+                $summary = $automation->run($key, $tasks[$key]['stage'] === Automation::HOUSEKEEPING && $date->isAfter($today) ? $today : $date);
                 $run->fill(['status' => 'success', 'summary' => is_scalar($summary) ? (string) $summary : null]);
                 $this->components->twoColumnDetail($key, '<fg=green>'.($run->summary ?? 'done').'</>');
             } catch (Throwable $exception) {

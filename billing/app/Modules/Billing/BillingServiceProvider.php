@@ -400,7 +400,6 @@ class BillingServiceProvider extends ModuleServiceProvider
             new SettingDefinition('billing.gateways.late_lookups_per_run', 'Hosted payments: late checks per hourly run', 'integer', 'At most this many closed payments are looked up each hour (1 to 1,000).', rules: ['min:1', 'max:1000']),
             $int('gateways.http_timeout_seconds', 'Gateway HTTP timeout (seconds)'),
             $int('gateways.ambiguous_alert_minutes', 'Alert staff about unresolved payments after (minutes)'),
-            new SettingDefinition('billing.gateways.log_retention_days', 'Keep the gateway log for (days)', 'integer', 'Gateway requests, responses and callbacks older than this are deleted by the daily automation (90 to 3,650).', rules: ['min:90', 'max:3650']),
             $bool('quotes.require_tos', 'Quotes require accepting terms'),
             $bool('quotes.auto_invoice_on_accept', 'Invoice quotes automatically on acceptance'),
             $int('quotes.valid_days', 'Default quote validity (days)'),
@@ -408,6 +407,12 @@ class BillingServiceProvider extends ModuleServiceProvider
             $bool('pdf.attach_to_emails', 'Attach PDFs to invoice emails'),
             new SettingDefinition('billing.pdf.paper', 'PDF paper size', 'select', options: ['A4' => 'A4', 'letter' => 'Letter']),
         ], 'billing.settings.manage');
+
+        // Shortening it deletes payment evidence, so it sits in the security tier (recent password), like the
+        // activity log retention.
+        $this->app->make(SettingsRegistry::class)->section('billing_retention', 'Payment log retention', [
+            new SettingDefinition('billing.gateways.log_retention_days', 'Keep the gateway log for (days)', 'integer', 'Gateway requests, responses and callbacks older than this are deleted by the daily automation (90 to 3,650).', rules: ['min:90', 'max:3650']),
+        ], 'core.settings.security');
     }
 
     private function registerSearch(): void

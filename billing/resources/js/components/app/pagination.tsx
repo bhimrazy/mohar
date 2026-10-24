@@ -194,10 +194,11 @@ export function SimplePagination({
 }: SimplePaginationProps) {
     const { hrefWith } = useQueryParams();
     const meta = 'meta' in paginator ? paginator.meta : paginator;
+    // A missing link (undefined) means no next page, like null.
     const hasNext =
         ('meta' in paginator
             ? paginator.links.next
-            : paginator.next_page_url) !== null;
+            : paginator.next_page_url) != null;
     const { current_page: current, from, to } = meta;
 
     if (from === null && current === 1) {

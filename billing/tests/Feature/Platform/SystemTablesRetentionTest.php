@@ -83,9 +83,10 @@ test('expired database cache entries and locks are deleted; live ones are kept',
 test('the retention settings are validated', function () {
     actingAsStaff(['core.settings.security']);
 
-    $this->withSession(['auth.password_confirmed_at' => time()])
-        ->put(route('admin.platform.settings.update', 'security'), ['platform.automation_log_retention_days' => 30, 'platform.failed_jobs_retention_days' => 3])
-        ->assertSessionHasErrors(['platform.automation_log_retention_days', 'platform.failed_jobs_retention_days']);
+    confirmPassword();
+
+    $this->put(route('admin.platform.settings.update', 'security'), ['platform' => ['automation_log_retention_days' => 30, 'failed_jobs_retention_days' => 3]])
+        ->assertSessionHasErrors(['platform.automation_log_retention_days' => 'The automation log retention (days) field must be at least 90.', 'platform.failed_jobs_retention_days' => 'The failed background jobs retention (days) field must be at least 7.']);
 });
 
 test('the activity log page runs no count over the log', function () {

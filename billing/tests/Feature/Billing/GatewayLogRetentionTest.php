@@ -36,11 +36,19 @@ test('a stored retention below 90 days is read as 90', function () {
     expect(GatewayLog::query()->pluck('result')->all())->toBe(['kept']);
 });
 
-test('the retention setting is validated on save', function () {
-    actingAsStaff(['billing.settings.manage']);
+test('the retention setting is in the security tier: its permission, a recent password, and validation', function () {
+    $payload = fn (int $days) => ['billing' => ['gateways' => ['log_retention_days' => $days]]];
+    actingAsStaff(['core.settings.security']);
+    $this->put(route('admin.platform.settings.update', 'billing_retention'), $payload(120))->assertSessionHasErrors('password_confirmation');
 
-    $this->put(route('admin.platform.settings.update', 'billing'), ['billing.gateways.log_retention_days' => 30])
-        ->assertSessionHasErrors('billing.gateways.log_retention_days');
+    confirmPassword();
+    $this->put(route('admin.platform.settings.update', 'billing_retention'), $payload(30))->assertSessionHasErrors('billing.gateways.log_retention_days');
+    $this->put(route('admin.platform.settings.update', 'billing_retention'), $payload(120))->assertSessionHasNoErrors();
+    expect(app(Settings::class)->get('billing.gateways.log_retention_days'))->toBe(120);
+
+    actingAsStaff(['billing.settings.manage']);
+    confirmPassword();
+    $this->put(route('admin.platform.settings.update', 'billing_retention'), $payload(150))->assertForbidden();
 });
 
 test('the gateway log page runs no count over the log', function () {

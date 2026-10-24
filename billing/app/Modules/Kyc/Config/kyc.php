@@ -63,4 +63,10 @@ return [
     'orphan_min_age_hours' => 24,
     'orphan_scan_limit' => 5000,
     'orphan_delete_limit' => 200,
+
+    /**
+     * Circuit breaker: a run that finds more unreferenced files than this, or any while there are no documents at all,
+     * deletes nothing and reports it (a restored database, or another install sharing the bucket).
+     */
+    'orphan_breaker' => 20,
 ];

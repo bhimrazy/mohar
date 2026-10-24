@@ -90,13 +90,13 @@ test('a file a row starts referring to after the listing is kept by the check un
 
     $deleted = app(SweepOrphanFiles::class)->handle();
 
-    // SQLite has no FOR UPDATE: there the row lands before the per-client read, and the file is kept either way.
     expect($deleted)->toBe(0)
         ->and(Storage::disk(KycDocument::DISK)->exists($path))->toBeTrue();
 })->skip(fn () => DB::connection()->getDriverName() !== 'pgsql', 'needs row locks (PostgreSQL)');
 
 test('a run deletes at most the delete limit; the rest wait for the next run', function () {
     config(['kyc.orphan_delete_limit' => 2]);
+    KycDocument::factory()->create(['client_id' => $this->client->id]); // with no documents at all the breaker stops the run
     foreach (range(1, 3) as $i) {
         kycFileAged(kycOrphanPath($this->client->id), 30);
     }
@@ -108,6 +108,7 @@ test('a run deletes at most the delete limit; the rest wait for the next run', f
 
 test('a run looks at most at the scan limit and the next run continues after the last file it looked at', function () {
     config(['kyc.orphan_scan_limit' => 2]);
+    KycDocument::factory()->create(['client_id' => $this->client->id]);
     $other = Client::factory()->create();
     $paths = [kycFileAged(kycOrphanPath($this->client->id), 30), kycFileAged(kycOrphanPath($this->client->id), 30), kycFileAged(kycOrphanPath($other->id), 30)];
 

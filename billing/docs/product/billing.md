@@ -76,7 +76,8 @@ amount, taxable (bool), tax_amount (cached), period_start, period_end, sort_orde
 - `gateways: key (driver), display_name, is_active, show_on_order_form, sort_order, convert_to_currency (nullable), config (encrypted json), timestamps`
 - `pay_methods: id, client_id, gateway, kind (card|bank|wallet), token (encrypted), brand, last4, expiry_month, expiry_year, billing_contact_id, description, is_default, failure_count, disabled_at, timestamps`. **Never** store PAN/CVV. **MUST**
 - `gateway_log: id, gateway, direction (callback|request|response), invoice_id, result, payload (redacted json), created_at`. **MUST**
-  Entries are deleted after `billing.gateways.log_retention_days` (180, at least 90) by the housekeeping task
+  Entries are deleted after `billing.gateways.log_retention_days` (180, at least 90; Settings → Payment log retention,
+  security tier with a recent password) by the housekeeping task
   `billing.gateway_log_prune`, at most 100,000 a run (#49).
 
 ### quotes / quote_items

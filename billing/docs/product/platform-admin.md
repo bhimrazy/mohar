@@ -213,7 +213,8 @@ Typed registry (`SettingDefinition: key, type, default, rules, is_secret, owner_
 - The list pages of the activity log, gateway log and module log page with previous and next only (`simplePaginate`), so
   no `count(*)` runs over the log (#49).
 - Housekeeping of the application's own tables (#49), each at most 100,000 rows a run (`ChunkedDelete::LIMIT`):
-  automation runs after `platform.automation_log_retention_days` (365, at least 90; each task keeps its latest run),
+  automation runs after `platform.automation_log_retention_days` (365, at least 90; each task keeps its latest run;
+  `automation:run --date` refuses older dates, ADR 0013 Amendment (#460)),
   failed queue jobs and finished or cancelled job batches after `platform.failed_jobs_retention_days` (30, at least 7;
   unfinished batches are kept), and expired rows of the database cache and its locks. The settings are in Settings →
   Security.

@@ -117,7 +117,11 @@ an upload whose process was killed between storing a file and writing its row sk
 is a candidate only when it is older than `kyc.orphan_min_age_hours` (24, never less) and not in the re-encoder's
 rewrite journal; references are read per client and again under the client's row lock before the delete. One run
 reads the `kyc/` listing once, checks at most `kyc.orphan_scan_limit` (5,000) files after a stored cursor and deletes
-at most `kyc.orphan_delete_limit` (200). The log has counts and client ids, never paths.
+at most `kyc.orphan_delete_limit` (200); a run stopped by that limit continues before the first file it left. Circuit
+breaker: a run that finds more than `kyc.orphan_breaker` (20) unreferenced files, or any while `kyc_documents` is
+empty (a restored database, or another install sharing the bucket), deletes nothing, reports an exception and logs a
+warning with counts. The re-check under the lock matches the stored path on any client. The log has counts and client
+ids, never paths.
 
 ## 7. Staff review
 
