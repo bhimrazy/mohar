@@ -111,6 +111,15 @@ class BillingDashboard
             'hint' => 'Paid late, or kept as credit: refund if needed',
         ], 'billing.payments.manage', 14);
 
+        $dashboard->todo('admin', 'billing.portal_refunds', fn (?User $user): array => [
+            'label' => 'Refunds made at the provider to record',
+            'count' => PaymentAttempt::toCheck([PaymentAttempt::CHECK_PORTAL_REFUND])->count(),
+            'href' => route('admin.billing.payment-attempts.index', ['check' => PaymentAttempt::CHECK_PORTAL_REFUND]),
+            'tone' => 'danger',
+            'icon' => 'CreditCard',
+            'hint' => 'Refunded in the gateway\'s portal: record the refund on the invoice, then mark it checked',
+        ], 'billing.payments.manage', 14);
+
         $dashboard->todo('admin', 'billing.reversals_review', fn (?User $user): array => [
             'label' => 'Disputes to review',
             // Also needs the Transactions page it links to (billing.transactions.view), or the link would be refused.

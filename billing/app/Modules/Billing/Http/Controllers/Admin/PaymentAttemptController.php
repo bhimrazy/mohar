@@ -27,6 +27,7 @@ class PaymentAttemptController extends Controller
             'status' => ['nullable', Rule::enum(AttemptStatus::class)],
             'gateway' => ['nullable', 'string', 'max:50'],
             'late' => ['nullable', 'boolean'],
+            'check' => ['nullable', Rule::in([PaymentAttempt::CHECK_LATE, PaymentAttempt::CHECK_CREDIT, PaymentAttempt::CHECK_REFUND, PaymentAttempt::CHECK_PORTAL_REFUND])],
         ]);
 
         return Inertia::render('admin/billing/payment-attempts/index', [
@@ -34,6 +35,7 @@ class PaymentAttemptController extends Controller
                 ->with('invoice:id,number,proforma_number')
                 ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
                 ->when($filters['gateway'] ?? null, fn ($query, $gateway) => $query->where('gateway', $gateway))
+                ->when($filters['check'] ?? null, fn ($query, $reason) => $query->where('check_reason', $reason))
                 ->when((bool) ($filters['late'] ?? false), fn ($query) => $query->where(fn ($query) => $query->whereNotNull('late_payment_at')->orWhereNotNull('check_reason')))
                 ->orderByDesc('id')
                 ->paginate(25)
