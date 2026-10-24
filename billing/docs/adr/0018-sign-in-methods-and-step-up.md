@@ -187,15 +187,23 @@ A login always keeps at least one way to sign in:
     - at password sign-in, before the two-factor challenge (`RememberValidatedLogin`) and on Fortify's fallback step
       (`SignInValidatedUser`), because the challenge signs in without the pipeline's later steps;
     - when a challenge started before the expiry is completed after it (a `ValidTwoFactorAuthenticationCodeProvided`
-      listener clears `login.id` and returns to the login page);
-    - at step-up (§4): `password.recent` treats a login with an expired one-time password as not confirmed, even in a
-      session that confirmed before the expiry, and `confirm-password` refuses it. Such a login recovers with "Forgot
-      password" or `app:admin-password`.
+      listener clears `login.id` and returns to the login page). A recovery code used there is spent: Fortify
+      replaces it before the event, and the person held both the password and the code;
+    - at every password confirmation, even in a session that confirmed before the expiry: `password.recent` (§4,
+      `recentlyConfirmed()`) and Laravel's `password.confirm` (3-hour window; `RequirePasswordUnlessExpired` is bound
+      in place of `RequirePassword`) both treat such a login as unconfirmed, and `confirm-password` refuses the
+      expired password. That covers the security page, two-factor changes and passkey registration.
+      `ExpiredPasswordConfirmationScanTest` calls every route behind either middleware;
+    - as the current password (change-password and delete-account forms).
+    - Such a login recovers with "Forgot password" or `app:admin-password`.
     - Each refusal writes `auth.password_expired` (the step only, no secret).
 - **Any password change clears it**, with the forced change, in the `User` saving hook, unless the same save sets a
   new expiry: that save writes a one-time password, so the issuer needs one save.
 - **A reissue ends the old credential's access**: `app:admin-password` rotates the remember token and deletes the
-  login's stored sessions (`LoginSessions`), and mails the administrator (`staff.password_reissued`).
+  login's stored sessions (`LoginSessions`, database session driver), and mails the administrator
+  (`staff.password_reissued`).
+- **Accepted:** a remember-me cookie or session from before the expiry still signs in after it. It can do nothing
+  that needs a confirmation or the current password, and `must_change_password` keeps it out of the admin area.
 - **The step-up download key holds a URL.** `RequireRecentPasswordConfirmation::DOWNLOAD_KEY` stores the file URL that
   sent the person to the confirm page, not a flag. The page calls itself a download only while that URL equals
   `url.intended`, and a dialog (JSON) confirm drops `url.intended` only when it is that download.

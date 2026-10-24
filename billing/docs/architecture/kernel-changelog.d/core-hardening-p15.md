@@ -6,9 +6,10 @@
 - `App\Actions\Fortify\RefuseExpiredPassword::check($user, $stage, ?$field, ?$redirectTo)` refuses an expired
   one-time password. It is called from `RememberValidatedLogin` and `SignInValidatedUser`, from the confirm-password
   callback and from a two-factor completion listener (both in `FortifyServiceProvider`).
-  `RequireRecentPasswordConfirmation::recentlyConfirmed()` is false for such a login. Rules: ADR 0018 amendment #459.
+  `RequireRecentPasswordConfirmation::recentlyConfirmed()` is false for such a login, and
+  `App\Http\Middleware\RequirePasswordUnlessExpired` is bound in place of Laravel's `RequirePassword`
+  (`password.confirm`) with the same rule. `currentPasswordRules()` refuses it as the current password. Rules: ADR
+  0018 amendment #459.
 - `RequireRecentPasswordConfirmation::DOWNLOAD_KEY` and `::confirmingDownload(Request)`. The session value changes
   from `true` to the file URL; `PasswordConfirmedResponse` and the confirm view read it through
   `confirmingDownload()`.
-- `App\Modules\Core\Support\LoginSessions` (`revoke()`, `rotateRememberToken()`), lifted from Platform's
-  `UpdateStaff`.
