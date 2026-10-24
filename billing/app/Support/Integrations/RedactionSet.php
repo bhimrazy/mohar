@@ -184,19 +184,26 @@ final class RedactionSet
 
     /**
      * One set with the values and answers of every given set (the sets of nested calls, or of calls in progress and of
-     * an exception's chain). An empty set adds nothing, and a single set is returned as it is.
+     * an exception's chain), each value once. An empty set adds nothing, and a set given more than once counts once, so
+     * a single distinct set is returned as it is.
      */
     public static function merge(self ...$sets): self
     {
-        $sets = array_values(array_filter($sets, fn (self $set): bool => ! $set->isEmpty()));
+        $distinct = [];
 
-        if (count($sets) <= 1) {
-            return $sets[0] ?? self::empty();
+        foreach ($sets as $set) {
+            if (! $set->isEmpty() && ! in_array($set, $distinct, true)) {
+                $distinct[] = $set;
+            }
+        }
+
+        if (count($distinct) <= 1) {
+            return $distinct[0] ?? self::empty();
         }
 
         return new self(
-            array_merge(...array_map(fn (self $set): array => $set->given, $sets)),
-            array_merge(...array_map(fn (self $set): array => $set->givenAnswers, $sets)),
+            array_values(array_unique(array_merge(...array_map(fn (self $set): array => $set->given, $distinct)))),
+            array_values(array_unique(array_merge(...array_map(fn (self $set): array => $set->givenAnswers, $distinct)))),
         );
     }
 

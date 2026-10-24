@@ -11,9 +11,15 @@ use App\Support\Integrations\Redactor;
 use App\Support\Logging\RedactingFailedJobProvider;
 use App\Support\Logging\RedactingProcessor;
 use App\Support\Logging\RedactLogs;
+use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Log\Logger;
+use Illuminate\Queue\Events\Looping;
+use Illuminate\Queue\Failed\CountableFailedJobProvider;
+use Illuminate\Queue\Failed\NullFailedJobProvider;
+use Illuminate\Queue\Failed\PrunableFailedJobProvider;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Monolog\Handler\HandlerInterface;
 use Monolog\Handler\TestHandler;
@@ -176,4 +182,116 @@ test('the processor path keeps the 1 MB budget', function () {
 
     expect((hrtime(true) - $started) / 1e9)->toBeLessThan(2.0)
         ->and($handler->getRecords()[0]->message)->not->toContain('v7 ');
+});
+
+/*
+ * #462 security review probes (emergency logger, nested Throwables, MessageLogged, the 128 KB line) and the log
+ * manager that taps every channel.
+ */
+
+/** Writes $write while the emergency logger points at a fresh file, and returns what it wrote. */
+function logRedactionEmergencyOutput(Closure $write): string
+{
+    $path = storage_path('logs/redaction-emergency-'.uniqid().'.log');
+    config(['logging.channels.emergency.path' => $path]);
+
+    try {
+        $write();
+
+        return (string) @file_get_contents($path);
+    } finally {
+        @unlink($path);
+    }
+}
+
+test('the emergency logger masks a channel that is not configured', function () {
+    $written = logRedactionEmergencyOutput(fn () => Log::channel('redaction_not_configured')->error('Sync failed password=EMERGENCY1'));
+
+    expect($written)->toContain('Sync failed password=[redacted]')->not->toContain('EMERGENCY1');
+});
+
+test('a channel whose tap throws falls back to the emergency logger masked', function () {
+    config(['logging.channels.redaction_broken' => [
+        'driver' => 'monolog', 'handler' => TestHandler::class, 'tap' => [RedactLogs::class, 'NoSuchTapClass'],
+    ]]);
+
+    $written = logRedactionEmergencyOutput(fn () => Log::channel('redaction_broken')->error('Sync failed token=EMERGENCY2'));
+
+    expect($written)->toContain('Sync failed token=[redacted]')->not->toContain('EMERGENCY2');
+});
+
+test('a channel added to the config without the tap, Log::build and Log::stack are masked', function () {
+    config(['logging.channels.redaction_untapped' => ['driver' => 'monolog', 'handler' => TestHandler::class]]);
+    $untapped = Log::channel('redaction_untapped')->getLogger()->getHandlers()[0];
+    $built = Log::build(['driver' => 'monolog', 'handler' => TestHandler::class]);
+    $tapped = logRedactionChannel();
+
+    Log::channel('redaction_untapped')->info('a password=UNTAPPED1');
+    $built->info('b password=BUILT1');
+    Log::stack(['redaction_probe'])->info('c password=STACK1');
+
+    expect($untapped->getRecords()[0]->message)->toBe('a password=[redacted]')
+        ->and($built->getLogger()->getHandlers()[0]->getRecords()[0]->message)->toBe('b password=[redacted]')
+        ->and(array_map(fn (LogRecord $record): string => $record->message, $tapped->getRecords()))->toBe(['c password=[redacted]']);
+});
+
+test('a Throwable nested in context is masked by shape and its attached set, and logged as class, message and place', function () {
+    $handler = logRedactionChannel();
+
+    try {
+        RedactionScope::during(RedactionSet::of(['NestedScope0042']), fn () => throw new RuntimeException('sent NestedScope0042 token=NESTED1'));
+    } catch (RuntimeException $exception) {
+        Log::channel('redaction_probe')->error('failed', ['wrapped' => ['e' => $exception]]);
+    }
+
+    $nested = $handler->getRecords()[0]->context['wrapped']['e'];
+    expect($nested)->toBe([
+        'exception' => RuntimeException::class,
+        'message' => 'sent [redacted] token=[redacted]',
+        'at' => $exception->getFile().':'.$exception->getLine(),
+    ])->and($exception->getMessage())->toBe('sent [redacted] token=[redacted]');
+});
+
+test('MessageLogged listeners see the masked message and context', function () {
+    $seen = [];
+    Event::listen(MessageLogged::class, function (MessageLogged $event) use (&$seen) {
+        $seen[] = $event->message.json_encode($event->context);
+    });
+    Log::listen(function (MessageLogged $event) use (&$seen) {
+        $seen[] = $event->message;
+    });
+    logRedactionChannel();
+
+    Log::channel('redaction_probe')->error('provider said password=LISTENER1', ['token' => 'LISTENER2']);
+
+    expect($seen)->toHaveCount(2)
+        ->and(implode('|', $seen))->toContain('provider said password=[redacted]')->not->toContain('LISTENER1')->not->toContain('LISTENER2');
+});
+
+test('a 128 KB line of masks joined by soft ends is logged in well under a second', function () {
+    $handler = logRedactionChannel();
+    $line = str_repeat('token=[redacted],', intdiv(128 * 1024, 17));
+
+    $started = hrtime(true);
+    Log::channel('redaction_probe')->info($line);
+
+    expect((hrtime(true) - $started) / 1e9)->toBeLessThan(1.0)
+        ->and($handler->getRecords()[0]->message)->toBe('token=[redacted],');
+});
+
+test('the failed-job decorator is countable and prunable only when the wrapped provider is', function () {
+    $nullProvider = RedactingFailedJobProvider::wrap(new NullFailedJobProvider, app(Redactor::class));
+
+    expect(app('queue.failer'))->toBeInstanceOf(CountableFailedJobProvider::class)->toBeInstanceOf(PrunableFailedJobProvider::class)
+        ->and($nullProvider)->toBeInstanceOf(CountableFailedJobProvider::class)->not->toBeInstanceOf(PrunableFailedJobProvider::class);
+});
+
+test('the scope is reset between a worker\'s jobs', function () {
+    RedactionScope::during(RedactionSet::of(['LeftBehind0042']), function () {
+        event(new Looping('database', 'default'));
+
+        expect(RedactionScope::current()->isEmpty())->toBeTrue();
+    });
+
+    expect(RedactionScope::current()->isEmpty())->toBeTrue();
 });

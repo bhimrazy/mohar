@@ -54,9 +54,9 @@ class GatewayLogger
      * @param  array<array-key, mixed>  $payload
      * @return array<array-key, mixed>
      */
-    public static function redact(array $payload, ?string $gateway = null): array
+    public static function redact(array $payload, string $gateway): array
     {
-        return app(Redactor::class)->redactPayment($payload, secrets: $gateway === null ? RedactionScope::current() : self::secrets($gateway));
+        return app(Redactor::class)->redactPayment($payload, secrets: self::secrets($gateway));
     }
 
     /**

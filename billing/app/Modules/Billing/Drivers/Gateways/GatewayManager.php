@@ -11,6 +11,9 @@ use App\Data\Integrations\SettingField;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
 use App\Support\Billing\SandboxPolicy;
+use App\Support\Integrations\RedactionScope;
+use App\Support\Integrations\RedactionSet;
+use Closure;
 use Illuminate\Database\Eloquent\Collection;
 use LogicException;
 
@@ -81,6 +84,21 @@ class GatewayManager implements GatewayRegistry
             'show_on_order_form' => $key !== 'manual',
             'sort_order' => array_search($key, array_keys($this->drivers), true) ?: 0,
         ]);
+    }
+
+    /**
+     * Runs a driver call for $config's gateway with its configured secrets (GatewayConfig::secrets()) in the redaction
+     * scope (ADR 0023 §5): log lines written during the call, and an exception that leaves it when it is reported or
+     * stored as a failed job, are masked by those values too. Every call a host makes to a gateway driver goes through it.
+     *
+     * @template T
+     *
+     * @param  Closure(): T  $call
+     * @return T
+     */
+    public function during(GatewayConfig $config, Closure $call): mixed
+    {
+        return RedactionScope::during(RedactionSet::of($config->secrets()), $call);
     }
 
     /**

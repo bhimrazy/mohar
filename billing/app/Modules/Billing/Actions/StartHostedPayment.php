@@ -16,6 +16,7 @@ use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Services\GatewayCharger;
 use App\Modules\Billing\Services\GatewayLogger;
 use App\Modules\Billing\Support\PaymentInProgress;
+use App\Support\Integrations\Redactor;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -82,7 +83,7 @@ class StartHostedPayment
         $snapshot = $invoice->client_snapshot ?? [];
 
         try {
-            $instruction = $driver->initiate($config, new PaymentIntent(
+            $instruction = $this->gateways->during($config, fn (): RedirectInstruction|FormPost|QrPayload => $driver->initiate($config, new PaymentIntent(
                 reference: $attempt->reference,
                 amount: $amount,
                 description: __('Invoice :number', ['number' => $invoice->displayNumber()]),
@@ -91,11 +92,11 @@ class StartHostedPayment
                 customerName: is_string($snapshot['name'] ?? null) ? $snapshot['name'] : null,
                 customerEmail: is_string($snapshot['email'] ?? null) ? $snapshot['email'] : null,
                 invoiceId: $invoice->id,
-            ));
+            )));
         } catch (Throwable $exception) {
             // Nothing was handed to the customer, so the attempt can never be paid: close it and say so plainly.
             $attempt->update(['status' => AttemptStatus::Failed, 'review_reason' => 'Provider refused to start the payment']);
-            $this->log->log($gatewayKey, 'response', 'hosted payment start failed', ['reference' => $attempt->reference, 'error' => mb_substr($exception->getMessage(), 0, 500)], $invoice->id);
+            $this->log->log($gatewayKey, 'response', 'hosted payment start failed', ['reference' => $attempt->reference, 'error' => mb_substr(app(Redactor::class)->maskValues($exception->getMessage(), GatewayLogger::secrets($gatewayKey)), 0, 500)], $invoice->id);
             report($exception);
 
             throw new BillingException(__(':gateway couldn\'t start the payment. Try again in a few minutes or use another method.', ['gateway' => $gateway->display_name]));

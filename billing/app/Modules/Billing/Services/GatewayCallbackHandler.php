@@ -106,7 +106,8 @@ class GatewayCallbackHandler
             return $this->outcome($gatewayKey, 404, 'callbacks not supported', $payload);
         }
 
-        $event = $driver->parseCallback($this->gateways->config($gateway), $request);
+        $config = $this->gateways->config($gateway);
+        $event = $this->gateways->during($config, fn (): CallbackEvent|CallbackRejection => $driver->parseCallback($config, $request));
 
         if ($event instanceof CallbackRejection) {
             return $this->outcome($gatewayKey, $event->isSignatureFailure() ? 403 : 422, $event->reason, $payload);

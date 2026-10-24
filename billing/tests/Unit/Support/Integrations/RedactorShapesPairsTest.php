@@ -151,3 +151,18 @@ test('M1 parity: the readable-on-purpose skip does not hide a value after key= o
     'query key' => ['x&key=PSKIP4444&y=1', 'PSKIP4444'],
     'capitalised next-line value' => ["password:\nHunter2:", 'Hunter2'],
 ]);
+
+/*
+ * #462 security review: shapes where the head masked less than develop. A tail value may start with `//`, and a pair
+ * inside a value holding a mask is only extended past the point where develop's value ended, so a label tag after it
+ * is still read. The last three were found by the differential fuzz of the fix itself.
+ */
+test('#462 review: masking does not decrease against develop', function (string $text, array $secrets, string $secret) {
+    expect((new Redactor)->maskValues($text, $secrets))->not->toContain($secret);
+})->with([
+    'tail value starting with //' => ['pw=ab;token: //SECRETTOKEN1', [], 'SECRETTOKEN1'],
+    'label tag after an inner bracket value' => ['Session:s://@pass=[<t name="pass">]FZSUF12', [], 'FZSUF12'],
+    'quoted CDATA value of a pair after the mask' => ["Authorization:\rhunter2:PARNEXT]:b:token:Bearer \"<![CDATA[FZCDATA1]]>FZBQ11\"\r\nPARTAIL3", ['hunter2'], 'FZBQ11'],
+    'JSON value holding markup after the mask' => ['client_secret : hunter2:PARNEXT,password: {"password":"FZJSO<ht<_a>ml:x>N1","n":"<html>"}PARTAIL2', ['hunter2'], 'html'],
+    'bracket value holding markup in a tail value' => ["pw=a;token =bpassword=[rpw=<!doctype html>ab]edacted]FZSUF12);token:\n", [], 'doctype'],
+]);

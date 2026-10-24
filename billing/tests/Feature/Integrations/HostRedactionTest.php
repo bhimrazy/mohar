@@ -6,6 +6,7 @@
  * involved.
  */
 
+use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Services\GatewayLogger;
 use App\Modules\Core\Models\ActivityLog;
@@ -19,6 +20,7 @@ use App\Modules\Orders\Models\FraudCheck;
 use App\Modules\Orders\Models\Order;
 use App\Support\Integrations\RedactionScope;
 use App\Support\Integrations\RedactionSet;
+use App\Support\Integrations\Redactor;
 
 test('activity properties are masked by shape and by the call in progress, and reference keys stay readable', function () {
     $entry = RedactionScope::during(RedactionSet::of(['ActivityScope42']), fn (): ActivityLog => app(ActivityLogger::class)->log('Registrar call failed', properties: [
@@ -57,5 +59,29 @@ test('a gateway\'s configured secret is masked by value in its log and stored pa
 
     expect($entry->payload)->toBe(['message' => 'signed with [redacted]', 'amount' => 5_000, 'fee_percent' => '0'])
         ->and(GatewayLogger::redact($payload, 'sandbox_card')['message'])->toBe('signed with [redacted]')
-        ->and(GatewayLogger::redact($payload)['message'])->toBe('signed with GatewaySecret0042');
+        ->and(GatewayLogger::redact($payload, 'other_gateway')['message'])->toBe('signed with GatewaySecret0042');
+});
+
+test('a gateway driver call runs with the gateway\'s secrets in scope, so an exception reported after it is masked by value', function () {
+    $gateway = Gateway::factory()->sandbox('GatewaySecret0043')->create();
+    $gateways = app(GatewayManager::class);
+
+    try {
+        $gateways->during($gateways->config($gateway), fn () => throw new RuntimeException('Provider echoed GatewaySecret0043'));
+    } catch (RuntimeException $exception) {
+        app(Redactor::class)->maskThrowable($exception);
+    }
+
+    expect($exception->getMessage())->toBe('Provider echoed [redacted]')
+        ->and(RedactionScope::current()->isEmpty())->toBeTrue();
+});
+
+test('activity properties named only for a credential are withheld', function () {
+    $entry = app(ActivityLogger::class)->log('Settings changed', properties: [
+        'Password' => 'ACTPW1',
+        'api_key' => ['v' => 'ACTKEY1'],
+        'one_time_password' => true,
+    ]);
+
+    expect($entry->fresh()->properties)->toBe(['Password' => '[redacted]', 'api_key' => '[redacted]', 'one_time_password' => true]);
 });

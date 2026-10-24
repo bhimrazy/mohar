@@ -15,8 +15,9 @@ use Illuminate\Http\Request;
  * sentences (put user-supplied values such as emails in $properties, never interpolate them unbounded),
  * control characters are stripped and every string is truncated to fit its column. Text in $properties
  * (provider messages, for one) is masked by the Redactor's value rules and the values of the driver calls
- * in progress (RedactionScope), before it is cut; property names are not read as secret names, so
- * references such as a template's `key` stay readable.
+ * in progress (RedactionScope), before it is cut (and only its first MASKED_PROPERTY_LENGTH characters are read).
+ * Property names are not read by the Redactor's key rule, so references such as a template's `key` stay readable;
+ * only the exact names in SECRET_PROPERTIES withhold their value.
  */
 class ActivityLogger
 {
@@ -27,6 +28,12 @@ class ActivityLogger
     public const IMPERSONATOR_SESSION_KEY = 'impersonator_id';
 
     private const MAX_PROPERTY_LENGTH = 1000;
+
+    /** Text read for masking: enough that masks shorter than the text they replace still fill the cut. */
+    private const MASKED_PROPERTY_LENGTH = 4 * self::MAX_PROPERTY_LENGTH;
+
+    /** Property names that only ever hold a credential (case-insensitive); their value is withheld whole. */
+    private const SECRET_PROPERTIES = ['password', 'secret', 'api_key', 'client_secret', 'private_key'];
 
     public function __construct(private readonly Redactor $redactor) {}
 
@@ -92,11 +99,16 @@ class ActivityLogger
     {
         $set ??= RedactionScope::current();
 
-        return array_map(fn (mixed $value): mixed => match (true) {
-            is_string($value) => self::clean($this->redactor->maskValues($value, $set), self::MAX_PROPERTY_LENGTH),
-            is_int($value), is_float($value) => $set->matches((string) $value) ? Redactor::MASK : $value,
-            is_array($value) => $this->cleanProperties($value, $set),
-            default => $value,
-        }, $values);
+        foreach ($values as $key => $value) {
+            $values[$key] = match (true) {
+                is_string($key) && in_array(strtolower($key), self::SECRET_PROPERTIES, true) && (is_string($value) || is_int($value) || is_float($value) || is_array($value)) => Redactor::MASK,
+                is_string($value) => self::clean($this->redactor->maskValues(mb_substr($value, 0, self::MASKED_PROPERTY_LENGTH), $set), self::MAX_PROPERTY_LENGTH),
+                is_int($value), is_float($value) => $set->matches((string) $value) ? Redactor::MASK : $value,
+                is_array($value) => $this->cleanProperties($value, $set),
+                default => $value,
+            };
+        }
+
+        return $values;
     }
 }

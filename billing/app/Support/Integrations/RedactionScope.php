@@ -59,6 +59,18 @@ final class RedactionScope
     }
 
     /**
+     * Drops the sets of calls in progress. The app calls it where no call can be in progress (between a worker's jobs,
+     * after a response is sent), so a set a call failed to remove (a Fiber never resumed, a fatal error caught
+     * outside) cannot mask a later job's output or keep its values in memory. Attached sets stay with their exceptions.
+     *
+     * @internal
+     */
+    public static function reset(): void
+    {
+        self::$active = [];
+    }
+
+    /**
      * The sets of the calls in progress, merged with those attached to $exception and the exceptions behind it.
      */
     public static function current(?Throwable $exception = null): RedactionSet

@@ -80,7 +80,8 @@ class SettlePaymentAttempt
             return $attempt->status;
         }
 
-        $result = $this->lastResult = $driver->lookup($this->gateways->config($attempt->gateway), $attempt->toRef($interactive));
+        $config = $this->gateways->config($attempt->gateway);
+        $result = $this->lastResult = $this->gateways->during($config, fn (): LookupResult => $driver->lookup($config, $attempt->toRef($interactive)));
         $raw = GatewayLogger::redact($result->raw, $attempt->gateway);
         $this->log->log($attempt->gateway, 'response', 'lookup '.$result->status, ['reference' => $attempt->reference, ...$raw], $attempt->invoice_id);
 
