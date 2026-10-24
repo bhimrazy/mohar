@@ -10,11 +10,11 @@ use Illuminate\Log\LogManager;
  * RedactLogs tap. A channel an operator adds to `config/logging.php` later, `Log::build()` and `Log::stack()` are
  * tapped as they are created, and so is the emergency logger that a channel failing to build falls back to (an
  * undefined LOG_CHANNEL, a broken custom driver, a handler RedactLogs refuses). Each logger's MessageLogged event
- * carries the masked message and context (RedactingLogEvents).
+ * carries the masked message and context (RedactingLogEvents). Not final: `Log::shouldReceive()` mocks it in tests.
  *
  * @internal
  */
-final class RedactingLogManager extends LogManager
+class RedactingLogManager extends LogManager
 {
     /**
      * @param  string  $name

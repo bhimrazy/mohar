@@ -363,7 +363,7 @@ missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this s
     - Billing (step 7, first half): `GatewayLogger::redact($payload, $gateway)` masks the gateway's
       `GatewayConfig::secrets()` and the scope's sets by value, through a new `$secrets` argument of
       `redactPayment()`. `gateway_logs` and every stored `raw` (payments, refunds, chargebacks, attempts) pass the
-      gateway key. Running gateway calls in `RedactionScope::during()` is left to the rest of step 7.
+      gateway key. Gateway calls run in `RedactionScope::during()` since the review round (amendment below).
 - **Tail pairs, replacing the #452 rule.** The value after a swallowed secret label is read with the plain pair rules
   (`valueEnd()`: quotes, brackets, an authorization scheme, `=` or `:` inside) and masked whole, and the chain goes
   on while each masked value ends in a secret label. The label is the last name start in the span's trailing name, or
@@ -371,7 +371,7 @@ missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this s
   The label stays inside the first mask. Two shapes are left to the scan as before, since they may be the next
   pair's name or span markup: a quoted or bracketed value a separator follows (`"password":`), and a quoted one that
   holds `<`. Any secret pair inside the masked value that reaches past it (`1&hash:Bearer x`) extends the mask to its
-  own end.
+  own end (bounded in the review round, amendment below).
 - **A mask inside a value counts as value characters** (the set's, or one a provider wrote). The value ends where it
   would without the set: `password=[redacted]PRE4` and `pw=ab[redacted];cd` are masked whole, as `password=xPRE4` and
   `pw=abx;cd` are. A secret pair inside such a value that the scan would have read after the mask (`[redacted];
@@ -383,11 +383,74 @@ missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this s
   pair the scan reads past `]]>`, so the value ends before such a section, as before.
 - **Proof.** Differential fuzz of the head against develop `891c2035`, comparing raw strings on five surfaces with six
   secret sets, finds no token develop masked and the head shows. Comparing develop's `redactPayment()` without a set
-  against the head's with the gateway's set shows one kind of difference: a configured value that itself reads as a
-  secret name (`PARSECRET1]: …`) no longer labels the text after it once it is masked. The 4 MB adversarial shapes
-  scale linearly; the numbers are in #462.
+  against the head's with the gateway's set shows one kind of difference: a configured value that is, or sits inside,
+  a label or name (`PARSECRET1]: …`, `reg_passwSECRETord`) no longer labels the text after it once it is masked. The
+  security review found two shapes this proof missed and a quadratic case; the amendment below fixes them and redoes
+  the proof.
 - **Known gaps.**
     - A Fiber suspended inside an unwrap keeps the outermost call open, so unrelated calls made meanwhile share its
       node budget. This over-masks and never leaks, and nothing in the app suspends a fiber inside an unwrap.
     - A CDATA section of the excluded kind after a value stays as readable as before.
-    - The `emergency` logger is not tapped (as Consequences says).
+    - The `emergency` logger is not tapped (as Consequences says). Fixed in the review round (amendment below).
+
+## Amendment (#462) — 2026-10-24, review round: linear inner pairs, every logger masked, gateway calls in scope
+
+- **Inner pairs are linear (security review B1).** A value holding a mask read each secret pair inside it to the end of
+  the text, so `token=[redacted],` repeated took 13 s at 128 KB. During one scan, `valueEnd()` now remembers the last
+  unquoted run it read and `pairValueEnd()` the last whole-line value: whether an unquoted run stops at an index
+  depends on that index only, so a start inside the run ends where the run does. Quoted and bracketed inner values are
+  counted, and past 4 times the span plus 64 KB the rest of the text is masked (fail closed). Measured locally, every
+  shape of the review takes under 0.65 s at 4 MB (develop: under 0.4 s). `RedactorShapesBudgetTest` holds them under
+  0.5 s at 256 KB, under 2 s at 1 MB, and linear from 512 KB to 4 MB.
+- **Masking no longer decreases against develop (B2).**
+    - For a value holding a mask, only the pairs from `maskBoundEnd()` on extend it: where the value ended before #462
+      (the `]` of a mask followed by a value end, a mask at the start, or a CDATA section). A pair before that point
+      was inside develop's value, which develop never read, and extending through it hid a label tag that develop's
+      scan read (`Session:s://@pass=[<t name="pass">]…`). A tail value still extends over every pair in it, because
+      develop's scan read each of them after it cut the tail value.
+    - The `<` guard of `trailingPair()` was tried for inner pairs and rejected: it left a quoted value with a CDATA
+      section after the mask readable that develop masked (`…]:token:Bearer "<![CDATA[…]]>…"`).
+    - The pair that ends a masked span takes a value starting with `//` (`pw=ab;token: //x`), as develop's tail rule
+      did. Only a pair the scan finds excludes `//`, which keeps URL schemes from reading as pairs. `token: //x` on its
+      own stays readable, as on develop.
+- **Proof, redone** against develop `a1973324` with the security review's harness (raw strings, no `json_encode`):
+  8 seeds of 48,719 inputs over 13 secret sets, and 2 HTML seeds of 108,719 inputs. No token that develop masks is
+  readable at the head on `maskValues`, `redact`, `redactPayment`, `maskThrowable` and the `JsonSerializable`
+  surface. The extra surface (develop without a set, the head with the gateway's set) differs in 3,414 rows, all of
+  the class above: a set value that is, or sits inside, a label or name (`token` as a set value,
+  `api_key=abcFZSECRETpw77]`).
+- **Every logger masks.** `log` is bound to `Support\Logging\RedactingLogManager`, which taps every channel it creates
+  (a channel an operator adds to `config/logging.php`, `Log::build()`, `Log::stack()`) and the emergency logger that a
+  channel failing to build falls back to (an undefined `LOG_CHANNEL`, a broken driver, a handler `RedactLogs`
+  refuses). The `tap` entries in the config and their Arch test stay as a second line. `RedactLogs` keeps one
+  processor on a handler tapped twice and leaves a `NullHandler` alone. Each logger's `MessageLogged` event carries
+  the masked message and context (`RedactingLogEvents`, which masks only when a listener exists). The Arch ban adds
+  `MessageLogged`, `Log::listen`, `app('log')->build` or `->listen`, `->build(['driver' …])`, `STDOUT` and
+  `php://stdout`; a bare `->build(` would match every builder in `app/`.
+- **A Throwable nested in `context` or `extra`** (to depth 8) is masked by `maskThrowable()` with the sets attached
+  to it, and logged as `exception` (class), `message` and `at` (file:line). Before, it was logged as `[]`.
+- **Gateway calls run in the scope** (step 7, first half, finished). `GatewayManager::during(GatewayConfig, Closure)`
+  runs a driver call in `RedactionScope::during()` with `GatewayConfig::secrets()`. Every host call to a gateway
+  driver uses it: capture, refund, refund lookup, attempt lookup, card token details, callback parsing, hosted
+  payment start and return parsing. `StartHostedPayment` masks the provider's message before it cuts it to 500
+  characters. `GatewayLogger::redact()` requires the gateway key.
+- **Host pattern for steps 5 and 6**, as Billing now does it:
+    1. Build the call's set from the config's `secrets()` and the request's `secrets()`.
+    2. Run the driver call in `RedactionScope::during($set, fn () => …)`, one helper per host
+       (`GatewayManager::during()` is the model), never inside the driver.
+    3. Redact what the call returns with the same set before it is stored or logged.
+    4. Report or rethrow the original exception after the call. Its set stays attached for `report()`, the worker's
+       log line and `failed_jobs.exception`.
+    5. Mask provider text before cutting it, so a value split at the cut is still matched.
+- **Smaller changes.**
+    - `RedactionScope::reset()` (`@internal`) runs on the worker's `Looping` event and after the response, where no
+      call is in progress, so a set a call failed to drop cannot outlive it.
+    - `ActivityLogger` withholds the value of a property named exactly `password`, `secret`, `api_key`,
+      `client_secret` or `private_key` (any case), and reads at most 4,000 characters of a text property before it
+      masks and cuts it.
+    - `RedactionSet::merge()` counts a set given twice once, and each value once.
+    - `RedactingFailedJobProvider::wrap()` is countable or prunable only when the wrapped provider is, so
+      `queue:prune-failed` still says when pruning is not supported.
+- **Known gaps** (replacing the list above). A suspended Fiber shares the outer node budget (fails closed). A CDATA
+  section of the excluded kind after a value is as readable as before. `token: //x` read by the scan stays readable,
+  as on develop. Consequences' last bullet (the emergency logger) no longer holds.

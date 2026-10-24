@@ -10,8 +10,19 @@
 - `Redactor::maskThrowable()` also masks with `RedactionScope::current($exception)`. Narrowing callers can see: inside
   a scope, or on an exception that left one, more of the message is masked.
 - New `@internal` `App\Support\Logging\RedactingProcessor`, `RedactLogs` (the tap every channel lists) and
-  `RedactingFailedJobProvider` (wraps the `queue.failer` binding). `tests/Arch/LogRedactionTest.php` fails a channel
-  without the tap and any `Log::build()`, `error_log()`, `syslog()`, `openlog()`, `STDERR` or `php://stderr` in `app/`.
+  `RedactingFailedJobProvider` (wraps the `queue.failer` binding through `wrap()`, countable or prunable only when the
+  wrapped provider is). `tests/Arch/LogRedactionTest.php` fails a channel without the tap and any `Log::build()`,
+  `Log::listen()`, `app('log')->build()` or `->listen()`, `->build(['driver' …])`, `MessageLogged`, `error_log()`,
+  `syslog()`, `openlog()`, `STDERR`, `STDOUT`, `php://stderr` or `php://stdout` in `app/`.
+- The `log` binding is `@internal` `App\Support\Logging\RedactingLogManager` (extends `Illuminate\Log\LogManager`):
+  it taps every channel it creates, `Log::stack()` and the emergency logger with `RedactLogs`, and gives each logger
+  `@internal` `RedactingLogEvents`, which masks `MessageLogged` before listeners see it. `RedactLogs` keeps one
+  processor on a handler tapped twice and skips `NullHandler`.
+- New `@internal` `RedactionScope::reset(): void`, called on the queue worker's `Looping` event and after the
+  response.
+- `RedactionSet::merge()` counts a set given twice once and each value once. No signature change.
+- `RedactingProcessor` masks a `Throwable` nested in `context` or `extra` (depth 8) and logs it as `exception`,
+  `message` and `at`.
 - Rule change: the tail-pair rule of #452 now reads the value after a swallowed secret label with the plain pair rules
   (and covers any secret pair inside that value); a mask inside a value counts as value characters, and a labelled
   `content` attribute and a CDATA section a value runs into are masked. Masking only increases.
