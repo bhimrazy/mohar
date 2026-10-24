@@ -131,7 +131,7 @@ Settings (Catalog):
 ## 7. Events emitted
 
 - `ProductCreated`, `ProductUpdated`, `ProductRetired` (id) — for cache invalidation / search index.
-- `ProductPriceChanged` (priceable, currency, cycle, old, new).
+- `ProductPriceChanged` (priceable, currency, cycle, old, new), also for every row an automatic or manual price conversion writes or turns off.
 - `ProductStockDepleted` (product_id) when stock hits 0 (staff notification).
 - `AddonCreated`, `AddonUpdated`.
 
@@ -143,14 +143,15 @@ Settings (Catalog):
 - Hiding vs retiring confusion: retired items must never be re-offered via direct link.
 - Quantity × configurable options conflicts (`multiple_services` with per-instance config) — disallow.
 - Display-name hacks (`value|label`) leak machine strings into invoices; we keep separate fields.
-- Currency rounding when auto-converting (e.g., 9.99 USD → 9.2907 EUR) — round to minor unit, optionally to `.99` (COULD).
+- Currency rounding when auto-converting (e.g., 9.99 USD → 9.2907 EUR) — round to minor unit, optionally to `.99` (COULD). One rule (`Currency::priceFromDefault()`) covers every converted amount: recurring prices, setup fees, add-ons, option values, TLD prices, domain late-renewal fees, and promotion and minimum-cart amounts.
+- Changing a product's provisioning driver never carries the old driver's stored secrets over; a blank secret field is kept only while the driver is unchanged.
 - Stock race under concurrent checkouts — atomic decrement only.
 - Price edits retroactively changing existing customers' bills is a frequent support complaint — never implicit.
 
 ## 9. Acceptance criteria
 
 1. Given a product with EUR monthly 10.00 and annual 100.00 enabled, when `availableCycles(product,'EUR')` is called, then it returns [monthly, annually].
-2. Given a product with no USD rows, when a USD client views it, then it is not orderable and no conversion occurs.
+2. Given a product with no USD rows, when a USD client views it, then it is not orderable and no conversion occurs: the store hides it, its page says it is not sold in USD (and, to guests, offers the currencies it is sold in), and add-to-cart is refused with the same reason.
 3. Given a product with monthly 10.00 + option value "4GB RAM" monthly 5.00, when quoted monthly, then recurring = 1500 minor units.
 4. Given a quantity option with unit 2.00 and qty 3, when quoted, then option contributes 600.
 5. Given client group discount 10% and recurring 1500/setup 1000, then quote = 1350/900.

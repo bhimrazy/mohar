@@ -647,6 +647,11 @@ function afterColon(text: string): string {
 
 function SiteFooter({ site }: { site: Site }) {
     const { auth } = usePage().props;
+    // A store with nothing on sale has no prices for the tax note to describe.
+    const taxNote = (usePage().props as { hide_tax_note?: boolean })
+        .hide_tax_note
+        ? null
+        : site.tax_note;
     const { company, account } = site;
     const columns: {
         title: string;
@@ -806,7 +811,7 @@ function SiteFooter({ site }: { site: Site }) {
                     })}
                 </nav>
             </div>
-            {(site.payments.length > 0 || site.tax_note) && (
+            {(site.payments.length > 0 || taxNote) && (
                 <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 border-t px-4 py-6 md:flex-row md:items-center md:justify-between md:px-6">
                     {site.payments.length > 0 && (
                         <div className="flex flex-wrap items-center gap-3">
@@ -816,9 +821,9 @@ function SiteFooter({ site }: { site: Site }) {
                             <PaymentMarks marks={site.payments} />
                         </div>
                     )}
-                    {site.tax_note && (
+                    {taxNote && (
                         <TaxNote
-                            note={`Prices in ${site.currency}: ${afterColon(site.tax_note)}`}
+                            note={`Prices in ${site.currency}: ${afterColon(taxNote)}`}
                             className="text-sm"
                         />
                     )}

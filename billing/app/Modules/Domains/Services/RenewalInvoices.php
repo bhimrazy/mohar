@@ -150,7 +150,7 @@ class RenewalInvoices
     }
 
     /**
-     * Convert an amount in the default currency with the current exchange rate (fees are stored once).
+     * Convert an amount in the default currency with the current exchange rate and the currency's rounding rule (fees are stored once).
      */
     public function convertFromDefault(int $amount, string $currency): int
     {
@@ -162,6 +162,6 @@ class RenewalInvoices
 
         $target = Currency::query()->where('code', $currency)->first();
 
-        return $target === null ? $amount : $target->fromDefault($amount);
+        return $target === null ? $amount : $target->priceFromDefault($amount, $default);
     }
 }

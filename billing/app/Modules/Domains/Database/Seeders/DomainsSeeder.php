@@ -112,7 +112,7 @@ class DomainsSeeder extends DemoSeeder
      */
     private function fromUsd(int $amount, Currency $currency): int
     {
-        return $this->usd === null || $currency->code === $this->usd->code ? $amount : $this->usd->convertTo($amount, $currency);
+        return $this->usd === null || $currency->code === $this->usd->code ? $amount : $currency->priceFromDefault($amount, $this->usd);
     }
 
     /**
