@@ -103,6 +103,7 @@ class InvoiceSettlement
         }
 
         $invoice->save();
+        app(NoteRefusals::class)->clear($invoice->id);
 
         if ($invoice->kind === InvoiceKind::AddFunds) {
             $funds = (int) $invoice->items()->where('type', BillableType::AddFunds)->whereNull('cancelled_at')->sum('amount');

@@ -11,6 +11,7 @@ use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Billing\Support\BikramSambat;
 use App\Modules\Billing\Support\BikramSambatDate;
 use App\Modules\Billing\Support\BillingSettings;
+use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Setting;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
@@ -40,7 +41,7 @@ class NepalVatMode
 
     public const EXPORT_RULE = 'billing.nepal_vat.export_rule';
 
-    /** The stretches the mode was on, `[{from, to}]` with `to` null while it is on (company dates, Y-m-d). */
+    /** The stretches the mode was on, `[{from, to, to_at}]`: `to` null while it is on, `to_at` the UTC instant of the switch-off (company dates, Y-m-d). */
     public const PERIODS = 'billing.nepal_vat.periods';
 
     /** How many BS months ahead staff can pick as the start. */
@@ -278,23 +279,31 @@ class NepalVatMode
      *
      * @param  array{enabled: bool, enabled_from: string|null}  $before
      * @param  array{enabled: bool, enabled_from: string|null}  $after
-     * @return list<array{from: string, to: string|null}>
+     * @return list<array{from: string, to: string|null, to_at: string|null}>
      */
     private function nextPeriods(array $before, array $after): array
     {
         $periods = $this->storedPeriods();
         $last = array_key_last($periods);
+        $now = $this->clock->now();
 
         if ($after['enabled'] && ! $before['enabled']) {
-            $periods[] = ['from' => (string) $after['enabled_from'], 'to' => null];
+            // A mode switched off before periods were stored left its first stretch only in `enabled_from` and the activity log.
+            if ($periods === [] && $before['enabled_from'] !== null) {
+                $periods[] = ['from' => $before['enabled_from'], 'to' => $this->lastSwitchOffDate() ?? $this->clock->localDate($now), 'to_at' => null];
+            }
+
+            $periods[] = ['from' => (string) $after['enabled_from'], 'to' => null, 'to_at' => null];
         } elseif (! $after['enabled'] && $before['enabled']) {
             if ($last === null && $before['enabled_from'] !== null) {
-                $periods[] = ['from' => $before['enabled_from'], 'to' => null];
+                $periods[] = ['from' => $before['enabled_from'], 'to' => null, 'to_at' => null];
                 $last = array_key_last($periods);
             }
 
             if ($last !== null) {
-                $periods[$last]['to'] = $this->clock->localDate($this->clock->now());
+                // Closed at the company date, and at the instant: a document numbered later that day is outside it.
+                $periods[$last]['to'] = $this->clock->localDate($now);
+                $periods[$last]['to_at'] = $now->utc()->format('Y-m-d H:i:s');
             }
         } elseif ($after['enabled'] && $last !== null && $after['enabled_from'] !== $before['enabled_from']) {
             $periods[$last]['from'] = (string) $after['enabled_from'];
@@ -303,14 +312,37 @@ class NepalVatMode
         return $periods;
     }
 
-    /** @return list<array{from: string, to: string|null}> */
+    /** The company date of the last change that switched the mode off, from the activity log (for a mode switched off before periods were kept). */
+    private function lastSwitchOffDate(): ?string
+    {
+        foreach (ActivityLog::query()->where('event', 'billing.nepal_vat.changed')->latest('id')->limit(20)->get() as $entry) {
+            if (($entry->properties['to']['enabled'] ?? null) === false) {
+                return $this->clock->localDate($entry->created_at);
+            }
+        }
+
+        return null;
+    }
+
+    /** @return list<array{from: string, to: string|null, to_at: string|null}> */
     private function storedPeriods(): array
     {
         $value = Setting::query()->whereKey(self::PERIODS)->value('value');
 
+        return $this->cleanPeriods(is_array($value) ? $value : []);
+    }
+
+    /**
+     * @param  array<int|string, mixed>  $value
+     * @return list<array{from: string, to: string|null, to_at: string|null}>
+     */
+    private function cleanPeriods(array $value): array
+    {
         return array_values(array_filter(array_map(
-            fn (mixed $period): ?array => is_array($period) && is_string($period['from'] ?? null) ? ['from' => $period['from'], 'to' => is_string($period['to'] ?? null) ? $period['to'] : null] : null,
-            is_array($value) ? $value : [],
+            fn (mixed $period): ?array => is_array($period) && is_string($period['from'] ?? null)
+                ? ['from' => $period['from'], 'to' => is_string($period['to'] ?? null) ? $period['to'] : null, 'to_at' => is_string($period['to_at'] ?? null) ? $period['to_at'] : null]
+                : null,
+            $value,
         )));
     }
 
@@ -318,18 +350,15 @@ class NepalVatMode
      * The stretches of company dates the mode was on, for the register. A mode switched on before periods were kept is one open
      * stretch from its start day; never switched on is none.
      *
-     * @return list<array{from: string, to: string|null}>
+     * @return list<array{from: string, to: string|null, to_at: string|null}>
      */
     public function periods(): array
     {
         $value = $this->billing->get('nepal_vat.periods', []);
-        $periods = array_values(array_filter(array_map(
-            fn (mixed $period): ?array => is_array($period) && is_string($period['from'] ?? null) ? ['from' => $period['from'], 'to' => is_string($period['to'] ?? null) ? $period['to'] : null] : null,
-            is_array($value) ? $value : [],
-        )));
+        $periods = $this->cleanPeriods(is_array($value) ? $value : []);
         $from = $this->enabledFrom();
 
-        return $periods !== [] || $from === null ? $periods : [['from' => $from, 'to' => null]];
+        return $periods !== [] || $from === null ? $periods : [['from' => $from, 'to' => null, 'to_at' => null]];
     }
 
     /**

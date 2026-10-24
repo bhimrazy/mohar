@@ -312,3 +312,12 @@ test('the mode cannot be switched off while a refund is waiting for the provider
 
     expect($apply(...))->toThrow(ValidationException::class, 'credit or debit notes');
 });
+
+test('a DECLINED after SUCCESS does not overwrite what is already on the review list, and does not reopen a reviewed entry', function () {
+    $refund = vatRefund(vatRefundPayment());
+    $refund->forceFill(['review_amount' => 300, 'reviewed_at' => now(), 'description' => 'Part to review'])->save();
+
+    app(RefundTransaction::class)->release($refund->fresh());
+
+    expect($refund->fresh())->review_amount->toBe(300)->reviewed_at->not->toBeNull()->description->toBe('Part to review');
+});

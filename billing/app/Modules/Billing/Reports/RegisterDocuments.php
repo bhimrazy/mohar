@@ -253,6 +253,12 @@ class RegisterDocuments
 
                     if ($period['to'] !== null) {
                         $one->where("{$table}.issue_date", '<', CalendarDate::parse($period['to'])->addDays(1)->toString());
+
+                        // On the switch-off day itself only what was numbered before the switch-off instant belongs to the stretch.
+                        if ($period['to_at'] !== null) {
+                            $stamp = $table === 'tax_notes' ? 'issued_at' : 'numbered_at';
+                            $one->where(fn (Builder $day): Builder => $day->where("{$table}.issue_date", '<', $period['to'])->orWhere("{$table}.{$stamp}", '<=', $period['to_at']));
+                        }
                     }
                 });
             }

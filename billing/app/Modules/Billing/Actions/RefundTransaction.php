@@ -294,9 +294,12 @@ class RefundTransaction
         return DB::transaction(function () use ($refund): bool {
             $locked = Transaction::query()->lockForUpdate()->find($refund->id);
 
-            // A DECLINED that arrives after the provider confirmed the refund changes nothing, but staff are told (ADR 0024 §5).
+            // A DECLINED that arrives after the provider confirmed the refund changes nothing, but staff are told (ADR 0024 §5). An
+            // entry already on the review list (a part the cap could not take, or one staff have seen) is left as it is.
             if ($locked !== null && $locked->status === TransactionStatus::Succeeded) {
-                $locked->forceFill(['review_amount' => $locked->amount_out, 'reviewed_at' => null, 'description' => __('Provider reports conflicting outcome: declined after it was confirmed')])->save();
+                if ($locked->review_amount === null) {
+                    $locked->forceFill(['review_amount' => $locked->amount_out, 'reviewed_at' => null, 'description' => __('Provider reports conflicting outcome: declined after it was confirmed')])->save();
+                }
 
                 return false;
             }
