@@ -3,6 +3,7 @@
 namespace App\Modules\Domains;
 
 use App\Contracts\Core\CompanyClock;
+use App\Contracts\Domains\DomainNameRules;
 use App\Contracts\Domains\DomainPricing;
 use App\Contracts\Domains\DomainRegistry;
 use App\Contracts\Domains\Registrar\RegistrarRefs;
@@ -10,6 +11,7 @@ use App\Contracts\Domains\TldAttributes;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Events\Billing\InvoiceCancelled;
 use App\Events\Billing\InvoicePaid;
+use App\Events\Core\ClientMerged;
 use App\Events\Domains\DomainExpired;
 use App\Events\Domains\DomainRegistered;
 use App\Events\Domains\DomainRenewed;
@@ -37,6 +39,7 @@ use App\Modules\Domains\Jobs\SyncRegistrars;
 use App\Modules\Domains\Listeners\HandleInvoiceCancelled;
 use App\Modules\Domains\Listeners\HandleInvoicePaid;
 use App\Modules\Domains\Listeners\MirrorLinkedServiceState;
+use App\Modules\Domains\Listeners\MoveRegistrarRefsOnClientMerge;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\RegistrarCommandLog;
@@ -46,9 +49,11 @@ use App\Modules\Domains\Services\DomainRegistryService;
 use App\Modules\Domains\Services\EloquentRegistrarRefs;
 use App\Modules\Domains\Services\RenewalInvoices;
 use App\Modules\Domains\Services\TldAttributeService;
+use App\Modules\Domains\Support\RegistryLevels;
 use App\Support\Automation\Automation;
 use App\Support\CalendarDate;
 use App\Support\Clients\ClientCurrencyUsage;
+use App\Support\Clients\ClientMergeRegistry;
 use App\Support\Currencies\PriceConverters;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Domains\RegistrarDriverRegistry;
@@ -94,6 +99,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $this->app->scoped(TldAttributeService::class);
         $this->app->scoped(TldAttributes::class, fn ($app) => $app->make(TldAttributeService::class));
         $this->app->bind(RegistrarRefs::class, EloquentRegistrarRefs::class);
+        $this->app->bind(DomainNameRules::class, RegistryLevels::class);
     }
 
     protected function schedule(Schedule $schedule): void
@@ -159,6 +165,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
     {
         Event::listen(InvoicePaid::class, HandleInvoicePaid::class);
         Event::listen(InvoiceCancelled::class, HandleInvoiceCancelled::class);
+        Event::listen(ClientMerged::class, MoveRegistrarRefsOnClientMerge::class);
 
         foreach ([ServiceActivated::class, ServiceRenewed::class, ServiceSuspended::class, ServiceUnsuspended::class, ServiceTerminated::class] as $event) {
             Event::listen($event, MirrorLinkedServiceState::class);
@@ -354,6 +361,15 @@ class DomainsServiceProvider extends ModuleServiceProvider
 
     private function registerSearchAndMergeFields(): void
     {
+        $this->app->make(ClientMergeRegistry::class)->participant('domains.domains', fn (int $sourceId): array => [
+            'label' => 'Domains',
+            'count' => Domain::withTrashed()->where('client_id', $sourceId)->count(),
+        ]);
+        $this->app->make(ClientMergeRegistry::class)->participant('domains.registrar_refs', fn (int $sourceId): array => [
+            'label' => 'Registrar customer and contact references',
+            'count' => RegistrarRefRecord::query()->where('local_type', MoveRegistrarRefsOnClientMerge::LOCAL_TYPE)->where('local_id', $sourceId)->count(),
+        ]);
+
         $this->app->make(GlobalSearch::class)->provider('Domains', fn (string $term): array => array_values(Domain::query()
             ->with('client:id,first_name,last_name,company_name')
             ->search($term)
@@ -369,7 +385,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
             ->all()), 'domains.domains.view');
 
         $this->app->make(MergeFieldRegistry::class)->register('domain', function (int $id): array {
-            $domain = Domain::query()->withTrashed()->with('tldModel:id,registered_by_client')->findOrFail($id);
+            $domain = Domain::query()->withTrashed()->with('tldModel:id,registered_by_client,how_to_url')->findOrFail($id);
 
             return [
                 'domain_id' => $domain->id,
