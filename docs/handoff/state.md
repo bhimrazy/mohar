@@ -33,6 +33,8 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
     - Earlier merges: `billing/docs/progress.md`.
 - Owner decisions in force:
     - 2026-10-24: PRs squash-merge by default; a merge commit only when another open PR is based on the branch (#446).
+      Merge when nothing blocks and send non-blocking items to planned packages, except money, auth and data deletion.
+      CI split into sharded jobs approved (#448). The owner wants a product walkthrough soon: docs overview and walkthrough first.
     - 2026-10-23 (`requirements.md`): #406 waits for the FrankenPHP 1.13.2 cooldown on 10-28. Product standards: error
       pages carry the host's brand, and a country is chosen by name. Cautious release defaults (#412, #415): no
       `attest-build-provenance`, images from the default branch only, no heartbeat setting, the first release run
@@ -79,33 +81,33 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
 
 ## Open pull requests and running work
 
-Merged 2026-10-23/24 (details in `billing/docs/progress.md` at the next update): #393, #395, #405, #408–#413, #416,
-#422–#424, #427–#429, #432–#435, #437, #438 (closes #402), #440 (closes #418), #444 (CEO review 70/100), #446 (squash
-by default). #445 (admin dashboard cache, closes #441) is signed off at `2872e693` and in the merge queue.
+Merged 2026-10-24 (details in `billing/docs/progress.md` at the next update): #438, #440, #444, #445, #446, #447, #449,
+#450, #451, #452, #453, #454, #455, #456 (undici 8.12.2), #458 (VAT PR 4, refunds), #459 (P15 core hardening),
+#461 (P8a Services part), #463 (P3b server import features). Issues closed by hand.
 
-Session wrapped on the owner's request 2026-10-24. No agents running. Resume in this order:
-
-| PR   | Workstream                                                        | Status and next step (2026-10-24)                                                                                                                                                                                 |
-| ---- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #449 | Wave 1 P2a Domains renewals and pricing (#13, #15, #55)           | Changes requested. Blocking: sync's lost-renewal settle leaves Grace/Redemption domains in Grace (next year never invoiced); reuse `PerformRenewal::applied()`'s confirm step, which also fires `DomainRenewed`. Medium: pre-change claims assume 1 year (read years from `domain_invoices`). Architect: kernel-changelog fragment missing. Probes: scratchpad `Pr449ReviewProbesTest.php` (not pushed). Scheduled-run vs Renew now race is covered by `period_guard`; a failed day stage on that race is worth noting in the fix round. |
-| #450 | Wave 1 P9 Support (#18, #30 part, #51)                            | Changes requested (probes on `review/pr-450-probes`). Blocking: (1) a same-email guest merge keeps the target key, so the older ticket's link reads the merged messages: always rotate a guest target's key; (2) staff recipients are not filtered by department access (removed assignee, fallback subscribers): add an access filter backed by `TicketAccess`; (3) the queue index scans closed tickets: make it partial (`status <> 'closed' and merged_into_id is null`); (4) body to "Part of #30" (threading headers are their own package). Architect approved. |
-| #453 | Wave 1 P3a Server import storage (#103, #134, #135, #136; #149 part) | Not reviewed. Migration `2026_10_24_400750` deletes duplicate report lines (keeps the earliest); a pre-upgrade list is moved to rows on first read. Needs review-board + database-reviewer.                    |
-| #452 | Wave 1 P1a Redactor (#399 done; #311 not started)                 | Draft. #399 fixed with failing-first tests. #311 left: `HtmlDocumentMarker`, fold probe files, ADR 0023 amendment for the 50,000-value node budget.                                                             |
-| #447 | VAT flags follow-ups                                              | Not reviewed. Register sums only flagged VAT; notes copy flags; panel gate uses `NepalVatMode::inEffect()`. Merge before #451.                                                                                  |
-| #451 | VAT PR 3b old paths                                               | Draft. No PostgreSQL run, no browser check. `Invoicer::cancel` gains an optional reason (kernel).                                                                                                               |
-| #448 | CI split and `scripts/test.sh`                                    | Not reviewed; CI green, wall time 9 min to about 4¼. Owner question: keep the split (about 19 billable minutes a run while private, against 10). `.claude/agents/devops-engineer.md` still says "CI stays one job". |
-| #128 | Gateway expansion spec                                            | Draft. Owner questions in the PR.                                                                                                                                                                                |
+| PR   | Workstream                                    | Status and next step (2026-10-24)                                                                 |
+| ---- | --------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| #457 | P6c Catalog pricing (#16, #118, #127, #247)   | Signed off at `3001cb33` after a develop merge; merge when CI passes, then close the four issues. |
+| #460 | P10a Retention, KYC orphan check (#298)       | Signed off at `5f8669a8` after a develop merge; merge when CI passes.                             |
+| #448 | CI split and `scripts/test.sh`                | Signed off at `42212e77`; owner approved the split (repo public, no minute cost). Merge on green. |
+| #462 | P1b Redaction log backstop (#254, #383)       | Architect approved (six non-blocking items). Security review running; then one fix round with the architect's items, re-check, merge. |
+| #464 | VAT PR 4c credit refunds, flag lift           | Draft; review board (combined) next, strict loop (money).                                         |
+| —    | Walkthrough docs                              | Overview, follow-along walkthrough and next-step links in `docs-site/`, checked against a running app. |
+| —    | Pre-walkthrough sweep                         | Product reviewer walks the demo path, fixes small issues, lists money/auth/deletion findings.    |
+| #128 | Gateway expansion spec                        | Draft. Owner questions in the PR.                                                                 |
 
 After each merge close the issue by hand (`develop` ignores closing keywords). Signed-off PRs must be marked ready:
 CI skips drafts without the `ci` label. Review follow-ups go into the open PR's fix round or a planned package, not
-new issues. Wave plan: `docs/handoff/issue-plan.md` (34 packages, 7 waves; triage of 2026-10-23); Wave 1 still to start: P8a Services
-(#44, #147, #146; after #450 merges, both change `SendEventEmails`).
+new issues; a PR merges when nothing blocks, except money, auth and data deletion, which keep the strict loop (owner,
+2026-10-24). Wave plan and deferred items: `docs/handoff/issue-plan.md`.
 
-- Queue after these: VAT PRs 4, 5 and 7; #431 (report query budget, conformance kit); #436 (last Domains `todayDate`
-  callers); #407, #414 follow-ups; #244 Node and Debian images (after 10-28).
+- Data-changing steps to warn the owner about before any real install: migrations `2026_10_23_500700` (#423),
+  `2026_10_24_400750` (#453, deletes duplicate report lines), `2026_10_24_000110` (#459, re-keys or demotes keyless
+  system roles); `billing:fiscal-vat-split`; #460's retention tasks delete old rows on the first daily run;
+  `support:recompute-unanswered --since=<deploy start>` after a blue-green deploy (#450).
+- Next: VAT PR 5 and 7, P6a/P6b after VAT PR 4c, P7a settings controls, P2c, P5c, P8c, P13 (issue plan).
 - Namecheap is merged but not enabled. Before enabling it: a sandbox check of the not-in-account error numbers (2016166, 2019166), the `.us`,
   `.ca` and `.eu` extension details and the transfer texts (simulator README "verify" list).
-- Changelog fragments (`billing/changelog.d/`, assembled at release; owner decision 2026-10-23, #397).
 
 ## Open owner questions
 
