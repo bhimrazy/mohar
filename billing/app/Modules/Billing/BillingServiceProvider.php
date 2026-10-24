@@ -43,11 +43,13 @@ use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Reports\RegisterDocuments;
 use App\Modules\Billing\Reports\TaxNoteRegisterReport;
 use App\Modules\Billing\Reports\VatRegisterReport;
+use App\Modules\Billing\Rules\EuVatHomeCountry;
 use App\Modules\Billing\Services\BillingAutomation;
 use App\Modules\Billing\Services\BillingDirectory;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\DocumentNumbers;
 use App\Modules\Billing\Services\InvoiceService;
+use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Billing\Services\PaymentReconciler;
 use App\Modules\Billing\Services\Tax\BillingTaxIdRules;
 use App\Modules\Billing\Services\Tax\TaxEngine;
@@ -75,6 +77,7 @@ use App\Support\Search\GlobalSearch;
 use App\Support\Security\EncryptedModel;
 use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
+use App\Support\Settings\SettingLocks;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -224,6 +227,9 @@ class BillingServiceProvider extends ModuleServiceProvider
         $navigation->add('admin', new NavItem('Quotes', 'admin.billing.quotes.index', 'ClipboardList', 'Billing', 30, 'billing.quotes.view', 'admin.billing.quotes.*'));
         $navigation->add('admin', new NavItem('Account credit', 'admin.billing.credit.index', 'Wallet', 'Billing', 40, 'billing.credit.manage', 'admin.billing.credit.*'));
         $navigation->add('admin', new NavItem('Gateways', 'admin.billing.gateways.index', 'CreditCard', 'Setup', 40, 'billing.gateways.manage', 'admin.billing.gateways.*'));
+        if (config('features.billing.nepal_vat_mode')) {
+            $navigation->add('admin', new NavItem('Nepal VAT', 'admin.billing.vat-mode.edit', 'FileText', 'Setup', 44, 'billing.tax.manage', 'admin.billing.vat-mode.*'));
+        }
         $navigation->add('admin', new NavItem('Tax rules', 'admin.billing.tax-rules.index', 'Percent', 'Setup', 41, 'billing.tax.manage', 'admin.billing.tax-rules.*'));
         $navigation->add('admin', new NavItem('VAT register', 'admin.billing.vat-register.index', 'BookOpen', 'Billing', 45, 'reports.vat_register.view', 'admin.billing.vat-register.*'));
         $navigation->add('admin', new NavItem('Payment attempts', 'admin.billing.payment-attempts.index', 'Activity', 'Billing', 50, 'billing.payments.manage', 'admin.billing.payment-attempts.*'));
@@ -328,6 +334,8 @@ class BillingServiceProvider extends ModuleServiceProvider
             };
         }, __('The number format needs {YEAR} when numbering resets yearly, and {YEAR} and {MONTH} when it resets monthly.'));
 
+        $this->app->make(SettingLocks::class)->lock(NepalVatMode::LOCKED, fn (): ?string => app(NepalVatMode::class)->lockReason(), NepalVatMode::ENABLED);
+
         $this->app->make(SettingsRegistry::class)->section('billing', 'Billing', [
             new SettingDefinition('billing.seller.legal_name', 'Seller legal name', help: 'Printed on invoices; defaults to the company name.', rules: ['max:200']),
             new SettingDefinition('billing.seller.address', 'Seller address', 'text', rules: ['max:1000']),
@@ -366,10 +374,10 @@ class BillingServiceProvider extends ModuleServiceProvider
             new SettingDefinition('billing.tax.calculation', 'Tax calculation', 'select', options: ['per_line' => 'Per line', 'per_invoice' => 'Per invoice']),
             new SettingDefinition('billing.tax.rounding', 'Tax rounding', 'select', options: ['half_up' => 'Half up', 'half_even' => 'Half even', 'down' => 'Down', 'up' => 'Up']),
             new SettingDefinition('billing.tax.apply_to', 'Taxed item kinds', help: 'Comma-separated: service, addon, domain, setup, late_fee, manual', rules: ['max:200']),
-            new SettingDefinition('billing.tax.home_country', 'Seller tax country', help: 'ISO code of the country you charge tax from, e.g. NP. Also used for intra-/inter-state rules, e.g. IN', rules: ['size:2']),
+            new SettingDefinition('billing.tax.home_country', 'Seller tax country', 'country', 'The country your business charges tax from, usually where it is registered. Tax rules for other countries and India GST state rules are judged against it.'),
             new SettingDefinition('billing.tax.home_state', 'Seller state', help: 'State of registration, e.g. MH. India GST: CGST+SGST in this state, IGST elsewhere.', rules: ['max:100']),
             $bool('vat.enabled', 'Enable EU VAT rules'),
-            new SettingDefinition('billing.vat.home_country', 'VAT home country', help: 'ISO code, e.g. DE', rules: ['size:2']),
+            new SettingDefinition('billing.vat.home_country', 'VAT home country', 'country', 'The EU country you are VAT-registered in. Required when EU VAT rules are on; it decides which customers get reverse charge.', rules: [new EuVatHomeCountry]),
             $bool('vat.auto_exempt_on_valid_id', 'Reverse charge for valid EU VAT IDs'),
             new SettingDefinition('billing.late_fee.type', 'Late fee type', 'select', options: ['percent' => 'Percent', 'fixed' => 'Fixed amount']),
             new SettingDefinition('billing.late_fee.amount', 'Late fee amount', help: 'Percent, or minor units when fixed. 0 turns late fees off.', rules: ['numeric', 'min:0']),

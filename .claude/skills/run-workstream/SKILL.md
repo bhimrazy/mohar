@@ -75,8 +75,10 @@ cd $MOHAR_ROOT/.worktrees/<slug>/billing && export XDEBUG_MODE=off && H=$MOHAR_R
 gh pr ready <n>                       # only once no review at this head says "Changes requested"
 gh pr checks <n> --watch              # CI runs the full suite on SQLite and PostgreSQL
 gh pr comment <n> -b "CTO sign-off at <sha>: <each blocking item and its evidence>, gates, test count"
-for s in $(gh pr list --base feature/<slug> --json number --jq '.[].number'); do gh pr edit $s --base develop; done
-gh pr merge <n> --merge --match-head-commit <sha> --delete-branch
+# Squash, unless a PR is stacked on the branch: it still holds the parent's commits, so the parent keeps them.
+stacked=$(gh pr list --base feature/<slug> --json number --jq '.[].number'); [ -n "$stacked" ] && how=--merge || how=--squash
+for s in $stacked; do gh pr edit $s --base develop; done
+gh pr merge <n> $how --match-head-commit <sha> --delete-branch
 cd $MOHAR_ROOT && git pull --ff-only && git worktree remove .worktrees/<slug> && git branch -D feature/<slug>
 ```
 

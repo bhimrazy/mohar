@@ -274,6 +274,16 @@ database-free Unit and Arch suites run on SQLite only — ADR 0006, `docs/devops
     the searched expression of every OR'd column (`OnlineIndex::trigram()`), or PostgreSQL scans the table.
     `SearchIndexesTest` checks the admin searches.
 
+### Feature flags (unfinished work)
+
+- `config/features.php` holds one key per unfinished feature, `features.<module>.<flag>`, env `FEATURE_<MODULE>_<FLAG>`, off by
+  default. It is config only, never a stored setting, and outside every module's own config tree.
+- Gate a route with the `feature:<module>.<flag>` middleware, first on the route, so nothing else runs when it is off; gate a
+  menu item with the same config key. A flag hides the screen; it does not undo what the feature already wrote or switch a
+  stored mode off.
+- The PR that finishes the work deletes the flag and every check of it. `config/billing_sandbox.php` is a permanent
+  deployment switch, not a feature flag.
+
 ### Migrations during blue-green deploys (expand, then contract)
 
 Production deploys are blue-green (`deploy/bin/deploy`, `docs/devops/production.md`): the new release's
@@ -365,6 +375,6 @@ without CTO approval — `docs/devops/dependency-policy.md` (ADR 0007). CI desig
   "ADR 0009 Amendment (#368)". Amendments numbered before ADR 0027 keep their numbers.
 - Every branch lands through a GitHub pull request into `develop` (`gh pr create --base develop`, template in
   `.github/pull_request_template.md`). Review gates, posted on the PR as review comments: Staff Engineer review →
-  QA (runs the suite, adds missing tests) → AI-slop review → fixes by the author → CTO merge with a merge commit
-  (`gh pr merge --merge`). Findings are labelled **blocking** or **non-blocking**; blocking ones must be fixed first.
+  QA (runs the suite, adds missing tests) → AI-slop review → fixes by the author → CTO merge with a squash
+  (`gh pr merge --squash`; a merge commit when another open PR is based on the branch). Findings are labelled **blocking** or **non-blocking**; blocking ones must be fixed first.
 - Never commit `.env`, `vendor/`, `node_modules/`, generated Wayfinder files, or `database/*.sqlite`.

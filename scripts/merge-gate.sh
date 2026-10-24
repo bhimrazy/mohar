@@ -32,7 +32,8 @@
 # Merge flow:
 #   1. scripts/merge-gate.sh <pr> <head-sha>          # must end with "RESULT: PASS"
 #   2. gh pr comment <pr> --body-file $GATE_ROOT/gate-<pr>.log
-#   3. gh pr ready <pr> && gh pr merge <pr> --merge --match-head-commit <head sha from the summary>
+#   3. gh pr ready <pr> && gh pr merge <pr> --squash --match-head-commit <head sha from the summary>
+#      (--merge instead when another open PR is based on this branch)
 #      (--match-head-commit refuses the merge if anything was pushed after the gated head)
 #
 # Settings: GATE_REPO (owner/repo for gh; default from the origin remote), GATE_ROOT (default <main checkout>/.worktrees/.merge-gate), GATE_PROCESSES (default 2), MAIN_CHECKOUT
@@ -175,7 +176,7 @@ finish() {
         printf '%s\n' ${rows[@]+"${rows[@]}"}
         echo "RESULT: $result (total $total)"
         echo "Head: ${head:-unknown}"
-        [ "$result" = PASS ] && echo "Merge with: gh pr merge $pr -R $gh_repo --merge --match-head-commit $head"
+        [ "$result" = PASS ] && echo "Merge with: gh pr merge $pr -R $gh_repo --squash --match-head-commit $head (--merge if a PR is stacked on it)"
         echo "Step output: $logs/"
     } > "$summary"
     echo
