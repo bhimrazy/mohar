@@ -336,3 +336,57 @@ missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this s
   stays linear. The parity guard also runs with a secret spliced next to each masked value, and with a soft end and a
   following pair in its generated shapes. A pair name develop showed may stay readable when its value is masked
   (`RedactorParity::namesMaskedValue`).
+
+## Amendment (#462) — 2026-10-24, log backstop (step 4) and the first host steps
+
+- **Step 4 landed as §1.2, §1.3 and §5 describe**, with these choices:
+    - `RedactingProcessor` masks `context` and `extra` through `redact()`: keys by name and by the set, values by name,
+      shape and set, objects unwrapped with the depth cap of 32 and the node budget, not a separate depth-8 walk. A
+      `Throwable` in `context` stays an object for the formatter, its message chain masked in place
+      (`maskThrowable()`). A withheld record drops `extra` as well as `context`, keeping only `redaction_failed`.
+    - `RedactLogs` puts the processor last on each handler by taking the handler's own processors off and putting them
+      back after it. Every channel in `config/logging.php` lists the tap except `stack` (its channels carry it) and
+      `null`.
+    - `RedactionScope::during()` and `current()` are in `App\Support\Integrations` (`@api`), beside `RedactionSet`,
+      which gains `merge()`. `maskThrowable()` reads the scope's sets as well as the one passed in.
+    - `queue.failer` is wrapped by `RedactingFailedJobProvider`, which masks the exception before the wrapped
+      provider stores it.
+    - The tap and the processor are tested through a channel built like the configured ones; the Arch test of step 4
+      is `tests/Arch/LogRedactionTest.php`.
+- **Host steps in this PR** (rest of #254 and item 4 of #383):
+    - `ActivityLogger` masks text in `$properties` by the value rules and the scope's sets, but does not read property
+      names as secret names: audit properties such as a template's `key` are references, and the key rule would
+      withhold them. No caller passes a credential as a property: the only secret-looking names in `app/` are `key`
+      (a reference) and `one_time_password` (a boolean flag).
+    - `FraudScreening::record()` stores `fraud_checks.raw` through `redact()` and the reasons through `maskValues()`,
+      with the scope's sets.
+    - Billing (step 7, first half): `GatewayLogger::redact($payload, $gateway)` masks the gateway's
+      `GatewayConfig::secrets()` and the scope's sets by value, through a new `$secrets` argument of
+      `redactPayment()`. `gateway_logs` and every stored `raw` (payments, refunds, chargebacks, attempts) pass the
+      gateway key. Running gateway calls in `RedactionScope::during()` is left to the rest of step 7.
+- **Tail pairs, replacing the #452 rule.** The value after a swallowed secret label is read with the plain pair rules
+  (`valueEnd()`: quotes, brackets, an authorization scheme, `=` or `:` inside) and masked whole, and the chain goes
+  on while each masked value ends in a secret label. The label is the last name start in the span's trailing name, or
+  the first (the whole run, as #452 read it); it must end at the span's end, before a final `=` or `:` and blanks.
+  The label stays inside the first mask. Two shapes are left to the scan as before, since they may be the next
+  pair's name or span markup: a quoted or bracketed value a separator follows (`"password":`), and a quoted one that
+  holds `<`. Any secret pair inside the masked value that reaches past it (`1&hash:Bearer x`) extends the mask to its
+  own end.
+- **Text joined to a mask.** A value that starts with a mask, or one whose mask ends before a soft end, takes the token
+  runs joined to it (`[redacted]PRE4`, `[redacted];cd`) while a blank, `<`, `>`, `&`, `,`, `;`, `)`, `}` or the end
+  follows each run. A run that ends at `:`, a quote, `]` or `=` with more text may hold a pair's name, so it is left
+  to the scan.
+- **`content`** is masked like `value` on an element labelled secret by `key` or `name` (`<meta name="api_key"
+  content="…">`). It does not make the label readable.
+- **CDATA in a value.** An unquoted value that reaches `<![CDATA[` takes the section. It ends after `]]>`, or at the
+  end of the text when unterminated. A section that holds a quote, bracket, `&`, `\`, `<` or `cookie` could start a
+  pair the scan reads past `]]>`, so the value ends before such a section, as before.
+- **Proof.** Differential fuzz of the head against develop `891c2035`, comparing raw strings on five surfaces with six
+  secret sets, finds no token develop masked and the head shows. The 4 MB adversarial shapes scale linearly; the
+  numbers are in #462.
+- **Known gaps.**
+    - A Fiber suspended inside an unwrap keeps the outermost call open, so unrelated calls made meanwhile share its
+      node budget. This over-masks and never leaks, and nothing in the app suspends a fiber inside an unwrap.
+    - Text joined to a mask that ends at `:`, a quote or `]` stays readable unless another rule masks it.
+    - A CDATA section of the excluded kind after a value stays as readable as before.
+    - The `emergency` logger is not tapped (as Consequences says).

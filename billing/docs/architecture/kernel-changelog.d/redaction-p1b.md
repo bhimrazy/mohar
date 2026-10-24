@@ -1,4 +1,4 @@
-### Log backstop and gateway credentials in the Redactor (#254, #383)
+### Log backstop and gateway credentials in the Redactor (#462)
 
 - New `App\Support\Integrations\RedactionScope` (`@api`): `during(RedactionSet $set, Closure $call): mixed` runs a
   driver call with its set active and attaches the set to a `Throwable` that leaves it (a `WeakMap`, merged when calls
