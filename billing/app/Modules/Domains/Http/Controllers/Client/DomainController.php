@@ -43,7 +43,7 @@ class DomainController extends Controller
 
         $domains = Domain::query()
             ->where('client_id', $this->context->id())
-            ->with('tldModel:id,registered_by_client')
+            ->with('tldModel:id,registered_by_client,how_to_url')
             ->search($request->string('search')->toString())
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')->toString()))
             ->orderByRaw('case when expiry_date is null then 1 else 0 end')
@@ -61,7 +61,7 @@ class DomainController extends Controller
 
     public function show(int $domain, RegistrarDriverRegistry $registrars, DomainPricingService $pricing): Response
     {
-        $model = $this->domain($domain)->load(['contacts', 'tldModel:id,registered_by_client']);
+        $model = $this->domain($domain)->load(['contacts', 'tldModel:id,registered_by_client,how_to_url']);
         $client = $this->context->client();
         $contacts = [];
 
@@ -144,7 +144,7 @@ class DomainController extends Controller
     {
         $this->context->authorize('domains');
 
-        return Domain::query()->where('client_id', $this->context->id())->with('tldModel:id,registered_by_client')->findOrFail($id);
+        return Domain::query()->where('client_id', $this->context->id())->with('tldModel:id,registered_by_client,how_to_url')->findOrFail($id);
     }
 
     private function manageable(int $id): Domain

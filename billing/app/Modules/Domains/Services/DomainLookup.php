@@ -255,7 +255,7 @@ class DomainLookup
             'epp_required' => $tld->epp_required ?? true,
             'order_url' => $this->orderUrl($result->domain, $available ? 'register' : 'transfer', $available || $transferPrice !== null),
             'self_registered' => $result->status === 'self_registered',
-            'registration_url' => $result->status === 'self_registered' ? (string) $this->settings->get('domains.self_registration_url', '') ?: null : null,
+            'registration_url' => $result->status === 'self_registered' ? $tld?->how_to_url ?: ((string) $this->settings->get('domains.self_registration_url', '') ?: null) : null,
             // A name the registry cannot issue (asha.np) gets the reason instead of "I already have it".
             'level_hint' => $levelHint,
             'existing_url' => $result->status === 'self_registered' && $levelHint === null && Route::has('store.index') ? route('store.index', ['domain' => $result->domain]) : null,
