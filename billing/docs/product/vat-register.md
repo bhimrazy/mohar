@@ -337,7 +337,8 @@ Header block: seller PAN, seller legal name, BS fiscal year, tax period (BS mont
   after `enabled_from` (ADR 0024 §8). **MUST**
 - Annual view: one row per BS month with the same totals, plus the full detail in the export. **MUST**
 - Warnings above the table (not blocking): business buyers without a PAN, documents not in the reporting currency
-  without a stored rate, and documents with tax that was never classified as Nepal VAT or other tax. **SHOULD**
+  without a stored rate (blank and out of the totals), and documents with tax that was never classified as Nepal VAT or
+  other tax (also blank and out of the totals). With the mode never switched on the register lists nothing and says so. **SHOULD**
 
 ### 6.4 Credit and debit note register (monthly account of notes; Rule 20(2) as F3 reports it, assumption)
 
@@ -483,7 +484,9 @@ naming the six callers of §5.4 and their lock order (their own rows, then Billi
 - **Client changes PAN** after the invoice: the note keeps the invoice's buyer snapshot.
 - **Tax other than Nepal VAT** (a US state sales tax, India GST): never in the VAT column. A document whose only tax is another
   tax is class `exempt`, and its whole value shows as exempt sales. A document that carries tax but whose levels were never
-  classified (flags NULL) keeps its tax out of VAT and is counted in a warning above the table (ADR 0024, Amendment #432).
+  classified (flags NULL) is listed with blank amounts, left out of every total and counted in a warning above the table (ADR
+  0024, Amendment #432). Notes are written only while the mode is in effect and only on a classified invoice, so a note
+  never has NULL flags.
 - **Imported invoices** (importer phase 2): imported tax invoices get `numbered_at` and the snapshot at import and take
   notes; they are in the register only if dated on or after `enabled_from`.
 

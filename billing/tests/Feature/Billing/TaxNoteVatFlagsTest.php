@@ -49,14 +49,25 @@ test('a note copies the Nepal VAT flags of its invoice', function () {
     expect(vatFlagsIssue($invoice))->tax1_is_vat->toBeTrue()->tax2_is_vat->toBeFalse();
 });
 
-test('a note on a taxed invoice that was never classified is refused in plain words while the mode is on', function () {
+test('a note on a taxed invoice that was never classified is refused in plain words, and the panel says why up front', function () {
     $invoice = vatFlagsInvoice();
     DB::table('invoices')->where('id', $invoice->id)->update(['fiscal_tax1_is_vat' => null, 'fiscal_tax2_is_vat' => null]);
 
-    expect(fn () => vatFlagsIssue($invoice))->toThrow(BillingException::class, 'billing:fiscal-vat-split');
+    expect(fn () => vatFlagsIssue($invoice))->toThrow(BillingException::class, 'billing:fiscal-vat-split')
+        ->and(TaxNote::query()->count())->toBe(0)
+        ->and(app(TaxNoteIssuer::class)->creditBlocked($invoice->fresh()))->toContain('billing:fiscal-vat-split')
+        ->and(app(TaxNoteIssuer::class)->debitBlocked($invoice->fresh()))->toContain('billing:fiscal-vat-split');
+});
+
+test('no note is written while the mode is off or before its start day, so none ever has NULL flags', function () {
+    $invoice = vatFlagsInvoice();
 
     billingSettings(['nepal_vat.enabled' => false]);
-    expect(vatFlagsIssue($invoice))->tax1_is_vat->toBeNull();
+    expect(fn () => vatFlagsIssue($invoice))->toThrow(BillingException::class, 'only while Nepal VAT mode is on');
+
+    billingSettings(['nepal_vat.enabled' => true, 'nepal_vat.enabled_from' => '2026-11-17']);
+    expect(fn () => vatFlagsIssue($invoice))->toThrow(BillingException::class, 'starts on 2026-11-17')
+        ->and(TaxNote::query()->count())->toBe(0);
 });
 
 test('a zero-tax invoice with no flags still takes a note', function () {

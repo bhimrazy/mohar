@@ -304,12 +304,14 @@ test('another tax is not VAT, and a document whose tax was never classified is l
     $rows = collect(registerRows('vat_register', ['month' => '2083-07']))->keyBy('number');
     $summary = registerSummaryWith(null);
     $gst = $rows->first(fn (array $row) => $row['total_sales']?->amount === 10_000 && $row['vat']?->amount === 0);
-    $loose = $rows->first(fn (array $row) => $row['total_sales']?->amount === 20_000);
+    $loose = $rows->first(fn (array $row) => $row['total_sales'] === null);
 
-    // The GST invoice is exempt sales of its whole value; its 18% is not VAT. The loose one has no VAT and is counted.
+    // The GST invoice is exempt sales of its whole value; its 18% is not VAT. The loose one is listed with blank amounts, out
+    // of every total, and counted in the warning.
     expect(registerAmounts($gst))->toMatchArray(['exempt' => 10_000, 'taxable' => 0, 'vat' => 0])
-        ->and(registerAmounts($loose))->toMatchArray(['taxable' => 20_000, 'vat' => 0])
-        ->and($summary->unclassified)->toBe(1);
+        ->and(registerAmounts($loose))->toBe(['total_sales' => null, 'exempt' => null, 'taxable' => null, 'vat' => null, 'export_value' => null])
+        ->and($summary->unclassified)->toBe(1)
+        ->and($summary->net()['taxable'])->toBe(collect(registerRows('vat_register', ['month' => '2083-07']))->sum(fn (array $row): int => $row['taxable']?->amount ?? 0));
 });
 
 test('an export value is rounded once, as taxable plus exempt', function () {

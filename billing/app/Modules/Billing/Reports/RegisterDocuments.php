@@ -7,6 +7,7 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Billing\Models\TaxNoteLine;
 use App\Modules\Billing\Services\FiscalSnapshotWriter;
+use App\Modules\Billing\Services\NepalVatMode;
 use App\Support\Currencies\Decimal;
 use Generator;
 use Illuminate\Database\Query\Builder;
@@ -33,7 +34,7 @@ class RegisterDocuments
     /** Convert in SQL (PostgreSQL) or in PHP; null follows the connection. Tests set it to compare the two paths. */
     public ?bool $convertInSql = null;
 
-    public function __construct(private FiscalSnapshotWriter $snapshots) {}
+    public function __construct(private FiscalSnapshotWriter $snapshots, private NepalVatMode $mode) {}
 
     /** The register is in rupees unless the tax settings name another reporting currency. */
     public function currency(): string
@@ -178,53 +179,67 @@ class RegisterDocuments
     private function base(string $table, RegisterPeriod $period): Builder
     {
         if ($table === 'tax_notes') {
-            return $period->scope(TaxNote::query()->toBase(), 'tax_notes');
+            return $this->sinceMode($period->scope(TaxNote::query()->toBase(), 'tax_notes'), 'tax_notes');
         }
 
-        return $period->scope(Invoice::query()->toBase(), 'invoices')
+        return $this->sinceMode($period->scope(Invoice::query()->toBase(), 'invoices'), 'invoices')
             ->whereNotNull('invoices.numbered_at')->whereNotNull('invoices.number')->where('invoices.kind', '<>', 'add_funds');
     }
 
     /**
-     * The `taxable`, `exempt` and `tax` columns of a table's rows. `tax` is Nepal VAT only: the levels flagged as VAT
-     * (a NULL flag counts as not VAT; such rows are counted as unclassified). A document of class `exempt` has no
-     * Nepal VAT, so its whole value is exempt sales, even where another tax was charged on it (ADR 0024, Amendment #432).
+     * The SQL pieces of one table's rows, built once so the amounts, the flag on each row and the warning count agree.
+     * `vat` is Nepal VAT only: the levels flagged as VAT. `unclassified` is true for a document that carries tax but whose
+     * levels were never classified (no flags): its amounts are left blank and out of every total, like a document with no
+     * rate, and it is counted in a warning (vat-register §6.3). A document of class `exempt` has no Nepal VAT, so its whole
+     * value is exempt sales, even where another tax was charged on it (ADR 0024, Amendment #432).
      *
      * @param  'invoices'|'tax_notes'  $table
-     * @return literal-string
+     * @return array{taxable: literal-string, exempt: literal-string, vat: literal-string, unclassified: literal-string}
      */
-    private static function amounts(string $table): string
+    private static function sql(string $table): array
     {
         [$taxable, $exempt, $one, $two, $flag1, $flag2] = $table === 'tax_notes'
             ? ['tax_notes.taxable_amount', 'tax_notes.exempt_amount', 'tax_notes.tax1_amount', 'tax_notes.tax2_amount', 'tax_notes.tax1_is_vat', 'tax_notes.tax2_is_vat']
             : ['coalesce(invoices.fiscal_taxable, 0)', 'coalesce(invoices.fiscal_exempt, 0)', 'coalesce(invoices.fiscal_tax1, 0)', 'coalesce(invoices.fiscal_tax2, 0)', 'invoices.fiscal_tax1_is_vat', 'invoices.fiscal_tax2_is_vat'];
 
-        return "case when {$table}.supply_class = 'exempt' then 0 else {$taxable} end as taxable, "
-            ."case when {$table}.supply_class = 'exempt' then {$taxable} + {$exempt} else {$exempt} end as exempt, "
-            ."(case when {$flag1} then {$one} else 0 end) + (case when {$flag2} then {$two} else 0 end) as tax";
+        return [
+            'taxable' => "case when {$table}.supply_class = 'exempt' then 0 else {$taxable} end",
+            'exempt' => "case when {$table}.supply_class = 'exempt' then {$taxable} + {$exempt} else {$exempt} end",
+            'vat' => "(case when {$flag1} then {$one} else 0 end) + (case when {$flag2} then {$two} else 0 end)",
+            'unclassified' => "({$flag1} is null and ({$one} + {$two}) <> 0)",
+        ];
     }
 
     /**
-     * SQL: the document carries tax but is not classified (no VAT flags), so its tax is kept out of VAT.
-     *
      * @param  'invoices'|'tax_notes'  $table
      * @return literal-string
      */
-    private static function unclassifiedSql(string $table): string
+    private static function amounts(string $table): string
     {
-        $tax = $table === 'tax_notes' ? 'tax_notes.tax1_amount + tax_notes.tax2_amount' : 'coalesce(invoices.fiscal_tax1, 0) + coalesce(invoices.fiscal_tax2, 0)';
-        $flag = $table === 'tax_notes' ? 'tax_notes.tax1_is_vat' : 'invoices.fiscal_tax1_is_vat';
+        $sql = self::sql($table);
 
-        return "(case when {$flag} is null and ({$tax}) <> 0 then 1 else 0 end)";
+        return "case when {$sql['unclassified']} then 0 else {$sql['taxable']} end as taxable, case when {$sql['unclassified']} then 0 else {$sql['exempt']} end as exempt, case when {$sql['unclassified']} then 0 else {$sql['vat']} end as tax";
     }
 
-    /** @param  'invoices'|'tax_notes'  $table */
+    /**
+     * @param  'invoices'|'tax_notes'  $table
+     */
     private function unclassified(Builder $query, string $table): Builder
     {
-        $flag = $table === 'tax_notes' ? 'tax_notes.tax1_is_vat' : 'invoices.fiscal_tax1_is_vat';
-        $tax = $table === 'tax_notes' ? 'tax_notes.tax1_amount + tax_notes.tax2_amount' : 'coalesce(invoices.fiscal_tax1, 0) + coalesce(invoices.fiscal_tax2, 0)';
+        return $query->whereRaw(self::sql($table)['unclassified']);
+    }
 
-        return $query->whereNull($flag)->whereRaw("({$tax}) <> 0");
+    /**
+     * Only documents dated on or after `enabled_from` are in the register (vat-register §6.1); with the mode never switched on,
+     * none are, because no invoice of that time carries the Nepal VAT flags.
+     *
+     * @param  'invoices'|'tax_notes'  $table
+     */
+    private function sinceMode(Builder $query, string $table): Builder
+    {
+        $from = $this->mode->enabled() ? $this->mode->enabledFrom() : null;
+
+        return $from === null ? $query->whereRaw('1 = 0') : $query->where("{$table}.issue_date", '>=', $from);
     }
 
     private function convertsInSql(): bool
@@ -244,7 +259,7 @@ class RegisterDocuments
             'tax_notes.kind as kind, 1 as kind_rank, tax_notes.id as doc_id, tax_notes.issue_date, tax_notes.issued_at as numbered_at, '
             .'tax_notes.bs_issue_date, tax_notes.number, tax_notes.invoice_number as ref_number, tax_notes.invoice_bs_issue_date as ref_bs_date, '
             .'tax_notes.buyer_snapshot as buyer, tax_notes.currency, tax_notes.report_currency, tax_notes.report_rate, tax_notes.supply_class, '
-            .self::amounts('tax_notes').', '.self::unclassifiedSql('tax_notes').' as unclassified, '
+            .self::amounts('tax_notes').', case when '.self::sql('tax_notes')['unclassified'].' then 1 else 0 end as unclassified, '
             .'tax_notes.total, tax_notes.reason_code, tax_notes.reason_text, tax_notes.automatic, tax_notes.created_by'
         );
 
@@ -257,7 +272,7 @@ class RegisterDocuments
                 "'invoice' as kind, 0 as kind_rank, invoices.id as doc_id, invoices.issue_date, invoices.numbered_at, "
                 .'invoices.bs_issue_date, invoices.number, null as ref_number, null as ref_bs_date, '
                 .'invoices.client_snapshot as buyer, invoices.currency, invoices.report_currency, invoices.report_rate, invoices.supply_class, '
-                .self::amounts('invoices').', '.self::unclassifiedSql('invoices').' as unclassified, coalesce(invoices.fiscal_total, 0) as total, '
+                .self::amounts('invoices').', case when '.self::sql('invoices')['unclassified'].' then 1 else 0 end as unclassified, coalesce(invoices.fiscal_total, 0) as total, '
                 .'null as reason_code, null as reason_text, null as automatic, null as created_by'
             )
             ->unionAll($notes);

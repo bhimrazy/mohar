@@ -9,6 +9,7 @@ use App\Enums\ExportFormat;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Reports\RegisterPeriod;
 use App\Modules\Billing\Reports\RegisterReport;
+use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Billing\Support\BikramSambat;
 use App\Support\Money;
 use App\Support\Reports\ReportExporter;
@@ -36,7 +37,7 @@ class VatRegisterController extends Controller
 
     private const FILTERS = ['month', 'year', 'from', 'to'];
 
-    public function index(Request $request, ReportExporter $exporter, ReportViewer $viewer, ReportRegistry $reports, CompanyClock $clock): Response
+    public function index(Request $request, ReportExporter $exporter, ReportViewer $viewer, ReportRegistry $reports, CompanyClock $clock, NepalVatMode $mode): Response
     {
         $tab = $this->tab($request);
         $key = self::TABS[$tab];
@@ -88,7 +89,9 @@ class VatRegisterController extends Controller
             'filterErrors' => (object) $errors,
             // What was asked for, so a refused year or range stays in the picker beside its error.
             'submitted' => (object) ($errors === [] ? [] : $submitted),
-            'options' => $this->options($clock),
+            'options' => $this->options($clock, $mode->enabled() ? $mode->enabledFrom() : null),
+            // The register lists documents from the mode's start day on; with the mode never switched on there is nothing to list.
+            'mode' => ['enabled' => $mode->enabled(), 'from' => $mode->enabledFrom(), 'started' => $mode->inEffect($clock->now())],
             'warnings' => ['withoutPan' => $summary->withoutPan, 'unconverted' => $summary->unconverted, 'unclassified' => $summary->unclassified],
             'can' => ['export' => (bool) $user?->hasPermission("reports.{$key}.export")],
         ]);
@@ -133,7 +136,7 @@ class VatRegisterController extends Controller
      *
      * @return array{months: list<array{value: string, label: string}>, years: list<array{value: string, label: string}>, lastClosed: string}
      */
-    private function options(CompanyClock $clock): array
+    private function options(CompanyClock $clock, ?string $from = null): array
     {
         $today = BikramSambat::fromAd($clock->todayDate());
         [$year, $month] = [$today->year, $today->month];
@@ -141,9 +144,14 @@ class VatRegisterController extends Controller
         $years = [];
 
         for ($i = 0; $i < 24 && $year >= BikramSambat::FIRST_YEAR; $i++) {
-            $months[] = ['value' => sprintf('%d-%02d', $year, $month), 'label' => BikramSambat::MONTHS[$month - 1].' '.$year];
+            // Periods that ended before the mode's start day are not offered (vat-register §6.1).
+            if ($from === null || BikramSambat::toAd($year, $month, BikramSambat::daysInMonth($year, $month))->format('Y-m-d') >= $from) {
+                $months[] = ['value' => sprintf('%d-%02d', $year, $month), 'label' => BikramSambat::MONTHS[$month - 1].' '.$year];
+            }
             $start = $month >= 4 ? $year : $year - 1;
-            $years[$start] = ['value' => sprintf('%d.%03d', $start, ($start + 1) % 1000), 'label' => sprintf('%d/%02d', $start, ($start + 1) % 100)];
+            if ($from === null || BikramSambat::toAd($start + 1, 3, BikramSambat::daysInMonth($start + 1, 3))->format('Y-m-d') >= $from) {
+                $years[$start] = ['value' => sprintf('%d.%03d', $start, ($start + 1) % 1000), 'label' => sprintf('%d/%02d', $start, ($start + 1) % 100)];
+            }
             [$year, $month] = $month === 1 ? [$year - 1, 12] : [$year, $month - 1];
         }
 

@@ -93,6 +93,10 @@ class TaxNoteIssuer
      */
     public function creditBlocked(Invoice $invoice): ?string
     {
+        if (($blocked = $this->unclassifiedBlock($invoice)) !== null) {
+            return $blocked;
+        }
+
         if ($invoice->status === InvoiceStatus::Cancelled || $invoice->status === InvoiceStatus::Refunded) {
             return __('The invoice is :status; nothing is left to credit.', ['status' => mb_strtolower($invoice->status->label())]);
         }
@@ -116,6 +120,10 @@ class TaxNoteIssuer
      */
     public function debitBlocked(Invoice $invoice): ?string
     {
+        if (($blocked = $this->unclassifiedBlock($invoice)) !== null) {
+            return $blocked;
+        }
+
         if ($invoice->status->isPayable() || $invoice->status === InvoiceStatus::Paid) {
             return null;
         }
@@ -255,6 +263,26 @@ class TaxNoteIssuer
         );
     }
 
+    /** Why notes cannot be issued at all now: the mode is off, or it has not reached its start day. */
+    public function modeBlocked(): ?string
+    {
+        if (! $this->mode->enabled()) {
+            return (string) __('Notes can be issued only while Nepal VAT mode is on.');
+        }
+
+        return $this->mode->inEffect($this->clock->now()) ? null : (string) __('Nepal VAT mode starts on :date; notes can be issued from then.', ['date' => $this->mode->enabledFrom()]);
+    }
+
+    /** A taxed invoice whose tax was never split into Nepal VAT and other tax takes no note, now or later. */
+    private function unclassifiedBlock(Invoice $invoice): ?string
+    {
+        if ($invoice->fiscal_tax1_is_vat !== null || (int) $invoice->fiscal_tax1 + (int) $invoice->fiscal_tax2 === 0) {
+            return null;
+        }
+
+        return __('This invoice\'s tax was never split into Nepal VAT and other tax, so it takes no note. Ask the person who runs the system to run "php artisan billing:fiscal-vat-split" first.');
+    }
+
     private function guard(NoteRequest $request, Invoice $invoice): void
     {
         if (! in_array($request->reasonCode, $request->kind === 'credit' ? self::CREDIT_REASONS : self::DEBIT_REASONS, true)) {
@@ -269,9 +297,10 @@ class TaxNoteIssuer
             throw new BillingException(__('Only a numbered tax invoice with a stored snapshot takes a note.'));
         }
 
-        // A taxed invoice numbered before its tax was split into Nepal VAT and other tax would write a note the register cannot place.
-        if ($this->mode->enabled() && $invoice->fiscal_tax1_is_vat === null && (int) $invoice->fiscal_tax1 + (int) $invoice->fiscal_tax2 !== 0) {
-            throw new BillingException(__('This invoice\'s tax has not been split into Nepal VAT and other tax yet. Ask the person who runs the system to run "php artisan billing:fiscal-vat-split", then try again.'));
+        // Notes exist only while the mode is in effect, and a taxed invoice without flags would write a note the register cannot
+        // place (a note's flags are copied once and never change).
+        if (($blocked = $this->modeBlocked() ?? $this->unclassifiedBlock($invoice)) !== null) {
+            throw new BillingException($blocked);
         }
 
         if ($this->clock->isFallback()) {

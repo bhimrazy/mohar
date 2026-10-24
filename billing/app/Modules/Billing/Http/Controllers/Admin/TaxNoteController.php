@@ -40,8 +40,8 @@ class TaxNoteController extends Controller
 
     private function ensureIssuable(Invoice $invoice): void
     {
-        if (! $this->panel->issuable($invoice)) {
-            throw new BillingException(__('Notes can be issued only on a numbered tax invoice while Nepal VAT mode is on.'));
+        if (($reason = $this->panel->unavailable($invoice)) !== null) {
+            throw new BillingException($reason);
         }
     }
 

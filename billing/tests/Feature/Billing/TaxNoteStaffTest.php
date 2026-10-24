@@ -259,7 +259,7 @@ test('while Nepal VAT mode is off staff cannot issue notes', function () {
     billingStaff();
 
     $this->getJson(route('admin.billing.invoices.notes.preview', [$invoice, ...staffFullCredit('balance')]))
-        ->assertUnprocessable()->assertJsonPath('message', 'Notes can be issued only on a numbered tax invoice while Nepal VAT mode is on.');
+        ->assertUnprocessable()->assertJsonPath('message', 'Notes can be issued only while Nepal VAT mode is on.');
     $this->get(route('admin.billing.invoices.show', $invoice))->assertInertia(fn (AssertableInertia $page) => $page->where('notes_enabled', false)->where('creditable', null));
 });
 

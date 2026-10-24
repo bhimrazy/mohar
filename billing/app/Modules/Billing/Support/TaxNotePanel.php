@@ -2,12 +2,10 @@
 
 namespace App\Modules\Billing\Support;
 
-use App\Contracts\Core\CompanyClock;
 use App\Models\User;
 use App\Modules\Billing\Enums\InvoiceKind;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\TaxNote;
-use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Billing\Services\TaxNoteIssuer;
 
 /**
@@ -17,7 +15,7 @@ use App\Modules\Billing\Services\TaxNoteIssuer;
  */
 class TaxNotePanel
 {
-    public function __construct(private NepalVatMode $mode, private TaxNoteIssuer $issuer, private CompanyClock $clock) {}
+    public function __construct(private TaxNoteIssuer $issuer) {}
 
     /**
      * Whether staff can issue notes on this invoice: Nepal VAT mode in effect (switched on and its start day reached), and a
@@ -25,7 +23,15 @@ class TaxNotePanel
      */
     public function issuable(Invoice $invoice): bool
     {
-        return $this->mode->inEffect($this->clock->now()) && $invoice->numbered_at !== null && $invoice->fiscal_total !== null && $invoice->kind !== InvoiceKind::AddFunds;
+        return $this->unavailable($invoice) === null;
+    }
+
+    /** Why notes cannot be issued on this invoice at all, in plain words, or null. */
+    public function unavailable(Invoice $invoice): ?string
+    {
+        return $this->issuer->modeBlocked() ?? ($invoice->numbered_at === null || $invoice->fiscal_total === null || $invoice->kind === InvoiceKind::AddFunds
+            ? (string) __('Only a numbered tax invoice takes a note.')
+            : null);
     }
 
     /**
