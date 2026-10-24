@@ -30,7 +30,7 @@ if (reports.length === 0) {
 
 const attribute = (tag, name) =>
     tag.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1];
-const unescape = (text) =>
+const decodeEntities = (text) =>
     text
         .replaceAll('&quot;', '"')
         .replaceAll('&apos;', "'")
@@ -52,7 +52,11 @@ for (const report of reports) {
         ).split('::')[0];
         const seconds = Number(attribute(tag, 'time') ?? 0);
         totals.set(path, (totals.get(path) ?? 0) + seconds);
-        cases.push([seconds, path, unescape(attribute(tag, 'name') ?? '?')]);
+        cases.push([
+            seconds,
+            path,
+            decodeEntities(attribute(tag, 'name') ?? '?'),
+        ]);
         all += seconds;
     }
 }

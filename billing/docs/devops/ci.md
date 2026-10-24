@@ -49,7 +49,9 @@ after `checks` passed, so they never install a lockfile the policy has not appro
 
 **Test jobs.** `pest --shard=<n>/<total>` (in the installed Pest 5.3) gives each job a share of the test files, round-robin in file
 order, and each job runs its share with `--parallel`: SQLite in 2 shards (one worker per vCPU: 4 on the public-repository runner, every suite), PostgreSQL in
-3 (4 workers each, Feature, Extensions and the simulator framework; `composer test:pgsql -- --shard=…`), each with
+3 (4 workers each; the counts are `SQLITE_SHARDS` and `PGSQL_SHARDS` at the top of the workflow, the checks job turns
+them into the matrix lists and each job runs `--shard=<n>/<strategy.job-total>`, so a list cannot drift from its
+total; Feature, Extensions and the simulator framework; `composer test:pgsql -- --shard=…`), each with
 its own PostgreSQL service. Each job prints its slowest files and test cases (`scripts/slowest-tests.mjs`). A
 time-balanced split is available (`--update-shards` writes `tests/.pest/shards.json`, which `--shard` then uses), not
 adopted: the file must be refreshed as tests are added. **`Build`** runs `npm run build`, then the check that the app

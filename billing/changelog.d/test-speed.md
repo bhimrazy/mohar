@@ -8,7 +8,7 @@
 - **`scripts/test.sh` runs the tests locally.** Whole suite, `--changed` against `origin/develop`, or `--pgsql`, with a
   worker count picked from the machine's load; on macOS the simulator tests run through `scripts/linux.sh`.
 - Four slow tests are faster without proving less: InstallCommandTest no longer seeds the 730-day demo history to
-  compare reference data, a deploy probe skips its 20 one-second polls, and a TLS pinning test waits 3 s, not 6 s.
+  compare reference data, a deploy probe skips its 20 one-second polls, and a TLS pinning test waits 4 s, not 6 s.
 
 ### Fixed
 

@@ -47,6 +47,10 @@ defaults:
 env:
     XDEBUG_MODE: 'off'
     MIN_RELEASE_AGE_DAYS: '7'
+    # Shard counts: the only place to change them. The checks job turns each into the matrix list 1..n, and every shard
+    # runs <n>/<job-total>, so no list can drift from its total and leave test files unrun.
+    SQLITE_SHARDS: '2'
+    PGSQL_SHARDS: '3'
 
 jobs:
     checks:
@@ -61,6 +65,8 @@ jobs:
         timeout-minutes: 10
         outputs:
             code: ${{ steps.changes.outputs.code }}
+            sqlite_shards: ${{ steps.shards.outputs.sqlite }}
+            pgsql_shards: ${{ steps.shards.outputs.pgsql }}
         permissions:
             contents: read
             pull-requests: read # read the security-exception label at run time (re-runs pick it up)
@@ -116,6 +122,12 @@ jobs:
                       echo "base=$base"
                   } >> "$GITHUB_OUTPUT"
                   echo "Code changes: $code · docs-site dependency changes: $deps · audits: $audit · dependency diff base: $base"
+
+            - name: Shard lists
+              id: shards
+              run: |
+                  echo "sqlite=[$(seq "$SQLITE_SHARDS" | paste -sd, -)]" >> "$GITHUB_OUTPUT"
+                  echo "pgsql=[$(seq "$PGSQL_SHARDS" | paste -sd, -)]" >> "$GITHUB_OUTPUT"
 
             # ADR 0027: entries go in fragments, never straight into the two changelogs. PRs only, on the docs-only fast
             # path too; git and awk only. HEAD^2 is the PR head (the merge commit's second parent), which carries the
@@ -244,9 +256,10 @@ jobs:
               if: steps.changes.outputs.code == 'true'
               run: vendor/bin/phpstan analyse --memory-limit=1G --no-progress --error-format=github
 
-    # Pest's --shard splits the test files round-robin; each shard is a full `--parallel` run of its share.
+    # Pest's --shard splits the test files round-robin; each shard is a full `--parallel` run of its share. The shard
+    # list comes from SQLITE_SHARDS / PGSQL_SHARDS above.
     sqlite:
-        name: Pest SQLite (${{ matrix.shard }}/2)
+        name: Pest SQLite (${{ matrix.shard }}/${{ strategy.job-total }})
         needs: checks
         # The policy checks passed before any of these jobs installs or runs code; docs-only changes skip them.
         if: needs.checks.outputs.code == 'true'
@@ -257,7 +270,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                shard: [1, 2]
+                shard: ${{ fromJSON(needs.checks.outputs.sqlite_shards) }}
         steps:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -283,13 +296,15 @@ jobs:
 
             - name: Pest (SQLite)
               env:
-                  SHARD: ${{ matrix.shard }}/2
+                  SHARD: ${{ matrix.shard }}
+                  TOTAL: ${{ strategy.job-total }}
               run: |
-                  vendor/bin/pest --parallel --shard="$SHARD" --log-junit="$RUNNER_TEMP/sqlite.xml"
+                  [ "$TOTAL" = "$SQLITE_SHARDS" ] || { echo "::error::$TOTAL SQLite jobs, expected $SQLITE_SHARDS"; exit 1; }
+                  vendor/bin/pest --parallel --shard="$SHARD/$TOTAL" --log-junit="$RUNNER_TEMP/sqlite.xml"
                   node scripts/slowest-tests.mjs "$RUNNER_TEMP/sqlite.xml"
 
     pgsql:
-        name: Pest PostgreSQL (${{ matrix.shard }}/3)
+        name: Pest PostgreSQL (${{ matrix.shard }}/${{ strategy.job-total }})
         needs: checks
         # The policy checks passed before any of these jobs installs or runs code; docs-only changes skip them.
         if: needs.checks.outputs.code == 'true'
@@ -300,7 +315,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                shard: [1, 2, 3]
+                shard: ${{ fromJSON(needs.checks.outputs.pgsql_shards) }}
         services:
             postgres:
                 # Must equal the postgres image in billing/compose.yaml (asserted in the checks job).
@@ -364,10 +379,12 @@ jobs:
                   # Round-trip bound (workers mostly wait on the database): 4 workers even on a 2-vCPU private-repository
                   # runner; each stays under the 1 GB memory_limit in phpunit.xml.
                   PEST_PROCESSES: '4'
-                  SHARD: ${{ matrix.shard }}/3
+                  SHARD: ${{ matrix.shard }}
+                  TOTAL: ${{ strategy.job-total }}
               run: |
+                  [ "$TOTAL" = "$PGSQL_SHARDS" ] || { echo "::error::$TOTAL PostgreSQL jobs, expected $PGSQL_SHARDS"; exit 1; }
                   read -r _ u1 n1 s1 i1 w1 _ < /proc/stat
-                  composer test:pgsql -- --shard="$SHARD" --log-junit="$RUNNER_TEMP/pgsql.xml"
+                  composer test:pgsql -- --shard="$SHARD/$TOTAL" --log-junit="$RUNNER_TEMP/pgsql.xml"
                   read -r _ u2 n2 s2 i2 w2 _ < /proc/stat
                   busy=$(( (u2 + n2 + s2) - (u1 + n1 + s1) )); idle=$(( (i2 + w2) - (i1 + w1) ))
                   echo "CPU busy during the suite: $(( 100 * busy / (busy + idle) ))% of $(nproc) vCPUs"

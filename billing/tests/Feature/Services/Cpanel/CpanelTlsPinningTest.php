@@ -106,8 +106,8 @@ test('a pin check that fails in any way aborts before a single request byte is s
     $server = Whm::server(['spki_pin' => $pin], port: $port);
 
     // Positive control: with a working check the request reaches the server (which never answers, so it times out).
-    // 3 s is the shortest deadline WhmClient still sends a request with (it needs 2 whole seconds left).
-    $working = new WhmClient($server, app(OutboundAddressGuard::class), microtime(true) + 3);
+    // WhmClient sends only with 2 whole seconds left; 4 s leaves a loaded runner 2 s of slack before the request.
+    $working = new WhmClient($server, app(OutboundAddressGuard::class), microtime(true) + 4);
     expect(fn () => $working->read('version'))->toThrow(WhmFailure::class);
     expect($echo->getOutput())->toContain('GET /json-api/version');
 

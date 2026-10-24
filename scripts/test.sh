@@ -9,14 +9,18 @@
 #
 # --changed selects (from the diff of origin/develop...HEAD plus uncommitted and untracked files):
 #   - changed test files, and the whole directory of a changed test helper;
-#   - app/Modules/<M>/** -> tests/Feature/<M> and tests/Unit/<M>; tools/simulators/** -> tools/simulators/tests;
-#     deploy/, loadtest/ -> tests/Unit/Deploy; scripts/, billing/scripts/, .github/ -> tests/Unit;
-#   - always, once any PHP-side file changed: tests/Arch, tests/Extensions, tests/Feature/Security,
-#     tests/Feature/Migration and tests/Feature/TestHarness, which catch breakage across modules and PRs;
-#   - the whole suite when a shared file changed (the kernel and other app/ code outside app/Modules, config/, routes/,
-#     bootstrap/, database/, resources/views, lang/, tests/Pest.php, tests/TestCase.php, tests/Support, composer.*,
-#     phpunit.xml). Frontend-only (resources/js) and docs-only changes select nothing: run `npm test` for the former.
-#   TEST_BASE overrides origin/develop; fetch first (git fetch origin develop) for an up-to-date base.
+#   - app/Modules/<M>/** -> tests/Feature/<M>, tests/Unit/<M> and every test file that names an App\Modules\<M>\ class
+#     (tests that reach a module only over HTTP are not found this way: the suites below cover the common ones);
+#     tools/simulators/** -> tools/simulators/tests; deploy/, loadtest/ -> tests/Unit/Deploy; scripts/, billing/scripts/,
+#     .github/ -> tests/Unit; resources/js/** -> tests/Feature (the Inertia component and prop assertions);
+#   - always, once any of those changed: tests/Arch, tests/Extensions and, in tests/Feature, Security, Migration,
+#     TestHarness, Auth, Settings, Reports, Integrations, Review, ReviewProbes and DashboardTest.php, which catch
+#     breakage across modules and PRs;
+#   - the whole suite when shared code changed: app/Modules/Core (nearly every test depends on it), the kernel and other
+#     app/ code outside app/Modules, config/, routes/, bootstrap/, database/, resources/views, lang/, tests/Pest.php,
+#     tests/TestCase.php, tests/Support, composer.*, phpunit.xml. Docs-only (and CSS-only) changes select nothing.
+#   When in doubt it selects more, never less. TEST_BASE overrides origin/develop (a missing ref exits 2); fetch first
+#   (git fetch origin develop) for an up-to-date base.
 #
 # Workers: --parallel with TEST_PROCESSES workers, by default picked from the load once heavy.sh gives a slot:
 # TEST_LOAD_CEILING (8, the shared Mac's limit) minus the 1-minute load, at most 4; at least 2 for the whole suite,
@@ -30,7 +34,16 @@ if [ -z "${TEST_SH_IN_SLOT:-}" ]; then
     TEST_SH_IN_SLOT=1 exec "$scripts/heavy.sh" "$scripts/$(basename "$0")" "$@"
 fi
 
-usage() { sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() {
+    cat >&2 <<'USAGE'
+usage: test.sh [--changed] [--pgsql] [--list] [<paths>...] [-- <pest options>]
+  (no option)  the whole suite on SQLite
+  --changed    the tests related to the changes against origin/develop (TEST_BASE)
+  --pgsql      on PostgreSQL, via scripts/pg.sh <worktree slug>
+  --list       print the selection and exit
+USAGE
+    exit 2
+}
 
 changed=0 pgsql=0 list=0
 paths=() extra=()
@@ -55,6 +68,11 @@ cd "$app"
 full=1
 if [ "$changed" = 1 ]; then
     base="${TEST_BASE:-origin/develop}"
+    # A missing base must not pass as "nothing changed".
+    if ! git -C "$top" rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+        echo "test.sh --changed: base $base is not a commit here (fetch it: git fetch origin develop, or set TEST_BASE)" >&2
+        exit 2
+    fi
     files="$(cd "$top" && { git diff --name-only "$base"...HEAD; git diff --name-only HEAD; git ls-files --others --exclude-standard; } | sort -u)"
     selection=()
     reason=""
@@ -63,7 +81,11 @@ if [ "$changed" = 1 ]; then
     while IFS= read -r f; do
         [ -n "$f" ] || continue
         case "$f" in
-            *.md | *.png | *.jpg | *.svg | billing/docs/* | docs/* | docs-site/* | billing/changelog.d/* | billing/resources/js/* | billing/resources/css/*) ;;
+            *.md | *.png | *.jpg | *.svg | billing/docs/* | docs/* | docs-site/* | billing/changelog.d/* | billing/resources/css/*) ;;
+            billing/resources/js/*)
+                php_side=1; add_dir tests/Feature ;;
+            billing/app/Modules/Core/*)
+                reason="${reason:-$f}" ;;
             billing/tests/Pest.php | billing/tests/TestCase.php | billing/tests/Support/* | billing/tests/Fakes/* | billing/tests/Fixtures/*)
                 reason="${reason:-$f}" ;;
             billing/tests/*Test.php | billing/tools/simulators/tests/*Test.php)
@@ -71,7 +93,8 @@ if [ "$changed" = 1 ]; then
             billing/tests/* | billing/tools/simulators/tests/*)
                 php_side=1; d="$(dirname "${f#billing/}")"; add_dir "$d" ;;
             billing/app/Modules/*)
-                php_side=1; m="${f#billing/app/Modules/}"; m="${m%%/*}"; add_dir "tests/Feature/$m"; add_dir "tests/Unit/$m" ;;
+                php_side=1; m="${f#billing/app/Modules/}"; m="${m%%/*}"; add_dir "tests/Feature/$m"; add_dir "tests/Unit/$m"
+                while IFS= read -r t; do selection+=("$t"); done < <(grep -rlF "App\\Modules\\$m\\" tests tools/simulators/tests 2>/dev/null | grep 'Test\.php$' || true) ;;
             billing/tools/simulators/*)
                 php_side=1; add_dir tools/simulators/tests ;;
             deploy/* | loadtest/*)
@@ -87,11 +110,14 @@ if [ "$changed" = 1 ]; then
     if [ -n "$reason" ]; then
         echo "test.sh --changed: $reason is shared by every module, so the whole suite runs"
     elif [ "$php_side" = 0 ] && [ ${#paths[@]} -eq 0 ]; then
-        echo "test.sh --changed: no PHP tests relate to the changes against $base (frontend: npm test)"
+        echo "test.sh --changed: no tests relate to the changes against $base"
         exit 0
     else
         full=0
-        for d in tests/Arch tests/Extensions tests/Feature/Security tests/Feature/Migration tests/Feature/TestHarness; do add_dir "$d"; done
+        for d in tests/Arch tests/Extensions tests/Feature/Security tests/Feature/Migration tests/Feature/TestHarness \
+            tests/Feature/Auth tests/Feature/Settings tests/Feature/Reports tests/Feature/Integrations tests/Feature/Review \
+            tests/Feature/ReviewProbes; do add_dir "$d"; done
+        [ -f tests/Feature/DashboardTest.php ] && selection+=(tests/Feature/DashboardTest.php)
         paths+=("${selection[@]}")
     fi
 fi

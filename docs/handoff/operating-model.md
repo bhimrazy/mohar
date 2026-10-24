@@ -117,12 +117,14 @@ Tests run through `scripts/test.sh`, not hand-picked directories (agents kept mi
 `pest --parallel` with a worker count picked from the load (`TEST_LOAD_CEILING`, default 8, minus the 1-minute load,
 2–4 for the whole suite; `TEST_PROCESSES` overrides).
 
-- `--changed`: against `origin/develop` (fetch first), plus uncommitted and untracked files: the changed test files,
-  `tests/Feature/<M>` and `tests/Unit/<M>` for a change in `app/Modules/<M>`, and always `tests/Arch`,
-  `tests/Extensions`, `tests/Feature/Security`, `tests/Feature/Migration` and `tests/Feature/TestHarness`. A change to
-  shared code (kernel, config, routes, migrations outside modules, `tests/Pest.php`, …) runs the whole suite.
+- `--changed`: against `origin/develop` (fetch first; a missing base exits 2), plus uncommitted and untracked files:
+  the changed test files; `tests/Feature/<M>`, `tests/Unit/<M>` and every test that names an `App\Modules\<M>\` class
+  for a change in `app/Modules/<M>`; all of `tests/Feature` for a `resources/js` change; and always `tests/Arch`,
+  `tests/Extensions` and, in `tests/Feature`, Security, Migration, TestHarness, Auth, Settings, Reports, Integrations,
+  Review, ReviewProbes and `DashboardTest.php`. A change to `app/Modules/Core` or other shared code (kernel, config,
+  routes, migrations outside modules, `tests/Pest.php`, …) runs the whole suite. It errs towards running more.
   `--list` prints the selection.
-- No option: the whole suite on SQLite (about 2 minutes with 4 workers on the Mac). `--pgsql`: on PostgreSQL via
+- No option: the whole suite on SQLite (measured 240 s with 2 workers on the Mac at load 6–10, simulators included). `--pgsql`: on PostgreSQL via
   `scripts/pg.sh <worktree slug>`, without Unit and Arch, as CI does. Paths and `-- <pest options>` narrow a run.
 - On macOS without `setsid` the simulator tests (`tools/simulators/tests`) run once through `scripts/linux.sh`, in
   the production base image on SQLite (Docker must be running).
