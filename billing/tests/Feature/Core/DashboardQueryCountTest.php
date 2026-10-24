@@ -19,7 +19,7 @@ use Symfony\Component\HttpFoundation\Response;
 require_once __DIR__.'/../Billing/helpers.php';
 
 /** Ceilings for one admin dashboard visit, cold cache, every module and permission (measured: ~50 and ~24). */
-const FIRST_PAINT_QUERIES = 56; // measured 47-51; an eager `health` prop (+13) must fail this
+const FIRST_PAINT_QUERIES = 58; // measured 47-52 (the Billing "notes refused" item added one); an eager `health` prop (+13) must fail this
 const DEFERRED_QUERIES = 28; // measured 20-24
 
 function dashboardSample(int $rows): void

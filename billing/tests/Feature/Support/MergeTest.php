@@ -3,6 +3,7 @@
 use App\Events\Support\TicketMerged;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Notifications\Mail\TemplatedMail;
 use App\Modules\Support\Actions\MergeTickets;
 use App\Modules\Support\Actions\PostReply;
 use App\Modules\Support\Data\TicketAuthor;
@@ -12,9 +13,11 @@ use App\Modules\Support\Models\Ticket;
 use App\Modules\Support\Models\TicketEvent;
 use App\Modules\Support\Models\TicketMessage;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Mail;
 use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/helpers.php';
+require_once dirname(__DIR__).'/Notifications/helpers.php';
 
 test('newer tickets merge into the oldest with messages in chronological order', function () {
     Event::fake([TicketMerged::class]);
@@ -87,7 +90,7 @@ test('a merged guest link never reveals or grants access to the target ticket', 
     $this->get(route('support.tickets.show', ['number' => $attacker->number, 'key' => 'wrong-key']))->assertNotFound();
     expect(TicketMessage::query()->where('body', 'injected')->exists())->toBeFalse()
         ->and($attacker->fresh()->access_key)->not->toBe($attacker->access_key)
-        ->and($victim->fresh()->access_key)->toBe($victim->access_key);
+        ->and($victim->fresh()->access_key)->not->toBe($victim->access_key);
 });
 
 test('after a cross-client merge the source client cannot post into the target ticket', function () {
@@ -116,4 +119,68 @@ test('a status change caused by a merge is audited', function () {
 
     expect($older->fresh()->status)->toBe(TicketStatus::Open)
         ->and(TicketEvent::query()->where('ticket_id', $older->id)->where('type', 'status')->latest('id')->first()?->to)->toBe('open');
+});
+
+test('a cross-requester merge replaces the target guest key, locks out the old link and emails the new one to the target requester', function () {
+    $department = Department::factory()->create();
+    $target = guestTicket($department, 'victim@example.com');
+    $source = guestTicket($department, 'other@example.com');
+    $oldKey = $target->access_key;
+    $staff = User::factory()->staff()->create();
+
+    Mail::fake();
+    seedEmailTemplates();
+    app(MergeTickets::class)->handle([$target->id, $source->id], $staff, allowCrossClient: true);
+
+    $target->refresh();
+    expect($target->access_key)->not->toBe($oldKey)->toHaveLength(32);
+    $this->get(route('support.tickets.show', ['number' => $target->number, 'key' => $oldKey]))->assertNotFound();
+    $this->post(route('support.tickets.reply', ['number' => $target->number, 'key' => $oldKey]), ['body' => 'late'])->assertNotFound();
+    $this->get(route('support.tickets.show', ['number' => $target->number, 'key' => $target->access_key]))->assertOk();
+    expect(mailedTo('New link to your ticket'))->toBe(['victim@example.com']);
+    Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => str_contains((string) $mail->htmlBody, 'key='.$target->access_key)
+        && ! str_contains((string) $mail->htmlBody, $oldKey));
+});
+
+test('a merge of guest tickets from one email also replaces the target key and mails the requester', function () {
+    $department = Department::factory()->create();
+    $target = guestTicket($department, 'same@example.com');
+    $source = guestTicket($department, 'SAME@example.com');
+    $key = $target->access_key;
+    Mail::fake();
+    seedEmailTemplates();
+
+    app(MergeTickets::class)->handle([$target->id, $source->id], User::factory()->staff()->create());
+
+    expect($target->fresh()->access_key)->not->toBe($key)
+        ->and(mailedTo('New link to your ticket'))->toBe(['same@example.com']);
+});
+
+test('a merge of tickets of one client keeps the target key and sends no link', function () {
+    $department = Department::factory()->create();
+    $client = Client::factory()->create();
+    $target = clientTicket($client, $department);
+    $source = clientTicket($client, $department);
+    $key = $target->access_key;
+    Mail::fake();
+    seedEmailTemplates();
+
+    app(MergeTickets::class)->handle([$target->id, $source->id], User::factory()->staff()->create());
+
+    expect($target->fresh()->access_key)->toBe($key);
+    Mail::assertNothingSent();
+});
+
+test('a cross-requester merge into a client ticket replaces its key but emails nothing', function () {
+    $department = Department::factory()->create();
+    $target = clientTicket(Client::factory()->create(), $department);
+    $source = guestTicket($department, 'other@example.com');
+    $key = $target->access_key;
+
+    Mail::fake();
+    seedEmailTemplates();
+    app(MergeTickets::class)->handle([$target->id, $source->id], User::factory()->staff()->create(), allowCrossClient: true);
+
+    expect($target->fresh()->access_key)->not->toBe($key);
+    Mail::assertNothingSent();
 });

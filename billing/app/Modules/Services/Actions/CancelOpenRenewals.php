@@ -9,6 +9,7 @@ use App\Modules\Services\Models\ServiceAddon;
 use App\Modules\Services\Models\ServiceInvoice;
 use App\Modules\Services\Services\InvoiceLinks;
 use App\Modules\Services\Support\Billing;
+use App\Support\Billing\InvoiceNotCancellable;
 use Carbon\CarbonImmutable;
 
 /**
@@ -48,7 +49,12 @@ class CancelOpenRenewals
                     continue;
                 }
 
-                $this->billing->invoicer()->cancel((int) $invoiceId, __('Cancelled by :module', ['module' => 'Services']));
+                try {
+                    $this->billing->invoicer()->cancel((int) $invoiceId, __('Cancelled by :module', ['module' => 'Services']));
+                } catch (InvoiceNotCancellable) {
+                    // Still payable: its links stay open and its renewal pointers are not rewound.
+                    continue;
+                }
             }
 
             $this->links->cancelInvoice((int) $invoiceId);

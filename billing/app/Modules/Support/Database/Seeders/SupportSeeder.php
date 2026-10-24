@@ -280,6 +280,7 @@ class SupportSeeder extends DemoSeeder
             'first_staff_reply_at' => $staffReplies->first()?->created_at,
             'last_staff_reply_at' => $staffReplies->last()?->created_at,
             'last_client_reply_at' => $clientReplies->last()?->created_at,
+            'first_unanswered_at' => $clientReplies->first(fn (TicketMessage $message): bool => $staffReplies->last() === null || $message->created_at > $staffReplies->last()->created_at)?->created_at,
             'closed_at' => $ticket->closed_at !== null ? $last : null,
         ])->saveQuietly();
 

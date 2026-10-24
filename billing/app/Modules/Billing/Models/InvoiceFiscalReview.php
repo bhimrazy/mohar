@@ -40,6 +40,12 @@ class InvoiceFiscalReview extends Model
     /** `report_rate` is today's rate, because the rate at numbering was not recorded. */
     public const REPORT_RATE_ESTIMATED = 'report_rate_estimated';
 
+    /** Cancelling the invoice was refused: its credit note could not be issued (VAT PR 3b). The detail says why. */
+    public const CANCEL_REFUSED = 'cancel_refused';
+
+    /** A late fee was refused: its debit note could not be issued. */
+    public const LATE_FEE_REFUSED = 'late_fee_refused';
+
     /** The cached credited/debited totals were wrong (written past by the previous release) and were recomputed. */
     public const CACHED_TOTALS = 'cached_totals_reconciled';
 

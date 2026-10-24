@@ -30,7 +30,7 @@ function seedNoteRaces(): array
         Currency::factory()->create();
         Currency::factory()->npr()->create();
         billingSettings(['tax.enabled' => true, 'tax.home_country' => 'NP', 'tax.home_state' => '', 'tax.report_currency' => 'NPR']);
-        TaxRule::factory()->create(['name' => 'VAT', 'level' => 1, 'country' => 'NP', 'rate' => '13.000']);
+        useNepalVatRule(TaxRule::factory()->create(['name' => 'VAT', 'level' => 1, 'country' => 'NP', 'rate' => '13.000']));
         $client = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR', 'email' => 'notes-races@example.test']);
 
         foreach (['cap0', 'cap1', 'payment', 'a', 'b'] as $name) {

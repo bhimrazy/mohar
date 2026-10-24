@@ -95,6 +95,10 @@ class TaxNoteIssuer
      */
     public function creditBlocked(Invoice $invoice): ?string
     {
+        if (($blocked = $this->unclassifiedBlock($invoice)) !== null) {
+            return $blocked;
+        }
+
         if ($invoice->status === InvoiceStatus::Cancelled || $invoice->status === InvoiceStatus::Refunded) {
             return __('The invoice is :status; nothing is left to credit.', ['status' => mb_strtolower($invoice->status->label())]);
         }
@@ -118,6 +122,10 @@ class TaxNoteIssuer
      */
     public function debitBlocked(Invoice $invoice): ?string
     {
+        if (($blocked = $this->unclassifiedBlock($invoice)) !== null) {
+            return $blocked;
+        }
+
         if ($invoice->status->isPayable() || $invoice->status === InvoiceStatus::Paid) {
             return null;
         }
@@ -232,7 +240,7 @@ class TaxNoteIssuer
             'issue_date' => $date, 'issued_at' => $at, 'invoice_number' => (string) $invoice->number, 'invoice_bs_issue_date' => $invoice->bs_issue_date,
             'reason_code' => $request->reasonCode, 'reason_text' => $request->reasonText, 'taxable_amount' => $plan->taxable, 'exempt_amount' => $plan->exempt,
             'tax1_amount' => $plan->tax1, 'tax2_amount' => $plan->tax2, 'total' => $plan->total, 'report_currency' => $invoice->report_currency,
-            'report_rate' => $invoice->report_rate, 'supply_class' => $invoice->supply_class, 'seller_snapshot' => $invoice->seller_snapshot,
+            'report_rate' => $invoice->report_rate, 'supply_class' => $invoice->supply_class, 'tax1_is_vat' => $invoice->fiscal_tax1_is_vat, 'tax2_is_vat' => $invoice->fiscal_tax2_is_vat, 'seller_snapshot' => $invoice->seller_snapshot,
             'buyer_snapshot' => $invoice->client_snapshot, 'bs_issue_date' => $bs->toIso(), 'bs_period' => BikramSambat::period($bs),
             'bs_fiscal_year' => BikramSambat::fiscalYear($bs), 'automatic' => $request->automatic, 'created_by' => $request->userId,
             'reverses_tax_note_id' => $request->reverses, 'created_at' => $at, 'updated_at' => $at,
@@ -326,6 +334,26 @@ class TaxNoteIssuer
         );
     }
 
+    /** Why notes cannot be issued at all now: the mode is off, or it has not reached its start day. */
+    public function modeBlocked(): ?string
+    {
+        if (! $this->mode->enabled()) {
+            return (string) __('Notes can be issued only while Nepal VAT mode is on.');
+        }
+
+        return $this->mode->inEffect($this->clock->now()) ? null : (string) __('Nepal VAT mode starts on :date; notes can be issued from then.', ['date' => $this->mode->enabledFrom()]);
+    }
+
+    /** A taxed invoice whose tax was never split into Nepal VAT and other tax takes no note, now or later. */
+    private function unclassifiedBlock(Invoice $invoice): ?string
+    {
+        if ($invoice->fiscal_tax1_is_vat !== null || (int) $invoice->fiscal_tax1 + (int) $invoice->fiscal_tax2 === 0) {
+            return null;
+        }
+
+        return __('This invoice\'s tax was never split into Nepal VAT and other tax, so it takes no note. Ask the person who runs the system to run "php artisan billing:fiscal-vat-split" first.');
+    }
+
     private function guard(NoteRequest $request, Invoice $invoice): void
     {
         if (! in_array($request->reasonCode, $request->kind === 'credit' ? self::CREDIT_REASONS : self::DEBIT_REASONS, true)) {
@@ -338,6 +366,12 @@ class TaxNoteIssuer
 
         if ($invoice->kind === InvoiceKind::AddFunds || $invoice->numbered_at === null || $invoice->fiscal_total === null) {
             throw new BillingException(__('Only a numbered tax invoice with a stored snapshot takes a note.'));
+        }
+
+        // Notes exist only while the mode is in effect, and a taxed invoice without flags would write a note the register cannot
+        // place (a note's flags are copied once and never change).
+        if (($blocked = $this->modeBlocked() ?? $this->unclassifiedBlock($invoice)) !== null) {
+            throw new BillingException($blocked);
         }
 
         if ($this->clock->isFallback()) {
@@ -380,11 +414,111 @@ class TaxNoteIssuer
      */
     private function creditParts(NoteRequest $request, Invoice $invoice): array
     {
+        if ($request->cancel) {
+            return $this->cancelParts($invoice, (int) $request->amount);
+        }
+
         $lines = $this->lines($invoice);
 
         return $request->lines !== null
             ? $this->allocator->byLines($lines, $request->lines, $invoice->currency)
             : $this->allocator->byAmount($lines, (int) $request->amount, $invoice->currency);
+    }
+
+    /**
+     * The parts of the note that cancels an invoice: what each line still holds (a discount line as a negative part, so it
+     * goes with the lines it discounts), plus every late fee as a part of its own, with its own net and tax. When the open
+     * balance is less than all of that (a payment or applied credit stays), every part is scaled down in proportion and the
+     * rounding difference goes to the largest part, so the note is exactly the balance.
+     *
+     * @return list<Part>
+     */
+    private function cancelParts(Invoice $invoice, int $gross): array
+    {
+        $parts = [];
+
+        foreach ($this->lines($invoice, discounts: true) as $line) {
+            $left = $line['gross'] - $line['used_gross'];
+
+            if ($left !== 0) {
+                $parts[] = ['item_id' => $line['id'], 'description' => $line['description'], 'taxable' => $line['taxable'], 'gross' => $left,
+                    'net' => $line['net'] - $line['used_net'], 'tax1' => $line['tax1'] - $line['used_tax1'], 'tax2' => $line['tax2'] - $line['used_tax2']];
+            }
+        }
+
+        $parts = [...$parts, ...$this->lateFeeParts($invoice)];
+        $total = array_sum(array_column($parts, 'gross'));
+
+        if ($total <= 0 || $gross <= 0 || $gross > $total) {
+            throw new BillingException(__('At most :amount can still be credited on this invoice.', ['amount' => $this->money->amount(max(0, $total), $invoice->currency)]));
+        }
+
+        return $gross === $total ? $parts : $this->scale($parts, $gross, $total);
+    }
+
+    /**
+     * The late fees of the invoice, each as a part: debit notes without a line of the invoice, and old-style `late_fee` rows
+     * (whether written before the invoice was numbered, and so in its snapshot, or after).
+     *
+     * @return list<Part>
+     */
+    private function lateFeeParts(Invoice $invoice): array
+    {
+        $parts = [];
+        $tax = $invoice->tax1_amount + $invoice->tax2_amount;
+
+        foreach (DB::table('invoice_adjustments')->where('invoice_id', $invoice->id)->where('reason', AdjustmentReason::LateFee->value)->where('kind', AdjustmentKind::Debit->value)->orderBy('id')->get() as $row) {
+            $tax1 = $tax === 0 ? 0 : TaxMath::roundDiv((int) $row->tax_amount * $invoice->tax1_amount, $tax);
+            $parts[] = ['item_id' => null, 'description' => (string) ($row->description ?? __('Late payment fee')), 'taxable' => (int) $row->taxable_amount > 0, 'gross' => (int) $row->amount,
+                'net' => (int) $row->amount - (int) $row->tax_amount, 'tax1' => $tax1, 'tax2' => (int) $row->tax_amount - $tax1];
+        }
+
+        $lines = TaxNoteLine::query()->join('tax_notes as n', 'n.id', '=', 'tax_note_lines.tax_note_id')
+            ->where('n.invoice_id', $invoice->id)->where('n.kind', 'debit')->whereNull('n.reverses_tax_note_id')->whereNull('tax_note_lines.invoice_item_id')
+            ->orderBy('tax_note_lines.id')->toBase()->get(['tax_note_lines.description', 'tax_note_lines.taxable', 'tax_note_lines.amount', 'tax_note_lines.tax1_amount', 'tax_note_lines.tax2_amount']);
+
+        foreach ($lines as $line) {
+            $parts[] = ['item_id' => null, 'description' => (string) $line->description, 'taxable' => (bool) $line->taxable, 'gross' => (int) $line->amount + (int) $line->tax1_amount + (int) $line->tax2_amount,
+                'net' => (int) $line->amount, 'tax1' => (int) $line->tax1_amount, 'tax2' => (int) $line->tax2_amount];
+        }
+
+        return $parts;
+    }
+
+    /**
+     * Scale the signed parts so they add up to `$gross`: each part's gross in proportion, then its net and taxes in the proportion
+     * of its own value, half away from zero; the rounding difference goes to the part of largest value.
+     *
+     * @param  list<Part>  $parts
+     * @return list<Part>
+     */
+    private function scale(array $parts, int $gross, int $total): array
+    {
+        $round = function (int $numerator, int $denominator): int {
+            if ($denominator === 0) {
+                return 0;
+            }
+
+            return (($numerator < 0) !== ($denominator < 0) ? -1 : 1) * intdiv(2 * abs($numerator) + abs($denominator), 2 * abs($denominator));
+        };
+        $shares = array_map(fn (array $part): int => $round($part['gross'] * $gross, $total), $parts);
+        $weights = array_map(fn (array $part): int => abs($part['gross']), $parts);
+        $largest = (int) array_search(max([0, ...$weights]), $weights, true);
+
+        $shares[$largest] += $gross - array_sum($shares);
+        $scaled = [];
+
+        foreach ($parts as $i => $part) {
+            if ($shares[$i] === 0) {
+                continue;
+            }
+
+            $tax1 = $round($part['tax1'] * $shares[$i], $part['gross']);
+            $tax2 = $round($part['tax2'] * $shares[$i], $part['gross']);
+            $scaled[] = [...$part, 'gross' => $shares[$i], 'net' => $shares[$i] - $tax1 - $tax2, 'tax1' => $tax1, 'tax2' => $tax2];
+        }
+
+        return $scaled;
     }
 
     /**
@@ -468,11 +602,11 @@ class TaxNoteIssuer
      *
      * @return list<Line>
      */
-    private function lines(Invoice $invoice): array
+    private function lines(Invoice $invoice, bool $discounts = false): array
     {
         $items = DB::table('invoice_items')->where('invoice_id', $invoice->id)->orderBy('id')->get();
 
-        if ($items->contains(fn (stdClass $item): bool => (int) $item->amount < 0)) {
+        if (! $discounts && $items->contains(fn (stdClass $item): bool => (int) $item->amount < 0)) {
             throw new BillingException(__('This invoice has a discount line, so no credit note can be issued on it. To correct it, cancel the invoice and raise a new one.'));
         }
 
@@ -506,7 +640,7 @@ class TaxNoteIssuer
             }
         }
 
-        return array_values(array_filter($lines, fn (array $line): bool => $line['gross'] > 0));
+        return array_values(array_filter($lines, fn (array $line): bool => $discounts ? $line['gross'] !== 0 : $line['gross'] > 0));
     }
 
     /**
