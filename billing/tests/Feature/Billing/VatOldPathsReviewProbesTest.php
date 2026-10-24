@@ -212,3 +212,18 @@ test('the daily runs keep going past an invoice whose note is refused, and list 
     expect($good->fresh()->status)->toBe(InvoiceStatus::Cancelled)->and($bad->fresh()->status)->toBe(InvoiceStatus::Unpaid)
         ->and(InvoiceFiscalReview::query()->where('invoice_id', $bad->id)->where('reason', InvoiceFiscalReview::CANCEL_REFUSED)->exists())->toBeTrue();
 });
+
+test('an invoice whose tax was never classified is refused its cancel and late fee, listed for staff, and the run goes on', function () {
+    billingSettings(['auto_cancel.days_overdue' => 5, 'late_fee.days_overdue' => 0]);
+    $client = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']);
+    $bad = issueInvoice($client, [10_000], CarbonImmutable::parse('2026-10-01'));
+    $good = issueInvoice($client, [10_000], CarbonImmutable::parse('2026-10-01'));
+    DB::table('invoices')->where('id', $bad->id)->update(['fiscal_tax1_is_vat' => null, 'fiscal_tax2_is_vat' => null]);
+
+    app(BillingAutomation::class)->lateFees(CarbonImmutable::parse('2026-10-20'));
+    app(BillingAutomation::class)->autoCancel(CarbonImmutable::parse('2026-10-20'));
+
+    expect($good->fresh()->status)->toBe(InvoiceStatus::Cancelled)->and($bad->fresh()->status)->toBe(InvoiceStatus::Unpaid)
+        ->and(InvoiceFiscalReview::query()->where('invoice_id', $bad->id)->pluck('reason')->sort()->values()->all())->toBe([InvoiceFiscalReview::CANCEL_REFUSED, InvoiceFiscalReview::LATE_FEE_REFUSED])
+        ->and(app(NoteRefusals::class)->open())->toBe(2);
+});

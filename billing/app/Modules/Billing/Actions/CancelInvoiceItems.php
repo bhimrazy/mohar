@@ -121,12 +121,13 @@ class CancelInvoiceItems
             throw new BillingException(__('A discount line is cancelled with the line it discounts, not on its own.'));
         }
 
-        // The note can't exceed the balance; each line takes what is left of it, in order.
+        // The note can't exceed the balance, nor what notes already took from a line; each line takes what is left, in order.
         $left = max(0, $invoice->balance);
+        $lineLeft = collect($this->notes->creditableLines($invoice))->pluck('left', 'id');
         $lines = [];
 
         foreach ($items as $item) {
-            $credited = min($invoice->tax_inclusive ? $item->amount : $item->amount + $item->tax_amount, $left);
+            $credited = min($invoice->tax_inclusive ? $item->amount : $item->amount + $item->tax_amount, $left, (int) ($lineLeft[$item->id] ?? 0));
 
             if ($credited > 0) {
                 $lines[$item->id] = $credited;
