@@ -54,7 +54,7 @@ export function CreditRefundDialog({
             {(form) => (
                 <div className="grid gap-4 sm:grid-cols-2">
                     <Field
-                        className="content-start"
+                        className="min-w-0 content-start"
                         htmlFor="credit-refund-mode"
                         label="How"
                         error={form.errors.mode}
@@ -66,13 +66,13 @@ export function CreditRefundDialog({
                             options={[
                                 {
                                     value: 'recorded',
-                                    label: 'Paid outside, record it',
+                                    label: 'Paid outside (record it)',
                                 },
                                 ...(canGateway && payments.length > 0
                                     ? [
                                           {
                                               value: 'gateway',
-                                              label: 'Through the payment gateway',
+                                              label: 'Through the gateway',
                                           },
                                       ]
                                     : []),
@@ -80,7 +80,7 @@ export function CreditRefundDialog({
                         />
                     </Field>
                     <Field
-                        className="content-start"
+                        className="min-w-0 content-start"
                         htmlFor="credit-refund-amount"
                         label={`Amount (balance ${formatMoney(client.balance, client.currency)})`}
                         error={form.errors.amount}
