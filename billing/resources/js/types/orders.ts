@@ -23,6 +23,8 @@ export type PricedItem = {
     title: string;
     subtitle: string | null;
     product_id: number | null;
+    /** Configure page of the product, opened for editing this item. */
+    product_url: string | null;
     cycle: string | null;
     domain: string | null;
     domain_mode: string | null;
@@ -63,6 +65,9 @@ export type StoreProduct = {
     type: string;
     requires_domain: boolean;
     in_stock: boolean;
+    slug: string;
+    /** Configure page on the slug URL, with the visitor's own domain carried along. */
+    url: string;
     pricing: PriceRow[];
 };
 

@@ -4,6 +4,7 @@ namespace App\Modules\Orders\Pricing;
 
 use App\Data\Catalog\ProductSummary;
 use App\Modules\Orders\Data\CartItem;
+use Illuminate\Support\Facades\Route;
 
 /**
  * A cart item with its priced lines (product + addons + domain) and any problem that blocks checkout.
@@ -36,6 +37,18 @@ final class PricedItem
     }
 
     /**
+     * The product's configure page (slug URL); the item's key rides along so the page opens it for editing.
+     */
+    private function productUrl(): ?string
+    {
+        if ($this->product?->slug === null || $this->product->groupSlug === null || ! Route::has('store.products.show')) {
+            return null;
+        }
+
+        return route('store.products.show', ['group' => $this->product->groupSlug, 'product' => $this->product->slug, 'item' => $this->item->key]);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function toArray(): array
@@ -46,6 +59,7 @@ final class PricedItem
             'title' => $this->title,
             'subtitle' => $this->subtitle,
             'product_id' => $this->item->productId,
+            'product_url' => $this->productUrl(),
             'cycle' => $this->item->cycle?->value,
             'domain' => $this->item->domain(),
             'domain_mode' => $this->item->domainMode,

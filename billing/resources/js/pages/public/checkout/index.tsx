@@ -1,4 +1,5 @@
 import { Link, useForm, usePage } from '@inertiajs/react';
+import { StoreTitle } from '@/components/orders/storefront-hero';
 import { Head } from '@/components/app/head';
 import {
     AlertTriangle,
@@ -18,6 +19,7 @@ import { SectionCard } from '@/components/app/section-card';
 import InputError from '@/components/input-error';
 import { ItemDetails } from '@/components/orders/item-details';
 import { OrderSummary } from '@/components/orders/order-summary';
+import type { GroupSaving } from '@/components/orders/order-summary';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -38,6 +40,7 @@ import type { PaymentMark } from '@/types/storefront';
 
 type Props = {
     cart: PricedCart;
+    group_saving: GroupSaving;
     gateways: SelectOption[];
     account: { name: string; email: string; currency: string } | null;
     blocked_reason: string | null;
@@ -68,6 +71,7 @@ type CheckoutForm = {
 
 export default function Checkout({
     cart,
+    group_saving: groupSaving,
     gateways,
     account,
     blocked_reason: blockedReason,
@@ -157,9 +161,7 @@ export default function Checkout({
             >
                 <div className="flex min-w-0 flex-col gap-6">
                     <header>
-                        <h1 className="text-3xl font-semibold tracking-tight">
-                            Checkout
-                        </h1>
+                        <StoreTitle>Checkout</StoreTitle>
                         <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
                             <Lock className="size-3.5" aria-hidden="true" />{' '}
                             Your order is placed securely. You can pay right
@@ -453,6 +455,7 @@ export default function Checkout({
 
                     <OrderSummary
                         cart={cart}
+                        groupSaving={groupSaving}
                         footer={
                             <div className="grid gap-4">
                                 {requireTos && (

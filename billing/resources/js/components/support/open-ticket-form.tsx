@@ -259,10 +259,24 @@ export function OpenTicketForm({
                             </div>
                         </SectionCard>
 
-                        <FormActions>
+                        <FormActions
+                            status={
+                                department === '' ? (
+                                    <span id="send-request-reason">
+                                        Choose a department in step 1 to send
+                                        your request.
+                                    </span>
+                                ) : undefined
+                            }
+                        >
                             <Button
                                 type="submit"
                                 disabled={processing || department === ''}
+                                aria-describedby={
+                                    department === ''
+                                        ? 'send-request-reason'
+                                        : undefined
+                                }
                             >
                                 {processing && <Spinner />}
                                 Send request

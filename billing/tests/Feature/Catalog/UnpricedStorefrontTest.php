@@ -35,7 +35,7 @@ it('explains an empty store and names the currencies that have products', functi
 });
 
 it('opens an unpriced product with the reason and where it is sold, and refuses it in the cart', function () {
-    $this->get(route('store.products.show', $this->usdOnly))->assertOk()->assertInertia(fn (Assert $page) => $page
+    $this->get(route('store.products.show', [$this->usdOnly->group->slug, $this->usdOnly->slug]))->assertOk()->assertInertia(fn (Assert $page) => $page
         ->component('public/store/configure')
         ->where('cycles', [])
         ->where('hide_tax_note', true)
@@ -44,7 +44,7 @@ it('opens an unpriced product with the reason and where it is sold, and refuses 
     $this->post(route('store.cart.products.store', $this->usdOnly), ['cycle' => 'monthly'])
         ->assertSessionHasErrors(['product_id' => 'Dollar plan is not sold in NPR.']);
 
-    $this->get(route('store.products.show', $this->nprToo))->assertInertia(fn (Assert $page) => $page
+    $this->get(route('store.products.show', [$this->nprToo->group->slug, $this->nprToo->slug]))->assertInertia(fn (Assert $page) => $page
         ->has('cycles', 1)->where('sold_in', []));
 });
 

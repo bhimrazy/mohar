@@ -41,14 +41,14 @@ class Catalogue
         $groups = [];
 
         foreach (app(PriceBook::class)->storefront($currency) as $group) {
-            $plans = array_map(fn (array $product): array => $this->plan($product, $display, $breakdown), $group['products']);
+            $plans = array_map(fn (array $product): array => $this->plan($product, $group['slug'], $display, $breakdown), $group['products']);
 
             $groups[] = [
                 'id' => $group['id'],
                 'name' => $group['name'],
                 'slug' => $group['slug'],
                 'tagline' => $this->text($group['tagline'] ?? null) ?? $this->text($group['headline'] ?? null) ?? $this->text($group['description']),
-                'url' => Route::has('store.index') ? route('store.index').'#'.$group['slug'] : '#',
+                'url' => Route::has('store.groups.show') ? route('store.groups.show', $group['slug']) : '#',
                 'taxable' => in_array(true, array_column($plans, 'taxable'), true),
                 'from' => $this->from($plans),
                 'plans' => $plans,
@@ -82,11 +82,11 @@ class Catalogue
     }
 
     /**
-     * @param  array{id: int, name: string, description: ?string, tagline?: ?string, is_featured?: bool, is_taxable?: bool, in_stock: bool, pricing: list<array{cycle: string, recurring: int, setup: int}>}  $product
+     * @param  array{id: int, name: string, slug: string, description: ?string, tagline?: ?string, is_featured?: bool, is_taxable?: bool, in_stock: bool, pricing: list<array{cycle: string, recurring: int, setup: int}>}  $product
      * @param  array{multiplier: int}  $display
      * @return Plan
      */
-    private function plan(array $product, array $display, bool $breakdown): array
+    private function plan(array $product, string $groupSlug, array $display, bool $breakdown): array
     {
         $taxable = (bool) ($product['is_taxable'] ?? true);
         $apply = fn (int $amount): int => $taxable ? PriceDisplay::apply($amount, $display) : $amount;
@@ -104,7 +104,7 @@ class Catalogue
             'featured' => (bool) ($product['is_featured'] ?? false),
             'taxable' => $taxable,
             'in_stock' => (bool) $product['in_stock'],
-            'url' => Route::has('store.products.show') ? route('store.products.show', $product['id']) : '#',
+            'url' => Route::has('store.products.show') ? route('store.products.show', ['group' => $groupSlug, 'product' => $product['slug']]) : '#',
             'pricing' => array_map(function (array $row) use ($apply, $breakdown): array {
                 $recurring = $apply((int) $row['recurring']);
                 $months = $breakdown ? (self::MONTHS[$row['cycle']] ?? null) : null;

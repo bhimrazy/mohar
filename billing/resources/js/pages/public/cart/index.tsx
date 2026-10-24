@@ -1,4 +1,5 @@
 import { Form, Link } from '@inertiajs/react';
+import { StoreTitle } from '@/components/orders/storefront-hero';
 import { Head } from '@/components/app/head';
 import {
     AlertTriangle,
@@ -16,6 +17,7 @@ import { ItemDetails } from '@/components/orders/item-details';
 import { Money } from '@/components/app/money';
 import InputError from '@/components/input-error';
 import { OrderSummary } from '@/components/orders/order-summary';
+import type { GroupSaving } from '@/components/orders/order-summary';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
@@ -26,6 +28,7 @@ import type { PricedCart, PricedItem } from '@/types/orders';
 
 type Props = {
     cart: PricedCart;
+    group_saving: GroupSaving;
 };
 
 function itemSubtitle(item: PricedItem): string {
@@ -155,13 +158,9 @@ function CartItemCard({
             )}
 
             <div className="mt-4 flex flex-wrap gap-2">
-                {item.kind === 'product' && item.product_id !== null && (
+                {item.kind === 'product' && item.product_url !== null && (
                     <Button asChild variant="outline" size="sm">
-                        <Link
-                            href={store.products.show.url(item.product_id, {
-                                query: { item: item.key },
-                            })}
-                        >
+                        <Link href={item.product_url}>
                             <Pencil aria-hidden="true" /> Edit
                         </Link>
                     </Button>
@@ -266,7 +265,7 @@ function PromotionForm({ cart }: { cart: PricedCart }) {
     );
 }
 
-export default function CartPage({ cart }: Props) {
+export default function CartPage({ cart, group_saving: groupSaving }: Props) {
     const empty = cart.items.length === 0;
 
     return (
@@ -274,9 +273,7 @@ export default function CartPage({ cart }: Props) {
             <Head title="Your cart" />
 
             <div className="mx-auto w-full max-w-6xl px-4 py-8 md:px-6 lg:py-12">
-                <h1 className="text-3xl font-semibold tracking-tight">
-                    Your cart
-                </h1>
+                <StoreTitle>Your cart</StoreTitle>
                 <p className="mt-1 text-muted-foreground">
                     {empty
                         ? 'Nothing here yet.'
@@ -337,6 +334,7 @@ export default function CartPage({ cart }: Props) {
                             </div>
                             <OrderSummary
                                 cart={cart}
+                                groupSaving={groupSaving}
                                 footer={
                                     <>
                                         {cart.has_errors ? (
