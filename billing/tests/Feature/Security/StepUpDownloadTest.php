@@ -50,6 +50,33 @@ test('the confirm page says it is for a download, and a dialog confirm forgets t
     expect(session('url.intended'))->toBeNull()->and(session('step_up_download'))->toBeNull();
 });
 
+test('an abandoned download does not label a later confirm page for something else (#305)', function () {
+    $this->withSession(['auth.password_confirmed_at' => 0]);
+    $this->get($this->url)->assertRedirect(route('password.confirm'));
+
+    // The person leaves; later the security page asks for the password and remembers itself as the intended URL.
+    $this->get(route('security.edit'))->assertRedirect(route('password.confirm'));
+    expect(session('url.intended'))->toBe(route('security.edit'));
+
+    $this->get(route('password.confirm'))->assertInertia(fn ($page) => $page->where('download', false));
+    $this->post(route('password.confirm.store'), ['password' => 'password'])->assertRedirect(route('security.edit'));
+    expect(session('step_up_download'))->toBeNull();
+});
+
+test('the download label cannot be set without the download being the remembered URL (#305)', function () {
+    $this->withSession(['auth.password_confirmed_at' => 0, 'step_up_download' => true, 'url.intended' => route('security.edit')]);
+
+    $this->get(route('password.confirm'))->assertInertia(fn ($page) => $page->where('download', false));
+});
+
+test('a dialog confirm keeps a remembered page that is not the download (#305)', function () {
+    $this->withSession(['auth.password_confirmed_at' => 0]);
+    $this->get(route('security.edit'))->assertRedirect(route('password.confirm'));
+
+    $this->postJson(route('password.confirm.store'), ['password' => 'password'])->assertCreated();
+    expect(session('url.intended'))->toBe(route('security.edit'));
+});
+
 test('a probe says whether the file may be fetched and never reaches the controller', function () {
     $this->withSession(['auth.password_confirmed_at' => 0]);
     $this->get($this->url, ['X-Step-Up-Check' => '1'])->assertStatus(423);

@@ -110,7 +110,7 @@ class SampleContext
                 'excerpt' => 'Thanks for the details — the mailbox quota was full.',
             ],
             'affiliate' => ['referral_url' => url('/?ref=ANN42'), 'code' => 'ANN42', 'balance_available' => '$45.00', 'balance_pending' => '$12.00', 'withdrawal_amount' => '$45.00'],
-            'failure' => ['action' => 'create', 'error' => 'Connection to the control panel timed out'],
+            'failure' => ['action' => 'create', 'action_label' => 'creating the account', 'error' => 'Connection to the control panel timed out', 'log_url' => url('/admin/services/module-log')],
             'sync' => ['change_count' => 2, 'error_count' => 1, 'lines' => ['example.com: expiry date updated', 'example.org: registrar timeout']],
             'automation' => ['run_at' => $today, 'status' => 'completed'],
             'security' => ['email' => 'sam@example.test', 'failures' => 10],
@@ -118,6 +118,7 @@ class SampleContext
             'notice' => [
                 'account' => 'Example Studio', 'email' => 'sam@example.test', 'actor' => 'Sam Rivera', 'section' => 'Security',
                 'changes' => 'Require two-step sign-in', 'old_email' => 'sam@example.test', 'new_email' => 'sam.rivera@example.test',
+                'run_by' => 'console: deploy@billing-1', 'expires_in' => '24 hours',
             ],
             'credit_note' => ['amount' => '$10.00'],
             'template' => ['key' => 'invoice.created', 'name' => 'Invoice created', 'error' => 'Line 3: "{% if %}" is never closed.', 'admin_url' => url('/admin/notifications/templates/1/edit')],

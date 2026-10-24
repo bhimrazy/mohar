@@ -1,4 +1,5 @@
 import { Link, useForm } from '@inertiajs/react';
+import { Info } from 'lucide-react';
 import { Head } from '@/components/app/head';
 import type { FormEvent } from 'react';
 import RoleController from '@/actions/App/Modules/Platform/Http/Controllers/Admin/RoleController';
@@ -9,6 +10,7 @@ import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
 import { SwitchField } from '@/components/app/switch-field';
 import InputError from '@/components/input-error';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -108,6 +110,19 @@ export default function RoleForm({ role, groups, canGrantAll }: Props) {
                     back={{ href: RoleController.index(), label: 'Roles' }}
                     title={role ? role.name : 'New role'}
                 />
+
+                {role?.is_system && (
+                    <Alert>
+                        <Info />
+                        <AlertTitle>System role</AlertTitle>
+                        <AlertDescription>
+                            Every upgrade resets this role's permissions to the
+                            built-in set; the name and description you give it
+                            are kept. For different permissions, create a custom
+                            role.
+                        </AlertDescription>
+                    </Alert>
+                )}
 
                 <form onSubmit={submit} className="flex flex-col gap-6">
                     <SectionCard title="Role">

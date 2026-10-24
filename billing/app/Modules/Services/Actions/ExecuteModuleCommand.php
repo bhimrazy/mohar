@@ -130,14 +130,11 @@ class ExecuteModuleCommand
             return;
         }
 
-        if ($jobDied && $this->markUnfinishedAsUnknown($service->id, $command) > 0) {
-            $this->openQueueItem($service, $command, $args, self::unknownMessage($error), 1, ModuleQueueItem::KIND_VERIFY);
-        } else {
-            $this->openQueueItem($service, $command, $args, $error, 1, ModuleQueueItem::KIND_FAILURE);
-        }
+        $unknown = $jobDied && $this->markUnfinishedAsUnknown($service->id, $command) > 0;
+        $this->openQueueItem($service, $command, $args, $unknown ? self::unknownMessage($error) : $error, 1, $unknown ? ModuleQueueItem::KIND_VERIFY : ModuleQueueItem::KIND_FAILURE);
 
         $this->effects->failed($service, $command, $args, $error);
-        ProvisioningFailed::dispatch($service->id, $service->client_id, $command->value, $error);
+        ProvisioningFailed::dispatch($service->id, $service->client_id, $command->value, $error, $unknown);
     }
 
     /**
@@ -169,7 +166,7 @@ class ExecuteModuleCommand
             if ($this->markUnfinishedAsUnknown($service->id, $command) > 0) {
                 $error = 'A previous create attempt did not finish; its outcome is unknown. Check the server, then retry or resolve.';
                 $this->openQueueItem($service, $command, $args, $error, $attempt, ModuleQueueItem::KIND_VERIFY);
-                ProvisioningFailed::dispatch($service->id, $service->client_id, $command->value, $error);
+                ProvisioningFailed::dispatch($service->id, $service->client_id, $command->value, $error, outcomeUnknown: true);
 
                 return CommandOutcome::failed($error);
             }
@@ -581,7 +578,8 @@ class ExecuteModuleCommand
             $this->effects->failed($service, $command, $args, $error);
         });
 
-        ProvisioningFailed::dispatch($service->id, $service->client_id, $command->value, $error);
+        // A verify item means the provider may have acted: staff get the "being checked" notice, not a failure.
+        ProvisioningFailed::dispatch($service->id, $service->client_id, $command->value, $error, $kind === ModuleQueueItem::KIND_VERIFY);
 
         return CommandOutcome::failed($error);
     }
