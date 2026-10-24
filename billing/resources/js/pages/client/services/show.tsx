@@ -111,10 +111,11 @@ export default function ClientServiceShow({
                         <AlertTriangle />
                         <AlertTitle>This service is suspended</AlertTitle>
                         <AlertDescription>
-                            {service.suspension_reason === 'overdue' ||
-                            service.suspension_reason === 'addon_overdue'
+                            {service.suspension_kind === 'overdue'
                                 ? 'An invoice is overdue. Once it is paid, the service is restored automatically.'
-                                : 'Please contact support to restore it.'}
+                                : service.suspension_kind === 'imported'
+                                  ? 'It was already suspended on the hosting server when it was added to your account. Please contact support to restore it.'
+                                  : 'Please contact support to restore it.'}
                         </AlertDescription>
                     </Alert>
                 )}

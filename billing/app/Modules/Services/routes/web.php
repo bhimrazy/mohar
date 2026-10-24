@@ -30,6 +30,8 @@ Route::adminArea(function (): void {
             Route::post('servers/{server}/import/fetch', [ServerImportController::class, 'fetch'])->middleware('throttle:6,1')->name('servers.import.fetch');
             Route::post('servers/{server}/import/match', [ServerImportController::class, 'rematch'])->middleware('throttle:6,1')->name('servers.import.rematch');
             Route::put('servers/{server}/import/selections', [ServerImportController::class, 'select'])->middleware('throttle:services-import-select')->name('servers.import.select');
+            Route::put('servers/{server}/import/ignored', [ServerImportController::class, 'ignore'])->middleware('throttle:services-import-select')->name('servers.import.ignore');
+            Route::post('servers/{server}/import/accept', [ServerImportController::class, 'accept'])->middleware('throttle:services-import-select')->name('servers.import.accept');
             Route::post('servers/{server}/import/apply', [ServerImportController::class, 'apply'])->middleware('throttle:services-import-apply')->name('servers.import.apply');
         });
         Route::resource('server-groups', ServerGroupController::class)->only(['create', 'edit']);

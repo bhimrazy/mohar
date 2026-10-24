@@ -97,7 +97,7 @@ test('a confirmed account becomes a service as the server holds it, with no invo
         ->domain->toBe('alpha-books.com')
         ->password->toBeNull()
         ->status->toBe(ServiceStatus::Suspended)
-        ->suspension_reason->toBe('staff:Imported (suspended on the server: Abuse report)')
+        ->suspension_reason->toBe('staff:imported (suspended on the server: Abuse report)')
         ->registration_date->toDateString()->toBe('2023-11-14')
         ->next_due_date->toDateString()->toBe('2026-11-14')
         ->driver_data->toMatchArray(['owner' => 'root', 'plan' => 'root_basic'])
