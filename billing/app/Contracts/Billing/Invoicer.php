@@ -5,6 +5,7 @@ namespace App\Contracts\Billing;
 use App\Data\Billing\InvoiceDraft;
 use App\Data\Billing\InvoiceResult;
 use App\Enums\BillableType;
+use App\Support\Billing\InvoiceNotCancellable;
 use Carbon\CarbonImmutable;
 
 /**
@@ -23,8 +24,10 @@ interface Invoicer
      *
      * With Nepal VAT mode on, cancelling a numbered tax invoice issues a credit note for its open balance, so a caller can
      * create a legal document; `$reason` is the text printed on it ("Cancelled by Orders"). Callers hold their own row locks
-     * before Billing's invoice lock. A cancellation Billing cannot write (for example a discount line blocks the note) is
-     * reported and leaves the invoice open.
+     * before Billing's invoice lock.
+     *
+     * @throws InvoiceNotCancellable when the invoice stays payable (for example its credit note was
+     *                               refused). Billing has put it on its staff list; the caller must not mark its own record cancelled.
      */
     public function cancel(int $invoiceId, ?string $reason = null): void;
 

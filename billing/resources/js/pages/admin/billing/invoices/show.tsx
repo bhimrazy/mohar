@@ -89,6 +89,8 @@ type Props = {
     pay_methods: PayMethod[];
     tax_notes: TaxNote[] | null;
     notes_enabled: boolean;
+    /** A numbered tax invoice while Nepal VAT mode is in effect: cancelling issues a credit note, reopening is not allowed. */
+    fiscal_cancel: boolean;
     creditable: Creditable | null;
     note_blocked: { credit: string | null; debit: string | null } | null;
     credit_label: string | null;
@@ -270,6 +272,7 @@ export default function InvoiceShow({
     pay_methods,
     tax_notes,
     notes_enabled,
+    fiscal_cancel,
     creditable,
     note_blocked,
     credit_label,
@@ -505,7 +508,16 @@ export default function InvoiceShow({
                                         </DropdownMenuItem>
                                     )}
                                     {can.manage &&
-                                        invoice.status === 'cancelled' && (
+                                        invoice.status === 'cancelled' &&
+                                        fiscal_cancel && (
+                                            <DropdownMenuItem disabled>
+                                                Reopen invoice (not allowed on a
+                                                numbered tax invoice)
+                                            </DropdownMenuItem>
+                                        )}
+                                    {can.manage &&
+                                        invoice.status === 'cancelled' &&
+                                        !fiscal_cancel && (
                                             <DropdownMenuItem
                                                 onSelect={() =>
                                                     router.post(
@@ -666,8 +678,18 @@ export default function InvoiceShow({
                                     <Button
                                         variant="outline"
                                         size="sm"
+                                        disabled={
+                                            fiscal_cancel &&
+                                            !!note_blocked?.credit
+                                        }
+                                        title={
+                                            fiscal_cancel
+                                                ? (note_blocked?.credit ??
+                                                  undefined)
+                                                : undefined
+                                        }
                                         onClick={() =>
-                                            notes_enabled
+                                            fiscal_cancel
                                                 ? setDialog('cancelLines')
                                                 : setDialog('cancelLinesPlain')
                                         }
@@ -1245,7 +1267,7 @@ export default function InvoiceShow({
             )}
 
             <ConfirmDialog
-                open={dialog === 'cancel' && !(notes_enabled && !isDraft)}
+                open={dialog === 'cancel' && !(fiscal_cancel && !isDraft)}
                 onOpenChange={close}
                 title={
                     isDraft
@@ -1262,7 +1284,7 @@ export default function InvoiceShow({
             />
 
             <FormDialog
-                open={dialog === 'cancel' && notes_enabled && !isDraft}
+                open={dialog === 'cancel' && fiscal_cancel && !isDraft}
                 onOpenChange={close}
                 title={`Cancel invoice ${invoice.number}?`}
                 description="A credit note for the open balance is issued and the client can no longer pay the invoice. The reason is printed on the credit note and the client sees it."
@@ -1301,6 +1323,7 @@ export default function InvoiceShow({
                 action={cancelLines(invoice.id)}
                 initial={{ note: '' }}
                 transform={(data) => ({ ...data, items: selectedLines })}
+                onSuccess={() => setSelectedLines([])}
             >
                 {(form) => (
                     <Field

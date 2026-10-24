@@ -13,8 +13,10 @@ use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\ClientFlag;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\InvoiceFiscalReview;
 use App\Modules\Billing\Models\InvoiceItem;
 use App\Modules\Billing\Support\BillingSettings;
+use App\Support\Billing\InvoiceNotCancellable;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -80,8 +82,10 @@ class InvoiceService implements Invoicer
         try {
             $this->cancel->handle($invoice, note: $reason, strict: false);
         } catch (BillingException $exception) {
-            // The caller is cancelling an order or a renewal; a tax invoice that cannot take its credit note stays open for staff.
-            report($exception);
+            // The invoice stays payable. Staff see it on their list, and the caller is told so it keeps its own record open.
+            app(NoteRefusals::class)->record($invoice, InvoiceFiscalReview::CANCEL_REFUSED, $exception->getMessage());
+
+            throw new InvoiceNotCancellable($exception->getMessage(), previous: $exception);
         }
     }
 

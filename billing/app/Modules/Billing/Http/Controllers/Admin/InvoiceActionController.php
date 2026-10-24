@@ -173,6 +173,7 @@ class InvoiceActionController extends Controller
         $this->authorize($data['action'] === 'mark_paid' ? 'billing.payments.manage' : 'billing.invoices.manage');
 
         $done = 0;
+        $skipped = [];
 
         foreach (Invoice::query()->whereIn('id', $data['ids'])->whereIn('status', InvoiceStatus::payable())->orderBy('id')->get() as $invoice) {
             try {
@@ -183,12 +184,21 @@ class InvoiceActionController extends Controller
                 };
                 $this->activity->log('Bulk action: '.$data['action'], $invoice, $invoice->client_id);
                 $done++;
-            } catch (BillingException) {
-                continue;
+            } catch (BillingException $exception) {
+                $skipped[] = $invoice->displayNumber().': '.$exception->getMessage();
             }
         }
 
-        return $this->done(trans_choice('{0} No invoices were changed.|{1} 1 invoice updated.|[2,*] :count invoices updated.', $done, ['count' => $done]));
+        $message = trans_choice('{0} No invoices were changed.|{1} 1 invoice updated.|[2,*] :count invoices updated.', $done, ['count' => $done]);
+
+        if ($skipped !== []) {
+            // Say what was skipped and why (a numbered tax invoice needs a reason: cancel it one at a time).
+            Inertia::flash('toast', ['type' => 'info', 'message' => $message.' '.__('Skipped: :list', ['list' => implode(' ', array_slice($skipped, 0, 5))]).(count($skipped) > 5 ? ' …' : '')]);
+
+            return back();
+        }
+
+        return $this->done($message);
     }
 
     private function done(string $message): RedirectResponse

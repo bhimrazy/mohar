@@ -498,13 +498,22 @@ Single source for these rules; `vat-register.md` §3 refers here. They extend §
   the note, its adjustment, `cancelled_at`), so a transaction that found the mode off writes only rows dated before
   `enabled_from`, even across midnight.
 - **In effect, on a numbered invoice** (not add-funds): staff cancel and `Invoicer::cancel` issue one `invoice_cancelled`
-  credit note for the open balance (applied credit is returned first and is not in the note); cancel lines issues one
-  `lines_cancelled` note with a line per line, or, when the selection is every open line, the single `invoice_cancelled`
-  note; the late fee is a `late_fee` debit note and `LateFeeApplied` still fires; reopen is refused. Staff must give a reason
-  (it is printed on the note); automatic callers pass theirs: auto-cancel its overdue text, modules "Cancelled by <module>"
+  credit note for the open balance (applied credit is returned first and is not in the note). The note credits everything the
+  invoice still holds, not only its lines: each line's remaining value, a discount line as a negative line of the same note (it goes
+  with the lines it discounts), and every late fee as a line of its own with its own net and tax (a debit note without a line of
+  the invoice, or an old-style `late_fee` row, written before or after numbering). When the balance is less than all of that (a
+  payment or applied credit stays) every line is scaled in proportion, the rounding going to the largest, so the note is exactly
+  the balance. Cancel lines issues one `lines_cancelled` note with a line per line, or, when the selection is every open line, the
+  single cancel note; it is refused on an invoice with a discount line (cancel the invoice instead), and the action is disabled
+  with that reason. A late fee is a `late_fee` debit note and `LateFeeApplied` still fires; reopen is refused. Staff must give a
+  reason (printed on the note); automatic callers pass theirs: auto-cancel its overdue text, modules "Cancelled by <module>"
   through the new trailing `Invoicer::cancel(int $invoiceId, ?string $reason = null)` (ADR 0010: compatible addition,
-  kernel-changelog entry). A discount line is cancelled with the line it discounts, never on its own. A cancellation a module
-  asks for that Billing cannot write as a note (for example a discount line blocks it) is reported and leaves the invoice open.
+  kernel-changelog entry).
+- **A refused note is never silent.** The daily runs go on past an invoice whose cancel or late-fee note is refused (the debit
+  cap, an unclassified invoice, lines that do not add up) and record it on the staff review list (`cancel_refused`,
+  `late_fee_refused`, shown in Needs attention, marked seen when the invoice is cancelled after all) and in the activity log.
+  `Invoicer::cancel` throws `InvoiceNotCancellable` when the invoice stays payable, so Orders, Services and Domains keep their
+  records open instead of marking them cancelled.
 - **Not in effect, or not numbered** (proforma, add-funds, before `enabled_from`): the old path runs as before. A numbered
   invoice before `enabled_from` takes no note: the issuer refuses.
 - **The legacy `CancelInvoiceItems` path** needs no note counting: a line can have a note only after the mode is in effect, and

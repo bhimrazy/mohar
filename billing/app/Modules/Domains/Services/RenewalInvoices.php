@@ -10,6 +10,7 @@ use App\Enums\BillableType;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainInvoice;
+use App\Support\Billing\InvoiceNotCancellable;
 use Illuminate\Support\Collection;
 use RuntimeException;
 
@@ -76,7 +77,13 @@ class RenewalInvoices
         $cancelled = 0;
 
         foreach ($this->open($domain) as $invoice) {
-            $this->invoicer()->cancel($invoice->invoice_id, __('Cancelled by :module', ['module' => 'Domains']));
+            try {
+                $this->invoicer()->cancel($invoice->invoice_id, __('Cancelled by :module', ['module' => 'Domains']));
+            } catch (InvoiceNotCancellable) {
+                // Still payable: the renewal invoice stays open here too.
+                continue;
+            }
+
             $invoice->update(['status' => 'cancelled']);
             $cancelled++;
         }
