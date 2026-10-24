@@ -34,6 +34,8 @@ type Props = {
     onClose: () => void;
     productOptions: { id: number; name: string }[];
     cycles: SelectOption[];
+    /** Cycle values each product has a price for, by product id and currency code. */
+    pricedCycles?: Record<string, Record<string, string[]>>;
     /** Bulk mode: only the cycle and next due date. */
     datesOnly?: boolean;
     /** Apply to every ticked account instead of $usernames. */
@@ -60,6 +62,7 @@ export function ImportChoiceDialog({
     onClose,
     productOptions,
     cycles,
+    pricedCycles,
     datesOnly = false,
     ticked = false,
     count = 0,
@@ -89,6 +92,20 @@ export function ImportChoiceDialog({
         !clientChanged &&
         client?.id === initial.client?.id;
 
+    // Once the product and the client's currency are known, only the cycles the product is priced for.
+    const priced =
+        productId && productId !== MATCHED_PRODUCT && client?.currency
+            ? pricedCycles?.[productId]?.[client.currency]
+            : undefined;
+    const cycleOptions = priced
+        ? cycles.filter((option) => priced.includes(option.value))
+        : cycles;
+    const chosenCycle = cycleOptions.some((option) => option.value === cycle)
+        ? cycle
+        : cycle === DEFAULT_CYCLE
+          ? cycle
+          : '';
+
     const submit = () =>
         router.put(
             ServerImportController.select(serverId).url,
@@ -106,8 +123,13 @@ export function ImportChoiceDialog({
                       }
                     : {}),
                 // One account: an empty field returns it to the default. Ticked accounts: an empty field keeps theirs.
-                ...(cycle || !ticked
-                    ? { cycle: cycle && cycle !== DEFAULT_CYCLE ? cycle : null }
+                ...(chosenCycle || !ticked
+                    ? {
+                          cycle:
+                              chosenCycle && chosenCycle !== DEFAULT_CYCLE
+                                  ? chosenCycle
+                                  : null,
+                      }
                     : {}),
                 ...(due || !ticked ? { next_due_date: due || null } : {}),
             },
@@ -136,7 +158,7 @@ export function ImportChoiceDialog({
             }
             submitLabel={ticked ? 'Apply to ticked accounts' : 'Save choice'}
             processing={processing}
-            disabled={ticked && cycle === '' && due === ''}
+            disabled={ticked && chosenCycle === '' && due === ''}
             onSubmit={submit}
         >
             {!datesOnly && (
@@ -214,12 +236,18 @@ export function ImportChoiceDialog({
                 <Field
                     htmlFor="import-cycle"
                     label="Billing cycle"
-                    hint="Default: monthly, or the product's first cycle."
+                    hint={
+                        priced && priced.length === 0
+                            ? `This product has no recurring price in ${client?.currency}. Choose another product or client.`
+                            : priced
+                              ? `Only the cycles this product is priced for in ${client?.currency}.`
+                              : "Default: monthly, or the product's first cycle."
+                    }
                     error={errors.cycle}
                 >
                     <SelectField
                         id="import-cycle"
-                        value={cycle}
+                        value={chosenCycle}
                         onValueChange={setCycle}
                         placeholder={
                             ticked
@@ -234,7 +262,7 @@ export function ImportChoiceDialog({
                                     ? 'Default for each account'
                                     : 'Default for the account',
                             },
-                            ...cycles,
+                            ...cycleOptions,
                         ]}
                     />
                 </Field>

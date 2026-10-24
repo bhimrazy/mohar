@@ -28,7 +28,7 @@ export type ServiceRow = {
     username: string | null;
     dedicated_ip: string | null;
     assigned_ips: string[];
-    suspension_reason: string | null;
+    suspension_kind: 'overdue' | 'imported' | 'other' | null;
     do_not_renew: boolean;
     termination_date: string | null;
     activated_at: string | null;
@@ -45,6 +45,7 @@ export type ServiceRow = {
     billing_anchor_day?: number | null;
     renewals_invoiced?: number;
     recurring_cycles_limit?: number;
+    suspension_reason?: string | null;
     suspended_at?: string | null;
     suspend_exempt_until?: string | null;
     suspend_days_override?: number | null;

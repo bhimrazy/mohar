@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\SaveDraftInvoice;
 use App\Modules\Billing\Actions\UpdateInvoiceDetails;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
+use App\Modules\Billing\Enums\InvoiceKind;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\ImmutableInvoiceException;
 use App\Modules\Billing\Http\Requests\Admin\SaveDraftInvoiceRequest;
@@ -18,6 +19,8 @@ use App\Modules\Billing\Http\Resources\TransactionResource;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Billing\Services\NepalVatMode;
+use App\Modules\Billing\Services\NoteRefusals;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\PaymentInProgress;
 use App\Modules\Billing\Support\TaxNotePanel;
@@ -43,6 +46,8 @@ class InvoiceController extends Controller
             'gateway' => ['nullable', 'string', 'max:50'],
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date'],
+            // Only the invoices a cancel or a late fee was refused on (Needs attention), while they are still payable.
+            'refused' => ['nullable', 'boolean'],
         ]);
 
         $invoices = Invoice::query()
@@ -53,6 +58,7 @@ class InvoiceController extends Controller
             ->when($filters['gateway'] ?? null, fn ($query, $gateway) => $query->where('payment_gateway', $gateway))
             ->when($filters['from'] ?? null, fn ($query, $from) => $query->whereDate('issue_date', '>=', $from))
             ->when($filters['to'] ?? null, fn ($query, $to) => $query->whereDate('issue_date', '<=', $to))
+            ->when($filters['refused'] ?? null, fn ($query) => $query->whereIn('id', app(NoteRefusals::class)->invoiceIds()))
             ->latest('id')
             ->paginate(25)
             ->withQueryString();
@@ -108,6 +114,8 @@ class InvoiceController extends Controller
             'pay_methods' => PayMethodResource::collection(PayMethod::query()->where('client_id', $invoice->client_id)->usable()->orderByDesc('is_default')->orderBy('id')->get()
                 ->filter(fn (PayMethod $method): bool => $method->isUsable() && $this->gateways->supports($method->gateway, GatewayDriver::CAPTURE))->values()),
             ...$notes->props($invoice, $user),
+            // Cancelling a numbered tax invoice issues a credit note and reopening is refused, from the mode's start day on.
+            'fiscal_cancel' => $invoice->numbered_at !== null && $invoice->kind !== InvoiceKind::AddFunds && app(NepalVatMode::class)->inEffect(now()),
             'can' => [
                 'manage' => $user?->hasPermission('billing.invoices.manage') ?? false,
                 'payments' => $user?->hasPermission('billing.payments.manage') ?? false,

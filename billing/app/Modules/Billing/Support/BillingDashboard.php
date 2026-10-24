@@ -10,6 +10,7 @@ use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\NoteRefusals;
 use App\Modules\Core\Support\CoreCompanyClock;
 use App\Modules\Core\Support\CurrencyRollup;
 use App\Support\Currencies\MoneyFormatter;
@@ -128,6 +129,16 @@ class BillingDashboard
             'icon' => 'Clock',
             'hint' => 'The amount stays held back until the provider confirms or staff settle it',
         ], 'billing.refunds.manage', 17);
+
+        $dashboard->todo('admin', 'billing.notes_refused', fn (?User $user): array => [
+            'label' => 'Invoices a credit or debit note could not be issued for',
+            'count' => app(NoteRefusals::class)->open(),
+            // Just the refused invoices, until each is cancelled, paid or fixed; the activity log names each and why.
+            'href' => route('admin.billing.invoices.index', ['refused' => 1]),
+            'tone' => 'warning',
+            'icon' => 'AlertTriangle',
+            'hint' => 'A cancellation or late fee was refused: open the invoice and see its activity',
+        ], 'billing.invoices.manage', 18);
 
         $dashboard->todo('admin', 'billing.credit_owed', fn (?User $user): array => [
             'label' => 'Clients owing account credit',

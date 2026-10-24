@@ -89,6 +89,8 @@ type Props = {
     pay_methods: PayMethod[];
     tax_notes: TaxNote[] | null;
     notes_enabled: boolean;
+    /** A numbered tax invoice while Nepal VAT mode is in effect: cancelling issues a credit note, reopening is not allowed. */
+    fiscal_cancel: boolean;
     creditable: Creditable | null;
     note_blocked: { credit: string | null; debit: string | null } | null;
     credit_label: string | null;
@@ -254,6 +256,26 @@ function RefundDialog({
                                 service due dates, affiliate commission)
                             </Label>
                         </div>
+                        <Field
+                            className="content-start"
+                            htmlFor="refund-reason"
+                            label="Reason"
+                            optional
+                            hint="Printed on the credit note when the invoice is a numbered tax invoice (Nepal VAT mode), where it is required."
+                            error={form.errors.description}
+                        >
+                            <Textarea
+                                id="refund-reason"
+                                maxLength={255}
+                                value={form.data.description}
+                                onChange={(event) =>
+                                    form.setData(
+                                        'description',
+                                        event.target.value,
+                                    )
+                                }
+                            />
+                        </Field>
                     </div>
                 );
             }}
@@ -270,6 +292,7 @@ export default function InvoiceShow({
     pay_methods,
     tax_notes,
     notes_enabled,
+    fiscal_cancel,
     creditable,
     note_blocked,
     credit_label,
@@ -280,6 +303,8 @@ export default function InvoiceShow({
         | 'payment'
         | 'details'
         | 'cancel'
+        | 'cancelLines'
+        | 'cancelLinesPlain'
         | 'markPaid'
         | 'capture'
         | 'credit'
@@ -503,7 +528,16 @@ export default function InvoiceShow({
                                         </DropdownMenuItem>
                                     )}
                                     {can.manage &&
-                                        invoice.status === 'cancelled' && (
+                                        invoice.status === 'cancelled' &&
+                                        fiscal_cancel && (
+                                            <DropdownMenuItem disabled>
+                                                Reopen invoice (not allowed on a
+                                                numbered tax invoice)
+                                            </DropdownMenuItem>
+                                        )}
+                                    {can.manage &&
+                                        invoice.status === 'cancelled' &&
+                                        !fiscal_cancel && (
                                             <DropdownMenuItem
                                                 onSelect={() =>
                                                     router.post(
@@ -661,30 +695,30 @@ export default function InvoiceShow({
                                 can.manage &&
                                 isPayable &&
                                 selectedLines.length > 0 ? (
-                                    <ConfirmDialog
-                                        trigger={
-                                            <Button variant="outline" size="sm">
-                                                Cancel {selectedLines.length}{' '}
-                                                {selectedLines.length === 1
-                                                    ? 'line'
-                                                    : 'lines'}
-                                            </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        disabled={
+                                            fiscal_cancel &&
+                                            !!note_blocked?.credit
                                         }
-                                        title="Cancel the selected lines?"
-                                        description="A credit note for the selected lines is added to this invoice. The lines stay visible, struck through."
-                                        confirmLabel="Cancel lines"
-                                        onConfirm={() =>
-                                            router.post(
-                                                cancelLines.url(invoice.id),
-                                                { items: selectedLines },
-                                                {
-                                                    preserveScroll: true,
-                                                    onSuccess: () =>
-                                                        setSelectedLines([]),
-                                                },
-                                            )
+                                        title={
+                                            fiscal_cancel
+                                                ? (note_blocked?.credit ??
+                                                  undefined)
+                                                : undefined
                                         }
-                                    />
+                                        onClick={() =>
+                                            fiscal_cancel
+                                                ? setDialog('cancelLines')
+                                                : setDialog('cancelLinesPlain')
+                                        }
+                                    >
+                                        Cancel {selectedLines.length}{' '}
+                                        {selectedLines.length === 1
+                                            ? 'line'
+                                            : 'lines'}
+                                    </Button>
                                 ) : undefined
                             }
                         >
@@ -1253,7 +1287,7 @@ export default function InvoiceShow({
             )}
 
             <ConfirmDialog
-                open={dialog === 'cancel'}
+                open={dialog === 'cancel' && !(fiscal_cancel && !isDraft)}
                 onOpenChange={close}
                 title={
                     isDraft
@@ -1267,6 +1301,86 @@ export default function InvoiceShow({
                 }
                 confirmLabel={isDraft ? 'Delete draft' : 'Cancel invoice'}
                 action={isDraft ? destroy(invoice.id) : cancel(invoice.id)}
+            />
+
+            <FormDialog
+                open={dialog === 'cancel' && fiscal_cancel && !isDraft}
+                onOpenChange={close}
+                title={`Cancel invoice ${invoice.number}?`}
+                description="A credit note for the open balance is issued and the client can no longer pay the invoice. The reason is printed on the credit note and the client sees it."
+                submitLabel="Cancel invoice"
+                destructive
+                action={cancel(invoice.id)}
+                initial={{ note: '' }}
+            >
+                {(form) => (
+                    <Field
+                        className="content-start"
+                        htmlFor="cancel-note"
+                        label="Reason"
+                        error={form.errors.note}
+                    >
+                        <Textarea
+                            id="cancel-note"
+                            required
+                            maxLength={500}
+                            value={form.data.note}
+                            onChange={(event) =>
+                                form.setData('note', event.target.value)
+                            }
+                        />
+                    </Field>
+                )}
+            </FormDialog>
+
+            <FormDialog
+                open={dialog === 'cancelLines'}
+                onOpenChange={close}
+                title="Cancel the selected lines?"
+                description="A credit note for the selected lines is issued. The lines stay visible, struck through. The reason is printed on the credit note and the client sees it."
+                submitLabel="Cancel lines"
+                destructive
+                action={cancelLines(invoice.id)}
+                initial={{ note: '' }}
+                transform={(data) => ({ ...data, items: selectedLines })}
+                onSuccess={() => setSelectedLines([])}
+            >
+                {(form) => (
+                    <Field
+                        className="content-start"
+                        htmlFor="cancel-lines-note"
+                        label="Reason"
+                        error={form.errors.note}
+                    >
+                        <Textarea
+                            id="cancel-lines-note"
+                            required
+                            maxLength={500}
+                            value={form.data.note}
+                            onChange={(event) =>
+                                form.setData('note', event.target.value)
+                            }
+                        />
+                    </Field>
+                )}
+            </FormDialog>
+
+            <ConfirmDialog
+                open={dialog === 'cancelLinesPlain'}
+                onOpenChange={close}
+                title="Cancel the selected lines?"
+                description="A credit note for the selected lines is added to this invoice. The lines stay visible, struck through."
+                confirmLabel="Cancel lines"
+                onConfirm={() =>
+                    router.post(
+                        cancelLines.url(invoice.id),
+                        { items: selectedLines },
+                        {
+                            preserveScroll: true,
+                            onSuccess: () => setSelectedLines([]),
+                        },
+                    )
+                }
             />
 
             <ConfirmDialog

@@ -146,20 +146,31 @@ class ServerAccountImport extends Model
         return array_values(app(AccountList::class)->rows($this));
     }
 
+    /** Account rows one prune run deletes at most (the cascade from a list reaches all of its accounts). */
+    public const PRUNE_ROW_BUDGET = 50000;
+
     /**
-     * Delete up to $limit expired lists, oldest first, with their accounts and report lines. A list whose import is
-     * still running is kept: deleting it mid-run would lose the report and stop the import (#135).
+     * Delete expired lists, oldest first, with their accounts and report lines: at most $limit lists and about
+     * PRUNE_ROW_BUDGET accounts per run (the oldest list always goes, however large). The rest wait for the next run.
+     * A list whose import is still running is kept: deleting it mid-run would lose the report and stop the import (#135).
      *
      * @param  int|null  $serverId  only this server's lists
      * @return int lists deleted
      */
     public static function pruneExpired(int $limit = 100, ?int $serverId = null): int
     {
-        $ids = self::query()->where('expires_at', '<=', now())->when($serverId !== null, fn (Builder $query) => $query->where('server_id', $serverId))
+        $expired = self::query()->where('expires_at', '<=', now())->when($serverId !== null, fn (Builder $query) => $query->where('server_id', $serverId))
             ->where(fn (Builder $query) => $query->where('status', '!=', self::IMPORTING)->orWhere('updated_at', '<=', now()->subMinutes(self::STALE_MINUTES)))
-            ->orderBy('expires_at')->limit($limit)->pluck('id');
+            ->orderBy('expires_at')->limit($limit)->get(['id', 'account_count']);
+        $rows = 0;
+        $ids = $expired->takeWhile(function (self $import) use (&$rows): bool {
+            $fits = $rows === 0 || $rows + $import->account_count <= self::PRUNE_ROW_BUDGET;
+            $rows += $import->account_count;
 
-        return $ids->isEmpty() ? 0 : self::query()->whereKey($ids->all())->delete();
+            return $fits;
+        })->modelKeys();
+
+        return $ids === [] ? 0 : self::query()->whereKey($ids)->delete();
     }
 
     public function isRunning(): bool

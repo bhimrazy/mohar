@@ -6,7 +6,10 @@ use App\Contracts\Services\Provisioning\ListsAccounts;
 use App\Enums\BillingCycle;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Models\Currency;
+use App\Modules\Services\Actions\AcceptServerValues;
 use App\Modules\Services\Actions\FetchAccountsForImport;
+use App\Modules\Services\Actions\IgnoreImportAccounts;
 use App\Modules\Services\Actions\ImportServerAccounts;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Http\Requests\SelectImportAccountsRequest;
@@ -23,6 +26,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -34,7 +38,7 @@ use Inertia\Response;
  */
 class ServerImportController extends Controller
 {
-    public const TABS = ['all', AccountImportMatcher::PROPOSED, AccountImportMatcher::UNMATCHED, AccountImportMatcher::RESELLER, AccountImportMatcher::LINKED, 'missing'];
+    public const TABS = ['all', AccountImportMatcher::PROPOSED, AccountImportMatcher::UNMATCHED, AccountImportMatcher::RESELLER, AccountImportMatcher::LINKED, AccountList::IGNORED, 'missing'];
 
     private const PER_PAGE = 50;
 
@@ -88,6 +92,8 @@ class ServerImportController extends Controller
                 AccountImportMatcher::UNMATCHED => $import->unmatched_count,
                 AccountImportMatcher::RESELLER => $import->reseller_count,
                 AccountImportMatcher::LINKED => $import->linked_count,
+                // Ignored accounts are counted in neither of the four categories above.
+                AccountList::IGNORED => max(0, $import->account_count - $import->proposed_count - $import->unmatched_count - $import->reseller_count - $import->linked_count),
                 'missing' => ($import->missing ?? []) === [] ? 0 : $this->missingQuery($server, $import)->count(),
             ] : null,
             'rows' => $rows,
@@ -96,6 +102,8 @@ class ServerImportController extends Controller
             'included' => count(array_filter($import === null ? [] : ($import->selections ?? []), fn (array $choice): bool => (bool) ($choice['include'] ?? false))),
             'productOptions' => $ready ? $plan->productOptions($server) : [],
             'cycles' => AccountImportPlan::cycles(),
+            // Once: the prices do not change while staff filter and page, so later visits do not ask for them again.
+            'pricedCycles' => $ready ? Inertia::once(fn (): array => $plan->pricedCycles($server, array_values(array_map(fn (Currency $currency): string => $currency->code, Currency::query()->get(['code'])->all())))) : null,
         ]);
     }
 
@@ -158,6 +166,43 @@ class ServerImportController extends Controller
     }
 
     /**
+     * Ignore accounts (they leave the work list and stay ignored in later fetches) or bring them back.
+     */
+    public function ignore(Request $request, Server $server, IgnoreImportAccounts $ignore): RedirectResponse
+    {
+        $this->authorize('services.servers.import');
+
+        $data = $request->validate(['usernames' => ['required', 'array', 'min:1', 'max:500'], 'usernames.*' => ['string', 'max:255'], 'ignored' => ['required', 'boolean']]);
+        $changed = $ignore->handle($server, $data['usernames'], (bool) $data['ignored'], $request->user());
+        Inertia::flash('toast', ['type' => 'success', 'message' => $data['ignored']
+            ? trans_choice('{0} Nothing to ignore: those accounts are linked or already ignored.|{1} 1 account ignored. It stays out of the list in later fetches.|[2,*] :count accounts ignored. They stay out of the list in later fetches.', $changed, ['count' => $changed])
+            : trans_choice('{0} Nothing to bring back.|{1} 1 account brought back.|[2,*] :count accounts brought back.', $changed, ['count' => $changed])]);
+
+        return back();
+    }
+
+    /**
+     * Accept the server's domain, IP or suspension into the linked service (AcceptServerValues): only the changes the
+     * page showed, and only while they still hold.
+     */
+    public function accept(Request $request, Server $server, AcceptServerValues $accept): RedirectResponse
+    {
+        $this->authorize('services.servers.import');
+        $this->authorize('services.services.manage');
+
+        $data = $request->validate([
+            'username' => ['required', 'string', 'max:255'],
+            'fields' => ['required', 'array', 'min:1', 'max:3'],
+            'fields.*' => ['string', Rule::in(AcceptServerValues::FIELDS)],
+            'digest' => ['required', 'string', 'size:64'],
+        ]);
+        $accept->handle($server, $data['username'], array_values($data['fields']), $data['digest'], $request->user());
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('The service now has the values from the server.')]);
+
+        return back();
+    }
+
+    /**
      * Active clients for the client picker: the most recently added first before anything is typed, then matches by
      * name, company or email.
      */
@@ -202,7 +247,7 @@ class ServerImportController extends Controller
             'counts' => ['ready' => $ready->count(), 'excluded' => $excluded->count(), 'clients' => $ready->pluck('decision.client.id')->unique()->count()],
             'totals' => $totals,
             'digest' => $review['digest'],
-            'cycles' => AccountImportPlan::cycles(),
+            'cycles' => $plan->cyclesForRows($review['rows']),
         ]);
     }
 
@@ -252,7 +297,8 @@ class ServerImportController extends Controller
             ->where('server_id', $server->id)->whereIn('status', ServiceStatus::occupyingValues())
             // Older services may hold a username in another case; the panel's names are lowercase (as the match compares).
             ->whereRaw('lower(username) in ('.implode(', ', array_fill(0, max(1, count($slice)), '?')).')', array_column($slice, 'username') ?: [''])
-            ->get(['id', 'client_id', 'product_id', 'product_name', 'domain', 'username', 'status'])->keyBy(fn (Service $service): string => strtolower((string) $service->username));
+            ->get(['id', 'client_id', 'product_id', 'product_name', 'domain', 'username', 'status', 'driver_data', 'suspension_reason'])->keyBy(fn (Service $service): string => strtolower((string) $service->username));
+        $canAccept = (bool) request()->user()?->hasPermission('services.services.manage');
         $choices = $import->selections ?? [];
         $slice = array_map(fn (array $row): array => [...$row,
             'client_id' => $choices[$row['username']]['client_id'] ?? $row['client_id'],
@@ -261,11 +307,11 @@ class ServerImportController extends Controller
             'include' => (bool) ($choices[$row['username']]['include'] ?? false),
         ], $slice);
         $clients = Client::query()->whereKey(array_filter(array_column($slice, 'client_id')))->where('status', '!=', 'closed')
-            ->get(['id', 'first_name', 'last_name', 'company_name'])->keyBy('id');
+            ->get(['id', 'first_name', 'last_name', 'company_name', 'currency'])->keyBy('id');
         $flags = $matcher->clientFlags($clients->keys()->map(fn (mixed $id): int => (int) $id)->all());
         $products = $matcher->serverProducts($server);
 
-        $fresh = array_map(function (array $row) use ($live, $clients, $flags, $products): array {
+        $fresh = array_map(function (array $row) use ($live, $clients, $flags, $products, $canAccept): array {
             $service = $live->get($row['username']);
             $client = $clients->get($row['client_id'] ?? 0);
             $product = $products[$row['product_id'] ?? 0] ?? null;
@@ -281,9 +327,11 @@ class ServerImportController extends Controller
 
             return [...array_diff_key($row, array_flip(['client_id', 'product_id', 'service_id'])),
                 'category' => $service !== null ? AccountImportMatcher::LINKED : $row['category'],
-                'client' => $client === null ? null : ['id' => $client->id, 'name' => $client->display_name],
+                'client' => $client === null ? null : ['id' => $client->id, 'name' => $client->display_name, 'currency' => $client->currency],
                 'product' => $product === null ? null : ['id' => $product->id, 'name' => $product->name],
                 'service' => $service === null ? null : ['id' => $service->id, 'label' => $service->label(), 'client' => $service->client->display_name],
+                // What staff may accept from the server into the service, each with the digest the accept must send.
+                'accept' => $service === null || ! $canAccept ? [] : array_map(fn (array $change): array => [...$change, 'digest' => AcceptServerValues::digest($service->id, [$change])], AcceptServerValues::changes($row, $service)),
                 'note' => $notes === [] ? null : implode(' ', $notes),
                 // A recent email change or an unverified sign-up, flagged on the row; the page shows the date in the app's format.
                 'flag' => $client === null ? null : ($flags[$client->id] ?? null),
