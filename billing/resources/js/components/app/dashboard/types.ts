@@ -14,7 +14,13 @@ export type MoneyValue = { amount: number; currency: string };
 /** Per-currency overrides merged over the base payload by the reporting-currency switch. */
 export type Variants<T> = Record<string, Partial<T>>;
 
-type WidgetBase = { key: string; size: 'sm' | 'md' | 'lg'; order?: number };
+type WidgetBase = {
+    key: string;
+    size: 'sm' | 'md' | 'lg';
+    order?: number;
+    /** When cached figures were computed: ISO 8601 in the company's time zone. */
+    asOf?: string;
+};
 
 export type StatWidget = WidgetBase & {
     type: 'stat';
