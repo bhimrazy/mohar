@@ -121,10 +121,10 @@ class SettledRefundCheck
      */
     public function checkedGateways(): array
     {
-        return array_values(array_keys(array_filter(
+        return array_keys(array_filter(
             $this->gateways->drivers(),
             fn (GatewayDriver $driver): bool => $driver instanceof HostedPaymentDriver && $driver->supports(GatewayDriver::LOOKUP) && ! $driver->supports(GatewayDriver::WEBHOOK),
-        )));
+        ));
     }
 
     /**
