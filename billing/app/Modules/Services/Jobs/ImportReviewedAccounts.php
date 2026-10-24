@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Services\Actions\ImportServerAccounts;
 use App\Modules\Services\Models\ServerAccountImport;
 use App\Modules\Services\Support\AccountImportMatcher;
+use App\Modules\Services\Support\AccountList;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\TimeoutExceededException;
@@ -43,6 +44,8 @@ class ImportReviewedAccounts implements ShouldQueue
             return;
         }
 
+        // An import the previous release started still has its list in the old column.
+        app(AccountList::class)->adopt($import);
         $staff = $this->staffId === null ? null : User::query()->find($this->staffId);
         $stop = match (true) {
             ! hash_equals((string) ($import->reviewed['digest'] ?? ''), $this->digest) => AccountImportMatcher::text('The accounts changed after the import was confirmed, so they need a new review.'),
@@ -76,6 +79,7 @@ class ImportReviewedAccounts implements ShouldQueue
         $import = ServerAccountImport::query()->with('server')->find($this->importId);
 
         if ($import !== null && $import->status === ServerAccountImport::IMPORTING) {
+            app(AccountList::class)->adopt($import);
             app(ImportServerAccounts::class)->stop($import->server, $import, $this->staffId === null ? null : User::query()->find($this->staffId), $exception instanceof TimeoutExceededException
                 ? AccountImportMatcher::text('The background job took too long.')
                 : AccountImportMatcher::text('The background job failed.'));

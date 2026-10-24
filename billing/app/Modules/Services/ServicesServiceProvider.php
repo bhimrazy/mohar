@@ -22,6 +22,7 @@ use App\Events\Services\ServiceUpgraded;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ClientContext;
+use App\Modules\Core\Support\InstallSecrets;
 use App\Modules\Core\Support\RequestMemo;
 use App\Modules\Services\Actions\CompleteLimitedServices;
 use App\Modules\Services\Actions\ExpireUnpaidChanges;
@@ -44,11 +45,13 @@ use App\Modules\Services\Models\CancellationRequest;
 use App\Modules\Services\Models\ModuleQueueItem;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerAccountImport;
+use App\Modules\Services\Models\ServerAccountImportAccount;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\EloquentCatalogUsage;
 use App\Modules\Services\Services\EloquentClientServiceDirectory;
 use App\Modules\Services\Services\EloquentServiceRegistry;
 use App\Modules\Services\Services\RegistryProvisioningDrivers;
+use App\Modules\Services\Support\AccountList;
 use App\Modules\Services\Support\ClientNameservers;
 use App\Modules\Services\Support\ServerSettings;
 use App\Modules\Services\Support\ServicesDashboard;
@@ -62,6 +65,7 @@ use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Security\EncryptedColumn;
 use App\Support\Security\EncryptedModel;
 use App\Support\Security\EncryptedStorage;
 use App\Support\Services\ProvisioningDriverRegistry;
@@ -107,7 +111,10 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $encrypted->register('services_servers', new EncryptedModel(Server::class));
         $encrypted->register('services_services', new EncryptedModel(Service::class));
         $encrypted->register('services_module_queue', new EncryptedModel(ModuleQueueItem::class));
-        $encrypted->register('services_account_imports', new EncryptedModel(ServerAccountImport::class));
+        $encrypted->register('services_account_import_accounts', new EncryptedModel(ServerAccountImportAccount::class));
+        // Lists the previous release stored whole, until AccountList::adopt() moves them (a later release drops the column).
+        $encrypted->register('services_account_imports', new EncryptedColumn('server_account_imports', 'accounts'));
+        $this->app->make(InstallSecrets::class)->define(AccountList::EMAIL_HASH_SECRET, fn (array $keys): string => hash_hmac('sha256', AccountList::EMAIL_HASH_SECRET, $keys[0] ?? ''));
 
         $drivers = $this->app->make(ProvisioningDriverRegistry::class);
         $drivers->register('none', NoneDriver::class);
@@ -162,7 +169,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $automation->task('services.terminations', Automation::TERMINATIONS, fn (CarbonImmutable $today): int => app(TerminateOverdueServices::class)->handle($today), label: 'Terminate overdue services', description: 'Terminates services that stayed overdue past the termination threshold.');
         $automation->task('services.complete-limited', Automation::TERMINATIONS, fn (CarbonImmutable $today): int => app(CompleteLimitedServices::class)->handle($today), label: 'Complete fixed-term services', description: 'Marks services with a renewal limit as completed after their last paid period.');
         $automation->task('services.usage-sync', Automation::SYNC, fn (CarbonImmutable $today): int => app(SyncUsage::class)->handle($today), label: 'Sync usage from servers', description: 'Records one usage snapshot per service from each server.');
-        $automation->task('services.import-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => ServerAccountImport::query()->where('expires_at', '<=', now())->delete(), label: 'Discard expired account imports', description: 'Deletes account lists fetched for import more than a day ago; they hold client emails.');
+        $automation->task('services.import-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => ServerAccountImport::pruneExpired(), label: 'Discard expired account imports', description: 'Deletes up to 100 account lists a run that were fetched for import more than a day ago (or finished an import more than a day ago); they hold client emails. A list still being imported is kept.');
         $automation->task('services.module-log-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneModuleLog::class)->handle($today), label: 'Prune the module log', description: 'Deletes provisioning module log entries older than the retention period.');
     }
 

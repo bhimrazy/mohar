@@ -65,7 +65,7 @@ test('[R4-1] a review GET that passed ready() before the confirm committed does 
     r4Tick($this->server, ['acme']);
     $digest = r4Digest($this->server);
     // A second review (another tab or staff member) read the list while it was ready...
-    $stale = FetchAccountsForImport::latest($this->server, withAccounts: true);
+    $stale = FetchAccountsForImport::latest($this->server);
     $this->post(route('admin.services.servers.import.apply', $this->server), ['digest' => $digest])->assertSessionHasNoErrors();
 
     // ...and saves its rows after start() set the import running: here Mallory now holds the contact email.
