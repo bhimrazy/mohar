@@ -35,6 +35,8 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
     - 2026-10-24: PRs squash-merge by default; a merge commit only when another open PR is based on the branch (#446).
       Merge when nothing blocks and send non-blocking items to planned packages, except money, auth and data deletion.
       CI split into sharded jobs approved (#448). The owner wants a product walkthrough soon: docs overview and walkthrough first.
+      #464 CTO calls: a refused late fee is skipped and logged once; order cancel/delete rolls back and keeps the refusal
+      record; no staff dismiss for Needs attention; `billing.credit.refund` is a hand grant; `unclassifiedBlock` stays.
     - 2026-10-23 (`requirements.md`): #406 waits for the FrankenPHP 1.13.2 cooldown on 10-28. Product standards: error
       pages carry the host's brand, and a country is chosen by name. Cautious release defaults (#412, #415): no
       `attest-build-provenance`, images from the default branch only, no heartbeat setting, the first release run
@@ -81,20 +83,30 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
 
 ## Open pull requests and running work
 
-Merged 2026-10-24 (details in `billing/docs/progress.md` at the next update): #438, #440, #444, #445, #446, #447, #449,
-#450, #451, #452, #453, #454, #455, #456 (undici 8.12.2), #458 (VAT PR 4, refunds), #459 (P15 core hardening),
-#461 (P8a Services part), #463 (P3b server import features). Issues closed by hand.
+Merged 2026-10-24 (details in `billing/docs/progress.md` at the next update): #438, #440, #444–#461, #462 (P1b redaction backstop on every log channel, after two security rounds), #463 (P3b server
+import features), #464 (VAT PR 4c: credit refunds, Nepal VAT mode flag lifted, demo seed has the mode on), #465–#469
+(handoff docs; develop fix for the #459/#461 scan; docs-site Overview and Walkthrough; pre-walkthrough sweep;
+walkthrough VAT step and `schedule:work` in `composer dev`). Issues closed by hand.
+
+Session wrapped on the owner's request 2026-10-24 (walkthrough ready). No agents running.
 
 | PR   | Workstream                                    | Status and next step (2026-10-24)                                                                 |
 | ---- | --------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| #457 | P6c Catalog pricing (#16, #118, #127, #247)   | Signed off at `3001cb33` after a develop merge; merge when CI passes, then close the four issues. |
-| #460 | P10a Retention, KYC orphan check (#298)       | Signed off at `5f8669a8` after a develop merge; merge when CI passes.                             |
-| #448 | CI split and `scripts/test.sh`                | Signed off at `42212e77`; owner approved the split (repo public, no minute cost). Merge on green. |
-| #462 | P1b Redaction log backstop (#254, #383)       | Architect approved (six non-blocking items). Security review running; then one fix round with the architect's items, re-check, merge. |
-| #464 | VAT PR 4c credit refunds, flag lift           | Draft; review board (combined) next, strict loop (money).                                         |
-| —    | Walkthrough docs                              | Overview, follow-along walkthrough and next-step links in `docs-site/`, checked against a running app. |
-| —    | Pre-walkthrough sweep                         | Product reviewer walks the demo path, fixes small issues, lists money/auth/deletion findings.    |
 | #128 | Gateway expansion spec                        | Draft. Owner questions in the PR.                                                                 |
+
+Walkthrough: `docs-site` Overview and Get started → Walkthrough (12 steps, run against a seeded app). Before a demo
+start Mailpit (`docker compose up -d` in `billing/`) and `composer dev` (now includes the scheduler).
+
+Deferred, not yet in the issue plan (add to packages when they are next planned):
+- #464 re-review: no test for B2's amount-differs branch; flagging a late success overwrites the staff note in
+  `description`.
+- #468 sweep, not fixed: no Reports section beyond the registers; NPR-default exchange rates read "Rs 1 = $0.006582"
+  (standard wants "$1 = Rs 151.94") and INR comes from the ECB; ticket-status and taxed-item settings are typed keys
+  (needs a multi-select setting type, P7a); client invoice has no seller/bill-to block with PAN; `domains.invoice_lead_days`
+  falls back to a missing billing setting (always 14); customer pages default to the product favicon; new-ticket
+  "Send request" disabled with no reason; guest cart drops after sign-in with no discount line; Change plan preselects
+  the current plan with a refund preview; a paid order stays Pending until Accept order.
+- #462 security re-check, low: a single quoted inner value over 64 KB masks the rest of the line (over-masks only).
 
 After each merge close the issue by hand (`develop` ignores closing keywords). Signed-off PRs must be marked ready:
 CI skips drafts without the `ci` label. Review follow-ups go into the open PR's fix round or a planned package, not
@@ -105,12 +117,16 @@ new issues; a PR merges when nothing blocks, except money, auth and data deletio
   `2026_10_24_400750` (#453, deletes duplicate report lines), `2026_10_24_000110` (#459, re-keys or demotes keyless
   system roles); `billing:fiscal-vat-split`; #460's retention tasks delete old rows on the first daily run;
   `support:recompute-unanswered --since=<deploy start>` after a blue-green deploy (#450).
-- Next: VAT PR 5 and 7, P6a/P6b after VAT PR 4c, P7a settings controls, P2c, P5c, P8c, P13 (issue plan).
+- Next: VAT PR 5 and 7, P6a/P6b (VAT PR 4c is merged), P7a settings controls, P2c, P5c, P8c, P13 (issue plan).
 - Namecheap is merged but not enabled. Before enabling it: a sandbox check of the not-in-account error numbers (2016166, 2019166), the `.us`,
   `.ca` and `.eu` extension details and the transfer texts (simulator README "verify" list).
 
 ## Open owner questions
 
+- VAT (from #464, with an accountant): does the register keep every stretch the mode was on; does the note register's
+  Total exclude other tax; are foreign-tax-only documents "exempt".
+- Docker cleanup on the Mac (proposed 10-24, not run): build cache (~9.9 GB), dangling images (~1.4 GB),
+  `mohar-k286-php:local` (~1 GB). Keep `mohar-pg`, its volume and Mailpit; other projects' images untouched.
 - Nepali tax invoices: CBMS / electronic billing rules for VAT-registered hosts, and fiscal-year numbering (ask an
   accountant).
 - connectIPS merchant enrolment (weeks of lead time); a WHMCS dev licence or fake-data export for importer fixtures; a
