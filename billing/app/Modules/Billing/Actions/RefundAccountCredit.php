@@ -32,7 +32,6 @@ class RefundAccountCredit
     public function __construct(
         private RefundTransaction $refunds,
         private CreditLedgerService $credit,
-        private GatewayLogger $log,
     ) {}
 
     /** A refund recorded as made outside: one transaction, the client is the only lock. */
@@ -63,7 +62,7 @@ class RefundAccountCredit
         $refund = DB::transaction(function () use ($client, $payment, $amount, $note, $userId): Transaction {
             $payment = Transaction::query()->lockForUpdate()->findOrFail($payment->id);
 
-            if ($payment->client_id !== $client->id || ! $payment->isRefundable() || $payment->gateway === null) {
+            if ($payment->client_id !== $client->id || ! $payment->isRefundable()) {
                 throw new BillingException(__('This payment has nothing left to refund.'));
             }
 

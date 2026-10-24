@@ -48,7 +48,7 @@ class CreditController extends Controller
             'can' => [
                 'adjust' => $request->user()?->hasPermission('billing.credit.adjust') ?? false,
                 'refund' => $request->user()?->hasPermission('billing.credit.refund') ?? false,
-                'refund_gateway' => ($request->user()?->hasPermission('billing.credit.refund') ?? false) && ($request->user()?->hasPermission('billing.refunds.manage') ?? false),
+                'refund_gateway' => ($request->user()?->hasPermission('billing.credit.refund') ?? false) && $request->user()->hasPermission('billing.refunds.manage'),
             ],
             'refund_methods' => array_values(array_map(fn ($driver): array => ['value' => $driver->key(), 'label' => $gateways->gateway($driver->key())->display_name], $gateways->drivers())),
             'refundable_payments' => $client === null ? [] : $this->refundablePayments($client, $gateways),
@@ -105,7 +105,7 @@ class CreditController extends Controller
      */
     private function refundablePayments(Client $client, GatewayManager $gateways): array
     {
-        return Transaction::query()->where('client_id', $client->id)->where('type', TransactionType::Payment)->where('status', TransactionStatus::Succeeded)
+        return array_values(Transaction::query()->where('client_id', $client->id)->where('type', TransactionType::Payment)->where('status', TransactionStatus::Succeeded)
             ->where('refundable_remaining', '>', 0)->where('currency', $client->currency)->whereNotNull('gateway_txn_id')
             ->latest('id')->limit(50)->get(['id', 'gateway', 'gateway_txn_id', 'refundable_remaining', 'currency', 'occurred_at'])
             ->filter(fn (Transaction $payment): bool => isset($gateways->drivers()[$payment->gateway]) && $gateways->driver($payment->gateway)->supports(GatewayDriver::REFUND))
@@ -115,7 +115,7 @@ class CreditController extends Controller
                 'gateway' => $payment->gateway,
                 'refundable' => $payment->refundable_remaining,
                 'currency' => $payment->currency,
-            ])->values()->all();
+            ])->all());
     }
 
     /** Pay account credit out. The balance, the payment and the provider are checked by the action, under lock. */
