@@ -239,5 +239,39 @@ test('PR452: a secret value that runs on through a soft end into the next pair m
 
 test('PR452: a pair after a secret value that names nothing secret keeps what develop kept', function () {
     expect((new Redactor)->maskValues('pw=ab;user: bob, id=7', []))->toBe('pw=[redacted] bob, id=7')
-        ->and((new Redactor)->maskValues('pw=ab;token: x=y;', []))->toBe('pw=[redacted] x=y;');
+        ->and((new Redactor)->maskValues('pw=ab;token: x=y;', []))->toBe('pw=[redacted] [redacted];');
+});
+
+// Security re-check of #452 (S1): the value after a swallowed secret label is read with the plain pair rule.
+test('PR452-S1: a value after a swallowed secret label is masked in every shape a plain pair masks', function (string $input, string $leak) {
+    expect((new Redactor)->maskValues($input, []))->not->toContain($leak)
+        ->and((string) (new Redactor)->redact(['note' => $input])['note'])->not->toContain($leak);
+})->with([
+    'double-quoted' => ['pw=ab;token: "PR452S1A"', 'PR452S1A'],
+    'single-quoted' => ["pw=ab;api_key: 'PR452S1B'", 'PR452S1B'],
+    'base64 with padding' => ['pw=ab;token: dXNlcjpQUjQ1MlMxQw==', 'dXNlcjpQUjQ1MlMxQw'],
+    'holds an equals sign' => ['pw=ab;token: abcPR452S1D=def', 'abcPR452S1D'],
+    'holds a colon' => ['pw=ab;token: user:PR452S1E', 'PR452S1E'],
+    'Bearer then quoted' => ['pw=ab;Authorization: Bearer "PR452S1F"', 'PR452S1F'],
+    'bracketed' => ['pw=ab;token: [PR452S1G]', 'PR452S1G'],
+    'arrow separator' => ['pw=ab;token=>PR452S1H', 'PR452S1H'],
+    'a JSON object' => ['pw=ab;token: {"a":"PR452S1I"}', 'PR452S1I'],
+]);
+
+test('PR452-S3: text joined to a mask, a labelled content attribute and CDATA in a value are masked', function (string $input, array $secrets, string $leak) {
+    expect((new Redactor)->maskValues($input, $secrets))->not->toContain($leak);
+})->with([
+    'suffix after a masked value' => ['password=FZSECRETpw77PR452S3A', ['FZSECRETpw77'], 'PR452S3A'],
+    'suffix after a mask in the text' => ['password=[redacted]PR452S3B', [], 'PR452S3B'],
+    'soft end after a masked value' => ['pw=abFZSECRETpw77;cdPR452S3C', ['FZSECRETpw77'], 'PR452S3C'],
+    'meta content' => ['<!doctype html><meta name="api_key" content="PR452S3D">', [], 'PR452S3D'],
+    'CDATA after a value' => ['token: x<![CDATA[PR452S3E]]>', [], 'PR452S3E'],
+    'CDATA in a tail value' => ['pw=a;token: x<![CDATA[PR452S3F]]>', [], 'PR452S3F'],
+    'unterminated CDATA' => ['token: <![CDATA[PR452S3G', [], 'PR452S3G'],
+]);
+
+test('PR452-S3: a mask in a value still ends where develop ended it', function () {
+    expect((new Redactor)->maskValues('k=[redacted]),id=7', []))->toBe('k=[redacted]),id=7')
+        ->and((new Redactor)->maskValues('x=1&token=[redacted]]&y=2', []))->toBe('x=1&token=[redacted]]&y=2')
+        ->and((new Redactor)->maskValues('<!doctype html><meta name="description" content="Plans">', []))->toBe('<!doctype html><meta name="description" content="Plans">');
 });
