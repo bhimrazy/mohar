@@ -88,7 +88,8 @@ class RefundTransaction
 
             $fiscal = $this->fiscalInvoice($payment, $mode, $reason, $userId);
             // Credit first: the account credit this payment placed is taken back before the invoice part is credited (ADR 0024 §5).
-            $creditPart = $fiscal !== null ? min($amount, $this->creditHeld($payment)) : 0;
+            // A refund to credit keeps the money with the client: nothing is taken back, the note's part is credited at finalise.
+            $creditPart = $fiscal !== null && $mode !== RefundMode::ToCredit ? min($amount, $this->creditHeld($payment)) : 0;
             $noteGross = $amount - $creditPart;
             $uncovered = 0;
 
@@ -176,6 +177,10 @@ class RefundTransaction
      */
     public function settle(Transaction $refund, ?string $providerRefundId, array $raw = []): Transaction
     {
+        if ($refund->isCreditRefund()) {
+            return app(RefundAccountCredit::class)->settle($refund, $providerRefundId, $raw);
+        }
+
         $payment = Transaction::query()->findOrFail($refund->parent_transaction_id);
         $result = new ChargeResult(ChargeResult::SUCCESS, $providerRefundId, raw: $raw);
 
@@ -294,9 +299,12 @@ class RefundTransaction
         return DB::transaction(function () use ($refund): bool {
             $locked = Transaction::query()->lockForUpdate()->find($refund->id);
 
-            // A DECLINED that arrives after the provider confirmed the refund changes nothing, but staff are told (ADR 0024 §5).
+            // A DECLINED that arrives after the provider confirmed the refund changes nothing, but staff are told (ADR 0024 §5). An
+            // entry already on the review list (a part the cap could not take, or one staff have seen) is left as it is.
             if ($locked !== null && $locked->status === TransactionStatus::Succeeded) {
-                $locked->forceFill(['review_amount' => $locked->amount_out, 'reviewed_at' => null, 'description' => __('Provider reports conflicting outcome: declined after it was confirmed')])->save();
+                if ($locked->review_amount === null) {
+                    $locked->forceFill(['review_amount' => $locked->amount_out, 'reviewed_at' => null, 'description' => __('Provider reports conflicting outcome: declined after it was confirmed')])->save();
+                }
 
                 return false;
             }
@@ -310,8 +318,13 @@ class RefundTransaction
     {
         $payment = Transaction::query()->whereKey($refund->parent_transaction_id)->lockForUpdate()->first();
         $refund->update(['status' => TransactionStatus::Failed, 'refundable_remaining' => 0]);
-        $this->reservations->release($refund);
-        $this->returnCreditHold($refund);
+
+        if ($refund->isCreditRefund()) {
+            app(RefundAccountCredit::class)->returnPayout($refund);
+        } else {
+            $this->reservations->release($refund);
+            $this->returnCreditHold($refund);
+        }
 
         if ($payment !== null) {
             // A chargeback row's amount_out is the whole dispute (what the payment gave, the credit taken back and the
@@ -331,7 +344,7 @@ class RefundTransaction
      * timeout, an error, a pending state) may mean the refund happened, so the row stays pending with the amount
      * reserved, and the provider's callback, a check or staff settle it later. A retry would be a new refund.
      */
-    private function unsettled(Transaction $refund, ChargeResult $result): Transaction
+    public function unsettled(Transaction $refund, ChargeResult $result): Transaction
     {
         if ($result->status === ChargeResult::DECLINED) {
             if ($this->release($refund)) {
@@ -441,6 +454,11 @@ class RefundTransaction
             }
 
             $refund->save();
+
+            if ($mode === RefundMode::ToCredit) {
+                $this->credit->post($payment->client_id, Money::of($amount, $payment->currency), CreditReason::RefundToCredit, $payment->invoice_id, $refund->id, __('Refund to credit'), $userId);
+            }
+
             $this->applyToInvoice($invoice, $refund, $amount - $creditPart - $uncovered, $reverseEffects, $userId, $note, $at);
             $this->reservations->finalise($reservation, $note?->id);
 
@@ -470,10 +488,6 @@ class RefundTransaction
             return null;
         }
 
-        if ($mode === RefundMode::ToCredit) {
-            throw new BillingException(__('A numbered tax invoice is credited to the account with a credit note, not by refunding its payment to credit. Issue a credit note settled to account credit.'));
-        }
-
         if ($payment->currency !== $invoice->currency) {
             throw new BillingException(__('This payment is not in the invoice currency; refund it outside Nepal VAT mode.'));
         }
@@ -499,7 +513,7 @@ class RefundTransaction
                 ->orWhere(fn ($refunded) => $refunded->whereIn('transaction_id', $refunds)->where('reason', CreditReason::RefundToCredit)))->sum('amount');
         $moved = -(int) CreditLedgerEntry::query()->where('currency', $payment->currency)->where('transaction_id', $payment->id)->whereNotNull('gateway')->sum('amount');
 
-        return max(0, $placed - $moved);
+        return max(0, $placed - $moved - Transaction::creditPaidOut([$payment->id], $payment->currency));
     }
 
     /**
@@ -542,7 +556,7 @@ class RefundTransaction
      * One provider refund per payment at a time: while one is pending (in flight, or unconfirmed after a timeout) a
      * second call could refund the same money again. Called with the payment locked.
      */
-    private function assertNoRefundInFlight(Transaction $payment): void
+    public function assertNoRefundInFlight(Transaction $payment): void
     {
         $pending = Transaction::query()->where('parent_transaction_id', $payment->id)->where('type', TransactionType::Refund)
             ->where('status', TransactionStatus::Pending)->first();
@@ -554,7 +568,7 @@ class RefundTransaction
         }
     }
 
-    private function assertGatewayCanRefund(Transaction $payment, int $amount): void
+    public function assertGatewayCanRefund(Transaction $payment, int $amount): void
     {
         $driver = $this->gateways->driver($payment->gateway);
 
@@ -578,7 +592,7 @@ class RefundTransaction
      * pending refund row is created first, so its id identifies this refund at the provider (idempotency key,
      * reconciliation of a refund whose answer never arrived).
      */
-    private function refundAtGateway(Transaction $payment, int $amount, Transaction $refund): ChargeResult
+    public function refundAtGateway(Transaction $payment, int $amount, Transaction $refund): ChargeResult
     {
         $result = $this->gateways->driver($payment->gateway)->refund($this->gateways->config($payment->gateway), $this->providerRequest($payment, $amount, $refund));
         $this->log->log($payment->gateway, 'response', 'refund '.$result->status, $result->raw, $payment->invoice_id);

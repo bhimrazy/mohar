@@ -6,7 +6,7 @@ use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
-/** 404 unless `config/features.php` switches the flag on (`feature:billing.nepal_vat_mode`). For unfinished work only. */
+/** 404 unless `config/features.php` switches the flag on (`feature:<module>.<flag>`). For unfinished work only; no flag exists at present. */
 class RequireFeature
 {
     /**

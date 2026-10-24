@@ -530,8 +530,7 @@ PR 4 is built in steps. This one is the §5 state machine for **staff refunds** 
   start day too), a refund by a staff member of a payment on a paid, numbered, non-add-funds invoice locks payment, invoice and
   client (§4), checks both caps through the note plan, and writes the pending refund row and a `tax_note_reservations` row
   with its full allocation (`tax_note_reservation_lines`). No number is taken. The staff member must give a reason
-  (`description`), which is printed on the note (`refunded`). A refund to account credit is refused there: a credit note settled
-  to account credit does that. A payment that placed account credit is refused until the credit-first split is built.
+  (`description`), which is printed on the note (`refunded`). A refund to account credit reserves a note like any other (Amendment #464).
 - **Finalise** (`RefundTransaction::finalise`, reached by the request, the provider callback, Check refund and staff resolution,
   one transaction under the §4 order with the reservation locked): with the transaction's own instant `$at`, if the mode is in
   effect at `$at` the reserved allocation is issued as the note (`TaxNoteIssuer::issueReserved`), the refund row gets its
@@ -569,5 +568,29 @@ PR 4 is built in steps. This one is the §5 state machine for **staff refunds** 
   period, so a switch-off and a re-enable never hide an earlier month, and documents numbered in the gap (they carry no flags)
   are neither listed nor counted as unclassified. The page says when the mode is off and since when. Re-enabling still
   needs the gap's invoices classified (the enable-time check) and a start day on or after the current BS month.
-- **Not yet built (later PR 4 steps):** `RefundAccountCredit` (§5a); lifting `features.billing.nepal_vat_mode` and deleting the
-  interim refusals (a refund to account credit on a numbered invoice, the refusal of an unclassified invoice).
+
+## Amendment (#464) — 2026-10-24, refund account credit and lifting the flag (PR 4c)
+
+- **Built as §5a defines it.** `RefundAccountCredit` has a recorded variant (one transaction, the client is the only lock) and a
+  gateway variant (reserving locks payment, then client; settle and release lock the refund row first, then payment and client, as the invoice path does). Both post `credit_refunded` −amount tied to the refund row
+  (`credit_ledger.transaction_id`) and write a refund row with `purpose = credit_refund` and no invoice; permissions
+  `billing.credit.refund` (both) and `billing.refunds.manage` (gateway), step-up on the route. The recorded variant stores the
+  chosen method as the row's `gateway` and the reference as `gateway_txn_id`, so a reference used twice with one method is refused.
+- **Routing.** `RefundTransaction::settle` hands a `credit_refund` row to `RefundAccountCredit::settle`; `releaseLocked` returns the
+  payout with `credit_refund_released` instead of an invoice reservation or credit hold; the callback handler takes a pending or
+  failed own row with that purpose before the parents path. A late SUCCESS on a failed row re-posts the payout (negative balance
+  allowed), takes the payment's refundable amount back clamped at 0, records the shortfall in the row, and puts the refund on
+  "Disputes to review" ("Credit refund paid after a decline"). It is booked once: the row leaves `failed` under its lock, the
+  ledger reference is unique, and the provider refund id is deduped.
+- **Refund to account credit on a numbered invoice** is no longer refused. It reserves and issues the credit note like any refund,
+  and credits the account with the whole amount once (nothing is taken back first). Not interim: kept refusals are the unclassified
+  invoice (a guard against computing VAT without flags) and the enable-time ones.
+- **`features.billing.nepal_vat_mode` is lifted.** The menu item and the two routes are always on; the flag mechanism
+  (`config/features.php`, the `feature:` middleware) stays, empty.
+- **Payouts count against the credit a payment placed.** A `credit_refunded` row is tied to its refund row, not the payment, so
+  `creditHeld` and the callback's credit take-back subtract the net payouts of the payment's credit refunds
+  (`Transaction::creditPaidOut`), or a later refund would take the same credit back again.
+- **A late success that cannot be booked** (a different amount, or no refund id) on a failed credit refund puts the row on
+  Disputes to review (`review_amount`), and the callback's log line says so.
+- **Refused cancels and late fees.** A cancel refused inside a caller's transaction that rolls back (an order cancel or delete)
+  keeps its staff record (written again after the rollback); a late fee refused every day is logged once.

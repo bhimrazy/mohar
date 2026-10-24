@@ -8,8 +8,9 @@ use PhpParser\ParserFactory;
  * While Nepal VAT mode is on, only the note issuer writes value adjustments on a numbered invoice (vat-register §5.4,
  * ADR 0024 §10). The old paths still write them for invoices without a number, so every method that writes an old-style value
  * adjustment must decide the mode first on its own path: it reads `inEffectLocked()` (a shared lock on the mode row, one
- * instant per transaction), or it is a private helper that every method calling it does so before the call. A reason held in
- * a variable, or a second method in the same file, no longer gets past: the scan is on the syntax tree, per method.
+ * instant per transaction), or it is a private helper that every method calling it does so before the call. A second method in
+ * the same file no longer gets past: the scan is on the syntax tree, per method. It sees a writer by the literal
+ * `AdjustmentReason::X` in the `adjust()` call, so a reason held in a variable is not seen: keep it literal at the call.
  */
 
 const OLD_STYLE_VALUE_REASONS = ['Cancellation', 'ItemCancellation', 'LateFee', 'Refund', 'Manual', 'Chargeback'];

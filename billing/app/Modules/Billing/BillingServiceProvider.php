@@ -231,9 +231,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $navigation->add('admin', new NavItem('Quotes', 'admin.billing.quotes.index', 'ClipboardList', 'Billing', 30, 'billing.quotes.view', 'admin.billing.quotes.*'));
         $navigation->add('admin', new NavItem('Account credit', 'admin.billing.credit.index', 'Wallet', 'Billing', 40, 'billing.credit.manage', 'admin.billing.credit.*'));
         $navigation->add('admin', new NavItem('Gateways', 'admin.billing.gateways.index', 'CreditCard', 'Setup', 33, 'billing.gateways.manage', 'admin.billing.gateways.*'));
-        if (config('features.billing.nepal_vat_mode')) {
-            $navigation->add('admin', new NavItem('Nepal VAT', 'admin.billing.vat-mode.edit', 'FileText', 'Setup', 32, 'billing.tax.manage', 'admin.billing.vat-mode.*'));
-        }
+        $navigation->add('admin', new NavItem('Nepal VAT', 'admin.billing.vat-mode.edit', 'FileText', 'Setup', 32, 'billing.tax.manage', 'admin.billing.vat-mode.*'));
         $navigation->add('admin', new NavItem('Tax rules', 'admin.billing.tax-rules.index', 'Percent', 'Setup', 31, 'billing.tax.manage', 'admin.billing.tax-rules.*'));
         $navigation->add('admin', new NavItem('VAT register', 'admin.billing.vat-register.index', 'BookOpen', 'Billing', 45, 'reports.vat_register.view', 'admin.billing.vat-register.*'));
         $navigation->add('admin', new NavItem('Payment attempts', 'admin.billing.payment-attempts.index', 'Activity', 'Billing', 50, 'billing.payments.manage', 'admin.billing.payment-attempts.*'));
@@ -275,6 +273,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         'billing.payments.manage',
         'billing.transactions.manage',
         'billing.credit.adjust',
+        'billing.credit.refund',
         'billing.gateways.manage',
         'billing.tax.manage',
         'billing.tax_notes.issue',
@@ -291,6 +290,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             'billing.transactions.manage' => 'Record manual transactions',
             'billing.credit.manage' => 'View client credit and invoicing preferences',
             'billing.credit.adjust' => 'Adjust client credit balances',
+            'billing.credit.refund' => 'Pay account credit out to the client',
             'billing.quotes.view' => 'View quotes',
             'billing.quotes.manage' => 'Create, send and convert quotes',
             'billing.gateways.manage' => 'Configure payment gateways',

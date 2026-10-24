@@ -251,6 +251,8 @@ class BillingAutomation
      */
     public function housekeeping(CarbonImmutable $today): int
     {
+        $this->refusals->sweep();
+
         return $this->quotes->expire($today);
     }
 }

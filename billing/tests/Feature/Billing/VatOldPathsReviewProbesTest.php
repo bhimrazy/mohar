@@ -271,3 +271,35 @@ test('a staff note takes the shared lock on the mode row (PostgreSQL)', function
 
     expect(array_filter($sql, fn (string $q): bool => str_contains($q, 'settings') && str_contains($q, 'for share')))->not->toBeEmpty();
 });
+
+test('refusals are marked seen when the invoice is paid or swept, and the Needs attention list is bounded', function () {
+    $client = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']);
+    $paid = issueInvoice($client, [10_000]);
+    $swept = issueInvoice($client, [10_000]);
+    foreach ([$paid, $swept] as $invoice) {
+        app(NoteRefusals::class)->record($invoice->fresh(), InvoiceFiscalReview::CANCEL_REFUSED, 'Lines do not add up');
+    }
+
+    payInvoice($paid, 11_300);
+    DB::table('invoices')->where('id', $swept->id)->update(['status' => 'cancelled']);
+
+    expect(InvoiceFiscalReview::query()->where('invoice_id', $paid->id)->value('seen_at'))->not->toBeNull()
+        ->and(InvoiceFiscalReview::query()->where('invoice_id', $swept->id)->value('seen_at'))->toBeNull();
+
+    expect(app(NoteRefusals::class)->sweep())->toBe(1)->and(InvoiceFiscalReview::query()->where('invoice_id', $swept->id)->value('seen_at'))->not->toBeNull()
+        ->and(NoteRefusals::LIST_LIMIT)->toBe(500);
+});
+
+test('a refused cancel inside a caller transaction that rolls back keeps its staff record, and a retried refusal is told once', function () {
+    $invoice = oldPathProbeInvoice();
+    DB::table('invoice_items')->where('invoice_id', $invoice->id)->update(['tax_amount' => DB::raw('tax_amount + 1')]);
+
+    expect(fn () => DB::transaction(fn () => app(Invoicer::class)->cancel($invoice->id, 'Cancelled by Orders')))->toThrow(InvoiceNotCancellable::class)
+        ->and(app(NoteRefusals::class)->open())->toBe(1)
+        ->and(ActivityLog::query()->where('event', 'billing.note_refused')->count())->toBe(1);
+
+    app(NoteRefusals::class)->record($invoice, InvoiceFiscalReview::LATE_FEE_REFUSED, 'again');
+    app(NoteRefusals::class)->record($invoice, InvoiceFiscalReview::LATE_FEE_REFUSED, 'again');
+
+    expect(ActivityLog::query()->where('event', 'billing.note_refused')->count())->toBe(2);
+});

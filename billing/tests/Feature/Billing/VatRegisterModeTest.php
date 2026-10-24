@@ -10,6 +10,7 @@ use App\Modules\Billing\Reports\RegisterPeriod;
 use App\Modules\Billing\Reports\RegisterSummary;
 use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Billing\Services\TaxNoteIssuer;
+use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Support\Reports\ReportExporter;
@@ -153,7 +154,7 @@ test('a re-enable never hides the months the mode was on before: every stretch s
     CarbonImmutable::setTestNow('2026-11-02 06:00:00');
     $mode->apply($staff, ['enabled' => true, 'enabled_from' => $mode->months()[1]['value'], 'vat_rules' => [$this->vat->id], 'export_rule' => null]);
 
-    expect($mode->periods())->toBe([['from' => '2026-01-01', 'to' => '2026-10-25'], ['from' => $mode->months()[1]['value'], 'to' => null]])
+    expect($mode->periods())->toBe([['from' => '2026-01-01', 'to' => '2026-10-25', 'to_at' => '2026-10-25 06:00:00'], ['from' => $mode->months()[1]['value'], 'to' => null, 'to_at' => null]])
         ->and(array_column(modeRegRows(), 'vat'))->toBe([1_300])
         ->and(modeRegSummary()->unclassified)->toBe(0)
         ->and($inGap->fresh()->fiscal_tax1_is_vat)->toBeTrue();
@@ -168,4 +169,36 @@ test('after a switch-off the register says so and shows when', function () {
     actingAsStaff(['reports.vat_register.view']);
 
     $this->get(route('admin.billing.vat-register.index', ['month' => '2083-07']))->assertInertia(fn (AssertableInertia $page) => $page->where('mode.on', false)->where('mode.enabled', true)->where('mode.offSince', '2026-10-25'));
+});
+
+test('a mode switched off before periods were stored keeps its first stretch when re-enabled', function () {
+    $mode = app(NepalVatMode::class);
+    $staff = User::factory()->staff(['billing.*'])->create();
+    useNepalVatRule($this->vat);
+    $first = modeRegDay('2026-10-20', fn () => issueInvoice(Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']), [10_000]));
+    actingAsStaff(['reports.vat_register.view']);
+
+    // What a switch-off made before periods were stored left behind: enabled false, enabled_from kept, no periods, a change entry.
+    CarbonImmutable::setTestNow('2026-10-25 06:00:00');
+    billingSettings(['nepal_vat.enabled' => false]);
+    ActivityLog::query()->create(['description' => 'Nepal VAT mode changed', 'event' => 'billing.nepal_vat.changed', 'properties' => ['from' => ['enabled' => true], 'to' => ['enabled' => false]]]);
+    Artisan::call('billing:fiscal-vat-split');
+    CarbonImmutable::setTestNow('2026-11-02 06:00:00');
+    $mode->apply($staff, ['enabled' => true, 'enabled_from' => $mode->months()[1]['value'], 'vat_rules' => [$this->vat->id], 'export_rule' => null]);
+
+    expect(array_column(modeRegRows(), 'number'))->toContain($first->fresh()->number)
+        ->and($mode->periods()[0])->toMatchArray(['from' => '2026-01-01', 'to' => '2026-10-25']);
+});
+
+test('an invoice numbered later on the switch-off day is outside the closed stretch', function () {
+    $mode = app(NepalVatMode::class);
+    $staff = User::factory()->staff(['billing.*'])->create();
+    useNepalVatRule($this->vat);
+    CarbonImmutable::setTestNow('2026-10-25 06:00:00');
+    $mode->apply($staff, ['enabled' => false, 'enabled_from' => null, 'vat_rules' => [$this->vat->id], 'export_rule' => null]);
+    CarbonImmutable::setTestNow('2026-10-25 09:00:00');
+    $after = issueInvoice(Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']), [10_000]);
+    actingAsStaff(['reports.vat_register.view']);
+
+    expect(array_column(modeRegRows(), 'number'))->not->toContain($after->fresh()->number)->and(modeRegSummary()->unclassified)->toBe(0);
 });

@@ -18,7 +18,7 @@ test('every feature: route middleware names an existing features.* key', functio
         }
     }
 
-    expect($named)->not->toBeEmpty();
+    expect(config('features'))->toBeArray();
 
     foreach (array_keys($named) as $flag) {
         expect(Arr::has(config('features'), $flag))->toBeTrue("feature:{$flag} is not a key of config/features.php");

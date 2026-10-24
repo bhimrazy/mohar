@@ -9,6 +9,7 @@ use App\Events\Billing\PaymentFailed;
 use App\Modules\Billing\Actions\ApplyPayment;
 use App\Modules\Billing\Actions\RecordChargeback;
 use App\Modules\Billing\Actions\RecordDisputeWon;
+use App\Modules\Billing\Actions\RefundAccountCredit;
 use App\Modules\Billing\Actions\RefundTransaction;
 use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Data\PaymentData;
@@ -74,6 +75,7 @@ class GatewayCallbackHandler
         private CreditLedgerService $credit,
         private RecordDisputeWon $disputeWon,
         private ActivityLogger $activity,
+        private RefundAccountCredit $creditRefunds,
     ) {}
 
     /**
@@ -263,6 +265,33 @@ class GatewayCallbackHandler
         // A refund we sent and have not booked (its answer never came, or its request is still running) holds its
         // amount: the callback is the provider's word that it happened, so it settles that same row (never a second
         // one). It must be the refund we sent: same payment, same amount in what the provider charged.
+        $creditRefund = $own?->isCreditRefund() === true;
+
+        // A refund of account credit is a payout, never an invoice refund: it is settled here and takes no part in the parents path below
+        // (ADR 0024 §5a). Failed rows are paid after a decline.
+        if ($creditRefund && $own->status !== TransactionStatus::Succeeded && $event->txnId !== '') {
+            $parent = Transaction::query()->find($own->parent_transaction_id);
+            $sent = $parent !== null ? $this->amounts->toGateway($parent, $own->amount_out) : null;
+            $samePayment = $parent !== null && ($event->parentTxnId === null || $event->parentTxnId === $this->amounts->charge($parent)['txnId']);
+
+            if ($sent === null || ! $samePayment || $sent->amount !== $event->amount || $sent->currency !== strtoupper($event->currency)) {
+                $flagged = $this->creditRefunds->flagLateForReview($own, 'the amount differs');
+
+                return $this->outcome($gatewayKey, 200, $flagged ? 'refund differs from the credit refund; put on Disputes to review' : 'refund differs from the credit refund; the row is still pending', $event->raw, null);
+            }
+
+            $wasFailed = $own->status === TransactionStatus::Failed;
+            $settled = $this->refund->settle($own, $event->txnId, $event->raw);
+
+            return $this->outcome($gatewayKey, 200, $wasFailed || $settled->review_amount !== null ? 'credit refund paid after a decline; staff review' : 'credit refund recorded', $event->raw, null);
+        }
+
+        if ($creditRefund) {
+            return $own->status === TransactionStatus::Pending
+                ? $this->outcome($gatewayKey, 409, 'refund still being recorded; retry expected', $event->raw, null)
+                : $this->outcome($gatewayKey, 200, $own->status === TransactionStatus::Succeeded ? 'refund already recorded' : ($this->creditRefunds->flagLateForReview($own, 'no refund id') ? 'credit refund callback without a refund id; put on Disputes to review' : 'credit refund callback without a refund id'), $event->raw, null);
+        }
+
         if ($own?->status === TransactionStatus::Pending && $event->txnId !== '') {
             $parent = Transaction::query()->find($own->parent_transaction_id);
             $sent = $parent !== null ? $this->amounts->toGateway($parent, $own->amount_out) : null;
@@ -721,7 +750,7 @@ class GatewayCallbackHandler
         // credit a win gave back can be taken back again by a later refund or dispute.
         $reversed = -(int) CreditLedgerEntry::query()->where('currency', $payment->currency)->whereIn('transaction_id', $ids)
             ->whereNotNull('gateway')->sum('amount');
-        $taken = min($remaining, max(0, $placed - $reversed));
+        $taken = min($remaining, max(0, $placed - $reversed - Transaction::creditPaidOut($ids, $payment->currency)));
 
         if ($taken > 0) {
             $this->credit->post(

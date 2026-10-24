@@ -2,10 +2,12 @@
 
 use App\Contracts\Core\CompanyClock;
 use App\Modules\Billing\Database\Seeders\BillingSeeder;
+use App\Modules\Billing\Enums\InvoiceKind;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Core\Database\Seeders\CoreSeeder;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
@@ -105,4 +107,17 @@ it('keeps the one seeded refund off the showcase client', function () {
 
     expect($refunds)->not->toBeEmpty()
         ->and($refunds->every(fn (Transaction $refund) => $refund->client_id !== $demo))->toBeTrue();
+});
+
+it('files Nepal VAT in the demo: the mode is on from before the history, every Nepal invoice is classified and the register has rows', function () {
+    $mode = app(NepalVatMode::class);
+    // The deposit invoice (add funds) is not a sale and is never classified.
+    $nepal = Invoice::query()->whereNotNull('number')->where('currency', 'NPR')->where('kind', '!=', InvoiceKind::AddFunds)->get();
+
+    expect($mode->enabled())->toBeTrue()->and($mode->enabledFrom())->toBeLessThan(today()->subDays(730)->toDateString())
+        ->and($nepal)->not->toBeEmpty()
+        ->and($nepal->whereNull('supply_class')->count())->toBe(0)
+        // The deposit invoice (add funds) is not a sale and is never classified.
+        ->and(Invoice::query()->whereNotNull('number')->whereNull('supply_class')->where('kind', '!=', InvoiceKind::AddFunds)->count())->toBe(0)
+        ->and($nepal->where('supply_class', 'taxable')->count())->toBeGreaterThan(50);
 });
