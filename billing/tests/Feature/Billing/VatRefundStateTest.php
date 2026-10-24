@@ -112,8 +112,14 @@ test('a refund needs a reason in the mode, and an unreasoned refund leaves no ro
         ->and($payment->fresh()->refundable_remaining)->toBe(11_300);
 });
 
-test('a refund of a numbered tax invoice cannot be sent to account credit: a credit note settled to credit does that', function () {
-    expect(fn () => vatRefund(vatRefundPayment(), mode: RefundMode::ToCredit))->toThrow(BillingException::class, 'credit note');
+test('a refund of a numbered tax invoice sent to account credit issues the credit note and credits the account once', function () {
+    $payment = vatRefundPayment();
+    $refund = vatRefund($payment, mode: RefundMode::ToCredit);
+
+    expect(TaxNote::query()->sole())->total->toBe(5_650)->and($refund)->status->toBe(TransactionStatus::Succeeded)->tax_note_id->not->toBeNull()
+        ->and(app(CreditLedgerService::class)->balance($payment->client_id, 'NPR')->amount)->toBe(5_650)
+        ->and($payment->invoice->fresh()->amount_paid)->toBe(5_650)
+        ->and(DB::table('credit_ledger')->where('reason', 'refund_to_credit')->count())->toBe(1);
 });
 
 test('a refund recorded as made outside is one transaction: the note is issued at once', function () {

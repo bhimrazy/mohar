@@ -88,7 +88,8 @@ class RefundTransaction
 
             $fiscal = $this->fiscalInvoice($payment, $mode, $reason, $userId);
             // Credit first: the account credit this payment placed is taken back before the invoice part is credited (ADR 0024 §5).
-            $creditPart = $fiscal !== null ? min($amount, $this->creditHeld($payment)) : 0;
+            // A refund to credit keeps the money with the client: nothing is taken back, the note's part is credited at finalise.
+            $creditPart = $fiscal !== null && $mode !== RefundMode::ToCredit ? min($amount, $this->creditHeld($payment)) : 0;
             $noteGross = $amount - $creditPart;
             $uncovered = 0;
 
@@ -453,6 +454,11 @@ class RefundTransaction
             }
 
             $refund->save();
+
+            if ($mode === RefundMode::ToCredit) {
+                $this->credit->post($payment->client_id, Money::of($amount, $payment->currency), CreditReason::RefundToCredit, $payment->invoice_id, $refund->id, __('Refund to credit'), $userId);
+            }
+
             $this->applyToInvoice($invoice, $refund, $amount - $creditPart - $uncovered, $reverseEffects, $userId, $note, $at);
             $this->reservations->finalise($reservation, $note?->id);
 
@@ -480,10 +486,6 @@ class RefundTransaction
         if ($invoice === null || $invoice->numbered_at === null || $invoice->kind === InvoiceKind::AddFunds
             || ! in_array($invoice->status, [InvoiceStatus::Paid, InvoiceStatus::Refunded, InvoiceStatus::Cancelled], true) || ! $this->mode->enabledLocked()) {
             return null;
-        }
-
-        if ($mode === RefundMode::ToCredit) {
-            throw new BillingException(__('A numbered tax invoice is credited to the account with a credit note, not by refunding its payment to credit. Issue a credit note settled to account credit.'));
         }
 
         if ($payment->currency !== $invoice->currency) {
