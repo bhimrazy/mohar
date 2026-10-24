@@ -20,7 +20,7 @@ class RecomputeUnansweredCommand extends Command
 {
     public function handle(): int
     {
-        $since = $this->option('since') ? CarbonImmutable::parse((string) $this->option('since')) : null;
+        $since = $this->option('since') ? CarbonImmutable::parse((string) $this->option('since'))->utc() : null;
         $batch = max(1, (int) $this->option('batch'));
         $last = (int) Ticket::query()->max('id');
         $touched = 0;

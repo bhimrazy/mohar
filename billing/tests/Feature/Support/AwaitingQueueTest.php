@@ -144,6 +144,17 @@ test('support:recompute-unanswered repairs rows changed since a time and leaves 
         ->and($old->fresh()->first_unanswered_at)->not->toBeNull();
 });
 
+test('support:recompute-unanswered reads a --since with a time-zone offset as that instant', function () {
+    $stale = clientTicket(Client::factory()->create(), Department::factory()->create());
+    $expected = $stale->fresh()->first_unanswered_at;
+    Ticket::query()->whereKey($stale->id)->update(['first_unanswered_at' => now()->addDay(), 'updated_at' => now()]);
+
+    // An hour ago in Nepal time: as a wall-clock time without the offset it would lie 5h45 in the future.
+    $this->artisan('support:recompute-unanswered', ['--since' => now()->subHour()->setTimezone('Asia/Kathmandu')->toIso8601String()])->assertSuccessful();
+
+    expect($stale->fresh()->first_unanswered_at->equalTo($expected))->toBeTrue();
+});
+
 test('the link-replaced mail cannot be switched off', function () {
     expect((new EmailTemplate(['key' => 'ticket.link_replaced']))->isAlwaysSent())->toBeTrue();
 });

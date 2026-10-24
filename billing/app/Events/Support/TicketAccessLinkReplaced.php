@@ -7,8 +7,8 @@ use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
- * A guest ticket's access key was replaced because tickets of other requesters were merged into it. The old link no
- * longer opens the ticket; the requester gets the new one by email.
+ * A guest ticket's access key was replaced because other tickets were merged into it (any merge into a guest ticket).
+ * The old link no longer opens the ticket; the requester gets the new one by email.
  */
 final class TicketAccessLinkReplaced implements DomainEvent
 {
