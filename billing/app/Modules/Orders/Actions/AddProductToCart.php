@@ -3,6 +3,7 @@
 namespace App\Modules\Orders\Actions;
 
 use App\Contracts\Catalog\PriceBook;
+use App\Contracts\Domains\DomainNameRules;
 use App\Enums\BillingCycle;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
@@ -27,6 +28,7 @@ class AddProductToCart
         private CustomFieldRules $customFieldRules,
         private Settings $settings,
         private TldAttributeInput $tldAttributes,
+        private DomainNameRules $nameRules,
     ) {}
 
     /**
@@ -184,7 +186,7 @@ class AddProductToCart
             throw ValidationException::withMessages(['domain_name' => __('Enter a valid domain name, for example example.com.')]);
         }
 
-        if (($error = DomainGuard::registryLevelError($name)) !== null) {
+        if (($error = $this->nameRules->registryLevelError($name)) !== null) {
             throw ValidationException::withMessages(['domain_name' => $error]);
         }
 

@@ -412,6 +412,22 @@ describe('staff orders', function () {
         expect(array_values($this->fakes->domains->created)[0]->tldAttributes)->toBe(['purpose' => 'P3']);
     });
 
+    it('applies the .np second-level rule and name check to staff orders like client orders', function (string $domain, bool $placed) {
+        actingAsStaff(['orders.orders.view', 'orders.orders.create']);
+
+        $response = $this->post(route('admin.orders.store'), [
+            'client_id' => $this->client->id, 'product_id' => 1, 'cycle' => 'monthly', 'domain_mode' => 'existing',
+            'domain_name' => $domain, 'payment_gateway' => 'bank_transfer', 'skip_fraud' => true,
+        ]);
+
+        $placed ? $response->assertSessionHasNoErrors() : $response->assertSessionHasErrors();
+        expect(Order::query()->count())->toBe($placed ? 1 : 0);
+    })->with([
+        'no second level' => ['asha.np', false],
+        'not a domain name' => ['not a domain', false],
+        'under .com.np' => ['asha.com.np', true],
+    ]);
+
     it('forbids staff without the create permission', function () {
         actingAsStaff(['orders.orders.view']);
 

@@ -3,6 +3,7 @@
 namespace App\Modules\Orders\Http\Controllers\Public;
 
 use App\Contracts\Catalog\PriceBook;
+use App\Contracts\Domains\DomainNameRules;
 use App\Contracts\Domains\DomainPricing;
 use App\Data\Catalog\ProductSelection;
 use App\Enums\BillingCycle;
@@ -29,6 +30,7 @@ class StoreController extends Controller
     public function __construct(
         private PriceBook $priceBook,
         private CartManager $carts,
+        private DomainNameRules $nameRules,
     ) {}
 
     public function index(Request $request): Response
@@ -57,7 +59,7 @@ class StoreController extends Controller
     {
         $domain = strtolower(trim($request->string('domain')->toString()));
 
-        return DomainGuard::isValidName($domain) && DomainGuard::registryLevelError($domain) === null ? $domain : null;
+        return DomainGuard::isValidName($domain) && $this->nameRules->registryLevelError($domain) === null ? $domain : null;
     }
 
     /**
