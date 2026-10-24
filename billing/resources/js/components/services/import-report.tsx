@@ -15,6 +15,8 @@ export type ImportReportData = {
     lines: {
         username: string;
         imported: boolean;
+        /** A stop left this account unreached (as opposed to failed). */
+        not_reached: boolean;
         message: string;
         service_id: number | null;
         at: string | null;
@@ -22,8 +24,6 @@ export type ImportReportData = {
     /** paged: the staff member is paging through the lines, so they stay open. */
     page: { current: number; last: number; paged: boolean };
 };
-
-const NOT_REACHED = 'Not reached.';
 
 const plural = (count: number, noun: string) =>
     `${count} ${noun}${count === 1 ? '' : 's'}`;
@@ -99,8 +99,11 @@ export function ImportReport({
                             {open ? 'Hide details' : 'Show details'}
                         </summary>
                         <ul className="mt-2 grid gap-1">
-                            {report.lines.map((line) => (
-                                <li key={line.username} className="break-words">
+                            {report.lines.map((line, index) => (
+                                <li
+                                    key={`${line.username}-${index}`}
+                                    className="break-words"
+                                >
                                     <span className="font-mono">
                                         {line.username}
                                     </span>
@@ -126,7 +129,7 @@ export function ImportReport({
                                                 </>
                                             )}
                                         </>
-                                    ) : line.message === NOT_REACHED ? (
+                                    ) : line.not_reached ? (
                                         <span className="text-muted-foreground">
                                             Not reached
                                         </span>

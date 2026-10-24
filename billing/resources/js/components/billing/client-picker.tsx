@@ -86,9 +86,13 @@ export function ClientPicker({
                           results.length) %
                       results.length,
             );
-        } else if (event.key === 'Enter' && open && results[active]) {
+        } else if (event.key === 'Enter' && open) {
+            // With the list open Enter never submits the surrounding form: it picks the active option, or does nothing.
             event.preventDefault();
-            choose(results[active]);
+
+            if (results[active]) {
+                choose(results[active]);
+            }
         } else if (event.key === 'Escape' && open) {
             event.preventDefault();
             event.stopPropagation();

@@ -5,6 +5,8 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Kyc\Services\ReviewUnlocks;
+use App\Modules\Services\Models\ServerAccountImport;
+use App\Modules\Services\Support\AccountList;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
@@ -133,6 +135,20 @@ function fakePng(string $name, int $width, int $height, bool $noise = false): Up
         .$chunk('IEND', '');
 
     return UploadedFile::fake()->createWithContent($name, $png);
+}
+
+/**
+ * A fetched list with its accounts stored as the page and the import read them (AccountList).
+ *
+ * @param  list<array<string, mixed>>  $accounts
+ * @param  array<string, mixed>  $attributes
+ */
+function importWithAccounts(array $accounts, array $attributes): ServerAccountImport
+{
+    $import = ServerAccountImport::query()->create($attributes);
+    app(AccountList::class)->replace($import, $accounts);
+
+    return $import;
 }
 
 /**
