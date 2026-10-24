@@ -32,7 +32,7 @@ test('the cart explains a client-group discount with its own line', function () 
             ->component('public/cart/index')
             // Guest price 1000 + 500 setup; the group takes 10% off the 1000.
             ->where('cart.subtotal', 1400)
-            ->where('group_saving', ['label' => 'Resellers discount (10%)', 'amount' => 100]));
+            ->where('group_saving', ['label' => 'Client discount (Resellers, 10%)', 'amount' => 100]));
 });
 
 test('checkout shows the same client-group discount line', function () {

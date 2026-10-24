@@ -26,5 +26,5 @@
 ### Fixed
 
 - **A signed-in customer's cart explains the group discount.** The cart and checkout show the subtotal at list prices
-  and a line such as "Resellers discount (10%)", so a total that dropped after sign-in adds up. Prices are unchanged.
+  and a line such as "Client discount (Resellers, 10%)", so a total that dropped after sign-in adds up. Prices are unchanged.
 - **New ticket: "Send request" says why it is disabled** until a department is chosen.

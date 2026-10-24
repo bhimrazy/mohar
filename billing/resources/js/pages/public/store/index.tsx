@@ -164,7 +164,9 @@ export default function StoreIndex({
 }: Props) {
     // Client area: a group page sits under Store (the public layout ignores breadcrumbs).
     setLayoutProps({
-        breadcrumbs: currentGroup ? [{ title: 'Store', href: store.index.url() }] : [],
+        breadcrumbs: currentGroup
+            ? [{ title: 'Store', href: store.index.url() }]
+            : [],
     });
 
     const visible = groups.filter((group) => group.products.length > 0);
@@ -175,7 +177,9 @@ export default function StoreIndex({
 
             <StorefrontHero
                 eyebrow="Hosting, servers and domains"
-                title={currentGroup?.name ?? 'Everything you need to get online'}
+                title={
+                    currentGroup?.name ?? 'Everything you need to get online'
+                }
                 description={
                     (currentGroup && visible[0]?.description) ||
                     "Pick a plan, add a domain and you're live. Clear pricing, no surprises at renewal."

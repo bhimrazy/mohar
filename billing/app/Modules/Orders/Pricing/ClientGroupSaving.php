@@ -40,8 +40,9 @@ class ClientGroupSaving
 
         return [
             'label' => $percent > 0
-                ? __(':group discount (:percent%)', ['group' => $group->name, 'percent' => rtrim(rtrim(number_format($percent, 2, '.', ''), '0'), '.')])
-                : __(':group prices', ['group' => $group->name]),
+                // "Client discount" is the term the item breakdown uses for the same saving.
+                ? __('Client discount (:group, :percent%)', ['group' => $group->name, 'percent' => rtrim(rtrim(number_format($percent, 2, '.', ''), '0'), '.')])
+                : __('Client prices (:group)', ['group' => $group->name]),
             'amount' => $amount,
         ];
     }
