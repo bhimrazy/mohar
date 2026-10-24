@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Http\Controllers\Public;
 
+use App\Data\Billing\ReturnHint;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
@@ -23,7 +24,8 @@ class GatewayReturnController extends Controller
         $driver = $gateways->hosted($gateway);
         abort_if($driver === null || ! $gateways->isActive($gateway), 404);
 
-        $hint = $driver->parseReturn($gateways->config($gateway), $request);
+        $config = $gateways->config($gateway);
+        $hint = $gateways->during($config, fn (): ReturnHint => $driver->parseReturn($config, $request));
         $attempt = $hint->reference !== null
             ? PaymentAttempt::query()->where('gateway', $gateway)->where('reference', $hint->reference)->first()
             : null;

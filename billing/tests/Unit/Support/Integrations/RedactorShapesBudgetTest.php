@@ -8,6 +8,25 @@
 use App\Support\Integrations\Redactor;
 use Tests\Support\Redaction\RedactorTiming;
 
+/**
+ * Units that once made a value holding a mask, or a CDATA section in a value, quadratic (#462 security review B1).
+ *
+ * @return array<string, array{Closure(int): string}>
+ */
+function redactorMaskedValueShapes(): array
+{
+    return [
+        'masks joined by a soft end' => [fn (): string => 'token=[redacted],'],
+        'a mask then a soft end and text' => [fn (): string => 'password=[redacted];cd'],
+        'two masks then a soft end' => [fn (): string => 'password=[redacted][redacted];cd'],
+        'an inner bracket value with a tag' => [fn (int $i): string => $i === 0 ? 'Session:s://@pass=[<t name="pass">' : 'pass=[<t name="pass">'],
+        'whole-line inner values' => [fn (): string => 'token=[redacted],cookie: a,'],
+        'nested inner brackets' => [fn (int $i): string => $i === 0 ? 'token=[redacted],' : 'pass=['],
+        // Not a mask, but the same review: each value searched the rest of the text for `]]>`.
+        'excluded CDATA sections with no end' => [fn (): string => 'token: a<![CDATA["x '],
+    ];
+}
+
 test('a 1 MB adversarial input is masked in under 2 s with bounded memory', function (Closure $unit) {
     $large = RedactorTiming::input(1024 * 1024, $unit);
 
@@ -37,6 +56,7 @@ test('a 1 MB adversarial input is masked in under 2 s with bounded memory', func
     'long names' => [fn (): string => str_repeat('n', 300).'='],
     'chained tail pairs' => [fn (): string => 'pw=a;token: b;'],
     'tail labels before text' => [fn (): string => 'pw=a;token: '.str_repeat('x', 40).' '],
+    ...redactorMaskedValueShapes(),
 ]);
 
 /*
@@ -69,7 +89,16 @@ test('the shapes that once ran quadratic scale linearly from 512 KB to 4 MB', fu
     'session ids with a joined tail' => [fn (): string => 'Session: cs_live_a1B2c3D4:'],
     'chained tail pairs' => [fn (): string => 'pw=a;token: b;'],
     'tail pairs that hold a pair' => [fn (): string => 'pw=a;token: x=y;'],
+    ...redactorMaskedValueShapes(),
 ]);
+
+/*
+ * #462 security review B1: a value holding a mask read every secret pair inside it to the end of the text, so these
+ * took 13 s at 128 KB. Each must stay well under a second at 256 KB.
+ */
+test('values holding a mask with many pairs inside are masked in well under a second at 256 KB', function (Closure $unit) {
+    expect(RedactorTiming::bestSeconds(RedactorTiming::input(256 * 1024, $unit), 2))->toBeLessThan(0.5);
+})->with(redactorMaskedValueShapes());
 
 test('masking a body with one void-named secret element uses bounded memory (#278)', function (string $unit) {
     // The leading comment holds marker text, so the marker walk runs over the whole body.

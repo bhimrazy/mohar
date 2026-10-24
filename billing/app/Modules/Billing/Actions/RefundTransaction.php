@@ -200,7 +200,8 @@ class RefundTransaction
             throw new BillingException(__(':gateway can\'t report on a refund. Confirm or release it by hand once you have checked with the provider.', ['gateway' => $driver->name()]));
         }
 
-        $result = $driver->lookupRefund($this->gateways->config($refund->gateway), $this->providerRequest($payment, $refund->amount_out, $refund));
+        $config = $this->gateways->config($refund->gateway);
+        $result = $this->gateways->during($config, fn (): ChargeResult => $driver->lookupRefund($config, $this->providerRequest($payment, $refund->amount_out, $refund)));
         $this->log->log($refund->gateway, 'response', 'refund lookup '.$result->status, $result->raw, $refund->invoice_id);
 
         if ($result->status === ChargeResult::SUCCESS) {
@@ -361,7 +362,7 @@ class RefundTransaction
                 $state = [...($locked->raw[Transaction::REFUND_STATE] ?? []), 'answer' => $result->status, 'reason' => $result->declineReason];
                 $locked->forceFill([
                     'gateway_txn_id' => $locked->gateway_txn_id ?? $result->txnId,
-                    'raw' => [...GatewayLogger::redact($result->raw), Transaction::REFUND_STATE => $state],
+                    'raw' => [...GatewayLogger::redact($result->raw, $locked->gateway), Transaction::REFUND_STATE => $state],
                 ])->save();
             }
 
@@ -398,7 +399,7 @@ class RefundTransaction
                 $reverseEffects = (bool) ($state['reverse_effects'] ?? $reverseEffects);
                 $refund->forceFill([
                     'gateway_txn_id' => $result->txnId ?? $refund->gateway_txn_id,
-                    'raw' => GatewayLogger::redact([...($refund->raw ?? []), ...($result->raw ?? []), Transaction::REFUND_STATE => $state]),
+                    'raw' => GatewayLogger::redact([...($refund->raw ?? []), ...($result->raw ?? []), Transaction::REFUND_STATE => $state], $refund->gateway),
                 ]);
             }
 
@@ -594,7 +595,8 @@ class RefundTransaction
      */
     public function refundAtGateway(Transaction $payment, int $amount, Transaction $refund): ChargeResult
     {
-        $result = $this->gateways->driver($payment->gateway)->refund($this->gateways->config($payment->gateway), $this->providerRequest($payment, $amount, $refund));
+        $config = $this->gateways->config($payment->gateway);
+        $result = $this->gateways->during($config, fn (): ChargeResult => $this->gateways->driver($payment->gateway)->refund($config, $this->providerRequest($payment, $amount, $refund)));
         $this->log->log($payment->gateway, 'response', 'refund '.$result->status, $result->raw, $payment->invoice_id);
 
         return $result;

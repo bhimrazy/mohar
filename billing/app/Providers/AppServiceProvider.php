@@ -15,7 +15,11 @@ use App\Support\Domains\RegistrarDriverRegistry;
 use App\Support\Events\WebhookEvents;
 use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Integrations\Endpoints;
+use App\Support\Integrations\RedactionScope;
+use App\Support\Integrations\Redactor;
 use App\Support\Integrations\StoredSecrets;
+use App\Support\Logging\RedactingFailedJobProvider;
+use App\Support\Logging\RedactingLogManager;
 use App\Support\Migration\ImportRegistry;
 use App\Support\Navigation\Navigation;
 use App\Support\Permissions\PermissionRegistry;
@@ -34,13 +38,17 @@ use Illuminate\Auth\Middleware\RequirePassword;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Contracts\Auth\CanResetPassword;
+use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Routing\ResponseFactory;
 use Illuminate\Contracts\Routing\UrlGenerator;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Queue\Events\Looping;
+use Illuminate\Queue\Failed\FailedJobProviderInterface;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
@@ -82,6 +90,10 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(Endpoints::class);
         $this->app->singleton(WebhookEvents::class);
         $this->app->singleton(StoredSecrets::class);
+
+        // Every logger masks its records, and a failed job's exception is masked before it is stored (ADR 0023 §1.2, §1.3).
+        $this->app->singleton('log', fn (Application $app): RedactingLogManager => new RedactingLogManager($app));
+        $this->app->extend('queue.failer', fn (FailedJobProviderInterface $failer, Application $app): FailedJobProviderInterface => RedactingFailedJobProvider::wrap($failer, $app->make(Redactor::class)));
     }
 
     /**
@@ -95,6 +107,10 @@ class AppServiceProvider extends ServiceProvider
         $this->configureDefaults();
         $this->configureModules();
         $this->configureAuthMail();
+
+        // No driver call is in progress between a worker's jobs or after a response, so no redaction set may be either.
+        Event::listen(Looping::class, fn () => RedactionScope::reset());
+        $this->app->terminating(fn () => RedactionScope::reset());
     }
 
     /**

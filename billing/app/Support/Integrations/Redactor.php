@@ -2,6 +2,7 @@
 
 namespace App\Support\Integrations;
 
+use Closure;
 use Error;
 use Exception;
 use Illuminate\Contracts\Support\Arrayable;
@@ -111,7 +112,19 @@ final class Redactor
      * ASCII here on purpose, unlike HtmlDocumentMarker::nameLength(): a tag's attribute text is read for `name=value`
      * only, so a non-ASCII `<é api-key: …>` must stay text for the pair rule to see its value.
      */
-    private const TOKEN_PATTERN = '/<(\/?)((?:[A-Za-z_][\w.\-]*+:)?([A-Za-z_][\w.\-]*+))([^<>]*+)>|(?<![A-Za-z0-9_.])([A-Za-z][A-Za-z0-9_.\-\[\]]{0,254}+)((?:\\\\?["\']|&quot;)?[ \t]{0,16}+(?:=>?|:)\s*+)(?!\/\/)/';
+    private const TOKEN_PATTERN = '/<(\/?)((?:[A-Za-z_][\w.\-]*+:)?([A-Za-z_][\w.\-]*+))([^<>]*+)>|(?<![A-Za-z0-9_.])'.self::PAIR.'/';
+
+    /** A pair's name and separator: 1 name, 2 separator. */
+    private const NAME_SEPARATOR = '([A-Za-z][A-Za-z0-9_.\-\[\]]{0,254}+)((?:\\\\?["\']|&quot;)?[ \t]{0,16}+(?:=>?|:)\s*+)';
+
+    /** NAME_SEPARATOR as TOKEN_PATTERN reads it (groups 5 and 6 there): not before `//`, so `https://` is no pair. */
+    private const PAIR = self::NAME_SEPARATOR.'(?!\/\/)';
+
+    /**
+     * NAME_SEPARATOR at a given offset, for a pair that ends a masked span (trailingPair). It takes a value starting with
+     * `//` (`pw=ab;token: //x`), as the tail rule did before #462: only a scan-level pair excludes URL schemes.
+     */
+    private const TAIL_PAIR_AT = '/\G'.self::NAME_SEPARATOR.'/';
 
     /** An authorization scheme in front of a credential (`Authorization: Key …` is Khalti, `whm`/`cpanel` are WHM). */
     private const AUTH_SCHEME_PATTERN = '/\G(?:Bearer|Basic|Digest|Token|Key|whm|cpanel|OAuth|HMAC)[ \t]++/i';
@@ -121,15 +134,6 @@ final class Redactor
 
     /** An `&` ends an unquoted value when the next pair, an entity, a space or the end follows (eSewa secrets hold `&`). */
     private const AMPERSAND_END = '/\G&(?:amp;|#|[A-Za-z_][A-Za-z0-9_.\-\[\]%]{0,254}+=|\s|$)/';
-
-    /**
-     * The last label of a masked value and its separator, if any (`ab;token:`, `…]Session`), with TOKEN_PATTERN's name
-     * rule: the pair whose value starts after the mask (see maskTailPairs).
-     */
-    private const TAIL_LABEL_PATTERN = '/(?<![A-Za-z0-9_.])([A-Za-z][A-Za-z0-9_.\-\[\]]{0,254}+)([ \t]{0,16}+(?:=>?|:))?$/';
-
-    /** A separator after a label, then the blanks before its value; as in TOKEN_PATTERN, the value may start on the next line. */
-    private const TAIL_SEPARATOR_PATTERN = '/\G[ \t]{0,16}+(?:=>?|:)\s*+/';
 
     /** Labels that can introduce a reference in free text (`Session: cs_live_… expired`) as well as a credential. */
     private const REFERENCE_LABELS = ['session', 'hash'];
@@ -159,17 +163,46 @@ final class Redactor
     /** Attributes that name the element's field (OpenSRS `<item key="…">`, `<param name="…">`) rather than hold a value. */
     private const LABEL_ATTRIBUTES = ['key', 'name'];
 
+    /** Attributes that hold the value a label attribute names (`<input name="…" value="…">`, `<meta name="…" content="…">`). */
+    private const VALUE_ATTRIBUTES = ['value', 'content'];
+
     /** An unquoted value ends at one of these, or at an `&` that starts the next pair (see AMPERSAND_END)... */
     private const VALUE_HARD_END = " \t\r\n\f\v\"<>";
 
     /** ...or at one of these when it is followed by a space, a quote, another end character or the end of the text. */
     private const VALUE_SOFT_END = ',;)]}\'';
 
+    /**
+     * innerPairsEnd() reads quoted and bracketed inner values for up to this many times the span's length (plus the
+     * floor) before it masks the rest of the text instead (fail closed).
+     */
+    private const INNER_WORK = 4;
+
+    private const INNER_WORK_FLOOR = 65536;
+
     /** Names remembered by isSensitiveKey() before the cache starts over. */
     private const KEY_CACHE_SIZE = 2048;
 
     /** @var array<string, bool> */
     private array $keyCache = [];
+
+    /** Set while scan() runs: the caches below hold offsets into the text it scans and are cleared around it. */
+    private bool $scanning = false;
+
+    /** @var array{int, int}|null the last unquoted value valueEnd() read, [start, end) */
+    private ?array $unquotedRun = null;
+
+    /** @var array{int, int}|null the last whole-line value pairValueEnd() read, [start, end) */
+    private ?array $lineRun = null;
+
+    /** @var array{int, int|false}|null where cdataEnd() last searched for `]]>`, and what it found */
+    private ?array $cdataClose = null;
+
+    /** @var array{int, int|false}|null where maskBoundEnd() last searched for `<![CDATA[`, and what it found */
+    private ?array $cdataOpen = null;
+
+    /** @var array{int, int|false}|null where maskBoundEnd() last searched for a mask a value end follows, and what it found */
+    private ?array $stoppedMask = null;
 
     private static int $nodesLeft = 0;
 
@@ -197,21 +230,23 @@ final class Redactor
 
     /**
      * Payment provider payloads: mask every leaf under a payment-sensitive key (null included), walk nested arrays and
-     * objects, and mask Luhn-valid card numbers inside text.
+     * objects, and mask Luhn-valid card numbers inside text. $secrets (the gateway's configured credentials) are
+     * masked by value in text and numbers.
      *
      * @param  array<array-key, mixed>  $payload
+     * @param  RedactionSet|list<string>  $secrets
      * @return array<array-key, mixed>
      */
-    public function redactPayment(array $payload, int $depth = 0): array
+    public function redactPayment(array $payload, int $depth = 0, RedactionSet|array $secrets = []): array
     {
-        return $this->budgeted(fn (): array => $this->redactPaymentWith($payload, $depth));
+        return $this->budgeted(fn (): array => $this->redactPaymentWith($payload, $depth, self::set($secrets)));
     }
 
     /**
      * @param  array<array-key, mixed>  $payload
      * @return array<array-key, mixed>
      */
-    private function redactPaymentWith(array $payload, int $depth, bool $counted = false): array
+    private function redactPaymentWith(array $payload, int $depth, RedactionSet $set, bool $counted = false): array
     {
         foreach ($payload as $key => $value) {
             $fromObject = $counted || is_object($value);
@@ -227,11 +262,15 @@ final class Redactor
             if ($depth >= self::MAX_DEPTH && (is_array($value) || is_object($value))) {
                 $payload[$key] = self::MASK;
             } elseif (is_array($value)) {
-                $payload[$key] = $this->redactPaymentWith($value, $depth + 1, $fromObject);
+                $payload[$key] = $this->redactPaymentWith($value, $depth + 1, $set, $fromObject);
             } elseif (is_string($key) && ! in_array($key, self::PAYMENT_REFERENCES, true) && preg_match(self::PAYMENT_KEYS, $key) === 1) {
                 $payload[$key] = self::MASK;
             } else {
-                $payload[$key] = is_string($value) ? $this->scrubCardNumbers($this->maskString($value, RedactionSet::empty(), [], $depth)) : $value;
+                $payload[$key] = match (true) {
+                    is_string($value) => $this->scrubCardNumbers($this->maskString($value, $set, [], $depth)),
+                    is_int($value), is_float($value) => $set->matches((string) $value) ? self::MASK : $value,
+                    default => $value,
+                };
             }
         }
 
@@ -247,9 +286,10 @@ final class Redactor
     }
 
     /**
-     * Masks, in place, the message of $exception and of up to 16 exceptions behind it, with the shape rules and the
-     * set's values; any exception further down the chain has its message withheld whole (fail closed). The class,
-     * code, trace, flags and `previous` are kept, so the caller reports the original.
+     * Masks, in place, the message of $exception and of up to 16 exceptions behind it, with the shape rules, the set's
+     * values and the sets of RedactionScope (calls in progress, and those attached to the chain); any exception further
+     * down the chain has its message withheld whole (fail closed). The class, code, trace, flags and `previous` are
+     * kept, so the caller reports the original.
      *
      * Only messages are masked. Properties, what `context()` returns (Laravel merges it into the log record) and trace
      * arguments (printed when `zend.exception_ignore_args` is off) are not: production keeps that setting on, and the
@@ -263,7 +303,7 @@ final class Redactor
      */
     public function maskThrowable(Throwable $exception, RedactionSet|array|null $secrets = null): Throwable
     {
-        $set = self::set($secrets ?? []);
+        $set = RedactionSet::merge(self::set($secrets ?? []), RedactionScope::current($exception));
         $seen = new \SplObjectStorage;
 
         for ($link = $exception, $hops = 0; $link !== null && ! $seen->contains($link); $link = $link->getPrevious(), $hops++) {
@@ -424,10 +464,10 @@ final class Redactor
      *
      * @template T
      *
-     * @param  \Closure(): T  $call
+     * @param  Closure(): T  $call
      * @return T
      */
-    private function budgeted(\Closure $call): mixed
+    private function budgeted(Closure $call): mixed
     {
         if (self::$calls++ === 0) {
             self::$nodesLeft = self::MAX_NODES;
@@ -504,6 +544,27 @@ final class Redactor
      */
     private function scan(string $value, array $sensitiveKeys): string
     {
+        $this->forgetRuns(true);
+
+        try {
+            return $this->scanText($value, $sensitiveKeys);
+        } finally {
+            $this->forgetRuns(false);
+        }
+    }
+
+    /** Clears the caches of one scan (see $scanning). */
+    private function forgetRuns(bool $scanning): void
+    {
+        $this->scanning = $scanning;
+        $this->unquotedRun = $this->lineRun = $this->cdataClose = $this->cdataOpen = $this->stoppedMask = null;
+    }
+
+    /**
+     * @param  list<string>  $sensitiveKeys
+     */
+    private function scanText(string $value, array $sensitiveKeys): string
+    {
         $length = strlen($value);
         $position = 0;
         $output = '';
@@ -524,12 +585,13 @@ final class Redactor
                 $output .= $match[0][0];
 
                 if ($this->isSecretPair((string) $match[5][0], (string) $match[6][0], $value, $end, $sensitiveKeys)) {
-                    $valueEnd = in_array(strtolower((string) $match[5][0]), self::WHOLE_LINE_KEYS, true)
-                        ? $end + strcspn($value, "\r\n", $end)
-                        : $this->valueEnd($value, $end);
-                    $output .= $this->maskSpan(substr($value, $end, $valueEnd - $end));
-                    $markers->skip($end, $valueEnd);
+                    $valueEnd = $this->pairValueEnd((string) $match[5][0], $value, $end);
 
+                    // A value holding a mask runs on as it would without the set; a pair inside it that the scan would
+                    // have read after the mask keeps its value masked.
+                    if (str_contains(substr($value, $end, $valueEnd - $end), self::MASK)) {
+                        $valueEnd = $this->innerPairsEnd($value, $this->maskBoundEnd((string) $match[5][0], $value, $end, $valueEnd), $valueEnd, $sensitiveKeys);
+                    }
                     $position = $this->maskTailPairs($value, $end, $valueEnd, $sensitiveKeys, $output, $markers);
                 }
 
@@ -599,76 +661,236 @@ final class Redactor
     }
 
     /**
-     * A secret value can run on through a soft end into the next pair's name (`pw=ab;token: x`, since `passwd=ab;cd` is
-     * one value), and that pair's value after the blank would stay readable. While the masked span ends in a secret
-     * label, the value after it is masked as that pair's value (isSecretPair, valueEnd) when it is unquoted, up to any
-     * pair or tag the scan would find in it, which the scan then reads as before. So this only ever masks more. The label
-     * stays inside the first mask. Each step moves forward and reads at most 300 bytes before and 280 after its span,
-     * so the cost stays linear.
+     * A secret value can run on through a soft end or a `:` into the next pair's name (`pw=ab;token: x`, since
+     * `passwd=ab;cd` is one value), and that pair's value after the blank would stay readable. While the masked span
+     * ends in a secret pair's name and separator (trailingPair), the value after it is read with the usual pair rules
+     * (valueEnd: quotes, brackets, an authorization scheme, `=` or `:` inside) and masked whole, and so on along a chain.
+     * The name stays inside the first mask. A quoted or bracketed value that a separator follows, or a quoted one that
+     * holds a `<`, may be the next pair's name or span markup, so the chain stops before it and the scan reads it as
+     * before. So this only ever masks more. Each step reads at most 255 bytes back and moves forward, so the cost stays
+     * linear.
      *
      * @param  list<string>  $sensitiveKeys
      * @return int where the scan resumes
      */
     private function maskTailPairs(string $value, int $from, int $to, array $sensitiveKeys, string &$output, HtmlDocumentMarker $markers): int
     {
-        $length = strlen($value);
+        $output .= $this->maskSpan(substr($value, $from, $to - $from));
+        $markers->skip($from, $to);
 
-        while ($to > $from && $to < $length && preg_match(self::TAIL_LABEL_PATTERN, substr($value, max($from, $to - 300), $to - max($from, $to - 300)), $label) === 1) {
-            $separator = $label[2] ?? '';
-            $start = $to;
-
-            if ($separator === '') {
-                if (preg_match(self::TAIL_SEPARATOR_PATTERN, $value, $found, 0, $to) !== 1) {
-                    break;
-                }
-
-                $separator = $found[0];
-            } else {
-                $separator .= (string) substr($value, $to, strspn($value, " \t\r\n\f\v", $to));
-            }
-
-            $valueStart = $to + strlen($separator) - strlen($label[2] ?? '');
-
-            if ($valueStart >= $length || ! $this->isSecretPair($label[1], $separator, $value, $valueStart, $sensitiveKeys)) {
-                break;
-            }
-
-            // Only an unquoted value (or one a mask starts) is taken: a quote or bracket here may open the next pair's name
-            // or span other markup.
-            $first = $valueStart + (preg_match(self::AUTH_SCHEME_PATTERN, $value, $scheme, 0, $valueStart) === 1 ? strlen($scheme[0]) : 0);
-
-            if (strspn($value, '"\'\\[{&<', $first, 1) === 1 && substr_compare($value, self::MASK, $first, strlen(self::MASK)) !== 0) {
-                break;
-            }
-
-            $valueEnd = $this->valueEnd($value, $valueStart);
-
-            // A pair or tag the scan would find inside the value is left to the scan, so taking the value only ever masks
-            // more: the value is cut before it (and its soft ends and blanks), and the chain ends. 280 bytes past the
-            // value cover a name and separator that start inside it.
-            $last = false;
-
-            if (preg_match(self::TOKEN_PATTERN, substr($value, $valueStart, $valueEnd - $valueStart + 280), $inside, PREG_OFFSET_CAPTURE) === 1
-                && $inside[0][1] < $valueEnd - $valueStart) {
-                $valueEnd = $valueStart + strlen(rtrim(substr($value, $valueStart, $inside[0][1]), self::VALUE_SOFT_END." \t\r\n"));
-                $last = true;
-            }
-
-            if ($valueEnd <= $valueStart) {
-                break;
-            }
-
+        while (($pair = $this->trailingPair($value, $from, $to, $sensitiveKeys)) !== null) {
+            [$valueStart, $valueEnd] = $pair;
+            $valueEnd = $this->innerPairsEnd($value, $valueStart, $valueEnd, $sensitiveKeys);
+            $output .= substr($value, $to, $valueStart - $to).$this->maskSpan(substr($value, $valueStart, $valueEnd - $valueStart));
+            $markers->skip($valueStart, $valueEnd);
             [$from, $to] = [$valueStart, $valueEnd];
-
-            $output .= substr($value, $start, $from - $start).$this->maskSpan(substr($value, $from, $to - $from));
-            $markers->skip($from, $to);
-
-            if ($last) {
-                break;
-            }
         }
 
         return $to;
+    }
+
+    /**
+     * The secret pair whose name ends the masked span [$from, $to) and whose value starts at or after $to: where that
+     * value starts and ends, or null when there is none or the value is not one the chain takes (see maskTailPairs). A
+     * name starts where TOKEN_PATTERN could match (a letter after a character that is not a letter, digit, `_` or `.`),
+     * at most 255 bytes back, and must end at the span's end or just before a final `=` or `:`. The last such start is
+     * tried, then the first, which names the whole run (`abcsecret]x: …` reads as one secret name, as before).
+     *
+     * @param  list<string>  $sensitiveKeys
+     * @return array{int, int}|null
+     */
+    private function trailingPair(string $value, int $from, int $to, array $sensitiveKeys): ?array
+    {
+        $length = strlen($value);
+
+        if ($to <= $from || $to >= $length) {
+            return null;
+        }
+
+        $nameEnd = $to - (str_contains('=:', $value[$to - 1]) ? 1 : 0);
+        $nameEnd -= min(16, strspn(strrev(substr($value, max($from, $nameEnd - 16), $nameEnd - max($from, $nameEnd - 16))), " \t"));
+        // ASCII only, as in TOKEN_PATTERN (ctype_* follows the locale).
+        $letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+        $starts = [];
+
+        for ($start = $nameEnd - 1; $start >= max($from, $nameEnd - 255); $start--) {
+            if (! str_contains($letters.'0123456789_.-[]', $value[$start])) {
+                break;
+            }
+
+            if (str_contains($letters, $value[$start]) && ($start === 0 || ! str_contains($letters.'0123456789_.', $value[$start - 1]))) {
+                $starts[] = $start;
+            }
+        }
+
+        foreach (array_unique([$starts[0] ?? null, $starts[count($starts) - 1] ?? null]) as $start) {
+            if ($start === null || preg_match(self::TAIL_PAIR_AT, $value, $pair, 0, $start) !== 1 || strlen($pair[1]) !== $nameEnd - $start) {
+                continue;
+            }
+
+            $valueStart = $start + strlen($pair[0]);
+
+            if ($valueStart < $to || $valueStart >= $length || ! $this->isSecretPair($pair[1], $pair[2], $value, $valueStart, $sensitiveKeys)) {
+                continue;
+            }
+
+            $valueEnd = $this->pairValueEnd($pair[1], $value, $valueStart);
+            $opensAt = $valueStart + (preg_match(self::AUTH_SCHEME_PATTERN, $value, $scheme, 0, $valueStart) === 1 ? strlen($scheme[0]) : 0);
+            $enclosed = str_contains('"\'\\[{&', $value[$opensAt] ?? '') && substr_compare($value, self::MASK, $opensAt, strlen(self::MASK)) !== 0;
+
+            if ($valueEnd <= $valueStart || ($enclosed && (preg_match('/\G[ \t]*+(?:=>?|:)/', $value, $separator, 0, $valueEnd) === 1
+                || str_contains(substr($value, $valueStart, $valueEnd - $valueStart), '<')))) {
+                return null;
+            }
+
+            return [$valueStart, $valueEnd];
+        }
+
+        return null;
+    }
+
+    /**
+     * Where a value [$start, $end) masked whole must end so that it also covers the value of any secret pair the scan
+     * would have read in it (`1&hash:Bearer x`, `a,token:'x y'`) and masked past $end. For a tail value that is every
+     * pair from $start (before #462 the tail stopped at the first one). For a value holding a mask it is every pair from
+     * maskBoundEnd(), where the value ended when a mask could end it: a pair before that was inside the value and never
+     * read, and extending through it could hide a tag the scan reads (`pass=[<t name="pass">]`). For the same reason the
+     * search goes on after each inner value, at its maskBoundEnd(), not inside it. Matches are searched in windows of 256
+     * bytes plus 280 for a
+     * name and separator. An unquoted or whole-line inner value costs nothing past the first (valueEnd and pairValueEnd
+     * remember the run they found); quoted and bracketed ones are counted, and past INNER_WORK times the span the rest
+     * of the text is masked (fail closed). So the cost stays linear.
+     *
+     * @param  list<string>  $sensitiveKeys
+     */
+    private function innerPairsEnd(string $value, int $start, int $end, array $sensitiveKeys): int
+    {
+        $work = 0;
+
+        for ($offset = $start; $offset < $end;) {
+            $from = max(0, $offset - 1);
+            $window = substr($value, $from, min($end - $offset, 256) + 281);
+
+            if (preg_match(self::TOKEN_PATTERN, $window, $match, PREG_OFFSET_CAPTURE | PREG_UNMATCHED_AS_NULL, $offset - $from) !== 1
+                || $from + $match[0][1] >= min($end, $offset + 256)) {
+                $offset = min($end, $offset + 256);
+
+                continue;
+            }
+
+            $matchEnd = $from + $match[0][1] + strlen($match[0][0]);
+            $offset = $matchEnd;
+
+            if ($match[5][0] === null || ! $this->isSecretPair((string) $match[5][0], (string) $match[6][0], $value, $matchEnd, $sensitiveKeys)) {
+                continue;
+            }
+
+            $innerEnd = $this->pairValueEnd((string) $match[5][0], $value, $matchEnd);
+
+            if ($this->opensEnclosed($value, $matchEnd)) {
+                $work += $innerEnd - $matchEnd;
+
+                if ($work > self::INNER_WORK * ($end - $start) + self::INNER_WORK_FLOOR) {
+                    return strlen($value);
+                }
+            }
+
+            // As the scan did before #462, the search goes on where that value ended then: a pair inside it was never read.
+            $end = max($end, $innerEnd);
+            $offset = max($offset, $this->maskBoundEnd((string) $match[5][0], $value, $matchEnd, $innerEnd));
+        }
+
+        return $end;
+    }
+
+    /**
+     * Where the value of the secret pair $name, read by pairValueEnd() as [$start, $end), ended before #462, when the `]`
+     * of a mask followed by a value end, or a mask at the start, ended an unquoted value and a CDATA section was not
+     * part of it. Quoted, bracketed and whole-line values end where they did.
+     */
+    private function maskBoundEnd(string $name, string $value, int $start, int $end): int
+    {
+        if (in_array(strtolower(rtrim($name, '[]')), self::WHOLE_LINE_KEYS, true) || $this->opensEnclosed($value, $start)) {
+            return $end;
+        }
+
+        $at = $start + (preg_match(self::AUTH_SCHEME_PATTERN, $value, $scheme, 0, $start) === 1 ? strlen($scheme[0]) : 0);
+
+        if (substr_compare($value, self::MASK, $at, strlen(self::MASK)) === 0) {
+            return min($end, $at + strlen(self::MASK));
+        }
+
+        $cdata = self::nextFrom($this->cdataOpen, $at, fn (int $from): int|false => strpos($value, '<![CDATA[', $from), $this->scanning);
+        $mask = self::nextFrom($this->stoppedMask, $at, fn (int $from): int|false => $this->stoppedMask($value, $from), $this->scanning);
+
+        return min($end, $cdata === false ? $end : $cdata, $mask === false ? $end : $mask + strlen(self::MASK));
+    }
+
+    /** The offset of the first mask at or after $from that a value end follows (or the end of the text). */
+    private function stoppedMask(string $value, int $from): int|false
+    {
+        $stops = self::VALUE_HARD_END.self::VALUE_SOFT_END.'&';
+
+        for ($mask = strpos($value, self::MASK, $from); $mask !== false; $mask = strpos($value, self::MASK, $mask + 1)) {
+            $after = $mask + strlen(self::MASK);
+
+            if ($after >= strlen($value) || str_contains($stops, $value[$after])) {
+                return $mask;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The first match at or after $from that $find returns, remembered in $cache during a scan: a later $from up to that
+     * match has the same first match, so searches that start inside one never repeat it.
+     *
+     * @param  array{int, int|false}|null  $cache
+     * @param  Closure(int): (int|false)  $find
+     */
+    private static function nextFrom(?array &$cache, int $from, Closure $find, bool $remember): int|false
+    {
+        if ($cache !== null && $from >= $cache[0] && ($cache[1] === false || $from <= $cache[1])) {
+            return $cache[1];
+        }
+
+        $found = $find($from);
+        $cache = $remember ? [$from, $found] : null;
+
+        return $found;
+    }
+
+    /** Whether valueEnd() reads the value at $valueStart as quoted or bracketed rather than as an unquoted run. */
+    private function opensEnclosed(string $value, int $valueStart): bool
+    {
+        $at = $valueStart + (preg_match(self::AUTH_SCHEME_PATTERN, $value, $scheme, 0, $valueStart) === 1 ? strlen($scheme[0]) : 0);
+        $first = $value[$at] ?? '';
+
+        return $first === '"' || $first === "'" || $first === '{'
+            || ($first === '\\' && in_array($value[$at + 1] ?? '', ['"', "'"], true))
+            || ($first === '[' && substr_compare($value, self::MASK, $at, strlen(self::MASK)) !== 0)
+            || substr_compare($value, '&quot;', $at, 6) === 0;
+    }
+
+    /**
+     * Where a secret pair's value ends: the line for a whole-line key (WHOLE_LINE_KEYS), otherwise valueEnd(). A start
+     * inside the line found last ends where it does (the scan's cache, see $lineRun).
+     */
+    private function pairValueEnd(string $name, string $value, int $valueStart): int
+    {
+        if (! in_array(strtolower(rtrim($name, '[]')), self::WHOLE_LINE_KEYS, true)) {
+            return $this->valueEnd($value, $valueStart);
+        }
+
+        if ($this->lineRun !== null && $valueStart >= $this->lineRun[0] && $valueStart < $this->lineRun[1]) {
+            return $this->lineRun[1];
+        }
+
+        $lineEnd = $valueStart + strcspn($value, "\r\n", $valueStart);
+        $this->lineRun = $this->scanning ? [$valueStart, $lineEnd] : null;
+
+        return $lineEnd;
     }
 
     /**
@@ -823,7 +1045,10 @@ final class Redactor
     /**
      * Where a secret pair's value starting at $start ends: a quoted string (escapes honoured, unterminated runs to the
      * end), a JSON array or object, or an unquoted run, after an optional authorization scheme. An unquoted value runs
-     * through `;` and `,` that are followed by more value (`passwd=ab;cd`), so only a list separator ends it.
+     * through `;` and `,` that are followed by more value (`passwd=ab;cd`), so only a list separator ends it. A mask
+     * already in the value (the set's, or a provider's) counts as value characters, so the value ends where it would
+     * without the set (scan() then covers any pair inside it, see innerPairsEnd). A CDATA section the value runs into is
+     * part of it (cdataEnd).
      */
     private function valueEnd(string $value, int $start): int
     {
@@ -845,7 +1070,7 @@ final class Redactor
             return $close === false ? $length : $close + 2;
         }
 
-        if ($first === '[' || $first === '{') {
+        if (($first === '[' && substr_compare($value, self::MASK, $start, strlen(self::MASK)) !== 0) || $first === '{') {
             return $this->bracketEnd($value, $start);
         }
 
@@ -855,6 +1080,22 @@ final class Redactor
             return $close === false ? $length : $close + 6;
         }
 
+        // Whether an unquoted run stops at an index depends on that index only, so a start inside the run found last
+        // ends where that run does.
+        if ($this->unquotedRun !== null && $start >= $this->unquotedRun[0] && $start < $this->unquotedRun[1]) {
+            return $this->unquotedRun[1];
+        }
+
+        $runEnd = $this->unquotedEnd($value, $start);
+        $this->unquotedRun = $this->scanning ? [$start, $runEnd] : null;
+
+        return $runEnd;
+    }
+
+    /** Where an unquoted value starting at $start ends (see valueEnd). */
+    private function unquotedEnd(string $value, int $start): int
+    {
+        $length = strlen($value);
         $stops = self::VALUE_HARD_END.self::VALUE_SOFT_END.'&';
 
         for ($index = $start; ; $index++) {
@@ -868,22 +1109,50 @@ final class Redactor
                 continue;
             }
 
+            if ($index < $length && $value[$index] === '<' && substr_compare($value, '<![CDATA[', $index, 9) === 0) {
+                return $this->cdataEnd($value, $index);
+            }
+
             if ($index >= $length || ! str_contains(self::VALUE_SOFT_END, $value[$index])) {
                 return min($index, $length);
             }
 
+            // The `]` of a mask already in the value is a value character, so the mask is replaced whole (#399) and the
+            // value ends where it would without the set.
+            $closesMask = $value[$index] === ']' && $index - $start >= strlen(self::MASK) - 1
+                && substr_compare($value, self::MASK, $index - strlen(self::MASK) + 1, strlen(self::MASK)) === 0;
             $next = $value[$index + 1] ?? '';
 
-            // The value ends at a soft end with nothing after it, or just after the `]` of a mask already in the value,
-            // so that mask is replaced whole, with no stray `]` left (#399).
-            if ($next === '' || str_contains($stops, $next)) {
-                $closesMask = $value[$index] === ']' && $index - $start >= strlen(self::MASK) - 1
-                    && substr_compare($value, self::MASK, $index - strlen(self::MASK) + 1, strlen(self::MASK)) === 0;
-
-                return $closesMask ? $index + 1 : $index;
+            if (! $closesMask && ($next === '' || str_contains($stops, $next))) {
+                return $index;
             }
-
         }
+    }
+
+    /**
+     * Where an unquoted value that reaches a CDATA section at $at ends: past the section, which is part of the value,
+     * or at the end of the text when it is unterminated (fail closed). A section that holds a quote, bracket, `&`, `\`,
+     * `<` or a cookie header could start a pair whose value the scan reads past `]]>`, so the value ends before it and
+     * the scan reads it as before. The content is read up to its first such character, and the `]]>` found last is
+     * remembered during a scan ($cdataClose), so many sections that share one far `]]>` stay linear.
+     */
+    private function cdataEnd(string $value, int $at): int
+    {
+        $from = $at + 9;
+        $close = $this->cdataClose !== null && $from >= $this->cdataClose[0] && ($this->cdataClose[1] === false || $from <= $this->cdataClose[1])
+            ? $this->cdataClose[1]
+            : strpos($value, ']]>', $from);
+        $this->cdataClose = $this->scanning ? [$from, $close] : null;
+
+        if ($close === false) {
+            return strlen($value);
+        }
+
+        if (strcspn($value, '"\'\\[{&<', $from, $close - $from) < $close - $from) {
+            return $at;
+        }
+
+        return stripos(substr($value, $from, $close - $from), 'cookie') === false ? $close + 3 : $at;
     }
 
     /** The offset just past the quote that closes a string opened before $start. */
@@ -989,7 +1258,8 @@ final class Redactor
      * `name` attribute stays readable as a label only when the element carries its value elsewhere: a non-blank `value`
      * attribute, or text right after the start tag (see textFollows). Otherwise it may be the element's only value
      * (`<license key="…"/>`, `<license key="…"><child/></license>`, `<x key="…" value=""/>`) and is treated like any
-     * other attribute. Either way, when it names a secret the element's content and any `value` attribute are masked.
+     * other attribute. Either way, when it names a secret the element's content and any `value` or `content` attribute
+     * are masked.
      *
      * @param  list<string>  $sensitiveKeys
      * @return array{string, bool} the attributes and whether a key/name attribute names a secret
@@ -1025,7 +1295,7 @@ final class Redactor
 
             $output .= match (true) {
                 $labels && in_array($name, self::LABEL_ATTRIBUTES, true) => $raw,
-                ($labelledSecret && $name === 'value') || $this->isSensitiveKey($attribute[1][0], $sensitiveKeys) => $this->maskSpan($raw),
+                ($labelledSecret && in_array($name, self::VALUE_ATTRIBUTES, true)) || $this->isSensitiveKey($attribute[1][0], $sensitiveKeys) => $this->maskSpan($raw),
                 default => strpbrk($raw, '=:') === false ? $raw : $this->scan($raw, $sensitiveKeys),
             };
         }

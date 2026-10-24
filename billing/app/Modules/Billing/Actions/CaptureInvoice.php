@@ -87,7 +87,7 @@ class CaptureInvoice
                 gatewayTxnId: $result->txnId,
                 fee: $result->fee,
                 payMethodId: $payMethod?->id,
-                raw: GatewayLogger::redact($result->raw),
+                raw: GatewayLogger::redact($result->raw, $gateway->key),
                 createdBy: $userId,
                 gatewayAmount: $rate !== null ? $charge->amount : null,
                 gatewayCurrency: $rate !== null ? $charge->currency : null,

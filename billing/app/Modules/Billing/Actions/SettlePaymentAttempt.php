@@ -80,8 +80,9 @@ class SettlePaymentAttempt
             return $attempt->status;
         }
 
-        $result = $this->lastResult = $driver->lookup($this->gateways->config($attempt->gateway), $attempt->toRef($interactive));
-        $raw = GatewayLogger::redact($result->raw);
+        $config = $this->gateways->config($attempt->gateway);
+        $result = $this->lastResult = $this->gateways->during($config, fn (): LookupResult => $driver->lookup($config, $attempt->toRef($interactive)));
+        $raw = GatewayLogger::redact($result->raw, $attempt->gateway);
         $this->log->log($attempt->gateway, 'response', 'lookup '.$result->status, ['reference' => $attempt->reference, ...$raw], $attempt->invoice_id);
 
         return DB::transaction(function () use ($attempt, $result, $raw, $cancelReturn, $returnHint): AttemptStatus {
@@ -374,7 +375,7 @@ class SettlePaymentAttempt
             gateway: $attempt->gateway,
             gatewayTxnId: $result->providerTxnId,
             fee: $result->fee,
-            raw: GatewayLogger::redact($result->raw),
+            raw: GatewayLogger::redact($result->raw, $attempt->gateway),
             gatewayAmount: $converted ? $attempt->amount : null,
             gatewayCurrency: $converted ? $attempt->currency : null,
             exchangeRate: $converted && $attempt->fx_rate !== null ? (float) $attempt->fx_rate : null,

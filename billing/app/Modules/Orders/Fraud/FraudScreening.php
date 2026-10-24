@@ -8,6 +8,8 @@ use App\Modules\Orders\Enums\FraudDecision;
 use App\Modules\Orders\Models\FraudCheck;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Pricing\PromotionEligibility;
+use App\Support\Integrations\RedactionScope;
+use App\Support\Integrations\Redactor;
 use Illuminate\Contracts\Container\Container;
 use Throwable;
 
@@ -27,6 +29,7 @@ class FraudScreening
         private Container $container,
         private Settings $settings,
         private PromotionEligibility $eligibility,
+        private Redactor $redactor,
     ) {}
 
     public function checker(): FraudChecker
@@ -67,19 +70,22 @@ class FraudScreening
     }
 
     /**
-     * Store the assessment on the order (fraud_checks row + order columns) and return how it is acted upon.
+     * Store the assessment on the order (fraud_checks row + order columns) and return how it is acted upon. The
+     * provider's answer and reasons are redacted first (secret keys, shapes, and the values of calls in progress).
      */
     public function record(Order $order, FraudAssessment $assessment): FraudDecision
     {
         $result = $assessment->result;
+        $set = RedactionScope::current();
+        $reasons = array_map(fn (string $reason): string => $this->redactor->maskValues($reason, $set), $result->reasons);
 
         FraudCheck::query()->create([
             'order_id' => $order->id,
             'provider' => $assessment->provider,
             'score' => $result->score,
             'decision' => $result->decision,
-            'reasons' => $result->reasons,
-            'raw' => $result->raw,
+            'reasons' => $reasons,
+            'raw' => $this->redactor->redact($result->raw, $set),
             'duration_ms' => $assessment->durationMs,
         ]);
 
@@ -87,7 +93,7 @@ class FraudScreening
             'fraud_provider' => $assessment->provider,
             'fraud_score' => $result->score,
             'fraud_decision' => $result->decision,
-            'fraud_payload' => ['reasons' => $result->reasons],
+            'fraud_payload' => ['reasons' => $reasons],
         ])->save();
 
         return $this->effectiveDecision($result->decision);
