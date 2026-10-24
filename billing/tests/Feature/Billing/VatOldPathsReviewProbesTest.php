@@ -6,6 +6,7 @@ use App\Modules\Billing\Actions\ApplyCredit;
 use App\Modules\Billing\Actions\ApplyLateFee;
 use App\Modules\Billing\Actions\CancelInvoice;
 use App\Modules\Billing\Actions\CancelInvoiceItems;
+use App\Modules\Billing\Data\NoteRequest;
 use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Models\Invoice;
@@ -15,6 +16,7 @@ use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Billing\Services\BillingAutomation;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\NoteRefusals;
+use App\Modules\Billing\Services\TaxNoteIssuer;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
@@ -225,5 +227,47 @@ test('an invoice whose tax was never classified is refused its cancel and late f
 
     expect($good->fresh()->status)->toBe(InvoiceStatus::Cancelled)->and($bad->fresh()->status)->toBe(InvoiceStatus::Unpaid)
         ->and(InvoiceFiscalReview::query()->where('invoice_id', $bad->id)->pluck('reason')->sort()->values()->all())->toBe([InvoiceFiscalReview::CANCEL_REFUSED, InvoiceFiscalReview::LATE_FEE_REFUSED])
-        ->and(app(NoteRefusals::class)->open())->toBe(2);
+        ->and(app(NoteRefusals::class)->open())->toBe(1); // one invoice, however many refusals it has
+});
+
+test('a refused cancel or late fee stops counting once the invoice is cancelled or paid, and the Needs attention link lists only the open ones', function () {
+    $client = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']);
+    $stuck = issueInvoice($client, [10_000]);
+    $paid = issueInvoice($client, [10_000]);
+    $cancelled = issueInvoice($client, [10_000]);
+    $untouched = issueInvoice($client, [10_000]);
+
+    foreach ([$stuck, $paid, $cancelled] as $invoice) {
+        app(NoteRefusals::class)->record($invoice->fresh(), InvoiceFiscalReview::LATE_FEE_REFUSED, 'Debit cap');
+    }
+
+    expect(app(NoteRefusals::class)->open())->toBe(3);
+
+    payInvoice($paid, 11_300);
+    app(CancelInvoice::class)->handle($cancelled->fresh(), oldPathProbeStaff(), 'Done');
+
+    expect(app(NoteRefusals::class)->open())->toBe(1)->and(app(NoteRefusals::class)->invoiceIds())->toBe([$stuck->id]);
+
+    billingStaff();
+    $this->get(route('admin.billing.invoices.index', ['refused' => 1]))->assertOk()
+        ->assertInertia(fn ($page) => $page->has('invoices.data', 1)->where('invoices.data.0.id', $stuck->id));
+    expect($untouched->fresh()->status)->toBe(InvoiceStatus::Unpaid);
+});
+
+test('a staff note takes the shared lock on the mode row (PostgreSQL)', function () {
+    if (DB::connection()->getDriverName() !== 'pgsql') {
+        $this->markTestSkipped('FOR SHARE is PostgreSQL SQL.');
+    }
+
+    $invoice = oldPathProbeInvoice();
+    $sql = [];
+    DB::listen(function ($query) use (&$sql): void {
+        $sql[] = strtolower($query->sql);
+    });
+
+    $request = NoteRequest::creditAmount($invoice->id, 1_000, 'goodwill', 'Goodwill');
+    $issuer = app(TaxNoteIssuer::class);
+    $issuer->issue($request, ($preview = $issuer->preview($request))->version, $preview->digest);
+
+    expect(array_filter($sql, fn (string $q): bool => str_contains($q, 'settings') && str_contains($q, 'for share')))->not->toBeEmpty();
 });

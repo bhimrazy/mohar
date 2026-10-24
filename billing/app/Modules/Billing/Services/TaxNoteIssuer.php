@@ -188,7 +188,8 @@ class TaxNoteIssuer
     private function write(NoteRequest $request, Invoice $invoice, NotePreview $plan, CarbonImmutable $at, bool $settle): TaxNote
     {
         // Before its start day the old paths run and staff cannot issue notes (ADR 0024 §8).
-        if ($this->mode->enabled() && ! $this->mode->inEffect($at)) {
+        // The mode is read under the shared lock, like the old paths: switching it off waits for this transaction.
+        if ($this->mode->enabledLocked() && ! $this->mode->inEffectLocked($at)) {
             throw new BillingException(__('Nepal VAT mode starts on :date; notes can be issued from then.', ['date' => $this->mode->enabledFrom()]));
         }
 
