@@ -95,6 +95,7 @@ export default function ModuleLogIndex({
                             tab: value === 'queue' ? 'queue' : null,
                             result: null,
                             command: null,
+                            period: null,
                             search: null,
                         })
                     }
@@ -122,7 +123,7 @@ export default function ModuleLogIndex({
                     <>
                         <FilterBar
                             searchPlaceholder="Search domain or username…"
-                            filterKeys={['result', 'command']}
+                            filterKeys={['result', 'command', 'period']}
                             filters={
                                 <>
                                     <FilterSelect
@@ -143,6 +144,17 @@ export default function ModuleLogIndex({
                                         name="command"
                                         label="Actions"
                                         options={commands}
+                                    />
+                                    <FilterSelect
+                                        name="period"
+                                        label="Period"
+                                        allLabel="Any time"
+                                        options={[
+                                            {
+                                                value: '24h',
+                                                label: 'Last 24 hours',
+                                            },
+                                        ]}
                                     />
                                 </>
                             }

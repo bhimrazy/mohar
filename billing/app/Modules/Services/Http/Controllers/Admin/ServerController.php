@@ -12,12 +12,14 @@ use App\Modules\Services\Actions\SaveServer;
 use App\Modules\Services\Enums\FillType;
 use App\Modules\Services\Http\Requests\ServerRequest;
 use App\Modules\Services\Http\Resources\ServerResource;
+use App\Modules\Services\Models\ModuleCommand;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerGroup;
 use App\Modules\Services\Services\ProvisioningSnapshots;
 use App\Modules\Services\Support\ServerSettings;
 use App\Support\Integrations\Redactor;
 use App\Support\Services\ProvisioningDriverRegistry;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -31,8 +33,11 @@ class ServerController extends Controller
     {
         $this->authorize('services.servers.view');
 
+        $servers = Server::query()->with('groups')->withActiveAccounts()->orderBy('name')->orderBy('id')->get();
+
         return Inertia::render('admin/services/servers/index', [
-            'servers' => ServerResource::collection(Server::query()->with('groups')->withActiveAccounts()->orderBy('name')->orderBy('id')->get()),
+            'servers' => ServerResource::collection($servers),
+            'summary' => $this->summary($servers),
             'groups' => ServerGroup::query()->withCount('servers')->orderBy('name')->orderBy('id')->get()->map(fn (ServerGroup $group): array => [
                 'id' => $group->id,
                 'name' => $group->name,
@@ -42,10 +47,38 @@ class ServerController extends Controller
             ]),
             'drivers' => $this->driverOptions($drivers),
             'canManage' => request()->user()?->hasPermission('services.servers.manage') ?? false,
+            'canViewModuleLog' => request()->user()?->hasPermission('services.module_log.view') ?? false,
             'importDrivers' => request()->user()?->hasPermission('services.servers.import')
                 ? array_values(array_filter($drivers->keys(), fn (string $key): bool => $drivers->get($key) instanceof ListsAccounts))
                 : [],
         ]);
+    }
+
+    /**
+     * The cards above the list: servers in use, accounts on active servers against their capacity, servers nearly
+     * full, and failed module commands in the last 24 hours (the module log's `period=24h` set, read through the
+     * `created_at` index of module_commands).
+     *
+     * @param  Collection<int, Server>  $servers
+     * @return array{servers: int, active: int, accounts: int, capacity: int, unlimited: bool, near_full: int, failed_commands: int, failing_servers: int}
+     */
+    private function summary(Collection $servers): array
+    {
+        $active = $servers->where('is_active', true);
+        // Accounts and capacity both count active servers, so the share used never mixes the two sets.
+        $failed = ModuleCommand::query()->where('created_at', '>=', now()->subDay())->where('success', false)
+            ->selectRaw('count(*) as failures, count(distinct server_id) as servers')->first();
+
+        return [
+            'servers' => $servers->count(),
+            'active' => $active->count(),
+            'accounts' => (int) $active->sum(fn (Server $server): int => (int) $server->active_accounts_count),
+            'capacity' => (int) $active->sum('max_accounts'),
+            'unlimited' => $active->contains(fn (Server $server): bool => $server->max_accounts === 0),
+            'near_full' => $active->filter(fn (Server $server): bool => $server->max_accounts > 0 && (int) $server->active_accounts_count >= 0.9 * $server->max_accounts)->count(),
+            'failed_commands' => (int) $failed?->getAttribute('failures'),
+            'failing_servers' => (int) $failed?->getAttribute('servers'),
+        ];
     }
 
     public function create(ProvisioningDriverRegistry $drivers): Response

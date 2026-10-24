@@ -4,7 +4,9 @@ namespace App\Modules\Services\Http\Controllers\Admin;
 
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\GatewayRegistry;
+use App\Contracts\Billing\InvoiceNumbers;
 use App\Contracts\Core\CompanyClock;
+use App\Contracts\Orders\OrderNumbers;
 use App\Enums\BillingCycle;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Client;
@@ -17,11 +19,13 @@ use App\Modules\Services\Http\Resources\ServiceResource;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\ServicePresenter;
+use App\Modules\Services\Support\CommandInitiators;
 use App\Modules\Services\Support\ServiceSettings;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -57,13 +61,22 @@ class ServiceController extends Controller
         ]);
     }
 
-    public function show(Request $request, Service $service, ServicePresenter $presenter, ServiceSettings $settings): Response
+    public function show(Request $request, Service $service, ServicePresenter $presenter, ServiceSettings $settings, InvoiceNumbers $invoiceNumbers, OrderNumbers $orderNumbers, CommandInitiators $initiators): Response
     {
         $this->authorize('services.services.view');
 
         $service->load(['client', 'server', 'openCancellationRequest', 'latestUsage']);
         $user = $request->user();
         $today = app(CompanyClock::class)->todayDate();
+        $links = $service->invoiceLinks()->orderByDesc('period_start')->orderByDesc('id')->limit(12)->get();
+        $numbers = $invoiceNumbers->numbers(array_values($links->map(fn ($link): int => $link->invoice_id)->all()));
+        // A link only for staff who can open it; the number shows either way.
+        $invoiceUrl = fn (int $id): ?string => Route::has('admin.billing.invoices.show') && $user?->hasPermission('billing.invoices.view') ? route('admin.billing.invoices.show', $id) : null;
+        $moduleLog = $user?->hasPermission('services.module_log.view') ? $service->moduleCommands()->orderByDesc('id')->limit(15)->get() : null;
+
+        if ($moduleLog !== null) {
+            $initiators->prime($moduleLog);
+        }
 
         return Inertia::render('admin/services/show', [
             'service' => new ServiceResource($service),
@@ -77,9 +90,11 @@ class ServiceController extends Controller
                 'next_due_date' => $addon->next_due_date?->toDateString(),
                 'suspend_parent_on_overdue' => $addon->suspend_parent_on_overdue,
             ]),
-            'invoices' => $service->invoiceLinks()->orderByDesc('period_start')->orderByDesc('id')->limit(12)->get()->map(fn ($link): array => [
+            'invoices' => $links->map(fn ($link): array => [
                 'id' => $link->id,
                 'invoice_id' => $link->invoice_id,
+                'invoice_number' => $numbers[$link->invoice_id] ?? null,
+                'invoice_url' => $invoiceUrl($link->invoice_id),
                 'kind' => $link->kind->value,
                 'period_start' => $link->period_start?->toDateString(),
                 'period_end' => $link->period_end?->toDateString(),
@@ -99,9 +114,7 @@ class ServiceController extends Controller
                 'created_at' => $change->created_at?->toIso8601String(),
             ]),
             'cancellation' => $service->openCancellationRequest?->only(['id', 'type', 'reason', 'process_after']),
-            'moduleLog' => $user?->hasPermission('services.module_log.view')
-                ? ModuleCommandResource::collection($service->moduleCommands()->orderByDesc('id')->limit(15)->get())
-                : [],
+            'moduleLog' => $moduleLog !== null ? ModuleCommandResource::collection($moduleLog) : [],
             'usage' => $service->latestUsage?->only(['disk_used_mb', 'disk_limit_mb', 'bw_used_mb', 'bw_limit_mb', 'captured_at']),
             'driver' => $presenter->driverProps($service),
             'commands' => $presenter->commands($service),
@@ -109,6 +122,10 @@ class ServiceController extends Controller
             'changeOptions' => Inertia::defer(fn (): array => $presenter->changeOptions($service, $today)),
             'creditOnDowngrade' => $settings->creditOnDowngrade(),
             'paymentGatewayLabel' => $this->gatewayLabel($service->payment_gateway),
+            'order' => $service->order_id === null ? null : [
+                'number' => $orderNumbers->numbers([$service->order_id])[$service->order_id] ?? null,
+                'url' => Route::has('admin.orders.show') && $user?->hasPermission('orders.orders.view') ? route('admin.orders.show', $service->order_id) : null,
+            ],
             'can' => [
                 'manage' => $user?->hasPermission('services.services.manage') ?? false,
                 'provision' => $user?->hasPermission('services.services.provision') ?? false,

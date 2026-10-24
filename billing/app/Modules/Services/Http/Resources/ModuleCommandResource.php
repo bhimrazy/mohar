@@ -3,6 +3,7 @@
 namespace App\Modules\Services\Http\Resources;
 
 use App\Modules\Services\Models\ModuleCommand;
+use App\Modules\Services\Support\CommandInitiators;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -24,6 +25,7 @@ class ModuleCommandResource extends JsonResource
             'driver' => $this->driver,
             'command' => $this->command,
             'initiator' => $this->initiator,
+            'initiator_label' => app(CommandInitiators::class)->label($this->initiator),
             'attempt' => $this->attempt,
             'success' => $this->success,
             'error' => $this->error,

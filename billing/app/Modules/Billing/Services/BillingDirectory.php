@@ -3,6 +3,7 @@
 namespace App\Modules\Billing\Services;
 
 use App\Contracts\Billing\GatewayDirectory;
+use App\Contracts\Billing\InvoiceNumbers;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Models\CreditLedgerEntry;
@@ -15,7 +16,7 @@ use App\Modules\Billing\Support\ClientPaymentOptions;
 /**
  * Read-only billing facts for other modules (checkout gateway list, invoice payment history).
  */
-class BillingDirectory implements GatewayDirectory, InvoiceQueries
+class BillingDirectory implements GatewayDirectory, InvoiceNumbers, InvoiceQueries
 {
     public function __construct(
         private GatewayManager $gateways,
@@ -34,6 +35,16 @@ class BillingDirectory implements GatewayDirectory, InvoiceQueries
     {
         return Transaction::query()->where('invoice_id', $invoiceId)->exists()
             || Invoice::query()->whereKey($invoiceId)->where('credit_applied', '>', 0)->exists();
+    }
+
+    public function numbers(array $invoiceIds): array
+    {
+        if ($invoiceIds === []) {
+            return [];
+        }
+
+        return Invoice::query()->whereKey(array_values(array_unique($invoiceIds)))->get(['id', 'number', 'proforma_number'])
+            ->mapWithKeys(fn (Invoice $invoice): array => [$invoice->id => $invoice->displayNumber()])->all();
     }
 
     public function hasDocumentsInCurrency(string $currency): bool
