@@ -9,7 +9,7 @@ use App\Support\Integrations\Redactor;
 use Tests\Support\Redaction\RedactorTiming;
 
 /**
- * Units that once made a value holding a mask quadratic (#462 security review B1).
+ * Units that once made a value holding a mask, or a CDATA section in a value, quadratic (#462 security review B1).
  *
  * @return array<string, array{Closure(int): string}>
  */
@@ -22,6 +22,8 @@ function redactorMaskedValueShapes(): array
         'an inner bracket value with a tag' => [fn (int $i): string => $i === 0 ? 'Session:s://@pass=[<t name="pass">' : 'pass=[<t name="pass">'],
         'whole-line inner values' => [fn (): string => 'token=[redacted],cookie: a,'],
         'nested inner brackets' => [fn (int $i): string => $i === 0 ? 'token=[redacted],' : 'pass=['],
+        // Not a mask, but the same review: each value searched the rest of the text for `]]>`.
+        'excluded CDATA sections with no end' => [fn (): string => 'token: a<![CDATA["x '],
     ];
 }
 

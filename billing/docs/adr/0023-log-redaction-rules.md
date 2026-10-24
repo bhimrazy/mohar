@@ -399,9 +399,12 @@ missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this s
   the text, so `token=[redacted],` repeated took 13 s at 128 KB. During one scan, `valueEnd()` now remembers the last
   unquoted run it read and `pairValueEnd()` the last whole-line value: whether an unquoted run stops at an index
   depends on that index only, so a start inside the run ends where the run does. Quoted and bracketed inner values are
-  counted, and past 4 times the span plus 64 KB the rest of the text is masked (fail closed). Measured locally, every
-  shape of the review takes under 0.65 s at 4 MB (develop: under 0.4 s). `RedactorShapesBudgetTest` holds them under
-  0.5 s at 256 KB, under 2 s at 1 MB, and linear from 512 KB to 4 MB.
+  counted, and past 4 times the span plus 64 KB the rest of the text is masked (fail closed). The review's timing
+  harness also found `cdataEnd()` quadratic at 4 MB (`token: a<![CDATA["x ` repeated, 54 s): each value searched the
+  rest of the text for `]]>` and copied the section. It now remembers the `]]>` it found last during a scan and reads
+  the content only up to its first excluded character. Measured locally, the review's shapes and its 12 harness
+  shapes take at most 1.0 s at 4 MB (develop: at most 0.93 s). `RedactorShapesBudgetTest` holds the review's shapes
+  and the CDATA one under 0.5 s at 256 KB, under 2 s at 1 MB, and linear from 512 KB to 4 MB.
 - **Masking no longer decreases against develop (B2).**
     - For a value holding a mask, only the pairs from `maskBoundEnd()` on extend it: where the value ended before #462
       (the `]` of a mask followed by a value end, a mask at the start, or a CDATA section). A pair before that point

@@ -25,4 +25,7 @@
   `message` and `at`.
 - Rule change: the tail-pair rule of #452 now reads the value after a swallowed secret label with the plain pair rules
   (and covers any secret pair inside that value); a mask inside a value counts as value characters, and a labelled
-  `content` attribute and a CDATA section a value runs into are masked. Masking only increases.
+  `content` attribute and a CDATA section a value runs into are masked. Masking only increases (differential fuzz
+  against develop, ADR 0023 amendment #462, review round). A pair inside a value holding a mask extends it only from
+  where the value ended before #462, and a tail value may start with `//`. Inner pairs and CDATA ends are read in
+  linear time.

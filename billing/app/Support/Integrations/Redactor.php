@@ -185,7 +185,7 @@ final class Redactor
     /** @var array<string, bool> */
     private array $keyCache = [];
 
-    /** Set while scan() runs: the run caches below hold offsets into the text it scans and are cleared around it. */
+    /** Set while scan() runs: the caches below hold offsets into the text it scans and are cleared around it. */
     private bool $scanning = false;
 
     /** @var array{int, int}|null the last unquoted value valueEnd() read, [start, end) */
@@ -193,6 +193,9 @@ final class Redactor
 
     /** @var array{int, int}|null the last whole-line value pairValueEnd() read, [start, end) */
     private ?array $lineRun = null;
+
+    /** @var array{int, int|false}|null where cdataEnd() last searched for `]]>`, and what it found */
+    private ?array $cdataClose = null;
 
     private static int $nodesLeft = 0;
 
@@ -534,12 +537,12 @@ final class Redactor
      */
     private function scan(string $value, array $sensitiveKeys): string
     {
-        [$this->scanning, $this->unquotedRun, $this->lineRun] = [true, null, null];
+        [$this->scanning, $this->unquotedRun, $this->lineRun, $this->cdataClose] = [true, null, null, null];
 
         try {
             return $this->scanText($value, $sensitiveKeys);
         } finally {
-            [$this->scanning, $this->unquotedRun, $this->lineRun] = [false, null, null];
+            [$this->scanning, $this->unquotedRun, $this->lineRun, $this->cdataClose] = [false, null, null, null];
         }
     }
 
@@ -1087,19 +1090,26 @@ final class Redactor
      * Where an unquoted value that reaches a CDATA section at $at ends: past the section, which is part of the value,
      * or at the end of the text when it is unterminated (fail closed). A section that holds a quote, bracket, `&`, `\`,
      * `<` or a cookie header could start a pair whose value the scan reads past `]]>`, so the value ends before it and
-     * the scan reads it as before.
+     * the scan reads it as before. The content is read up to its first such character, and the `]]>` found last is
+     * remembered during a scan ($cdataClose), so many sections that share one far `]]>` stay linear.
      */
     private function cdataEnd(string $value, int $at): int
     {
-        $close = strpos($value, ']]>', $at + 9);
+        $from = $at + 9;
+        $close = $this->cdataClose !== null && $from >= $this->cdataClose[0] && ($this->cdataClose[1] === false || $from <= $this->cdataClose[1])
+            ? $this->cdataClose[1]
+            : strpos($value, ']]>', $from);
+        $this->cdataClose = $this->scanning ? [$from, $close] : null;
 
         if ($close === false) {
             return strlen($value);
         }
 
-        $content = substr($value, $at + 9, $close - $at - 9);
+        if (strcspn($value, '"\'\\[{&<', $from, $close - $from) < $close - $from) {
+            return $at;
+        }
 
-        return strpbrk($content, '"\'\\[{&<') === false && stripos($content, 'cookie') === false ? $close + 3 : $at;
+        return stripos(substr($value, $from, $close - $from), 'cookie') === false ? $close + 3 : $at;
     }
 
     /** The offset just past the quote that closes a string opened before $start. */
