@@ -3,6 +3,7 @@
 namespace App\Modules\Orders\Actions;
 
 use App\Contracts\Catalog\PriceBook;
+use App\Contracts\Domains\DomainNameRules;
 use App\Enums\BillingCycle;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
@@ -27,6 +28,7 @@ class AddProductToCart
         private CustomFieldRules $customFieldRules,
         private Settings $settings,
         private TldAttributeInput $tldAttributes,
+        private DomainNameRules $nameRules,
     ) {}
 
     /**
@@ -63,6 +65,7 @@ class AddProductToCart
             throw ValidationException::withMessages($errors);
         }
 
+        $name = DomainGuard::normalise((string) ($input['domain_name'] ?? ''));
         $item = new CartItem(
             key: $replaceKey ?? CartItem::newKey(),
             kind: CartItemKind::Product,
@@ -71,10 +74,10 @@ class AddProductToCart
             configOptions: $configOptions,
             customFields: $customFields,
             domainMode: $this->domainMode($input, $product->requiresDomain),
-            domainName: ($name = trim((string) ($input['domain_name'] ?? ''))) === '' ? null : strtolower($name),
+            domainName: $name === '' ? null : $name,
             eppCode: ($input['domain_mode'] ?? null) === 'transfer' ? $this->eppCode($input) : null,
             addonIds: $this->addonIds($productId, $cart->currency, $input['addon_ids'] ?? []),
-            tldAttributes: ($input['domain_mode'] ?? null) === 'register' ? $this->tldAttributes->clean($input['domain_name'] ?? null, $input['tld_attributes'] ?? null, 'domain_name') : [],
+            tldAttributes: ($input['domain_mode'] ?? null) === 'register' ? $this->tldAttributes->clean($name === '' ? null : $name, $input['tld_attributes'] ?? null, 'domain_name') : [],
         );
 
         $priced = $this->pricer->price([$item], $cart->currency, null, $client)->items[0];
@@ -166,7 +169,7 @@ class AddProductToCart
     private function domainMode(array $input, bool $requiresDomain): ?string
     {
         $mode = $input['domain_mode'] ?? null;
-        $name = trim((string) ($input['domain_name'] ?? ''));
+        $name = DomainGuard::normalise((string) ($input['domain_name'] ?? ''));
 
         if ($mode === null || $mode === '') {
             if ($requiresDomain) {
@@ -184,7 +187,7 @@ class AddProductToCart
             throw ValidationException::withMessages(['domain_name' => __('Enter a valid domain name, for example example.com.')]);
         }
 
-        if (($error = DomainGuard::registryLevelError($name)) !== null) {
+        if (($error = $this->nameRules->registryLevelError($name)) !== null) {
             throw ValidationException::withMessages(['domain_name' => $error]);
         }
 
