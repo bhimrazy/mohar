@@ -83,7 +83,7 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
 
 ## Open pull requests and running work
 
-Merged 2026-10-24 (details in `billing/docs/progress.md` at the next update): #438, #440, #444–#461, #463 (P3b server
+Merged 2026-10-24 (details in `billing/docs/progress.md` at the next update): #438, #440, #444–#461, #462 (P1b redaction backstop on every log channel, after two security rounds), #463 (P3b server
 import features), #464 (VAT PR 4c: credit refunds, Nepal VAT mode flag lifted, demo seed has the mode on), #465–#469
 (handoff docs; develop fix for the #459/#461 scan; docs-site Overview and Walkthrough; pre-walkthrough sweep;
 walkthrough VAT step and `schedule:work` in `composer dev`). Issues closed by hand.
@@ -92,7 +92,6 @@ Session wrapped on the owner's request 2026-10-24 (walkthrough ready). No agents
 
 | PR   | Workstream                                    | Status and next step (2026-10-24)                                                                 |
 | ---- | --------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| #462 | P1b Redaction log backstop (#254, #383)       | Signed off at `7d41f4e4` after two security rounds; merge when CI passes, close #254 and #383.     |
 | #128 | Gateway expansion spec                        | Draft. Owner questions in the PR.                                                                 |
 
 Walkthrough: `docs-site` Overview and Get started → Walkthrough (12 steps, run against a seeded app). Before a demo
