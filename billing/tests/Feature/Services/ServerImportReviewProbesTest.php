@@ -71,9 +71,9 @@ test('[N4] a driver error that echoes the token is stored masked', function () {
 });
 
 test('[N5] the prune task deletes expired lists only, and running it twice changes nothing more', function () {
-    $old = ServerAccountImport::query()->create(['server_id' => $this->server->id, 'status' => 'ready', 'accounts' => [], 'expires_at' => now()->subMinute()]);
+    $old = ServerAccountImport::query()->create(['server_id' => $this->server->id, 'status' => 'ready', 'expires_at' => now()->subMinute()]);
     $other = Server::factory()->create(['driver' => 'cpanel']);
-    $live = ServerAccountImport::query()->create(['server_id' => $other->id, 'status' => 'ready', 'accounts' => [], 'expires_at' => now()->addHour()]);
+    $live = ServerAccountImport::query()->create(['server_id' => $other->id, 'status' => 'ready', 'expires_at' => now()->addHour()]);
 
     $this->artisan('automation:run', ['--date' => now()->toDateString(), '--only' => 'services.import-prune', '--force' => true])->assertSuccessful();
     $this->artisan('automation:run', ['--date' => now()->toDateString(), '--only' => 'services.import-prune', '--force' => true])->assertSuccessful();
@@ -88,7 +88,7 @@ test('[N6] a closed client with the email is not proposed', function () {
     Client::factory()->create(['email' => 'anna@alpha-books.com', 'status' => 'closed']);
 
     $this->post(route('admin.services.servers.import.fetch', $this->server));
-    $rows = collect(ServerAccountImport::query()->sole()->accounts)->keyBy('username');
+    $rows = collect(ServerAccountImport::query()->sole()->accountRows())->keyBy('username');
 
     expect($rows['alpha']['category'])->toBe('unmatched')
         ->and($rows['alpha']['note'])->toContain('No client has the email anna@alpha-books.com.');

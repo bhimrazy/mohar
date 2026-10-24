@@ -5,6 +5,7 @@ namespace App\Modules\Support;
 use App\Contracts\Core\CompanyClock;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Support\PublicHelpDirectory;
+use App\Contracts\Support\TicketStaffDirectory;
 use App\Data\Notifications\SensitiveValue;
 use App\Events\Support\TicketClosed;
 use App\Events\Support\TicketOpened;
@@ -24,6 +25,7 @@ use App\Modules\Support\Models\Ticket;
 use App\Modules\Support\Models\TicketMessage;
 use App\Modules\Support\Services\SupportPublicHelp;
 use App\Modules\Support\Services\SupportSettings;
+use App\Modules\Support\Services\SupportTicketStaff;
 use App\Modules\Support\Services\TicketAccess;
 use App\Support\Automation\Automation;
 use App\Support\CalendarDate;
@@ -56,6 +58,7 @@ class SupportServiceProvider extends ModuleServiceProvider
         $this->app->singleton(SupportSettings::class);
         $this->app->scoped(TicketAccess::class);
         $this->app->bind(PublicHelpDirectory::class, SupportPublicHelp::class);
+        $this->app->bind(TicketStaffDirectory::class, SupportTicketStaff::class);
     }
 
     protected function schedule(Schedule $schedule): void

@@ -98,7 +98,7 @@ test('[R5-2] a stopped import\'s report says why it stopped and names each revie
 test('[R5-3] a review saved while an import runs does not replace the confirmed rows, and its digest starts nothing', function () {
     r5Tick($this->server, ['acme']);
     $digest = r5Digest($this->server);
-    $stale = FetchAccountsForImport::latest($this->server, withAccounts: true);
+    $stale = FetchAccountsForImport::latest($this->server);
     $this->post(route('admin.services.servers.import.apply', $this->server), ['digest' => $digest])->assertSessionHasNoErrors();
 
     $other = app(AccountImportPlan::class)->review($this->server, $stale, $this->staff->id)['digest'];

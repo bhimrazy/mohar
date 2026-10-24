@@ -71,6 +71,7 @@ final class SecretTemplatePolicy
         'ticket.opened_by_staff' => 'ticket.url',
         'ticket.reply' => 'ticket.url',
         'ticket.auto_closed' => 'ticket.url',
+        'ticket.link_replaced' => 'ticket.url',
     ];
 
     /**

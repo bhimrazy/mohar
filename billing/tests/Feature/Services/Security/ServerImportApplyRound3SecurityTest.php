@@ -43,7 +43,7 @@ function r3Digest(Server $server): string
 }
 
 test('[R3-1] on a list stored without connection_user, a reseller-owned account ticked by request is still kept out', function () {
-    expect(collect($this->import->accounts)->keyBy('username')['bravo']['category'])->toBe('reseller');
+    expect(collect($this->import->accountRows())->keyBy('username')['bravo']['category'])->toBe('reseller');
     DB::table('server_account_imports')->where('id', $this->import->id)->update(['connection_user' => null]);
 
     // No client or product in the request: only the tick.
