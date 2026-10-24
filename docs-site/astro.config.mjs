@@ -26,10 +26,12 @@ export default defineConfig({
             lastUpdated: false,
             credits: false,
             sidebar: [
+                'overview',
                 { label: 'Introduction', link: '/' },
                 {
                     label: 'Get started',
                     items: [
+                        'get-started/walkthrough',
                         'get-started/requirements',
                         'get-started/install-docker',
                         'get-started/install-server',

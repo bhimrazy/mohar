@@ -81,6 +81,11 @@ class ImportServerAccounts
                 default => $this->list->existing($import, $usernames),
             };
 
+            if (($choice['include'] ?? false) === true) {
+                // An ignored account is brought back before it can be ticked.
+                $usernames = array_values(array_diff($usernames, $this->list->ignoredAmong($import, $usernames)));
+            }
+
             if ($scope === 'proposed') {
                 // A client who changed email lately or never verified it may have taken an account's contact address
                 // since the match: never ticked in bulk.
@@ -348,7 +353,7 @@ class ImportServerAccounts
             'next_invoice_date' => $due,
             'activated_at' => $now,
             'suspended_at' => $suspended ? $now : null,
-            'suspension_reason' => $suspended ? 'staff:'.mb_substr('Imported (suspended on the server'.(($account['suspend_reason'] ?? null) ? ': '.$account['suspend_reason'] : '').')', 0, 190) : null,
+            'suspension_reason' => $suspended ? 'staff:'.mb_substr('imported (suspended on the server'.(($account['suspend_reason'] ?? null) ? ': '.$account['suspend_reason'] : '').')', 0, 190) : null,
             'driver_data' => array_filter([
                 'owner' => $account['owner'] ?? null,
                 'plan' => $account['plan'] ?? null,
