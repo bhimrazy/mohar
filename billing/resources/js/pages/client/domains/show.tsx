@@ -215,7 +215,23 @@ export default function MyDomain({
                             label="Renewal"
                             icon={RefreshCcw}
                             value="At the registry"
-                            hint="You renew it with the registry."
+                            hint={
+                                domain.how_to_url ? (
+                                    <>
+                                        You renew it with the registry.{' '}
+                                        <a
+                                            href={domain.how_to_url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="underline"
+                                        >
+                                            Registry guide
+                                        </a>
+                                    </>
+                                ) : (
+                                    'You renew it with the registry.'
+                                )
+                            }
                         />
                     ) : (
                         <>

@@ -47,6 +47,8 @@ export type Domain = {
     registrar_key: string | null;
     /** The client registered it at the registry (e.g. .np): no registrar, no expiry or renewal tracked here. */
     registered_by_client: boolean;
+    /** Registry guide for a name the client registers (the TLD's own, else the host-wide default); null otherwise. */
+    how_to_url?: string | null;
     /** Staff only: the order recorded at the registrar, or null when none is linked. */
     registrar_order_id?: string | number | null;
     registration_date: string | null;
