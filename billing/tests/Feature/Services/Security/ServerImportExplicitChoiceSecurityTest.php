@@ -35,7 +35,7 @@ function s133eAlpha(Server $server): array
 }
 
 test('[S133E-1] no request without client_id makes the flagged match importable', function (array $choice) {
-    expect(collect(ServerAccountImport::query()->sole()->accounts)->keyBy('username')['alpha']['category'])->toBe('unmatched');
+    expect(collect(ServerAccountImport::query()->sole()->accountRows())->keyBy('username')['alpha']['category'])->toBe('unmatched');
 
     $this->put(route('admin.services.servers.import.select', $this->server), ['proposed' => true]);
     $this->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['alpha'], 'include' => true, ...$choice])->assertSessionHasNoErrors();

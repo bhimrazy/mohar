@@ -50,7 +50,7 @@ class AccountImportMatcher
 
     public const FLAG_UNVERIFIED = 'unverified';
 
-    public function __construct(private Catalog $catalog, private ProvisioningDriverRegistry $drivers) {}
+    public function __construct(private Catalog $catalog, private ProvisioningDriverRegistry $drivers, private AccountList $list, private ImportListHandover $handover) {}
 
     /**
      * Each account with category, client_id, product_id, service_id, note and differences, ready to store; and the ids
@@ -141,9 +141,8 @@ class AccountImportMatcher
 
     /**
      * Match the accounts and store them, with the counts, on a fetched import. Under the server lock, before the list
-     * becomes ready: the list it replaces (a fetch; Match again replaces none) hands over its import report and the
-     * staff choices for accounts that are still the same account (same creation time on the server, else the same
-     * domain), then is deleted. A fetch or match superseded while it ran (its row deleted or no longer running) stores
+     * becomes ready: the list it replaces (a fetch; Match again replaces none) hands over its report and choices
+     * (ImportListHandover). A fetch or match superseded while it ran (its row deleted or no longer running) stores
      * nothing and deletes nothing.
      *
      * @param  list<array<string, mixed>>  $accounts  validated RemoteAccount fields
@@ -152,30 +151,20 @@ class AccountImportMatcher
     public function store(ServerAccountImport $import, array $accounts, ?string $connectionUser): ?int
     {
         $matched = $this->classify($import->server, $accounts, $connectionUser, $import->fetched_at);
-        $counts = array_count_values(array_column($matched['rows'], 'category'));
 
-        $stored = DB::transaction(function () use ($import, $matched, $counts, $connectionUser): bool {
+        $stored = DB::transaction(function () use ($import, $matched, $connectionUser): bool {
             Server::query()->whereKey($import->server_id)->lockForUpdate()->first();
 
             if (! in_array(ServerAccountImport::query()->whereKey($import->id)->value('status'), [ServerAccountImport::FETCHING, ServerAccountImport::MATCHING], true)) {
                 return false;
             }
-            $previous = ServerAccountImport::query()->where('server_id', $import->server_id)->where('id', '<', $import->id)
-                ->where('status', ServerAccountImport::READY)->latest('id')->first();
-            $before = collect($previous->accounts ?? $import->accounts ?? [])->keyBy('username');
-            $now = collect($matched['rows'])->keyBy('username');
-            $selections = array_filter($import->selections ?? [], fn (string $username): bool => $now->has($username) && $before->has($username)
-                && self::fingerprint($before->get($username)) === self::fingerprint($now->get($username)), ARRAY_FILTER_USE_KEY);
 
-            if ($previous !== null && $previous->imported_count + $previous->not_imported_count > 0) {
-                DB::table('server_account_import_report_lines')->where('server_account_import_id', $previous->id)->update(['server_account_import_id' => $import->id]);
-                $import->fill($previous->only(['imported_count', 'not_imported_count', 'stop_reason']));
-            }
-
-            $import->update([
+            $handover = $this->handover->take($import, $matched['rows']);
+            $this->list->replace($import, $matched['rows']);
+            $counts = $this->list->counts($import);
+            $import->fill($handover)->update([
                 'status' => ServerAccountImport::READY,
-                'accounts' => $matched['rows'],
-                'account_count' => count($matched['rows']),
+                'account_count' => array_sum($counts),
                 'proposed_count' => $counts[self::PROPOSED] ?? 0,
                 'unmatched_count' => $counts[self::UNMATCHED] ?? 0,
                 'reseller_count' => $counts[self::RESELLER] ?? 0,
@@ -183,9 +172,7 @@ class AccountImportMatcher
                 'missing' => $matched['missing'],
                 'fetched_at' => $import->fetched_at ?? now(),
                 'connection_user' => $connectionUser,
-                'selections' => $selections ?: null,
             ]);
-            ServerAccountImport::query()->where('server_id', $import->server_id)->where('id', '<', $import->id)->delete();
 
             return true;
         });
@@ -242,7 +229,7 @@ class AccountImportMatcher
      */
     public function rematch(ServerAccountImport $import): void
     {
-        $accounts = $import->accounts ?? [];
+        $accounts = $import->accountRows();
 
         foreach ($accounts as &$row) {
             unset($row['category'], $row['client_id'], $row['product_id'], $row['service_id'], $row['note'], $row['differences']);
@@ -289,17 +276,6 @@ class AccountImportMatcher
         $text = __($key, $replace);
 
         return is_string($text) ? $text : $key;
-    }
-
-    /**
-     * What tells one account from a later one re-created under the same username: its creation time on the server,
-     * else its domain.
-     *
-     * @param  array<string, mixed>  $account
-     */
-    private static function fingerprint(array $account): string
-    {
-        return (string) ($account['created_at'] ?? $account['domain'] ?? '');
     }
 
     /**

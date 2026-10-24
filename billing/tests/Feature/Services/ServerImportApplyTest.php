@@ -122,7 +122,7 @@ function confirmedImport(Server $server, int $clientId, int $count, ?array $user
         'suspended' => false, 'suspend_reason' => null, 'created_at' => '2025-03-15T00:00:00+00:00', 'disk_used_mb' => 1, 'disk_limit_mb' => 10,
         'category' => 'proposed', 'client_id' => $clientId, 'product_id' => 21, 'service_id' => null, 'note' => null, 'differences' => []], $usernames);
     ServerAccountImport::query()->where('server_id', $server->id)->delete();
-    ServerAccountImport::query()->create(['server_id' => $server->id, 'status' => 'ready', 'accounts' => $accounts, 'account_count' => count($accounts), 'missing' => [],
+    importWithAccounts($accounts, ['server_id' => $server->id, 'status' => 'ready', 'account_count' => count($accounts), 'missing' => [],
         'connection_user' => 'root', 'selections' => array_fill_keys($usernames, ['include' => true]), 'fetched_at' => now(), 'expires_at' => now()->addDay()]);
     Queue::fake([ImportReviewedAccounts::class]);
     applyReviewed($server);
