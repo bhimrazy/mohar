@@ -6,7 +6,8 @@ use App\Contracts\Domains\DomainNameRules;
 
 /**
  * The one place that knows which country registries issue names only under fixed second levels. Orders reach it
- * through the DomainNameRules contract; the domain search and the registrar actions call it directly.
+ * through the DomainNameRules contract; the domain search and the registrar actions reach it through
+ * Tld::registryLevelHint().
  */
 class RegistryLevels implements DomainNameRules
 {

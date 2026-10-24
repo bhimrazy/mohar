@@ -26,6 +26,7 @@ use App\Modules\Orders\Http\Requests\StaffOrderRequest;
 use App\Modules\Orders\Http\Resources\OrderResource;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Services\CheckoutGateways;
+use App\Modules\Orders\Services\DomainGuard;
 use App\Modules\Orders\Services\InvoiceLinks;
 use App\Modules\Orders\Services\TldAttributeInput;
 use App\Support\Money;
@@ -137,15 +138,16 @@ class OrderController extends Controller
     public function store(StaffOrderRequest $request, PlaceOrder $placeOrder, TldAttributeInput $tldAttributes): RedirectResponse
     {
         $client = Client::query()->findOrFail($request->integer('client_id'));
+        $domainName = DomainGuard::normalise($request->string('domain_name')->toString());
         $item = new CartItem(
             key: CartItem::newKey(),
             kind: CartItemKind::Product,
             productId: $request->integer('product_id'),
             cycle: BillingCycle::from($request->string('cycle')->toString()),
             domainMode: $request->input('domain_mode') ?: null,
-            domainName: $request->filled('domain_name') ? $request->string('domain_name')->lower()->toString() : null,
+            domainName: $domainName === '' ? null : $domainName,
             eppCode: $request->input('epp_code') ?: null,
-            tldAttributes: $request->input('domain_mode') === 'register' ? $tldAttributes->clean($request->input('domain_name'), $request->input('tld_attributes'), 'domain_name') : [],
+            tldAttributes: $request->input('domain_mode') === 'register' ? $tldAttributes->clean($domainName === '' ? null : $domainName, $request->input('tld_attributes'), 'domain_name') : [],
         );
 
         $placed = $placeOrder->handle(new CheckoutData(

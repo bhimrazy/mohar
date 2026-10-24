@@ -143,7 +143,7 @@ class StoreController extends Controller
             'domain_name' => ['nullable', 'string', 'max:253'],
         ]);
 
-        $domain = $request->string('domain_name')->trim()->lower()->toString();
+        $domain = DomainGuard::normalise($request->string('domain_name')->toString());
         $item = new CartItem(
             key: 'preview',
             kind: CartItemKind::Product,

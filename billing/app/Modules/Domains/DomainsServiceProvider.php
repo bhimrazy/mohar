@@ -361,6 +361,10 @@ class DomainsServiceProvider extends ModuleServiceProvider
 
     private function registerSearchAndMergeFields(): void
     {
+        $this->app->make(ClientMergeRegistry::class)->participant('domains.domains', fn (int $sourceId): array => [
+            'label' => 'Domains',
+            'count' => Domain::withTrashed()->where('client_id', $sourceId)->count(),
+        ]);
         $this->app->make(ClientMergeRegistry::class)->participant('domains.registrar_refs', fn (int $sourceId): array => [
             'label' => 'Registrar customer and contact references',
             'count' => RegistrarRefRecord::query()->where('local_type', MoveRegistrarRefsOnClientMerge::LOCAL_TYPE)->where('local_id', $sourceId)->count(),

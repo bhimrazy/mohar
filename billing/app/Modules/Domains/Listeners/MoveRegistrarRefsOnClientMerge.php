@@ -4,9 +4,10 @@ namespace App\Modules\Domains\Listeners;
 
 use App\Events\Core\ClientMerged;
 use App\Modules\Domains\Models\RegistrarRefRecord;
+use Illuminate\Support\Facades\DB;
 
 /**
- * Registrar customer and contact refs follow the merged client. Where the target already has the same ref (same
+ * Domains (and their reminders) and registrar customer and contact refs follow the merged client, in that order. Where the target already has the same ref (same
  * registrar, type and payload), the target's is kept and the source's is dropped, so one client never maps to two
  * remote customers. Runs synchronously inside the merge transaction.
  */
@@ -17,6 +18,10 @@ class MoveRegistrarRefsOnClientMerge
 
     public function handle(ClientMerged $event): void
     {
+        // The domains move with their refs: drivers look a customer up by the domain's client.
+        DB::table('domains')->where('client_id', $event->sourceClientId)->update(['client_id' => $event->targetClientId, 'updated_at' => now()]);
+        DB::table('domain_reminders')->where('client_id', $event->sourceClientId)->update(['client_id' => $event->targetClientId]);
+
         RegistrarRefRecord::query()
             ->where('local_type', self::LOCAL_TYPE)->where('local_id', $event->sourceClientId)
             ->orderBy('id')->lockForUpdate()

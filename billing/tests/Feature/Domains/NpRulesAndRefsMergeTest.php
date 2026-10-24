@@ -6,7 +6,12 @@ use App\Data\Domains\Registrar\RegistrarRef;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\NullDomainNameRules;
+use App\Modules\Domains\Drivers\Registrars\ResellerClub\ResellerClubDriver;
+use App\Modules\Domains\Enums\DomainStatus;
+use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\Tld;
+use App\Modules\Domains\Services\RegistrarManager;
 use App\Support\Clients\ClientMergeRegistry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -63,4 +68,44 @@ test('registrar refs follow a merged client; the target keeps its own where both
         ->and($refs->find('resellerclub', 'customer', 'client', $other->id)?->remoteId)->toBe('other-cust')
         ->and(DB::table('registrar_refs')->where('local_id', $source->id)->count())->toBe(0)
         ->and(DB::table('registrar_refs')->count())->toBe(5);
+});
+
+test('a merged client\'s domains move with their refs, and the merge preview counts both', function () {
+    $source = Client::factory()->create();
+    $target = Client::factory()->create();
+    $domain = Domain::factory()->create(['client_id' => $source->id]);
+    $trashed = Domain::factory()->create(['client_id' => $source->id]);
+    $trashed->delete();
+    $kept = Domain::factory()->create(['client_id' => $target->id]);
+
+    $preview = collect(app(ClientMergeRegistry::class)->preview($source->id, $target->id))->keyBy('key');
+    expect($preview['domains.domains']['count'])->toBe(2);
+
+    actingAsStaff(['core.clients.view', 'core.clients.merge']);
+    confirmPassword();
+    $this->post(route('admin.platform.clients.merge', $source), ['target_id' => $target->id, 'confirmation' => 'MERGE'])->assertSessionHasNoErrors();
+
+    expect(Domain::withTrashed()->where('client_id', $target->id)->count())->toBe(3)
+        ->and(Domain::withTrashed()->where('client_id', $source->id)->count())->toBe(0)
+        ->and($domain->fresh()->client_id)->toBe($target->id);
+});
+
+test('a per-client ResellerClub domain still finds its customer after a merge, so linking an order works', function () {
+    RegistrarAccount::query()->updateOrCreate(['key' => ResellerClubDriver::KEY], ['is_active' => true, 'test_mode' => true, 'settings' => [
+        'demo_reseller_id' => '555555', 'demo_api_key' => 'k', 'customer_mode' => 'per_client',
+    ]]);
+    $source = Client::factory()->create();
+    $target = Client::factory()->create();
+    app(RegistrarRefs::class)->remember(new RegistrarRef('resellerclub', 'customer', 'client', $source->id, '14000009'));
+    $tld = Tld::factory()->extension('.com')->priced()->create(['registrar_key' => 'resellerclub']);
+    $domain = Domain::factory()->named('merged-sim', $tld)->create(['client_id' => $source->id, 'registrar_key' => 'resellerclub', 'status' => DomainStatus::Active]);
+    Http::fake(fn () => Http::response(['orderid' => '80000001', 'domainname' => 'merged-sim.com', 'currentstatus' => 'Active', 'resellerid' => '555555', 'customerid' => '14000009', 'endtime' => (string) (time() + 86400 * 200)]));
+    $lookup = fn () => app(ResellerClubDriver::class)->lookupOrder(app(RegistrarManager::class)->config('resellerclub'), $domain->fresh()->toRef(), '80000001');
+
+    actingAsStaff(['core.clients.view', 'core.clients.merge']);
+    confirmPassword();
+    $this->post(route('admin.platform.clients.merge', $source), ['target_id' => $target->id, 'confirmation' => 'MERGE'])->assertSessionHasNoErrors();
+
+    expect($domain->fresh()->client_id)->toBe($target->id)
+        ->and($lookup()->remote['order_id'])->toBe(80000001);
 });

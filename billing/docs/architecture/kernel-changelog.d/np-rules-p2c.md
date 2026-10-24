@@ -1,4 +1,4 @@
-### `DomainNameRules` (#TBD)
+### `DomainNameRules` (#471)
 
 - `App\Contracts\Domains\DomainNameRules::registryLevelError(string $domain): ?string` is new: the registry naming rule
   for a domain name (today the `.np` second levels), as a message or null. The Domains module implements it

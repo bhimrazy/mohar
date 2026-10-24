@@ -32,6 +32,22 @@ class TldRequest extends FormRequest
     }
 
     /**
+     * @return array<string, string>
+     */
+    public function attributes(): array
+    {
+        return ['how_to_url' => 'how-to link for clients'];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return ['how_to_url.url' => 'The how-to link must be a full https address, for example https://example.com/guide.'];
+    }
+
+    /**
      * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
