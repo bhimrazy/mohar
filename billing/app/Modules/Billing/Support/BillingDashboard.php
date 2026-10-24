@@ -133,8 +133,8 @@ class BillingDashboard
         $dashboard->todo('admin', 'billing.notes_refused', fn (?User $user): array => [
             'label' => 'Invoices a credit or debit note could not be issued for',
             'count' => app(NoteRefusals::class)->open(),
-            // Unpaid invoices are the ones a cancel or a late fee was refused on; the activity log names each and why.
-            'href' => route('admin.billing.invoices.index', ['status' => 'unpaid']),
+            // Just the refused invoices, until each is cancelled, paid or fixed; the activity log names each and why.
+            'href' => route('admin.billing.invoices.index', ['refused' => 1]),
             'tone' => 'warning',
             'icon' => 'AlertTriangle',
             'hint' => 'A cancellation or late fee was refused: open the invoice and see its activity',

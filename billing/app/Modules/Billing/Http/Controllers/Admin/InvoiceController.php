@@ -20,6 +20,7 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\NepalVatMode;
+use App\Modules\Billing\Services\NoteRefusals;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\PaymentInProgress;
 use App\Modules\Billing\Support\TaxNotePanel;
@@ -45,6 +46,8 @@ class InvoiceController extends Controller
             'gateway' => ['nullable', 'string', 'max:50'],
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date'],
+            // Only the invoices a cancel or a late fee was refused on (Needs attention), while they are still payable.
+            'refused' => ['nullable', 'boolean'],
         ]);
 
         $invoices = Invoice::query()
@@ -55,6 +58,7 @@ class InvoiceController extends Controller
             ->when($filters['gateway'] ?? null, fn ($query, $gateway) => $query->where('payment_gateway', $gateway))
             ->when($filters['from'] ?? null, fn ($query, $from) => $query->whereDate('issue_date', '>=', $from))
             ->when($filters['to'] ?? null, fn ($query, $to) => $query->whereDate('issue_date', '<=', $to))
+            ->when($filters['refused'] ?? null, fn ($query) => $query->whereIn('id', app(NoteRefusals::class)->invoiceIds()))
             ->latest('id')
             ->paginate(25)
             ->withQueryString();
