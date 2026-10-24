@@ -1,5 +1,6 @@
 <?php
 
+use App\Modules\Kyc\Http\Controllers\Admin\OrphanFileController;
 use App\Modules\Kyc\Http\Controllers\Admin\ReviewController;
 use App\Modules\Kyc\Http\Controllers\Client\VerificationController;
 use App\Modules\Kyc\Http\Middleware\EnsureKycEnabled;
@@ -16,6 +17,8 @@ Route::clientArea(function (): void {
 Route::adminArea(function (): void {
     Route::prefix('kyc')->name('kyc.')->group(function (): void {
         Route::get('/', [ReviewController::class, 'index'])->name('index');
+        Route::get('orphan-files', [OrphanFileController::class, 'index'])->name('orphans.index');
+        Route::delete('orphan-files', [OrphanFileController::class, 'destroy'])->middleware('password.recent')->name('orphans.destroy');
         Route::get('clients/{client}', [ReviewController::class, 'show'])->whereNumber('client')->name('show');
         Route::post('clients/{client}/unlock', [ReviewController::class, 'unlock'])->whereNumber('client')->middleware('password.recent')->name('unlock');
         Route::post('clients/{client}/lock', [ReviewController::class, 'lock'])->whereNumber('client')->name('lock');

@@ -112,6 +112,22 @@ logged with the document id only (never the path) and retried the next day. At m
 the next day. It reads `kyc_documents_delete_after_index` (superseded rows get `delete_after` = the day they are
 replaced), skips current documents whose client is no longer closed, and is idempotent.
 
+`kyc.find_orphan_files` (housekeeping, #298) finds image files under `kyc/<client id>/` that no document refers to (an
+upload whose process was killed between storing a file and writing its row skips `StoreDocument`'s cleanup) and
+records them in `kyc_orphan_files`. **It never deletes a file** (CTO decision on #460): a database that does not own
+the bucket (restored, older, or a second install sharing it) would see the owner's files as orphans. A file is a
+candidate only when it is named `kyc/<id>/<name>`, is older than `kyc.orphan_min_age_hours` (24, never less), and no
+document (by path, on any client) or re-encoder rewrite refers to it. One run reads the `kyc/` listing once and checks
+at most `kyc.orphan_scan_limit` (5,000) files after a stored cursor; records of files referenced again are dropped,
+and a full pass drops records of files that are gone. The log has counts only.
+
+The count shows under Needs attention and on the identity verification page for staff with `kyc.documents.review`.
+They open Identity verification → Images without a document (client name, when the file was written, first found,
+last checked; never the path) and delete the listed files after a password step-up and a typed confirmation. The
+delete acts only on the list the page showed (a digest of ids and paths; a changed list is refused), checks each file
+again under its client's row lock (reference by path, rewrite journal, age), keeps any file referred to by then, and
+writes one activity entry with the count and client ids.
+
 ## 7. Staff review
 
 - Two new **sensitive** permissions (no wildcard grants them, only the exact key or `*`), owner decision 2026-10-21:

@@ -23,6 +23,7 @@ use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ChunkedDelete;
 use App\Modules\Core\Support\ClientContext;
+use App\Modules\Core\Support\RetentionRunDate;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Actions\ApplyExpiryLifecycle;
 use App\Modules\Domains\Actions\ConvertTldPrices;
@@ -183,7 +184,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
             : 'disabled', label: 'Convert domain prices', description: 'Recalculates TLD prices in other currencies from the default currency at current rates (when automatic conversion is on).');
 
         $automation->task('domains.command_log_prune', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => ChunkedDelete::run(RegistrarCommandLog::query()
-            ->where('created_at', '<', $this->app->make(CompanyClock::class)->dayBounds($today->addDays(-(int) $this->app->make(Settings::class)->get('domains.command_log_retention_days', 90)))[0])), label: 'Prune the registrar log', description: 'Deletes registrar command log entries older than the retention period.');
+            ->where('created_at', '<', $this->app->make(CompanyClock::class)->dayBounds(RetentionRunDate::of($today)->addDays(-(int) $this->app->make(Settings::class)->get('domains.command_log_retention_days', 90)))[0])), label: 'Prune the registrar log', description: 'Deletes registrar command log entries older than the retention period.');
     }
 
     private function registerNavigation(): void

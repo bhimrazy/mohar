@@ -36,7 +36,8 @@ class ActivityLogController extends Controller
             ->when($filters['from'] ?? null, fn ($query, string $from) => $query->where('created_at', '>=', $from.' 00:00:00'))
             ->when($filters['to'] ?? null, fn ($query, string $to) => $query->where('created_at', '<=', $to.' 23:59:59'))
             ->latest('id')
-            ->paginate(25)
+            // No count(*) over the whole log (#49).
+            ->simplePaginate(25)
             ->withQueryString();
 
         return Inertia::render('admin/platform/activity/index', [

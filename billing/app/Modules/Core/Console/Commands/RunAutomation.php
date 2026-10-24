@@ -5,6 +5,7 @@ namespace App\Modules\Core\Console\Commands;
 use App\Contracts\Core\CompanyClock;
 use App\Events\Core\AutomationRunCompleted;
 use App\Modules\Core\Models\AutomationRun;
+use App\Modules\Core\Support\AutomationLogRetention;
 use App\Support\Automation\Automation;
 use App\Support\CalendarDate;
 use App\Support\Integrations\Redactor;
@@ -64,6 +65,16 @@ class RunAutomation extends Command
             $date = $this->option('date') ? CalendarDate::parse((string) $this->option('date')) : $clock->calendarDate();
         } catch (InvalidArgumentException $exception) {
             $this->components->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
+
+        $retention = app(AutomationLogRetention::class);
+
+        // Older run rows are pruned, so such a date would run every task again (ADR 0013 Amendment (#460)).
+        if (! $retention->mayRun($date, $clock->calendarDate())) {
+            $pruned = $retention->prunedThrough();
+            $this->components->error('Run dates before '.$retention->oldestRunDate($clock->calendarDate()).($pruned === null ? '' : ", or on or before {$pruned},").' are past the automation log retention and cannot be run.');
 
             return self::FAILURE;
         }

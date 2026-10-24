@@ -9,7 +9,9 @@ use App\Models\User;
 use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Support\ChunkedDelete;
 use App\Modules\Core\Support\Like;
+use App\Modules\Core\Support\RetentionRunDate;
 use App\Modules\Core\Support\Settings;
+use App\Modules\Platform\Actions\Housekeeping\PruneSystemTables;
 use App\Modules\Platform\Drivers\ExchangeRates\EcbRateSource;
 use App\Modules\Platform\Drivers\ExchangeRates\NrbRateSource;
 use App\Modules\Platform\Http\Middleware\EnforceLoginLockout;
@@ -152,8 +154,8 @@ class PlatformServiceProvider extends ModuleServiceProvider
     private function registerAutomation(): void
     {
         $automation = $this->app->make(Automation::class);
-        // Retention cutoffs compare timestamps, so they start at the company midnight.
-        $cutoff = fn (CalendarDate $today, int $days): CarbonImmutable => $this->app->make(CompanyClock::class)->dayBounds($today->addDays(-$days))[0];
+        // Retention cutoffs compare timestamps, so they start at the company midnight; a future run date counts from today.
+        $cutoff = fn (CalendarDate $today, int $days): CarbonImmutable => $this->app->make(CompanyClock::class)->dayBounds(RetentionRunDate::of($today)->addDays(-$days))[0];
 
         $automation->task('platform.prune_invitations', Automation::HOUSEKEEPING, fn (CalendarDate $today): string => trans_choice(
             '{0} no invitations pruned|{1} 1 invitation pruned|[2,*] :count invitations pruned',
@@ -172,6 +174,14 @@ class PlatformServiceProvider extends ModuleServiceProvider
 
             return trans_choice('{0} no entries pruned|{1} 1 entry pruned|[2,*] :count entries pruned', $count);
         }, label: 'Prune the activity log', description: 'Deletes activity log entries older than the retention period (client entries are kept).');
+
+        $system = fn (): PruneSystemTables => $this->app->make(PruneSystemTables::class);
+        $automation->task('platform.prune_automation_log', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => $system()->automationLog(RetentionRunDate::of($today)),
+            label: 'Prune the automation log', description: 'Deletes automation runs older than the retention period; each task keeps its latest run.');
+        $automation->task('platform.prune_queue_tables', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => $system()->queueTables(RetentionRunDate::of($today)),
+            label: 'Delete old failed jobs', description: 'Deletes failed background jobs, and finished job batches, older than the retention period.');
+        $automation->task('platform.prune_cache', Automation::HOUSEKEEPING, fn (): int => $system()->expiredCache(),
+            label: 'Delete expired cache entries', description: 'Removes expired entries and locks from the database cache.');
     }
 
     /**
@@ -253,6 +263,8 @@ class PlatformServiceProvider extends ModuleServiceProvider
             new SettingDefinition('platform.invitation_expiry_days', 'Invitation links work for (days)', 'integer', 'Staff and client-login invitations. A new invitation replaces the old link.', rules: ['min:1', 'max:30']),
             // Shortening retention prunes staff and security events, so it is a security setting.
             new SettingDefinition('platform.activity_log_retention_days', 'Activity log retention (days)', 'integer', 'Entries not tied to a client are pruned after this many days.', rules: ['min:30', 'max:3650']),
+            new SettingDefinition('platform.automation_log_retention_days', 'Automation log retention (days)', 'integer', 'Daily automation runs are deleted after this many days; each task keeps its latest run (90 to 3,650).', rules: ['min:90', 'max:3650']),
+            new SettingDefinition('platform.failed_jobs_retention_days', 'Failed background jobs retention (days)', 'integer', 'Failed jobs can no longer be retried once deleted (7 to 365).', rules: ['min:7', 'max:365']),
         ], 'core.settings.security');
     }
 

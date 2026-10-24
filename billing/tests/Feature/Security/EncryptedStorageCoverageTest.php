@@ -78,6 +78,7 @@ test('nothing else derives stored values from APP_KEY', function () {
         'Modules/Core/Security/Reencryptor.php' => 'the re-encryption itself',
         'Modules/Core/Support/AccountLinks.php' => 'signed links, which the previous keys still verify',
         'Modules/Kyc/Actions/DecideDocument.php' => 'a confirm-then-apply digest, valid for one decision',
+        'Modules/Kyc/Actions/DeleteOrphanFiles.php' => 'a confirm-then-apply digest of the listed files, valid for one deletion',
         'Modules/Billing/Drivers/Gateways/SandboxCardDriver.php' => 'the sandbox gateway, development only',
         'Modules/Core/Support/InstallSecrets.php' => 'passes the configured keys to a secret\'s initial value, once',
     ];

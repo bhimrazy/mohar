@@ -25,6 +25,7 @@ use App\Events\Billing\PaymentReversed;
 use App\Events\Billing\QuoteAccepted;
 use App\Events\Orders\OrderAccepted;
 use App\Models\User;
+use App\Modules\Billing\Actions\PruneGatewayLog;
 use App\Modules\Billing\Drivers\Gateways\BankTransferDriver;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\ManualDriver;
@@ -59,7 +60,9 @@ use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\InvoiceBsDates;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Core\Support\RetentionRunDate;
 use App\Support\Automation\Automation;
+use App\Support\CalendarDate;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
@@ -215,6 +218,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $automation->task('billing.payment_reconciliation', Automation::SYNC, fn (CarbonImmutable $today): int => $this->app->make(PaymentReconciler::class)->run(), label: 'Reconcile gateway payments', description: 'Looks up pending and unclear gateway payments whose customer never returned.');
         $automation->task('billing.auto_cancel', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $tasks()->autoCancel($today), label: 'Cancel unpaid overdue invoices', description: 'Cancels overdue invoices that have no payments and no credit applied.');
         $automation->task('billing.housekeeping', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $tasks()->housekeeping($today), label: 'Expire old quotes', description: 'Marks quotes past their validity date as expired.');
+        $automation->task('billing.gateway_log_prune', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => $this->app->make(PruneGatewayLog::class)->handle(RetentionRunDate::of($today)), label: 'Prune the gateway log', description: 'Deletes gateway log entries older than the retention period.');
     }
 
     private function registerNavigation(): void
@@ -404,6 +408,12 @@ class BillingServiceProvider extends ModuleServiceProvider
             $bool('pdf.attach_to_emails', 'Attach PDFs to invoice emails'),
             new SettingDefinition('billing.pdf.paper', 'PDF paper size', 'select', options: ['A4' => 'A4', 'letter' => 'Letter']),
         ], 'billing.settings.manage');
+
+        // Shortening it deletes payment evidence, so it sits in the security tier (recent password), like the
+        // activity log retention.
+        $this->app->make(SettingsRegistry::class)->section('billing_retention', 'Payment log retention', [
+            new SettingDefinition('billing.gateways.log_retention_days', 'Keep the gateway log for (days)', 'integer', 'Gateway requests, responses and callbacks older than this are deleted by the daily automation (90 to 3,650).', rules: ['min:90', 'max:3650']),
+        ], 'core.settings.security');
     }
 
     private function registerSearch(): void

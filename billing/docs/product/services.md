@@ -199,6 +199,8 @@ Single orchestrator command `automation:daily` runs steps in order; each step re
 1 services:generate-renewals (+ domains renewals) → 2 billing late fees → 3 billing auto-capture → 4 billing reminders → 5 services:process-cancellations →
 6 services:auto-suspend → 7 services:auto-terminate → 8 services:fixed-term → 9 services:complete-limited → 10 billing auto-cancel invoices →
 11 services:usage-sync (SHOULD) → 12 module log prune. Capture before suspension gives auto-pay clients a chance before being suspended. **MUST**
+Usage snapshots older than `services.usage.retention_days` (395, at least 90) are deleted by `services.usage_prune`; each
+service keeps its latest snapshot, which the service pages show. At most 100,000 rows a run (#49).
 
 ## 11. Admin capabilities
 

@@ -6,6 +6,7 @@ use App\Contracts\Auth\AuthMailer;
 use App\Contracts\Notifications\EmailTemplates;
 use App\Contracts\Notifications\SystemMailer;
 use App\Models\User;
+use App\Modules\Core\Support\RetentionRunDate;
 use App\Modules\Notifications\Actions\PruneNotificationLogs;
 use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Install\DefaultTemplates;
@@ -91,7 +92,7 @@ class NotificationsServiceProvider extends ModuleServiceProvider
 
         $this->app->make(ReferenceDataRegistry::class)->register(DefaultTemplates::KEY, DefaultTemplates::class, order: 100);
 
-        $this->app->make(Automation::class)->task('notifications.prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneNotificationLogs::class)->handle($today));
+        $this->app->make(Automation::class)->task('notifications.prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneNotificationLogs::class)->handle(RetentionRunDate::ofCarbon($today)));
     }
 
     private function registerNavigation(): void
