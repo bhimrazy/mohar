@@ -72,6 +72,7 @@ type AccountRow = {
         server: string;
         local: string;
         digest: string;
+        warning: string | null;
     }[];
     include: boolean;
     chosen: {
@@ -117,7 +118,7 @@ type Props = {
     included: number;
     productOptions: { id: number; name: string }[];
     cycles: SelectOption[];
-    pricedCycles: Record<string, Record<string, string[]>>;
+    pricedCycles: Record<string, Record<string, string[]>> | null;
 };
 
 const TABS: { value: Tab; label: string }[] = [
@@ -195,6 +196,7 @@ const accountColumns = (
     choose: (row: AccountRow) => void,
     setIgnored: (row: AccountRow, ignored: boolean) => void,
     accept: (row: AccountRow, change: AccountRow['accept'][number]) => void,
+    fetchedAt: string | null,
 ): DataTableColumn<AccountRow>[] => [
     {
         key: 'include',
@@ -305,22 +307,32 @@ const accountColumns = (
                         )}
                     </Muted>
                 )}
+                {row.accept.length > 0 && (
+                    <Muted>
+                        Server values as of <DateTime value={fetchedAt} />
+                    </Muted>
+                )}
                 {row.accept.map((change) => (
-                    <Button
+                    <span
                         key={change.field}
-                        size="sm"
-                        variant="outline"
-                        onClick={() => accept(row, change)}
-                        title={`Set ${change.label.toLowerCase()} here to the server's value. Nothing is sent to the server.`}
+                        className="flex flex-col items-start gap-1"
                     >
-                        {change.field === 'status'
-                            ? change.server === 'Suspended'
-                                ? 'Suspend here too'
-                                : 'Mark active here'
-                            : change.field === 'ip'
-                              ? `Use IP ${change.server}`
-                              : `Use domain ${change.server}`}
-                    </Button>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => accept(row, change)}
+                            title={`Set ${change.label.toLowerCase()} here to the server's value. Nothing is sent to the server.`}
+                        >
+                            {change.field === 'status'
+                                ? change.server === 'suspended'
+                                    ? 'Suspend here too'
+                                    : 'Mark active here'
+                                : change.field === 'ip'
+                                  ? `Use IP ${change.server}`
+                                  : `Use domain ${change.server}`}
+                        </Button>
+                        {change.warning && <Muted>{change.warning}</Muted>}
+                    </span>
                 ))}
                 {row.category === 'ignored' && (
                     <Muted>
@@ -811,6 +823,8 @@ export default function ServerImport({
                                             { preserveScroll: true },
                                         ),
                                     (row, change) =>
+                                        (!change.warning ||
+                                            window.confirm(change.warning)) &&
                                         router.post(
                                             ServerImportController.accept(
                                                 server.id,
@@ -822,6 +836,7 @@ export default function ServerImport({
                                             },
                                             { preserveScroll: true },
                                         ),
+                                    fetched?.fetched_at ?? null,
                                 )}
                                 rows={rows.data as AccountRow[]}
                                 getRowKey={(row) => row.username}
@@ -863,7 +878,7 @@ export default function ServerImport({
                 onClose={() => setChoosing(null)}
                 productOptions={productOptions}
                 cycles={cycles}
-                pricedCycles={pricedCycles}
+                pricedCycles={pricedCycles ?? undefined}
             />
         </>
     );

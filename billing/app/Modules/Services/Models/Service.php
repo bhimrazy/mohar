@@ -254,4 +254,23 @@ class Service extends Model
             }
         });
     }
+
+    /** The reason prefix of an account that was suspended on the server when imported (or accepted from it). */
+    public const IMPORTED_SUSPENSION_PREFIX = 'staff:imported';
+
+    /**
+     * Why the service is suspended, for the client area: overdue (an invoice), imported (suspended on the hosting
+     * server), other; null when it is not suspended.
+     *
+     * @return 'overdue'|'imported'|'other'|null
+     */
+    public function suspensionKind(): ?string
+    {
+        return match (true) {
+            $this->status !== ServiceStatus::Suspended => null,
+            in_array($this->suspension_reason, ['overdue', 'addon_overdue'], true) => 'overdue',
+            str_starts_with(mb_strtolower((string) $this->suspension_reason), self::IMPORTED_SUSPENSION_PREFIX) => 'imported',
+            default => 'other',
+        };
+    }
 }

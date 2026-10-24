@@ -200,6 +200,9 @@ class AccountImportMatcher
             $handover = $this->handover->take($import, $matched['rows']);
             $this->list->replace($import, $matched['rows']);
             $this->list->applyIgnores($import);
+            // A full fetch is the whole server: an ignore for an account no longer on it is dropped.
+            DB::table('server_import_ignores')->where('server_id', $import->server_id)
+                ->whereNotIn('username', DB::table('server_account_import_accounts')->where('server_account_import_id', $import->id)->select('username'))->delete();
             $counts = $this->list->counts($import);
             $import->fill($handover)->update([
                 'status' => ServerAccountImport::READY,
@@ -314,6 +317,8 @@ class AccountImportMatcher
                 return;
             }
 
+            // An account that was linked and is free again comes back ignored when the server's list says so.
+            $this->list->applyIgnores($import);
             $counts = $this->list->counts($import);
             $import->update([
                 'status' => ServerAccountImport::READY, 'account_count' => array_sum($counts),

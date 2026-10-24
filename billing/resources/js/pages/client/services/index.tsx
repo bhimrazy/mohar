@@ -34,9 +34,7 @@ export default function ClientServicesIndex({ services, filters }: Props) {
     const attention = suspended.length;
     // Only an overdue invoice is cleared by paying; a service suspended for another reason needs support.
     const overdue = suspended.filter(
-        (service) =>
-            service.suspension_reason === 'overdue' ||
-            service.suspension_reason === 'addon_overdue',
+        (service) => service.suspension_kind === 'overdue',
     ).length;
 
     return (

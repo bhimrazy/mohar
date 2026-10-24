@@ -14,7 +14,7 @@ use Illuminate\Validation\ValidationException;
  * Import accounts (cPanel spec §10, #140): staff mark accounts they will never import (a test account, a customer
  * who left) as ignored, or bring them back. An ignored account leaves the work list and "Select all proposed", cannot
  * be ticked, and stays ignored in later fetches: the choice is kept per server and username (server_import_ignores).
- * An account a service already holds is never ignored.
+ * An account a service already holds is never ignored. Ignoring unticks an account but keeps its other choices.
  */
 class IgnoreImportAccounts
 {
@@ -43,8 +43,15 @@ class IgnoreImportAccounts
             $names = $ignored ? $after : $usernames;
 
             if ($ignored) {
-                // An ignored account is no longer ticked.
-                $selections = array_diff_key($import->selections ?? [], array_flip($after));
+                // An ignored account is no longer ticked; its client, product and cycle choices are kept for Bring back.
+                $selections = $import->selections ?? [];
+
+                foreach ($after as $username) {
+                    if (isset($selections[$username])) {
+                        $selections[$username]['include'] = false;
+                    }
+                }
+
                 $import->update(['selections' => $selections ?: null]);
                 DB::table('server_import_ignores')->insertOrIgnore(array_map(fn (string $username): array => [
                     'server_id' => $server->id, 'username' => $username, 'created_by' => $staff?->id, 'created_at' => now(),

@@ -33,7 +33,7 @@ class AcceptServerValues
      * What the server says differently from the service, for the fields staff may accept.
      *
      * @param  array<string, mixed>  $account  the stored account
-     * @return list<array{field: string, label: string, server: string, local: string}>
+     * @return list<array{field: string, label: string, server: string, local: string, warning?: string|null}>
      */
     public static function changes(array $account, Service $service): array
     {
@@ -53,9 +53,11 @@ class AcceptServerValues
         $suspended = (bool) ($account['suspended'] ?? false);
 
         if ($suspended && $service->status === ServiceStatus::Active) {
-            $changes[] = ['field' => 'status', 'label' => AccountImportMatcher::text('Status'), 'server' => AccountImportMatcher::text('Suspended'), 'local' => AccountImportMatcher::text('Active')];
+            $changes[] = ['field' => 'status', 'label' => AccountImportMatcher::text('Status'), 'server' => ServiceStatus::Suspended->value, 'local' => ServiceStatus::Active->value, 'warning' => null];
         } elseif (! $suspended && $service->status === ServiceStatus::Suspended) {
-            $changes[] = ['field' => 'status', 'label' => AccountImportMatcher::text('Status'), 'server' => AccountImportMatcher::text('Active'), 'local' => AccountImportMatcher::text('Suspended')];
+            // Mohar suspended it for an unpaid invoice: reactivating it only lasts until the next automation run.
+            $changes[] = ['field' => 'status', 'label' => AccountImportMatcher::text('Status'), 'server' => ServiceStatus::Active->value, 'local' => ServiceStatus::Suspended->value,
+                'warning' => $service->suspensionKind() === 'overdue' ? AccountImportMatcher::text('This service is suspended for an overdue invoice. It is suspended again, and the client emailed, by the next automation run until the invoice is paid.') : null];
         }
 
         return $changes;
@@ -127,7 +129,7 @@ class AcceptServerValues
     private function setStatus(Service $service, array $account): void
     {
         $suspended = (bool) ($account['suspended'] ?? false);
-        $note = $suspended ? 'Accepted from the server (suspended there'.(($account['suspend_reason'] ?? null) ? ': '.$account['suspend_reason'] : '').')' : 'Accepted from the server (active there)';
+        $note = $suspended ? 'imported (accepted from the server: suspended there'.(($account['suspend_reason'] ?? null) ? ': '.$account['suspend_reason'] : '').')' : 'imported (accepted from the server: active there)';
 
         try {
             $this->status->handle($service, $suspended ? ServiceStatus::Suspended : ServiceStatus::Active, mb_substr($note, 0, 180));

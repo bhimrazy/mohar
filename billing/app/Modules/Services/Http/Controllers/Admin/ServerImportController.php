@@ -102,7 +102,8 @@ class ServerImportController extends Controller
             'included' => count(array_filter($import === null ? [] : ($import->selections ?? []), fn (array $choice): bool => (bool) ($choice['include'] ?? false))),
             'productOptions' => $ready ? $plan->productOptions($server) : [],
             'cycles' => AccountImportPlan::cycles(),
-            'pricedCycles' => $ready ? $plan->pricedCycles($server, array_values(array_map(fn (Currency $currency): string => $currency->code, Currency::query()->get(['code'])->all()))) : (object) [],
+            // Once: the prices do not change while staff filter and page, so later visits do not ask for them again.
+            'pricedCycles' => $ready ? Inertia::once(fn (): array => $plan->pricedCycles($server, array_values(array_map(fn (Currency $currency): string => $currency->code, Currency::query()->get(['code'])->all())))) : null,
         ]);
     }
 
@@ -296,7 +297,7 @@ class ServerImportController extends Controller
             ->where('server_id', $server->id)->whereIn('status', ServiceStatus::occupyingValues())
             // Older services may hold a username in another case; the panel's names are lowercase (as the match compares).
             ->whereRaw('lower(username) in ('.implode(', ', array_fill(0, max(1, count($slice)), '?')).')', array_column($slice, 'username') ?: [''])
-            ->get(['id', 'client_id', 'product_id', 'product_name', 'domain', 'username', 'status', 'driver_data'])->keyBy(fn (Service $service): string => strtolower((string) $service->username));
+            ->get(['id', 'client_id', 'product_id', 'product_name', 'domain', 'username', 'status', 'driver_data', 'suspension_reason'])->keyBy(fn (Service $service): string => strtolower((string) $service->username));
         $canAccept = (bool) request()->user()?->hasPermission('services.services.manage');
         $choices = $import->selections ?? [];
         $slice = array_map(fn (array $row): array => [...$row,

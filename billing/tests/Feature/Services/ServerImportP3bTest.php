@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\ActivityLogger;
@@ -142,7 +143,7 @@ test('ignoring removes an account from the work list, it cannot be ticked, and i
 
     $this->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['charlie'], 'include' => true]);
     $this->put(route('admin.services.servers.import.select', $this->server), ['proposed' => true]);
-    expect(ServerAccountImport::query()->sole()->selections)->toBeEmpty();
+    expect(array_filter(ServerAccountImport::query()->sole()->selections ?? [], fn (array $choice): bool => $choice['include'] ?? false))->toBeEmpty();
 
     $this->post(route('admin.services.servers.import.fetch', $this->server))->assertSessionHasNoErrors();
     expect(array_keys(p3bRows($this->server, ['tab' => 'ignored'])))->toBe(['alpha', 'charlie'])
@@ -215,7 +216,7 @@ test('Match again writes only the accounts whose answer changed, keeps ignored a
     // bravo and charlie are stored as a match would give them now; only alpha gained a client.
     $writes = [];
     DB::listen(function ($query) use (&$writes): void {
-        if (str_starts_with($query->sql, 'update "server_account_import_accounts"')) {
+        if (str_starts_with($query->sql, 'update "server_account_import_accounts" set') && str_contains($query->sql, '"payload"')) {
             $writes[] = $query->bindings;
         }
     });
@@ -259,4 +260,53 @@ test('fetching again after a failed list starts clean', function () {
     $this->post(route('admin.services.servers.import.fetch', $this->server))->assertSessionHasNoErrors();
 
     expect(FetchAccountsForImport::latest($this->server)->status)->toBe('ready');
+});
+
+test('accepting active on a service suspended for an overdue invoice warns, and the client sees a kind, not the reason', function () {
+    $service = p3bLinkedService($this->server, $this->anna);
+    $service->update(['status' => ServiceStatus::Suspended, 'suspended_at' => now(), 'suspension_reason' => 'overdue']);
+    p3bList($this->server, [p3bAccount('alpha', ['category' => 'linked', 'domain' => 'old.example.test'])]);
+
+    $change = collect(p3bRows($this->server)['alpha']['accept'])->firstWhere('field', 'status');
+
+    expect($change)->toMatchArray(['server' => 'active', 'local' => 'suspended'])
+        ->and($change['warning'])->toContain('overdue invoice');
+
+    $this->post(route('admin.services.servers.import.accept', $this->server), ['username' => 'alpha', 'fields' => ['status'], 'digest' => $change['digest']])->assertSessionHasNoErrors();
+    expect($service->refresh()->status)->toBe(ServiceStatus::Active)->and($service->suspension_reason)->toBeNull();
+
+    $service->update(['status' => ServiceStatus::Suspended, 'suspension_reason' => 'staff:imported (suspended on the server: abuse note for staff)']);
+    $user = User::factory()->create();
+    $this->anna->users()->attach($user, ['is_owner' => true, 'permissions' => json_encode(['*'])]);
+    $this->actingAs($user);
+
+    $this->get(route('client.services.index'))->assertInertia(fn (Assert $page) => $page
+        ->where('services.data.0.suspension_kind', 'imported')
+        ->missing('services.data.0.suspension_reason'));
+});
+
+test('an ignore survives a Match again that finds the account free again, and Ignore keeps the other choices', function () {
+    $import = p3bList($this->server, [p3bAccount('alpha', ['category' => 'proposed', 'client_id' => $this->anna->id, 'product_id' => 21, 'email' => 'anna@alpha-books.com'])], ['status' => 'matching']);
+    DB::table('server_import_ignores')->insert(['server_id' => $this->server->id, 'username' => 'alpha', 'created_at' => now()]);
+
+    (new FetchServerAccounts($import->id, rematch: true))->handle(...p3bFetchDependencies());
+    expect(app(AccountList::class)->rows($import)['alpha']['category'])->toBe('ignored');
+
+    $import->update(['selections' => ['alpha' => ['include' => true, 'cycle' => 'annually']]]);
+    app(AccountList::class)->setIgnored($import, ['alpha'], false);
+    $this->put(route('admin.services.servers.import.ignore', $this->server), ['usernames' => ['alpha'], 'ignored' => true])->assertSessionHasNoErrors();
+
+    expect($import->refresh()->selections)->toBe(['alpha' => ['include' => false, 'cycle' => 'annually']]);
+});
+
+test('a full fetch drops the ignore of an account that is no longer on the server', function () {
+    DB::table('server_import_ignores')->insert([
+        ['server_id' => $this->server->id, 'username' => 'gone', 'created_at' => now()],
+        ['server_id' => $this->server->id, 'username' => 'alpha', 'created_at' => now()],
+    ]);
+    Whm::fake(['listaccts' => Whm::fixture('listaccts_example', ['data' => ['acct' => Whm::fixture('listaccts_page1')['data']['acct']]])]);
+
+    $this->post(route('admin.services.servers.import.fetch', $this->server))->assertSessionHasNoErrors();
+
+    expect(DB::table('server_import_ignores')->pluck('username')->all())->toBe(['alpha']);
 });
