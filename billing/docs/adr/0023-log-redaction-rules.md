@@ -372,21 +372,22 @@ missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this s
   pair's name or span markup: a quoted or bracketed value a separator follows (`"password":`), and a quoted one that
   holds `<`. Any secret pair inside the masked value that reaches past it (`1&hash:Bearer x`) extends the mask to its
   own end.
-- **Text joined to a mask.** A value that starts with a mask, or one whose mask ends before a soft end, takes the token
-  runs joined to it (`[redacted]PRE4`, `[redacted];cd`) while a blank, `<`, `>`, `&`, `,`, `;`, `)`, `}` or the end
-  follows each run. A run that ends at `:`, a quote, `]` or `=` with more text may hold a pair's name, so it is left
-  to the scan.
+- **A mask inside a value counts as value characters** (the set's, or one a provider wrote). The value ends where it
+  would without the set: `password=[redacted]PRE4` and `pw=ab[redacted];cd` are masked whole, as `password=xPRE4` and
+  `pw=abx;cd` are. A secret pair inside such a value that the scan would have read after the mask (`[redacted];
+  token=[a b]`) extends the mask to its own end, as for tail values.
 - **`content`** is masked like `value` on an element labelled secret by `key` or `name` (`<meta name="api_key"
   content="…">`). It does not make the label readable.
 - **CDATA in a value.** An unquoted value that reaches `<![CDATA[` takes the section. It ends after `]]>`, or at the
   end of the text when unterminated. A section that holds a quote, bracket, `&`, `\`, `<` or `cookie` could start a
   pair the scan reads past `]]>`, so the value ends before such a section, as before.
 - **Proof.** Differential fuzz of the head against develop `891c2035`, comparing raw strings on five surfaces with six
-  secret sets, finds no token develop masked and the head shows. The 4 MB adversarial shapes scale linearly; the
-  numbers are in #462.
+  secret sets, finds no token develop masked and the head shows. Comparing develop's `redactPayment()` without a set
+  against the head's with the gateway's set shows one kind of difference: a configured value that itself reads as a
+  secret name (`PARSECRET1]: …`) no longer labels the text after it once it is masked. The 4 MB adversarial shapes
+  scale linearly; the numbers are in #462.
 - **Known gaps.**
     - A Fiber suspended inside an unwrap keeps the outermost call open, so unrelated calls made meanwhile share its
       node budget. This over-masks and never leaks, and nothing in the app suspends a fiber inside an unwrap.
-    - Text joined to a mask that ends at `:`, a quote or `]` stays readable unless another rule masks it.
     - A CDATA section of the excluded kind after a value stays as readable as before.
     - The `emergency` logger is not tapped (as Consequences says).

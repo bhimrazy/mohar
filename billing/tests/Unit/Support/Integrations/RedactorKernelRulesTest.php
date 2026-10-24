@@ -258,12 +258,14 @@ test('PR452-S1: a value after a swallowed secret label is masked in every shape 
     'a JSON object' => ['pw=ab;token: {"a":"PR452S1I"}', 'PR452S1I'],
 ]);
 
-test('PR452-S3: text joined to a mask, a labelled content attribute and CDATA in a value are masked', function (string $input, array $secrets, string $leak) {
+test('PR452-S3: text after a mask in a value, a labelled content attribute and CDATA in a value are masked', function (string $input, array $secrets, string $leak) {
     expect((new Redactor)->maskValues($input, $secrets))->not->toContain($leak);
 })->with([
     'suffix after a masked value' => ['password=FZSECRETpw77PR452S3A', ['FZSECRETpw77'], 'PR452S3A'],
     'suffix after a mask in the text' => ['password=[redacted]PR452S3B', [], 'PR452S3B'],
     'soft end after a masked value' => ['pw=abFZSECRETpw77;cdPR452S3C', ['FZSECRETpw77'], 'PR452S3C'],
+    'colon after a masked value' => ['password=hunter2:PR452S3H&next=1', ['hunter2'], 'PR452S3H'],
+    'a pair inside a value that holds a mask' => ['pw=abFZSECRETpw77;token=[a PR452S3I]', ['FZSECRETpw77'], 'PR452S3I'],
     'meta content' => ['<!doctype html><meta name="api_key" content="PR452S3D">', [], 'PR452S3D'],
     'CDATA after a value' => ['token: x<![CDATA[PR452S3E]]>', [], 'PR452S3E'],
     'CDATA in a tail value' => ['pw=a;token: x<![CDATA[PR452S3F]]>', [], 'PR452S3F'],

@@ -13,5 +13,5 @@
   `RedactingFailedJobProvider` (wraps the `queue.failer` binding). `tests/Arch/LogRedactionTest.php` fails a channel
   without the tap and any `Log::build()`, `error_log()`, `syslog()`, `openlog()`, `STDERR` or `php://stderr` in `app/`.
 - Rule change: the tail-pair rule of #452 now reads the value after a swallowed secret label with the plain pair rules
-  (and covers any secret pair inside that value); text joined to a mask, a labelled `content` attribute and a CDATA
-  section a value runs into are masked. Masking only increases.
+  (and covers any secret pair inside that value); a mask inside a value counts as value characters, and a labelled
+  `content` attribute and a CDATA section a value runs into are masked. Masking only increases.

@@ -165,12 +165,6 @@ final class Redactor
     /** ...or at one of these when it is followed by a space, a quote, another end character or the end of the text. */
     private const VALUE_SOFT_END = ',;)]}\'';
 
-    /** Text joined to a mask (see joinedRunEnd): token characters, then any `=` padding... */
-    private const JOINED_RUN = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.+/-';
-
-    /** ...and what may come after it. */
-    private const JOINED_RUN_END = " \t\r\n\f\v<>&,;)}";
-
     /** Names remembered by isSensitiveKey() before the cache starts over. */
     private const KEY_CACHE_SIZE = 2048;
 
@@ -538,6 +532,12 @@ final class Redactor
 
                 if ($this->isSecretPair((string) $match[5][0], (string) $match[6][0], $value, $end, $sensitiveKeys)) {
                     $valueEnd = $this->pairValueEnd((string) $match[5][0], $value, $end);
+
+                    // A value holding a mask runs on as it would without the set; a pair inside it that the scan would
+                    // have read after the mask keeps its value masked.
+                    if (str_contains(substr($value, $end, $valueEnd - $end), self::MASK)) {
+                        $valueEnd = $this->innerPairsEnd($value, $end, $valueEnd, $sensitiveKeys);
+                    }
                     $position = $this->maskTailPairs($value, $end, $valueEnd, $sensitiveKeys, $output, $markers);
                 }
 
@@ -888,8 +888,9 @@ final class Redactor
      * Where a secret pair's value starting at $start ends: a quoted string (escapes honoured, unterminated runs to the
      * end), a JSON array or object, or an unquoted run, after an optional authorization scheme. An unquoted value runs
      * through `;` and `,` that are followed by more value (`passwd=ab;cd`), so only a list separator ends it. A mask
-     * already in the value (the set's, or a provider's) is taken whole, with any text joined to it (joinedRunEnd), and so
-     * is a CDATA section the value runs into (cdataEnd).
+     * already in the value (the set's, or a provider's) counts as value characters, so the value ends where it would
+     * without the set (scan() then covers any pair inside it, see innerPairsEnd). A CDATA section the value runs into is
+     * part of it (cdataEnd).
      */
     private function valueEnd(string $value, int $start): int
     {
@@ -911,11 +912,7 @@ final class Redactor
             return $close === false ? $length : $close + 2;
         }
 
-        if ($first === '[' && substr_compare($value, self::MASK, $start, strlen(self::MASK)) === 0) {
-            return $this->joinedRunEnd($value, $start + strlen(self::MASK));
-        }
-
-        if ($first === '[' || $first === '{') {
+        if (($first === '[' && substr_compare($value, self::MASK, $start, strlen(self::MASK)) !== 0) || $first === '{') {
             return $this->bracketEnd($value, $start);
         }
 
@@ -946,43 +943,14 @@ final class Redactor
                 return min($index, $length);
             }
 
+            // The `]` of a mask already in the value is a value character, so the mask is replaced whole (#399) and the
+            // value ends where it would without the set.
+            $closesMask = $value[$index] === ']' && $index - $start >= strlen(self::MASK) - 1
+                && substr_compare($value, self::MASK, $index - strlen(self::MASK) + 1, strlen(self::MASK)) === 0;
             $next = $value[$index + 1] ?? '';
 
-            // The value ends at a soft end with nothing after it, or just after the `]` of a mask already in the value,
-            // so that mask is replaced whole, with no stray `]` left (#399).
-            if ($next === '' || str_contains($stops, $next)) {
-                $closesMask = $value[$index] === ']' && $index - $start >= strlen(self::MASK) - 1
-                    && substr_compare($value, self::MASK, $index - strlen(self::MASK) + 1, strlen(self::MASK)) === 0;
-
-                return $closesMask ? $this->joinedRunEnd($value, $index + 1) : $index;
-            }
-        }
-    }
-
-    /**
-     * Where the text joined to a mask that ends at $at ends (`[redacted]PRE4`, `[redacted];cd`): runs of token
-     * characters, each after an optional `,`, `;`, `)` or `}` that more text follows, as long as a blank, `<`, `>`, `&`,
-     * one of those four or the end comes next. A run that ends any other way (a `:`, a quote, a `]`, `=` before more
-     * text) may be or hold the next pair's name, so it is left to the scan, as is anything after it. A run holds at most
-     * a trailing name or `name=`, which maskTailPairs reads as a pair. So taking the runs only ever masks more.
-     */
-    private function joinedRunEnd(string $value, int $at): int
-    {
-        $length = strlen($value);
-
-        for ($end = $at; ; $end = $after) {
-            $next = $end;
-
-            if ($next + 1 < $length && str_contains(',;)}', $value[$next]) && ! str_contains(self::VALUE_HARD_END.self::VALUE_SOFT_END.'&', $value[$next + 1])) {
-                $next++;
-            }
-
-            $run = strspn($value, self::JOINED_RUN, $next);
-            $run += strspn($value, '=', $next + $run);
-            $after = $next + $run;
-
-            if ($run === 0 || ($after < $length && ! str_contains(self::JOINED_RUN_END, $value[$after]))) {
-                return $end;
+            if (! $closesMask && ($next === '' || str_contains($stops, $next))) {
+                return $index;
             }
         }
     }

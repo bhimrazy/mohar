@@ -21,7 +21,8 @@
   `pw=ab;token: …` the value after `token:` is now masked when it is quoted, base64 with padding, holds `=` or `:`,
   follows `Bearer`, is bracketed or a JSON object, or follows `=>`. Before, only an unquoted value without `=` or `:`
   was masked.
-- **Text joined to a mask is masked with it.** `password=[redacted]PRE4`, and `pw=ab…;cd…` when a configured secret
-  was masked inside the value, no longer leave the rest of the value readable.
+- **A configured secret masked inside a pair's value no longer cuts the value short.** `password=[redacted]PRE4`, and
+  `pw=ab…;cd…` when a configured secret was masked inside the value, are masked whole, as they are without the
+  secret configured.
 - **`<meta name="api_key" content="…">` masks `content`,** as `value` already was. A CDATA section that a secret
   pair's value runs into (`token: x<![CDATA[…]]>`) is masked with the value; an unterminated one masks to the end.
