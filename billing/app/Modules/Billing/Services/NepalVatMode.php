@@ -96,6 +96,33 @@ class NepalVatMode
     }
 
     /**
+     * Whether the mode applies at `$at`, read for a transaction that is about to write a value adjustment or a note
+     * (ADR 0024 §8). Call it inside the transaction, after the invoice lock: it takes a shared lock on the `enabled` row,
+     * so enabling (FOR UPDATE on the same row) waits for this transaction and its enable-time check sees what it wrote.
+     * The same `$at` must date every row the transaction creates.
+     */
+    public function inEffectLocked(CarbonInterface $at): bool
+    {
+        $this->ensureRow();
+        Setting::query()->whereKey(self::ENABLED)->sharedLock()->first();
+        $mode = $this->stored();
+
+        return $mode['enabled'] && $mode['enabled_from'] !== null && $this->clock->localDate($at) >= $mode['enabled_from'];
+    }
+
+    /**
+     * Whether the mode is switched on, read from the database under a shared lock on the `enabled` row (a refund reserves from
+     * enabling, before the start day too, ADR 0024 §5). Call it inside the transaction, after the invoice lock.
+     */
+    public function enabledLocked(): bool
+    {
+        $this->ensureRow();
+        Setting::query()->whereKey(self::ENABLED)->sharedLock()->first();
+
+        return $this->stored()['enabled'];
+    }
+
+    /**
      * How a document is classified, from the tax rules of its two levels and its tax amounts. A level is Nepal VAT when
      * its rule is one chosen as VAT (whatever the amount). A level without a rule id (calculated before rule ids were
      * stored) is matched to a Nepal VAT rule by its name and rate instead; a 0% level has no name and never matches;
@@ -173,6 +200,10 @@ class NepalVatMode
 
         if ($deep && app(FiscalBackfill::class)->mismatches() > 0) {
             $blockers[] = __('Some invoices have credited or debited totals that differ from their adjustments. Run "php artisan billing:fiscal-snapshot".');
+        }
+
+        if ($deep && $this->oldRefundsPending()) {
+            $blockers[] = __('A refund recorded the old way is still pending on a numbered invoice. Finish or cancel it first.');
         }
 
         if ($deep && $from !== null && $this->oldStyleRowsFrom($from)) {
@@ -361,6 +392,14 @@ class NepalVatMode
         }
 
         return $from;
+    }
+
+    /** Whether a pending refund of a numbered invoice has no note reservation: the old refund path wrote it (ADR 0024 §8). */
+    private function oldRefundsPending(): bool
+    {
+        return DB::table('transactions as t')->join('invoices as i', 'i.id', '=', 't.invoice_id')
+            ->where('t.type', 'refund')->where('t.status', 'pending')->whereNotNull('i.numbered_at')
+            ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('tax_note_reservations as r')->whereColumn('r.transaction_id', 't.id'))->exists();
     }
 
     /** Whether an old-style value adjustment was written on a numbered invoice, after its numbering, on or after the start day. */
