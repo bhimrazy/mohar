@@ -95,7 +95,7 @@ class ServerImportController extends Controller
             'createProductUrl' => Route::has('admin.catalog.products.create') ? route('admin.catalog.products.create') : null,
             'included' => count(array_filter($import === null ? [] : ($import->selections ?? []), fn (array $choice): bool => (bool) ($choice['include'] ?? false))),
             'productOptions' => $ready ? $plan->productOptions($server) : [],
-            'cycles' => self::cycles(),
+            'cycles' => AccountImportPlan::cycles(),
         ]);
     }
 
@@ -202,7 +202,7 @@ class ServerImportController extends Controller
             'counts' => ['ready' => $ready->count(), 'excluded' => $excluded->count(), 'clients' => $ready->pluck('decision.client.id')->unique()->count()],
             'totals' => $totals,
             'digest' => $review['digest'],
-            'cycles' => self::cycles(),
+            'cycles' => AccountImportPlan::cycles(),
         ]);
     }
 
@@ -219,14 +219,6 @@ class ServerImportController extends Controller
         Inertia::flash('toast', ['type' => 'info', 'message' => __('Importing :count accounts from :server. This page shows the progress.', ['count' => $count, 'server' => $server->name])]);
 
         return to_route('admin.services.servers.import.show', $server);
-    }
-
-    /**
-     * @return list<array{value: string, label: string}>
-     */
-    public static function cycles(): array
-    {
-        return array_map(fn (BillingCycle $cycle): array => ['value' => $cycle->value, 'label' => AccountImportPlan::cycleLabel($cycle)], BillingCycle::recurring());
     }
 
     /**

@@ -3,7 +3,6 @@
 namespace App\Modules\Services\Http\Requests;
 
 use App\Contracts\Core\CompanyClock;
-use App\Modules\Services\Http\Controllers\Admin\ServerImportController;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Support\AccountImportPlan;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -40,7 +39,7 @@ class SelectImportAccountsRequest extends FormRequest
             'client_id' => [$this->user()?->hasPermission('core.clients.view') ? 'sometimes' : 'prohibited', 'nullable', 'prohibited_if_accepted:ticked', 'integer', Rule::exists('clients', 'id')->where('status', 'active')],
             'product_id' => ['sometimes', 'nullable', 'prohibited_if_accepted:ticked', 'integer', Rule::in(array_column(app(AccountImportPlan::class)->productOptions($server), 'id'))],
             // Null: back to the account's default (monthly, or the product's first cycle; the next anniversary).
-            'cycle' => ['sometimes', 'nullable', Rule::in(array_column(ServerImportController::cycles(), 'value'))],
+            'cycle' => ['sometimes', 'nullable', Rule::in(array_column(AccountImportPlan::cycles(), 'value'))],
             'next_due_date' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'after_or_equal:'.app(CompanyClock::class)->todayDate()->toDateString(), 'before:+5 years'],
         ];
     }

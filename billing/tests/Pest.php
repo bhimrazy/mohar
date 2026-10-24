@@ -5,6 +5,8 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Kyc\Services\ReviewUnlocks;
+use App\Modules\Services\Models\ServerAccountImport;
+use App\Modules\Services\Support\AccountList;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
@@ -136,6 +138,20 @@ function fakePng(string $name, int $width, int $height, bool $noise = false): Up
 }
 
 /**
+ * A fetched list with its accounts stored as the page and the import read them (AccountList).
+ *
+ * @param  list<array<string, mixed>>  $accounts
+ * @param  array<string, mixed>  $attributes
+ */
+function importWithAccounts(array $accounts, array $attributes): ServerAccountImport
+{
+    $import = ServerAccountImport::query()->create($attributes);
+    app(AccountList::class)->replace($import, $accounts);
+
+    return $import;
+}
+
+/**
  * Release the arch plugin's parsed-source cache. The plugin keeps every namespace a rule touches (target and
  * dependency layers, as ASTs) in a process-wide singleton it never clears: about 0.7 MB per file in app/, 770 MB
  * for one file of rules in October 2026. A parallel worker then carried that memory to the end of the run and hit
@@ -143,20 +159,6 @@ function fakePng(string $name, int $width, int $height, bool $noise = false): Up
  * (Pest 5.3 flushes global afterAll hooks in each test's tearDown). The rules are split across files so the
  * per-file peak stays well below the limit.
  */
-/**
- * A fetched list with its accounts stored as the page and the import read them (AccountList).
- *
- * @param  list<array<string, mixed>>  $accounts
- * @param  array<string, mixed>  $attributes
- */
-function importWithAccounts(array $accounts, array $attributes): \App\Modules\Services\Models\ServerAccountImport
-{
-    $import = \App\Modules\Services\Models\ServerAccountImport::query()->create($attributes);
-    app(\App\Modules\Services\Support\AccountList::class)->replace($import, $accounts);
-
-    return $import;
-}
-
 function releaseArchCache(): void
 {
     (fn () => self::$instance = null)->bindTo(null, ObjectsRepository::class)();

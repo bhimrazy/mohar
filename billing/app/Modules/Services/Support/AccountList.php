@@ -6,6 +6,7 @@ use App\Modules\Core\Support\InstallSecrets;
 use App\Modules\Core\Support\Like;
 use App\Modules\Services\Models\ServerAccountImport;
 use App\Modules\Services\Models\ServerAccountImportAccount;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -15,7 +16,7 @@ use JsonException;
  * The accounts of a fetched list (cPanel spec §10), one row each in server_account_import_accounts. Callers filter and
  * count on the plain columns (username, domain, category, client_id, a keyed hash of the contact email) and decrypt
  * only the rows they show or act on, so a page view or an import chunk costs what it touches, not the whole list.
- * A row's `payload` is the whole account row, encrypted; nothing here reads a list whole except all().
+ * A row's `payload` is the whole account row, encrypted; only rows() without usernames reads a list whole.
  */
 class AccountList
 {
@@ -60,7 +61,7 @@ class AccountList
     public function rows(ServerAccountImport $import, ?array $usernames = null): array
     {
         if ($usernames === null) {
-            // One row at a time: the ciphertext of a large list is not held beside its decrypted rows.
+            // A cursor, so PHP holds one record beside the decrypted rows (a PostgreSQL driver may still buffer the result).
             $rows = [];
 
             foreach ($this->query($import)->orderBy('position')->select(['username', 'payload'])->cursor() as $record) {
@@ -160,8 +161,10 @@ class AccountList
     }
 
     /**
-     * Move a list the previous release stored whole (server_account_imports.accounts) into rows, once; the import is
-     * read through FetchAccountsForImport::latest(), which calls this. Idempotent, so two readers at once do no harm.
+     * Move a list the previous release stored whole (server_account_imports.accounts) into rows, once. All or nothing:
+     * the move runs in one transaction under the import's row lock and checks again inside it, so a failure part-way
+     * leaves the list unmoved and a second reader waits, then finds it moved. Called by FetchAccountsForImport::latest()
+     * and by the queued jobs, which may hold an import the previous release started.
      */
     public function adopt(ServerAccountImport $import): void
     {
@@ -169,20 +172,24 @@ class AccountList
             return;
         }
 
-        $blob = DB::table('server_account_imports')->where('id', $import->id)->value('accounts');
+        DB::transaction(function () use ($import): void {
+            $blob = DB::table('server_account_imports')->where('id', $import->id)->lockForUpdate()->value('accounts');
 
-        if (! is_string($blob) || $blob === '') {
-            return;
-        }
+            if (! is_string($blob) || $blob === '' || $this->query($import)->exists()) {
+                return;
+            }
 
-        try {
-            $rows = json_decode(Crypt::decryptString($blob), true, flags: JSON_THROW_ON_ERROR);
-        } catch (JsonException) {
-            return;
-        }
+            try {
+                $rows = json_decode(Crypt::decryptString($blob), true, flags: JSON_THROW_ON_ERROR);
+            } catch (JsonException|DecryptException $exception) {
+                report($exception);
 
-        $this->replace($import, is_array($rows) ? array_values($rows) : []);
-        DB::table('server_account_imports')->where('id', $import->id)->update(['accounts' => null]);
+                return;
+            }
+
+            $this->replace($import, is_array($rows) ? array_values($rows) : []);
+            DB::table('server_account_imports')->where('id', $import->id)->update(['accounts' => null]);
+        });
     }
 
     public static function emailHash(string $email): string

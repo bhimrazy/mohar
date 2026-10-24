@@ -8,18 +8,18 @@ the key may live in production, the warnings `app:install` gives about it, and h
 
 **Stored secrets, which `php artisan security:reencrypt` re-encrypts.** Each module registers its encrypted data
 in `App\Support\Security\EncryptedStorage` (ADR 0022): its models with encrypted casts, other encrypted columns,
-and encrypted files. The dry run lists the targets. At the time of writing there are 28:
+and encrypted files. The dry run lists the targets. At the time of writing there are 29:
 
-| Area          | Targets                                                                                                                                                                                   |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Billing       | `gateways.config`, `pay_methods.token`                                                                                                                                                    |
-| Services      | `servers.password`, `servers.api_token`, `servers.access_hash`, `servers.settings`, `services.password`, `services.custom_fields`, `module_queue.args`, `server_account_imports.accounts` |
-| Catalog       | `products.driver_config`, `addons.driver_config`                                                                                                                                          |
-| Domains       | `registrar_accounts.settings`, `domains.epp_code`, `registrar_refs.secret`                                                                                                                |
-| Notifications | `webhook_endpoints.secret`, `webhook_endpoints.previous_secret`                                                                                                                           |
-| Identity      | `kyc_documents.number`, `kyc_documents.files` (the images on the objects disk)                                                                                                            |
-| Import        | `migration_runs.header`, `migration_runs.found_values`, `migration_records.raw`, `migration_records.normalized`, `migration_records.before`                                               |
-| Core          | `settings.value` (secret settings, `enc:v1:`), `users.two_factor_secret`, `users.two_factor_recovery_codes`, `install_secrets.value`                                                      |
+| Area          | Targets                                                                                                                                                                                                                                                                                                               |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Billing       | `gateways.config`, `pay_methods.token`                                                                                                                                                                                                                                                                                |
+| Services      | `servers.password`, `servers.api_token`, `servers.access_hash`, `servers.settings`, `services.password`, `services.custom_fields`, `module_queue.args`, `server_account_import_accounts.payload`, `server_account_imports.accounts` (lists the previous release stored whole, until a later release drops the column) |
+| Catalog       | `products.driver_config`, `addons.driver_config`                                                                                                                                                                                                                                                                      |
+| Domains       | `registrar_accounts.settings`, `domains.epp_code`, `registrar_refs.secret`                                                                                                                                                                                                                                            |
+| Notifications | `webhook_endpoints.secret`, `webhook_endpoints.previous_secret`                                                                                                                                                                                                                                                       |
+| Identity      | `kyc_documents.number`, `kyc_documents.files` (the images on the objects disk)                                                                                                                                                                                                                                        |
+| Import        | `migration_runs.header`, `migration_runs.found_values`, `migration_records.raw`, `migration_records.normalized`, `migration_records.before`                                                                                                                                                                           |
+| Core          | `settings.value` (secret settings, `enc:v1:`), `users.two_factor_secret`, `users.two_factor_recovery_codes`, `install_secrets.value`                                                                                                                                                                                  |
 
 **Short-lived data, which expires by itself.** After a rotation these stay readable while the old key is in
 `APP_PREVIOUS_KEYS`. When the old key is removed, whatever is left of them can no longer be read:
@@ -33,7 +33,7 @@ and encrypted files. The dry run lists the targets. At the time of writing there
 Signed links (password resets, verification, KYC image links, previews) are checked against the previous keys as
 well, so they keep working until they expire.
 
-**Keyed hashes.** The import's email hashes (duplicate checks and the email-keyed id map) use an install secret
+**Keyed hashes.** The server-import list's exact-email search hash uses its own install secret (`services.import_email_hash`, created on first use). The import's email hashes (duplicate checks and the email-keyed id map) use an install secret
 (`install_secrets`), not `APP_KEY`, so a rotation does not change them. On an install upgraded from an earlier
 version, `php artisan migrate` pins the secret, and `security:reencrypt` pins it at its start if it is still missing.
 Both first check which configured key reproduces a stored hash, from a staged email or the email of an imported

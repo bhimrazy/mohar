@@ -191,6 +191,16 @@ class AccountImportPlan
     }
 
     /**
+     * The recurring cycles staff may choose, for the pickers and the request rules.
+     *
+     * @return list<array{value: string, label: string}>
+     */
+    public static function cycles(): array
+    {
+        return array_map(fn (BillingCycle $cycle): array => ['value' => $cycle->value, 'label' => self::cycleLabel($cycle)], BillingCycle::recurring());
+    }
+
+    /**
      * The cycle as the rest of the app names it ("Semi-annually").
      */
     public static function cycleLabel(BillingCycle $cycle): string

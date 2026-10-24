@@ -14,13 +14,14 @@
 - **Import report and client picker follow-ups (#149).** "Not reached" accounts are marked in the database instead of
   being recognised by their translated message, so the count and the label are right in every language; report lines
   are keyed so an account listed twice no longer collides; Enter in the client picker with its list open never submits
-  the surrounding form. The client picker opens on click or typing instead of on focus on every page that uses it
-  (invoices, quotes, credit, transactions, and Import accounts). Correction to the "stopped and failed runs" entry: the report stays on the page after Fetch again, and the next import adds to it only when the last one stopped early; after an import that finished, the next one starts a new report.
+  the surrounding form.
+- **Stopped-run report wording (#149).** Correction to the "stopped and failed runs" entry: the report stays on the page after Fetch again, and the next import adds to it only when the last one stopped early; after an import that finished, the next one starts a new report.
+- The client picker (invoices, quotes, credit, transactions, Import accounts) opens on click or typing instead of on focus, as of the choice dialog work; stated here for #149 L4.
 
 ### Changed
 
 - Upgrade notes: the migrations only add (a table, a column with a default, a unique index). The unique index on report
   lines first deletes any later duplicate line of the same account in one import and recounts that import; reports are
   the last import's only, so at most a report is trimmed. A list fetched before the upgrade is moved into the new table
-  the first time it is read. The old `accounts` column stays, empty, until a later release drops it: rolling back to the
+  the first time it is read. The old `accounts` column stays, empty, until a later release drops it: an import or Match again that the previous release started finishes after the upgrade (its list is moved when the job first reads it); rolling back to the
   previous release shows an upgraded list as empty until it is fetched again. `security:reencrypt` covers both stores.
