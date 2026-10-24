@@ -17,11 +17,12 @@ interface DomainPricing
 
     /**
      * Year terms offered for the TLD/action in the currency, ascending (e.g. [1, 2, 3, 5, 10]).
+     * When $clientId is given, the client's group price tier applies, as it does in price().
      *
      * @param  'register'|'transfer'|'renew'  $action
      * @return list<int>
      */
-    public function terms(string $tld, string $action, string $currency): array;
+    public function terms(string $tld, string $action, string $currency, ?int $clientId = null): array;
 
     /**
      * Active TLDs sold in the currency, in catalog order, with 1-year prices (minor units; null when that action is

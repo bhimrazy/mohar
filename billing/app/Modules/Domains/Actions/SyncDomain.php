@@ -10,6 +10,7 @@ use App\Data\Domains\Registrar\SubmissionLookup;
 use App\Data\Domains\Registrar\SyncResult;
 use App\Data\Domains\Registrar\TransferSyncResult;
 use App\Enums\BillableType;
+use App\Enums\BillingCycle;
 use App\Enums\ReconcileStatus;
 use App\Events\Domains\DomainRegistered;
 use App\Events\Domains\DomainTransferFailed;
@@ -17,6 +18,7 @@ use App\Events\Domains\DomainTransferred;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\DomainInvoice;
 use App\Modules\Domains\Services\DomainDates;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\DomainStateMachine;
@@ -43,6 +45,7 @@ class SyncDomain
         private DomainDates $dates,
         private RenewalInvoices $invoices,
         private ActivityLogger $activity,
+        private ConfirmRenewal $confirm,
     ) {}
 
     /**
@@ -243,7 +246,19 @@ class SyncDomain
         $remote = $result->expiryDate;
         $local = $domain->expiry_date;
 
-        if ($remote === null || ($local !== null && $remote->isSameDay($local))) {
+        if ($remote === null) {
+            return $changes;
+        }
+
+        if ($apply && ($years = $this->confirmedRenewalYears($domain, $remote)) !== null) {
+            $this->confirm->handle($domain, $years, $remote);
+
+            return $local !== null && $remote->isSameDay($local)
+                ? $changes
+                : [...$changes, $this->change($domain, 'expiry_date', $local?->toDateString(), $remote->toDateString(), true)];
+        }
+
+        if ($local !== null && $remote->isSameDay($local)) {
             return $changes;
         }
 
@@ -268,6 +283,30 @@ class SyncDomain
         }
 
         return $changes;
+    }
+
+    /**
+     * A renewal whose answer was lost keeps its claim and the review flag. When the registrar's expiry has reached
+     * the end of the claimed cycle the renewal is proven; returns its years so it can be confirmed like any other
+     * renewal. Null when there is no claim, the expiry falls short, or the years are unknown (the review stays).
+     */
+    private function confirmedRenewalYears(Domain $domain, CarbonImmutable $remote): ?int
+    {
+        $cycle = $domain->registrar_meta['renew_sent_for'] ?? null;
+
+        if ($cycle === null || $cycle === 'none') {
+            return null;
+        }
+
+        $start = CarbonImmutable::parse((string) $cycle);
+        $years = (int) ($domain->registrar_meta['renew_years'] ?? 0)
+            ?: DomainInvoice::query()->where('domain_id', $domain->id)->whereIn('kind', RenewalInvoices::RENEWAL_KINDS)->whereDate('period_start', $start->toDateString())->orderByDesc('id')->value('years');
+
+        if (! $years || $remote->lt(BillingCycle::Annually->advance($start, (int) $years, $domain->billing_anchor_day))) {
+            return null;
+        }
+
+        return (int) $years;
     }
 
     /**
