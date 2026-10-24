@@ -141,9 +141,13 @@ class SweepOrphanFiles
      */
     private function journalPaths(): array
     {
-        return DB::table(StoredImageReencoder::REWRITES)->get(['old_path', 'new_path'])
-            ->flatMap(fn (object $row): array => [(string) $row->old_path, (string) $row->new_path])
-            ->all();
+        $paths = [];
+
+        foreach (DB::table(StoredImageReencoder::REWRITES)->get(['old_path', 'new_path']) as $row) {
+            array_push($paths, (string) $row->old_path, (string) $row->new_path);
+        }
+
+        return $paths;
     }
 
     private function deleteIfUnreferenced(int $clientId, string $path): bool

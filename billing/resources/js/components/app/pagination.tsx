@@ -4,11 +4,7 @@ import type { ReactNode } from 'react';
 import { useQueryParams } from '@/components/app/use-query-params';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type {
-    Paginated,
-    PaginatorMeta,
-    SimplePaginated,
-} from '@/types/app';
+import type { Paginated, PaginatorMeta, SimplePaginated } from '@/types/app';
 
 type PaginationProps = {
     paginator: Paginated<unknown>;

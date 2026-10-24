@@ -7,10 +7,7 @@ import { EmptyState } from '@/components/app/empty-state';
 import { FilterBar, FilterSelect } from '@/components/app/filter-bar';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
-import {
-    Pagination,
-    SimplePagination,
-} from '@/components/app/pagination';
+import { Pagination, SimplePagination } from '@/components/app/pagination';
 import { useQueryParams } from '@/components/app/use-query-params';
 import {
     commandLabel,
