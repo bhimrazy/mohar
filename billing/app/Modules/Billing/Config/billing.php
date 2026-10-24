@@ -87,7 +87,7 @@ return [
     ],
     'vat' => [
         'enabled' => false,
-        'home_country' => 'DE',
+        'home_country' => null,
         'auto_exempt_on_valid_id' => true,
     ],
 

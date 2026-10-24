@@ -21,6 +21,7 @@ use App\Modules\Services\Support\ServiceSettings;
 use App\Modules\Support\Database\Seeders\SupportSeeder;
 use App\Modules\Support\Models\Department;
 use App\Modules\Support\Services\TicketNumberGenerator;
+use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Support\Facades\DB;
@@ -560,7 +561,7 @@ final class LoadTestSeeder
                 default => '',
             };
             $next[$period] ??= $this->reserveSequence($period);
-            $issueDate = $datedFormat ? CarbonImmutable::parse(Calendar::date($issue)) : CarbonImmutable::today();
+            $issueDate = CalendarDate::parse($datedFormat ? Calendar::date($issue) : CarbonImmutable::today()->toDateString());
 
             foreach ($records as $record) {
                 ['s' => $serviceId, 'start' => $start, 'end' => $end, 'due' => $due, 'outcome' => $outcome, 'settled' => $settled, 'order' => $isOrder]
