@@ -261,7 +261,8 @@ interface HostedPaymentDriver extends GatewayDriver            // opt-in; manual
   `billing.gateways.lookup_interval_minutes` (5), `billing.gateways.lookups_per_run` (200, at most 1,000; least
   recently checked first, 4-minute deadline per run), `billing.gateways.lookup_grace_minutes` (120),
   `billing.gateways.http_timeout_seconds` (15), `billing.gateways.ambiguous_alert_minutes` (30),
-  `billing.gateways.late_lookup_hours` (48) and `billing.gateways.late_lookups_per_run` (100).
+  `billing.gateways.late_lookup_hours` (48), `billing.gateways.late_lookups_per_run` (100),
+  `billing.gateways.refund_check_days` (7) and `billing.gateways.refund_checks_per_run` (300) (§3.5).
 - **Packaging (an "extension"):** each extension is one class `Drivers/Gateways/Nepal/<Name>Driver.php` plus
   endpoint config in `Config/billing.php` → `gateways.<key>.{sandbox,live}` plus one line in
   `BillingServiceProvider` (`$manager->register(...)`) plus Http::fake fixtures and a contract-test dataset entry.
@@ -326,8 +327,26 @@ A lookup on an already-paid attempt that reports Refunded / FULL_REFUND does **n
 creates a staff todo with a "record refund" action, so a refund made in the provider portal does not leave the
 customer with credit they never had.
 
-**Deferred (CTO, 2026-10-18): issue #27.** v1 never looks up an attempt again once it is paid, so a refund made in the
-provider portal after payment is not detected yet. Attempts refunded _before_ we saw them do go to staff review.
+**Built (#27): the daily re-lookup of paid attempts** (`Billing\Services\SettledRefundCheck`, automation task
+`billing.gateway_refund_check`, stage SYNC). Attempts refunded _before_ we saw them go to staff review, as before.
+
+- **Which attempts:** succeeded, booked (`transaction_id` set), started within `billing.gateways.refund_check_days` (7, 0 =
+  off, at most 30), on a gateway whose driver supports `lookup` but not `webhook` (Khalti and eSewa; Stripe and the
+  sandbox card push refunds by webhook). Each is looked up at most once every 20 hours, so a forced re-run of the day's
+  task calls no provider again. The query reads `payment_attempts_created_at_index` (a week of attempts, not the table),
+  least recently looked up first, at most `billing.gateways.refund_checks_per_run` (300, at most 1,000), with a 10-minute
+  deadline. A transient error (`retryable`) stops that gateway for the run and leaves the attempt unstamped.
+- **What is flagged:** a `refunded` answer while the payment's own refund rows (succeeded or pending, including credit
+  refunds) total less than the payment, or a `partially_refunded` answer while it has none. The answer is applied under
+  the payment's lock, then the attempt's, the order the provider refund callback uses; a staff refund reserves under the
+  payment's lock, so it is either counted or comes after the flag (race tests on PostgreSQL). Neither provider reports the
+  refunded amount, so a second partial portal refund after one recorded here is not told apart.
+- **What happens:** no money moves. The attempt gets `check_reason = portal_refund` (to-do "Refunds made at the provider to
+  record", `billing.payments.manage`), a review reason, `raw.portal_refund` (status, time, amount refunded here) and an
+  activity entry `billing.payment.portal_refund`. Staff record the refund on the invoice (Refund → record) and mark the
+  payment checked. The same status is not flagged twice; a partial refund that becomes full is flagged again.
+- **Khalti bank-funded payments** stay manual for v1 (no payer mobile number stored): every refund Khalti declines tells
+  staff to refund a bank-funded payment in the Khalti portal and record it.
 
 ## 4. Security checklist
 
@@ -471,7 +490,7 @@ merchants).
     - ConnectIPS: needs NCHL onboarding and PFX → PEM signing, and its `TXNID` max of 20 characters requires a short
       provider reference (see §8.4).
     - Fonepay and IME Pay.
-    - §3.5 out-of-band refunds after payment: deferred to issue #27.
+    - §3.5 out-of-band refunds after payment: built (P5c, #27), see §3.5.
     - eSewa Intent (the mobile-app deeplink flow, see §8.3).
 
 ### 8.2 Khalti: what the official docs say today vs this spec
