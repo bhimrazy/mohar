@@ -39,13 +39,13 @@ function pageRows(Server $server, array $query = []): array
 test('the page shows the stored match with its counts, filtered by tab and search', function () {
     $this->get(route('admin.services.servers.import.show', $this->server))->assertInertia(fn (Assert $page) => $page
         ->component('admin/services/servers/import')
-        ->where('counts', ['all' => 3, 'proposed' => 1, 'unmatched' => 1, 'reseller' => 1, 'linked' => 0, 'missing' => 0])
+        ->where('counts', ['all' => 3, 'proposed' => 1, 'unmatched' => 1, 'reseller' => 1, 'linked' => 0, 'ignored' => 0, 'missing' => 0])
         ->where('import.status', 'ready')
         ->has('rows.data', 3));
 
     expect(pageRows($this->server)['alpha'])
         ->category->toBe('proposed')
-        ->client->toBe(['id' => $this->anna->id, 'name' => $this->anna->display_name])
+        ->client->toBe(['id' => $this->anna->id, 'name' => $this->anna->display_name, 'currency' => $this->anna->currency])
         ->product->toBe(['id' => 21, 'name' => 'Basic hosting'])
         ->and(array_keys(pageRows($this->server, ['tab' => 'reseller'])))->toBe(['bravo'])
         ->and(array_keys(pageRows($this->server, ['search' => 'CAFE'])))->toBe(['bravo']);

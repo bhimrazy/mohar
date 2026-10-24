@@ -110,7 +110,11 @@ export default function ClientServiceShow({
                             {service.suspension_reason === 'overdue' ||
                             service.suspension_reason === 'addon_overdue'
                                 ? 'An invoice is overdue. Once it is paid, the service is restored automatically.'
-                                : 'Please contact support to restore it.'}
+                                : service.suspension_reason?.startsWith(
+                                        'staff:Imported',
+                                    )
+                                  ? 'It was already suspended on the hosting server when it was added to your account. Please contact support to restore it.'
+                                  : 'Please contact support to restore it.'}
                         </AlertDescription>
                     </Alert>
                 )}

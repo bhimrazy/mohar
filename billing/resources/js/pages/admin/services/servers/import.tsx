@@ -7,8 +7,10 @@ import {
 } from '@inertiajs/react';
 import {
     CircleAlert,
+    EyeOff,
     Pencil,
     Link2,
+    Undo2,
     ServerCrash,
     Sparkles,
     UserRoundSearch,
@@ -44,7 +46,7 @@ import { show as showClient } from '@/routes/admin/clients';
 import type { LaravelPaginated, SelectOption } from '@/types/app';
 import { cycleLabel } from '@/types/services';
 
-type Category = 'proposed' | 'unmatched' | 'reseller' | 'linked';
+type Category = 'proposed' | 'unmatched' | 'reseller' | 'linked' | 'ignored';
 type Tab = 'all' | Category | 'missing';
 
 type LinkedService = { id: number; label: string; client: string };
@@ -58,11 +60,19 @@ type AccountRow = {
     suspended: boolean;
     suspend_reason: string | null;
     category: Category;
-    client: { id: number; name: string } | null;
+    client: { id: number; name: string; currency: string } | null;
     product: { id: number; name: string } | null;
     note: string | null;
     service: LinkedService | null;
     differences: string[];
+    /** Changes staff may take from the server into the linked service, each bound to a digest. */
+    accept: {
+        field: 'domain' | 'ip' | 'status';
+        label: string;
+        server: string;
+        local: string;
+        digest: string;
+    }[];
     include: boolean;
     chosen: {
         client_id?: number;
@@ -107,6 +117,7 @@ type Props = {
     included: number;
     productOptions: { id: number; name: string }[];
     cycles: SelectOption[];
+    pricedCycles: Record<string, Record<string, string[]>>;
 };
 
 const TABS: { value: Tab; label: string }[] = [
@@ -115,6 +126,7 @@ const TABS: { value: Tab; label: string }[] = [
     { value: 'unmatched', label: 'Unmatched' },
     { value: 'reseller', label: 'Reseller-owned' },
     { value: 'linked', label: 'Already linked' },
+    { value: 'ignored', label: 'Ignored' },
     { value: 'missing', label: 'Missing on server' },
 ];
 
@@ -123,6 +135,7 @@ const CATEGORY_LABELS: Record<Category, string> = {
     unmatched: 'Unmatched',
     reseller: 'Reseller-owned',
     linked: 'Already linked',
+    ignored: 'Ignored',
 };
 
 const CATEGORY_TONES = {
@@ -130,6 +143,7 @@ const CATEGORY_TONES = {
     unmatched: 'warning',
     reseller: 'neutral',
     linked: 'info',
+    ignored: 'neutral',
 } as const;
 
 const plural = (count: number, noun: string) =>
@@ -179,12 +193,15 @@ const accountColumns = (
     createProductUrl: string | null,
     toggle: (row: AccountRow) => void,
     choose: (row: AccountRow) => void,
+    setIgnored: (row: AccountRow, ignored: boolean) => void,
+    accept: (row: AccountRow, change: AccountRow['accept'][number]) => void,
 ): DataTableColumn<AccountRow>[] => [
     {
         key: 'include',
         header: 'Import',
         cell: (row) =>
-            row.category !== 'linked' && (
+            row.category !== 'linked' &&
+            row.category !== 'ignored' && (
                 <Checkbox
                     checked={row.include}
                     onCheckedChange={() => toggle(row)}
@@ -288,6 +305,26 @@ const accountColumns = (
                         )}
                     </Muted>
                 )}
+                {row.accept.map((change) => (
+                    <Button
+                        key={change.field}
+                        size="sm"
+                        variant="outline"
+                        onClick={() => accept(row, change)}
+                        title={`Set ${change.label.toLowerCase()} here to the server's value. Nothing is sent to the server.`}
+                    >
+                        {change.field === 'status'
+                            ? change.server === 'Suspended'
+                                ? 'Suspend here too'
+                                : 'Mark active here'
+                            : `Use ${change.label.toLowerCase()} ${change.server}`}
+                    </Button>
+                ))}
+                {row.category === 'ignored' && (
+                    <Muted>
+                        Ignored: left out of this list, also in later fetches.
+                    </Muted>
+                )}
                 {row.note && <Muted>{row.note}</Muted>}
                 {row.flag && (
                     <ImportClientFlag flag={row.flag}>
@@ -313,17 +350,40 @@ const accountColumns = (
         header: <span className="sr-only">Actions</span>,
         align: 'right',
         cell: (row) =>
-            row.category !== 'linked' && (
+            row.category === 'linked' ? null : row.category === 'ignored' ? (
                 <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => choose(row)}
-                    aria-label={`Choose how ${row.username} is imported`}
-                    title="Choose client, product and billing"
+                    onClick={() => setIgnored(row, false)}
+                    aria-label={`Bring ${row.username} back`}
+                    title="Show this account in the list again"
                 >
-                    <Pencil />
-                    <span className="sm:sr-only">Choose</span>
+                    <Undo2 />
+                    <span className="sm:sr-only">Bring back</span>
                 </Button>
+            ) : (
+                <span className="flex justify-end gap-1">
+                    <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => choose(row)}
+                        aria-label={`Choose how ${row.username} is imported`}
+                        title="Choose client, product and billing"
+                    >
+                        <Pencil />
+                        <span className="sm:sr-only">Choose</span>
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setIgnored(row, true)}
+                        aria-label={`Ignore ${row.username}`}
+                        title="Never import this account: it leaves the list, also in later fetches"
+                    >
+                        <EyeOff />
+                        <span className="sm:sr-only">Ignore</span>
+                    </Button>
+                </span>
             ),
     },
 ];
@@ -374,6 +434,7 @@ export default function ServerImport({
     included,
     productOptions,
     cycles,
+    pricedCycles,
 }: Props) {
     const page = usePage();
     const { errors } = page.props as { errors: Record<string, string> };
@@ -403,7 +464,16 @@ export default function ServerImport({
     // Poll only while a fetch runs; stop as soon as the list (or the failure) arrives.
     const { start, stop } = usePoll(
         3000,
-        { only: ['import', 'counts', 'rows', 'included', 'productOptions'] },
+        {
+            only: [
+                'import',
+                'counts',
+                'rows',
+                'included',
+                'productOptions',
+                'pricedCycles',
+            ],
+        },
         { autoStart: false },
     );
 
@@ -505,10 +575,12 @@ export default function ServerImport({
 
                 <p className="-mt-2 text-sm text-muted-foreground">
                     Tick the accounts to bring in, then review and confirm.
-                    Matches come from the contact email the server reports,
-                    which the account holder can change, so check each one. Each
-                    account becomes a service for its client, with no invoice,
-                    email or change on the server.
+                    Leave the rest unticked to skip them for now, or ignore the
+                    ones you will never import. Matches come from the contact
+                    email the server reports, which the account holder can
+                    change, so check each one. Each account becomes a service
+                    for its client, with no invoice, email or change on the
+                    server.
                 </p>
 
                 {!supported && (
@@ -725,6 +797,29 @@ export default function ServerImport({
                                             include: !row.include,
                                         }),
                                     setChoosing,
+                                    (row, ignored) =>
+                                        router.put(
+                                            ServerImportController.ignore(
+                                                server.id,
+                                            ).url,
+                                            {
+                                                usernames: [row.username],
+                                                ignored,
+                                            },
+                                            { preserveScroll: true },
+                                        ),
+                                    (row, change) =>
+                                        router.post(
+                                            ServerImportController.accept(
+                                                server.id,
+                                            ).url,
+                                            {
+                                                username: row.username,
+                                                fields: [change.field],
+                                                digest: change.digest,
+                                            },
+                                            { preserveScroll: true },
+                                        ),
                                 )}
                                 rows={rows.data as AccountRow[]}
                                 getRowKey={(row) => row.username}
@@ -766,6 +861,7 @@ export default function ServerImport({
                 onClose={() => setChoosing(null)}
                 productOptions={productOptions}
                 cycles={cycles}
+                pricedCycles={pricedCycles}
             />
         </>
     );

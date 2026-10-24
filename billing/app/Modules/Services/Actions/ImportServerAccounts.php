@@ -81,6 +81,11 @@ class ImportServerAccounts
                 default => $this->list->existing($import, $usernames),
             };
 
+            if (($choice['include'] ?? false) === true) {
+                // An ignored account is brought back before it can be ticked.
+                $usernames = array_values(array_diff($usernames, $this->list->ignoredAmong($import, $usernames)));
+            }
+
             if ($scope === 'proposed') {
                 // A client who changed email lately or never verified it may have taken an account's contact address
                 // since the match: never ticked in bulk.
