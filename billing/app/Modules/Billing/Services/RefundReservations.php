@@ -53,7 +53,7 @@ class RefundReservations
      */
     public function lines(stdClass $reservation): array
     {
-        return DB::table('tax_note_reservation_lines')->where('reservation_id', $reservation->id)->orderBy('sort_order')->orderBy('id')->get()->values()->all();
+        return array_values(DB::table('tax_note_reservation_lines')->where('reservation_id', $reservation->id)->orderBy('sort_order')->orderBy('id')->get()->all());
     }
 
     public function finalise(stdClass $reservation, ?int $noteId): void
