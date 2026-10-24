@@ -72,8 +72,8 @@ export function InvoicePartiesHeader({
                     ))}
                     {parties.seller_from_settings && (
                         <p className="pt-1 text-xs text-muted-foreground">
-                            Today&apos;s company details. They are saved on
-                            the invoice when it is published.
+                            Today&apos;s company details. They are saved on the
+                            invoice when it is published.
                         </p>
                     )}
                 </div>
@@ -136,9 +136,7 @@ export function InvoicePartiesHeader({
                                     {buyer.email}
                                 </div>
                             )}
-                            {buyer.tax_id && (
-                                <TaxIdLine taxId={buyer.tax_id} />
-                            )}
+                            {buyer.tax_id && <TaxIdLine taxId={buyer.tax_id} />}
                         </>
                     ) : (
                         <p className="text-muted-foreground">

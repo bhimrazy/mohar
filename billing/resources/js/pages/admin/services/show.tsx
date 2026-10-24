@@ -70,6 +70,8 @@ import type {
 type InvoiceLink = {
     id: number;
     invoice_id: number;
+    invoice_number: string | null;
+    invoice_url: string | null;
     kind: string;
     period_start: string | null;
     period_end: string | null;
@@ -109,6 +111,7 @@ type Props = {
     changeOptions?: ChangeOptions;
     creditOnDowngrade: boolean;
     paymentGatewayLabel: string | null;
+    order: { number: string | null; url: string | null } | null;
     can: {
         manage: boolean;
         provision: boolean;
@@ -169,6 +172,7 @@ export default function ServiceShow({
     changeOptions,
     creditOnDowngrade,
     paymentGatewayLabel,
+    order,
     can,
 }: Props) {
     const { errors } = usePage().props as { errors: Record<string, string> };
@@ -238,8 +242,6 @@ export default function ServiceShow({
                     }
                     meta={
                         <>
-                            <span>#{service.id}</span>
-                            <span aria-hidden="true">·</span>
                             <span>{service.product_name}</span>
                             {service.client && (
                                 <>
@@ -535,9 +537,17 @@ export default function ServiceShow({
                                     },
                                     {
                                         label: 'Order',
-                                        value: service.order_id
-                                            ? `#${service.order_id}`
-                                            : null,
+                                        value:
+                                            order?.number && order.url ? (
+                                                <Link
+                                                    href={order.url}
+                                                    className="hover:underline"
+                                                >
+                                                    {order.number}
+                                                </Link>
+                                            ) : (
+                                                (order?.number ?? null)
+                                            ),
                                     },
                                     {
                                         label: 'Admin notes',
@@ -670,7 +680,18 @@ export default function ServiceShow({
                                         key: 'invoice',
                                         header: 'Invoice',
                                         primary: true,
-                                        cell: (link) => `#${link.invoice_id}`,
+                                        cell: (link) =>
+                                            link.invoice_url ? (
+                                                <Link
+                                                    href={link.invoice_url}
+                                                    className="hover:underline"
+                                                >
+                                                    {link.invoice_number ??
+                                                        'Invoice'}
+                                                </Link>
+                                            ) : (
+                                                (link.invoice_number ?? '—')
+                                            ),
                                     },
                                     {
                                         key: 'period',

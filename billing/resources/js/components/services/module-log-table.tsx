@@ -79,7 +79,7 @@ export function ModuleLogTable({
                         )}
                     </span>
                     <span className="text-xs font-normal text-muted-foreground">
-                        {entry.driver} · {entry.initiator}
+                        {entry.driver} · {entry.initiator_label}
                     </span>
                 </span>
             ),

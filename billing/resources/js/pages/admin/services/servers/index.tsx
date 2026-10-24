@@ -14,6 +14,7 @@ import { EmptyState } from '@/components/app/empty-state';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
+import { StatCard } from '@/components/app/stat-card';
 import { StatusBadge } from '@/components/app/status-badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -28,6 +29,7 @@ import ServerController from '@/actions/App/Modules/Services/Http/Controllers/Ad
 import ServerGroupController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerGroupController';
 import ServerImportController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerImportController';
 import { index as servicesIndex } from '@/routes/admin/services';
+import { index as moduleLogIndex } from '@/routes/admin/services/module-log';
 import type { SelectOption } from '@/types/app';
 import type { ServerRow } from '@/types/services';
 
@@ -39,11 +41,25 @@ type GroupRow = {
     servers_count: number;
 };
 
+type Summary = {
+    servers: number;
+    active: number;
+    accounts: number;
+    /** Sum of the active servers' limits; `unlimited` when one of them has none. */
+    capacity: number;
+    unlimited: boolean;
+    near_full: number;
+    failed_commands: number;
+    failing_servers: number;
+};
+
 type Props = {
     servers: ServerRow[];
+    summary: Summary;
     groups: GroupRow[];
     drivers: SelectOption[];
     canManage: boolean;
+    canViewModuleLog: boolean;
     /** Driver keys whose servers can list their accounts for import; empty without the import permission. */
     importDrivers: string[];
 };
@@ -68,9 +84,11 @@ function Capacity({ server }: { server: ServerRow }) {
 
 export default function ServersIndex({
     servers,
+    summary,
     groups,
     drivers,
     canManage,
+    canViewModuleLog,
     importDrivers,
 }: Props) {
     const { errors } = usePage().props as { errors: Record<string, string> };
@@ -230,6 +248,48 @@ export default function ServersIndex({
                         )
                     }
                 />
+
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <StatCard
+                        label="Servers"
+                        value={summary.active}
+                        hint={`active of ${summary.servers}`}
+                    />
+                    <StatCard
+                        label="Accounts"
+                        value={summary.accounts}
+                        hint={
+                            summary.unlimited || summary.capacity === 0
+                                ? 'no account limit'
+                                : `of ${summary.capacity} (${Math.round((summary.accounts / summary.capacity) * 100)}% used)`
+                        }
+                    />
+                    <StatCard
+                        label="Nearly full"
+                        value={summary.near_full}
+                        hint="active servers at 90% of their limit or more"
+                        tone={summary.near_full > 0 ? 'warning' : 'default'}
+                    />
+                    <StatCard
+                        label="Failed commands, 24 h"
+                        value={summary.failed_commands}
+                        hint={
+                            summary.failed_commands > 0
+                                ? `on ${summary.failing_servers} ${summary.failing_servers === 1 ? 'server' : 'servers'}`
+                                : 'no failures'
+                        }
+                        tone={
+                            summary.failed_commands > 0 ? 'danger' : 'default'
+                        }
+                        href={
+                            canViewModuleLog
+                                ? moduleLogIndex({
+                                      query: { result: 'failed' },
+                                  })
+                                : undefined
+                        }
+                    />
+                </div>
 
                 {errors.server && (
                     <Alert variant="destructive">

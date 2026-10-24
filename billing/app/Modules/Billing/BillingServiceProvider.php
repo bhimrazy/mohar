@@ -5,6 +5,7 @@ namespace App\Modules\Billing;
 use App\Contracts\Billing\CreditLedger;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\GatewayRegistry;
+use App\Contracts\Billing\InvoiceNumbers;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Billing\TaxCalculator;
@@ -112,6 +113,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $this->app->bind(TaxIdRules::class, BillingTaxIdRules::class);
         $this->app->bind(GatewayDirectory::class, BillingDirectory::class);
         $this->app->bind(InvoiceQueries::class, BillingDirectory::class);
+        $this->app->bind(InvoiceNumbers::class, BillingDirectory::class);
 
         $this->app->singleton(GatewayRegistry::class, fn (): GatewayManager => $this->app->make(GatewayManager::class));
         $this->app->singleton(GatewayManager::class, function (): GatewayManager {
