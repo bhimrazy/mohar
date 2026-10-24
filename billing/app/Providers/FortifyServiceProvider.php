@@ -6,6 +6,7 @@ use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\RememberValidatedLogin;
 use App\Actions\Fortify\ResetUserPassword;
 use App\Actions\Fortify\SignInValidatedUser;
+use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Http\Responses\PasswordConfirmedResponse;
 use App\Http\Responses\PasswordResetFailedResponse;
 use App\Http\Responses\PasswordResetLinkRequestedResponse;
@@ -105,7 +106,7 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::twoFactorChallengeView(fn () => Inertia::render('auth/two-factor-challenge'));
 
         Fortify::confirmPasswordView(fn (Request $request) => Inertia::render('auth/confirm-password', [
-            'download' => (bool) $request->session()->get('step_up_download', false),
+            'download' => RequireRecentPasswordConfirmation::confirmingDownload($request),
             'hasPassword' => (bool) $request->user()?->hasPassword(),
         ]));
     }

@@ -46,6 +46,9 @@ class RequireRecentPasswordConfirmation
 
     public const PROBE_HEADER = 'X-Step-Up-Check';
 
+    /** Session key holding the file URL a download sent to the confirm page. */
+    public const DOWNLOAD_KEY = 'step_up_download';
+
     /**
      * @param  Closure(Request): Response  $next
      */
@@ -99,12 +102,27 @@ class RequireRecentPasswordConfirmation
         abort(423, __('Password confirmation required.'));
     }
 
+    /**
+     * The confirm page labels itself a download only while the remembered URL is still this file (#305): the session
+     * keeps the URL, not a yes/no that a later, unrelated confirm page would inherit.
+     */
     private function toConfirmPage(): Response
     {
         Inertia::flash('toast', ['type' => 'info', 'message' => __('Confirm your password to download this file.')]);
-        session()->put('step_up_download', true);
+        $redirect = redirect()->guest(route('password.confirm'));
+        session()->put(self::DOWNLOAD_KEY, session('url.intended'));
 
-        return redirect()->guest(route('password.confirm'));
+        return $redirect;
+    }
+
+    /**
+     * Whether the remembered URL is the download that sent the person to the confirm page.
+     */
+    public static function confirmingDownload(Request $request): bool
+    {
+        $download = $request->session()->get(self::DOWNLOAD_KEY);
+
+        return is_string($download) && $download === $request->session()->get('url.intended');
     }
 
     /**
