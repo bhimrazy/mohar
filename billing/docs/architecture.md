@@ -377,6 +377,6 @@ without CTO approval — `docs/devops/dependency-policy.md` (ADR 0007). CI desig
   "ADR 0009 Amendment (#368)". Amendments numbered before ADR 0027 keep their numbers.
 - Every branch lands through a GitHub pull request into `develop` (`gh pr create --base develop`, template in
   `.github/pull_request_template.md`). Review gates, posted on the PR as review comments: Staff Engineer review →
-  QA (runs the suite, adds missing tests) → AI-slop review → fixes by the author → CTO merge with a merge commit
-  (`gh pr merge --merge`). Findings are labelled **blocking** or **non-blocking**; blocking ones must be fixed first.
+  QA (runs the suite, adds missing tests) → AI-slop review → fixes by the author → CTO merge with a squash
+  (`gh pr merge --squash`; a merge commit when another open PR is based on the branch). Findings are labelled **blocking** or **non-blocking**; blocking ones must be fixed first.
 - Never commit `.env`, `vendor/`, `node_modules/`, generated Wayfinder files, or `database/*.sqlite`.
