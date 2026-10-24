@@ -692,7 +692,7 @@ export default function ServerImport({
                             </TabsList>
                         </Tabs>
 
-                        <FilterBar searchPlaceholder="Search username, domain or email…" />
+                        <FilterBar searchPlaceholder="Search username, domain or full email…" />
 
                         {filters.tab === 'missing' ? (
                             <DataTable

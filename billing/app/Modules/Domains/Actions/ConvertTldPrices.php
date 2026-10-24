@@ -125,7 +125,8 @@ class ConvertTldPrices implements PriceConverter
 
                 foreach (TldPrice::ACTIONS as $action) {
                     $amount = $source->amountFor($action);
-                    $amounts[$action] = $amount === null ? null : $currency->priceFromDefault($amount, $default);
+                    // Only a source price of 0 (a transfer staff set as free) converts to 0; rounding never makes a paid price free.
+                    $amounts[$action] = $amount === null ? null : ($amount > 0 ? max(1, $currency->priceFromDefault($amount, $default)) : 0);
                 }
 
                 if ($row !== null && $row->enabled && $row->register === $amounts['register'] && $row->transfer === $amounts['transfer'] && $row->renew === $amounts['renew']) {

@@ -372,6 +372,14 @@ export function TldPricingGrid({
                         </SelectContent>
                     </Select>
                 </div>
+                {serverErrors.prices && (
+                    <p
+                        role="alert"
+                        className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive sm:px-6"
+                    >
+                        {serverErrors.prices}
+                    </p>
+                )}
                 {turnedOff && (
                     <p className="border-b bg-warning-subtle px-4 py-2 text-sm text-warning-text sm:px-6">
                         Some of these prices are turned off because their{' '}
