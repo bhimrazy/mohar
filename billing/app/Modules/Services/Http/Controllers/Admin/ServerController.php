@@ -232,6 +232,7 @@ class ServerController extends Controller
                 $drivers->keys(),
             )),
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->pluck('code'),
+            'minSecretLength' => SettingField::MIN_SECRET_BYTES,
             'fillTypes' => array_map(fn (FillType $type): array => ['value' => $type->value, 'label' => $type->label()], FillType::cases()),
         ];
     }
