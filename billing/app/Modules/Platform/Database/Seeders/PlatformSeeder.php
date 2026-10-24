@@ -11,12 +11,14 @@ use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Models\ExchangeRateHistory;
 use App\Modules\Platform\Models\ExchangeRateReview;
 use App\Modules\Platform\Models\StaffInvitation;
 use App\Support\Automation\Automation;
 use App\Support\Currencies\Decimal;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 /**
@@ -121,6 +123,14 @@ class PlatformSeeder extends DemoSeeder
                 ]);
                 $run->forceFill(['created_at' => $ranAt, 'updated_at' => $ranAt->addMinute()])->save();
             }
+
+            $lastTick = $ranAt->copy()->addMinute();
+        }
+
+        // The history implies a scheduler ran until its last run: record that tick, so health reads "stopped since"
+        // rather than "never ran" until `php artisan schedule:work` (or cron) writes a live one.
+        if (isset($lastTick)) {
+            Cache::forever(AutomationStatus::HEARTBEAT_KEY, $lastTick->toIso8601String());
         }
 
         mt_srand();

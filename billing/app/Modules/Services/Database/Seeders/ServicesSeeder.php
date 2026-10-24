@@ -24,7 +24,7 @@ use Carbon\CarbonImmutable;
 /**
  * Demo data: a server group with two "log" driver servers and services in every status.
  *
- * Product ids 1–4 are fixed demo numbers (no Catalog dependency); product names are stored as the
+ * Product ids 1–4 and names match the demo catalogue (CatalogSeeder) without depending on it; names are stored as the
  * service's product_name snapshot. Lifecycle changes run through the real module command
  * executor so the module log and failed-actions queue have realistic entries.
  */
@@ -32,10 +32,10 @@ class ServicesSeeder extends DemoSeeder
 {
     /** @var array<int, array{name: string, amount: int}> */
     private const PRODUCTS = [
-        1 => ['name' => 'Starter Hosting', 'amount' => 499],
-        2 => ['name' => 'Business Hosting', 'amount' => 1299],
-        3 => ['name' => 'Reseller Pro', 'amount' => 2999],
-        4 => ['name' => 'VPS Small', 'amount' => 1900],
+        1 => ['name' => 'Starter', 'amount' => 499],
+        2 => ['name' => 'Pro', 'amount' => 899],
+        3 => ['name' => 'Business', 'amount' => 1299],
+        4 => ['name' => 'VPS S', 'amount' => 1900],
     ];
 
     public function run(): void
@@ -46,10 +46,10 @@ class ServicesSeeder extends DemoSeeder
 
         $clock = app(CompanyClock::class);
         $today = $clock->todayDate();
-        $group = ServerGroup::query()->create(['name' => 'Shared hosting US', 'fill_type' => FillType::LeastFull]);
+        $group = ServerGroup::query()->create(['name' => 'Shared hosting', 'fill_type' => FillType::LeastFull]);
         $servers = collect([
-            ['name' => 'Web 1', 'hostname' => 'web1.demo-host.net', 'ip_address' => '203.0.113.10', 'max_accounts' => 200, 'is_default' => true, 'datacenter' => 'Ashburn'],
-            ['name' => 'Web 2', 'hostname' => 'web2.demo-host.net', 'ip_address' => '203.0.113.11', 'max_accounts' => 200, 'is_default' => false, 'datacenter' => 'Ashburn'],
+            ['name' => 'Web 1', 'hostname' => 'web1.demo-host.net', 'ip_address' => '203.0.113.10', 'max_accounts' => 200, 'is_default' => true, 'datacenter' => 'Kathmandu'],
+            ['name' => 'Web 2', 'hostname' => 'web2.demo-host.net', 'ip_address' => '203.0.113.11', 'max_accounts' => 200, 'is_default' => false, 'datacenter' => 'Kathmandu'],
         ])->map(fn (array $attributes): Server => Server::query()->create([
             ...$attributes,
             'driver' => 'log',
@@ -64,7 +64,7 @@ class ServicesSeeder extends DemoSeeder
         $servers->each(fn (Server $server, int $index) => $group->servers()->attach($server, ['sort_order' => $index]));
         Server::query()->create([
             'name' => 'VPS cluster', 'hostname' => 'vps.demo-host.net', 'ip_address' => '203.0.113.50', 'driver' => 'log',
-            'username' => 'api', 'api_token' => 'demo-token', 'max_accounts' => 0, 'is_active' => true, 'monthly_cost' => 25000, 'currency' => 'USD', 'datacenter' => 'Frankfurt',
+            'username' => 'api', 'api_token' => 'demo-token', 'max_accounts' => 0, 'is_active' => true, 'monthly_cost' => 25000, 'currency' => 'USD', 'datacenter' => 'Singapore',
         ]);
 
         $demo = Client::query()->where('email', 'demo@example.com')->first();
@@ -86,7 +86,7 @@ class ServicesSeeder extends DemoSeeder
 
     private function seedDemoClient(Client $demo, CarbonImmutable $today): void
     {
-        $active = $this->pending($demo, 2, BillingCycle::Monthly, 'himallabs.io', $today->subMonths(5)->subDays(9));
+        $active = $this->pending($demo, 3, BillingCycle::Monthly, 'himallabs.io', $today->subMonths(5)->subDays(9));
         $this->execute($active, ModuleCommandName::Create);
         $this->paidThrough($active, $today->addDays(12));
         ServiceAddon::query()->create([
@@ -96,7 +96,7 @@ class ServicesSeeder extends DemoSeeder
             'next_due_date' => $active->next_due_date, 'next_invoice_date' => $active->next_invoice_date, 'activated_at' => $active->activated_at,
         ]);
 
-        $annual = $this->pending($demo, 3, BillingCycle::Annually, 'himallabs-reseller.com', $today->subMonths(7));
+        $annual = $this->pending($demo, 2, BillingCycle::Annually, 'himallabs-shop.com', $today->subMonths(7));
         $this->execute($annual, ModuleCommandName::Create);
         $this->paidThrough($annual, $today->subMonths(7)->addYear());
 

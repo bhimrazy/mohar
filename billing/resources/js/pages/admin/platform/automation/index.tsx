@@ -183,7 +183,7 @@ export default function AutomationIndex({
             <Page>
                 <PageHeader
                     title="Automation"
-                    description={`The daily pipeline runs at ${scheduledAt} server time, in stage order. Each task runs once per day.`}
+                    description={`The daily pipeline runs at ${scheduledAt} company time, in stage order. Each task runs once per day.`}
                     actions={
                         can.run && (
                             <Button onClick={() => runTask('')}>

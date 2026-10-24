@@ -55,7 +55,7 @@ class SupportSeeder extends DemoSeeder
         $this->incidents();
 
         if ($admin !== null) {
-            StaffSignature::query()->create(['user_id' => $admin->id, 'signature' => "Best regards,\nAdmin · Support team"]);
+            StaffSignature::query()->create(['user_id' => $admin->id, 'signature' => "Best regards,\nAnil Thapa · Support team"]);
             $this->tickets($admin, $departments);
         }
     }
@@ -143,7 +143,7 @@ class SupportSeeder extends DemoSeeder
 
     private function announcements(): void
     {
-        Announcement::query()->create(['title' => 'New datacenter in Frankfurt', 'slug' => 'new-datacenter-frankfurt', 'excerpt' => 'EU customers can now host closer to their visitors.', 'body' => "We're happy to announce our new **Frankfurt** location.\n\nNew orders can pick it at checkout; existing services can be migrated for free.", 'is_published' => true, 'published_at' => now()->subDays(2)]);
+        Announcement::query()->create(['title' => 'New data centre in Singapore', 'slug' => 'new-data-centre-singapore', 'excerpt' => 'Customers across Asia can now host closer to their visitors.', 'body' => "We're happy to announce our new **Singapore** location, alongside Kathmandu.\n\nNew orders can pick it at checkout; existing services can be migrated for free.", 'is_published' => true, 'published_at' => now()->subDays(2)]);
         Announcement::query()->create(['title' => 'PHP 8.4 now available', 'slug' => 'php-84-available', 'excerpt' => 'Switch versions per site from the control panel.', 'body' => 'PHP 8.4 is available on all shared hosting plans. PHP 8.1 reaches end of life on December 31.', 'is_published' => true, 'published_at' => now()->subDays(12)]);
         Announcement::query()->create(['title' => 'Scheduled maintenance window', 'slug' => 'scheduled-maintenance', 'excerpt' => 'Network upgrades next Sunday.', 'body' => 'Brief interruptions of up to 5 minutes are expected between 02:00 and 04:00 UTC.', 'is_published' => true, 'published_at' => now()->addDays(3)]);
         Announcement::query()->create(['title' => 'Holiday support hours (draft)', 'slug' => 'holiday-support-hours', 'body' => 'Draft', 'is_published' => false]);

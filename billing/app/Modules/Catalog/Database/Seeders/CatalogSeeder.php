@@ -60,7 +60,7 @@ class CatalogSeeder extends DemoSeeder
             'tagline' => '1 website, 10 GB SSD',
             'provisioning_driver' => 'log',
             'driver_config' => ['package' => 'starter', 'disk_quota' => '10240'],
-            'welcome_email_key' => 'hosting.welcome',
+            'welcome_email_key' => 'service.welcome.shared_hosting',
             'requires_domain' => true,
         ]);
         $pro = $this->product($hosting, 'Pro', 'pro', 799, ['monthly', 'annually', 'biennially'], [
@@ -68,7 +68,7 @@ class CatalogSeeder extends DemoSeeder
             'is_featured' => true,
             'provisioning_driver' => 'log',
             'driver_config' => ['package' => 'pro', 'disk_quota' => '51200'],
-            'welcome_email_key' => 'hosting.welcome',
+            'welcome_email_key' => 'service.welcome.shared_hosting',
             'requires_domain' => true,
             'free_domain' => FreeDomain::Once,
             'free_domain_cycles' => ['annually', 'biennially'],
@@ -78,7 +78,7 @@ class CatalogSeeder extends DemoSeeder
             'tagline' => 'Unlimited websites, 200 GB NVMe, daily backups',
             'provisioning_driver' => 'log',
             'driver_config' => ['package' => 'business', 'disk_quota' => '204800'],
-            'welcome_email_key' => 'hosting.welcome',
+            'welcome_email_key' => 'service.welcome.shared_hosting',
             'requires_domain' => true,
             'prorata_enabled' => true,
             'prorata_day' => 1,
@@ -90,7 +90,7 @@ class CatalogSeeder extends DemoSeeder
             'tagline' => '1 vCPU · 2 GB RAM · 40 GB NVMe',
             'provisioning_driver' => 'log',
             'driver_config' => ['template' => 'debian-12', 'storage' => 'nvme'],
-            'welcome_email_key' => 'vps.welcome',
+            'welcome_email_key' => 'service.welcome.server',
             'auto_setup' => AutoSetup::OnOrder,
         ], setupFee: 500);
         $vpsMedium = $this->product($vps, 'VPS M', 'vps-m', 2400, ['monthly', 'quarterly', 'annually'], [
@@ -98,7 +98,7 @@ class CatalogSeeder extends DemoSeeder
             'tagline' => '2 vCPU · 4 GB RAM · 80 GB NVMe',
             'provisioning_driver' => 'log',
             'driver_config' => ['template' => 'debian-12', 'storage' => 'nvme'],
-            'welcome_email_key' => 'vps.welcome',
+            'welcome_email_key' => 'service.welcome.server',
             'stock_enabled' => true,
             'stock_quantity' => 25,
         ], setupFee: 500);

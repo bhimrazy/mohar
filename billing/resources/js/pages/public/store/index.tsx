@@ -105,16 +105,19 @@ function ProductCard({
                         key={row.cycle}
                         className="flex items-center justify-between gap-3"
                     >
-                        <span className="flex items-center gap-2 text-muted-foreground">
-                            <Check className="size-3.5" aria-hidden="true" />
+                        <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
+                            <Check
+                                className="size-3.5 shrink-0"
+                                aria-hidden="true"
+                            />
                             {cycleLabel(row.cycle)}
                             {savingFor(product.pricing, row) > 0 && (
-                                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-foreground">
+                                <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[11px] whitespace-nowrap text-foreground">
                                     Save {savingFor(product.pricing, row)}%
                                 </span>
                             )}
                         </span>
-                        <span className="tabular-nums">
+                        <span className="shrink-0 whitespace-nowrap tabular-nums">
                             <Money amount={row.recurring} currency={currency} />
                             <span className="text-muted-foreground">
                                 {cycleSuffix(row.cycle)}

@@ -85,7 +85,7 @@ class StorefrontServiceProvider extends ModuleServiceProvider
             }
         });
 
-        $this->app->make(Navigation::class)->add('admin', new NavItem('Website', 'admin.storefront.website.edit', 'Globe', 'Setup', 75, 'storefront.content.manage', 'admin.storefront.*'));
+        $this->app->make(Navigation::class)->add('admin', new NavItem('Website', 'admin.storefront.website.edit', 'Globe', 'Setup', 7, 'storefront.content.manage', 'admin.storefront.*'));
 
         $this->app->make(PermissionRegistry::class)->register('Website', [
             'storefront.content.manage' => 'Edit and preview the website draft',

@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\Billing\GatewayRegistry;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Enums\BillableType;
 use App\Models\User;
@@ -333,4 +334,20 @@ test('adding addons is validated and requires the manage permission', function (
     $ended = Service::factory()->status(ServiceStatus::Terminated)->create();
     $this->post(route('admin.services.services.addons.store', $ended), ['name' => 'X', 'cycle' => 'monthly', 'recurring_amount' => 0, 'setup_fee' => 0, 'status' => 'active'])
         ->assertSessionHasErrors(['action']);
+});
+
+test('service pages name the payment gateway instead of showing its key', function () {
+    actingAsStaff(['services.services.view', 'services.services.manage']);
+    $registry = app(GatewayRegistry::class);
+    $key = array_key_first($registry->drivers());
+    $named = Service::factory()->create(['payment_gateway' => $key]);
+    $retired = Service::factory()->create(['payment_gateway' => 'retired_gateway']);
+
+    $this->get(route('admin.services.services.show', $named))
+        ->assertInertia(fn (Assert $page) => $page->where('paymentGatewayLabel', $registry->driver($key)->name()));
+
+    $this->get(route('admin.services.services.edit', $retired))
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('admin/services/edit')
+            ->where('gateways', fn ($gateways) => collect($gateways)->contains(fn (array $option): bool => $option['value'] === 'retired_gateway' && $option['label'] === 'retired_gateway (not enabled)')));
 });

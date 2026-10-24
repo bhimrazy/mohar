@@ -2,6 +2,8 @@
 
 namespace App\Modules\Services\Http\Controllers\Admin;
 
+use App\Contracts\Billing\GatewayDirectory;
+use App\Contracts\Billing\GatewayRegistry;
 use App\Contracts\Core\CompanyClock;
 use App\Enums\BillingCycle;
 use App\Http\Controllers\Controller;
@@ -106,6 +108,7 @@ class ServiceController extends Controller
             'statusTargets' => $presenter->statusTargets($service),
             'changeOptions' => Inertia::defer(fn (): array => $presenter->changeOptions($service, $today)),
             'creditOnDowngrade' => $settings->creditOnDowngrade(),
+            'paymentGatewayLabel' => $this->gatewayLabel($service->payment_gateway),
             'can' => [
                 'manage' => $user?->hasPermission('services.services.manage') ?? false,
                 'provision' => $user?->hasPermission('services.services.provision') ?? false,
@@ -138,7 +141,41 @@ class ServiceController extends Controller
             'service' => new ServiceResource($service->load(['client', 'server'])),
             'cycles' => array_map(fn (BillingCycle $cycle): array => ['value' => $cycle->value, 'label' => ucfirst($cycle->value)], BillingCycle::cases()),
             'servers' => Server::query()->orderBy('name')->orderBy('id')->get(['id', 'name', 'hostname'])->map(fn (Server $server): array => ['value' => (string) $server->id, 'label' => "{$server->name} ({$server->hostname})"]),
+            'gateways' => $this->gatewayOptions($service),
         ]);
+    }
+
+    /**
+     * The service currency's enabled gateways, plus the service's current one when it is no longer offered, so
+     * staff pick a name instead of typing a gateway key.
+     *
+     * @return list<array{value: string, label: string}>
+     */
+    private function gatewayOptions(Service $service): array
+    {
+        $options = array_map(
+            fn (array $gateway): array => ['value' => $gateway['key'], 'label' => $gateway['label']],
+            app(GatewayDirectory::class)->available($service->currency),
+        );
+
+        $current = $service->payment_gateway;
+
+        if ($current !== null && $current !== '' && ! in_array($current, array_column($options, 'value'), true)) {
+            $options[] = ['value' => $current, 'label' => __(':name (not enabled)', ['name' => $this->gatewayLabel($current)])];
+        }
+
+        return $options;
+    }
+
+    private function gatewayLabel(?string $key): ?string
+    {
+        if ($key === null || $key === '') {
+            return null;
+        }
+
+        $registry = app(GatewayRegistry::class);
+
+        return $registry->has($key) ? $registry->driver($key)->name() : $key;
     }
 
     public function update(ServiceRequest $request, Service $service, UpdateService $update): RedirectResponse

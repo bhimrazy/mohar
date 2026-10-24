@@ -195,10 +195,10 @@ class PlatformServiceProvider extends ModuleServiceProvider
         $navigation = $this->app->make(Navigation::class);
         $navigation->add('admin', new NavItem('Activity log', 'admin.platform.activity.index', 'Activity', 'General', 50, 'core.activity_log.view', 'admin.platform.activity.*'));
         $navigation->add('admin', new NavItem('Staff', 'admin.platform.staff.index', 'UserCog', 'Setup', 10, 'core.staff.view', 'admin.platform.staff.*'));
-        $navigation->add('admin', new NavItem('Roles', 'admin.platform.roles.index', 'Shield', 'Setup', 20, 'core.roles.manage', 'admin.platform.roles.*'));
+        $navigation->add('admin', new NavItem('Roles', 'admin.platform.roles.index', 'Shield', 'Setup', 11, 'core.roles.manage', 'admin.platform.roles.*'));
         $navigation->add('admin', new NavItem('Currencies', 'admin.platform.currencies.index', 'Coins', 'Setup', 30, 'core.currencies.manage', 'admin.platform.currencies.*'));
         $navigation->add('admin', new NavItem('Client groups', 'admin.platform.client-groups.index', 'Tag', 'Clients', 20, 'core.client_groups.manage', 'admin.platform.client-groups.*'));
-        $navigation->add('admin', new NavItem('Settings', 'admin.platform.settings.edit', 'Settings', 'Setup', 80, 'core.settings.view', 'admin.platform.settings.*'));
+        $navigation->add('admin', new NavItem('Settings', 'admin.platform.settings.edit', 'Settings', 'Setup', 5, 'core.settings.view', 'admin.platform.settings.*'));
         $navigation->add('admin', new NavItem('Automation', 'admin.platform.automation.index', 'Timer', 'Setup', 90, 'core.automation.view', 'admin.platform.automation.*'));
     }
 

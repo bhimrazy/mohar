@@ -325,8 +325,11 @@ export default function InvoiceShow({
             key: 'date',
             header: 'Date',
             primary: true,
+            // Date and time may wrap so the amount stays in view in the narrow main column.
             cell: (txn) => (
-                <DateTime value={txn.occurred_at} format="datetime" />
+                <span className="whitespace-normal">
+                    <DateTime value={txn.occurred_at} format="datetime" />
+                </span>
             ),
         },
         { key: 'type', header: 'Type', cell: (txn) => humanize(txn.type) },
@@ -353,7 +356,7 @@ export default function InvoiceShow({
             hideOnMobile: true,
             cell: (txn) => (
                 <span
-                    className="inline-block max-w-36 truncate align-bottom font-mono text-xs"
+                    className="inline-block max-w-24 truncate align-bottom font-mono text-xs"
                     title={txn.gateway_txn_id ?? undefined}
                 >
                     {txn.gateway_txn_id ?? '—'}

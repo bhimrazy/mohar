@@ -43,7 +43,7 @@ class CoreSeeder extends DemoSeeder
         $admin = Role::query()->where('key', SystemRoles::FULL_ADMINISTRATOR)->sole();
 
         User::query()->firstOrCreate(['email' => 'admin@example.com'], [
-            'name' => 'Admin',
+            'name' => 'Anil Thapa',
             'password' => 'password',
             'email_verified_at' => now(),
         ])->forceFill(['is_staff' => true, 'role_id' => $admin->id, 'password_changed_at' => now()])->save();

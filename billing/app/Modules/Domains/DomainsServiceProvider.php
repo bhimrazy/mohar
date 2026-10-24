@@ -313,7 +313,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
 
         $this->app->make(SettingsRegistry::class)->section('domains', 'Domains', [
             new SettingDefinition('domains.default_auto_renew', 'Auto-renew new domains by default', 'boolean'),
-            new SettingDefinition('domains.invoice_lead_days', 'Days before the due date to issue renewal invoices', 'integer', 'Empty uses billing.invoice_lead_days.', rules: ['nullable', 'min:0', 'max:365']),
+            new SettingDefinition('domains.invoice_lead_days', 'Days before the due date to issue renewal invoices', 'integer', 'Leave empty to use 14 days.', rules: ['nullable', 'min:0', 'max:365']),
             new SettingDefinition('domains.next_due_offset_days', 'Days before expiry that renewals are due', 'integer', rules: ['min:0', 'max:90']),
             new SettingDefinition('domains.free_renewal_requires_service', 'Free domains renew only with an active linked service', 'boolean'),
             new SettingDefinition('domains.renew_on_payment', 'Renew at the registrar when the renewal invoice is paid', 'boolean'),
