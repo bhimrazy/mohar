@@ -610,10 +610,10 @@ MD, 'View your ticket'),
 
 We closed this ticket because we haven't heard back for a while. Reply to this email if you still need help and it will reopen.
 MD.$signOff, 'View your ticket'),
-    $ticket('ticket.link_replaced', 'Ticket link replaced', $supportSubject, <<<'MD'
+    $ticket('ticket.link_replaced', 'Ticket link replaced', '[#{{ ticket.number }}] New link to your ticket', <<<'MD'
 # Your ticket link has changed
 
-Tickets from other senders were merged into ticket #{{ ticket.number }}, so we replaced its private link. The link in your earlier emails no longer opens it. Use the button below from now on, and keep it to yourself.
+We combined related tickets into ticket #{{ ticket.number }}, so we replaced its private link. The link in your earlier emails no longer opens it. Use the button below from now on, and keep it to yourself.
 
 If you did not expect this, reply to this email and tell us.
 MD.$signOff, 'View your ticket'),
@@ -965,7 +965,7 @@ $descriptions = [
     'ticket.opened_by_staff' => 'Tells the client that staff opened a ticket for them.',
     'ticket.reply' => 'Sends a staff reply to the client.',
     'ticket.auto_closed' => 'Tells the client a ticket was closed because they did not reply.',
-    'ticket.link_replaced' => 'Sends a guest the new private link of their ticket after tickets of other senders were merged into it.',
+    'ticket.link_replaced' => 'Sends a guest the new private link of their ticket after tickets were merged into it.',
     'ticket.closed_bounce' => 'Reply to someone who emailed a ticket that is already closed.',
     'ticket.unregistered_bounce' => 'Reply to an email from an address that has no client account.',
     'ticket.replies_only_bounce' => 'Reply to an email sent to a department that only accepts replies.',

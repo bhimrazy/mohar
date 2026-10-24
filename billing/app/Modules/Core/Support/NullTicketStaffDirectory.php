@@ -23,4 +23,9 @@ class NullTicketStaffDirectory implements TicketStaffDirectory
     {
         return null;
     }
+
+    public function withDepartmentAccess(int $ticketId, array $userIds): array
+    {
+        return $userIds;
+    }
 }

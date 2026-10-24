@@ -52,8 +52,8 @@ class EditMessage
         $files = $message->attachments()->whereNull('pruned_at')->get(['disk', 'path']);
 
         DB::transaction(function () use ($message, $staff): void {
-            /** @var Ticket $ticket */
-            $ticket = $message->ticket;
+            // Same lock as PostReply, so a concurrent reply is not overwritten by the recompute below.
+            $ticket = Ticket::query()->lockForUpdate()->findOrFail($message->ticket_id);
             $this->recorder->record($ticket, TicketAuthor::staff($staff), 'message_deleted', null, null, [
                 'message_id' => $message->id,
                 'previous_body' => $message->body,

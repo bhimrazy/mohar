@@ -114,7 +114,6 @@ it('mails the new department when a ticket moves and nobody holds it, but nobody
     $kept = clientTicket(Client::factory()->create(), $from);
     app(UpdateTicket::class)->handle($kept, $listed, ['assigned_to' => $listed->id]);
     Mail::fake();
-
     app(UpdateTicket::class)->handle($moved, $listed, ['department_id' => $to->id]);
     app(UpdateTicket::class)->handle($kept, $listed, ['department_id' => $to->id]);
 

@@ -9,10 +9,10 @@ use App\Modules\Notifications\Enums\StaffCategory;
 /**
  * Which staff receive a ticket's mail (Support spec §5): the department's members for a new ticket, the assignee for a
  * customer reply (the members while it is unassigned), the members of the new department when a moved ticket is
- * unassigned. Everyone must be active and hold `support.tickets.view`.
+ * unassigned. Everyone must be active, hold `support.tickets.view` and be able to open the ticket's department.
  *
- * When that yields nobody (no Support module, a department with no members, an inactive assignee), the mail goes to
- * the staff who subscribed to the support alert category, as before.
+ * When that yields nobody (no Support module, a department with no members, an inactive assignee), the mail goes to the
+ * staff who subscribed to the support alert category and can open the department.
  */
 class TicketStaffRecipients
 {
@@ -25,7 +25,7 @@ class TicketStaffRecipients
      */
     public function forNewTicket(int $ticketId): array
     {
-        return $this->resolve($this->tickets->newTicketMembers($ticketId));
+        return $this->resolve($ticketId, $this->tickets->newTicketMembers($ticketId));
     }
 
     /**
@@ -33,10 +33,9 @@ class TicketStaffRecipients
      */
     public function forCustomerReply(int $ticketId): array
     {
-        $assignee = $this->tickets->assigneeId($ticketId);
-        $assigned = $assignee !== null ? $this->recipients->staff(StaffCategory::Support, self::VIEW, [$assignee]) : [];
+        $assigned = $this->assignee($ticketId);
 
-        return $assigned !== [] ? $assigned : $this->resolve($this->tickets->replyMembers($ticketId));
+        return $assigned !== [] ? $assigned : $this->resolve($ticketId, $this->tickets->replyMembers($ticketId));
     }
 
     /**
@@ -46,23 +45,40 @@ class TicketStaffRecipients
      */
     public function forDepartmentMove(int $ticketId): array
     {
-        $assignee = $this->tickets->assigneeId($ticketId);
+        return $this->assignee($ticketId) !== [] ? [] : $this->resolve($ticketId, $this->tickets->newTicketMembers($ticketId));
+    }
 
-        if ($assignee !== null && $this->recipients->staff(StaffCategory::Support, self::VIEW, [$assignee]) !== []) {
-            return [];
-        }
+    /**
+     * @return list<Recipient> the assignee when active, allowed to view tickets and able to open the department
+     */
+    private function assignee(int $ticketId): array
+    {
+        $id = $this->tickets->assigneeId($ticketId);
+        $allowed = $id !== null ? $this->tickets->withDepartmentAccess($ticketId, [$id]) : [];
 
-        return $this->resolve($this->tickets->newTicketMembers($ticketId));
+        return $allowed !== [] ? $this->recipients->staff(StaffCategory::Support, self::VIEW, $allowed) : [];
     }
 
     /**
      * @param  list<int>  $userIds
      * @return list<Recipient>
      */
-    private function resolve(array $userIds): array
+    private function resolve(int $ticketId, array $userIds): array
     {
-        $members = $userIds !== [] ? $this->recipients->staff(StaffCategory::Support, self::VIEW, $userIds) : [];
+        $allowed = $userIds !== [] ? $this->tickets->withDepartmentAccess($ticketId, $userIds) : [];
+        $members = $allowed !== [] ? $this->recipients->staff(StaffCategory::Support, self::VIEW, $allowed) : [];
 
-        return $members !== [] ? $members : $this->recipients->staff(StaffCategory::Support, self::VIEW);
+        return $members !== [] ? $members : $this->subscribers($ticketId);
+    }
+
+    /**
+     * @return list<Recipient>
+     */
+    private function subscribers(int $ticketId): array
+    {
+        $subscribers = $this->recipients->staff(StaffCategory::Support, self::VIEW);
+        $allowed = $this->tickets->withDepartmentAccess($ticketId, array_values(array_filter(array_map(fn (Recipient $recipient): ?int => $recipient->staffId, $subscribers))));
+
+        return array_values(array_filter($subscribers, fn (Recipient $recipient): bool => in_array($recipient->staffId, $allowed, true)));
     }
 }

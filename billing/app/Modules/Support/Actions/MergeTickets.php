@@ -24,10 +24,11 @@ use Illuminate\Validation\ValidationException;
  *
  * Tickets of different requesters (client accounts, or different guest emails) merge only with the
  * cross-client permission, and their requesters are then NOT added to the target: access to the
- * merged ticket is never granted through a source ticket's link or email address. The target's own access key
- * is replaced in that case too: whoever opened the target under another person's address (guest tickets carry no
- * proof of the address) must not keep a link to the thread the merge just filled with other people's messages. The
- * new link is emailed to the target's requester address.
+ * merged ticket is never granted through a source ticket's link or email address. A guest target's own access key
+ * is replaced on every merge: a guest's email address proves nothing, so whoever opened the target under someone
+ * else's address (even one the source also used) must not keep a link to the thread the merge just filled with other
+ * messages. A client target's key is replaced only when requesters differ. The new link is emailed to the guest
+ * target's requester address.
  */
 class MergeTickets
 {
@@ -79,7 +80,7 @@ class MergeTickets
             $target->first_unanswered_at = $target->oldestUnansweredReplyAt();
             $target->cc = $this->mergedCc($target, $tickets);
 
-            if ($mixedRequesters) {
+            if ($mixedRequesters || $target->isGuest()) {
                 $target->access_key = Str::random(32);
                 $rotated = true;
             }

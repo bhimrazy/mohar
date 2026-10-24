@@ -137,19 +137,34 @@ test('a cross-requester merge replaces the target guest key, locks out the old l
     $this->get(route('support.tickets.show', ['number' => $target->number, 'key' => $oldKey]))->assertNotFound();
     $this->post(route('support.tickets.reply', ['number' => $target->number, 'key' => $oldKey]), ['body' => 'late'])->assertNotFound();
     $this->get(route('support.tickets.show', ['number' => $target->number, 'key' => $target->access_key]))->assertOk();
-    expect(mailedTo('Question before buying'))->toBe(['victim@example.com']);
+    expect(mailedTo('New link to your ticket'))->toBe(['victim@example.com']);
     Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => str_contains((string) $mail->htmlBody, 'key='.$target->access_key)
         && ! str_contains((string) $mail->htmlBody, $oldKey));
 });
 
-test('a merge of tickets from one requester keeps the target key and sends no link', function () {
+test('a merge of guest tickets from one email also replaces the target key and mails the requester', function () {
     $department = Department::factory()->create();
     $target = guestTicket($department, 'same@example.com');
     $source = guestTicket($department, 'SAME@example.com');
     $key = $target->access_key;
-
     Mail::fake();
     seedEmailTemplates();
+
+    app(MergeTickets::class)->handle([$target->id, $source->id], User::factory()->staff()->create());
+
+    expect($target->fresh()->access_key)->not->toBe($key)
+        ->and(mailedTo('New link to your ticket'))->toBe(['same@example.com']);
+});
+
+test('a merge of tickets of one client keeps the target key and sends no link', function () {
+    $department = Department::factory()->create();
+    $client = Client::factory()->create();
+    $target = clientTicket($client, $department);
+    $source = clientTicket($client, $department);
+    $key = $target->access_key;
+    Mail::fake();
+    seedEmailTemplates();
+
     app(MergeTickets::class)->handle([$target->id, $source->id], User::factory()->staff()->create());
 
     expect($target->fresh()->access_key)->toBe($key);

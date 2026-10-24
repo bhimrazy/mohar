@@ -2,6 +2,7 @@
 
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Support\Actions\AddNote;
 use App\Modules\Support\Actions\EditMessage;
 use App\Modules\Support\Actions\MergeTickets;
@@ -123,4 +124,26 @@ test('the backfill fills tickets from their threads and leaves answered tickets 
 
     expect($waiting->fresh()->first_unanswered_at->equalTo(CarbonImmutable::parse($expected)))->toBeTrue()
         ->and($answered->fresh()->first_unanswered_at)->toBeNull();
+});
+
+test('support:recompute-unanswered repairs rows changed since a time and leaves older ones', function () {
+    $department = Department::factory()->create();
+    $staff = User::factory()->staff()->create();
+    $stale = clientTicket(Client::factory()->create(), $department);
+    $old = clientTicket(Client::factory()->create(), $department);
+    $expected = $stale->fresh()->first_unanswered_at;
+    // The previous release answered the ticket without clearing the column.
+    app(PostReply::class)->handle($old, TicketAuthor::staff($staff), 'Done.');
+    $old->forceFill(['first_unanswered_at' => now()->subDay()])->saveQuietly();
+    Ticket::query()->whereKey($old->id)->update(['updated_at' => now()->subDays(2)]);
+    Ticket::query()->whereKey($stale->id)->update(['first_unanswered_at' => now()->addDay(), 'updated_at' => now()]);
+
+    $this->artisan('support:recompute-unanswered', ['--since' => now()->subHour()->toDateTimeString()])->assertSuccessful();
+
+    expect($stale->fresh()->first_unanswered_at->equalTo($expected))->toBeTrue()
+        ->and($old->fresh()->first_unanswered_at)->not->toBeNull();
+});
+
+test('the link-replaced mail cannot be switched off', function () {
+    expect((new EmailTemplate(['key' => 'ticket.link_replaced']))->isAlwaysSent())->toBeTrue();
 });

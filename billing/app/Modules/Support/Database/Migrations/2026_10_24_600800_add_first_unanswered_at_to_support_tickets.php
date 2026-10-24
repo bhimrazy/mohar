@@ -13,12 +13,14 @@ use Illuminate\Support\Facades\Schema;
  * sets it on a customer reply while it is empty and clears it on a staff reply.
  *
  * The queue orders by (is_pinned desc, first_unanswered_at asc nulls last, id desc). The index has the same order,
- * so PostgreSQL reads the first page from it and applies the status and department filters on the way. A
+ * so PostgreSQL reads the first page from it and applies the status and department filters on the way. It covers only
+ * tickets that are not closed and not merged (the page's filter; a closed ticket keeps its value after a last customer
+ * message, and those rows would otherwise be read and discarded first). A
  * (status, first_unanswered_at) index cannot do that: the awaiting statuses are a setting, so a page spans several.
  * SQLite cannot declare NULLS LAST in an index and sorts the page itself.
  *
  * Expand only: the column is nullable and the previous release ignores it. A reply that release records while both run
- * leaves the column stale until the next staff reply on that ticket.
+ * leaves the column stale; `support:recompute-unanswered --since=<deploy start>` fixes those rows once the old release stops.
  */
 return new class extends Migration
 {
@@ -38,7 +40,7 @@ return new class extends Migration
 
         OnlineIndex::create('support_tickets', [], self::INDEX, expression: DB::connection()->getDriverName() === 'pgsql'
             ? 'is_pinned desc, first_unanswered_at asc nulls last, id desc'
-            : 'is_pinned desc, first_unanswered_at, id desc');
+            : 'is_pinned desc, first_unanswered_at, id desc', where: "status <> 'closed' and merged_into_id is null");
     }
 
     /**
