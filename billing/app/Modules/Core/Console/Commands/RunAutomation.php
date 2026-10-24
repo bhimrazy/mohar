@@ -9,11 +9,13 @@ use App\Support\Automation\Automation;
 use App\Support\CalendarDate;
 use App\Support\Integrations\Redactor;
 use App\Support\Queues;
+use Illuminate\Cache\Lock;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use InvalidArgumentException;
+use LogicException;
 use Throwable;
 
 #[Signature('automation:run {--date= : Run date (Y-m-d), defaults to today on the company clock} {--only= : Run a single task key} {--force : Re-run tasks that already succeeded for the date}')]
@@ -24,19 +26,19 @@ class RunAutomation extends Command
     public const LOCK = 'automation:run';
 
     /**
-     * Whether a run (scheduled, console or "Run now") holds the shared lock right now.
+     * Whether a run (scheduled, console or "Run now") holds the shared lock right now. It only reads the lock: taking
+     * it, even briefly, could make a scheduled run starting at that instant skip the day (#132).
      */
     public static function inProgress(): bool
     {
-        $lock = Cache::lock(self::LOCK, 1);
+        $lock = Cache::lock(self::LOCK);
 
-        if (! $lock->get()) {
-            return true;
+        // Every framework store's lock extends Illuminate\Cache\Lock; the contract has no read-only check.
+        if (! $lock instanceof Lock) {
+            throw new LogicException('The cache store\'s lock cannot be read without taking it: '.$lock::class);
         }
 
-        $lock->release();
-
-        return false;
+        return $lock->isLocked();
     }
 
     public function handle(Automation $automation, Redactor $redactor, CompanyClock $clock): int
