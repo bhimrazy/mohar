@@ -3,24 +3,27 @@
 namespace App\Modules\Services\Models;
 
 use App\Models\User;
-use App\Modules\Services\Support\AccountImportMatcher;
+use App\Modules\Services\Support\AccountList;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
 
 /**
- * One fetch of a server's accounts for Import accounts (cPanel spec §10), kept for HOURS hours.
+ * One fetch of a server's accounts for Import accounts (cPanel spec §10), kept for HOURS hours (and, once an import has
+ * run on it, for HOURS hours after that, so its report is seen). The accounts themselves are rows in
+ * server_account_import_accounts (AccountList); the report lines are rows in server_account_import_report_lines, one
+ * per account: deleted when the account is retried, and moved to the new list when a fetch replaces this one. The
+ * `accounts` column is where the previous release stored the whole list; only AccountList::adopt() reads it.
  *
  * @property int $id
  * @property int $server_id
  * @property int|null $requested_by
  * @property string $status fetching|matching|importing|ready|failed
- * @property list<array<string, mixed>>|null $accounts RemoteAccount fields plus how each matched at fetch time
- *                                                     (AccountImportMatcher::classify()), in the panel's order (encrypted)
  * @property int $account_count
  * @property int $proposed_count
  * @property int $unmatched_count
@@ -33,7 +36,7 @@ use Illuminate\Support\Facades\DB;
  * @property int $imported_count accounts the last import created
  * @property int $not_imported_count reviewed accounts the last import left out, or did not reach when it stopped
  * @property string|null $stop_reason why the last import stopped early
- * @property-read list<array{username: string, imported: bool, message: string, service_id: int|null, at: string|null}> $report the last
+ * @property-read list<array{username: string, imported: bool, not_reached: bool, message: string, service_id: int|null, at: string|null}> $report the last
  *                                                                                                   import's lines
  * @property string|null $error our message, redacted
  * @property CarbonImmutable|null $fetched_at
@@ -44,7 +47,7 @@ use Illuminate\Support\Facades\DB;
  * @property-read User|null $requester
  */
 #[Hidden(['accounts'])]
-#[Fillable(['server_id', 'requested_by', 'status', 'accounts', 'account_count', 'proposed_count', 'unmatched_count', 'reseller_count', 'linked_count', 'missing', 'connection_user', 'selections', 'reviewed', 'imported_count', 'not_imported_count', 'stop_reason', 'error', 'fetched_at', 'expires_at'])]
+#[Fillable(['server_id', 'requested_by', 'status', 'account_count', 'proposed_count', 'unmatched_count', 'reseller_count', 'linked_count', 'missing', 'connection_user', 'selections', 'reviewed', 'imported_count', 'not_imported_count', 'stop_reason', 'error', 'fetched_at', 'expires_at'])]
 class ServerAccountImport extends Model
 {
     public const FETCHING = 'fetching';
@@ -68,7 +71,6 @@ class ServerAccountImport extends Model
     protected function casts(): array
     {
         return [
-            'accounts' => 'encrypted:array',
             'account_count' => 'integer',
             'proposed_count' => 'integer',
             'unmatched_count' => 'integer',
@@ -103,7 +105,7 @@ class ServerAccountImport extends Model
     /**
      * The last import's lines, in order (server_account_import_report_lines); read only when asked for.
      *
-     * @return Attribute<list<array{username: string, imported: bool, message: string, service_id: int|null, at: string|null}>, never>
+     * @return Attribute<list<array{username: string, imported: bool, not_reached: bool, message: string, service_id: int|null, at: string|null}>, never>
      */
     protected function report(): Attribute
     {
@@ -111,7 +113,7 @@ class ServerAccountImport extends Model
     }
 
     /**
-     * @return list<array{username: string, imported: bool, message: string, service_id: int|null, at: string|null}>
+     * @return list<array{username: string, imported: bool, not_reached: bool, message: string, service_id: int|null, at: string|null}>
      */
     public function reportLines(?int $limit = null, int $offset = 0, bool $failuresFirst = false): array
     {
@@ -119,8 +121,8 @@ class ServerAccountImport extends Model
         return array_values(DB::table('server_account_import_report_lines')->where('server_account_import_id', $this->id)
             ->when($failuresFirst, fn ($query) => $query->orderBy('imported'))->orderBy('id')
             ->when($limit !== null, fn ($query) => $query->offset($offset)->limit((int) $limit))
-            ->get(['username', 'imported', 'message', 'service_id', 'created_at'])
-            ->map(fn (object $line): array => ['username' => (string) $line->username, 'imported' => (bool) $line->imported, 'message' => (string) $line->message, 'service_id' => $line->service_id === null ? null : (int) $line->service_id, 'at' => $line->created_at === null ? null : CarbonImmutable::parse((string) $line->created_at)->toIso8601String()])
+            ->get(['username', 'imported', 'not_reached', 'message', 'service_id', 'created_at'])
+            ->map(fn (object $line): array => ['username' => (string) $line->username, 'imported' => (bool) $line->imported, 'not_reached' => (bool) $line->not_reached, 'message' => (string) $line->message, 'service_id' => $line->service_id === null ? null : (int) $line->service_id, 'at' => $line->created_at === null ? null : CarbonImmutable::parse((string) $line->created_at)->toIso8601String()])
             ->all());
     }
 
@@ -130,7 +132,45 @@ class ServerAccountImport extends Model
     public function notReachedCount(): int
     {
         return DB::table('server_account_import_report_lines')->where('server_account_import_id', $this->id)
-            ->where('imported', false)->where('message', AccountImportMatcher::text('Not reached.'))->count();
+            ->where('not_reached', true)->count();
+    }
+
+    /**
+     * Every account of the list, decrypted. For callers that need the whole list (Match again) and tests; the page and
+     * the import read what they need through AccountList.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function accountRows(): array
+    {
+        return array_values(app(AccountList::class)->rows($this));
+    }
+
+    /** Account rows one prune run deletes at most (the cascade from a list reaches all of its accounts). */
+    public const PRUNE_ROW_BUDGET = 50000;
+
+    /**
+     * Delete expired lists, oldest first, with their accounts and report lines: at most $limit lists and about
+     * PRUNE_ROW_BUDGET accounts per run (the oldest list always goes, however large). The rest wait for the next run.
+     * A list whose import is still running is kept: deleting it mid-run would lose the report and stop the import (#135).
+     *
+     * @param  int|null  $serverId  only this server's lists
+     * @return int lists deleted
+     */
+    public static function pruneExpired(int $limit = 100, ?int $serverId = null): int
+    {
+        $expired = self::query()->where('expires_at', '<=', now())->when($serverId !== null, fn (Builder $query) => $query->where('server_id', $serverId))
+            ->where(fn (Builder $query) => $query->where('status', '!=', self::IMPORTING)->orWhere('updated_at', '<=', now()->subMinutes(self::STALE_MINUTES)))
+            ->orderBy('expires_at')->limit($limit)->get(['id', 'account_count']);
+        $rows = 0;
+        $ids = $expired->takeWhile(function (self $import) use (&$rows): bool {
+            $fits = $rows === 0 || $rows + $import->account_count <= self::PRUNE_ROW_BUDGET;
+            $rows += $import->account_count;
+
+            return $fits;
+        })->modelKeys();
+
+        return $ids === [] ? 0 : self::query()->whereKey($ids)->delete();
     }
 
     public function isRunning(): bool

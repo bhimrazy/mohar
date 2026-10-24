@@ -11,6 +11,7 @@ use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\RenewalInvoices;
 use App\Support\CalendarDate;
+use DomainException;
 
 /**
  * Daily renewal invoicing (spec §4.3, automation stage RENEWALS). Idempotent per cycle: an invoice is
@@ -29,7 +30,6 @@ class IssueRenewalInvoices
      */
     public function handle(CalendarDate $today): int
     {
-        $invoicer = $this->invoices->invoicer();
         $issued = 0;
 
         Domain::query()
@@ -38,9 +38,9 @@ class IssueRenewalInvoices
             // Renewed by the client at the registry: never invoiced here.
             ->whereDoesntHave('tldModel', fn ($tld) => $tld->where('registered_by_client', true))
             ->whereDate('next_invoice_date', '<=', $today->toString())
-            ->chunkById(200, function ($domains) use ($invoicer, &$issued): void {
+            ->chunkById(200, function ($domains) use (&$issued): void {
                 foreach ($domains as $domain) {
-                    if ($invoicer->hasInvoiceForPeriod(BillableType::Domain, $domain->id, $domain->next_due_date)) {
+                    if ($this->invoiced($domain)) {
                         continue;
                     }
 
@@ -48,12 +48,36 @@ class IssueRenewalInvoices
                         continue;
                     }
 
-                    $this->invoices->issue($domain);
-                    $issued++;
+                    if ($this->issue($domain)) {
+                        $issued++;
+                    }
                 }
             });
 
         return $issued;
+    }
+
+    /**
+     * Billing refuses a second invoice for a period; one that Renew now issued meanwhile is not a failure.
+     */
+    private function issue(Domain $domain): bool
+    {
+        try {
+            $this->invoices->issue($domain);
+
+            return true;
+        } catch (DomainException $exception) {
+            if ($this->invoiced($domain)) {
+                return false;
+            }
+
+            throw $exception;
+        }
+    }
+
+    private function invoiced(Domain $domain): bool
+    {
+        return $this->invoices->invoicer()->hasInvoiceForPeriod(BillableType::Domain, $domain->id, $domain->next_due_date);
     }
 
     /**

@@ -97,6 +97,14 @@ class ApplyExpiryLifecycle
         }
 
         $this->invoices->cancelOpen($domain);
+
+        // Billing refused to cancel one (it stays payable): keep it, and do not issue a second payable invoice beside it.
+        if ($this->invoices->open($domain)->isNotEmpty()) {
+            $this->activity->log("Renewal invoice of {$domain->name} could not be replaced with a {$kind} fee invoice: Billing kept it open", $domain, $domain->client_id);
+
+            return;
+        }
+
         $result = $this->invoices->issue($domain, $kind, $fee);
         $this->activity->log("Renewal invoice of {$domain->name} replaced with {$kind} fee invoice", $domain, $domain->client_id, ['invoice_id' => $result->invoiceId]);
     }

@@ -231,11 +231,11 @@ final class EnvironmentChecks
         }
 
         $url = (string) config('app.url');
-        $host = (string) parse_url($url, PHP_URL_HOST);
+        $https = strtolower((string) parse_url($url, PHP_URL_SCHEME)) === 'https';
 
-        if (! str_starts_with($url, 'https://') || in_array($host, ['', 'localhost', '127.0.0.1', '::1'], true)) {
+        if (! $https || self::localHost((string) parse_url($url, PHP_URL_HOST))) {
             $checks[] = new EnvironmentCheck('APP_URL', CheckStatus::Warning, "APP_URL is \"{$url}\". Every link (password resets, verification, signed downloads, mail) is built from it and other hosts are rejected"
-                .(str_starts_with($url, 'https://') ? '' : '; with http:// in production, password-reset, verification and invitation emails are held')
+                .($https ? '' : '; with http:// in production, password-reset, verification and invitation emails are held')
                 .': set the public https:// address.');
         }
 
@@ -258,5 +258,16 @@ final class EnvironmentChecks
     private static function firstLine(Throwable $exception): string
     {
         return Str::limit(trim(strtok($exception->getMessage(), "\n") ?: $exception::class), 200);
+    }
+
+    /**
+     * A host no visitor can reach: empty, localhost and its subdomains, mDNS `.local`, loopback or unspecified IPs.
+     */
+    private static function localHost(string $host): bool
+    {
+        $host = strtolower(trim($host, '[]'));
+
+        return $host === '' || $host === 'localhost' || str_ends_with($host, '.localhost') || str_ends_with($host, '.local')
+            || in_array($host, ['0.0.0.0', '::', '::1'], true) || (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false && str_starts_with($host, '127.'));
     }
 }

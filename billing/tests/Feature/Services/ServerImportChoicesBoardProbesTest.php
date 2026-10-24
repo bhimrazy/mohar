@@ -52,7 +52,7 @@ test('RB133-2: a fetch that was superseded while it ran does not delete the last
     // A fetch whose job has started reading the server, then goes stale (> STALE_MINUTES) while it reads.
     $this->post(route('admin.services.servers.import.fetch', $this->server))->assertSessionHasNoErrors();
     $stale = ServerAccountImport::query()->latest('id')->firstOrFail();
-    $accounts = array_map(fn (array $row): array => array_diff_key($row, array_flip(['category', 'client_id', 'product_id', 'service_id', 'note', 'differences'])), $good->refresh()->accounts);
+    $accounts = array_map(fn (array $row): array => array_diff_key($row, array_flip(['category', 'client_id', 'product_id', 'service_id', 'note', 'differences'])), $good->refresh()->accountRows());
     ServerAccountImport::query()->whereKey($stale->id)->toBase()->update(['updated_at' => now()->subMinutes(ServerAccountImport::STALE_MINUTES + 1)]);
 
     // Staff fetch again: the stale row is deleted and a new fetch is queued.
@@ -77,7 +77,7 @@ test('RB133-3: finish() does not re-link an account from an earlier run whose se
     // alpha's service ends; Fetch again matches alpha afresh (no live service), and the stopped report moves along.
     Service::query()->where('username', 'alpha')->update(['status' => 'terminated']);
     $this->post(route('admin.services.servers.import.fetch', $this->server))->assertSessionHasNoErrors();
-    expect(collect(ServerAccountImport::query()->sole()->accounts)->keyBy('username')['alpha']['category'])->not->toBe(AccountImportMatcher::LINKED);
+    expect(collect(ServerAccountImport::query()->sole()->accountRows())->keyBy('username')['alpha']['category'])->not->toBe(AccountImportMatcher::LINKED);
 
     // Going on with bravo only.
     $digest = $this->get(route('admin.services.servers.import.review', $this->server))->inertiaProps('digest');
@@ -86,6 +86,6 @@ test('RB133-3: finish() does not re-link an account from an earlier run whose se
     app(ImportServerAccounts::class)->handle($this->server, $import, auth()->user());
     app(ImportServerAccounts::class)->finish($this->server, $import->refresh(), auth()->user());
 
-    $alpha = collect(ServerAccountImport::query()->sole()->accounts)->keyBy('username')['alpha'];
+    $alpha = collect(ServerAccountImport::query()->sole()->accountRows())->keyBy('username')['alpha'];
     expect($alpha['category'])->not->toBe(AccountImportMatcher::LINKED, 'alpha was marked linked to its terminated service from the earlier run\'s report line');
 });

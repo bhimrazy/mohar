@@ -203,7 +203,6 @@ test('the start day can move until the mode has started, then it is fixed; the m
     $this->put(route('admin.billing.vat-mode.update'), vatModePayload(['enabled_from' => $third]))->assertSessionHasNoErrors();
     expect(app(NepalVatMode::class)->enabledFrom())->toBe($second);
 
-    CarbonImmutable::setTestNow('2026-10-20 06:00:00');
     billingSettings(['sequential_paid_numbering' => false]);
     $invoice = issueInvoice(vatModeClient(), [10_000])->fresh(['items']);
     app(TaxNoteIssuer::class)->issue($request = NoteRequest::creditAmount($invoice->id, 1_000, 'goodwill', 'Goodwill'), ($preview = app(TaxNoteIssuer::class)->preview($request))->version, $preview->digest);

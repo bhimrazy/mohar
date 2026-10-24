@@ -230,9 +230,9 @@ class DomainLookup
         $registerTerms = $tld === null ? [] : array_map(fn (int $years): array => [
             'years' => $years,
             'price' => (int) $this->pricing->priceForGroup($extension, 'register', $years, $currency, $clientGroupId),
-        ], $this->pricing->terms($extension, 'register', $currency, $clientGroupId));
+        ], $this->pricing->termsForGroup($extension, 'register', $currency, $clientGroupId));
 
-        $transferTerm = $tld === null ? [] : $this->pricing->terms($extension, 'transfer', $currency, $clientGroupId);
+        $transferTerm = $tld === null ? [] : $this->pricing->termsForGroup($extension, 'transfer', $currency, $clientGroupId);
         $transferPrice = $transferTerm === [] ? null : $this->pricing->priceForGroup($extension, 'transfer', $transferTerm[0], $currency, $clientGroupId);
         $premiumBlocked = $result->isPremium && ! $this->settings->get('domains.premium_enabled', false);
         $available = $result->isAvailable() && ! $premiumBlocked;

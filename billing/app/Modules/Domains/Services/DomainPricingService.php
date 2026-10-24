@@ -61,12 +61,23 @@ class DomainPricingService implements DomainPricing
     }
 
     /**
+     * Contract entry point: the client's group tier applies when $clientId is given.
+     *
+     * @param  'register'|'transfer'|'renew'  $action
+     * @return list<int>
+     */
+    public function terms(string $tld, string $action, string $currency, ?int $clientId = null): array
+    {
+        return $this->termsForGroup($tld, $action, $currency, $this->groupOf($clientId));
+    }
+
+    /**
      * Terms (years) offered for an action in a currency; transfers are sold for the lowest term only.
      *
      * @param  'register'|'transfer'|'renew'  $action
      * @return list<int>
      */
-    public function terms(string $tld, string $action, string $currency, ?int $clientGroupId = null): array
+    public function termsForGroup(string $tld, string $action, string $currency, ?int $clientGroupId = null): array
     {
         $model = $this->tld($tld);
 
@@ -143,7 +154,7 @@ class DomainPricingService implements DomainPricing
         $horizon = $today->addYearsNoOverflow(self::MAX_HORIZON_YEARS)->subDay();
         $terms = [];
 
-        foreach ($this->terms($domain->tld, 'renew', $currency, $clientGroupId) as $years) {
+        foreach ($this->termsForGroup($domain->tld, 'renew', $currency, $clientGroupId) as $years) {
             $price = $this->amount($model, 'renew', $years, $currency, $clientGroupId);
 
             if ($price !== null && $expiry->addYearsNoOverflow($years)->lte($horizon)) {

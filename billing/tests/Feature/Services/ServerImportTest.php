@@ -49,7 +49,7 @@ function fetchAccounts(Server $server): ServerAccountImport
  */
 function storedRows(ServerAccountImport $import): array
 {
-    return collect($import->accounts)->keyBy('username')->all();
+    return collect($import->accountRows())->keyBy('username')->all();
 }
 
 test('each account is matched once when the fetch finishes, and the counts are stored with the list', function () {

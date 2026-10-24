@@ -2,19 +2,23 @@
 
 namespace App\Modules\Services\Http\Controllers\Admin;
 
-use App\Contracts\Core\CompanyClock;
 use App\Contracts\Services\Provisioning\ListsAccounts;
 use App\Enums\BillingCycle;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Models\Currency;
+use App\Modules\Services\Actions\AcceptServerValues;
 use App\Modules\Services\Actions\FetchAccountsForImport;
+use App\Modules\Services\Actions\IgnoreImportAccounts;
 use App\Modules\Services\Actions\ImportServerAccounts;
 use App\Modules\Services\Enums\ServiceStatus;
+use App\Modules\Services\Http\Requests\SelectImportAccountsRequest;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerAccountImport;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Support\AccountImportMatcher;
 use App\Modules\Services\Support\AccountImportPlan;
+use App\Modules\Services\Support\AccountList;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -34,17 +38,16 @@ use Inertia\Response;
  */
 class ServerImportController extends Controller
 {
-    public const TABS = ['all', AccountImportMatcher::PROPOSED, AccountImportMatcher::UNMATCHED, AccountImportMatcher::RESELLER, AccountImportMatcher::LINKED, 'missing'];
+    public const TABS = ['all', AccountImportMatcher::PROPOSED, AccountImportMatcher::UNMATCHED, AccountImportMatcher::RESELLER, AccountImportMatcher::LINKED, AccountList::IGNORED, 'missing'];
 
     private const PER_PAGE = 50;
 
-    public function show(Request $request, Server $server, ProvisioningDriverRegistry $drivers, AccountImportMatcher $matcher, AccountImportPlan $plan): Response
+    public function show(Request $request, Server $server, ProvisioningDriverRegistry $drivers, AccountImportMatcher $matcher, AccountImportPlan $plan, AccountList $list): Response
     {
         $this->authorize('services.servers.import');
 
         $tab = in_array($tab = $request->string('tab')->toString(), self::TABS, true) ? $tab : 'all';
-        // The encrypted list is read only for the account tabs; the counts and missing ids are plain columns.
-        $import = FetchAccountsForImport::latest($server, withAccounts: $tab !== 'missing');
+        $import = FetchAccountsForImport::latest($server);
         $ready = $import?->status === ServerAccountImport::READY;
         $search = mb_strtolower(mb_substr(trim($request->string('search')->toString()), 0, 100));
         $page = max(1, $request->integer('page', 1));
@@ -54,7 +57,7 @@ class ServerImportController extends Controller
         $rows = match (true) {
             ! $ready => new LengthAwarePaginator([], 0, self::PER_PAGE, $page, $query),
             $tab === 'missing' => $this->missing($server, $import, $search),
-            default => $this->accounts($server, $import, $tab, $search, $page, $query, $matcher),
+            default => $this->accounts($server, $import, $tab, $search, $page, $query, $matcher, $list),
         };
 
         return Inertia::render('admin/services/servers/import', [
@@ -89,6 +92,8 @@ class ServerImportController extends Controller
                 AccountImportMatcher::UNMATCHED => $import->unmatched_count,
                 AccountImportMatcher::RESELLER => $import->reseller_count,
                 AccountImportMatcher::LINKED => $import->linked_count,
+                // Ignored accounts are counted in neither of the four categories above.
+                AccountList::IGNORED => max(0, $import->account_count - $import->proposed_count - $import->unmatched_count - $import->reseller_count - $import->linked_count),
                 'missing' => ($import->missing ?? []) === [] ? 0 : $this->missingQuery($server, $import)->count(),
             ] : null,
             'rows' => $rows,
@@ -96,7 +101,9 @@ class ServerImportController extends Controller
             'createProductUrl' => Route::has('admin.catalog.products.create') ? route('admin.catalog.products.create') : null,
             'included' => count(array_filter($import === null ? [] : ($import->selections ?? []), fn (array $choice): bool => (bool) ($choice['include'] ?? false))),
             'productOptions' => $ready ? $plan->productOptions($server) : [],
-            'cycles' => self::cycles(),
+            'cycles' => AccountImportPlan::cycles(),
+            // Once: the prices do not change while staff filter and page, so later visits do not ask for them again.
+            'pricedCycles' => $ready ? Inertia::once(fn (): array => $plan->pricedCycles($server, array_values(array_map(fn (Currency $currency): string => $currency->code, Currency::query()->get(['code'])->all())))) : null,
         ]);
     }
 
@@ -127,46 +134,16 @@ class ServerImportController extends Controller
     }
 
     /**
-     * Record staff choices for accounts: tick or untick, the client, product, cycle and next due date, for given
-     * usernames, every proposed account, or every ticked one (bulk cycle and due date). Only usernames in the fetched
-     * list, active clients the staff member may see, and products that provision on this server are accepted. Choices
-     * reach an import only through a new review (its digest).
+     * Record staff choices for accounts (SelectImportAccountsRequest says which). Choices reach an import only through
+     * a new review (its digest).
      */
-    public function select(Request $request, Server $server, ImportServerAccounts $importer, AccountImportPlan $plan): RedirectResponse
+    public function select(SelectImportAccountsRequest $request, Server $server, ImportServerAccounts $importer): RedirectResponse
     {
         $this->authorize('services.servers.import');
 
         $this->ready($server);
-        $data = $request->validate([
-            'proposed' => ['sometimes', 'accepted'],
-            'ticked' => ['sometimes', 'accepted'],
-            'usernames' => ['required_without_all:proposed,ticked', 'array', 'max:500'],
-            'usernames.*' => ['string', 'max:255'],
-            'include' => ['sometimes', 'boolean'],
-            // The bulk scope sets only the cycle and due date: never one client or product for every ticked account.
-            // Null clears a choice: the account goes back to its match.
-            'client_id' => [$request->user()?->hasPermission('core.clients.view') ? 'sometimes' : 'prohibited', 'nullable', 'prohibited_if_accepted:ticked', 'integer', Rule::exists('clients', 'id')->where('status', 'active')],
-            'product_id' => ['sometimes', 'nullable', 'prohibited_if_accepted:ticked', 'integer', Rule::in(array_column($plan->productOptions($server), 'id'))],
-            // Null: back to the account's default (monthly, or the product's first cycle; the next anniversary).
-            'cycle' => ['sometimes', 'nullable', Rule::in(array_column(self::cycles(), 'value'))],
-            'next_due_date' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'after_or_equal:'.app(CompanyClock::class)->todayDate()->toDateString(), 'before:+5 years'],
-        ], [
-            'client_id.prohibited' => __('Choosing a client needs the permission to view clients.'),
-            'client_id.prohibited_if_accepted' => __('Choose the client for each account on its own.'),
-            'product_id.prohibited_if_accepted' => __('Choose the product for each account on its own.'),
-            'client_id.exists' => __('Choose an active client.'),
-            'product_id.in' => __('Choose a product that provisions on :server.', ['server' => $server->name]),
-            'next_due_date.after_or_equal' => __('The next due date cannot be in the past.'),
-        ]);
-        $choice = match (true) {
-            isset($data['proposed']) => ['include' => true],
-            isset($data['ticked']) => array_intersect_key($data, array_flip(['cycle', 'next_due_date'])),
-            default => array_intersect_key($data, array_flip(['include', 'client_id', 'product_id', 'cycle', 'next_due_date'])),
-        };
-
-        $flagged = $importer->select($server, match (true) {
-            isset($data['proposed']) => 'proposed', isset($data['ticked']) => 'ticked', default => 'usernames'
-        }, $data['usernames'] ?? [], $choice);
+        $result = $importer->select($server, $request->scope(), $request->validated('usernames') ?? [], $request->choice());
+        $flagged = $result['flagged'];
 
         if ($flagged > 0) {
             Inertia::flash('toast', ['type' => 'info', 'message' => $flagged === 1
@@ -174,16 +151,53 @@ class ServerImportController extends Controller
                 : __(':count proposed accounts were not ticked: their clients changed email recently or have not verified it. Check them one by one.', ['count' => $flagged])]);
         }
 
-        if (isset($data['ticked']) && ($data['cycle'] ?? null) !== null) {
+        if ($result['unpriced'] !== null) {
             // Say how many ticked accounts the bulk cycle leaves out because their product has no price for it.
-            $unpriced = count(array_filter($plan->rows($server, $this->ready($server)), fn (array $row): bool => $row['decision']['client'] !== null && $row['decision']['product'] !== null && $row['decision']['amount'] === null));
-            $cycle = AccountImportPlan::cycleAdjective(BillingCycle::from($data['cycle']));
+            $unpriced = $result['unpriced'];
+            $cycle = AccountImportPlan::cycleAdjective(BillingCycle::from($request->validated('cycle')));
             Inertia::flash('toast', ['type' => $unpriced > 0 ? 'info' : 'success', 'message' => match (true) {
                 $unpriced === 1 => __('1 ticked account has no :cycle price for its product and is left out until you change its cycle.', ['cycle' => $cycle]),
                 $unpriced > 1 => __(':count ticked accounts have no :cycle price for their product and are left out until you change their cycle.', ['count' => $unpriced, 'cycle' => $cycle]),
                 default => __('Every ticked account now uses the :cycle cycle.', ['cycle' => $cycle]),
             }]);
         }
+
+        return back();
+    }
+
+    /**
+     * Ignore accounts (they leave the work list and stay ignored in later fetches) or bring them back.
+     */
+    public function ignore(Request $request, Server $server, IgnoreImportAccounts $ignore): RedirectResponse
+    {
+        $this->authorize('services.servers.import');
+
+        $data = $request->validate(['usernames' => ['required', 'array', 'min:1', 'max:500'], 'usernames.*' => ['string', 'max:255'], 'ignored' => ['required', 'boolean']]);
+        $changed = $ignore->handle($server, $data['usernames'], (bool) $data['ignored'], $request->user());
+        Inertia::flash('toast', ['type' => 'success', 'message' => $data['ignored']
+            ? trans_choice('{0} Nothing to ignore: those accounts are linked or already ignored.|{1} 1 account ignored. It stays out of the list in later fetches.|[2,*] :count accounts ignored. They stay out of the list in later fetches.', $changed, ['count' => $changed])
+            : trans_choice('{0} Nothing to bring back.|{1} 1 account brought back.|[2,*] :count accounts brought back.', $changed, ['count' => $changed])]);
+
+        return back();
+    }
+
+    /**
+     * Accept the server's domain, IP or suspension into the linked service (AcceptServerValues): only the changes the
+     * page showed, and only while they still hold.
+     */
+    public function accept(Request $request, Server $server, AcceptServerValues $accept): RedirectResponse
+    {
+        $this->authorize('services.servers.import');
+        $this->authorize('services.services.manage');
+
+        $data = $request->validate([
+            'username' => ['required', 'string', 'max:255'],
+            'fields' => ['required', 'array', 'min:1', 'max:3'],
+            'fields.*' => ['string', Rule::in(AcceptServerValues::FIELDS)],
+            'digest' => ['required', 'string', 'size:64'],
+        ]);
+        $accept->handle($server, $data['username'], array_values($data['fields']), $data['digest'], $request->user());
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('The service now has the values from the server.')]);
 
         return back();
     }
@@ -233,7 +247,7 @@ class ServerImportController extends Controller
             'counts' => ['ready' => $ready->count(), 'excluded' => $excluded->count(), 'clients' => $ready->pluck('decision.client.id')->unique()->count()],
             'totals' => $totals,
             'digest' => $review['digest'],
-            'cycles' => self::cycles(),
+            'cycles' => $plan->cyclesForRows($review['rows']),
         ]);
     }
 
@@ -253,21 +267,13 @@ class ServerImportController extends Controller
     }
 
     /**
-     * @return list<array{value: string, label: string}>
-     */
-    private static function cycles(): array
-    {
-        return array_map(fn (BillingCycle $cycle): array => ['value' => $cycle->value, 'label' => AccountImportPlan::cycleLabel($cycle)], BillingCycle::recurring());
-    }
-
-    /**
      * The server's fetched list, with its accounts.
      *
      * @throws ValidationException when there is none to work from
      */
     private function ready(Server $server): ServerAccountImport
     {
-        $import = FetchAccountsForImport::latest($server, withAccounts: true);
+        $import = FetchAccountsForImport::latest($server);
 
         if ($import?->status !== ServerAccountImport::READY) {
             throw ValidationException::withMessages(['import' => __('Fetch the accounts on :server again: the list is missing or expired.', ['server' => $server->name])]);
@@ -283,17 +289,16 @@ class ServerImportController extends Controller
      * @param  array{path: string, query: array<string, mixed>}  $query
      * @return LengthAwarePaginator<int, non-empty-array<string, mixed>>
      */
-    private function accounts(Server $server, ServerAccountImport $import, string $tab, string $search, int $page, array $query, AccountImportMatcher $matcher): LengthAwarePaginator
+    private function accounts(Server $server, ServerAccountImport $import, string $tab, string $search, int $page, array $query, AccountImportMatcher $matcher, AccountList $list): LengthAwarePaginator
     {
-        $listed = array_values(array_filter($import->accounts ?? [], fn (array $row): bool => ($tab === 'all' || $row['category'] === $tab)
-            && ($search === '' || collect([$row['username'], $row['domain'] ?? null, $row['email'] ?? null])->contains(fn (?string $value): bool => $value !== null && str_contains(mb_strtolower($value), $search)))));
-        $slice = array_slice($listed, ($page - 1) * self::PER_PAGE, self::PER_PAGE);
+        ['rows' => $slice, 'total' => $total] = $list->page($import, $tab, $search, $page, self::PER_PAGE);
 
         $live = Service::query()->with('client:id,first_name,last_name,company_name')
             ->where('server_id', $server->id)->whereIn('status', ServiceStatus::occupyingValues())
             // Older services may hold a username in another case; the panel's names are lowercase (as the match compares).
             ->whereRaw('lower(username) in ('.implode(', ', array_fill(0, max(1, count($slice)), '?')).')', array_column($slice, 'username') ?: [''])
-            ->get(['id', 'client_id', 'product_id', 'product_name', 'domain', 'username', 'status'])->keyBy(fn (Service $service): string => strtolower((string) $service->username));
+            ->get(['id', 'client_id', 'product_id', 'product_name', 'domain', 'username', 'status', 'driver_data', 'suspension_reason'])->keyBy(fn (Service $service): string => strtolower((string) $service->username));
+        $canAccept = (bool) request()->user()?->hasPermission('services.services.manage');
         $choices = $import->selections ?? [];
         $slice = array_map(fn (array $row): array => [...$row,
             'client_id' => $choices[$row['username']]['client_id'] ?? $row['client_id'],
@@ -302,11 +307,11 @@ class ServerImportController extends Controller
             'include' => (bool) ($choices[$row['username']]['include'] ?? false),
         ], $slice);
         $clients = Client::query()->whereKey(array_filter(array_column($slice, 'client_id')))->where('status', '!=', 'closed')
-            ->get(['id', 'first_name', 'last_name', 'company_name'])->keyBy('id');
+            ->get(['id', 'first_name', 'last_name', 'company_name', 'currency'])->keyBy('id');
         $flags = $matcher->clientFlags($clients->keys()->map(fn (mixed $id): int => (int) $id)->all());
         $products = $matcher->serverProducts($server);
 
-        $fresh = array_map(function (array $row) use ($live, $clients, $flags, $products): array {
+        $fresh = array_map(function (array $row) use ($live, $clients, $flags, $products, $canAccept): array {
             $service = $live->get($row['username']);
             $client = $clients->get($row['client_id'] ?? 0);
             $product = $products[$row['product_id'] ?? 0] ?? null;
@@ -322,16 +327,18 @@ class ServerImportController extends Controller
 
             return [...array_diff_key($row, array_flip(['client_id', 'product_id', 'service_id'])),
                 'category' => $service !== null ? AccountImportMatcher::LINKED : $row['category'],
-                'client' => $client === null ? null : ['id' => $client->id, 'name' => $client->display_name],
+                'client' => $client === null ? null : ['id' => $client->id, 'name' => $client->display_name, 'currency' => $client->currency],
                 'product' => $product === null ? null : ['id' => $product->id, 'name' => $product->name],
                 'service' => $service === null ? null : ['id' => $service->id, 'label' => $service->label(), 'client' => $service->client->display_name],
+                // What staff may accept from the server into the service, each with the digest the accept must send.
+                'accept' => $service === null || ! $canAccept ? [] : array_map(fn (array $change): array => [...$change, 'digest' => AcceptServerValues::digest($service->id, [$change])], AcceptServerValues::changes($row, $service)),
                 'note' => $notes === [] ? null : implode(' ', $notes),
                 // A recent email change or an unverified sign-up, flagged on the row; the page shows the date in the app's format.
                 'flag' => $client === null ? null : ($flags[$client->id] ?? null),
             ];
         }, $slice);
 
-        return new LengthAwarePaginator($fresh, count($listed), self::PER_PAGE, $page, $query);
+        return new LengthAwarePaginator($fresh, $total, self::PER_PAGE, $page, $query);
     }
 
     /**

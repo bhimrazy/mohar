@@ -46,7 +46,7 @@ class FakeBilling implements Invoicer, TaxCalculator
         return new InvoiceResult($id, "INV-{$id}", $this->statuses[$id], $draft->currency, $totals->subtotal, $totals->taxAmount(), $totals->total);
     }
 
-    public function cancel(int $invoiceId): void
+    public function cancel(int $invoiceId, ?string $reason = null): void
     {
         $this->cancelled[] = $invoiceId;
 

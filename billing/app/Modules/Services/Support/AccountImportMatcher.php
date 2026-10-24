@@ -50,7 +50,7 @@ class AccountImportMatcher
 
     public const FLAG_UNVERIFIED = 'unverified';
 
-    public function __construct(private Catalog $catalog, private ProvisioningDriverRegistry $drivers) {}
+    public function __construct(private Catalog $catalog, private ProvisioningDriverRegistry $drivers, private AccountList $list, private ImportListHandover $handover) {}
 
     /**
      * Each account with category, client_id, product_id, service_id, note and differences, ready to store; and the ids
@@ -63,15 +63,64 @@ class AccountImportMatcher
      */
     public function classify(Server $server, array $accounts, ?string $connectionUser, ?CarbonImmutable $listedAt = null): array
     {
-        $services = $this->liveServices($server);
-        $clients = $this->clientsByEmail(array_values(array_unique(array_filter(array_map(fn (array $account): ?string => $account['email'] ?? null, $accounts)))));
-        $field = $this->packageField($server->driver);
-        $offered = $this->productsByPackage($server, $field);
-        $flags = $this->clientFlags(array_merge(...array_values(array_filter($clients, fn (array $ids): bool => count($ids) === 1))));
-        $packages = $field === null ? [] : collect($this->catalog->priceBook()?->productsForDriver($server->driver) ?? [])
-            ->mapWithKeys(fn (ProductSummary $product): array => [$product->id => $product->driverConfig[$field] ?? null])->all();
+        $context = $this->context($server);
 
-        $rows = array_map(function (array $account) use ($services, $clients, $flags, $offered, $field, $packages, $connectionUser): array {
+        return ['rows' => $this->classifyRows($context, $accounts, $connectionUser), 'missing' => $this->missing($context, array_column($accounts, 'username'), $listedAt)];
+    }
+
+    /**
+     * What classifying needs from the server, read once so a long list can be classified a chunk at a time.
+     *
+     * @param  list<string>|null  $usernames  only the live services holding these (lower-case) usernames
+     * @return array{services: Collection<string, stdClass>, field: string|null, offered: array<string, list<int>>, packages: array<int, mixed>, server: Server}
+     */
+    public function context(Server $server, ?array $usernames = null): array
+    {
+        $field = $this->packageField($server->driver);
+
+        return [
+            'server' => $server,
+            'services' => $this->liveServices($server, $usernames),
+            'field' => $field,
+            'offered' => $this->productsByPackage($server, $field),
+            'packages' => $field === null ? [] : collect($this->catalog->priceBook()?->productsForDriver($server->driver) ?? [])
+                ->mapWithKeys(fn (ProductSummary $product): array => [$product->id => $product->driverConfig[$field] ?? null])->all(),
+        ];
+    }
+
+    /**
+     * Ids of the live services whose username is not among $reported, except those created after the list was read.
+     *
+     * @param  array{services: Collection<string, stdClass>}  $context
+     * @param  list<string>  $reported
+     * @return list<int>
+     */
+    public function missing(array $context, array $reported, ?CarbonImmutable $listedAt): array
+    {
+        $reported = array_flip($reported);
+        $missing = [];
+
+        foreach ($context['services'] as $username => $service) {
+            if (! isset($reported[$username]) && ($listedAt === null || CarbonImmutable::parse((string) $service->created_at)->lessThanOrEqualTo($listedAt))) {
+                $missing[] = (int) $service->id;
+            }
+        }
+
+        return $missing;
+    }
+
+    /**
+     * @param  array{services: Collection<string, stdClass>, field: string|null, offered: array<string, list<int>>, packages: array<int, mixed>}  $context
+     * @param  list<array<string, mixed>>  $accounts
+     * @return list<array<string, mixed>>
+     */
+    public function classifyRows(array $context, array $accounts, ?string $connectionUser): array
+    {
+        ['services' => $services, 'field' => $field, 'offered' => $offered, 'packages' => $packages] = $context;
+        $clients = $this->clientsByEmail(array_values(array_unique(array_filter(array_map(fn (array $account): ?string => $account['email'] ?? null, $accounts)))));
+        $flags = $this->clientFlags(array_merge([], ...array_values(array_filter($clients, fn (array $ids): bool => count($ids) === 1))));
+
+        return array_map(function (array $account) use ($services, $clients, $flags, $offered, $field, $packages, $connectionUser): array {
             $service = $services->get($account['username']);
 
             if ($service !== null) {
@@ -126,24 +175,12 @@ class AccountImportMatcher
                 'differences' => [],
             ];
         }, $accounts);
-
-        $reported = array_flip(array_column($accounts, 'username'));
-        $missing = [];
-
-        foreach ($services as $username => $service) {
-            if (! isset($reported[$username]) && ($listedAt === null || CarbonImmutable::parse((string) $service->created_at)->lessThanOrEqualTo($listedAt))) {
-                $missing[] = (int) $service->id;
-            }
-        }
-
-        return ['rows' => $rows, 'missing' => $missing];
     }
 
     /**
      * Match the accounts and store them, with the counts, on a fetched import. Under the server lock, before the list
-     * becomes ready: the list it replaces (a fetch; Match again replaces none) hands over its import report and the
-     * staff choices for accounts that are still the same account (same creation time on the server, else the same
-     * domain), then is deleted. A fetch or match superseded while it ran (its row deleted or no longer running) stores
+     * becomes ready: the list it replaces (a fetch; Match again replaces none) hands over its report and choices
+     * (ImportListHandover). A fetch or match superseded while it ran (its row deleted or no longer running) stores
      * nothing and deletes nothing.
      *
      * @param  list<array<string, mixed>>  $accounts  validated RemoteAccount fields
@@ -152,30 +189,24 @@ class AccountImportMatcher
     public function store(ServerAccountImport $import, array $accounts, ?string $connectionUser): ?int
     {
         $matched = $this->classify($import->server, $accounts, $connectionUser, $import->fetched_at);
-        $counts = array_count_values(array_column($matched['rows'], 'category'));
 
-        $stored = DB::transaction(function () use ($import, $matched, $counts, $connectionUser): bool {
+        $stored = DB::transaction(function () use ($import, $matched, $connectionUser): bool {
             Server::query()->whereKey($import->server_id)->lockForUpdate()->first();
 
             if (! in_array(ServerAccountImport::query()->whereKey($import->id)->value('status'), [ServerAccountImport::FETCHING, ServerAccountImport::MATCHING], true)) {
                 return false;
             }
-            $previous = ServerAccountImport::query()->where('server_id', $import->server_id)->where('id', '<', $import->id)
-                ->where('status', ServerAccountImport::READY)->latest('id')->first();
-            $before = collect($previous->accounts ?? $import->accounts ?? [])->keyBy('username');
-            $now = collect($matched['rows'])->keyBy('username');
-            $selections = array_filter($import->selections ?? [], fn (string $username): bool => $now->has($username) && $before->has($username)
-                && self::fingerprint($before->get($username)) === self::fingerprint($now->get($username)), ARRAY_FILTER_USE_KEY);
 
-            if ($previous !== null && $previous->imported_count + $previous->not_imported_count > 0) {
-                DB::table('server_account_import_report_lines')->where('server_account_import_id', $previous->id)->update(['server_account_import_id' => $import->id]);
-                $import->fill($previous->only(['imported_count', 'not_imported_count', 'stop_reason']));
-            }
-
-            $import->update([
+            $handover = $this->handover->take($import, $matched['rows']);
+            $this->list->replace($import, $matched['rows']);
+            $this->list->applyIgnores($import);
+            // A full fetch is the whole server: an ignore for an account no longer on it is dropped.
+            DB::table('server_import_ignores')->where('server_id', $import->server_id)
+                ->whereNotIn('username', DB::table('server_account_import_accounts')->where('server_account_import_id', $import->id)->select('username'))->delete();
+            $counts = $this->list->counts($import);
+            $import->fill($handover)->update([
                 'status' => ServerAccountImport::READY,
-                'accounts' => $matched['rows'],
-                'account_count' => count($matched['rows']),
+                'account_count' => array_sum($counts),
                 'proposed_count' => $counts[self::PROPOSED] ?? 0,
                 'unmatched_count' => $counts[self::UNMATCHED] ?? 0,
                 'reseller_count' => $counts[self::RESELLER] ?? 0,
@@ -183,9 +214,7 @@ class AccountImportMatcher
                 'missing' => $matched['missing'],
                 'fetched_at' => $import->fetched_at ?? now(),
                 'connection_user' => $connectionUser,
-                'selections' => $selections ?: null,
             ]);
-            ServerAccountImport::query()->where('server_id', $import->server_id)->where('id', '<', $import->id)->delete();
 
             return true;
         });
@@ -238,20 +267,67 @@ class AccountImportMatcher
 
     /**
      * "Match again": the stored accounts matched against today's clients, products and services, with the owner
-     * compared to the user the fetch signed in as. Nothing is sent to the server.
+     * compared to the user the fetch signed in as. Nothing is sent to the server. The list is read and rewritten a
+     * chunk at a time, and only accounts whose answer changed are written, so memory does not grow with the list.
+     * A match superseded while it ran (no longer MATCHING) writes nothing more.
      */
     public function rematch(ServerAccountImport $import): void
     {
-        $accounts = $import->accounts ?? [];
+        $context = $this->context($import->server);
+        $keys = array_flip(['category', 'client_id', 'product_id', 'service_id', 'note', 'differences']);
+        $reported = [];
 
-        foreach ($accounts as &$row) {
-            unset($row['category'], $row['client_id'], $row['product_id'], $row['service_id'], $row['note'], $row['differences']);
+        foreach ($this->list->chunks($import) as $chunk) {
+            $accounts = array_map(fn (array $record): array => array_diff_key($record['payload'], $keys), $chunk);
+            // A list read before the connection user was recorded: owners cannot be compared, so nothing is proposed
+            // (classifyRows() treats a null connection user as unknown).
+            $fresh = $this->classifyRows($context, $accounts, $import->connection_user);
+            $rows = [];
+            $categories = [];
+
+            foreach ($chunk as $index => $record) {
+                $username = $record['username'];
+                $reported[] = $username;
+                // An ignored account stays ignored unless a service holds it now.
+                $category = $record['category'] === AccountList::IGNORED && $fresh[$index]['category'] !== self::LINKED ? AccountList::IGNORED : $fresh[$index]['category'];
+
+                if ($fresh[$index] != $record['payload'] || $category !== $record['category']) {
+                    $rows[$username] = $fresh[$index];
+                    $categories[$username] = $category;
+                }
+            }
+
+            if (! DB::transaction(function () use ($import, $rows, $categories): bool {
+                if (ServerAccountImport::query()->whereKey($import->id)->lockForUpdate()->value('status') !== ServerAccountImport::MATCHING) {
+                    return false;
+                }
+
+                $this->list->rewrite($import, $rows, $categories);
+
+                return true;
+            })) {
+                return;
+            }
         }
 
-        unset($row);
-        // A list read before the connection user was recorded: owners cannot be compared, so nothing is proposed
-        // (classify() treats a null connection user as unknown).
-        $this->store($import, $accounts, $import->connection_user);
+        DB::transaction(function () use ($import, $context, $reported): void {
+            Server::query()->whereKey($import->server_id)->lockForUpdate()->first();
+
+            if (ServerAccountImport::query()->whereKey($import->id)->value('status') !== ServerAccountImport::MATCHING) {
+                return;
+            }
+
+            // An account that was linked and is free again comes back ignored when the server's list says so.
+            $this->list->applyIgnores($import);
+            $counts = $this->list->counts($import);
+            $import->update([
+                'status' => ServerAccountImport::READY, 'account_count' => array_sum($counts),
+                'proposed_count' => $counts[self::PROPOSED] ?? 0, 'unmatched_count' => $counts[self::UNMATCHED] ?? 0,
+                'reseller_count' => $counts[self::RESELLER] ?? 0, 'linked_count' => $counts[self::LINKED] ?? 0,
+                'missing' => $this->missing($context, $reported, $import->fetched_at),
+            ]);
+            ServerAccountImport::query()->where('server_id', $import->server_id)->where('id', '<', $import->id)->delete();
+        });
     }
 
     /**
@@ -292,25 +368,16 @@ class AccountImportMatcher
     }
 
     /**
-     * What tells one account from a later one re-created under the same username: its creation time on the server,
-     * else its domain.
-     *
-     * @param  array<string, mixed>  $account
-     */
-    private static function fingerprint(array $account): string
-    {
-        return (string) ($account['created_at'] ?? $account['domain'] ?? '');
-    }
-
-    /**
      * Live services on the server by username: one query, plain rows, no models.
      *
+     * @param  list<string>|null  $usernames  only those holding one of these lower-case usernames
      * @return Collection<string, stdClass>
      */
-    private function liveServices(Server $server): Collection
+    private function liveServices(Server $server, ?array $usernames = null): Collection
     {
         return DB::table('services')
             ->where('server_id', $server->id)
+            ->when($usernames !== null, fn ($query) => $query->whereIn(DB::raw('lower(username)'), $usernames))
             ->whereIn('status', ServiceStatus::occupyingValues())
             ->whereNull('deleted_at')
             ->whereNotNull('username')

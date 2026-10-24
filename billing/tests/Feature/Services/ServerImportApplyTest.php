@@ -97,7 +97,7 @@ test('a confirmed account becomes a service as the server holds it, with no invo
         ->domain->toBe('alpha-books.com')
         ->password->toBeNull()
         ->status->toBe(ServiceStatus::Suspended)
-        ->suspension_reason->toBe('staff:Imported (suspended on the server: Abuse report)')
+        ->suspension_reason->toBe('staff:imported (suspended on the server: Abuse report)')
         ->registration_date->toDateString()->toBe('2023-11-14')
         ->next_due_date->toDateString()->toBe('2026-11-14')
         ->driver_data->toMatchArray(['owner' => 'root', 'plan' => 'root_basic'])
@@ -122,7 +122,7 @@ function confirmedImport(Server $server, int $clientId, int $count, ?array $user
         'suspended' => false, 'suspend_reason' => null, 'created_at' => '2025-03-15T00:00:00+00:00', 'disk_used_mb' => 1, 'disk_limit_mb' => 10,
         'category' => 'proposed', 'client_id' => $clientId, 'product_id' => 21, 'service_id' => null, 'note' => null, 'differences' => []], $usernames);
     ServerAccountImport::query()->where('server_id', $server->id)->delete();
-    ServerAccountImport::query()->create(['server_id' => $server->id, 'status' => 'ready', 'accounts' => $accounts, 'account_count' => count($accounts), 'missing' => [],
+    importWithAccounts($accounts, ['server_id' => $server->id, 'status' => 'ready', 'account_count' => count($accounts), 'missing' => [],
         'connection_user' => 'root', 'selections' => array_fill_keys($usernames, ['include' => true]), 'fetched_at' => now(), 'expires_at' => now()->addDay()]);
     Queue::fake([ImportReviewedAccounts::class]);
     applyReviewed($server);

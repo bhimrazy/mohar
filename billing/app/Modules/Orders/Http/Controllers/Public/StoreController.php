@@ -161,8 +161,8 @@ class StoreController extends Controller
                     'register' => $pricing->price($parts[1], 'register', 1, $currency, $clientId),
                     'transfer' => $pricing->price($parts[1], 'transfer', 1, $currency, $clientId),
                     'renew' => $pricing->price($parts[1], 'renew', 1, $currency, $clientId),
-                    'register_terms' => $pricing->terms($parts[1], 'register', $currency),
-                    'transfer_terms' => $pricing->terms($parts[1], 'transfer', $currency),
+                    'register_terms' => $pricing->terms($parts[1], 'register', $currency, $clientId),
+                    'transfer_terms' => $pricing->terms($parts[1], 'transfer', $currency, $clientId),
                 ];
             }
         }

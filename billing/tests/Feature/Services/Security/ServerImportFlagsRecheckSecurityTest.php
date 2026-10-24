@@ -58,7 +58,7 @@ test('[S133R-1] a sign-up whose owner deletes their own login does not start to 
 
     $import = s133rProposeAll($this->server);
 
-    expect(collect($import->accounts)->keyBy('username')['alpha']['category'])->not->toBe('proposed')
+    expect(collect($import->accountRows())->keyBy('username')['alpha']['category'])->not->toBe('proposed')
         ->and($import->selections['alpha']['include'] ?? false)->toBeFalse();
 });
 
@@ -68,7 +68,7 @@ test('[S133R-2] a sign-up whose login moved to another address stays flagged aft
 
     $import = s133rProposeAll($this->server);
 
-    expect(collect($import->accounts)->keyBy('username')['alpha']['category'])->toBe('unmatched')
+    expect(collect($import->accountRows())->keyBy('username')['alpha']['category'])->toBe('unmatched')
         ->and($import->selections['alpha']['include'] ?? false)->toBeFalse();
 });
 

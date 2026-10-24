@@ -28,8 +28,13 @@ const STATUS_OPTIONS = [
 ];
 
 export default function ClientServicesIndex({ services, filters }: Props) {
-    const attention = services.data.filter(
+    const suspended = services.data.filter(
         (service) => service.status === 'suspended',
+    );
+    const attention = suspended.length;
+    // Only an overdue invoice is cleared by paying; a service suspended for another reason needs support.
+    const overdue = suspended.filter(
+        (service) => service.suspension_kind === 'overdue',
     ).length;
 
     return (
@@ -49,8 +54,11 @@ export default function ClientServicesIndex({ services, filters }: Props) {
                                 : `${attention} services are suspended.`}
                         </p>
                         <p className="text-muted-foreground">
-                            Pay the outstanding invoice to restore it
-                            automatically, or contact support.
+                            {overdue === attention
+                                ? 'Pay the outstanding invoice to restore it automatically, or contact support.'
+                                : overdue === 0
+                                  ? 'Contact support to restore it.'
+                                  : 'Pay the outstanding invoice to restore the overdue ones automatically. For the others, contact support.'}
                         </p>
                     </div>
                 )}

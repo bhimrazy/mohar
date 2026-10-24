@@ -42,6 +42,13 @@ final class Redactor
     /** Nested values deeper than this are masked rather than walked (self-referencing object graphs). */
     private const MAX_DEPTH = 32;
 
+    /**
+     * Values one call reads through objects (each object, and every entry under one); past it they are masked. An
+     * object that fans out into new copies of itself stays under the depth cap and would otherwise grow without bound
+     * (#399). Plain arrays and decoded JSON text are bounded by the input, so they are not counted.
+     */
+    private const MAX_NODES = 50_000;
+
     /** Exceptions behind the first one whose messages maskThrowable() masks; those further down are withheld. */
     private const MAX_PREVIOUS = 16;
 
@@ -100,7 +107,9 @@ final class Redactor
      * pair's name (5) and separator (6): `name=`, `name: `, `"name":`, `\"name\":`, `'name' =>`, print_r's
      * `[name] =>`, HTML-escaped `&quot;name&quot;:`; the value may start on the next line (pretty-printed JSON). Only the name and
      * separator are consumed, so the value is read by valueEnd() when the name is secret and scanned again when not.
-     * Every repeat is possessive or bounded, so no input backtracks more than a constant per position.
+     * Every repeat is possessive or bounded, so no input backtracks more than a constant per position. Tag names are
+     * ASCII here on purpose, unlike HtmlDocumentMarker::nameLength(): a tag's attribute text is read for `name=value`
+     * only, so a non-ASCII `<é api-key: …>` must stay text for the pair rule to see its value.
      */
     private const TOKEN_PATTERN = '/<(\/?)((?:[A-Za-z_][\w.\-]*+:)?([A-Za-z_][\w.\-]*+))([^<>]*+)>|(?<![A-Za-z0-9_.])([A-Za-z][A-Za-z0-9_.\-\[\]]{0,254}+)((?:\\\\?["\']|&quot;)?[ \t]{0,16}+(?:=>?|:)\s*+)(?!\/\/)/';
 
@@ -112,6 +121,15 @@ final class Redactor
 
     /** An `&` ends an unquoted value when the next pair, an entity, a space or the end follows (eSewa secrets hold `&`). */
     private const AMPERSAND_END = '/\G&(?:amp;|#|[A-Za-z_][A-Za-z0-9_.\-\[\]%]{0,254}+=|\s|$)/';
+
+    /**
+     * The last label of a masked value and its separator, if any (`ab;token:`, `…]Session`), with TOKEN_PATTERN's name
+     * rule: the pair whose value starts after the mask (see maskTailPairs).
+     */
+    private const TAIL_LABEL_PATTERN = '/(?<![A-Za-z0-9_.])([A-Za-z][A-Za-z0-9_.\-\[\]]{0,254}+)([ \t]{0,16}+(?:=>?|:))?$/';
+
+    /** A separator after a label, then the blanks before its value; as in TOKEN_PATTERN, the value may start on the next line. */
+    private const TAIL_SEPARATOR_PATTERN = '/\G[ \t]{0,16}+(?:=>?|:)\s*+/';
 
     /** Labels that can introduce a reference in free text (`Session: cs_live_… expired`) as well as a credential. */
     private const REFERENCE_LABELS = ['session', 'hash'];
@@ -127,7 +145,7 @@ final class Redactor
      * HTML void elements: no end tag, so a secret `name` on one (`<input name="password">`) masks only the text before
      * the next tag (and a CDATA section), which in HTML is usually nothing. XML uses the same names with content
      * (`<param name="password">…</param>`), and that content is masked by the same rule. A prefixed name is never HTML.
-     * An element with no end tag keeps that next-tag bound only in an HTML document (nextHtmlMarker finds a
+     * An element with no end tag keeps that next-tag bound only in an HTML document (HtmlDocumentMarker finds a
      * `<!doctype html` or `<html` start tag at markup level before it); anywhere else it is an XML container and a child element after it fails closed (voidContainerEnd).
      */
     private const VOID_ELEMENTS = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'];
@@ -153,6 +171,14 @@ final class Redactor
     /** @var array<string, bool> */
     private array $keyCache = [];
 
+    private static int $nodesLeft = 0;
+
+    /**
+     * Public calls in progress, on any instance, so a call made from inside an unwrap (this instance or a new
+     * `app(Redactor::class)`) shares the outer call's budget. Back to 0 when the outermost call returns or throws.
+     */
+    private static int $calls = 0;
+
     /**
      * A sensitive key hides its whole value, nested arrays included. Null and empty values are kept, so the log
      * still shows that nothing was sent. Objects are read as arrays first (Arrayable, JsonSerializable, otherwise
@@ -166,7 +192,7 @@ final class Redactor
      */
     public function redact(array $payload, RedactionSet|array $secrets = [], array $sensitiveKeys = []): array
     {
-        return $this->redactWith($payload, self::set($secrets), array_map('strtolower', $sensitiveKeys), 0);
+        return $this->budgeted(fn (): array => $this->redactWith($payload, self::set($secrets), array_map('strtolower', $sensitiveKeys), 0));
     }
 
     /**
@@ -178,13 +204,30 @@ final class Redactor
      */
     public function redactPayment(array $payload, int $depth = 0): array
     {
+        return $this->budgeted(fn (): array => $this->redactPaymentWith($payload, $depth));
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $payload
+     * @return array<array-key, mixed>
+     */
+    private function redactPaymentWith(array $payload, int $depth, bool $counted = false): array
+    {
         foreach ($payload as $key => $value) {
+            $fromObject = $counted || is_object($value);
+
+            if ($fromObject && ! $this->takeNode()) {
+                $payload[$key] = self::MASK;
+
+                continue;
+            }
+
             $value = $this->unwrap($value, $depth);
 
             if ($depth >= self::MAX_DEPTH && (is_array($value) || is_object($value))) {
                 $payload[$key] = self::MASK;
             } elseif (is_array($value)) {
-                $payload[$key] = $this->redactPayment($value, $depth + 1);
+                $payload[$key] = $this->redactPaymentWith($value, $depth + 1, $fromObject);
             } elseif (is_string($key) && ! in_array($key, self::PAYMENT_REFERENCES, true) && preg_match(self::PAYMENT_KEYS, $key) === 1) {
                 $payload[$key] = self::MASK;
             } else {
@@ -200,7 +243,7 @@ final class Redactor
      */
     public function maskValues(string $value, RedactionSet|array $secrets): string
     {
-        return $this->maskString($value, self::set($secrets), [], 0);
+        return $this->budgeted(fn (): string => $this->maskString($value, self::set($secrets), [], 0));
     }
 
     /**
@@ -226,7 +269,7 @@ final class Redactor
         for ($link = $exception, $hops = 0; $link !== null && ! $seen->contains($link); $link = $link->getPrevious(), $hops++) {
             $seen->attach($link);
             $message = $link->getMessage();
-            $masked = $hops <= self::MAX_PREVIOUS ? $this->maskString($message, $set, [], 0) : self::MASK;
+            $masked = $hops <= self::MAX_PREVIOUS ? $this->budgeted(fn (): string => $this->maskString($message, $set, [], 0)) : self::MASK;
 
             if ($masked !== $message) {
                 (new ReflectionProperty($link instanceof Exception ? Exception::class : Error::class, 'message'))->setValue($link, $masked);
@@ -318,16 +361,19 @@ final class Redactor
      * @param  list<string>  $sensitiveKeys
      * @return array<array-key, mixed>
      */
-    private function redactWith(array $payload, RedactionSet $set, array $sensitiveKeys, int $depth): array
+    private function redactWith(array $payload, RedactionSet $set, array $sensitiveKeys, int $depth, bool $counted = false): array
     {
         $redacted = [];
 
         foreach ($payload as $key => $value) {
-            $value = $this->unwrap($value, $depth);
+            $fromObject = $counted || is_object($value);
+            $spent = $fromObject && ! $this->takeNode();
+            $value = $spent ? self::MASK : $this->unwrap($value, $depth);
 
             $masked = match (true) {
+                $spent => self::MASK,
                 $value !== null && $value !== '' && $value !== [] && $this->isSensitiveKey($key, $sensitiveKeys) => self::MASK,
-                is_array($value) => $depth >= self::MAX_DEPTH ? self::MASK : $this->redactWith($value, $set, $sensitiveKeys, $depth + 1),
+                is_array($value) => $depth >= self::MAX_DEPTH ? self::MASK : $this->redactWith($value, $set, $sensitiveKeys, $depth + 1, $fromObject),
                 is_string($value) => $this->maskString($value, $set, $sensitiveKeys, $depth),
                 is_int($value), is_float($value) => $set->matches((string) $value) ? self::MASK : $value,
                 default => $value,
@@ -371,6 +417,33 @@ final class Redactor
         }
 
         return $value;
+    }
+
+    /**
+     * Runs one public call under the node budget, which only the outermost call sets.
+     *
+     * @template T
+     *
+     * @param  \Closure(): T  $call
+     * @return T
+     */
+    private function budgeted(\Closure $call): mixed
+    {
+        if (self::$calls++ === 0) {
+            self::$nodesLeft = self::MAX_NODES;
+        }
+
+        try {
+            return $call();
+        } finally {
+            self::$calls--;
+        }
+    }
+
+    /** Counts one value against the budget; false once it is spent. */
+    private function takeNode(): bool
+    {
+        return self::$nodesLeft-- > 0;
     }
 
     /**
@@ -439,27 +512,7 @@ final class Redactor
         $endTagCursor = 0;
         /** @var array<string, int> $lastEndTag offset of the last `</name` per void element name, found once per name */
         $lastEndTag = [];
-        /** @var int|null $markerFrom where the HTML marker walk resumes (null: no marker text in the text, or the walk is done) */
-        $markerFrom = stripos($value, '<html') === false && stripos($value, '<!doctype') === false ? null : 0;
-        $htmlSeen = false;
-        // Walks the text for an HTML marker that starts before $limit; a marker inside a masked span is never reached,
-        // because the walk jumps over each span as it is masked.
-        $findMarker = function (int $limit) use ($value, &$markerFrom, &$htmlSeen): ?int {
-            $htmlSeen = $htmlSeen || ($markerFrom !== null && $this->nextHtmlMarker($value, $markerFrom, $limit) !== null);
-
-            return $markerFrom;
-        };
-        $skipMasked = function (int $from, int $to) use ($findMarker, &$markerFrom, &$htmlSeen): void {
-            if ($markerFrom === null || $htmlSeen) {
-                return;
-            }
-
-            $resume = $findMarker($from);
-
-            if ($resume !== null && $resume < $to) {
-                $markerFrom = $to;
-            }
-        };
+        $markers = new HtmlDocumentMarker($value);
 
         while ($position < $length && preg_match(self::TOKEN_PATTERN, $value, $match, PREG_OFFSET_CAPTURE | PREG_UNMATCHED_AS_NULL, $position) === 1) {
             $start = $match[0][1];
@@ -475,9 +528,9 @@ final class Redactor
                         ? $end + strcspn($value, "\r\n", $end)
                         : $this->valueEnd($value, $end);
                     $output .= $this->maskSpan(substr($value, $end, $valueEnd - $end));
-                    $skipMasked($end, $valueEnd);
+                    $markers->skip($end, $valueEnd);
 
-                    $position = $valueEnd;
+                    $position = $this->maskTailPairs($value, $end, $valueEnd, $sensitiveKeys, $output, $markers);
                 }
 
                 continue;
@@ -503,14 +556,12 @@ final class Redactor
             if ((string) $match[2][0] === (string) $match[3][0] && in_array($voidName, self::VOID_ELEMENTS, true)
                 && ($lastEndTag[$voidName] ??= (int) strripos($value, '</'.$voidName)) < $end) {
                 // A marker counts when it lies before this element and outside every span masked so far.
-                $findMarker($start);
-
-                $contentEnd = $htmlSeen
+                $contentEnd = $markers->before($start)
                     ? $this->voidContentEnd($value, $end)
                     : $this->voidContainerEnd($value, $end);
                 $content = substr($value, $end, $contentEnd - $end);
                 $output .= trim($content) === '' ? $content : self::MASK;
-                $skipMasked($end, $contentEnd);
+                $markers->skip($end, $contentEnd);
 
                 $position = $contentEnd;
 
@@ -539,12 +590,85 @@ final class Redactor
 
             $content = substr($value, $end, $contentEnd - $end);
             $output .= trim($content) === '' ? $content : self::MASK;
-            $skipMasked($end, $contentEnd);
+            $markers->skip($end, $contentEnd);
 
             $position = $contentEnd;
         }
 
         return $output.substr($value, $position);
+    }
+
+    /**
+     * A secret value can run on through a soft end into the next pair's name (`pw=ab;token: x`, since `passwd=ab;cd` is
+     * one value), and that pair's value after the blank would stay readable. While the masked span ends in a secret
+     * label, the value after it is masked as that pair's value (isSecretPair, valueEnd) when it is unquoted, up to any
+     * pair or tag the scan would find in it, which the scan then reads as before. So this only ever masks more. The label
+     * stays inside the first mask. Each step moves forward and reads at most 300 bytes before and 280 after its span,
+     * so the cost stays linear.
+     *
+     * @param  list<string>  $sensitiveKeys
+     * @return int where the scan resumes
+     */
+    private function maskTailPairs(string $value, int $from, int $to, array $sensitiveKeys, string &$output, HtmlDocumentMarker $markers): int
+    {
+        $length = strlen($value);
+
+        while ($to > $from && $to < $length && preg_match(self::TAIL_LABEL_PATTERN, substr($value, max($from, $to - 300), $to - max($from, $to - 300)), $label) === 1) {
+            $separator = $label[2] ?? '';
+            $start = $to;
+
+            if ($separator === '') {
+                if (preg_match(self::TAIL_SEPARATOR_PATTERN, $value, $found, 0, $to) !== 1) {
+                    break;
+                }
+
+                $separator = $found[0];
+            } else {
+                $separator .= (string) substr($value, $to, strspn($value, " \t\r\n\f\v", $to));
+            }
+
+            $valueStart = $to + strlen($separator) - strlen($label[2] ?? '');
+
+            if ($valueStart >= $length || ! $this->isSecretPair($label[1], $separator, $value, $valueStart, $sensitiveKeys)) {
+                break;
+            }
+
+            // Only an unquoted value (or one a mask starts) is taken: a quote or bracket here may open the next pair's name
+            // or span other markup.
+            $first = $valueStart + (preg_match(self::AUTH_SCHEME_PATTERN, $value, $scheme, 0, $valueStart) === 1 ? strlen($scheme[0]) : 0);
+
+            if (strspn($value, '"\'\\[{&<', $first, 1) === 1 && substr_compare($value, self::MASK, $first, strlen(self::MASK)) !== 0) {
+                break;
+            }
+
+            $valueEnd = $this->valueEnd($value, $valueStart);
+
+            // A pair or tag the scan would find inside the value is left to the scan, so taking the value only ever masks
+            // more: the value is cut before it (and its soft ends and blanks), and the chain ends. 280 bytes past the
+            // value cover a name and separator that start inside it.
+            $last = false;
+
+            if (preg_match(self::TOKEN_PATTERN, substr($value, $valueStart, $valueEnd - $valueStart + 280), $inside, PREG_OFFSET_CAPTURE) === 1
+                && $inside[0][1] < $valueEnd - $valueStart) {
+                $valueEnd = $valueStart + strlen(rtrim(substr($value, $valueStart, $inside[0][1]), self::VALUE_SOFT_END." \t\r\n"));
+                $last = true;
+            }
+
+            if ($valueEnd <= $valueStart) {
+                break;
+            }
+
+            [$from, $to] = [$valueStart, $valueEnd];
+
+            $output .= substr($value, $start, $from - $start).$this->maskSpan(substr($value, $from, $to - $from));
+            $markers->skip($from, $to);
+
+            if ($last) {
+                break;
+            }
+        }
+
+        return $to;
     }
 
     /**
@@ -664,124 +788,11 @@ final class Redactor
                 }
 
                 $position = $close + 1;
-            } elseif ($after === '!' || $after === '?' || ctype_alpha($after) || $after === '_' || $after === ':' || ($after !== '' && ord($after) >= 0x80)) {
+            } elseif ($after === '!' || $after === '?' || HtmlDocumentMarker::nameLength($value, $position + 1) > 0) {
                 return $length;
             } else {
                 return $bound ?? $position;
             }
-        }
-    }
-
-    /**
-     * The first HTML document marker at or after $from: a `<!doctype html` or an unprefixed `<html` start tag, any case.
-     * One forward walk with strpos and strcspn, constant extra memory: comments, CDATA sections, processing
-     * instructions and other declarations are skipped whole, and a tag's attributes are skipped with quoted values
-     * honoured, so a marker inside them is not found. An unterminated construct runs to the end of the text. `<head`
-     * and `<body` are not markers (SOAP has a `<Body>`). Only a marker that starts before $before is looked for. $from becomes
-     * where the search resumes (it is the `<` where the walk stopped at $before, so a later call does not rescan), or null when the text has no more.
-     */
-    private function nextHtmlMarker(string $value, ?int &$from, int $before): ?int
-    {
-        $length = strlen($value);
-        $position = $from;
-
-        while (($open = strpos($value, '<', $position)) !== false) {
-            if ($open >= $before) {
-                $from = $open;
-
-                return null;
-            }
-
-            $next = $value[$open + 1] ?? '';
-
-            if ($next === '!' || $next === '?') {
-                if (substr_compare($value, '<!--', $open, 4) === 0) {
-                    $close = strpos($value, '-->', $open + 4);
-                    $position = $close === false ? $length : $close + 3;
-                } elseif (substr_compare($value, '<![CDATA[', $open, 9) === 0) {
-                    $close = strpos($value, ']]>', $open + 9);
-                    $position = $close === false ? $length : $close + 3;
-                } elseif ($next === '?') {
-                    $close = strpos($value, '?>', $open + 2);
-                    $position = $close === false ? $length : $close + 2;
-                } else {
-                    $spaces = strspn($value, " \t\r\n\f", $open + 9);
-
-                    if (substr_compare($value, '<!doctype', $open, 9, true) === 0 && $spaces > 0
-                        && substr_compare($value, 'html', $open + 9 + $spaces, 4, true) === 0
-                        && ! $this->isNameByte($value[$open + 13 + $spaces] ?? '')) {
-                        $from = $this->skipTag($value, $open + 2);
-
-                        return $open;
-                    }
-
-                    $position = $this->skipTag($value, $open + 2);
-                }
-
-                continue;
-            }
-
-            // A byte >= 0x80 starts a name here as in voidContainerEnd(), so `<é t="<html>">` is a tag, not text (#309).
-            $nameLength = ctype_alpha($next) || $next === '_' || ($next !== '' && ord($next) >= 0x80)
-                ? strspn($value, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.:-'.self::highBytes(), $open + 1)
-                : 0;
-
-            if ($nameLength === 0 && $next !== '/') {
-                $position = $open + 1; // a `<` that starts no tag is text
-
-                continue;
-            }
-
-            $position = $this->skipTag($value, $open + 1 + $nameLength);
-
-            if ($nameLength === 4 && strcasecmp(substr($value, $open + 1, 4), 'html') === 0) {
-                $from = $position;
-
-                return $open;
-            }
-        }
-
-        $from = null;
-
-        return null;
-    }
-
-    /** Bytes 0x80 to 0xFF, which UTF-8 names are made of. */
-    private static function highBytes(): string
-    {
-        static $bytes = null;
-
-        return $bytes ??= implode('', array_map('chr', range(0x80, 0xFF)));
-    }
-
-    private function isNameByte(string $byte): bool
-    {
-        return $byte !== '' && (ctype_alnum($byte) || $byte === '_' || $byte === '.' || $byte === ':' || $byte === '-');
-    }
-
-    /** The offset after the `>` that ends the tag whose attributes start at $position; quoted values may hold `>`. An unterminated tag or quote runs to the end. */
-    private function skipTag(string $value, int $position): int
-    {
-        $length = strlen($value);
-
-        while (true) {
-            $at = $position + strcspn($value, '>"\'', $position);
-
-            if ($at >= $length) {
-                return $length;
-            }
-
-            if ($value[$at] === '>') {
-                return $at + 1;
-            }
-
-            $close = strpos($value, $value[$at], $at + 1);
-
-            if ($close === false) {
-                return $length;
-            }
-
-            $position = $close + 1;
         }
     }
 
@@ -863,9 +874,15 @@ final class Redactor
 
             $next = $value[$index + 1] ?? '';
 
+            // The value ends at a soft end with nothing after it, or just after the `]` of a mask already in the value,
+            // so that mask is replaced whole, with no stray `]` left (#399).
             if ($next === '' || str_contains($stops, $next)) {
-                return $index;
+                $closesMask = $value[$index] === ']' && $index - $start >= strlen(self::MASK) - 1
+                    && substr_compare($value, self::MASK, $index - strlen(self::MASK) + 1, strlen(self::MASK)) === 0;
+
+                return $closesMask ? $index + 1 : $index;
             }
+
         }
     }
 

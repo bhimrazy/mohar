@@ -34,7 +34,7 @@ class AccountImportPlan
     /** @var array<string, int|null> */
     private array $prices = [];
 
-    public function __construct(private AccountImportMatcher $matcher, private Catalog $catalog, private CompanyClock $clock) {}
+    public function __construct(private AccountImportMatcher $matcher, private Catalog $catalog, private CompanyClock $clock, private AccountList $list) {}
 
     /**
      * The ticked accounts, each with a `decision`: client, product, cycle, next_due_date, amount (minor units, in the
@@ -45,7 +45,8 @@ class AccountImportPlan
     public function rows(Server $server, ServerAccountImport $import): array
     {
         $selections = $import->selections ?? [];
-        $accounts = array_values(array_filter($import->accounts ?? [], fn (array $row): bool => (bool) ($selections[$row['username']]['include'] ?? false)));
+        // Only the ticked accounts are read from the list (decrypted), not the whole of it.
+        $accounts = array_values($this->list->rows($import, array_keys(array_filter($selections, fn (array $choice): bool => (bool) ($choice['include'] ?? false)))));
 
         if ($accounts === []) {
             return [];
@@ -59,8 +60,9 @@ class AccountImportPlan
         $clients = Client::query()->whereKey(array_values(array_unique(array_filter($clientIds))))->with('group:id,name,discount_percent')->get(['id', 'first_name', 'last_name', 'company_name', 'currency', 'status', 'client_group_id'])->keyBy('id');
         $flags = $this->matcher->clientFlags($clients->keys()->map(fn (mixed $id): int => (int) $id)->all());
         $today = $this->clock->todayDate();
+        $ignored = array_flip($this->list->ignoredAmong($import, array_column($fresh, 'username')));
 
-        return array_map(function (array $row) use ($selections, $products, $clients, $flags, $today): array {
+        return array_map(function (array $row) use ($selections, $products, $clients, $flags, $today, $ignored): array {
             $choice = $selections[$row['username']] ?? [];
             $client = $clients->get($choice['client_id'] ?? $row['client_id'] ?? 0);
             $product = $products[$choice['product_id'] ?? $row['product_id'] ?? 0] ?? null;
@@ -77,6 +79,7 @@ class AccountImportPlan
 
             $problems = array_values(array_filter([
                 $row['category'] === AccountImportMatcher::LINKED ? AccountImportMatcher::text('A live service on this server already holds this account.') : null,
+                isset($ignored[$row['username']]) ? AccountImportMatcher::text('Ignored: bring it back on the Import accounts page first.') : null,
                 $row['category'] === AccountImportMatcher::RESELLER && ! isset($choice['client_id']) ? AccountImportMatcher::text('Owned by another WHM user: choose its client yourself.') : null,
                 $client === null ? AccountImportMatcher::text('Choose a client.') : null,
                 $client !== null && $client->status !== 'active' ? AccountImportMatcher::text('The client :name is not active.', ['name' => $client->display_name]) : null,
@@ -190,6 +193,16 @@ class AccountImportPlan
     }
 
     /**
+     * The recurring cycles staff may choose, for the pickers and the request rules.
+     *
+     * @return list<array{value: string, label: string}>
+     */
+    public static function cycles(): array
+    {
+        return array_map(fn (BillingCycle $cycle): array => ['value' => $cycle->value, 'label' => self::cycleLabel($cycle)], BillingCycle::recurring());
+    }
+
+    /**
      * The cycle as the rest of the app names it ("Semi-annually").
      */
     public static function cycleLabel(BillingCycle $cycle): string
@@ -227,12 +240,64 @@ class AccountImportPlan
             return null;
         }
 
-        $cycles = $this->cycles["{$product->id}:{$client->currency}"] ??= array_values(array_filter(
-            $this->catalog->priceBook()?->availableCycles($product->id, $client->currency) ?? [],
-            fn (BillingCycle $cycle): bool => $cycle->isRecurring(),
-        ));
+        $cycles = $this->recurringCycles($product->id, $client->currency);
 
         return in_array(BillingCycle::Monthly, $cycles, true) ? BillingCycle::Monthly : ($cycles[0] ?? null);
+    }
+
+    /**
+     * The recurring cycles a product has a price for in a currency.
+     *
+     * @return list<BillingCycle>
+     */
+    private function recurringCycles(int $productId, string $currency): array
+    {
+        return $this->cycles["{$productId}:{$currency}"] ??= array_values(array_filter(
+            $this->catalog->priceBook()?->availableCycles($productId, $currency) ?? [],
+            fn (BillingCycle $cycle): bool => $cycle->isRecurring(),
+        ));
+    }
+
+    /**
+     * For each product staff may pick, the cycle values it has a price for, by currency (#143): the choice dialog
+     * offers only these once it knows the product and the client's currency.
+     *
+     * @param  list<string>  $currencies
+     * @return array<int, array<string, list<string>>>
+     */
+    public function pricedCycles(Server $server, array $currencies): array
+    {
+        $map = [];
+
+        foreach ($this->matcher->serverProducts($server) as $product) {
+            foreach ($currencies as $currency) {
+                $map[$product->id][$currency] = array_map(fn (BillingCycle $cycle): string => $cycle->value, $this->recurringCycles($product->id, $currency));
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * The cycles at least one of these rows can be billed on (its client and product are known), as the pickers list
+     * them; every cycle when no row has both yet.
+     *
+     * @param  list<array<string, mixed>>  $rows  rows() output
+     * @return list<array{value: string, label: string}>
+     */
+    public function cyclesForRows(array $rows): array
+    {
+        $usable = [];
+
+        foreach ($rows as $row) {
+            if ($row['decision']['client'] !== null && $row['decision']['product'] !== null) {
+                foreach ($this->recurringCycles($row['decision']['product']['id'], $row['decision']['client']['currency']) as $cycle) {
+                    $usable[$cycle->value] = true;
+                }
+            }
+        }
+
+        return $usable === [] ? self::cycles() : array_values(array_filter(self::cycles(), fn (array $cycle): bool => isset($usable[$cycle['value']])));
     }
 
     /** The company-calendar date (a date value) of the moment the server created the account. */
