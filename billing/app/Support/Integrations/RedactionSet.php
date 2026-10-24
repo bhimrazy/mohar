@@ -114,11 +114,13 @@ final class RedactionSet
     private array $numericAnswerPatterns = [];
 
     /**
-     * @param  list<string>  $values
-     * @param  list<string>  $answers
+     * @param  list<string>  $given  values as the caller gave them (merge() builds from these)
+     * @param  list<string>  $givenAnswers
      */
-    private function __construct(array $values, array $answers)
+    private function __construct(#[\SensitiveParameter] private readonly array $given, #[\SensitiveParameter] private readonly array $givenAnswers)
     {
+        [$values, $answers] = [$given, $givenAnswers];
+
         foreach ($answers as $answer) {
             $pattern = self::answerPattern($answer);
 
@@ -178,6 +180,24 @@ final class RedactionSet
     public static function empty(): self
     {
         return new self([], []);
+    }
+
+    /**
+     * One set with the values and answers of every given set (the sets of nested calls, or of calls in progress and of
+     * an exception's chain). An empty set adds nothing, and a single set is returned as it is.
+     */
+    public static function merge(self ...$sets): self
+    {
+        $sets = array_values(array_filter($sets, fn (self $set): bool => ! $set->isEmpty()));
+
+        if (count($sets) <= 1) {
+            return $sets[0] ?? self::empty();
+        }
+
+        return new self(
+            array_merge(...array_map(fn (self $set): array => $set->given, $sets)),
+            array_merge(...array_map(fn (self $set): array => $set->givenAnswers, $sets)),
+        );
     }
 
     public function isEmpty(): bool

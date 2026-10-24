@@ -294,7 +294,7 @@ class RefundTransaction
                 $state = [...($locked->raw[Transaction::REFUND_STATE] ?? []), 'answer' => $result->status, 'reason' => $result->declineReason];
                 $locked->forceFill([
                     'gateway_txn_id' => $locked->gateway_txn_id ?? $result->txnId,
-                    'raw' => [...GatewayLogger::redact($result->raw), Transaction::REFUND_STATE => $state],
+                    'raw' => [...GatewayLogger::redact($result->raw, $locked->gateway), Transaction::REFUND_STATE => $state],
                 ])->save();
             }
 
@@ -331,7 +331,7 @@ class RefundTransaction
                 $reverseEffects = (bool) ($state['reverse_effects'] ?? $reverseEffects);
                 $refund->forceFill([
                     'gateway_txn_id' => $result->txnId ?? $refund->gateway_txn_id,
-                    'raw' => GatewayLogger::redact([...($refund->raw ?? []), ...($result->raw ?? []), Transaction::REFUND_STATE => $state]),
+                    'raw' => GatewayLogger::redact([...($refund->raw ?? []), ...($result->raw ?? []), Transaction::REFUND_STATE => $state], $refund->gateway),
                 ]);
             }
 

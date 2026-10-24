@@ -173,7 +173,7 @@ class GatewayCallbackHandler
             amount: $amount,
             gateway: $gatewayKey,
             gatewayTxnId: $event->txnId,
-            raw: GatewayLogger::redact($event->raw),
+            raw: GatewayLogger::redact($event->raw, $gatewayKey),
             gatewayAmount: $rate !== null ? $event->amount : null,
             gatewayCurrency: $rate !== null ? $event->currency : null,
             exchangeRate: $rate,
@@ -437,7 +437,7 @@ class GatewayCallbackHandler
                     }
 
                     // Only the first row carries the provider's dispute id (unique); further allocations reference the batch.
-                    $chargeback = $this->chargeback->handle($parent, $portion, $index === 0 ? $event->txnId : null, GatewayLogger::redact($event->raw));
+                    $chargeback = $this->chargeback->handle($parent, $portion, $index === 0 ? $event->txnId : null, GatewayLogger::redact($event->raw, $gatewayKey));
 
                     if ($index === 0 && ! $chargeback->wasRecentlyCreated) {
                         // A delivery of this dispute committed first: roll back the credit taken above too.
@@ -540,7 +540,7 @@ class GatewayCallbackHandler
         }
 
         try {
-            $won = $this->disputeWon->handle($chargeback, GatewayLogger::redact($event->raw));
+            $won = $this->disputeWon->handle($chargeback, GatewayLogger::redact($event->raw, $gatewayKey));
         } catch (UniqueConstraintViolationException) {
             // Another delivery of the same win committed first.
             return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $chargeback->invoice_id);
@@ -645,7 +645,7 @@ class GatewayCallbackHandler
             'currency' => $payment->currency,
             'parent_transaction_id' => $payment->id,
             'description' => $description,
-            'raw' => GatewayLogger::redact($event->raw),
+            'raw' => GatewayLogger::redact($event->raw, $payment->gateway),
             'occurred_at' => now(),
             'review_amount' => $review,
         ]);

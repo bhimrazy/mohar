@@ -203,21 +203,23 @@ final class Redactor
 
     /**
      * Payment provider payloads: mask every leaf under a payment-sensitive key (null included), walk nested arrays and
-     * objects, and mask Luhn-valid card numbers inside text.
+     * objects, and mask Luhn-valid card numbers inside text. $secrets (the gateway's configured credentials) are
+     * masked by value in text and numbers.
      *
      * @param  array<array-key, mixed>  $payload
+     * @param  RedactionSet|list<string>  $secrets
      * @return array<array-key, mixed>
      */
-    public function redactPayment(array $payload, int $depth = 0): array
+    public function redactPayment(array $payload, int $depth = 0, RedactionSet|array $secrets = []): array
     {
-        return $this->budgeted(fn (): array => $this->redactPaymentWith($payload, $depth));
+        return $this->budgeted(fn (): array => $this->redactPaymentWith($payload, $depth, self::set($secrets)));
     }
 
     /**
      * @param  array<array-key, mixed>  $payload
      * @return array<array-key, mixed>
      */
-    private function redactPaymentWith(array $payload, int $depth, bool $counted = false): array
+    private function redactPaymentWith(array $payload, int $depth, RedactionSet $set, bool $counted = false): array
     {
         foreach ($payload as $key => $value) {
             $fromObject = $counted || is_object($value);
@@ -233,11 +235,15 @@ final class Redactor
             if ($depth >= self::MAX_DEPTH && (is_array($value) || is_object($value))) {
                 $payload[$key] = self::MASK;
             } elseif (is_array($value)) {
-                $payload[$key] = $this->redactPaymentWith($value, $depth + 1, $fromObject);
+                $payload[$key] = $this->redactPaymentWith($value, $depth + 1, $set, $fromObject);
             } elseif (is_string($key) && ! in_array($key, self::PAYMENT_REFERENCES, true) && preg_match(self::PAYMENT_KEYS, $key) === 1) {
                 $payload[$key] = self::MASK;
             } else {
-                $payload[$key] = is_string($value) ? $this->scrubCardNumbers($this->maskString($value, RedactionSet::empty(), [], $depth)) : $value;
+                $payload[$key] = match (true) {
+                    is_string($value) => $this->scrubCardNumbers($this->maskString($value, $set, [], $depth)),
+                    is_int($value), is_float($value) => $set->matches((string) $value) ? self::MASK : $value,
+                    default => $value,
+                };
             }
         }
 
@@ -253,9 +259,10 @@ final class Redactor
     }
 
     /**
-     * Masks, in place, the message of $exception and of up to 16 exceptions behind it, with the shape rules and the
-     * set's values; any exception further down the chain has its message withheld whole (fail closed). The class,
-     * code, trace, flags and `previous` are kept, so the caller reports the original.
+     * Masks, in place, the message of $exception and of up to 16 exceptions behind it, with the shape rules, the set's
+     * values and the sets of RedactionScope (calls in progress, and those attached to the chain); any exception further
+     * down the chain has its message withheld whole (fail closed). The class, code, trace, flags and `previous` are
+     * kept, so the caller reports the original.
      *
      * Only messages are masked. Properties, what `context()` returns (Laravel merges it into the log record) and trace
      * arguments (printed when `zend.exception_ignore_args` is off) are not: production keeps that setting on, and the
@@ -269,7 +276,7 @@ final class Redactor
      */
     public function maskThrowable(Throwable $exception, RedactionSet|array|null $secrets = null): Throwable
     {
-        $set = self::set($secrets ?? []);
+        $set = RedactionSet::merge(self::set($secrets ?? []), RedactionScope::current($exception));
         $seen = new \SplObjectStorage;
 
         for ($link = $exception, $hops = 0; $link !== null && ! $seen->contains($link); $link = $link->getPrevious(), $hops++) {

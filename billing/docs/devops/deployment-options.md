@@ -83,7 +83,7 @@ Laravel preload file, it needs a restart to pick up changes, and classic mode al
 
 Read-only root filesystem: `read_only: true` with tmpfs for `/tmp`, `/app/bootstrap/cache`, `/data` and
 `/config` (Caddy state; no certificates live here), and a named volume for `/app/storage`. Logs go to stderr
-(`LOG_STACK` to the `stderr` channel in `config/logging.php`, JSON per ADR 0014), so `storage/logs` stays empty.
+(`LOG_CHANNEL=stderr` with the JSON formatter, ADR 0023 §1.7), so `storage/logs` stays empty.
 
 One image, four commands:
 

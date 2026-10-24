@@ -86,9 +86,11 @@ Settings, connection checks, logos and log redaction are shared by every driver 
   word). The host calls it on what drivers return; drivers never call it. `excerpt()` makes raw provider output safe
   to show staff (redacted, 4 KB). Text (headers, query strings, form bodies, JSON or XML after a label) is masked in
   one linear pass. The rule is that anything storing or logging provider text, error messages included, goes
-  through it; the known gaps are tracked in #254, and the redesign is ADR 0023. It fails closed: an unterminated quote,
-  element or CDATA section masks to the end of the text, a branch past the depth cap or the object budget is masked,
-  and a pattern that fails withholds the whole string.
+  through it; the redesign is ADR 0023. It fails closed: an unterminated quote, element or CDATA section masks to the
+  end of the text, a branch past the depth cap or the object budget is masked, and a pattern that fails withholds the
+  whole string. Every log channel taps `Support\Logging\RedactLogs` (a backstop, never a replacement for the host's
+  own masking); a host runs a driver call in `Support\Integrations\RedactionScope::during()` so log lines and
+  exceptions from it are masked by the call's values too, and `failed_jobs.exception` is masked before it is stored.
 - `Support\Integrations\OutboundAddressGuard` checks every connection to a host a person typed in (SSRF, ADR 0015):
   resolve once, refuse non-public addresses under the install policy in `config/integrations.php`, pin the request to
   the checked IP and port (`CURLOPT_CONNECT_TO`), bypass proxies (`proxy: ''`), follow no redirects. Drivers call it before they connect and never choose the

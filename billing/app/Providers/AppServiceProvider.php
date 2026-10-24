@@ -14,7 +14,9 @@ use App\Support\Domains\RegistrarDriverRegistry;
 use App\Support\Events\WebhookEvents;
 use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Integrations\Endpoints;
+use App\Support\Integrations\Redactor;
 use App\Support\Integrations\StoredSecrets;
+use App\Support\Logging\RedactingFailedJobProvider;
 use App\Support\Migration\ImportRegistry;
 use App\Support\Navigation\Navigation;
 use App\Support\Permissions\PermissionRegistry;
@@ -32,9 +34,11 @@ use Closure;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Contracts\Auth\CanResetPassword;
+use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Queue\Failed\FailedJobProviderInterface;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -72,6 +76,9 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(Endpoints::class);
         $this->app->singleton(WebhookEvents::class);
         $this->app->singleton(StoredSecrets::class);
+
+        // A failed job's exception is masked before it is stored (ADR 0023 §1.3).
+        $this->app->extend('queue.failer', fn (FailedJobProviderInterface $failer, Application $app): FailedJobProviderInterface => new RedactingFailedJobProvider($failer, $app->make(Redactor::class)));
     }
 
     /**
