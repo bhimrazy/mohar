@@ -263,6 +263,31 @@ class GatewayCallbackHandler
         // A refund we sent and have not booked (its answer never came, or its request is still running) holds its
         // amount: the callback is the provider's word that it happened, so it settles that same row (never a second
         // one). It must be the refund we sent: same payment, same amount in what the provider charged.
+        $creditRefund = $own?->isCreditRefund() === true;
+
+        // A refund of account credit is a payout, never an invoice refund: it is settled here and takes no part in the parents path below
+        // (ADR 0024 §5a). Failed rows are paid after a decline.
+        if ($creditRefund && $own->status !== TransactionStatus::Succeeded && $event->txnId !== '') {
+            $parent = Transaction::query()->find($own->parent_transaction_id);
+            $sent = $parent !== null ? $this->amounts->toGateway($parent, $own->amount_out) : null;
+            $samePayment = $parent !== null && ($event->parentTxnId === null || $event->parentTxnId === $this->amounts->charge($parent)['txnId']);
+
+            if ($sent === null || ! $samePayment || $sent->amount !== $event->amount || $sent->currency !== strtoupper($event->currency)) {
+                return $this->outcome($gatewayKey, 200, 'refund differs from the credit refund; staff review', $event->raw, null);
+            }
+
+            $wasFailed = $own->status === TransactionStatus::Failed;
+            $settled = $this->refund->settle($own, $event->txnId, $event->raw);
+
+            return $this->outcome($gatewayKey, 200, $wasFailed || $settled->review_amount !== null ? 'credit refund paid after a decline; staff review' : 'credit refund recorded', $event->raw, null);
+        }
+
+        if ($creditRefund) {
+            return $own->status === TransactionStatus::Pending
+                ? $this->outcome($gatewayKey, 409, 'refund still being recorded; retry expected', $event->raw, null)
+                : $this->outcome($gatewayKey, 200, $own->status === TransactionStatus::Succeeded ? 'refund already recorded' : 'credit refund callback without a refund id; staff review', $event->raw, null);
+        }
+
         if ($own?->status === TransactionStatus::Pending && $event->txnId !== '') {
             $parent = Transaction::query()->find($own->parent_transaction_id);
             $sent = $parent !== null ? $this->amounts->toGateway($parent, $own->amount_out) : null;

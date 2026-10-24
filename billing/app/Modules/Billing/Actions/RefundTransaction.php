@@ -176,6 +176,10 @@ class RefundTransaction
      */
     public function settle(Transaction $refund, ?string $providerRefundId, array $raw = []): Transaction
     {
+        if ($refund->isCreditRefund()) {
+            return app(RefundAccountCredit::class)->settle($refund, $providerRefundId, $raw);
+        }
+
         $payment = Transaction::query()->findOrFail($refund->parent_transaction_id);
         $result = new ChargeResult(ChargeResult::SUCCESS, $providerRefundId, raw: $raw);
 
@@ -313,8 +317,13 @@ class RefundTransaction
     {
         $payment = Transaction::query()->whereKey($refund->parent_transaction_id)->lockForUpdate()->first();
         $refund->update(['status' => TransactionStatus::Failed, 'refundable_remaining' => 0]);
-        $this->reservations->release($refund);
-        $this->returnCreditHold($refund);
+
+        if ($refund->isCreditRefund()) {
+            app(RefundAccountCredit::class)->returnPayout($refund);
+        } else {
+            $this->reservations->release($refund);
+            $this->returnCreditHold($refund);
+        }
 
         if ($payment !== null) {
             // A chargeback row's amount_out is the whole dispute (what the payment gave, the credit taken back and the
@@ -334,7 +343,7 @@ class RefundTransaction
      * timeout, an error, a pending state) may mean the refund happened, so the row stays pending with the amount
      * reserved, and the provider's callback, a check or staff settle it later. A retry would be a new refund.
      */
-    private function unsettled(Transaction $refund, ChargeResult $result): Transaction
+    public function unsettled(Transaction $refund, ChargeResult $result): Transaction
     {
         if ($result->status === ChargeResult::DECLINED) {
             if ($this->release($refund)) {
@@ -545,7 +554,7 @@ class RefundTransaction
      * One provider refund per payment at a time: while one is pending (in flight, or unconfirmed after a timeout) a
      * second call could refund the same money again. Called with the payment locked.
      */
-    private function assertNoRefundInFlight(Transaction $payment): void
+    public function assertNoRefundInFlight(Transaction $payment): void
     {
         $pending = Transaction::query()->where('parent_transaction_id', $payment->id)->where('type', TransactionType::Refund)
             ->where('status', TransactionStatus::Pending)->first();
@@ -557,7 +566,7 @@ class RefundTransaction
         }
     }
 
-    private function assertGatewayCanRefund(Transaction $payment, int $amount): void
+    public function assertGatewayCanRefund(Transaction $payment, int $amount): void
     {
         $driver = $this->gateways->driver($payment->gateway);
 
@@ -581,7 +590,7 @@ class RefundTransaction
      * pending refund row is created first, so its id identifies this refund at the provider (idempotency key,
      * reconciliation of a refund whose answer never arrived).
      */
-    private function refundAtGateway(Transaction $payment, int $amount, Transaction $refund): ChargeResult
+    public function refundAtGateway(Transaction $payment, int $amount, Transaction $refund): ChargeResult
     {
         $result = $this->gateways->driver($payment->gateway)->refund($this->gateways->config($payment->gateway), $this->providerRequest($payment, $amount, $refund));
         $this->log->log($payment->gateway, 'response', 'refund '.$result->status, $result->raw, $payment->invoice_id);

@@ -62,6 +62,7 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
     Route::get('credit', [AdminCreditController::class, 'index'])->name('credit.index');
     Route::put('clients/{client}/billing-preferences', [AdminCreditController::class, 'preferences'])->name('clients.preferences');
     Route::post('credit', [AdminCreditController::class, 'store'])->middleware('password.recent')->name('credit.store');
+    Route::post('credit/refund', [AdminCreditController::class, 'refund'])->middleware('password.recent')->name('credit.refund');
 
     Route::get('gateways', [GatewayController::class, 'index'])->name('gateways.index');
     Route::get('gateways/{gateway}/edit', [GatewayController::class, 'edit'])->name('gateways.edit')->where('gateway', '[a-z_]+');

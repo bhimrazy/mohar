@@ -20,6 +20,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * @property int $id
  * @property int|null $tax_note_id the credit note a refund became (ADR 0024 §5)
+ * @property string|null $purpose `credit_refund` for a payout of account credit (ADR 0024 §5a); null otherwise
  * @property int $client_id
  * @property int|null $invoice_id
  * @property int|null $payment_batch_id
@@ -55,7 +56,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'client_id', 'invoice_id', 'payment_batch_id', 'pay_method_id', 'gateway', 'gateway_txn_id', 'type', 'status',
     'amount_in', 'amount_out', 'fee', 'currency', 'gateway_amount', 'gateway_currency', 'exchange_rate',
     'refundable_remaining', 'parent_transaction_id', 'description', 'raw', 'created_by', 'occurred_at', 'review_amount',
-    'reviewed_at', 'tax_note_id',
+    'reviewed_at', 'tax_note_id', 'purpose',
 ])]
 class Transaction extends Model
 {
@@ -128,6 +129,14 @@ class Transaction extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /** `purpose` of a refund that pays account credit out; such a row never touches an invoice. */
+    public const PURPOSE_CREDIT_REFUND = 'credit_refund';
+
+    public function isCreditRefund(): bool
+    {
+        return $this->purpose === self::PURPOSE_CREDIT_REFUND;
     }
 
     public function isRefundable(): bool

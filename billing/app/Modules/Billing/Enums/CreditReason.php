@@ -16,4 +16,8 @@ enum CreditReason: string
     case Import = 'import';
     case CreditNote = 'credit_note';
     case CreditNoteReversed = 'credit_note_reversed';
+    /** Account credit paid out to the client (ADR 0024 §5a); acts as the hold while the provider's refund is pending. */
+    case CreditRefunded = 'credit_refunded';
+    /** A credit refund the provider did not make: the payout is reversed. */
+    case CreditRefundReleased = 'credit_refund_released';
 }
