@@ -39,7 +39,6 @@ type Props = {
     tos_url: string | null;
     allow_notes: boolean;
     idempotency_key: string;
-    countries: string[];
     default_country: string | null;
     support_email: string | null;
     login_url: string;

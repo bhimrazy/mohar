@@ -74,6 +74,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 
 /**
  * Domains module. Registrar sync is scheduled hourly (the SyncRegistrars job on the registrar queue, also runnable as
@@ -325,14 +326,16 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $registry = $this->app->make(SettingsRegistry::class);
         $activeTlds = fn (): array => Tld::query()->active()->ordered()->get(['extension', 'display_unicode'])
             ->mapWithKeys(fn (Tld $tld): array => [$tld->extension => $tld->display_unicode ?: $tld->extension])->all();
-        // Registrars that answer availability checks, by name; the saved one stays listed so the section still saves.
+        // Registrars that answer availability checks, by name. The saved one stays listed, marked when its driver is
+        // gone, so the rest of the section still saves.
         $lookupRegistrars = function (): array {
             $registrars = $this->app->make(RegistrarDriverRegistry::class);
             $saved = (string) $this->app->make(Settings::class)->get('domains.lookup_registrar', '');
-
-            return collect($registrars->keys())
+            $options = collect($registrars->keys())
                 ->filter(fn (string $key): bool => $key === $saved || $registrars->supports($key, 'availability'))
                 ->mapWithKeys(fn (string $key): array => [$key => $registrars->get($key)->name()])->all();
+
+            return $saved === '' || isset($options[$saved]) ? $options : $options + [$saved => Str::headline($saved).' (not available)'];
         };
 
         // domains.order_route is a developer setting and is left out of the UI.

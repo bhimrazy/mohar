@@ -332,7 +332,7 @@ function SearchableSelect({
                         bottom: box.bottom,
                         left: box.left,
                         width: box.width,
-                        maxHeight: box.height,
+                        maxHeight: Math.max(box.height, 96),
                     }}
                     className="fixed z-50 overflow-auto rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"
                     onMouseDown={(event) => event.preventDefault()}

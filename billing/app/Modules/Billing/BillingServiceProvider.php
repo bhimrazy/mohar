@@ -321,7 +321,8 @@ class BillingServiceProvider extends ModuleServiceProvider
     {
         $bool = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'boolean', $help);
         $int = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'integer', $help, rules: ['min:0']);
-        $money = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'money', $help);
+        // Money settings carry no currency: the same amount applies in each client's or invoice's currency.
+        $money = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'money', trim(($help ?? '').' The same amount applies in each client\'s currency.'));
         $list = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'string', $help, rules: ['regex:/^\s*\d+(\s*,\s*\d+)*\s*$/']);
 
         // The other format comes from the same save, or from the stored setting when the save leaves it out.
@@ -363,7 +364,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             $int('invoice_days_before_due', 'Days until due for manual invoices'),
             $bool('credit.auto_apply_on_generate', 'Apply credit to generated invoices'),
             $bool('credit.tax_add_funds', 'Charge tax on add funds'),
-            $money('credit.min_deposit', 'Minimum deposit', 'The same amount applies in each client\'s own currency.'),
+            $money('credit.min_deposit', 'Minimum deposit'),
             $money('credit.max_deposit', 'Maximum deposit', '0 means no maximum.'),
             $money('credit.max_balance', 'Maximum credit balance', '0 means no maximum.'),
             $bool('credit.require_accepted_order', 'Require an accepted order before adding funds'),
@@ -385,8 +386,8 @@ class BillingServiceProvider extends ModuleServiceProvider
             new SettingDefinition('billing.vat.home_country', 'VAT home country', 'country', 'The EU country you are VAT-registered in. Required when EU VAT rules are on; it decides which customers get reverse charge.', rules: [new EuVatHomeCountry]),
             $bool('vat.auto_exempt_on_valid_id', 'Reverse charge for valid EU VAT IDs'),
             new SettingDefinition('billing.late_fee.type', 'Late fee type', 'select', options: ['percent' => 'Percent', 'fixed' => 'Fixed amount']),
-            new SettingDefinition('billing.late_fee.amount', 'Late fee percent', help: 'Of the invoice balance or total, when the type is Percent. 0 turns percent late fees off.', rules: ['numeric', 'min:0']),
-            $money('late_fee.fixed_amount', 'Fixed late fee', 'When the type is Fixed amount, in the invoice\'s currency. 0 turns fixed late fees off.'),
+            new SettingDefinition('billing.late_fee.amount', 'Late fee percent', help: 'Of the invoice balance or total, when the type is Percent. 0 turns percent late fees off.', rules: ['numeric', 'min:0', 'max:100']),
+            $money('late_fee.fixed_amount', 'Fixed late fee', 'When the type is Fixed amount. 0 turns fixed late fees off.'),
             $money('late_fee.minimum', 'Minimum late fee'),
             $int('late_fee.days_overdue', 'Days overdue before the late fee'),
             new SettingDefinition('billing.late_fee.base', 'Late fee base', 'select', options: ['balance' => 'Balance', 'total' => 'Total']),
