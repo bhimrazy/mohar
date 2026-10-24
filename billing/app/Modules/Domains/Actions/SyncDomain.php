@@ -18,6 +18,7 @@ use App\Events\Domains\DomainTransferred;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\DomainInvoice;
 use App\Modules\Domains\Services\DomainDates;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\DomainStateMachine;
@@ -44,6 +45,7 @@ class SyncDomain
         private DomainDates $dates,
         private RenewalInvoices $invoices,
         private ActivityLogger $activity,
+        private ConfirmRenewal $confirm,
     ) {}
 
     /**
@@ -248,11 +250,15 @@ class SyncDomain
             return $changes;
         }
 
-        if ($local !== null && $remote->isSameDay($local)) {
-            if ($apply) {
-                $this->settleRenewalClaim($domain, $remote);
-            }
+        if ($apply && ($years = $this->confirmedRenewalYears($domain, $remote)) !== null) {
+            $this->confirm->handle($domain, $years, $remote);
 
+            return $local !== null && $remote->isSameDay($local)
+                ? $changes
+                : [...$changes, $this->change($domain, 'expiry_date', $local?->toDateString(), $remote->toDateString(), true)];
+        }
+
+        if ($local !== null && $remote->isSameDay($local)) {
             return $changes;
         }
 
@@ -274,7 +280,6 @@ class SyncDomain
                 && $this->invoices->invoicer()->hasOpenInvoiceFor(BillableType::Domain, $domain->id);
             $this->dates->applyExpiry($domain, $remote, updateDueDates: ! $openInvoice);
             $domain->save();
-            $this->settleRenewalClaim($domain, $remote);
         }
 
         return $changes;
@@ -282,26 +287,26 @@ class SyncDomain
 
     /**
      * A renewal whose answer was lost keeps its claim and the review flag. When the registrar's expiry has reached
-     * the end of the claimed cycle, the renewal is confirmed: close the claim so the next cycle renews on its own.
+     * the end of the claimed cycle the renewal is proven; returns its years so it can be confirmed like any other
+     * renewal. Null when there is no claim, the expiry falls short, or the years are unknown (the review stays).
      */
-    private function settleRenewalClaim(Domain $domain, CarbonImmutable $remote): void
+    private function confirmedRenewalYears(Domain $domain, CarbonImmutable $remote): ?int
     {
-        $meta = $domain->registrar_meta ?? [];
-        $cycle = $meta['renew_sent_for'] ?? null;
+        $cycle = $domain->registrar_meta['renew_sent_for'] ?? null;
 
         if ($cycle === null || $cycle === 'none') {
-            return;
+            return null;
         }
 
-        $target = BillingCycle::Annually->advance(CarbonImmutable::parse((string) $cycle), (int) ($meta['renew_years'] ?? 1), $domain->billing_anchor_day);
+        $start = CarbonImmutable::parse((string) $cycle);
+        $years = (int) ($domain->registrar_meta['renew_years'] ?? 0)
+            ?: DomainInvoice::query()->where('domain_id', $domain->id)->whereIn('kind', RenewalInvoices::RENEWAL_KINDS)->whereDate('period_start', $start->toDateString())->orderByDesc('id')->value('years');
 
-        if ($remote->lt($target)) {
-            return;
+        if (! $years || $remote->lt(BillingCycle::Annually->advance($start, (int) $years, $domain->billing_anchor_day))) {
+            return null;
         }
 
-        unset($meta['renew_sent_for'], $meta['renew_sent_at'], $meta['renew_years']);
-        $domain->forceFill(['registrar_meta' => $meta ?: null, 'needs_review' => false, 'last_error' => null])->save();
-        $this->activity->log("Renewal of {$domain->name} confirmed by sync", $domain, $domain->client_id, ['expiry' => $remote->toDateString()]);
+        return (int) $years;
     }
 
     /**

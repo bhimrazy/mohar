@@ -11,6 +11,7 @@ use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\RenewalInvoices;
 use App\Support\CalendarDate;
+use DomainException;
 
 /**
  * Daily renewal invoicing (spec §4.3, automation stage RENEWALS). Idempotent per cycle: an invoice is
@@ -48,7 +49,17 @@ class IssueRenewalInvoices
                         continue;
                     }
 
-                    $this->invoices->issue($domain);
+                    try {
+                        $this->invoices->issue($domain);
+                    } catch (DomainException $exception) {
+                        // Billing refuses a second invoice for a period; one issued meanwhile (Renew now) is not a failure.
+                        if (! $invoicer->hasInvoiceForPeriod(BillableType::Domain, $domain->id, $domain->next_due_date)) {
+                            throw $exception;
+                        }
+
+                        continue;
+                    }
+
                     $issued++;
                 }
             });

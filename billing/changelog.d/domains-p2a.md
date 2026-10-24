@@ -6,9 +6,12 @@
 
 ### Fixed
 
-- A sync that finds a renewal whose answer was lost (a timeout) at the registrar now clears the review flag and the
-  renewal claim, so the next year's renewal is no longer held for staff (#13). A renewal that is only partly visible
-  at the registrar, or a notify-only sync, leaves the review in place.
+- A sync that finds a renewal whose answer was lost (a timeout) at the registrar now confirms it like any other
+  renewal: the domain returns to Active (also from Grace, Redemption or Expired), the review flag and the renewal claim
+  are cleared, the client gets the "renewed" notice once, and next year's renewal is invoiced (#13). A renewal that is
+  only partly visible at the registrar, a notify-only sync, or an older claim whose paid years cannot be found leaves
+  the review in place.
+- The daily renewal invoicing no longer fails the whole run when "Renew now" has just invoiced the same period (#15).
 - "Renew now" no longer issues two invoices when the button is clicked twice at once; the second request is told the
   invoice is being created (#15).
 - Converting TLD prices to another currency can no longer round a paid price down to 0 and make it free. A price staff

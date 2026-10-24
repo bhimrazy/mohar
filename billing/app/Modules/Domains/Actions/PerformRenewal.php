@@ -12,7 +12,6 @@ use App\Data\Domains\Registrar\SubmissionLookup;
 use App\Data\Services\ProvisionResult;
 use App\Enums\BillingCycle;
 use App\Enums\ReconcileStatus;
-use App\Events\Domains\DomainRenewed;
 use App\Events\Domains\RegistrarActionFailed;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Domains\Enums\DomainStatus;
@@ -21,7 +20,6 @@ use App\Modules\Domains\Services\DomainDates;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\DomainStateMachine;
 use App\Modules\Domains\Services\RegistrarGateway;
-use App\Modules\Domains\Support\RemoteIds;
 use App\Support\Domains\RegistrarException;
 use App\Support\Domains\RegistrarTimeout;
 use Carbon\CarbonImmutable;
@@ -47,6 +45,7 @@ class PerformRenewal
         private DomainStateMachine $states,
         private DomainDates $dates,
         private ActivityLogger $activity,
+        private ConfirmRenewal $confirm,
     ) {}
 
     /**
@@ -211,22 +210,7 @@ class PerformRenewal
      */
     private function applied(Domain $domain, int $years, CarbonImmutable $expiry, string $message, array $remote = []): ProvisionResult
     {
-        $this->dates->applyExpiry($domain, $expiry);
-        $meta = RemoteIds::merge($domain->registrar_meta, $remote) ?? [];
-        unset($meta['renew_sent_for'], $meta['renew_sent_at'], $meta['renew_years']);
-
-        $this->states->transition($domain, DomainStatus::Active, "Renewed for {$years} year(s)", [
-            'registrar_meta' => $meta ?: null,
-            'expiry_date' => $domain->expiry_date,
-            'next_due_date' => $domain->next_due_date,
-            'next_invoice_date' => $domain->next_invoice_date,
-            'billing_anchor_day' => $domain->billing_anchor_day,
-            'last_error' => null,
-            'needs_review' => false,
-        ], force: $domain->status === DomainStatus::Expired);
-
-        $this->activity->log("Domain renewed for {$years} year(s) until {$expiry->toDateString()}", $domain, $domain->client_id);
-        DomainEvents::dispatch(new DomainRenewed($domain->id, $domain->client_id, $years));
+        $this->confirm->handle($domain, $years, $expiry, $remote);
 
         return new ProvisionResult(true, $message);
     }

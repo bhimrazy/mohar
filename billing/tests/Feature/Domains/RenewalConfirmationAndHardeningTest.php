@@ -1,22 +1,31 @@
 <?php
 
+use App\Contracts\Billing\Invoicer;
+use App\Data\Billing\InvoiceDraft;
+use App\Data\Billing\InvoiceResult;
 use App\Data\Domains\Registrar\RegistrarResult;
 use App\Data\Domains\Registrar\SyncResult;
+use App\Events\Domains\DomainRenewed;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Domains\Actions\ConvertTldPrices;
+use App\Modules\Domains\Actions\IssueRenewalInvoices;
 use App\Modules\Domains\Actions\IssueRenewalNow;
 use App\Modules\Domains\Actions\PerformRenewal;
 use App\Modules\Domains\Actions\SyncDomain;
+use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Exceptions\DomainActionNotAllowed;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\DomainInvoice;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Models\TldPrice;
 use App\Modules\Domains\Services\DomainPricingService;
+use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Tests\Fakes\Domains\DomainFixtures;
 use Tests\Fakes\Domains\FakeInvoicer;
 use Tests\Fakes\Domains\FakeRegistrar;
@@ -128,4 +137,78 @@ test('a lost race between two first saves of a TLD price grid asks for a reload 
     $this->put(route('admin.domains.tlds.prices', $tld), ['currency' => 'USD', 'prices' => [['years' => 1, 'register' => 800, 'transfer' => null, 'renew' => 900]]])
         ->assertSessionDoesntHaveErrors();
     expect(TldPrice::query()->where('tld_id', $tld->id)->sole()->register)->toBe(800);
+});
+
+test('a lost renewal confirmed by sync returns a grace or redemption domain to active, fires DomainRenewed once and invoices next year', function (DomainStatus $status) {
+    Event::fake([DomainRenewed::class]);
+    $domain = ($this->lostRenewal)();
+    $domain->forceFill(['status' => $status->value, 'auto_renew' => true])->save();
+    $this->registrar->will('sync', new SyncResult(true, expiryDate: CarbonImmutable::parse('2028-01-31')));
+
+    app(SyncDomain::class)->handle($domain);
+    app(SyncDomain::class)->handle($domain->fresh());
+
+    expect($domain->fresh())->status->toBe(DomainStatus::Active)->needs_review->toBeFalse()->next_invoice_date->toDateString()->toBe('2028-01-01');
+    Event::assertDispatchedTimes(DomainRenewed::class, 1);
+
+    app(IssueRenewalInvoices::class)->handle(CalendarDate::parse('2028-01-01'));
+    expect($this->invoicer->issued())->toHaveCount(1);
+})->with([DomainStatus::Grace, DomainStatus::Redemption]);
+
+test('a claim without recorded years takes them from the period\'s renewal invoice, or keeps the review', function (?int $invoiceYears, string $remote, bool $review) {
+    $domain = ($this->lostRenewal)(['renew_years' => null]);
+    $meta = $domain->registrar_meta;
+    unset($meta['renew_years']);
+    $domain->forceFill(['registrar_meta' => $meta])->save();
+
+    if ($invoiceYears !== null) {
+        DomainInvoice::query()->create(['domain_id' => $domain->id, 'invoice_id' => 9001, 'kind' => 'renewal', 'period_start' => '2027-01-31', 'years' => $invoiceYears, 'status' => 'paid']);
+    }
+
+    $this->registrar->will('sync', new SyncResult(true, expiryDate: CarbonImmutable::parse($remote)));
+    app(SyncDomain::class)->handle($domain);
+
+    expect($domain->fresh()->needs_review)->toBe($review);
+})->with([
+    'two paid years, both visible' => [2, '2029-01-31', false],
+    'two paid years, one visible' => [2, '2028-01-31', true],
+    'years unknown' => [null, '2028-01-31', true],
+]);
+
+test('the daily renewal stage treats an invoice that Renew now just issued as already invoiced', function () {
+    $racing = new class extends FakeInvoicer
+    {
+        public bool $race = true;
+
+        public function issue(InvoiceDraft $draft): InvoiceResult
+        {
+            if ($this->race) {
+                $this->race = false;
+                parent::issue($draft);
+
+                throw new DomainException('One of these items is already invoiced for this period.');
+            }
+
+            return parent::issue($draft);
+        }
+    };
+    app()->instance(Invoicer::class, $racing);
+    $first = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id, 'auto_renew' => true]);
+    $second = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id, 'auto_renew' => true]);
+
+    $issued = app(IssueRenewalInvoices::class)->handle(CalendarDate::parse('2027-01-15'));
+
+    expect($issued)->toBe(1)->and($racing->issued())->toHaveCount(2);
+
+    $broken = new class extends FakeInvoicer
+    {
+        public function issue(InvoiceDraft $draft): InvoiceResult
+        {
+            throw new DomainException('Billing is down.');
+        }
+    };
+    app()->instance(Invoicer::class, $broken);
+    $third = Domain::factory()->expiring('2027-02-28')->create(['tld_id' => $this->com->id, 'auto_renew' => true]);
+
+    expect(fn () => app(IssueRenewalInvoices::class)->handle(CalendarDate::parse('2027-02-15')))->toThrow(DomainException::class);
 });
