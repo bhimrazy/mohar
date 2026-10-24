@@ -40,7 +40,7 @@ beforeEach(function () {
     Currency::factory()->create();
     Currency::factory()->npr()->create();
     billingSettings(['tax.enabled' => true, 'tax.home_country' => 'NP', 'tax.home_state' => '', 'tax.report_currency' => 'NPR', 'seller.pan' => '609876543', 'seller.legal_name' => 'Himal Hosting Pvt. Ltd.']);
-    TaxRule::factory()->create(['name' => 'VAT', 'level' => 1, 'country' => 'NP', 'rate' => '13.000']);
+    useNepalVatRule(TaxRule::factory()->create(['name' => 'VAT', 'level' => 1, 'country' => 'NP', 'rate' => '13.000']));
 });
 
 afterEach(fn () => CarbonImmutable::setTestNow());
@@ -276,6 +276,44 @@ test('the totals equal the sum of the rows, on awkward rates and both signs', fu
         ->toBe([$sum('total_sales'), $sum('taxable'), $sum('exempt'), $sum('vat'), $sum('export_value')]);
 });
 
+/**
+ * Two more Kartik invoices: one with India GST only (not Nepal VAT) and one whose tax levels were never classified.
+ *
+ * @return array{gst: Invoice, loose: Invoice}
+ */
+function unclassifiedRegisterFixture(): array
+{
+    $gst = TaxRule::factory()->create(['name' => 'GST', 'level' => 1, 'country' => 'IN', 'rate' => '18.000']);
+    $india = Client::factory()->create(['country' => 'IN', 'currency' => 'NPR']);
+    $nepal = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']);
+
+    $other = onRegisterDay('2026-10-21', fn () => issueInvoice($india, [10_000]));
+    $loose = onRegisterDay('2026-10-23', fn () => issueInvoice($nepal, [20_000]));
+    DB::table('invoices')->where('id', $loose->id)->update(['fiscal_tax1_is_vat' => null, 'fiscal_tax2_is_vat' => null]);
+
+    expect($other->fresh())->tax1_rule_id->toBe($gst->id)->supply_class->toBe('exempt')->fiscal_tax1_is_vat->toBeFalse();
+
+    return ['gst' => $other->fresh(), 'loose' => $loose->fresh()];
+}
+
+test('another tax is not VAT, and a document whose tax was never classified is left out of VAT and counted', function () {
+    kartikRegisterFixture();
+    unclassifiedRegisterFixture();
+    actingAsStaff(['reports.vat_register.view']);
+
+    $rows = collect(registerRows('vat_register', ['month' => '2083-07']))->keyBy('number');
+    $summary = registerSummaryWith(null);
+    $gst = $rows->first(fn (array $row) => $row['total_sales']?->amount === 10_000 && $row['vat']?->amount === 0);
+    $loose = $rows->first(fn (array $row) => $row['total_sales'] === null);
+
+    // The GST invoice is exempt sales of its whole value; its 18% is not VAT. The loose one is listed with blank amounts, out
+    // of every total, and counted in the warning.
+    expect(registerAmounts($gst))->toMatchArray(['exempt' => 10_000, 'taxable' => 0, 'vat' => 0])
+        ->and(registerAmounts($loose))->toBe(['total_sales' => null, 'exempt' => null, 'taxable' => null, 'vat' => null, 'export_value' => null])
+        ->and($summary->unclassified)->toBe(1)
+        ->and($summary->net()['taxable'])->toBe(collect(registerRows('vat_register', ['month' => '2083-07']))->sum(fn (array $row): int => $row['taxable']?->amount ?? 0));
+});
+
 test('an export value is rounded once, as taxable plus exempt', function () {
     awkwardRateRegisterFixture();
     actingAsStaff(['reports.vat_register.view']);
@@ -312,12 +350,13 @@ test('on PostgreSQL the SQL conversion equals the per-document PHP conversion', 
     }
 
     awkwardRateRegisterFixture();
+    unclassifiedRegisterFixture();
     actingAsStaff(['reports.vat_register.view']);
 
     $sql = registerSummaryWith(true);
     $php = registerSummaryWith(false);
 
-    expect($sql->byKind)->toBe($php->byKind)->and($sql->byMonth)->toBe($php->byMonth)
+    expect($sql->byKind)->toBe($php->byKind)->and($sql->byMonth)->toBe($php->byMonth)->and($sql->unclassified)->toBe($php->unclassified)->toBe(1)
         ->and($sql->net()['vat'])->not->toBe(0);
 });
 

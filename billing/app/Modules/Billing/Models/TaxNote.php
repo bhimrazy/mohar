@@ -29,6 +29,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $reason_text client-visible
  * @property int $tax1_amount
  * @property int $tax2_amount
+ * @property bool|null $tax1_is_vat whether the level is Nepal VAT, copied from the invoice; null = not classified
+ * @property bool|null $tax2_is_vat
  * @property bool $automatic
  * @property int $total minor units, positive; the kind gives the direction
  * @property string|null $report_rate
@@ -45,7 +47,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable([
     'kind', 'number', 'invoice_id', 'client_id', 'currency', 'issue_date', 'issued_at', 'invoice_number',
     'invoice_bs_issue_date', 'reason_code', 'reason_text', 'taxable_amount', 'exempt_amount', 'tax1_amount',
-    'tax2_amount', 'total', 'report_currency', 'report_rate', 'supply_class', 'seller_snapshot', 'buyer_snapshot',
+    'tax2_amount', 'total', 'report_currency', 'report_rate', 'supply_class', 'tax1_is_vat', 'tax2_is_vat', 'seller_snapshot', 'buyer_snapshot',
     'bs_issue_date', 'bs_period', 'bs_fiscal_year', 'automatic', 'created_by', 'print_count', 'cbms_status', 'cbms_reference', 'reverses_tax_note_id',
 ])]
 class TaxNote extends Model
@@ -66,6 +68,8 @@ class TaxNote extends Model
             'exempt_amount' => 'integer',
             'tax1_amount' => 'integer',
             'tax2_amount' => 'integer',
+            'tax1_is_vat' => 'boolean',
+            'tax2_is_vat' => 'boolean',
             'total' => 'integer',
             'print_count' => 'integer',
         ];
