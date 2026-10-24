@@ -2,7 +2,8 @@
 
 - **Settings choose from lists instead of typed keys (#34).** Ticket statuses that auto-close or await a staff reply,
   and taxed item kinds, are checkbox groups by name. Domain search picks its registrar by name and its lookup and
-  suggestion extensions from the active TLDs. The default support department is chosen by name, not by id.
+  suggestion extensions from the active TLDs; extensions typed earlier without the dot or in capitals ("com, NP")
+  still show checked. A saved lookup registrar whose driver is gone is listed as "(not available)". The default support department is chosen by name, not by id.
 - **Default domain contact is a form (#34).** Admin → Settings → Domain contact replaces the "Default contact (JSON)"
   box, with the country chosen by name.
 
@@ -12,9 +13,11 @@
   The developer-only cart route (`domains.order_route`) is no longer shown; its stored value still applies.
 - **Amounts in settings are entered in the currency, not in minor units (#442).** Minimum and maximum deposit,
   maximum credit balance, minimum late fee and the fixed late fee take an amount such as 500.00, shown with the
-  default currency. Upgrade note: the late fee now has two settings, "Late fee percent" (`billing.late_fee.amount`)
-  and "Fixed late fee" (`billing.late_fee.fixed_amount`). A migration copies a fixed fee saved in the old field to the
-  new one; the old field keeps its value, so if you later switch the type to Percent, check the percent first.
+  default currency; the same amount applies in each client's currency. Upgrade note: the late fee now has two
+  settings, "Late fee percent" (`billing.late_fee.amount`, 0 to 100) and "Fixed late fee"
+  (`billing.late_fee.fixed_amount`). When the type is Fixed, a migration moves the amount to the new setting and sets
+  the percent to 0. While the previous release still runs during a blue-green deploy it reads that 0 as "off"; the
+  next late-fee run of the new release charges any fee it skipped.
 - **Tax rules and checkout choose the country by name (#442).** The tax-rule form uses the searchable country list,
   the rule list shows the country name, and an unknown country is refused.
 - **"Priced for" on Website has a hint (#457 review):** it sets only the displayed tax note and the tax-inclusive
