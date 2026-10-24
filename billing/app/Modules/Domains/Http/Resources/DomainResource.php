@@ -3,6 +3,7 @@
 namespace App\Modules\Domains\Http\Resources;
 
 use App\Contracts\Core\CompanyClock;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Models\Domain;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -29,6 +30,8 @@ class DomainResource extends JsonResource
             'status' => $this->status->value,
             'registrar_key' => $this->registrar_key,
             'registered_by_client' => $this->isRegisteredByClient(),
+            // Registry guide for names the client registers themselves: the TLD's own, else the host-wide default.
+            'how_to_url' => $this->isRegisteredByClient() ? ($this->tldModel->how_to_url ?: (app(Settings::class)->get('domains.self_registration_url', '') ?: null)) : null,
             'registration_date' => $this->registration_date?->toDateString(),
             'expiry_date' => $this->expiry_date?->toDateString(),
             'next_due_date' => $this->next_due_date->toDateString(),

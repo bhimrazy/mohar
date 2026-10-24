@@ -10,6 +10,7 @@ use App\Contracts\Billing\TaxIdRules;
 use App\Contracts\Branding\BrandProvider;
 use App\Contracts\Core\CompanyClock;
 use App\Contracts\Currencies\CurrencyDirectory;
+use App\Contracts\Domains\DomainNameRules;
 use App\Contracts\Domains\Registrar\RegistrarRefs;
 use App\Contracts\Notifications\EmailTemplates;
 use App\Contracts\Notifications\MergeFieldRegistry;
@@ -48,6 +49,7 @@ use App\Modules\Core\Support\LaravelAuthMailer;
 use App\Modules\Core\Support\NullCatalogUsage;
 use App\Modules\Core\Support\NullClientLoginInvitations;
 use App\Modules\Core\Support\NullClientServiceDirectory;
+use App\Modules\Core\Support\NullDomainNameRules;
 use App\Modules\Core\Support\NullEmailTemplates;
 use App\Modules\Core\Support\NullGatewayDirectory;
 use App\Modules\Core\Support\NullInvoiceQueries;
@@ -119,6 +121,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->bindIf(PublicHelpDirectory::class, NullPublicHelpDirectory::class);
         $this->app->bindIf(TicketStaffDirectory::class, NullTicketStaffDirectory::class);
         $this->app->bindIf(RegistrarRefs::class, NullRegistrarRefs::class);
+        $this->app->bindIf(DomainNameRules::class, NullDomainNameRules::class);
     }
 
     protected function schedule(Schedule $schedule): void
