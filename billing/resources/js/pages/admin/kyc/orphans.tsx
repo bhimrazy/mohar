@@ -69,7 +69,7 @@ export default function KycOrphanFiles({ files, digest }: Props) {
             <Head title="Identity images without a document" />
             <Page>
                 <PageHeader
-                    title="Identity images without a document"
+                    title="Images without a document"
                     description="Encrypted identity images that no document refers to, usually left when an upload stopped partway. The daily check lists them; nothing is deleted until you confirm."
                     actions={
                         count > 0 ? (
