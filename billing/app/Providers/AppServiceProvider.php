@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Http\Middleware\RequirePasswordUnlessExpired;
 use App\Models\User;
 use App\Modules\Core\Support\AccountLinks;
 use App\Support\Automation\Automation;
@@ -33,10 +34,13 @@ use App\Support\Settings\SettingsRegistry;
 use App\Support\Themes\ThemeRegistry;
 use Carbon\CarbonImmutable;
 use Closure;
+use Illuminate\Auth\Middleware\RequirePassword;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Contracts\Auth\CanResetPassword;
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Contracts\Routing\ResponseFactory;
+use Illuminate\Contracts\Routing\UrlGenerator;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -58,6 +62,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // password.confirm with the one-time password expiry (#459); the arguments are Laravel's own binding's.
+        $this->app->bind(RequirePassword::class, fn ($app) => new RequirePasswordUnlessExpired(
+            $app[ResponseFactory::class],
+            $app[UrlGenerator::class],
+            $app['config']->get('auth.password_timeout'),
+        ));
         $this->app->singleton(Navigation::class);
         $this->app->singleton(Dashboard::class);
         $this->app->singleton(PermissionRegistry::class);

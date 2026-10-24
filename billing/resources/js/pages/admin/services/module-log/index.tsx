@@ -7,7 +7,7 @@ import { EmptyState } from '@/components/app/empty-state';
 import { FilterBar, FilterSelect } from '@/components/app/filter-bar';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
-import { Pagination } from '@/components/app/pagination';
+import { Pagination, SimplePagination } from '@/components/app/pagination';
 import { useQueryParams } from '@/components/app/use-query-params';
 import {
     commandLabel,
@@ -25,7 +25,7 @@ import ModuleLogController from '@/actions/App/Modules/Services/Http/Controllers
 import ServiceController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServiceController';
 import type {
     LaravelPaginated,
-    ResourcePaginated,
+    ResourceSimplePaginated,
     SelectOption,
 } from '@/types/app';
 import type { ModuleCommandRow } from '@/types/services';
@@ -61,7 +61,7 @@ type Props = {
     tab: 'log' | 'queue';
     commands: SelectOption[];
     openCount: number;
-    log: ResourcePaginated<ModuleCommandRow> | null;
+    log: ResourceSimplePaginated<ModuleCommandRow> | null;
     queue: LaravelPaginated<QueueRow> | null;
     canManage: boolean;
 };
@@ -152,7 +152,7 @@ export default function ModuleLogIndex({
                             showService
                             emptyDescription="Driver calls appear here as services are created, suspended and changed."
                             footer={
-                                <Pagination
+                                <SimplePagination
                                     paginator={log}
                                     itemLabel="entries"
                                 />

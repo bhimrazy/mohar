@@ -5,6 +5,7 @@ namespace App\Modules\Services\Http\Controllers\Client;
 use App\Contracts\Core\CompanyClock;
 use App\Contracts\Services\Provisioning\ChangesPassword;
 use App\Http\Controllers\Controller;
+use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Services\Enums\CancellationType;
 use App\Modules\Services\Enums\ServiceStatus;
@@ -72,7 +73,12 @@ class ServiceController extends Controller
             'can' => [
                 'cancel' => $live && $settings->clientCanRequestCancellation() && $model->openCancellationRequest === null,
                 'changePassword' => $live && $driver instanceof ChangesPassword && $model->username !== null,
+                'revealPassword' => $presenter->revealsPassword($model),
             ],
+            // Staff signed in as the client cannot confirm the client's password, so the action is shown disabled.
+            'revealBlockedReason' => session()->has(ActivityLogger::IMPERSONATOR_SESSION_KEY)
+                ? __("Staff signed in as a client can't reveal service passwords. Use the admin service page instead.")
+                : null,
         ]);
     }
 }

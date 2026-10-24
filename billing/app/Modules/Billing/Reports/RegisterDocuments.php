@@ -8,6 +8,7 @@ use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Billing\Models\TaxNoteLine;
 use App\Modules\Billing\Services\FiscalSnapshotWriter;
 use App\Modules\Billing\Services\NepalVatMode;
+use App\Support\CalendarDate;
 use App\Support\Currencies\Decimal;
 use Generator;
 use Illuminate\Database\Query\Builder;
@@ -230,16 +231,32 @@ class RegisterDocuments
     }
 
     /**
-     * Only documents dated on or after `enabled_from` are in the register (vat-register §6.1); with the mode never switched on,
-     * none are, because no invoice of that time carries the Nepal VAT flags.
+     * Only documents dated inside a stretch the mode was on are in the register (vat-register §6.1); with the mode never switched
+     * on, none are, because no invoice of that time carries the Nepal VAT flags.
      *
      * @param  'invoices'|'tax_notes'  $table
      */
     private function sinceMode(Builder $query, string $table): Builder
     {
-        $from = $this->mode->enabled() ? $this->mode->enabledFrom() : null;
+        // Every stretch the mode was on stays listed, after a switch-off and a re-enable too (ADR 0024, Amendment #432); with the
+        // mode never switched on there is none.
+        $periods = $this->mode->periods();
 
-        return $from === null ? $query->whereRaw('1 = 0') : $query->where("{$table}.issue_date", '>=', $from);
+        if ($periods === []) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->where(function (Builder $any) use ($periods, $table): void {
+            foreach ($periods as $period) {
+                $any->orWhere(function (Builder $one) use ($period, $table): void {
+                    $one->where("{$table}.issue_date", '>=', $period['from']);
+
+                    if ($period['to'] !== null) {
+                        $one->where("{$table}.issue_date", '<', CalendarDate::parse($period['to'])->addDays(1)->toString());
+                    }
+                });
+            }
+        });
     }
 
     private function convertsInSql(): bool

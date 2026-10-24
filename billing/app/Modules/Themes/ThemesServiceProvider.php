@@ -57,7 +57,7 @@ class ThemesServiceProvider extends ModuleServiceProvider
                 ->name('branding.show');
         }
 
-        $this->app->make(Navigation::class)->add('admin', new NavItem('Appearance', 'admin.appearance.edit', 'Palette', 'Setup', 80, 'themes.manage', 'admin.appearance.*'));
+        $this->app->make(Navigation::class)->add('admin', new NavItem('Appearance', 'admin.appearance.edit', 'Palette', 'Setup', 6, 'themes.manage', 'admin.appearance.*'));
 
         $this->app->make(PermissionRegistry::class)->register('Appearance', [
             'themes.manage' => 'Manage themes, branding and appearance settings',

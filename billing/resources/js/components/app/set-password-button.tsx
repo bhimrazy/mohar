@@ -80,7 +80,7 @@ export function SetPasswordButton({ className }: { className?: string }) {
                 data-test="set-password-button"
             >
                 {state === 'sending' && <Spinner />}
-                Set a password
+                Email me a link
             </Button>
             {problem && (
                 <p role="alert" className="text-sm text-destructive">

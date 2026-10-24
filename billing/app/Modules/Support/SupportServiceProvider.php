@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\RequestMemo;
+use App\Modules\Core\Support\RetentionRunDate;
 use App\Modules\Support\Actions\AutoCloseTickets;
 use App\Modules\Support\Actions\PruneAttachments;
 use App\Modules\Support\Actions\PurgeInboundRaw;
@@ -374,7 +375,7 @@ class SupportServiceProvider extends ModuleServiceProvider
     {
         $automation = $this->app->make(Automation::class);
         $automation->task('support.auto_close', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(AutoCloseTickets::class)->handle($today->equals(app(CompanyClock::class)->calendarDate()) ? null : app(CompanyClock::class)->dayBounds($today)[1]), label: 'Close idle tickets', description: 'Closes tickets that have waited on the customer longer than the auto-close period.');
-        $automation->task('support.purge_inbound_raw', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(PurgeInboundRaw::class)->handle(app(CompanyClock::class)->dayBounds($today)[0]), label: 'Purge raw inbound emails', description: 'Deletes stored raw inbound email payloads older than the retention period.');
-        $automation->task('support.prune_attachments', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(PruneAttachments::class)->handle(app(CompanyClock::class)->dayBounds($today)[0]), label: 'Delete old ticket attachments', description: 'Deletes attachment files from tickets closed longer than the configured months (details stay).');
+        $automation->task('support.purge_inbound_raw', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(PurgeInboundRaw::class)->handle(app(CompanyClock::class)->dayBounds(RetentionRunDate::of($today))[0]), label: 'Purge raw inbound emails', description: 'Deletes stored raw inbound email payloads older than the retention period.');
+        $automation->task('support.prune_attachments', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(PruneAttachments::class)->handle(app(CompanyClock::class)->dayBounds(RetentionRunDate::of($today))[0]), label: 'Delete old ticket attachments', description: 'Deletes attachment files from tickets closed longer than the configured months (details stay).');
     }
 }

@@ -6,6 +6,7 @@ use App\Contracts\Core\CompanyClock;
 use App\Modules\Services\Enums\ChangeStatus;
 use App\Modules\Services\Models\ServiceChange;
 use App\Modules\Services\Support\Billing;
+use App\Support\Billing\InvoiceNotCancellable;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -39,11 +40,16 @@ class ExpireUnpaidChanges
                         return false;
                     }
 
-                    $locked->update(['status' => ChangeStatus::Expired]);
-
+                    // The invoice goes first: a change whose invoice stayed payable is not expired.
                     if ($billable) {
-                        $this->billing->invoicer()->cancel((int) $locked->invoice_id);
+                        try {
+                            $this->billing->invoicer()->cancel((int) $locked->invoice_id, __('Cancelled by :module', ['module' => 'Services']));
+                        } catch (InvoiceNotCancellable) {
+                            return false;
+                        }
                     }
+
+                    $locked->update(['status' => ChangeStatus::Expired]);
 
                     return true;
                 });

@@ -37,7 +37,11 @@ export function AppSidebar(overrides: AppSidebarProps = {}) {
                     <SidebarMenuItem>
                         <SidebarMenuButton size="lg" asChild>
                             <Link href={dashboard()} prefetch>
-                                <AppLogo />
+                                <AppLogo
+                                    area={
+                                        area === 'client' ? 'client' : 'admin'
+                                    }
+                                />
                             </Link>
                         </SidebarMenuButton>
                     </SidebarMenuItem>

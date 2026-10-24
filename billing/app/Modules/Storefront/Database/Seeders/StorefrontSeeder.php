@@ -29,11 +29,11 @@ class StorefrontSeeder extends DemoSeeder
             ['icon' => 'clock', 'title' => 'Help every day', 'text' => 'Tickets answered around the clock, phone support Sunday to Friday.'],
             ['icon' => 'shield', 'title' => 'Secure by default', 'text' => 'Free SSL on every site, daily malware scans and isolated accounts.'],
             ['icon' => 'refresh', 'title' => 'Free site transfer', 'text' => 'We move your website and email from your current host.'],
-            ['icon' => 'card', 'title' => 'Pay your way', 'text' => 'Pay by card or bank transfer, in your currency.'],
+            ['icon' => 'card', 'title' => 'Pay your way', 'text' => 'Pay with eSewa, Khalti, card or bank transfer, in NPR, INR or USD.'],
         ];
         $content['trust_facts'] = [
             ['label' => 'Hosting since', 'value' => '2014'],
-            ['label' => 'Data centres', 'value' => 'Kathmandu, Frankfurt'],
+            ['label' => 'Data centres', 'value' => 'Kathmandu, Singapore'],
             ['label' => 'Pay in', 'value' => 'NPR, INR or USD'],
         ];
         $content['seo']['description'] = 'Web hosting, domains and SSL with clear prices in your currency and support every day.';

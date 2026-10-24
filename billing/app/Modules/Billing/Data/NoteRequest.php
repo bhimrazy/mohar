@@ -8,11 +8,12 @@ namespace App\Modules\Billing\Data;
  * line; a reversal is a debit note that repeats one credit note's lines (`reverses`). `reasonText` is shown to the client.
  *
  * `settlement` is where the part of a credit note above the open balance goes: nowhere (`balance`, refused when there
- * is such a part) or account credit (`credit`). `source` names who issued an automatic note (the activity entry).
+ * is such a part), account credit (`credit`) or a refund of the payment that is being made (`refund`, set only by the refund
+ * reservation, which then takes the amount off `amount_paid`). `source` names who issued an automatic note (the activity entry).
  */
 final readonly class NoteRequest
 {
-    public const SETTLEMENTS = ['balance', 'credit'];
+    public const SETTLEMENTS = ['balance', 'credit', 'refund'];
 
     /**
      * @param  array<int, int>|null  $lines
@@ -30,6 +31,7 @@ final readonly class NoteRequest
         public string $settlement = 'balance',
         public ?int $reverses = null,
         public ?string $source = null,
+        public bool $cancel = false,
     ) {}
 
     /**
@@ -43,6 +45,16 @@ final readonly class NoteRequest
     public static function creditAmount(int $invoiceId, int $gross, string $reasonCode, string $reasonText, bool $automatic = false, ?int $userId = null, string $settlement = 'balance', ?string $source = null): self
     {
         return new self('credit', $invoiceId, $reasonCode, $reasonText, null, $gross, true, $automatic, $userId, $settlement, source: $source);
+    }
+
+    /**
+     * The credit note that cancels an invoice: its open balance, allocated over everything the invoice still holds, not only
+     * its lines: a discount line goes with the lines it discounts, and a late fee (a debit note, or an old-style row) is credited
+     * as the line it is.
+     */
+    public static function cancellation(int $invoiceId, int $gross, string $reasonText, bool $automatic = false, ?int $userId = null): self
+    {
+        return new self('credit', $invoiceId, 'invoice_cancelled', $reasonText, null, $gross, true, $automatic, $userId, cancel: true);
     }
 
     public static function debit(int $invoiceId, int $gross, bool $taxable, string $reasonCode, string $reasonText, bool $automatic = false, ?int $userId = null, ?string $source = null): self

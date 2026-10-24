@@ -2,11 +2,13 @@
 
 use App\Contracts\Core\CompanyClock;
 use App\Data\Reports\ReportQuery;
+use App\Models\User;
 use App\Modules\Billing\Data\NoteRequest;
 use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Billing\Reports\RegisterDocuments;
 use App\Modules\Billing\Reports\RegisterPeriod;
 use App\Modules\Billing\Reports\RegisterSummary;
+use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Billing\Services\TaxNoteIssuer;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
@@ -118,4 +120,52 @@ test('only documents dated on or after the start day are listed, and earlier mon
         ->assertInertia(fn (AssertableInertia $page) => $page->where('documents.total', 1)->where('mode.started', true));
 
     expect($later->fresh()->fiscal_tax1_is_vat)->toBeTrue();
+});
+
+test('documents numbered while the mode was on stay in the register after it is switched off', function () {
+    useNepalVatRule($this->vat);
+    modeRegDay('2026-10-20', fn () => issueInvoice(Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']), [10_000]));
+    actingAsStaff(['reports.vat_register.view']);
+    confirmPassword();
+
+    // Switching off is allowed while no note exists; the register is keyed on the start day, not on the switch.
+    app(NepalVatMode::class)->apply(auth()->user(), ['enabled' => false, 'enabled_from' => null, 'vat_rules' => [$this->vat->id], 'export_rule' => null]);
+
+    expect(app(NepalVatMode::class)->enabled())->toBeFalse()
+        ->and(array_column(modeRegRows(), 'vat'))->toBe([1_300]);
+    $this->get(route('admin.billing.vat-register.index', ['month' => '2083-07']))->assertInertia(fn (AssertableInertia $page) => $page->where('mode.enabled', true)->where('documents.total', 1));
+});
+
+test('a re-enable never hides the months the mode was on before: every stretch stays listed, and the gap is outside it', function () {
+    $mode = app(NepalVatMode::class);
+    $staff = User::factory()->staff(['billing.*'])->create();
+    useNepalVatRule($this->vat);
+    $inFirst = modeRegDay('2026-10-20', fn () => issueInvoice(Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']), [10_000]));
+    actingAsStaff(['reports.vat_register.view']);
+
+    // Switched off on 25 Oct: what is numbered after is not classified, and is not in the register.
+    CarbonImmutable::setTestNow('2026-10-25 06:00:00');
+    $mode->apply($staff, ['enabled' => false, 'enabled_from' => null, 'vat_rules' => [$this->vat->id], 'export_rule' => null]);
+    $inGap = modeRegDay('2026-10-28', fn () => issueInvoice(Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']), [20_000]));
+
+    // Re-enabling needs the gap's invoices classified (the split), then a later start day (the next BS month); the first stretch is kept.
+    Artisan::call('billing:fiscal-vat-split');
+    CarbonImmutable::setTestNow('2026-11-02 06:00:00');
+    $mode->apply($staff, ['enabled' => true, 'enabled_from' => $mode->months()[1]['value'], 'vat_rules' => [$this->vat->id], 'export_rule' => null]);
+
+    expect($mode->periods())->toBe([['from' => '2026-01-01', 'to' => '2026-10-25'], ['from' => $mode->months()[1]['value'], 'to' => null]])
+        ->and(array_column(modeRegRows(), 'vat'))->toBe([1_300])
+        ->and(modeRegSummary()->unclassified)->toBe(0)
+        ->and($inGap->fresh()->fiscal_tax1_is_vat)->toBeTrue();
+    expect($inFirst->fresh()->fiscal_tax1_is_vat)->toBeTrue();
+});
+
+test('after a switch-off the register says so and shows when', function () {
+    $staff = User::factory()->staff(['billing.*'])->create();
+    useNepalVatRule($this->vat);
+    CarbonImmutable::setTestNow('2026-10-25 06:00:00');
+    app(NepalVatMode::class)->apply($staff, ['enabled' => false, 'enabled_from' => null, 'vat_rules' => [$this->vat->id], 'export_rule' => null]);
+    actingAsStaff(['reports.vat_register.view']);
+
+    $this->get(route('admin.billing.vat-register.index', ['month' => '2083-07']))->assertInertia(fn (AssertableInertia $page) => $page->where('mode.on', false)->where('mode.enabled', true)->where('mode.offSince', '2026-10-25'));
 });

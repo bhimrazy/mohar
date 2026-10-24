@@ -25,6 +25,7 @@ use App\Events\Billing\PaymentReversed;
 use App\Events\Billing\QuoteAccepted;
 use App\Events\Orders\OrderAccepted;
 use App\Models\User;
+use App\Modules\Billing\Actions\PruneGatewayLog;
 use App\Modules\Billing\Drivers\Gateways\BankTransferDriver;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\ManualDriver;
@@ -59,7 +60,9 @@ use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\InvoiceBsDates;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Core\Support\RetentionRunDate;
 use App\Support\Automation\Automation;
+use App\Support\CalendarDate;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
@@ -215,6 +218,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $automation->task('billing.payment_reconciliation', Automation::SYNC, fn (CarbonImmutable $today): int => $this->app->make(PaymentReconciler::class)->run(), label: 'Reconcile gateway payments', description: 'Looks up pending and unclear gateway payments whose customer never returned.');
         $automation->task('billing.auto_cancel', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $tasks()->autoCancel($today), label: 'Cancel unpaid overdue invoices', description: 'Cancels overdue invoices that have no payments and no credit applied.');
         $automation->task('billing.housekeeping', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $tasks()->housekeeping($today), label: 'Expire old quotes', description: 'Marks quotes past their validity date as expired.');
+        $automation->task('billing.gateway_log_prune', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => $this->app->make(PruneGatewayLog::class)->handle(RetentionRunDate::of($today)), label: 'Prune the gateway log', description: 'Deletes gateway log entries older than the retention period.');
     }
 
     private function registerNavigation(): void
@@ -226,14 +230,14 @@ class BillingServiceProvider extends ModuleServiceProvider
         $navigation->add('admin', new NavItem('Transactions', 'admin.billing.transactions.index', 'ArrowLeftRight', 'Billing', 20, 'billing.transactions.view', 'admin.billing.transactions.*'));
         $navigation->add('admin', new NavItem('Quotes', 'admin.billing.quotes.index', 'ClipboardList', 'Billing', 30, 'billing.quotes.view', 'admin.billing.quotes.*'));
         $navigation->add('admin', new NavItem('Account credit', 'admin.billing.credit.index', 'Wallet', 'Billing', 40, 'billing.credit.manage', 'admin.billing.credit.*'));
-        $navigation->add('admin', new NavItem('Gateways', 'admin.billing.gateways.index', 'CreditCard', 'Setup', 40, 'billing.gateways.manage', 'admin.billing.gateways.*'));
+        $navigation->add('admin', new NavItem('Gateways', 'admin.billing.gateways.index', 'CreditCard', 'Setup', 33, 'billing.gateways.manage', 'admin.billing.gateways.*'));
         if (config('features.billing.nepal_vat_mode')) {
-            $navigation->add('admin', new NavItem('Nepal VAT', 'admin.billing.vat-mode.edit', 'FileText', 'Setup', 44, 'billing.tax.manage', 'admin.billing.vat-mode.*'));
+            $navigation->add('admin', new NavItem('Nepal VAT', 'admin.billing.vat-mode.edit', 'FileText', 'Setup', 32, 'billing.tax.manage', 'admin.billing.vat-mode.*'));
         }
-        $navigation->add('admin', new NavItem('Tax rules', 'admin.billing.tax-rules.index', 'Percent', 'Setup', 41, 'billing.tax.manage', 'admin.billing.tax-rules.*'));
+        $navigation->add('admin', new NavItem('Tax rules', 'admin.billing.tax-rules.index', 'Percent', 'Setup', 31, 'billing.tax.manage', 'admin.billing.tax-rules.*'));
         $navigation->add('admin', new NavItem('VAT register', 'admin.billing.vat-register.index', 'BookOpen', 'Billing', 45, 'reports.vat_register.view', 'admin.billing.vat-register.*'));
         $navigation->add('admin', new NavItem('Payment attempts', 'admin.billing.payment-attempts.index', 'Activity', 'Billing', 50, 'billing.payments.manage', 'admin.billing.payment-attempts.*'));
-        $navigation->add('admin', new NavItem('Gateway log', 'admin.billing.gateway-log.index', 'Webhook', 'Setup', 42, 'billing.gateway_log.view', 'admin.billing.gateway-log.*'));
+        $navigation->add('admin', new NavItem('Gateway log', 'admin.billing.gateway-log.index', 'Webhook', 'Setup', 92, 'billing.gateway_log.view', 'admin.billing.gateway-log.*'));
 
         $navigation->add('client', new NavItem('Invoices', 'client.invoices.index', 'Receipt', 'Billing', 10, activePattern: 'client.invoices.*'));
         $navigation->add('client', new NavItem('Quotes', 'client.quotes.index', 'ClipboardList', 'Billing', 20, activePattern: 'client.quotes.*'));
@@ -404,6 +408,12 @@ class BillingServiceProvider extends ModuleServiceProvider
             $bool('pdf.attach_to_emails', 'Attach PDFs to invoice emails'),
             new SettingDefinition('billing.pdf.paper', 'PDF paper size', 'select', options: ['A4' => 'A4', 'letter' => 'Letter']),
         ], 'billing.settings.manage');
+
+        // Shortening it deletes payment evidence, so it sits in the security tier (recent password), like the
+        // activity log retention.
+        $this->app->make(SettingsRegistry::class)->section('billing_retention', 'Payment log retention', [
+            new SettingDefinition('billing.gateways.log_retention_days', 'Keep the gateway log for (days)', 'integer', 'Gateway requests, responses and callbacks older than this are deleted by the daily automation (90 to 3,650).', rules: ['min:90', 'max:3650']),
+        ], 'core.settings.security');
     }
 
     private function registerSearch(): void

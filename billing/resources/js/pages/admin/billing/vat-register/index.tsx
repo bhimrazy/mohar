@@ -73,7 +73,13 @@ type Props = {
         currency: string;
     };
     warnings: { withoutPan: number; unconverted: number; unclassified: number };
-    mode: { enabled: boolean; from: string | null; started: boolean };
+    mode: {
+        enabled: boolean;
+        on: boolean;
+        from: string | null;
+        started: boolean;
+        offSince: string | null;
+    };
     can: { export: boolean };
 };
 
@@ -401,6 +407,10 @@ export default function VatRegister({
             `${plural(warnings.withoutPan)} to a business buyer without a PAN. Their PAN column is blank; add the PAN to the client for later documents.`,
         warnings.unconverted > 0 &&
             `${plural(warnings.unconverted)} without a stored exchange rate into the register currency. Their amounts are blank and left out of the totals.`,
+        mode.enabled &&
+            !mode.on &&
+            mode.offSince !== null &&
+            `Nepal VAT mode was switched off on ${mode.offSince}. Documents dated after that are not listed, because none of them carries the Nepal VAT split.`,
         warnings.unclassified > 0 &&
             `${plural(warnings.unclassified)} with tax that was never split into Nepal VAT and other tax. Their amounts are blank and left out of the totals. Ask the person who runs the system to run billing:fiscal-vat-split for invoices; a note cannot be changed.`,
     ].filter((notice): notice is string => typeof notice === 'string');

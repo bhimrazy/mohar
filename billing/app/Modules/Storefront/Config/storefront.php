@@ -12,8 +12,9 @@ return [
     // Signed preview links for the draft stay valid this many minutes.
     'preview_minutes' => 60,
 
-    // The market each currency is priced for (ISO country): its tax statement and tax-inclusive prices use Billing's
-    // tax rules for that country. Currencies not listed (USD, sold across markets) show the neutral statement.
+    // Default market each currency is priced for (ISO country): its tax statement and tax-inclusive prices use Billing's
+    // tax rules for that country. Hosts change it per currency in Admin → Website → Prices and tax. Currencies not
+    // listed (USD, sold across markets) show the neutral statement.
     'tax_markets' => ['NPR' => 'NP', 'INR' => 'IN'],
 
     // The name customers know each market's tax by, used in the statement whatever Billing's rules are called

@@ -35,6 +35,17 @@ class ServicePresenter
     }
 
     /**
+     * Whether the client area may show the stored password (#44): a live service with a username and a stored
+     * password. Panels that sign in only by SSO store none. Reads the raw column, so nothing is decrypted to decide.
+     */
+    public function revealsPassword(Service $service): bool
+    {
+        return in_array($service->status, [ServiceStatus::Active, ServiceStatus::Suspended], true)
+            && $service->username !== null
+            && $service->getRawOriginal('password') !== null;
+    }
+
+    /**
      * @return array{key: string, name: string, requires_server: bool, capabilities: list<string>}
      */
     public function driverProps(Service $service): array

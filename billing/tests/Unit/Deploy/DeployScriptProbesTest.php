@@ -194,6 +194,10 @@ test('a reload whose new upstream never shows in Caddy\'s config restores the pr
     $this->sandbox = $dir = d3Sandbox();
     expect(d3Deploy($dir, ['--image', 'img:1']))->toBe(0); // blue
     $state = file_get_contents("{$dir}/state/deploy.env");
+    // The script polls Caddy's config 20 times a second apart before it gives up; the outcome is the same without the
+    // waits, which were 20 s of this test.
+    file_put_contents("{$dir}/bin/sleep", "#!/bin/sh\nexit 0\n");
+    chmod("{$dir}/bin/sleep", 0755);
 
     expect(d3Deploy($dir, ['--image', 'img:2'], ['FAKE_CONFIG_STALE' => '1']))->not->toBe(0);
 

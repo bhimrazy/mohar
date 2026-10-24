@@ -30,6 +30,8 @@ Route::adminArea(function (): void {
             Route::post('servers/{server}/import/fetch', [ServerImportController::class, 'fetch'])->middleware('throttle:6,1')->name('servers.import.fetch');
             Route::post('servers/{server}/import/match', [ServerImportController::class, 'rematch'])->middleware('throttle:6,1')->name('servers.import.rematch');
             Route::put('servers/{server}/import/selections', [ServerImportController::class, 'select'])->middleware('throttle:services-import-select')->name('servers.import.select');
+            Route::put('servers/{server}/import/ignored', [ServerImportController::class, 'ignore'])->middleware('throttle:services-import-select')->name('servers.import.ignore');
+            Route::post('servers/{server}/import/accept', [ServerImportController::class, 'accept'])->middleware('throttle:services-import-select')->name('servers.import.accept');
             Route::post('servers/{server}/import/apply', [ServerImportController::class, 'apply'])->middleware('throttle:services-import-apply')->name('servers.import.apply');
         });
         Route::resource('server-groups', ServerGroupController::class)->only(['create', 'edit']);
@@ -67,5 +69,7 @@ Route::clientArea(function (): void {
         Route::post('{service}/change', [ClientServiceActionController::class, 'change'])->whereNumber('service')->name('change');
         // Each change is a synchronous call to the shared panel server (security review 2026-10-19, L3).
         Route::post('{service}/password', [ClientServiceActionController::class, 'password'])->whereNumber('service')->middleware('throttle:6,1')->name('password');
+        // Shows the stored password (#44); the per-login limit is counted in the controller, after step-up.
+        Route::post('{service}/password/reveal', [ClientServiceActionController::class, 'revealPassword'])->whereNumber('service')->middleware('password.recent')->name('password.reveal');
     });
 });

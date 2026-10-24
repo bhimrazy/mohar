@@ -10,6 +10,7 @@ use App\Enums\BillableType;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainInvoice;
+use App\Support\Billing\InvoiceNotCancellable;
 use Illuminate\Support\Collection;
 use RuntimeException;
 
@@ -76,7 +77,13 @@ class RenewalInvoices
         $cancelled = 0;
 
         foreach ($this->open($domain) as $invoice) {
-            $this->invoicer()->cancel($invoice->invoice_id);
+            try {
+                $this->invoicer()->cancel($invoice->invoice_id, __('Cancelled by :module', ['module' => 'Domains']));
+            } catch (InvoiceNotCancellable) {
+                // Still payable: the renewal invoice stays open here too.
+                continue;
+            }
+
             $invoice->update(['status' => 'cancelled']);
             $cancelled++;
         }
@@ -143,7 +150,7 @@ class RenewalInvoices
     }
 
     /**
-     * Convert an amount in the default currency with the current exchange rate (fees are stored once).
+     * Convert an amount in the default currency with the current exchange rate and the currency's rounding rule (fees are stored once).
      */
     public function convertFromDefault(int $amount, string $currency): int
     {
@@ -155,6 +162,6 @@ class RenewalInvoices
 
         $target = Currency::query()->where('code', $currency)->first();
 
-        return $target === null ? $amount : $target->fromDefault($amount);
+        return $target === null ? $amount : $target->priceFromDefault($amount, $default);
     }
 }

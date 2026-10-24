@@ -5,6 +5,7 @@ use App\Data\Install\ReferenceDataResult;
 use App\Events\Core\RoleUpdated;
 use App\Events\Core\StaffCreated;
 use App\Models\User;
+use App\Modules\Billing\Database\Seeders\BillingHistorySeeder;
 use App\Modules\Core\Database\Seeders\CoreSeeder;
 use App\Modules\Core\Install\AdministratorRefused;
 use App\Modules\Core\Install\FirstAdministrator;
@@ -19,6 +20,7 @@ use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Queues;
 use App\Support\Security\PasswordPolicy;
 use Database\Seeders\DatabaseSeeder;
+use Illuminate\Database\Seeder;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Process\Pool;
 use Illuminate\Support\Facades\Artisan;
@@ -353,6 +355,12 @@ test('the demo seed installs exactly the reference data an install creates, thro
         }
     };
     app(ReferenceDataRegistry::class)->register('test_probe', fn () => $probe);
+    // The 730-day demo history writes only billing documents, never currencies or roles, and BillingSeederTest covers
+    // it; skipping it here took this test from 20 s (64 s on PostgreSQL) to under a second.
+    app()->instance(BillingHistorySeeder::class, new class extends Seeder
+    {
+        public function run(): void {}
+    });
 
     $this->seed(DatabaseSeeder::class);
 
@@ -468,10 +476,30 @@ test('two installs started at the same time create exactly one full administrato
         // Committed reference data first (the test's own transaction is invisible to other processes).
         Process::path(base_path())->env($env)->run($install());
 
-        $results = Process::pool(fn (Pool $pool) => [
+        // Barrier (#60): a SHARE lock on users lets both runs read but holds every insert. Release comes only once
+        // both are waiting on a lock, so without the role row lock both would have counted no administrator first.
+        $barrier = DB::connection('install_race');
+        $barrier->beginTransaction();
+        $barrier->statement('lock table users in share mode');
+        $pool = Process::pool(fn (Pool $pool) => [
             $pool->as('a')->path(base_path())->env($env)->command($install('--admin-email=a@race.test')),
             $pool->as('b')->path(base_path())->env($env)->command($install('--admin-email=b@race.test')),
-        ])->start()->wait();
+        ])->start();
+        // Statistics views keep one snapshot per transaction unless it is cleared.
+        $waiting = function () use ($barrier): int {
+            $barrier->select('select pg_stat_clear_snapshot()');
+
+            return (int) $barrier->scalar("select count(*) from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'");
+        };
+
+        for ($tries = 0; $waiting() < 2 && $tries < 300 && $pool->running()->isNotEmpty(); $tries++) {
+            usleep(100_000);
+        }
+
+        $blocked = $waiting();
+        $barrier->commit();
+        $results = $pool->wait();
+        expect($blocked)->toBe(2);
 
         $exitCodes = [$results['a']->exitCode(), $results['b']->exitCode()];
         sort($exitCodes);
@@ -547,4 +575,11 @@ test('in production the pre-flight warns when APP_URL is not the public https ad
     'http' => ['http://billing.example.test', true],
     'localhost' => ['https://localhost', true],
     'public https' => ['https://billing.example.test', false],
+    // #60: other local and unspecified hosts, and the scheme in capitals.
+    'unspecified IPv4' => ['https://0.0.0.0', true],
+    'IPv6 loopback' => ['https://[::1]', true],
+    'other loopback' => ['https://127.0.0.2', true],
+    'mDNS .local' => ['https://billing.local', true],
+    'localhost subdomain' => ['https://billing.localhost', true],
+    'upper-case scheme' => ['HTTPS://billing.example.test', false],
 ]);

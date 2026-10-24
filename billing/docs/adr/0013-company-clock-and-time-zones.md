@@ -287,3 +287,16 @@ new year (18:14:59 and 18:15:00 UTC on 31 December); the BS fiscal year turning 
 - **A Carbon subclass with the time methods disabled:** keeps call sites, but it is still an instant underneath and
   `CarbonImmutable` parameters would accept it. Rejected.
 - **`Y-m-d` strings:** no type, no arithmetic and no month-end rule. Rejected.
+
+## Amendment (#460) — 2026-10-24, run dates and retention
+
+Automation runs are now pruned (`platform.automation_log_retention_days`, 365 by default, at least 90). A run row is
+the (run date, task) key that stops a date running twice, so the rule above holds only inside the retention window:
+
+1. `automation:run --date` refuses a date before today minus the retention (`Core\Support\AutomationLogRetention`).
+   The prune deletes only rows before that same date, keeps each task's latest run, and records the last date it
+   deleted through (`core.automation_log_pruned_through`). `automation:run` also refuses that date and every earlier
+   one, whatever the retention is set to later, so raising it never reopens a pruned date.
+2. Retention tasks count their window from the run date capped at the company today (`Core\Support\RetentionRunDate`),
+   so a rehearsal with a future `--date` never widens a cutoff. Every other task, including the rest of the
+   housekeeping stage (auto-close of idle tickets), still gets the date given.

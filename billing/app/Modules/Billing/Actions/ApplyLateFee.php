@@ -2,18 +2,25 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Core\CompanyClock;
 use App\Enums\BillableType;
 use App\Events\Billing\InvoiceModified;
 use App\Events\Billing\LateFeeApplied;
+use App\Modules\Billing\Data\NoteRequest;
 use App\Modules\Billing\Enums\AdjustmentKind;
 use App\Modules\Billing\Enums\AdjustmentReason;
 use App\Modules\Billing\Enums\InvoiceKind;
 use App\Modules\Billing\Enums\InvoiceStatus;
+use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\InvoiceFiscalReview;
 use App\Modules\Billing\Services\InvoiceCalculator;
 use App\Modules\Billing\Services\InvoiceSettlement;
+use App\Modules\Billing\Services\NepalVatMode;
+use App\Modules\Billing\Services\NoteRefusals;
 use App\Modules\Billing\Services\Tax\TaxEngine;
 use App\Modules\Billing\Services\Tax\TaxMath;
+use App\Modules\Billing\Services\TaxNoteIssuer;
 use App\Modules\Billing\Support\AfterCommit;
 use App\Modules\Billing\Support\BillingSettings;
 use Illuminate\Support\Facades\DB;
@@ -29,6 +36,10 @@ class ApplyLateFee
         private InvoiceCalculator $calculator,
         private TaxEngine $tax,
         private BillingSettings $settings,
+        private TaxNoteIssuer $notes,
+        private NepalVatMode $mode,
+        private CompanyClock $clock,
+        private NoteRefusals $refusals,
     ) {}
 
     /**
@@ -75,8 +86,27 @@ class ApplyLateFee
                 $fee = $net + $tax;
             }
 
-            $invoice->late_fee_applied_at = now();
-            $this->settlement->adjust($invoice, AdjustmentKind::Debit, AdjustmentReason::LateFee, $fee, __('Late payment fee'), taxableAmount: $taxable, taxAmount: $tax);
+            // One instant for every row this transaction writes, taken after the lock; the mode is read under a shared lock.
+            $at = $this->clock->now()->utc();
+
+            if ($invoice->numbered_at !== null && $this->mode->inEffectLocked($at)) {
+                // A numbered tax invoice takes a debit note, not a bare adjustment (vat-register §5.4). When the note is refused
+                // (the debit cap, an unclassified invoice) no fee is added, and the invoice goes on the staff list with the reason.
+                try {
+                    $this->notes->issueNow(NoteRequest::debit($invoice->id, $fee, $taxable > 0, 'late_fee', __('Late payment fee'), automatic: true), $at);
+                } catch (BillingException $exception) {
+                    $this->refusals->record($invoice, InvoiceFiscalReview::LATE_FEE_REFUSED, $exception->getMessage());
+
+                    return false;
+                }
+
+                $invoice->refresh();
+                $invoice->late_fee_applied_at = $at;
+                $invoice->save();
+            } else {
+                $invoice->late_fee_applied_at = $at;
+                $this->settlement->adjust($invoice, AdjustmentKind::Debit, AdjustmentReason::LateFee, $fee, __('Late payment fee'), taxableAmount: $taxable, taxAmount: $tax, at: $at);
+            }
 
             AfterCommit::dispatch(
                 new LateFeeApplied($invoice->id, $invoice->client_id, $fee, $invoice->currency),

@@ -3,6 +3,7 @@
 namespace App\Actions\Fortify;
 
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Validation\ValidationException;
 use Laravel\Fortify\Actions\AttemptToAuthenticate;
 
 /**
@@ -24,6 +25,16 @@ class SignInValidatedUser extends AttemptToAuthenticate
             return $next($request);
         }
 
-        return parent::handle($request, $next);
+        return parent::handle($request, function ($request) use ($next) {
+            try {
+                RefuseExpiredPassword::check($this->guard->user(), 'sign_in');
+            } catch (ValidationException $refused) {
+                $this->guard->logout();
+
+                throw $refused;
+            }
+
+            return $next($request);
+        });
     }
 }

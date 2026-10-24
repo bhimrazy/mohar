@@ -273,9 +273,15 @@ class GatewayCallbackHandler
                 return $this->outcome($gatewayKey, 200, 'refund differs from the pending refund; staff review', $event->raw, $own->invoice_id);
             }
 
-            $this->refund->settle($own, $event->txnId, $event->raw);
+            $settled = $this->refund->settle($own, $event->txnId, $event->raw);
 
-            return $this->outcome($gatewayKey, 200, 'refund recorded', $event->raw, $own->invoice_id);
+            // The request's DECLINED (or staff, or Check refund) may have released the row between the read above and the lock settle
+            // takes: the provider paid all the same, so it is booked below as a provider-initiated refund (ADR 0024 §5).
+            if ($settled->status !== TransactionStatus::Failed) {
+                return $this->outcome($gatewayKey, 200, 'refund recorded', $event->raw, $own->invoice_id);
+            }
+
+            $own = $settled;
         }
 
         if ($own?->status === TransactionStatus::Pending) {
@@ -333,6 +339,11 @@ class GatewayCallbackHandler
                 if ($taken === 0 && $remaining === 0) {
                     if ($lateAfterFailure && $first !== null) {
                         $this->flagLate($first, $refundedTotal);
+                    }
+
+                    // Part of it may have gone to "Disputes to review" (the invoice's cap and the credit notes placed could not absorb it).
+                    if ($first !== null && $first->fresh()?->review_amount !== null) {
+                        return $this->outcome($gatewayKey, 200, 'refund recorded; part of it needs staff review', [...$event->raw, 'to_review' => $first->fresh()->review_amount], $parents[0]->invoice_id);
                     }
 
                     return $this->outcome($gatewayKey, 200, 'refund recorded', $event->raw, $parents[0]->invoice_id);

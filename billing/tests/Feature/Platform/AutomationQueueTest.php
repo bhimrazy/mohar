@@ -8,7 +8,9 @@ use App\Support\Automation\Automation;
 use App\Support\Queues;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 
 /**
@@ -169,6 +171,12 @@ test('run now during the scheduled run is refused, and a request queued before i
 
 // Review probe P1 (#122).
 test('after a worker is killed mid-run, run now is refused until the locks expire or are released', function () {
+    // A store whose locks expire on read, as production's do: the array store's isLocked() ignores expiry, and the
+    // database store's insert-then-update aborts the test's transaction on PostgreSQL. A directory of its own keeps
+    // parallel test processes apart.
+    $directory = storage_path('framework/testing/automation-locks-'.Str::random(8));
+    config(['cache.stores.automation_locks' => ['driver' => 'file', 'path' => $directory, 'lock_path' => $directory], 'cache.default' => 'automation_locks']);
+    $this->beforeApplicationDestroyed(fn () => File::deleteDirectory($directory));
     actingAsStaff(['core.automation.*']);
     runNow()->assertInertiaFlash('toast.type', 'success');
 
@@ -202,4 +210,26 @@ test('automation:release-locks frees both locks after confirmation, and nothing 
     expect(RunAutomation::inProgress())->toBeFalse()
         ->and(ActivityLog::query()->where('event', 'automation.locks_released')->exists())->toBeTrue();
     runNow()->assertInertiaFlash('toast.type', 'success');
+});
+
+test('checking for a run in progress never takes the run lock, so a scheduled run starting then is not skipped (#132)', function () {
+    config(['cache.default' => 'database']);
+    $writes = [];
+    DB::listen(function ($query) use (&$writes): void {
+        if (str_contains($query->sql, 'cache_locks') && ! str_starts_with(strtolower(ltrim($query->sql)), 'select')) {
+            $writes[] = $query->sql;
+        }
+    });
+
+    expect(RunAutomation::inProgress())->toBeFalse()
+        ->and($writes)->toBe([]);
+
+    $held = Cache::lock(RunAutomation::LOCK, 60);
+    $held->get();
+    $writes = [];
+
+    expect(RunAutomation::inProgress())->toBeTrue()
+        ->and($writes)->toBe([]);
+    $held->release();
+    expect(RunAutomation::inProgress())->toBeFalse();
 });

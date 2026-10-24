@@ -9,6 +9,7 @@ use App\Events\Orders\OrderPlaced;
 use App\Events\Services\ServiceActivated;
 use App\Modules\Catalog\Actions\ConvertPrices;
 use App\Modules\Catalog\Enums\AutoSetup;
+use App\Modules\Catalog\Enums\PaymentType;
 use App\Modules\Catalog\Listeners\TrackStockReservations;
 use App\Modules\Catalog\Models\Addon;
 use App\Modules\Catalog\Models\ConfigOptionValue;
@@ -18,6 +19,7 @@ use App\Modules\Core\Support\Settings;
 use App\Support\Automation\Automation;
 use App\Support\CalendarDate;
 use App\Support\Currencies\PriceConverters;
+use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
@@ -28,6 +30,7 @@ use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 
 class CatalogServiceProvider extends ModuleServiceProvider
@@ -67,6 +70,28 @@ class CatalogServiceProvider extends ModuleServiceProvider
 
         $this->app->make(PriceConverters::class)->register(ConvertPrices::class);
 
+        // Visitors in the default currency never see a product without a price in it (#247); tell staff first.
+        $this->app->make(Dashboard::class)->todo('admin', 'catalog.unpriced_products', function (): array {
+            $defaultCode = '(select code from currencies where is_default = '.(DB::getDriverName() === 'pgsql' ? 'true' : '1').' limit 1)';
+            $row = Product::query()->where('is_retired', false)->where('is_hidden', false)->where('payment_type', '!=', PaymentType::Free->value)
+                ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('prices')
+                    ->whereColumn('prices.priceable_id', 'products.id')
+                    ->where('prices.priceable_type', (new Product)->getMorphClass())
+                    ->whereRaw("prices.currency = {$defaultCode}")->where('prices.enabled', true))
+                ->selectRaw("count(*) as total, {$defaultCode} as code")
+                ->toBase()->first();
+            $code = (string) ($row->code ?? 'default currency');
+
+            return [
+                'label' => "Products with no {$code} price",
+                'count' => (int) ($row->total ?? 0),
+                'href' => route('admin.catalog.products.index'),
+                'tone' => 'warning',
+                'icon' => 'Package',
+                'hint' => "Customers shopping in {$code} cannot see or buy them. Add a price or convert from another currency.",
+            ];
+        }, 'catalog.products.view', 20);
+
         $this->app->make(Automation::class)->task('catalog.convert-prices', Automation::SYNC, function (CalendarDate $today): int|string {
             return $this->app->make(Settings::class)->get('catalog.auto_convert_prices', false)
                 ? $this->app->make(ConvertPrices::class)->handle()
@@ -77,10 +102,10 @@ class CatalogServiceProvider extends ModuleServiceProvider
     private function registerNavigation(): void
     {
         $navigation = $this->app->make(Navigation::class);
-        $navigation->add('admin', new NavItem('Products', 'admin.catalog.products.index', 'Package', 'Setup', 10, 'catalog.products.view', 'admin.catalog.products.*'));
-        $navigation->add('admin', new NavItem('Product groups', 'admin.catalog.groups.index', 'Boxes', 'Setup', 11, 'catalog.products.view', 'admin.catalog.groups.*'));
-        $navigation->add('admin', new NavItem('Configurable options', 'admin.catalog.option-groups.index', 'SlidersHorizontal', 'Setup', 12, 'catalog.options.view', 'admin.catalog.option-groups.*'));
-        $navigation->add('admin', new NavItem('Addons', 'admin.catalog.addons.index', 'Puzzle', 'Setup', 13, 'catalog.addons.view', 'admin.catalog.addons.*'));
+        $navigation->add('admin', new NavItem('Products', 'admin.catalog.products.index', 'Package', 'Setup', 20, 'catalog.products.view', 'admin.catalog.products.*'));
+        $navigation->add('admin', new NavItem('Product groups', 'admin.catalog.groups.index', 'Boxes', 'Setup', 21, 'catalog.products.view', 'admin.catalog.groups.*'));
+        $navigation->add('admin', new NavItem('Configurable options', 'admin.catalog.option-groups.index', 'SlidersHorizontal', 'Setup', 22, 'catalog.options.view', 'admin.catalog.option-groups.*'));
+        $navigation->add('admin', new NavItem('Addons', 'admin.catalog.addons.index', 'Puzzle', 'Setup', 23, 'catalog.addons.view', 'admin.catalog.addons.*'));
     }
 
     private function registerPermissions(): void

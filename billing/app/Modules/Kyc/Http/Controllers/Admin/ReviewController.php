@@ -10,6 +10,7 @@ use App\Modules\Kyc\Actions\DecideDocument;
 use App\Modules\Kyc\Enums\DocumentStatus;
 use App\Modules\Kyc\Enums\KycStatus;
 use App\Modules\Kyc\Models\KycDocument;
+use App\Modules\Kyc\Models\KycOrphanFile;
 use App\Modules\Kyc\Services\KycVerification;
 use App\Modules\Kyc\Services\PhoneNumber;
 use App\Modules\Kyc\Services\ReviewQueue;
@@ -56,8 +57,12 @@ class ReviewController extends Controller
         $clients = $queue->clients($filter)->search($search === '' ? null : $search)->orderByDesc('id')->paginate(25)->withQueryString();
         $documents = KycDocument::query()->whereIn('client_id', $clients->pluck('id'))->current()->orderBy('id')->get()->groupBy('client_id');
 
+        $user = $request->user();
+
         return Inertia::render('admin/kyc/index', [
             'counts' => $queue->counts(),
+            // Only staff who may delete them see the count (#298).
+            'orphanFiles' => $user instanceof User && $user->hasPermission(self::PERMISSION) ? KycOrphanFile::query()->count() : null,
             'filters' => ['status' => $filter, 'q' => $search],
             'clients' => $clients->through(function (Client $client) use ($documents): array {
                 $own = $documents->get($client->id, collect());

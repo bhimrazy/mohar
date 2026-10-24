@@ -70,3 +70,28 @@ export type ResourcePaginated<T> = {
 };
 
 export type Paginated<T> = LaravelPaginated<T> | ResourcePaginated<T>;
+
+/** `->simplePaginate()`: no total or page count, so the list runs no `count(*)`. */
+export type SimplePaginatorMeta = {
+    current_page: number;
+    per_page: number;
+    from: number | null;
+    to: number | null;
+    path: string;
+};
+
+export type LaravelSimplePaginated<T> = SimplePaginatorMeta & {
+    data: T[];
+    next_page_url: string | null;
+    prev_page_url: string | null;
+};
+
+export type ResourceSimplePaginated<T> = {
+    data: T[];
+    links: { prev: string | null; next: string | null };
+    meta: SimplePaginatorMeta;
+};
+
+export type SimplePaginated<T> =
+    | LaravelSimplePaginated<T>
+    | ResourceSimplePaginated<T>;

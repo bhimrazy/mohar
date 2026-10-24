@@ -58,6 +58,16 @@ test('submitting a request stops renewals and cancels unpaid renewal invoices of
         ->and($service->refresh()->do_not_renew)->toBeTrue();
 });
 
+test('a renewal invoice Billing refuses to cancel stays open: its links and the renewal pointers are left alone', function () {
+    $service = Service::factory()->dueOn('2026-11-15')->create();
+    $this->artisan('automation:run', ['--date' => '2026-11-01', '--only' => 'services.renewals'])->assertSuccessful();
+    $this->kit->invoicer->refuseCancel = true;
+
+    requestCancellation($service, CancellationType::EndOfPeriod, '2026-11-02');
+
+    expect(array_column($this->kit->invoicer->invoicesFor(BillableType::Service, $service->id), 'status'))->toBe(['unpaid']);
+});
+
 test('AC24: cancelling renewals cancels this service and its addons only, never another service of the client', function () {
     $service = Service::factory()->dueOn('2026-11-15')->create();
     $addon = ServiceAddon::factory()->dueOn('2026-11-15')->create(['service_id' => $service->id]);

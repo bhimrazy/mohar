@@ -27,6 +27,7 @@ type Props = {
     service: ServiceRow;
     cycles: SelectOption[];
     servers: SelectOption[];
+    gateways: SelectOption[];
 };
 
 const NONE = '__none__';
@@ -57,7 +58,12 @@ function ToggleRow({
     );
 }
 
-export default function ServiceEdit({ service, cycles, servers }: Props) {
+export default function ServiceEdit({
+    service,
+    cycles,
+    servers,
+    gateways,
+}: Props) {
     const form = useForm({
         domain: service.domain ?? '',
         username: service.username ?? '',
@@ -79,7 +85,7 @@ export default function ServiceEdit({ service, cycles, servers }: Props) {
         recurring_cycles_limit: service.recurring_cycles_limit ?? 0,
         do_not_renew: service.do_not_renew,
         terminate_at_period_end: service.terminate_at_period_end ?? false,
-        payment_gateway: service.payment_gateway ?? '',
+        payment_gateway: service.payment_gateway || NONE,
         admin_notes: service.admin_notes ?? '',
     });
     const { data, setData, errors, processing } = form;
@@ -90,6 +96,8 @@ export default function ServiceEdit({ service, cycles, servers }: Props) {
             ...values,
             server_id:
                 values.server_id === NONE ? null : Number(values.server_id),
+            payment_gateway:
+                values.payment_gateway === NONE ? null : values.payment_gateway,
             first_payment_amount: toMinor(values.first_payment_amount),
             recurring_amount: toMinor(values.recurring_amount),
             next_due_date: values.next_due_date || null,
@@ -309,7 +317,32 @@ export default function ServiceEdit({ service, cycles, servers }: Props) {
                                 optional
                                 error={errors.payment_gateway}
                             >
-                                <Input {...text('payment_gateway')} />
+                                <Select
+                                    value={data.payment_gateway}
+                                    onValueChange={(value) =>
+                                        setData('payment_gateway', value)
+                                    }
+                                >
+                                    <SelectTrigger
+                                        id="payment_gateway"
+                                        className="w-full"
+                                    >
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value={NONE}>
+                                            Not set (the client chooses)
+                                        </SelectItem>
+                                        {gateways.map((gateway) => (
+                                            <SelectItem
+                                                key={gateway.value}
+                                                value={gateway.value}
+                                            >
+                                                {gateway.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </Field>
                         </div>
                     </SectionCard>

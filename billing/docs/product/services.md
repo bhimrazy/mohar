@@ -179,6 +179,7 @@ interfaces, registered with `App\Support\Services\ProvisioningDriverRegistry::re
 
 - Every command runs as queued job `RunModuleCommand` on queue `provisioning`, unique per `(subject, command)` and serialized per subject with a lock (suspend/unsuspend/terminate never overlap). Staff-triggered commands run synchronously with timeout `services.module.sync_timeout_seconds: 60` and fall back to queued. **MUST**
 - Retries: retryable failures up to `services.module.max_attempts: 3` with backoff `[60, 300, 900]` s; non-retryable fail immediately. After final failure: `module_queue` entry (open), event `ModuleCommandFailed`, staff notification; service status unchanged. **MUST**
+- An unknown outcome (the provider may have acted, ADR 0026) is not a failure: it opens a verify entry and sends staff `staff.provisioning_unknown` ("being checked") instead of `staff.provisioning_failed` (#147). When a server check confirms the command, it is applied with no further mail. **MUST**
 - Retry / Mark resolved / Dismiss in the queue UI; a later successful run of the same command auto-resolves open entries. **MUST**
 - Logging: every attempt logged in `module_commands` with request/response **redacted** (through `App\Support\Integrations\Redactor`: keys naming a secret, including `password`, `secret`, `token`, `api_key`, `hash` and `authorization` in any spelling, and the current credential values, replaced by `[redacted]`). Retention `services.module_log.retention_days: 30` (daily prune). **MUST**
 - Username generation: from domain: lowercase letters/digits, starts with a letter, max 8 chars **including** any numeric suffix, unique per server (truncate and append digits on collision); `services.random_usernames: false`. Password: 16 chars, mixed classes. Generation is overridable by driver. **MUST**
@@ -198,6 +199,8 @@ Single orchestrator command `automation:daily` runs steps in order; each step re
 1 services:generate-renewals (+ domains renewals) → 2 billing late fees → 3 billing auto-capture → 4 billing reminders → 5 services:process-cancellations →
 6 services:auto-suspend → 7 services:auto-terminate → 8 services:fixed-term → 9 services:complete-limited → 10 billing auto-cancel invoices →
 11 services:usage-sync (SHOULD) → 12 module log prune. Capture before suspension gives auto-pay clients a chance before being suspended. **MUST**
+Usage snapshots older than `services.usage.retention_days` (395, at least 90) are deleted by `services.usage_prune`; each
+service keeps its latest snapshot, which the service pages show. At most 100,000 rows a run (#49).
 
 ## 11. Admin capabilities
 
@@ -211,6 +214,16 @@ Servers & groups CRUD, test connection, account counts. Module queue. **MUST** (
 
 Services list & detail (status, next due date, amounts, addons, usage), change password (if supported), SSO login (if supported), request cancellation,
 upgrade/downgrade with live proration preview, order addons, view/download related invoices. **MUST** (SSO, usage SHOULD)
+
+Show password (#44; welcome emails carry no password): a live service with a username and a stored password shows a
+Password row with "Show password". The value is fetched on demand from `POST client/services/{service}/password/reveal`
+(JSON, `Cache-Control: no-store`), never put in page props, and hidden again after 60 seconds, with a copy button. The
+request needs `password.recent` (ADR 0018 §4; a login without a password is offered "Set a password"), the services area
+of the account (owner, or a user granted `services`), and is limited to 5 reveals per 10 minutes per login across all
+services. Each reveal writes "Service password revealed in the client area" to the activity log (who, which service,
+when; never the value). Panels that sign in only by SSO store no password, so the row is not shown. Staff signed in as the client
+see the action disabled with the reason (they cannot confirm the client's password). The admin reveal uses the same
+row: same words, 60 seconds, copy button. **MUST**
 
 ## 13. Events emitted
 
