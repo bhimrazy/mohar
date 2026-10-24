@@ -2,6 +2,7 @@
 
 namespace App\Support\Integrations;
 
+use Closure;
 use Error;
 use Exception;
 use Illuminate\Contracts\Support\Arrayable;
@@ -196,6 +197,12 @@ final class Redactor
 
     /** @var array{int, int|false}|null where cdataEnd() last searched for `]]>`, and what it found */
     private ?array $cdataClose = null;
+
+    /** @var array{int, int|false}|null where maskBoundEnd() last searched for `<![CDATA[`, and what it found */
+    private ?array $cdataOpen = null;
+
+    /** @var array{int, int|false}|null where maskBoundEnd() last searched for a mask a value end follows, and what it found */
+    private ?array $stoppedMask = null;
 
     private static int $nodesLeft = 0;
 
@@ -457,10 +464,10 @@ final class Redactor
      *
      * @template T
      *
-     * @param  \Closure(): T  $call
+     * @param  Closure(): T  $call
      * @return T
      */
-    private function budgeted(\Closure $call): mixed
+    private function budgeted(Closure $call): mixed
     {
         if (self::$calls++ === 0) {
             self::$nodesLeft = self::MAX_NODES;
@@ -537,13 +544,20 @@ final class Redactor
      */
     private function scan(string $value, array $sensitiveKeys): string
     {
-        [$this->scanning, $this->unquotedRun, $this->lineRun, $this->cdataClose] = [true, null, null, null];
+        $this->forgetRuns(true);
 
         try {
             return $this->scanText($value, $sensitiveKeys);
         } finally {
-            [$this->scanning, $this->unquotedRun, $this->lineRun, $this->cdataClose] = [false, null, null, null];
+            $this->forgetRuns(false);
         }
+    }
+
+    /** Clears the caches of one scan (see $scanning). */
+    private function forgetRuns(bool $scanning): void
+    {
+        $this->scanning = $scanning;
+        $this->unquotedRun = $this->lineRun = $this->cdataClose = $this->cdataOpen = $this->stoppedMask = null;
     }
 
     /**
@@ -740,10 +754,12 @@ final class Redactor
      * would have read in it (`1&hash:Bearer x`, `a,token:'x y'`) and masked past $end. For a tail value that is every
      * pair from $start (before #462 the tail stopped at the first one). For a value holding a mask it is every pair from
      * maskBoundEnd(), where the value ended when a mask could end it: a pair before that was inside the value and never
-     * read, and extending through it could hide a tag the scan reads (`pass=[<t name="pass">]`). Matches are searched in
-     * windows of 256 bytes plus 280 for a name and separator. An unquoted or whole-line inner value costs nothing past the
-     * first (valueEnd and pairValueEnd remember the run they found); quoted and bracketed ones are counted, and past
-     * INNER_WORK times the span the rest of the text is masked (fail closed). So the cost stays linear.
+     * read, and extending through it could hide a tag the scan reads (`pass=[<t name="pass">]`). For the same reason the
+     * search goes on after each inner value, at its maskBoundEnd(), not inside it. Matches are searched in windows of 256
+     * bytes plus 280 for a
+     * name and separator. An unquoted or whole-line inner value costs nothing past the first (valueEnd and pairValueEnd
+     * remember the run they found); quoted and bracketed ones are counted, and past INNER_WORK times the span the rest
+     * of the text is masked (fail closed). So the cost stays linear.
      *
      * @param  list<string>  $sensitiveKeys
      */
@@ -779,7 +795,9 @@ final class Redactor
                 }
             }
 
+            // As the scan did before #462, the search goes on where that value ended then: a pair inside it was never read.
             $end = max($end, $innerEnd);
+            $offset = max($offset, $this->maskBoundEnd((string) $match[5][0], $value, $matchEnd, $innerEnd));
         }
 
         return $end;
@@ -802,20 +820,45 @@ final class Redactor
             return min($end, $at + strlen(self::MASK));
         }
 
-        $span = substr($value, $at, $end - $at);
-        $cdata = strpos($span, '<![CDATA[');
-        $span = $cdata === false ? $span : substr($span, 0, $cdata);
+        $cdata = self::nextFrom($this->cdataOpen, $at, fn (int $from): int|false => strpos($value, '<![CDATA[', $from), $this->scanning);
+        $mask = self::nextFrom($this->stoppedMask, $at, fn (int $from): int|false => $this->stoppedMask($value, $from), $this->scanning);
+
+        return min($end, $cdata === false ? $end : $cdata, $mask === false ? $end : $mask + strlen(self::MASK));
+    }
+
+    /** The offset of the first mask at or after $from that a value end follows (or the end of the text). */
+    private function stoppedMask(string $value, int $from): int|false
+    {
         $stops = self::VALUE_HARD_END.self::VALUE_SOFT_END.'&';
 
-        for ($mask = strpos($span, self::MASK); $mask !== false; $mask = strpos($span, self::MASK, $mask + 1)) {
-            $after = $at + $mask + strlen(self::MASK);
+        for ($mask = strpos($value, self::MASK, $from); $mask !== false; $mask = strpos($value, self::MASK, $mask + 1)) {
+            $after = $mask + strlen(self::MASK);
 
             if ($after >= strlen($value) || str_contains($stops, $value[$after])) {
-                return $after;
+                return $mask;
             }
         }
 
-        return $at + strlen($span);
+        return false;
+    }
+
+    /**
+     * The first match at or after $from that $find returns, remembered in $cache during a scan: a later $from up to that
+     * match has the same first match, so searches that start inside one never repeat it.
+     *
+     * @param  array{int, int|false}|null  $cache
+     * @param  Closure(int): (int|false)  $find
+     */
+    private static function nextFrom(?array &$cache, int $from, Closure $find, bool $remember): int|false
+    {
+        if ($cache !== null && $from >= $cache[0] && ($cache[1] === false || $from <= $cache[1])) {
+            return $cache[1];
+        }
+
+        $found = $find($from);
+        $cache = $remember ? [$from, $found] : null;
+
+        return $found;
     }
 
     /** Whether valueEnd() reads the value at $valueStart as quoted or bracketed rather than as an unquoted run. */

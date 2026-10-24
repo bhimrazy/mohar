@@ -402,15 +402,17 @@ missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this s
   counted, and past 4 times the span plus 64 KB the rest of the text is masked (fail closed). The review's timing
   harness also found `cdataEnd()` quadratic at 4 MB (`token: a<![CDATA["x ` repeated, 54 s): each value searched the
   rest of the text for `]]>` and copied the section. It now remembers the `]]>` it found last during a scan and reads
-  the content only up to its first excluded character. Measured locally, the review's shapes and its 12 harness
-  shapes take at most 1.0 s at 4 MB (develop: at most 0.93 s). `RedactorShapesBudgetTest` holds the review's shapes
-  and the CDATA one under 0.5 s at 256 KB, under 2 s at 1 MB, and linear from 512 KB to 4 MB.
+  the content only up to its first excluded character. Measured locally at 4 MB, the review's shapes and its 12
+  harness shapes take at most 1.5 s (`pw=a;token: ` repeated; develop 0.87 s), 4 times their 1 MB time.
+  `RedactorShapesBudgetTest` holds the review's shapes and the CDATA one under 0.5 s at 256 KB, under 2 s at 1 MB, and
+  linear from 512 KB to 4 MB.
 - **Masking no longer decreases against develop (B2).**
     - For a value holding a mask, only the pairs from `maskBoundEnd()` on extend it: where the value ended before #462
       (the `]` of a mask followed by a value end, a mask at the start, or a CDATA section). A pair before that point
       was inside develop's value, which develop never read, and extending through it hid a label tag that develop's
       scan read (`Session:s://@pass=[<t name="pass">]…`). A tail value still extends over every pair in it, because
-      develop's scan read each of them after it cut the tail value.
+      develop's scan read each of them after it cut the tail value. Either way the search goes on where develop's
+      value for each inner pair ended (its `maskBoundEnd()`), as develop's scan did: a pair inside that was never read.
     - The `<` guard of `trailingPair()` was tried for inner pairs and rejected: it left a quoted value with a CDATA
       section after the mask readable that develop masked (`…]:token:Bearer "<![CDATA[…]]>…"`).
     - The pair that ends a masked span takes a value starting with `//` (`pw=ab;token: //x`), as develop's tail rule
