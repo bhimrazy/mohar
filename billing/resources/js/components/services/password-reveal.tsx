@@ -77,7 +77,7 @@ export function PasswordReveal({ url }: { url: string }) {
                     }
                 >
                     {shown ? <EyeOff /> : <Eye />}
-                    {shown ? 'Hide password' : 'Show password'}
+                    {shown ? 'Hide' : 'Show password'}
                 </Button>
             </div>
             {shown && credentials.secondsLeft !== null && (

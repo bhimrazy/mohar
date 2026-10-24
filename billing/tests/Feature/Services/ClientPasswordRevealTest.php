@@ -7,6 +7,7 @@ use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Service;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Testing\TestResponse;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Services\ServicesTestKit;
 
@@ -19,7 +20,7 @@ beforeEach(function () {
     $this->service = Service::factory()->onServer()->create(['client_id' => $this->client->id, 'password' => 'Hosting-Secret-91']);
 });
 
-function revealPasswordFor(Service $service): Illuminate\Testing\TestResponse
+function revealPasswordFor(Service $service): TestResponse
 {
     return test()->postJson(route('client.services.password.reveal', $service->id));
 }
@@ -100,15 +101,18 @@ test('a sub-user needs the services area of the account', function (array $areas
     'services' => [['services'], 200],
 ]);
 
-test('five reveals per ten minutes per login, across services', function () {
+test('five reveals per ten minutes per login, across services; asking before confirming uses none', function () {
     $second = Service::factory()->onServer()->create(['client_id' => $this->client->id]);
+    foreach (range(1, 3) as $attempt) {
+        revealPasswordFor($this->service)->assertStatus(423);
+    }
     confirmPassword();
 
     foreach (range(1, 5) as $attempt) {
         revealPasswordFor($attempt % 2 === 0 ? $second : $this->service)->assertOk();
     }
 
-    revealPasswordFor($second)->assertTooManyRequests();
+    revealPasswordFor($second)->assertTooManyRequests()->assertHeader('Cache-Control', 'no-store, private')->assertJsonMissingPath('password');
     expect(revealAudits())->toBe(5);
 
     $this->travel(11)->minutes();

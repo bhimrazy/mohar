@@ -22,6 +22,8 @@ use App\Modules\Services\Support\CommandOutcome;
 use App\Modules\Services\Support\ServiceSettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
@@ -81,13 +83,30 @@ class ServiceActionController extends Controller
         return to_route('client.services.show', $model->id);
     }
 
+    /** Password reveals allowed per login in REVEAL_WINDOW_SECONDS, across all services (#44). */
+    public const REVEALS_PER_WINDOW = 5;
+
+    public const REVEAL_WINDOW_SECONDS = 600;
+
     /**
      * Show the stored hosting password (#44): welcome emails no longer carry it. Behind a recent password confirmation
-     * and a per-login limit (routes), written to the activity log without the value, and sent as JSON that is never
+     * (route) and a per-login limit, written to the activity log without the value, and sent as JSON that is never
      * cached, so it is in no page prop or history entry.
+     *
+     * The limit is counted here rather than by route throttling, so only requests past step-up use it up: the 423
+     * that opens the confirm dialog does not.
      */
-    public function revealPassword(int $service, ActivityLogger $activity, ServicePresenter $presenter): JsonResponse
+    public function revealPassword(Request $request, int $service, ActivityLogger $activity, ServicePresenter $presenter): JsonResponse
     {
+        $key = 'services-password-reveal:'.$request->user()?->id;
+
+        if (RateLimiter::tooManyAttempts($key, self::REVEALS_PER_WINDOW)) {
+            return response()->json(['message' => __('The password was shown too many times. Try again later.')], 429)
+                ->header('Retry-After', (string) RateLimiter::availableIn($key))
+                ->header('Cache-Control', 'no-store, private');
+        }
+
+        RateLimiter::hit($key, self::REVEAL_WINDOW_SECONDS);
         $model = $this->owned($service);
 
         if (! $presenter->revealsPassword($model)) {
