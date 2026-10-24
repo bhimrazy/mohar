@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Models\User;
+use App\Modules\Core\Models\Client;
 use Illuminate\Auth\Middleware\RequirePassword;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Routing\Route as RoutingRoute;
@@ -56,6 +57,8 @@ test('every route behind a password confirmation refuses an expired one-time pas
         $name = $route->getName();
         // Staff with 2FA, so the staff-security redirect does not answer first; every permission, so none refuses first.
         $user = User::factory()->staff(['*'])->withTwoFactor()->create(['password_expires_at' => now()->addMinute()])->refresh();
+        // Linked to a client account, so client-area routes reach the confirmation instead of redirecting staff away.
+        $user->clients()->attach(Client::factory()->create(), ['is_owner' => true]);
         $this->flushSession();
         $this->actingAs($user)->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
         $this->travel(2)->minutes();
@@ -80,5 +83,5 @@ test('every route behind a password confirmation refuses an expired one-time pas
 
     expect($leaked)->toBe([])
         // Vacuity guard: both middleware families and the Fortify routes are in the scan.
-        ->and($seen)->toContain('security.edit', 'passkey.registration-options', 'two-factor.disable', 'admin.platform.roles.store', 'admin.billing.invoices.bulk');
+        ->and($seen)->toContain('security.edit', 'passkey.registration-options', 'two-factor.disable', 'admin.platform.roles.store', 'admin.billing.invoices.bulk', 'client.services.password.reveal');
 });
