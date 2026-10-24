@@ -79,26 +79,30 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
 
 ## Open pull requests and running work
 
-Signed off and in the merge queue (`scripts/merge-queue.sh`, which merges at the signed head once CI
-passes and refreshes changelog-only conflicts): #429 VAT PR 2 (staff issue, settle and reverse tax notes), #428 VAT
-PR 6 (VAT and tax-note registers, Reports kernel items, closes #403), #433 load-test arrivals spread (the #205
-cause: every k6 user signed in in the same second; the runner load test passed; `sizing.md` tables to be updated from
-that run). Signed off, queued next: #435 CalendarDate follow-ups (Domains typed, runtime Carbon-task baseline,
-ASCII-only format; closes #426).
+Merged 2026-10-23/24 (details in `billing/docs/progress.md` at the next update): #393, #395, #405, #408–#413, #416,
+#422–#424, #427–#429, #432–#435, #437, #438 (closes #402), #440 (closes #418), #444 (CEO review 70/100), #446 (squash
+by default). #445 (admin dashboard cache, closes #441) is signed off at `2872e693` and in the merge queue.
 
-| PR   | Workstream                                                                                  | Status (2026-10-24)                                                         |
-| ---- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| #432 | VAT PR 3a: Nepal VAT mode settings, VAT/export classification (flag `features.billing.nepal_vat_mode`, hidden until VAT PR 4) | Signed off; queued after #435.                                              |
-| #128 | Gateway expansion spec                                                                      | Draft. Owner questions in the PR.                                           |
+Session wrapped on the owner's request 2026-10-24. No agents running. Resume in this order:
+
+| PR   | Workstream                                                        | Status and next step (2026-10-24)                                                                                                                                                                                 |
+| ---- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #449 | Wave 1 P2a Domains renewals and pricing (#13, #15, #55)           | Changes requested. Blocking: sync's lost-renewal settle leaves Grace/Redemption domains in Grace (next year never invoiced); reuse `PerformRenewal::applied()`'s confirm step, which also fires `DomainRenewed`. Medium: pre-change claims assume 1 year (read years from `domain_invoices`). Architect: kernel-changelog fragment missing. Probes: scratchpad `Pr449ReviewProbesTest.php` (not pushed). Scheduled-run vs Renew now race is covered by `period_guard`; a failed day stage on that race is worth noting in the fix round. |
+| #450 | Wave 1 P9 Support (#18, #30 part, #51)                            | Changes requested (probes on `review/pr-450-probes`). Blocking: (1) a same-email guest merge keeps the target key, so the older ticket's link reads the merged messages: always rotate a guest target's key; (2) staff recipients are not filtered by department access (removed assignee, fallback subscribers): add an access filter backed by `TicketAccess`; (3) the queue index scans closed tickets: make it partial (`status <> 'closed' and merged_into_id is null`); (4) body to "Part of #30" (threading headers are their own package). Architect approved. |
+| #453 | Wave 1 P3a Server import storage (#103, #134, #135, #136; #149 part) | Not reviewed. Migration `2026_10_24_400750` deletes duplicate report lines (keeps the earliest); a pre-upgrade list is moved to rows on first read. Needs review-board + database-reviewer.                    |
+| #452 | Wave 1 P1a Redactor (#399 done; #311 not started)                 | Draft. #399 fixed with failing-first tests. #311 left: `HtmlDocumentMarker`, fold probe files, ADR 0023 amendment for the 50,000-value node budget.                                                             |
+| #447 | VAT flags follow-ups                                              | Not reviewed. Register sums only flagged VAT; notes copy flags; panel gate uses `NepalVatMode::inEffect()`. Merge before #451.                                                                                  |
+| #451 | VAT PR 3b old paths                                               | Draft. No PostgreSQL run, no browser check. `Invoicer::cancel` gains an optional reason (kernel).                                                                                                               |
+| #448 | CI split and `scripts/test.sh`                                    | Not reviewed; CI green, wall time 9 min to about 4¼. Owner question: keep the split (about 19 billable minutes a run while private, against 10). `.claude/agents/devops-engineer.md` still says "CI stays one job". |
+| #128 | Gateway expansion spec                                            | Draft. Owner questions in the PR.                                                                                                                                                                                |
 
 After each merge close the issue by hand (`develop` ignores closing keywords). Signed-off PRs must be marked ready:
-CI skips drafts without the `ci` label.
+CI skips drafts without the `ci` label. Review follow-ups go into the open PR's fix round or a planned package, not
+new issues. Wave plan: scratchpad `issue-triage.md` (34 packages, 7 waves); Wave 1 still to start: P8a Services
+(#44, #147, #146; after #450 merges, both change `SendEventEmails`).
 
-- Queue after these: VAT PR 3b (old paths: `Invoicer::cancel` callers, automation, `CancelInvoiceItems`,
-  `LateFeeApplied`), then VAT PRs 4, 5 and 7; follow-ups after #432 (#428 sums VAT only from flagged levels, #429
-  notes copy their invoice's flags); #430 (covered by #432); #431 (report query budget, conformance kit); #436 (last
-  Domains `todayDate` callers); #407, #414 follow-ups (#418 default country picker and #402 email change with SMTP down are building); #244 Node and Debian images
-  (after 10-28); the admin dashboard above its 200 ms target (from #205).
+- Queue after these: VAT PRs 4, 5 and 7; #431 (report query budget, conformance kit); #436 (last Domains `todayDate`
+  callers); #407, #414 follow-ups; #244 Node and Debian images (after 10-28).
 - Namecheap is merged but not enabled. Before enabling it: a sandbox check of the not-in-account error numbers (2016166, 2019166), the `.us`,
   `.ca` and `.eu` extension details and the transfer texts (simulator README "verify" list).
 - Changelog fragments (`billing/changelog.d/`, assembled at release; owner decision 2026-10-23, #397).
