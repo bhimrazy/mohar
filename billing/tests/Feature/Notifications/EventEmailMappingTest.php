@@ -3,6 +3,7 @@
 use App\Contracts\Auth\AuthMailer;
 use App\Events\Billing\InvoiceCreated;
 use App\Events\Domains\DomainExpiryDigest;
+use App\Events\Services\ProvisioningFailed;
 use App\Events\Support\TicketReplied;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
@@ -14,6 +15,7 @@ use App\Modules\Notifications\Models\ClientEmailPreference;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Models\EmailTemplate;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 require_once __DIR__.'/helpers.php';
@@ -172,4 +174,28 @@ it('notifies subscribed staff and marks the message failed when a template does 
     expect(EmailMessage::query()->where('template_key', 'invoice.created')->pluck('status')->unique()->all())->toBe([EmailStatus::Failed])
         ->and(loggedRecipients('staff.template_render_failed'))->toBe(['admin@example.test']);
     Mail::assertSent(TemplatedMail::class, 1);
+});
+
+it('tells staff of a failure, or of an unknown outcome that is being checked (#147)', function (bool $unknown, string $sent, string $notSent) {
+    fullAdministrator('ops@example.test');
+
+    $this->listener->provisioningFailed(new ProvisioningFailed(7, $this->client->id, 'create', 'cURL error 28: timed out', outcomeUnknown: $unknown));
+
+    expect(loggedRecipients($sent))->toBe(['ops@example.test'])
+        ->and(loggedRecipients($notSent))->toBe([])
+        ->and(mailedTo($unknown ? 'Checking the outcome' : 'Provisioning failed'))->toBe(['ops@example.test']);
+})->with([
+    'failed' => [false, 'staff.provisioning_failed', 'staff.provisioning_unknown'],
+    'outcome unknown' => [true, 'staff.provisioning_unknown', 'staff.provisioning_failed'],
+]);
+
+it('logs the key when a template is missing instead of dropping the mail silently', function () {
+    fullAdministrator('ops@example.test');
+    EmailTemplate::query()->where('key', 'staff.provisioning_unknown')->delete();
+    Log::spy();
+
+    $this->listener->provisioningFailed(new ProvisioningFailed(7, $this->client->id, 'create', 'timed out', outcomeUnknown: true));
+
+    Mail::assertNothingSent();
+    Log::shouldHaveReceived('warning')->with('Email not sent: no template with this key.', ['template_key' => 'staff.provisioning_unknown'])->once();
 });

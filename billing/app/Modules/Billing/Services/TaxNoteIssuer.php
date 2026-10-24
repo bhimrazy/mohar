@@ -31,8 +31,10 @@ use App\Modules\Core\Support\ActivityLogger;
 use App\Support\CalendarDate;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Money;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use OutOfRangeException;
+use stdClass;
 
 /**
  * Issues credit and debit notes against a numbered invoice (ADR 0024, vat-register §5.1). Confirm-then-apply (ADR 0021):
@@ -143,77 +145,147 @@ class TaxNoteIssuer
     public function issue(NoteRequest $request, int $version, string $digest): TaxNote
     {
         return DB::transaction(function () use ($request, $version, $digest): TaxNote {
-            $invoice = Invoice::query()->lockForUpdate()->findOrFail($request->invoiceId);
-            // The client next: the note's own insert takes a key-share lock on it, and the refund paths that hold the client
-            // for update then wait for the sequence. Locking it here keeps both in the same order.
-            Client::query()->whereKey($invoice->client_id)->lockForUpdate()->firstOrFail();
-            DB::table('tax_note_reservations')->where('invoice_id', $invoice->id)->where('status', 'pending')->orderBy('id')->lockForUpdate()->pluck('id');
-            $plan = $this->plan($request, $invoice);
+            [$invoice, $plan] = $this->lockAndPlan($request);
 
             if ($invoice->version !== $version || $plan->digest !== $digest) {
                 throw StaleNoteException::make();
             }
 
-            $at = $this->clock->now()->utc();
-            $date = $this->clock->localDate($at);
-            $bs = $this->bsDate($date);
-            $credit = $request->kind === 'credit';
-            $adjustment = $this->settlement->adjust(
-                $invoice, $credit ? AdjustmentKind::Credit : AdjustmentKind::Debit, $credit ? AdjustmentReason::CreditNote : AdjustmentReason::DebitNote,
-                $plan->total, userId: $request->userId, taxableAmount: $plan->taxable, taxAmount: $plan->tax1 + $plan->tax2,
-            );
-            // The sequence row is locked last, just before the note is inserted.
-            $number = $this->numbers->next($credit ? DocumentNumbers::CREDIT_NOTE : DocumentNumbers::DEBIT_NOTE, CalendarDate::parse($date));
-
-            $note = (new TaxNote)->forceFill([
-                'kind' => $request->kind, 'number' => $number, 'invoice_id' => $invoice->id, 'client_id' => $invoice->client_id, 'currency' => $invoice->currency,
-                'issue_date' => $date, 'issued_at' => $at, 'invoice_number' => (string) $invoice->number, 'invoice_bs_issue_date' => $invoice->bs_issue_date,
-                'reason_code' => $request->reasonCode, 'reason_text' => $request->reasonText, 'taxable_amount' => $plan->taxable, 'exempt_amount' => $plan->exempt,
-                'tax1_amount' => $plan->tax1, 'tax2_amount' => $plan->tax2, 'total' => $plan->total, 'report_currency' => $invoice->report_currency,
-                'report_rate' => $invoice->report_rate, 'supply_class' => $invoice->supply_class, 'tax1_is_vat' => $invoice->fiscal_tax1_is_vat, 'tax2_is_vat' => $invoice->fiscal_tax2_is_vat, 'seller_snapshot' => $invoice->seller_snapshot,
-                'buyer_snapshot' => $invoice->client_snapshot, 'bs_issue_date' => $bs->toIso(), 'bs_period' => BikramSambat::period($bs),
-                'bs_fiscal_year' => BikramSambat::fiscalYear($bs), 'automatic' => $request->automatic, 'created_by' => $request->userId,
-                'reverses_tax_note_id' => $request->reverses, 'created_at' => $at, 'updated_at' => $at,
-            ]);
-            $note->save();
-
-            foreach ($plan->parts as $i => $part) {
-                TaxNoteLine::query()->create([
-                    'tax_note_id' => $note->id, 'invoice_item_id' => $part['item_id'], 'description' => mb_substr($part['description'], 0, 255), 'quantity' => 1,
-                    'unit_amount' => $part['net'], 'amount' => $part['net'], 'taxable' => $part['taxable'], 'tax1_amount' => $part['tax1'], 'tax2_amount' => $part['tax2'], 'sort_order' => $i,
-                ]);
-            }
-
-            // A note aimed at one line names it on its adjustment.
-            $reverses = $request->reverses !== null ? (string) TaxNote::query()->whereKey($request->reverses)->value('number') : null;
-            // The balance card names the note; its reason text is on the note itself.
-            $label = match (true) {
-                $reverses !== null => __('Debit note :number (reverses :reverses)', ['number' => $number, 'reverses' => $reverses]),
-                $credit => __('Credit note :number', ['number' => $number]),
-                default => __('Debit note :number', ['number' => $number]),
-            };
-            $adjustment->forceFill(['tax_note_id' => $note->id, 'invoice_item_id' => count($plan->parts) === 1 ? $plan->parts[0]['item_id'] : null, 'description' => $label])->save();
-            $this->settleToCredit($invoice, $note, $plan, $request->userId);
-            $this->afterNote($invoice, $credit);
-            $this->activity->log($reverses !== null
-                ? __('Debit note :number issued, reversing credit note :reverses', ['number' => $number, 'reverses' => $reverses])
-                : __(':kind note :number issued', ['kind' => $credit ? __('Credit') : __('Debit'), 'number' => $number]), $note, $invoice->client_id, [
-                    'tax_note_id' => $note->id, 'number' => $number, 'kind' => $request->kind, 'invoice_id' => $invoice->id, 'invoice_number' => $invoice->number,
-                    'amount' => $plan->total, 'currency' => $invoice->currency, 'settlement' => $plan->settlement, 'to_credit' => $plan->toCredit,
-                    'reason_code' => $request->reasonCode, 'reverses_tax_note_id' => $request->reverses, 'reverses_number' => $reverses, 'due_date' => $plan->dueDate,
-                    'source' => $request->automatic ? ($request->source ?? 'automation') : 'staff',
-                ], 'billing.tax_note.issued');
-            event($credit
-                ? new CreditNoteIssued($note->id, $number, $invoice->id, $invoice->client_id, $plan->total, $invoice->currency, $request->automatic)
-                : new DebitNoteIssued($note->id, $number, $invoice->id, $invoice->client_id, $plan->total, $invoice->currency, $request->automatic));
-
-            return $note;
+            return $this->write($request, $invoice, $plan, $this->clock->now()->utc(), true);
         });
     }
 
-    private function plan(NoteRequest $request, Invoice $invoice): NotePreview
+    /**
+     * Issue a note in one step, for the paths that cancel, cancel lines or add a late fee (vat-register §5.4): nothing
+     * was previewed, so the plan is built under the lock and written at once. Call it inside the transaction that holds the
+     * invoice lock; `$at` is that transaction's one instant and dates the note and its adjustment. With `$settle` false the
+     * invoice is left as it is after the note (the caller is cancelling it).
+     *
+     * @throws BillingException when a rule or a cap is violated
+     */
+    public function issueNow(NoteRequest $request, CarbonImmutable $at, bool $settle = true): TaxNote
     {
-        $this->guard($request, $invoice);
+        return DB::transaction(function () use ($request, $at, $settle): TaxNote {
+            [$invoice, $plan] = $this->lockAndPlan($request);
+
+            return $this->write($request, $invoice, $plan, $at, $settle);
+        });
+    }
+
+    /**
+     * Issue the note a refund reserved: exactly the stored allocation, at the finalising transaction's instant `$at`. The
+     * caller holds the payment, invoice, client and reservation locks (ADR 0024 §4) and has checked that the mode is in
+     * effect at `$at`; it then takes the refund off `amount_paid`, so the note's credit and the refund net on the balance.
+     *
+     * @param  list<stdClass>  $lines  the reservation's lines
+     */
+    public function issueReserved(Invoice $invoice, array $lines, string $reasonCode, string $reasonText, ?int $userId, CarbonImmutable $at): TaxNote
+    {
+        $items = DB::table('invoice_items')->where('invoice_id', $invoice->id)->pluck('description', 'id');
+        $parts = array_map(fn (stdClass $line): array => [
+            'item_id' => $line->invoice_item_id !== null ? (int) $line->invoice_item_id : null,
+            'description' => (string) ($items[$line->invoice_item_id] ?? $reasonText),
+            'taxable' => (bool) $line->taxable, 'gross' => (int) $line->amount + (int) $line->tax1_amount + (int) $line->tax2_amount,
+            'net' => (int) $line->amount, 'tax1' => (int) $line->tax1_amount, 'tax2' => (int) $line->tax2_amount,
+        ], $lines);
+        $net = fn (bool $taxable): int => array_sum(array_map(fn (array $part): int => $part['net'], array_filter($parts, fn (array $part): bool => $part['taxable'] === $taxable)));
+        $plan = new NotePreview('credit', $parts, array_sum(array_column($parts, 'gross')), $net(true), $net(false), array_sum(array_column($parts, 'tax1')), array_sum(array_column($parts, 'tax2')),
+            $invoice->balance, $invoice->version, '', 'refund');
+
+        return $this->write(NoteRequest::creditAmount($invoice->id, $plan->total, $reasonCode, $reasonText, $userId === null, $userId, 'refund'), $invoice, $plan, $at, false);
+    }
+
+    /**
+     * Move an amount above the balance to account credit with the note's id (the refund finalised after a payment arrived
+     * meanwhile). Called with the invoice and client locked.
+     */
+    public function creditExcess(Invoice $invoice, TaxNote $note, int $amount, ?int $userId): void
+    {
+        $this->postToCredit($invoice, $note, $amount, $userId);
+    }
+
+    /**
+     * @return array{0: Invoice, 1: NotePreview}
+     */
+    private function lockAndPlan(NoteRequest $request): array
+    {
+        $invoice = Invoice::query()->lockForUpdate()->findOrFail($request->invoiceId);
+        // The client next: the note's own insert takes a key-share lock on it, and the refund paths that hold the client
+        // for update then wait for the sequence. Locking it here keeps both in the same order.
+        Client::query()->whereKey($invoice->client_id)->lockForUpdate()->firstOrFail();
+        DB::table('tax_note_reservations')->where('invoice_id', $invoice->id)->where('status', 'pending')->orderBy('id')->lockForUpdate()->pluck('id');
+
+        return [$invoice, $this->plan($request, $invoice)];
+    }
+
+    private function write(NoteRequest $request, Invoice $invoice, NotePreview $plan, CarbonImmutable $at, bool $settle): TaxNote
+    {
+        // Before its start day the old paths run and staff cannot issue notes (ADR 0024 §8).
+        // The mode is read under the shared lock, like the old paths: switching it off waits for this transaction.
+        if ($this->mode->enabledLocked() && ! $this->mode->inEffectLocked($at)) {
+            throw new BillingException(__('Nepal VAT mode starts on :date; notes can be issued from then.', ['date' => $this->mode->enabledFrom()]));
+        }
+
+        $date = $this->clock->localDate($at);
+        $bs = $this->bsDate($date);
+        $credit = $request->kind === 'credit';
+        $adjustment = $this->settlement->adjust(
+            $invoice, $credit ? AdjustmentKind::Credit : AdjustmentKind::Debit, $credit ? AdjustmentReason::CreditNote : AdjustmentReason::DebitNote,
+            $plan->total, userId: $request->userId, taxableAmount: $plan->taxable, taxAmount: $plan->tax1 + $plan->tax2, at: $at,
+        );
+        // The sequence row is locked last, just before the note is inserted.
+        $number = $this->numbers->next($credit ? DocumentNumbers::CREDIT_NOTE : DocumentNumbers::DEBIT_NOTE, CalendarDate::parse($date));
+
+        $note = (new TaxNote)->forceFill([
+            'kind' => $request->kind, 'number' => $number, 'invoice_id' => $invoice->id, 'client_id' => $invoice->client_id, 'currency' => $invoice->currency,
+            'issue_date' => $date, 'issued_at' => $at, 'invoice_number' => (string) $invoice->number, 'invoice_bs_issue_date' => $invoice->bs_issue_date,
+            'reason_code' => $request->reasonCode, 'reason_text' => $request->reasonText, 'taxable_amount' => $plan->taxable, 'exempt_amount' => $plan->exempt,
+            'tax1_amount' => $plan->tax1, 'tax2_amount' => $plan->tax2, 'total' => $plan->total, 'report_currency' => $invoice->report_currency,
+            'report_rate' => $invoice->report_rate, 'supply_class' => $invoice->supply_class, 'tax1_is_vat' => $invoice->fiscal_tax1_is_vat, 'tax2_is_vat' => $invoice->fiscal_tax2_is_vat, 'seller_snapshot' => $invoice->seller_snapshot,
+            'buyer_snapshot' => $invoice->client_snapshot, 'bs_issue_date' => $bs->toIso(), 'bs_period' => BikramSambat::period($bs),
+            'bs_fiscal_year' => BikramSambat::fiscalYear($bs), 'automatic' => $request->automatic, 'created_by' => $request->userId,
+            'reverses_tax_note_id' => $request->reverses, 'created_at' => $at, 'updated_at' => $at,
+        ]);
+        $note->save();
+
+        foreach ($plan->parts as $i => $part) {
+            TaxNoteLine::query()->create([
+                'tax_note_id' => $note->id, 'invoice_item_id' => $part['item_id'], 'description' => mb_substr($part['description'], 0, 255), 'quantity' => 1,
+                'unit_amount' => $part['net'], 'amount' => $part['net'], 'taxable' => $part['taxable'], 'tax1_amount' => $part['tax1'], 'tax2_amount' => $part['tax2'], 'sort_order' => $i,
+            ]);
+        }
+
+        // A note aimed at one line names it on its adjustment.
+        $reverses = $request->reverses !== null ? (string) TaxNote::query()->whereKey($request->reverses)->value('number') : null;
+        // The balance card names the note; its reason text is on the note itself.
+        $label = match (true) {
+            $reverses !== null => __('Debit note :number (reverses :reverses)', ['number' => $number, 'reverses' => $reverses]),
+            $credit => __('Credit note :number', ['number' => $number]),
+            default => __('Debit note :number', ['number' => $number]),
+        };
+        $adjustment->forceFill(['tax_note_id' => $note->id, 'invoice_item_id' => count($plan->parts) === 1 ? $plan->parts[0]['item_id'] : null, 'description' => $label])->save();
+        $this->settleToCredit($invoice, $note, $plan, $request->userId);
+        if ($settle) {
+            $this->afterNote($invoice, $credit);
+        }
+        $this->activity->log($reverses !== null
+            ? __('Debit note :number issued, reversing credit note :reverses', ['number' => $number, 'reverses' => $reverses])
+            : __(':kind note :number issued', ['kind' => $credit ? __('Credit') : __('Debit'), 'number' => $number]), $note, $invoice->client_id, [
+                'tax_note_id' => $note->id, 'number' => $number, 'kind' => $request->kind, 'invoice_id' => $invoice->id, 'invoice_number' => $invoice->number,
+                'amount' => $plan->total, 'currency' => $invoice->currency, 'settlement' => $plan->settlement, 'to_credit' => $plan->toCredit,
+                'reason_code' => $request->reasonCode, 'reverses_tax_note_id' => $request->reverses, 'reverses_number' => $reverses, 'due_date' => $plan->dueDate,
+                'source' => $request->automatic ? ($request->source ?? 'automation') : 'staff',
+            ], 'billing.tax_note.issued');
+        event($credit
+            ? new CreditNoteIssued($note->id, $number, $invoice->id, $invoice->client_id, $plan->total, $invoice->currency, $request->automatic)
+            : new DebitNoteIssued($note->id, $number, $invoice->id, $invoice->client_id, $plan->total, $invoice->currency, $request->automatic));
+
+        return $note;
+    }
+
+    public function plan(NoteRequest $request, Invoice $invoice, bool $reserving = false): NotePreview
+    {
+        $this->guard($request, $invoice, $reserving);
         $credit = $request->kind === 'credit';
         $parts = match (true) {
             $credit => $this->creditParts($request, $invoice),
@@ -240,7 +312,7 @@ class TaxNoteIssuer
                 throw new BillingException(__('At most :amount can still be credited on this invoice.', ['amount' => $money(max(0, $available))]));
             }
 
-            if ($balanceAfter < 0) {
+            if ($balanceAfter < 0 && $request->settlement !== 'refund') {
                 throw new BillingException(__('A credit note above the open balance of :amount needs a settlement: choose account credit.', ['amount' => $money($invoice->balance)]));
             }
         }
@@ -258,19 +330,22 @@ class TaxNoteIssuer
         return new NotePreview(
             $request->kind, $parts, $total, $net(true), $net(false), $tax1, $tax2, $balanceAfter, $invoice->version,
             hash('sha256', (string) json_encode([$request->kind, $invoice->id, $request->reasonCode, $total, $parts, $toCredit, $request->reverses, $dueDate, $creditAfter])),
-            $toCredit > 0 ? 'credit' : 'balance', $toCredit, $dueDate,
+            $toCredit > 0 ? 'credit' : ($request->settlement === 'refund' ? 'refund' : 'balance'), $toCredit, $dueDate,
             $creditAfter,
         );
     }
 
-    /** Why notes cannot be issued at all now: the mode is off, or it has not reached its start day. */
-    public function modeBlocked(): ?string
+    /**
+     * Why notes cannot be issued at all now: the mode is off, or it has not reached its start day. A refund reserves its note
+     * from the mode being switched on, so `$beforeStart` lets the start day pass (ADR 0024 §5).
+     */
+    public function modeBlocked(bool $beforeStart = false): ?string
     {
         if (! $this->mode->enabled()) {
             return (string) __('Notes can be issued only while Nepal VAT mode is on.');
         }
 
-        return $this->mode->inEffect($this->clock->now()) ? null : (string) __('Nepal VAT mode starts on :date; notes can be issued from then.', ['date' => $this->mode->enabledFrom()]);
+        return $beforeStart || $this->mode->inEffect($this->clock->now()) ? null : (string) __('Nepal VAT mode starts on :date; notes can be issued from then.', ['date' => $this->mode->enabledFrom()]);
     }
 
     /** A taxed invoice whose tax was never split into Nepal VAT and other tax takes no note, now or later. */
@@ -283,7 +358,7 @@ class TaxNoteIssuer
         return __('This invoice\'s tax was never split into Nepal VAT and other tax, so it takes no note. Ask the person who runs the system to run "php artisan billing:fiscal-vat-split" first.');
     }
 
-    private function guard(NoteRequest $request, Invoice $invoice): void
+    private function guard(NoteRequest $request, Invoice $invoice, bool $reserving = false): void
     {
         if (! in_array($request->reasonCode, $request->kind === 'credit' ? self::CREDIT_REASONS : self::DEBIT_REASONS, true)) {
             throw new BillingException(__('Choose a reason for the note.'));
@@ -299,7 +374,7 @@ class TaxNoteIssuer
 
         // Notes exist only while the mode is in effect, and a taxed invoice without flags would write a note the register cannot
         // place (a note's flags are copied once and never change).
-        if (($blocked = $this->modeBlocked() ?? $this->unclassifiedBlock($invoice)) !== null) {
+        if (($blocked = $this->modeBlocked($reserving) ?? $this->unclassifiedBlock($invoice)) !== null) {
             throw new BillingException($blocked);
         }
 
@@ -343,11 +418,111 @@ class TaxNoteIssuer
      */
     private function creditParts(NoteRequest $request, Invoice $invoice): array
     {
+        if ($request->cancel) {
+            return $this->cancelParts($invoice, (int) $request->amount);
+        }
+
         $lines = $this->lines($invoice);
 
         return $request->lines !== null
             ? $this->allocator->byLines($lines, $request->lines, $invoice->currency)
             : $this->allocator->byAmount($lines, (int) $request->amount, $invoice->currency);
+    }
+
+    /**
+     * The parts of the note that cancels an invoice: what each line still holds (a discount line as a negative part, so it
+     * goes with the lines it discounts), plus every late fee as a part of its own, with its own net and tax. When the open
+     * balance is less than all of that (a payment or applied credit stays), every part is scaled down in proportion and the
+     * rounding difference goes to the largest part, so the note is exactly the balance.
+     *
+     * @return list<Part>
+     */
+    private function cancelParts(Invoice $invoice, int $gross): array
+    {
+        $parts = [];
+
+        foreach ($this->lines($invoice, discounts: true) as $line) {
+            $left = $line['gross'] - $line['used_gross'];
+
+            if ($left !== 0) {
+                $parts[] = ['item_id' => $line['id'], 'description' => $line['description'], 'taxable' => $line['taxable'], 'gross' => $left,
+                    'net' => $line['net'] - $line['used_net'], 'tax1' => $line['tax1'] - $line['used_tax1'], 'tax2' => $line['tax2'] - $line['used_tax2']];
+            }
+        }
+
+        $parts = [...$parts, ...$this->lateFeeParts($invoice)];
+        $total = array_sum(array_column($parts, 'gross'));
+
+        if ($total <= 0 || $gross <= 0 || $gross > $total) {
+            throw new BillingException(__('At most :amount can still be credited on this invoice.', ['amount' => $this->money->amount(max(0, $total), $invoice->currency)]));
+        }
+
+        return $gross === $total ? $parts : $this->scale($parts, $gross, $total);
+    }
+
+    /**
+     * The late fees of the invoice, each as a part: debit notes without a line of the invoice, and old-style `late_fee` rows
+     * (whether written before the invoice was numbered, and so in its snapshot, or after).
+     *
+     * @return list<Part>
+     */
+    private function lateFeeParts(Invoice $invoice): array
+    {
+        $parts = [];
+        $tax = $invoice->tax1_amount + $invoice->tax2_amount;
+
+        foreach (DB::table('invoice_adjustments')->where('invoice_id', $invoice->id)->where('reason', AdjustmentReason::LateFee->value)->where('kind', AdjustmentKind::Debit->value)->orderBy('id')->get() as $row) {
+            $tax1 = $tax === 0 ? 0 : TaxMath::roundDiv((int) $row->tax_amount * $invoice->tax1_amount, $tax);
+            $parts[] = ['item_id' => null, 'description' => (string) ($row->description ?? __('Late payment fee')), 'taxable' => (int) $row->taxable_amount > 0, 'gross' => (int) $row->amount,
+                'net' => (int) $row->amount - (int) $row->tax_amount, 'tax1' => $tax1, 'tax2' => (int) $row->tax_amount - $tax1];
+        }
+
+        $lines = TaxNoteLine::query()->join('tax_notes as n', 'n.id', '=', 'tax_note_lines.tax_note_id')
+            ->where('n.invoice_id', $invoice->id)->where('n.kind', 'debit')->whereNull('n.reverses_tax_note_id')->whereNull('tax_note_lines.invoice_item_id')
+            ->orderBy('tax_note_lines.id')->toBase()->get(['tax_note_lines.description', 'tax_note_lines.taxable', 'tax_note_lines.amount', 'tax_note_lines.tax1_amount', 'tax_note_lines.tax2_amount']);
+
+        foreach ($lines as $line) {
+            $parts[] = ['item_id' => null, 'description' => (string) $line->description, 'taxable' => (bool) $line->taxable, 'gross' => (int) $line->amount + (int) $line->tax1_amount + (int) $line->tax2_amount,
+                'net' => (int) $line->amount, 'tax1' => (int) $line->tax1_amount, 'tax2' => (int) $line->tax2_amount];
+        }
+
+        return $parts;
+    }
+
+    /**
+     * Scale the signed parts so they add up to `$gross`: each part's gross in proportion, then its net and taxes in the proportion
+     * of its own value, half away from zero; the rounding difference goes to the part of largest value.
+     *
+     * @param  list<Part>  $parts
+     * @return list<Part>
+     */
+    private function scale(array $parts, int $gross, int $total): array
+    {
+        $round = function (int $numerator, int $denominator): int {
+            if ($denominator === 0) {
+                return 0;
+            }
+
+            return (($numerator < 0) !== ($denominator < 0) ? -1 : 1) * intdiv(2 * abs($numerator) + abs($denominator), 2 * abs($denominator));
+        };
+        $shares = array_map(fn (array $part): int => $round($part['gross'] * $gross, $total), $parts);
+        $weights = array_map(fn (array $part): int => abs($part['gross']), $parts);
+        $largest = (int) array_search(max([0, ...$weights]), $weights, true);
+
+        $shares[$largest] += $gross - array_sum($shares);
+        $scaled = [];
+
+        foreach ($parts as $i => $part) {
+            if ($shares[$i] === 0) {
+                continue;
+            }
+
+            $tax1 = $round($part['tax1'] * $shares[$i], $part['gross']);
+            $tax2 = $round($part['tax2'] * $shares[$i], $part['gross']);
+            $scaled[] = [...$part, 'gross' => $shares[$i], 'net' => $shares[$i] - $tax1 - $tax2, 'tax1' => $tax1, 'tax2' => $tax2];
+        }
+
+        return $scaled;
     }
 
     /**
@@ -414,10 +589,15 @@ class TaxNoteIssuer
             return;
         }
 
+        $this->postToCredit($invoice, $note, $plan->toCredit, $userId);
+    }
+
+    private function postToCredit(Invoice $invoice, TaxNote $note, int $toCredit, ?int $userId): void
+    {
         $reversal = $note->reverses_tax_note_id !== null;
         $text = $reversal ? __('Credit taken back by debit note :number', ['number' => $note->number]) : __('Credit note :number to account credit', ['number' => $note->number]);
-        $this->settlement->adjust($invoice, $reversal ? AdjustmentKind::Credit : AdjustmentKind::Debit, AdjustmentReason::CreditNoteToCredit, $plan->toCredit, $text, userId: $userId, taxNoteId: $note->id);
-        $this->credit->post($invoice->client_id, Money::of($reversal ? -$plan->toCredit : $plan->toCredit, $invoice->currency), $reversal ? CreditReason::CreditNoteReversed : CreditReason::CreditNote,
+        $this->settlement->adjust($invoice, $reversal ? AdjustmentKind::Credit : AdjustmentKind::Debit, AdjustmentReason::CreditNoteToCredit, $toCredit, $text, userId: $userId, taxNoteId: $note->id);
+        $this->credit->post($invoice->client_id, Money::of($reversal ? -$toCredit : $toCredit, $invoice->currency), $reversal ? CreditReason::CreditNoteReversed : CreditReason::CreditNote,
             $invoice->id, description: $text, staffId: $userId, allowNegative: $reversal, taxNoteId: $note->id);
     }
 
@@ -426,16 +606,16 @@ class TaxNoteIssuer
      *
      * @return list<Line>
      */
-    private function lines(Invoice $invoice): array
+    private function lines(Invoice $invoice, bool $discounts = false): array
     {
         $items = DB::table('invoice_items')->where('invoice_id', $invoice->id)->orderBy('id')->get();
 
-        if ($items->contains(fn (\stdClass $item): bool => (int) $item->amount < 0)) {
+        if (! $discounts && $items->contains(fn (stdClass $item): bool => (int) $item->amount < 0)) {
             throw new BillingException(__('This invoice has a discount line, so no credit note can be issued on it. To correct it, cancel the invoice and raise a new one.'));
         }
 
         $items = $items->values();
-        $weights = array_values($items->map(fn (\stdClass $item): int => (int) $item->tax_amount)->all());
+        $weights = array_values($items->map(fn (stdClass $item): int => (int) $item->tax_amount)->all());
         $tax = array_sum($weights);
 
         if ($tax !== $invoice->tax1_amount + $invoice->tax2_amount || $items->sum('amount') + ($invoice->tax_inclusive ? 0 : $tax) !== $invoice->total) {
@@ -464,7 +644,7 @@ class TaxNoteIssuer
             }
         }
 
-        return array_values(array_filter($lines, fn (array $line): bool => $line['gross'] > 0));
+        return array_values(array_filter($lines, fn (array $line): bool => $discounts ? $line['gross'] !== 0 : $line['gross'] > 0));
     }
 
     /**
@@ -477,7 +657,7 @@ class TaxNoteIssuer
             ->selectRaw("tax_note_lines.invoice_item_id as item, sum(case when n.kind = 'credit' then tax_note_lines.amount else -tax_note_lines.amount end) as net, "
                 ."sum(case when n.kind = 'credit' then tax_note_lines.tax1_amount else -tax_note_lines.tax1_amount end) as tax1, "
                 ."sum(case when n.kind = 'credit' then tax_note_lines.tax2_amount else -tax_note_lines.tax2_amount end) as tax2")->toBase()->get()
-            ->map(fn (\stdClass $row): array => ['item' => (int) $row->item, 'net' => (int) $row->net, 'tax1' => (int) $row->tax1, 'tax2' => (int) $row->tax2])->values()->all();
+            ->map(fn (stdClass $row): array => ['item' => (int) $row->item, 'net' => (int) $row->net, 'tax1' => (int) $row->tax1, 'tax2' => (int) $row->tax2])->values()->all();
     }
 
     /**
@@ -491,9 +671,9 @@ class TaxNoteIssuer
             ->where('r.invoice_id', $invoice->id)->where('r.status', 'pending')->get(['l.invoice_item_id', 'l.amount', 'l.tax1_amount', 'l.tax2_amount']);
 
         return [
-            'gross' => (int) $rows->sum(fn (\stdClass $row): int => (int) $row->amount + (int) $row->tax1_amount + (int) $row->tax2_amount),
-            'lines' => $rows->filter(fn (\stdClass $row): bool => $row->invoice_item_id !== null)
-                ->map(fn (\stdClass $row): array => ['item' => (int) $row->invoice_item_id, 'net' => (int) $row->amount, 'tax1' => (int) $row->tax1_amount, 'tax2' => (int) $row->tax2_amount])->values()->all(),
+            'gross' => (int) $rows->sum(fn (stdClass $row): int => (int) $row->amount + (int) $row->tax1_amount + (int) $row->tax2_amount),
+            'lines' => $rows->filter(fn (stdClass $row): bool => $row->invoice_item_id !== null)
+                ->map(fn (stdClass $row): array => ['item' => (int) $row->invoice_item_id, 'net' => (int) $row->amount, 'tax1' => (int) $row->tax1_amount, 'tax2' => (int) $row->tax2_amount])->values()->all(),
         ];
     }
 
@@ -502,7 +682,7 @@ class TaxNoteIssuer
      * ("Cancelled line: <description>", in this language or in English). Rows that match no line count against the
      * invoice cap only.
      *
-     * @param  array<int, \stdClass>  $items
+     * @param  array<int, stdClass>  $items
      * @param  array<int, Line>  $lines
      * @return array<int, array{item: int, net: int, tax1: int, tax2: int}>
      */
@@ -513,7 +693,7 @@ class TaxNoteIssuer
         $used = [];
 
         foreach ($rows as $row) {
-            $item = collect($items)->first(function (\stdClass $item) use ($row, $taken, $lines): bool {
+            $item = collect($items)->first(function (stdClass $item) use ($row, $taken, $lines): bool {
                 $text = mb_substr((string) $item->description, 0, 150);
 
                 return $item->cancelled_at !== null && ! in_array((int) $item->id, $taken, true) && isset($lines[(int) $item->id])

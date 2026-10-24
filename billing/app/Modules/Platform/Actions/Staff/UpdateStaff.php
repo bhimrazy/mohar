@@ -8,9 +8,9 @@ use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\LoginEmailChange;
 use App\Modules\Core\Support\LoginEmailChanged;
+use App\Modules\Core\Support\LoginSessions;
 use App\Modules\Platform\Services\PermissionGuard;
 use App\Modules\Platform\Support\AccountMail;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -79,7 +79,7 @@ class UpdateStaff
         }
 
         if ($deactivating) {
-            $this->revokeSessions($staff);
+            LoginSessions::revoke($staff);
         }
 
         $after = ['name' => $staff->name, 'email' => $staff->email, 'role' => $role->name, 'is_active' => $staff->is_active];
@@ -105,15 +105,5 @@ class UpdateStaff
         }
 
         return $result;
-    }
-
-    /**
-     * End every session of the user (database driver); the EnsureActiveUser middleware covers other drivers.
-     */
-    private function revokeSessions(User $staff): void
-    {
-        if (config('session.driver') === 'database') {
-            DB::connection(config('session.connection'))->table((string) config('session.table', 'sessions'))->where('user_id', $staff->id)->delete();
-        }
     }
 }

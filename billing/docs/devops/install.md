@@ -194,13 +194,22 @@ php artisan app:install
       production rules in every environment.
     - `php artisan app:install --admin-email=you@example.com [--admin-name="Your Name"]` asks nothing and prints a
       generated one-time password once. It is not stored in plain text or logged; sign-in with it forces a new
-      password. Run it in a terminal you trust, not in a CI job whose log others can read.
+      password, and it stops working 24 hours after it was printed. Run it in a terminal you trust, not in a CI job
+      whose log others can read.
+    - `php artisan app:admin-password you@example.com` gives an existing full administrator a new one-time password
+      on the same terms: the way back in when the first one expired or was lost. It also ends the old password's remember-me
+      cookies and, with `SESSION_DRIVER=database`, its signed-in sessions, and mails the administrator. Other staff use "Forgot password" or
+      Admin → Staff.
     - Two-factor setup is required at the first sign-in to the admin area (`security.staff_2fa_required`, on by
       default).
     - If a full administrator already exists, it creates none. Pass `--additional-admin` to add one. It never promotes
       an existing account: use Admin → Staff for that.
 
-The command exits non-zero when a check fails or no administrator could be created, so scripts can stop on it.
+One install runs at a time: after the pre-flight it takes a 15-minute lock in the shared cache store, and a second
+run started meanwhile stops with "Another app:install is running". A run that was killed before it finished (a lost
+SSH session, an out-of-memory container) leaves the lock until it expires: wait, or, when you are sure no install is
+running, `php artisan app:install --release-lock --force` (it asks you to confirm). The command exits non-zero when a check fails, another
+install holds the lock or no administrator could be created, so scripts can stop on it.
 
 ## 5. Web server
 
@@ -340,7 +349,9 @@ Three things, kept apart, and a restore you have actually tried.
 **Restore test.** At least once before go-live, and then every quarter, restore the latest dump into a scratch
 database (`createdb billing_restore && pg_restore --no-owner --dbname=billing_restore <file>`). Point a copy of the
 app at it with the same `APP_KEY` and run `php artisan app:install --no-interaction`: the pre-flight must pass and
-every reference row must report as unchanged. Then sign in and open an invoice PDF to check the bucket.
+the Created column must be 0 everywhere. Updated rows are expected when staff changed a system role's permissions
+(they are reset, with `role.updated` entries in the restored copy). Then sign in and open an invoice PDF to check
+the bucket.
 
 ## Upgrading
 

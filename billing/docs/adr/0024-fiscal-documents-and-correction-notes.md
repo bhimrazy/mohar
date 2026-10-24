@@ -385,8 +385,8 @@ final class CreditNoteIssued implements DomainEvent, ShouldDispatchAfterCommit
 - Switching the mode off is refused once a note exists.
 - **Built in VAT PR 3a (Amendment #432).** The settings page, the rule mapping and the classification are specified in
   Amendment #432 below. The refusals that have helpers (no snapshot pending, review list seen, no VAT split pending, no
-  cached-total drift, no old-style row on or after the start) run under the settings row lock, on the rows read there. The
-  pending-refund refusal and the `FOR SHARE` read on the old paths belong to 3b.
+  cached-total drift, no old-style row on or after the start) run under the settings row lock, on the rows read there. 3b
+  added the pending-refund refusal and the `FOR SHARE` read on the old paths (Amendment #432, "3b").
 
 ### 9. Database triggers
 
@@ -488,3 +488,86 @@ Single source for these rules; `vat-register.md` §3 refers here. They extend §
   while any numbered invoice carrying tax or a rule has NULL flags. Notes issued before the split keep the `supply_class` they
   copied; notes will copy their invoice's flags when issued (a follow-up in #429).
 - **Rule changes later** do not reclassify issued documents.
+
+### 3b: the old paths (VAT PR 3b)
+
+- **One instant, one read.** Each old path (cancel, cancel lines, late fee, reopen) takes `$at = CompanyClock::now()` once,
+  after its invoice lock, and decides with `NepalVatMode::inEffectLocked($at)`: the mode read from the database under a
+  `FOR SHARE` lock on the `enabled` row. Enabling takes the same row `FOR UPDATE`, so it waits for those transactions and its
+  old-style-row check sees what they wrote. `$at` dates every row the transaction creates (`InvoiceSettlement::adjust(at:)`,
+  the note, its adjustment, `cancelled_at`), so a transaction that found the mode off writes only rows dated before
+  `enabled_from`, even across midnight.
+- **In effect, on a numbered invoice** (not add-funds): staff cancel and `Invoicer::cancel` issue one `invoice_cancelled`
+  credit note for the open balance (applied credit is returned first and is not in the note). The note credits everything the
+  invoice still holds, not only its lines: each line's remaining value, a discount line as a negative line of the same note (it goes
+  with the lines it discounts), and every late fee as a line of its own with its own net and tax (a debit note without a line of
+  the invoice, or an old-style `late_fee` row, written before or after numbering). When the balance is less than all of that (a
+  payment or applied credit stays) every line is scaled in proportion, the rounding going to the largest, so the note is exactly
+  the balance. Cancel lines issues one `lines_cancelled` note with a line per line, or, when the selection is every open line, the
+  single cancel note; it is refused on an invoice with a discount line (cancel the invoice instead), and the action is disabled
+  with that reason. A late fee is a `late_fee` debit note and `LateFeeApplied` still fires; reopen is refused. Staff must give a
+  reason (printed on the note); automatic callers pass theirs: auto-cancel its overdue text, modules "Cancelled by <module>"
+  through the new trailing `Invoicer::cancel(int $invoiceId, ?string $reason = null)` (ADR 0010: compatible addition,
+  kernel-changelog entry).
+- **A refused note is never silent.** The daily runs go on past an invoice whose cancel or late-fee note is refused (the debit
+  cap, an unclassified invoice, lines that do not add up) and record it on the staff review list (`cancel_refused`,
+  `late_fee_refused`, shown in Needs attention, marked seen when the invoice is cancelled after all) and in the activity log.
+  `Invoicer::cancel` throws `InvoiceNotCancellable` when the invoice stays payable, so Orders, Services and Domains keep their
+  records open instead of marking them cancelled.
+- **Not in effect, or not numbered** (proforma, add-funds, before `enabled_from`): the old path runs as before. A numbered
+  invoice before `enabled_from` takes no note: the issuer refuses.
+- **The legacy `CancelInvoiceItems` path** needs no note counting: a line can have a note only after the mode is in effect, and
+  from then the numbered invoice takes the note branch; the old branch is unreachable for it.
+- **Arch test.** `tests/Arch/ValueAdjustmentWritersTest.php`: every file that writes an old-style value adjustment reads
+  `inEffectLocked()`, except the refund path, which VAT PR 4 replaces (listed in the test).
+- **Enable-time refusal added:** a refund recorded the old way (pending, no reservation) on a numbered invoice.
+
+### 4a: the refund reservation (VAT PR 4, first part)
+
+PR 4 is built in steps. This one is the §5 state machine for **staff refunds** of a payment on a numbered tax invoice.
+
+- **Reserve.** With the mode switched on (`NepalVatMode::enabledLocked()`, a shared lock on the `enabled` row, before the
+  start day too), a refund by a staff member of a payment on a paid, numbered, non-add-funds invoice locks payment, invoice and
+  client (§4), checks both caps through the note plan, and writes the pending refund row and a `tax_note_reservations` row
+  with its full allocation (`tax_note_reservation_lines`). No number is taken. The staff member must give a reason
+  (`description`), which is printed on the note (`refunded`). A refund to account credit is refused there: a credit note settled
+  to account credit does that. A payment that placed account credit is refused until the credit-first split is built.
+- **Finalise** (`RefundTransaction::finalise`, reached by the request, the provider callback, Check refund and staff resolution,
+  one transaction under the §4 order with the reservation locked): with the transaction's own instant `$at`, if the mode is in
+  effect at `$at` the reserved allocation is issued as the note (`TaxNoteIssuer::issueReserved`), the refund row gets its
+  `tax_note_id` (new nullable `transactions.tax_note_id`), `amount_paid` falls by the refund and the reservation is `finalised`;
+  before the start day the old-style `refund` adjustment is written, dated `$at`, and the reservation is finalised without a
+  note. An excess that makes the balance negative (a payment that arrived meanwhile) goes to account credit with the note's id.
+  A refund row already settled is a no-op, so a late `ERROR`, `PENDING` or `DECLINED` changes nothing.
+- **Release** (`DECLINED`, Check refund's "no such refund", staff "not refunded"): the refund row fails, `refundable_remaining`
+  returns, the reservation is `released`, and no note or number exists. `ERROR` and `PENDING` leave everything pending; the
+  existing "Refund outcome not known yet" and Check refund apply.
+- **Credit first.** A refund of a payment that placed account credit (an overpayment, or a refund to credit) takes that credit
+  back before the invoice part: the part up to the credit is a plain refund with no note, and only the rest reserves a note.
+  The take-back is posted **at reserve**, as a tagged ledger row (a hold), and a release posts it back, so a second refund of the
+  same payment, or a callback, cannot take the same credit again. The split is stored on the refund row (`raw.mohar.credit_part`).
+- **One transaction without a provider.** A refund recorded as made outside has no provider call: reserve and finalise run in
+  one transaction, so a failure leaves no succeeded refund row and no pending reservation.
+- **A cancelled invoice keeps its payments** (§5.4): refunding a payment kept on a numbered invoice that was cancelled in the
+  mode reserves and finalises a note like a paid one, so the register's sale falls with the money and the cancelled invoice
+  does not show a balance owed.
+- **Provider-initiated refunds** (a record-only refund with no staff member: the provider's callback, and "released, then paid
+  anyway"): reserved and finalised in the callback's transaction as an automatic note, reason `refunded_at_provider`, once per
+  provider refund id. When the callback loses the race to a release (the request's DECLINED, Check refund or staff
+  committed between the handler's read and the row lock), `settle` reports the row as failed and the handler books the refund as
+  provider-initiated. What the invoice's cap cannot take as a note (usually because staff credited the sale to the account after
+  a release) is taken back from the account credit that notes placed on the invoice, newest note first, negative balance
+  allowed; anything the credit cannot cover goes to "Disputes to review" (`review_amount`), and the callback's log line says
+  so.
+- **A DECLINED after SUCCESS** changes nothing and puts the confirmed refund on "Disputes to review" ("Provider reports
+  conflicting outcome"), the staff to-do of the §5 table.
+- **Switching the mode off** is refused while any reservation is pending (a note waiting for the provider), as it is once a
+  note exists; the check runs under the `enabled` row lock, and reserving reads the mode under a shared lock on it.
+- **The register keeps every stretch the mode was on** (open for the owner and the accountant to confirm). Each time the mode is
+  switched on a period opens at its start day; switching off closes it at that company date; moving the start day of a mode
+  that has not started moves the open one (`billing.nepal_vat.periods`). The register lists documents dated inside any
+  period, so a switch-off and a re-enable never hide an earlier month, and documents numbered in the gap (they carry no flags)
+  are neither listed nor counted as unclassified. The page says when the mode is off and since when. Re-enabling still
+  needs the gap's invoices classified (the enable-time check) and a start day on or after the current BS month.
+- **Not yet built (later PR 4 steps):** `RefundAccountCredit` (§5a); lifting `features.billing.nepal_vat_mode` and deleting the
+  interim refusals (a refund to account credit on a numbered invoice, the refusal of an unclassified invoice).

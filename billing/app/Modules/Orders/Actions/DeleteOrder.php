@@ -42,7 +42,7 @@ class DeleteOrder
             $this->promotions->handle($locked);
 
             if ($locked->invoice_id !== null) {
-                $this->invoicer->cancel($locked->invoice_id);
+                $this->invoicer->cancel($locked->invoice_id, __('Cancelled by :module', ['module' => 'Orders']));
             }
 
             $locked->delete();

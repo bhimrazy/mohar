@@ -29,7 +29,7 @@ class NepalVatController extends Controller
             'months' => $mode->months(),
             'rules' => $rules->map(fn (TaxRule $rule): array => ['id' => $rule->id, 'name' => $rule->name, 'level' => $rule->level, 'country' => $rule->country, 'rate' => (float) $rule->rate])->all(),
             'blockers' => $current['enabled'] ? [] : $mode->blockers(),
-            'can_switch_off' => ! TaxNote::query()->exists(),
+            'can_switch_off' => ! TaxNote::query()->exists() && ! $mode->reservationsPending(),
             'tax_rules_url' => route('admin.billing.tax-rules.index'),
             'settings_url' => Route::has('admin.platform.settings.edit') ? route('admin.platform.settings.edit', 'billing') : null,
         ]);

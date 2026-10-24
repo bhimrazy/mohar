@@ -40,7 +40,7 @@ class CancelOrder
                     $this->promotions->handle($order);
                 }
 
-                $this->invoicer->cancel($order->invoice_id);
+                $this->invoicer->cancel($order->invoice_id, __('Cancelled by :module', ['module' => 'Orders']));
             } else {
                 $this->promotions->handle($order);
             }

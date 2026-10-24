@@ -105,6 +105,18 @@ test('turning auto-renew off cancels the unpaid renewal invoice', function () {
     $this->assertDatabaseHas('domain_invoices', ['invoice_id' => $invoiceId, 'status' => 'cancelled']);
 });
 
+test('a renewal invoice Billing refuses to cancel stays open and is not marked cancelled', function () {
+    $domain = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id]);
+    app(IssueRenewalInvoices::class)->handle(CalendarDate::parse('2027-01-05'));
+    $invoiceId = array_key_first($this->invoicer->invoices);
+    $this->invoicer->refuseCancel = true;
+
+    app(SetAutoRenew::class)->handle($domain, false);
+
+    expect($this->invoicer->status($invoiceId))->toBe('unpaid');
+    $this->assertDatabaseMissing('domain_invoices', ['invoice_id' => $invoiceId, 'status' => 'cancelled']);
+});
+
 test('expiry runs grace, redemption and expiry in order and re-runs change nothing', function () {
     Event::fake([DomainExpired::class]);
     $this->com->update(['grace_days' => 30, 'redemption_days' => 30]);
