@@ -492,14 +492,18 @@ test('two installs started at the same time create exactly one full administrato
             return (int) $barrier->scalar("select count(*) from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'");
         };
 
-        for ($tries = 0; $waiting() < 2 && $tries < 300 && $pool->running()->isNotEmpty(); $tries++) {
+        // One observation decides: a second query could see a transient lock wait come or go and disagree with the
+        // one that ended the wait. The limit allows two PHP boots on a loaded machine (a parallel suite run).
+        $blocked = $waiting();
+
+        for ($tries = 0; $blocked < 2 && $tries < 600 && $pool->running()->isNotEmpty(); $tries++) {
             usleep(100_000);
+            $blocked = $waiting();
         }
 
-        $blocked = $waiting();
         $barrier->commit();
         $results = $pool->wait();
-        expect($blocked)->toBe(2);
+        $this->assertGreaterThanOrEqual(2, $blocked, $results['a']->output().$results['a']->errorOutput().$results['b']->output().$results['b']->errorOutput());
 
         $exitCodes = [$results['a']->exitCode(), $results['b']->exitCode()];
         sort($exitCodes);

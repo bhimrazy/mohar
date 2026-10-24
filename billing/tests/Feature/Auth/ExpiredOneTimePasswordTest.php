@@ -69,3 +69,17 @@ test('step-up refuses an expired one-time password, even in a session confirmed 
 
     expect($user->refresh()->email)->not->toBe('new-address@example.com.np');
 });
+
+test('deleting the account refuses an expired one-time password and keeps the account (#459)', function () {
+    $user = User::factory()->create(['password_expires_at' => now()->addMinute()]);
+    $this->actingAs($user);
+
+    $this->travel(2)->minutes();
+
+    $this->from(route('profile.edit'))->delete(route('profile.destroy'), ['password' => 'password'])
+        ->assertRedirect(route('profile.edit'))
+        ->assertSessionHasErrors(['password' => EXPIRED_OTP_MESSAGE]);
+
+    expect($user->fresh())->not->toBeNull();
+    $this->assertAuthenticatedAs($user);
+});

@@ -134,6 +134,8 @@ test('a unique-key clash with an install the lock could not see ends with a plai
 });
 
 test('a generated one-time password signs in for 24 hours, then is refused with how to get a new one', function () {
+    // The expiry is compared to the second: a clock tick between the install and now() failed CI.
+    $this->freezeTime();
     $password = 'Ab1!one-time-'.Str::random(8);
     $admin = installWithOneTimePassword($password);
 
