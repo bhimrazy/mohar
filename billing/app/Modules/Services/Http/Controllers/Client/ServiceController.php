@@ -72,6 +72,7 @@ class ServiceController extends Controller
             'can' => [
                 'cancel' => $live && $settings->clientCanRequestCancellation() && $model->openCancellationRequest === null,
                 'changePassword' => $live && $driver instanceof ChangesPassword && $model->username !== null,
+                'revealPassword' => $presenter->revealsPassword($model),
             ],
         ]);
     }

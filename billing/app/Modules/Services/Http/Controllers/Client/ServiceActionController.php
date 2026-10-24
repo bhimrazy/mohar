@@ -5,6 +5,7 @@ namespace App\Modules\Services\Http\Controllers\Client;
 use App\Contracts\Core\CompanyClock;
 use App\Contracts\Services\Provisioning\ChangesPassword;
 use App\Http\Controllers\Controller;
+use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Services\Actions\OrderServiceChange;
 use App\Modules\Services\Actions\RequestCancellation;
@@ -19,6 +20,7 @@ use App\Modules\Services\Services\ModuleCommandDispatcher;
 use App\Modules\Services\Services\ServicePresenter;
 use App\Modules\Services\Support\CommandOutcome;
 use App\Modules\Services\Support\ServiceSettings;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
@@ -77,6 +79,26 @@ class ServiceActionController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => $outcome->succeededNow() ? __('Password changed.') : __('Your password change is being processed.')]);
 
         return to_route('client.services.show', $model->id);
+    }
+
+    /**
+     * Show the stored hosting password (#44): welcome emails no longer carry it. Behind a recent password confirmation
+     * and a per-login limit (routes), written to the activity log without the value, and sent as JSON that is never
+     * cached, so it is in no page prop or history entry.
+     */
+    public function revealPassword(int $service, ActivityLogger $activity, ServicePresenter $presenter): JsonResponse
+    {
+        $model = $this->owned($service);
+
+        if (! $presenter->revealsPassword($model)) {
+            return response()->json(['message' => __('No password is stored for this service.')], 422)->header('Cache-Control', 'no-store, private');
+        }
+
+        $activity->log('Service password revealed in the client area', $model, $model->client_id);
+
+        return response()->json(['password' => $model->password])
+            ->header('Cache-Control', 'no-store, private')
+            ->header('Pragma', 'no-cache');
     }
 
     private function owned(int $serviceId): Service

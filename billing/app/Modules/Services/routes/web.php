@@ -67,5 +67,7 @@ Route::clientArea(function (): void {
         Route::post('{service}/change', [ClientServiceActionController::class, 'change'])->whereNumber('service')->name('change');
         // Each change is a synchronous call to the shared panel server (security review 2026-10-19, L3).
         Route::post('{service}/password', [ClientServiceActionController::class, 'password'])->whereNumber('service')->middleware('throttle:6,1')->name('password');
+        // Shows the stored password (#44): step-up first, then a per-login limit across all services.
+        Route::post('{service}/password/reveal', [ClientServiceActionController::class, 'revealPassword'])->whereNumber('service')->middleware(['password.recent', 'throttle:services-password-reveal'])->name('password.reveal');
     });
 });

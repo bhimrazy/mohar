@@ -230,9 +230,13 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         });
     }
 
+    /**
+     * An unknown outcome (#147) gets its own notice: the account may exist, and a server check that confirms it
+     * applies the command without any further mail.
+     */
     public function provisioningFailed(ProvisioningFailed $event): void
     {
-        $this->staffMail('staff.provisioning_failed', StaffCategory::System, [
+        $this->staffMail($event->outcomeUnknown ? 'staff.provisioning_unknown' : 'staff.provisioning_failed', StaffCategory::System, [
             ...$this->context->client($event->clientId),
             ...$this->context->service($event->serviceId),
             'failure' => ['action' => $event->action, 'error' => $event->error],

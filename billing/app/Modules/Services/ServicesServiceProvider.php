@@ -144,6 +144,8 @@ class ServicesServiceProvider extends ModuleServiceProvider
         // Account import: ticking rows and confirming an import count separately, per staff member.
         RateLimiter::for('services-import-select', fn (Request $request): Limit => Limit::perMinute(120)->by('import-select:'.$request->user()?->id));
         RateLimiter::for('services-import-apply', fn (Request $request): Limit => Limit::perMinute(6)->by('import-apply:'.$request->user()?->id));
+        // Showing a stored hosting password: 5 per 10 minutes per login, across all services (#44).
+        RateLimiter::for('services-password-reveal', fn (Request $request): Limit => Limit::perMinutes(10, 5)->by('password-reveal:'.$request->user()?->id));
 
         $this->registerAutomation();
         $this->registerNavigation();
