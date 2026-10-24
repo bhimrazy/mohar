@@ -347,7 +347,17 @@ This is the onboarding path for hosts who bring accounts that already exist on W
 4. Apply, one transaction per row: the service is created `active`, or `suspended` with the reason
    "staff:imported (suspended on server: …)", with `registration_date` from `unix_startdate`, `driver_data`, and no
    password (the client sets one). **No** invoice, welcome mail or module command. `ServiceImported` (K8) is emitted.
-   A unique active `(server_id, username)` prevents a double import. A per-row report follows.
+   A unique active `(server_id, username)` prevents a double import. A per-row report follows: one line per account
+   (unique per import and username, so a chunk that runs twice reports nothing twice), with a `not_reached` mark on the
+   lines a stopped import wrote for accounts it never reached.
+
+**Storage.** The fetched list is one row per account (`server_account_import_accounts`): username, lower-case domain,
+category, matched client id and a keyed hash of the contact email are plain columns, and the whole account row is an
+encrypted `payload`. The page filters, searches (username, domain, or the exact contact email) and pages on the plain
+columns and decrypts only the 50 rows it shows; an import chunk decrypts only its own accounts. A list stays 24 hours
+from its fetch; an import that starts extends it to 24 hours from now, and one that finishes does the same, so the
+report outlives the run. A list whose import is still running is never pruned, and the daily prune deletes at most 100
+lists a run.
 
 **Better:** WHMCS's sync creates a new client for every unmatched email, using a placeholder address when there is none.
 It also marks local services terminated when they are missing on the server. Mohar never creates a client or ends a

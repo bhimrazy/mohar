@@ -72,7 +72,8 @@ type Props = {
         hasExport: boolean;
         currency: string;
     };
-    warnings: { withoutPan: number; unconverted: number };
+    warnings: { withoutPan: number; unconverted: number; unclassified: number };
+    mode: { enabled: boolean; from: string | null; started: boolean };
     can: { export: boolean };
 };
 
@@ -182,6 +183,7 @@ function TextCell({ cell }: { cell: Cell }) {
 }
 
 export default function VatRegister({
+    mode,
     tab,
     tabs,
     columns,
@@ -399,6 +401,8 @@ export default function VatRegister({
             `${plural(warnings.withoutPan)} to a business buyer without a PAN. Their PAN column is blank; add the PAN to the client for later documents.`,
         warnings.unconverted > 0 &&
             `${plural(warnings.unconverted)} without a stored exchange rate into the register currency. Their amounts are blank and left out of the totals.`,
+        warnings.unclassified > 0 &&
+            `${plural(warnings.unclassified)} with tax that was never split into Nepal VAT and other tax. Their amounts are blank and left out of the totals. Ask the person who runs the system to run billing:fiscal-vat-split for invoices; a note cannot be changed.`,
     ].filter((notice): notice is string => typeof notice === 'string');
 
     return (
@@ -558,7 +562,7 @@ export default function VatRegister({
                         <AlertDescription>{notice}</AlertDescription>
                     </Alert>
                 ))}
-                {tab === 'register' && net && (
+                {tab === 'register' && net && mode.enabled && (
                     <section
                         aria-labelledby="return-figures"
                         className="flex flex-col gap-2"
@@ -609,8 +613,16 @@ export default function VatRegister({
                     empty={
                         <EmptyState
                             icon={BookOpen}
-                            title="No documents in this period"
-                            description="Tax invoices appear once they are numbered; notes appear in the period they were issued."
+                            title={
+                                mode.enabled
+                                    ? 'No documents in this period'
+                                    : 'The register starts with Nepal VAT mode'
+                            }
+                            description={
+                                mode.enabled
+                                    ? 'Tax invoices appear once they are numbered; notes appear in the period they were issued. Only documents dated on or after the mode starts are listed.'
+                                    : 'Nepal VAT mode is not switched on, so there is nothing to list. Once it is on, the register lists the documents from its start day.'
+                            }
                         />
                     }
                     footer={

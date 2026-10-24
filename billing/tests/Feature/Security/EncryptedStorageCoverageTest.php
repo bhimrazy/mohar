@@ -46,6 +46,7 @@ test('every direct use of the encrypter is covered by a target or known to be sh
         'Modules/Migration/Jobs/StageCsvRun.php' => 'migration_records.raw',
         'Modules/Migration/Jobs/CheckRun.php' => 'migration_records.normalized',
         'Modules/Orders/Data/CartItem.php' => 'short-lived: carts expire, and an unreadable EPP code is asked for again',
+        'Modules/Services/Support/AccountList.php' => 'server_account_import_accounts.payload',
         'Modules/Migration/Support/EncryptedFile.php' => 'short-lived: an import upload is deleted once staged',
         'Modules/Core/Security/Reencryptor.php' => 'the re-encryption itself',
         'Modules/Core/Support/InstallSecrets.php' => 'install_secrets.value',

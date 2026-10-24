@@ -25,7 +25,7 @@ function rbRaceSeed(string $name, int $count): array
         Currency::factory()->npr()->create();
         billingSettings(['tax.enabled' => true, 'tax.home_country' => 'NP', 'tax.home_state' => '', 'tax.report_currency' => 'NPR',
             'late_fee.amount' => 10, 'late_fee.type' => 'percent', 'late_fee.base' => 'balance']);
-        TaxRule::factory()->create(['name' => 'VAT', 'level' => 1, 'country' => 'NP', 'rate' => '13.000']);
+        useNepalVatRule(TaxRule::factory()->create(['name' => 'VAT', 'level' => 1, 'country' => 'NP', 'rate' => '13.000']));
         $client = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR', 'email' => 'rb385@example.test']);
 
         for ($i = 0; $i < $count; $i++) {

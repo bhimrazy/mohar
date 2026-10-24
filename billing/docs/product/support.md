@@ -25,7 +25,7 @@ Email rendering/sending is Notifications; Support emits events and supplies merg
 contact_id (nullable), requester_name, requester_email, subject (≤255), status, priority (low|medium|high|urgent), source (web|email|staff|api),
 service_id / domain_id (nullable, must belong to client), assigned_to (staff user_id, nullable), cc (json emails, ≤10), tags (json),
 is_pinned, prevent_client_close, merged_into_id (nullable), version (int, optimistic lock), first_staff_reply_at, last_reply_at,
-last_client_reply_at, last_staff_reply_at, closed_at, closed_by (client|staff|system), timestamps`
+last_client_reply_at, last_staff_reply_at, first_unanswered_at, closed_at, closed_by (client|staff|system), timestamps`
 
 ### ticket_messages
 
@@ -125,6 +125,8 @@ Core: `open, answered, customer_reply, on_hold, in_progress, closed` (on_hold/in
 | Note with mention            | —                              | —   | —                                 | —                      | mentioned staff | ✓        |
 | Auto-closed                  | ✓                              | —   | —                                 | —                      | —               | —        |
 
+Staff recipients come from `App\Contracts\Support\TicketStaffDirectory` (department members with their `notify_new` / `notify_replies` flags, and the assignee); a recipient must be active and hold `support.tickets.view`. A ticket moved to a department with an assignee kept sends no department mail. When nobody qualifies, mail goes to the staff subscribed to the support alert category. A merge of tickets from different requesters replaces the target's guest access key and emails the new link to the target requester (`ticket.link_replaced`).
+
 ## 6. Inbound email (piping)
 
 Endpoint `POST /api/inbound/email/{provider}` (normalised driver per provider, e.g. generic MIME POST, Mailgun, Postmark); signature verified with `support.inbound_secret`. Pipeline (each rejection writes `inbound_emails.status`): **MUST**
@@ -185,7 +187,7 @@ New: `TicketNoteAdded(mentions[])`, `TicketStatusChanged`, `TicketDepartmentChan
 - Unverified sender spoofing a reply into another client's ticket — sender authorisation (§6.6).
 - Guests reusing a client's email to see their data — guests never get client context unless matched; matching only attaches, it does not grant the guest login access.
 - Staff without department access seeing tickets via global search or direct URL — every query scoped by department access.
-- Customer bumping by replying repeatedly: queue order uses `last_client_reply_at` of the _first unanswered_ client message, so extra replies don't push a ticket back (`support.queue_sort: oldest_unanswered`).
+- Customer bumping by replying repeatedly: queue order uses `first_unanswered_at`, the time of the _first unanswered_ client message, so extra replies don't push a ticket back (`support.queue_sort: oldest_unanswered`). It is set by a customer reply while empty, cleared by a staff reply, and recomputed after a merge or a deleted message; the queue index (`support_tickets_awaiting_queue_index`) has the order pinned first, oldest unanswered, answered last.
 - Auto-closing `customer_reply` tickets loses customer messages — excluded by default (deliberate deviation from some products).
 - HTML/script in subjects or bodies rendered in admin UI — escape everywhere; sanitise markdown output.
 - Large or malicious attachments (zip bombs are not unpacked; no server-side preview except images).

@@ -208,6 +208,7 @@ final class MailFramer
             'ticket.autoresponse' => ['info', self::text('Received'), $department],
             'ticket.opened_by_staff' => ['info', self::text('Opened for you'), $department],
             'ticket.auto_closed' => ['muted', self::text('Closed'), $department],
+            'ticket.link_replaced' => ['warning', self::text('New ticket link'), $department],
             default => ['warning', self::text('Not delivered'), $department],
         };
 

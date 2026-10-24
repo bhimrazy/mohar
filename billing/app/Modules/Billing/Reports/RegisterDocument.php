@@ -9,7 +9,8 @@ use stdClass;
 /**
  * One tax invoice, credit note or debit note as the registers show it. Amounts are in the register currency, signed
  * (a credit note is negative), and null when the document has no stored rate into that currency. An export's value
- * (supply class `export`) is reported as export value, not as taxable or exempt sales.
+ * (supply class `export`) is reported as export value, not as taxable or exempt sales. `tax` is Nepal VAT only; `unclassified`
+ * says the document carries tax but its levels were never classified: its amounts are blank and out of the totals.
  */
 final readonly class RegisterDocument
 {
@@ -38,6 +39,7 @@ final readonly class RegisterDocument
         public ?int $exempt,
         public ?int $tax,
         public ?int $exportValue,
+        public bool $unclassified,
         public string $registerCurrency,
         public array $lines,
         public ?string $reasonCode = null,
@@ -60,7 +62,10 @@ final readonly class RegisterDocument
         // Only a Nepal buyer's tax ID is a PAN; a GSTIN or a foreign tax number is not shown as one.
         $pan = $nepal ? trim((string) ($buyer['tax_id'] ?? '')) : '';
 
+        $unclassified = (bool) $row->unclassified;
         $convert = match (true) {
+            // A document whose tax was never classified has blank amounts and no place in the totals, like one with no rate.
+            $unclassified => fn (int $amount): ?int => null,
             $row->report_currency === $registerCurrency && $rate !== null => fn (int $amount): int => RegisterDocuments::convert($sign * $amount, $rate),
             $row->currency === $registerCurrency => fn (int $amount): int => $sign * $amount,
             default => fn (int $amount): ?int => null,
@@ -85,6 +90,7 @@ final readonly class RegisterDocument
             exempt: $export && $convert(0) !== null ? 0 : $convert((int) $row->exempt),
             tax: $convert((int) $row->tax),
             exportValue: $export ? $convert((int) $row->taxable + (int) $row->exempt) : ($convert(0) === null ? null : 0),
+            unclassified: $unclassified,
             registerCurrency: $registerCurrency,
             lines: $detail['lines'] ?? [],
             reasonCode: $row->reason_code,
@@ -101,7 +107,7 @@ final readonly class RegisterDocument
         return is_float($value) ? sprintf('%.12F', $value) : (string) $value;
     }
 
-    /** False when the document has no rate into the register currency: its amounts are left out of the totals. */
+    /** False when the document has no rate into the register currency, or its tax was never classified: its amounts are left out of the totals. */
     public function converted(): bool
     {
         return $this->tax !== null;
