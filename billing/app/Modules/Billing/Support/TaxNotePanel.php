@@ -15,15 +15,23 @@ use App\Modules\Billing\Services\TaxNoteIssuer;
  */
 class TaxNotePanel
 {
-    public function __construct(private BillingSettings $settings, private TaxNoteIssuer $issuer) {}
+    public function __construct(private TaxNoteIssuer $issuer) {}
 
     /**
-     * Whether staff can issue notes on this invoice: Nepal VAT mode on, and a numbered tax invoice with its snapshot. The
-     * mode setting (`billing.nepal_vat.enabled`, off when unset) gets its definition and enable checks in VAT PR 3.
+     * Whether staff can issue notes on this invoice: Nepal VAT mode in effect (switched on and its start day reached), and a
+     * numbered tax invoice with its snapshot.
      */
     public function issuable(Invoice $invoice): bool
     {
-        return $this->settings->bool('nepal_vat.enabled') && $invoice->numbered_at !== null && $invoice->fiscal_total !== null && $invoice->kind !== InvoiceKind::AddFunds;
+        return $this->unavailable($invoice) === null;
+    }
+
+    /** Why notes cannot be issued on this invoice at all, in plain words, or null. */
+    public function unavailable(Invoice $invoice): ?string
+    {
+        return $this->issuer->modeBlocked() ?? ($invoice->numbered_at === null || $invoice->fiscal_total === null || $invoice->kind === InvoiceKind::AddFunds
+            ? (string) __('Only a numbered tax invoice takes a note.')
+            : null);
     }
 
     /**
