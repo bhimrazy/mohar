@@ -131,7 +131,8 @@ class RequireRecentPasswordConfirmation
      */
     public static function recentlyConfirmed(Request $request): bool
     {
-        if ($request->user() !== null && ! $request->user()->hasPassword()) {
+        // An expired one-time password no longer confirms anything, even in a session opened before it expired.
+        if ($request->user() !== null && (! $request->user()->hasPassword() || $request->user()->passwordExpired())) {
             return false;
         }
 

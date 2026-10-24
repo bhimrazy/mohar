@@ -12,7 +12,8 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * The server-side recovery for a full administrator (#60): a new one-time password, printed once, that must be
- * changed at sign-in and expires like the installer's. Two-factor setup and passkeys are left as they are.
+ * changed at sign-in and expires like the installer's. The old password's sessions and remember-me cookies end and
+ * the administrator is mailed; two-factor setup and passkeys are left as they are.
  */
 #[Signature('app:admin-password {email : Email address of an active full administrator}')]
 #[Description('Give a full administrator a new one-time password, printed once')]
@@ -30,7 +31,7 @@ class AdminPasswordCommand extends Command
         }
 
         try {
-            $password = $administrators->reissue($user);
+            $password = $administrators->reissue($user, 'console: '.get_current_user().'@'.(gethostname() ?: 'unknown host'));
         } catch (AdministratorRefused $refused) {
             $this->components->error($refused->getMessage());
 

@@ -1,7 +1,9 @@
 <?php
 
 use App\Contracts\Install\InstallsReferenceData;
+use App\Contracts\Notifications\SystemMailer;
 use App\Data\Install\ReferenceDataResult;
+use App\Enums\SystemMailOutcome;
 use App\Models\User;
 use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Core\Console\Commands\InstallCommand;
@@ -10,13 +12,17 @@ use App\Modules\Core\Install\ReferenceDataInstaller;
 use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Role;
+use App\Modules\Notifications\Models\EmailTemplate;
 use App\Support\Install\ReferenceDataRegistry;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 /**
  * Install follow-ups (#60, #216): one install at a time, a plain message when two collide anyway, and a one-time
@@ -67,7 +73,8 @@ test('an install refuses to start while another holds the install lock, and writ
     }
 
     expect($status)->toBe(1)
-        ->and($output)->toContain('Another app:install is running')
+        ->and($output)->toContain('Another app:install is running, or one stopped in the last 15 minutes')
+        ->and($output)->toContain('php artisan app:install --release-lock')
         ->and(User::query()->count())->toBe(0)
         ->and(TaxRule::query()->count())->toBe(0);
 
@@ -75,6 +82,18 @@ test('an install refuses to start while another holds the install lock, and writ
 
     expect($status)->toBe(0)
         ->and(TaxRule::query()->count())->toBe(1)
+        ->and(Cache::lock(InstallCommand::LOCK, 1)->get())->toBeTrue();
+});
+
+test('--release-lock frees a lock a stopped run left behind, and only that', function () {
+    // A run killed mid-install never reaches its finally block.
+    expect(Cache::lock(InstallCommand::LOCK, 900)->get())->toBeTrue();
+
+    [$status, $output] = hardenedInstall(options: ['--release-lock' => true]);
+
+    expect($status)->toBe(0)
+        ->and($output)->toContain('Install lock released')
+        ->and(User::query()->count())->toBe(0)
         ->and(Cache::lock(InstallCommand::LOCK, 1)->get())->toBeTrue();
 });
 
@@ -168,6 +187,7 @@ test('app:admin-password gives a full administrator a new one-time password and 
 
     $log = ActivityLog::query()->where('event', 'staff.password_reissued')->sole();
     expect($log->subject_id)->toBe($admin->id)
+        ->and($log->properties['run_by'])->toStartWith('console: '.get_current_user().'@')
         ->and(json_encode($log->properties))->not->toContain($new);
 
     $this->post(route('login.store'), ['email' => 'owner@example.test', 'password' => $new]);
@@ -191,4 +211,49 @@ test('a system role left without a key is adopted when its permissions match a m
     $results = app(ReferenceDataInstaller::class)->install();
     expect($results['core_roles']['result'])->toEqual(new ReferenceDataResult(unchanged: 4))
         ->and(Role::query()->whereNull('key')->where('is_system', true)->count())->toBe(0);
+});
+
+test('app:admin-password ends the old password\'s sessions and remember-me cookies, and tells the administrator (#459)', function () {
+    config(['session.driver' => 'database']);
+    $mailer = new class implements SystemMailer
+    {
+        /** @var list<array{key: string, to: string, context: array<string, mixed>}> */
+        public array $sent = [];
+
+        public function send(string $templateKey, User|string $recipient, array $context, string $occurrenceKey, ?int $clientId = null, bool $carriesSecret = false): SystemMailOutcome
+        {
+            $this->sent[] = ['key' => $templateKey, 'to' => $recipient instanceof User ? $recipient->email : $recipient, 'context' => $context];
+
+            return SystemMailOutcome::Taken;
+        }
+    };
+    app()->instance(SystemMailer::class, $mailer);
+    $admin = installWithOneTimePassword('Ab1!one-time-'.Str::random(8));
+    $admin->forceFill(['remember_token' => 'stolen-remember-token'])->save();
+    DB::table('sessions')->insert(['id' => 'stolen-session', 'user_id' => $admin->id, 'payload' => '', 'last_activity' => time()]);
+    $recaller = fn (): array => [Auth::guard()->getRecallerName() => $admin->id.'|stolen-remember-token|'.$admin->refresh()->getAuthPassword()];
+
+    // Before the reissue the cookie signs in; afterwards it does not.
+    $this->withCookies($recaller())->get(route('security.edit'));
+    $this->assertAuthenticatedAs($admin);
+    auth()->logout();
+    $this->flushSession();
+
+    expect(Artisan::call('app:admin-password', ['email' => 'owner@example.test']))->toBe(0);
+
+    expect($admin->refresh()->remember_token)->not->toBe('stolen-remember-token')
+        ->and(DB::table('sessions')->where('user_id', $admin->id)->count())->toBe(0)
+        ->and($mailer->sent)->toHaveCount(1)
+        ->and($mailer->sent[0])->toMatchArray(['key' => 'staff.password_reissued', 'to' => 'owner@example.test'])
+        ->and($mailer->sent[0]['context']['notice']['run_by'])->toStartWith('console: ');
+
+    $this->withCookies($recaller())->get(route('security.edit'));
+    $this->assertGuest();
+});
+
+test('the staff.password_reissued template is installed and always sent', function () {
+    app(ReferenceDataInstaller::class)->install();
+
+    $template = EmailTemplate::query()->where('key', 'staff.password_reissued')->sole();
+    expect($template->isAlwaysSent())->toBeTrue();
 });

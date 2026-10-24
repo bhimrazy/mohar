@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Actions\Fortify\CreateNewUser;
+use App\Actions\Fortify\RefuseExpiredPassword;
 use App\Actions\Fortify\RememberValidatedLogin;
 use App\Actions\Fortify\ResetUserPassword;
 use App\Actions\Fortify\SignInValidatedUser;
@@ -10,8 +11,11 @@ use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Http\Responses\PasswordConfirmedResponse;
 use App\Http\Responses\PasswordResetFailedResponse;
 use App\Http\Responses\PasswordResetLinkRequestedResponse;
+use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
@@ -26,6 +30,7 @@ use Laravel\Fortify\Contracts\FailedPasswordResetResponse;
 use Laravel\Fortify\Contracts\PasswordConfirmedResponse as PasswordConfirmedResponseContract;
 use Laravel\Fortify\Contracts\RedirectsIfTwoFactorAuthenticatable;
 use Laravel\Fortify\Contracts\SuccessfulPasswordResetLinkRequestResponse;
+use Laravel\Fortify\Events\ValidTwoFactorAuthenticationCodeProvided;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
 
@@ -73,6 +78,26 @@ class FortifyServiceProvider extends ServiceProvider
             SignInValidatedUser::class,
             PrepareAuthenticatedSession::class,
         ]));
+
+        // Fortify's own confirm check, then the one-time password expiry (#60): an expired one confirms nothing.
+        Fortify::confirmPasswordsUsing(function ($user, ?string $password = null): bool {
+            $valid = app(StatefulGuard::class)->validate([Fortify::username() => $user->{Fortify::username()}, 'password' => $password]);
+
+            if ($valid) {
+                RefuseExpiredPassword::check($user, 'confirm_password', field: 'password');
+            }
+
+            return $valid;
+        });
+
+        // A two-factor challenge started before the expiry and completed after it (#459): refused before the login.
+        Event::listen(ValidTwoFactorAuthenticationCodeProvided::class, function (ValidTwoFactorAuthenticationCodeProvided $event): void {
+            if ($event->user instanceof User && $event->user->passwordExpired()) {
+                request()->session()->forget(['login.id', 'login.remember']);
+            }
+
+            RefuseExpiredPassword::check($event->user, 'two_factor', redirectTo: route('login'));
+        });
     }
 
     /**

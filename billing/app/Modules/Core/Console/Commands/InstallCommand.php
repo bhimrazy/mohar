@@ -39,7 +39,8 @@ use function Laravel\Prompts\text;
     {--additional-admin : Create a full administrator even though one already exists}
     {--country= : Two-letter country code for a first install (default NP, Nepal)}
     {--currency= : Default currency for a first install: NPR, USD or INR (default NPR)}
-    {--timezone= : Company time zone for a first install (default Asia/Kathmandu)}')]
+    {--timezone= : Company time zone for a first install (default Asia/Kathmandu)}
+    {--release-lock : Only release the install lock a stopped run left behind, then exit}')]
 #[Description('Check the environment, install reference data and create the first full administrator')]
 class InstallCommand extends Command
 {
@@ -51,6 +52,13 @@ class InstallCommand extends Command
 
     public function handle(EnvironmentChecks $environment, ReferenceDataInstaller $installer, FirstAdministrator $administrators, RegionalDefaults $regional): int
     {
+        if ($this->option('release-lock')) {
+            Cache::lock(self::LOCK)->forceRelease();
+            $this->components->info('Install lock released. Run `php artisan app:install` again.');
+
+            return self::SUCCESS;
+        }
+
         if (! $this->preflight($environment->run())) {
             return self::FAILURE;
         }
@@ -58,7 +66,7 @@ class InstallCommand extends Command
         $lock = Cache::lock(self::LOCK, self::LOCK_SECONDS);
 
         if (! $lock->get()) {
-            $this->components->error('Another app:install is running. Wait for it to finish, then run `php artisan app:install` again.');
+            $this->components->error('Another app:install is running, or one stopped in the last '.intdiv(self::LOCK_SECONDS, 60).' minutes without finishing (a killed process, a lost SSH session). Wait for it, or, when you are sure none is running, release the lock with `php artisan app:install --release-lock` and run it again.');
 
             return self::FAILURE;
         }

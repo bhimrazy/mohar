@@ -8,8 +8,9 @@ use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
 /**
- * The notice to the old address after a sign-in email change, when no template system takes it (SystemMailer
- * returned Unavailable). The editable version is the auth.email_changed template.
+ * A plain security notice when no template system takes it (SystemMailer returned Unavailable): to the old address
+ * after a sign-in email change (template auth.email_changed), or to an administrator given a new one-time password
+ * (staff.password_reissued).
  */
 class LoginEmailNotice extends Notification
 {

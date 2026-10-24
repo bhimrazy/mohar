@@ -791,6 +791,15 @@ If you didn't expect this, tell another administrator straight away.
 
 [Open admin area]({{ system.admin_url }})
 MD),
+    $staff('staff.password_reissued', 'Staff one-time password issued', 'A new one-time password was issued for your staff account', <<<'MD'
+# A new one-time password was issued
+
+A new one-time password for your staff account was issued on the server ({{ notice.run_by }}). Your previous password and every signed-in session have stopped working.
+
+Sign in with the new password and choose your own. It expires after {{ notice.expires_in }}.
+
+If you didn't ask for this, tell another administrator straight away.
+MD),
     $staff('staff.email_changed', 'Staff login email changed', 'Your staff login email was changed', <<<'MD'
 # Your login email was changed
 
@@ -986,6 +995,7 @@ $descriptions = [
     'staff.password_reset' => 'Sent to a staff member who asks to reset their password.',
     'staff.invitation' => 'Invites a new staff member to the admin area.',
     'staff.two_factor_reset' => 'Tells a staff member their two-factor authentication was reset.',
+    'staff.password_reissued' => 'Tells a full administrator a new one-time password was issued from the command line.',
     'staff.email_changed' => 'Tells a staff member their login email was changed.',
     'auth.email_changed' => 'Tells the previous address that a login\'s sign-in email was changed, with the new one partly masked.',
     'staff.settings_changed' => 'Tells staff that a security setting was changed.',

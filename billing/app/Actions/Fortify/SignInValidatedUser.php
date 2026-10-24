@@ -27,7 +27,7 @@ class SignInValidatedUser extends AttemptToAuthenticate
 
         return parent::handle($request, function ($request) use ($next) {
             try {
-                RefuseExpiredPassword::check($this->guard->user());
+                RefuseExpiredPassword::check($this->guard->user(), 'sign_in');
             } catch (ValidationException $refused) {
                 $this->guard->logout();
 

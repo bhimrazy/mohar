@@ -61,11 +61,12 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     ];
 
     /**
-     * Changing the password records when and clears a pending forced change and a one-time password's expiry. Changing
-     * the email of an existing client login (not staff: the test LoginImporter::linkable() uses) removes its
-     * verification, unless the same save sets it: "verified since" then also means "unchanged since" (the client
-     * import links a login only when that is 30 days or more). Staff are exempt here: UpdateStaff and LoginEmailChange
-     * clear verification on every change, a self-change included. A query-builder update() bypasses this hook.
+     * Changing the password records when and clears a pending forced change and a one-time password's expiry, unless
+     * the same save sets a new expiry (it writes a one-time password). Changing the email of an existing client login
+     * (not staff: the test LoginImporter::linkable() uses) removes its verification, unless the same save sets it:
+     * "verified since" then also means "unchanged since" (the client import links a login only when that is 30 days
+     * or more). Staff are exempt here: UpdateStaff and LoginEmailChange clear verification on every change, a
+     * self-change included. A query-builder update() bypasses this hook.
      */
     protected static function booted(): void
     {
@@ -79,8 +80,12 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
 
             if ($user->isDirty('password')) {
                 $user->password_changed_at = now();
-                $user->must_change_password = false;
-                $user->password_expires_at = null;
+
+                // A save that also sets an expiry writes a one-time password and keeps its flags (one save).
+                if (! ($user->isDirty('password_expires_at') && $user->password_expires_at !== null)) {
+                    $user->must_change_password = false;
+                    $user->password_expires_at = null;
+                }
             }
 
             if ($user->exists && ! $user->is_staff && $user->isDirty('email') && ! $user->isDirty('email_verified_at')) {

@@ -2,15 +2,20 @@
 
 namespace App\Modules\Core\Install;
 
+use App\Contracts\Notifications\SystemMailer;
+use App\Enums\SystemMailOutcome;
 use App\Events\Core\StaffCreated;
 use App\Models\User;
 use App\Modules\Core\Models\Role;
+use App\Modules\Core\Notifications\LoginEmailNotice;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\LoginSessions;
 use App\Support\Security\PasswordPolicy;
 use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use LogicException;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 /**
  * Creates a full administrator from the install command: a verified, active staff member in the system role keyed
@@ -28,7 +33,7 @@ final class FirstAdministrator
     /** @var (Closure(): string)|null */
     private static ?Closure $passwordGenerator = null;
 
-    public function __construct(private ActivityLogger $activity) {}
+    public function __construct(private ActivityLogger $activity, private SystemMailer $mailer) {}
 
     /**
      * Active staff whose role grants everything ("*"), whatever the role is called.
@@ -133,11 +138,15 @@ final class FirstAdministrator
 
     /**
      * Replace a full administrator's password with a new generated one-time password (app:admin-password): the
-     * recovery path once the first one expired, or when it was lost. Returns the password, which is never stored.
+     * recovery path once the first one expired, or when it was lost. Every way back in that came from the old
+     * password ends too: stored sessions and remember-me cookies. The administrator's mailbox is told. Returns the
+     * password, which is never stored.
+     *
+     * @param  string  $runBy  who ran it, for the audit entry and the notice (the OS user and host)
      *
      * @throws AdministratorRefused
      */
-    public function reissue(User $user): string
+    public function reissue(User $user, string $runBy): string
     {
         if (! $this->isFullAdministrator($user)) {
             throw new AdministratorRefused("{$user->email} is not an active full administrator. Other staff reset their password with \"Forgot password\" or from Admin → Staff.");
@@ -145,17 +154,48 @@ final class FirstAdministrator
 
         $password = self::generatePassword();
 
-        DB::transaction(function () use ($user, $password): void {
-            // Saving a new password clears both flags, so they are set in a second save, as in create().
-            $user->forceFill(['password' => $password])->save();
+        DB::transaction(function () use ($user, $password, $runBy): void {
+            LoginSessions::rotateRememberToken($user);
             $user->forceFill([
+                'password' => $password,
                 'must_change_password' => true,
                 'password_expires_at' => now()->addHours(self::ONE_TIME_PASSWORD_HOURS),
             ])->save();
 
-            $this->activity->log('One-time password issued from the command line', $user, properties: ['email' => $user->email], event: 'staff.password_reissued');
+            $this->activity->log('One-time password issued from the command line', $user, properties: ['email' => $user->email, 'run_by' => $runBy], event: 'staff.password_reissued');
         });
 
+        LoginSessions::revoke($user);
+        $this->tell($user, $runBy);
+
         return $password;
+    }
+
+    /**
+     * The staff.password_reissued notice; the plain Core notice when no template system takes it. A notice not
+     * delivered is logged and never undoes the reissue.
+     */
+    private function tell(User $user, string $runBy): void
+    {
+        $hours = self::ONE_TIME_PASSWORD_HOURS;
+        $outcome = $this->mailer->send('staff.password_reissued', $user, ['notice' => ['run_by' => $runBy, 'expires_in' => trans_choice(':count hour|:count hours', $hours)]], 'password-reissued|'.$user->id.'|'.now()->format('YmdHis'));
+
+        if ($outcome === SystemMailOutcome::Unavailable) {
+            try {
+                $user->notify(new LoginEmailNotice(__('A new one-time password was issued for your staff account'), [
+                    __('A new one-time password for your staff account was issued on the server (:run_by). Your previous password and every signed-in session have stopped working.', ['run_by' => $runBy]),
+                    __('If you didn\'t ask for this, tell another administrator straight away.'),
+                ]));
+
+                return;
+            } catch (TransportExceptionInterface $e) {
+                report($e);
+                $outcome = SystemMailOutcome::Refused;
+            }
+        }
+
+        if ($outcome === SystemMailOutcome::Refused || $outcome === SystemMailOutcome::Suppressed) {
+            $this->activity->log('Security notice not delivered', $user, properties: ['notice' => 'staff.password_reissued', 'recipient' => $user->email, 'reason' => $outcome->value], event: 'account.notice_failed');
+        }
     }
 }

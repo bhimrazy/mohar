@@ -258,7 +258,7 @@ final class MailFramer
             in_array($key, ['staff.password_reset', 'staff.invitation'], true) => ['accent', $key === 'staff.invitation' ? self::text('Invitation') : self::text('Reset requested')],
             default => ['info', self::text('Account change')],
         };
-        $security = in_array($key, ['staff.password_reset', 'staff.invitation', 'staff.login_failures', 'staff.two_factor_reset', 'staff.email_changed', 'staff.settings_changed'], true);
+        $security = in_array($key, ['staff.password_reset', 'staff.invitation', 'staff.login_failures', 'staff.two_factor_reset', 'staff.password_reissued', 'staff.email_changed', 'staff.settings_changed'], true);
 
         return new MailFrame(
             label: $security ? self::text('Account security') : self::text('Admin area'),

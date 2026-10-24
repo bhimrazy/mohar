@@ -17,7 +17,7 @@ class RememberValidatedLogin extends RedirectIfTwoFactorAuthenticatable
     {
         $user = parent::validateCredentials($request);
         // Before the two-factor challenge, which signs in without this pipeline's later steps.
-        RefuseExpiredPassword::check($user);
+        RefuseExpiredPassword::check($user, 'sign_in');
         $request->attributes->set(self::ATTRIBUTE, $user);
 
         return $user;
