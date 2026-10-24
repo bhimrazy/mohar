@@ -41,6 +41,7 @@ use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\RegistrarCommandLog;
 use App\Modules\Domains\Models\RegistrarRefRecord;
+use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Services\DomainPricingService;
 use App\Modules\Domains\Services\DomainRegistryService;
 use App\Modules\Domains\Services\EloquentRegistrarRefs;
@@ -299,6 +300,15 @@ class DomainsServiceProvider extends ModuleServiceProvider
         }, null, 40);
     }
 
+    /**
+     * @param  'string'|'email'|'country'  $type
+     * @param  list<mixed>  $rules
+     */
+    private function contactSetting(string $field, string $label, string $type = 'string', ?string $help = null, array $rules = ['max:255']): SettingDefinition
+    {
+        return new SettingDefinition('domains.default_contact.'.$field, $label, $type, $help, rules: ['nullable', ...$rules]);
+    }
+
     private function registerPermissionsAndSettings(): void
     {
         $this->app->make(PermissionRegistry::class)->register('Domains', [
@@ -312,9 +322,23 @@ class DomainsServiceProvider extends ModuleServiceProvider
             'domains.settings.manage' => 'Manage domain settings',
         ], sensitive: ['domains.registrars.manage']);
 
-        $this->app->make(SettingsRegistry::class)->section('domains', 'Domains', [
+        $registry = $this->app->make(SettingsRegistry::class);
+        $activeTlds = fn (): array => Tld::query()->active()->ordered()->get(['extension', 'display_unicode'])
+            ->mapWithKeys(fn (Tld $tld): array => [$tld->extension => $tld->display_unicode ?: $tld->extension])->all();
+        // Registrars that answer availability checks, by name; the saved one stays listed so the section still saves.
+        $lookupRegistrars = function (): array {
+            $registrars = $this->app->make(RegistrarDriverRegistry::class);
+            $saved = (string) $this->app->make(Settings::class)->get('domains.lookup_registrar', '');
+
+            return collect($registrars->keys())
+                ->filter(fn (string $key): bool => $key === $saved || $registrars->supports($key, 'availability'))
+                ->mapWithKeys(fn (string $key): array => [$key => $registrars->get($key)->name()])->all();
+        };
+
+        // domains.order_route is a developer setting and is left out of the UI.
+        $registry->section('domains', 'Domains', [
             new SettingDefinition('domains.default_auto_renew', 'Auto-renew new domains by default', 'boolean'),
-            new SettingDefinition('domains.invoice_lead_days', 'Days before the due date to issue renewal invoices', 'integer', 'Leave empty to use 14 days.', rules: ['nullable', 'min:0', 'max:365']),
+            new SettingDefinition('domains.invoice_lead_days', 'Days before the due date to issue renewal invoices', 'integer', rules: ['min:0', 'max:365']),
             new SettingDefinition('domains.next_due_offset_days', 'Days before expiry that renewals are due', 'integer', rules: ['min:0', 'max:90']),
             new SettingDefinition('domains.free_renewal_requires_service', 'Free domains renew only with an active linked service', 'boolean'),
             new SettingDefinition('domains.renew_on_payment', 'Renew at the registrar when the renewal invoice is paid', 'boolean'),
@@ -322,8 +346,26 @@ class DomainsServiceProvider extends ModuleServiceProvider
             new SettingDefinition('domains.grace_redemption_enabled', 'Use grace and redemption periods', 'boolean'),
             new SettingDefinition('domains.default_nameservers', 'Default nameservers', 'text', 'One hostname per line (2–5).'),
             new SettingDefinition('domains.use_client_contacts', 'Use the client profile for admin, tech and billing contacts', 'boolean'),
-            new SettingDefinition('domains.default_contact', 'Default contact (JSON)', 'text', 'Used for admin/tech/billing contacts when client contacts are off.'),
             new SettingDefinition('domains.lock_by_default', 'Lock domains after registration or transfer', 'boolean'),
+        ], 'domains.settings.manage');
+
+        // One setting per field, so the contact is a form rather than JSON; registrars validate the details themselves.
+        $contact = $this->contactSetting(...);
+        $registry->section('domains_contact', 'Domain contact', [
+            $contact('first_name', 'First name', help: 'Admin, tech and billing contact of new domains when "Use the client profile" is off. The registrant is always the client.'),
+            $contact('last_name', 'Last name'),
+            $contact('company', 'Company'),
+            $contact('email', 'Email address', 'email'),
+            $contact('phone', 'Phone', help: 'With the country code, e.g. +977.9801234567.', rules: ['max:30']),
+            $contact('address_1', 'Address'),
+            $contact('address_2', 'Address line 2'),
+            $contact('city', 'City'),
+            $contact('state', 'State or province'),
+            $contact('postcode', 'Postcode', rules: ['max:20']),
+            $contact('country', 'Country', 'country', rules: []),
+        ], 'domains.settings.manage');
+
+        $registry->section('domains_sync', 'Domain sync', [
             new SettingDefinition('domains.sync_enabled', 'Sync domains with registrars', 'boolean'),
             new SettingDefinition('domains.sync_notify_only', 'Report sync differences without changing anything', 'boolean'),
             new SettingDefinition('domains.sync_batch_size', 'Domains per sync run', 'integer', rules: ['min:1', 'max:1000']),
@@ -331,19 +373,24 @@ class DomainsServiceProvider extends ModuleServiceProvider
             new SettingDefinition('domains.transfer_sync_interval_hours', 'Hours between transfer status checks', 'integer', rules: ['min:1', 'max:168']),
             new SettingDefinition('domains.transfer_stale_days', 'Notify staff about transfers pending longer than (days)', 'integer', rules: ['min:1', 'max:90']),
             new SettingDefinition('domains.command_log_retention_days', 'Keep registrar command log for (days)', 'integer', rules: ['min:1', 'max:3650']),
+        ], 'domains.settings.manage');
+
+        $registry->section('domains_reminders', 'Domain reminders', [
             new SettingDefinition('domains.reminder_offsets', 'Expiry reminder days (negative = after expiry)', 'string', 'Comma-separated, at most 5, e.g. 30, 7, -3.'),
             new SettingDefinition('domains.remind_when_auto_renew_off', 'Send reminders when auto-renew is off', 'boolean'),
             new SettingDefinition('domains.remind_free_domains', 'Send reminders for free domains', 'boolean'),
-            new SettingDefinition('domains.allow_idn', 'Allow internationalised domain names', 'boolean'),
-            new SettingDefinition('domains.lookup_registrar', 'Registrar used for availability lookups', 'string'),
-            new SettingDefinition('domains.lookup_tlds', 'Extensions checked when no TLD is entered', 'string', 'Comma-separated, e.g. .com, .net'),
-            new SettingDefinition('domains.lookup_cache_seconds', 'Cache lookup results for (seconds)', 'integer', rules: ['min:0', 'max:86400']),
-            new SettingDefinition('domains.suggestion_tlds', 'Extensions used for suggestions', 'string', 'Comma-separated.'),
+        ], 'domains.settings.manage');
+
+        $registry->section('domains_search', 'Domain search', [
+            new SettingDefinition('domains.lookup_registrar', 'Registrar used for availability lookups', 'select', 'Extensions are checked through this registrar\'s availability service.', options: $lookupRegistrars),
+            new SettingDefinition('domains.lookup_tlds', 'Extensions checked when no TLD is entered', 'multiselect', 'Active extensions only.', options: $activeTlds),
+            new SettingDefinition('domains.suggestion_tlds', 'Extensions used for suggestions', 'multiselect', options: $activeTlds),
             new SettingDefinition('domains.suggestion_limit', 'Maximum suggestions', 'integer', rules: ['min:0', 'max:50']),
+            new SettingDefinition('domains.lookup_cache_seconds', 'Cache lookup results for (seconds)', 'integer', rules: ['min:0', 'max:86400']),
             new SettingDefinition('domains.lookup_rate_limit', 'Lookups per minute per IP', 'integer', rules: ['min:1', 'max:600']),
+            new SettingDefinition('domains.allow_idn', 'Allow internationalised domain names', 'boolean'),
             new SettingDefinition('domains.premium_enabled', 'Sell premium names (at the standard price until premium pricing exists)', 'boolean'),
             new SettingDefinition('domains.self_registration_url', '"How to register" link for domains clients register at the registry', 'string', 'Shown in domain search for extensions marked "registered by the client", such as .np.', rules: ['nullable', 'url:https', 'max:255']),
-            new SettingDefinition('domains.order_route', 'Cart route used by "Add to cart" on the domain search', 'string'),
         ], 'domains.settings.manage');
 
         // Converting prices rewrites them from exchange rates, so it sits with the sensitive rate permission.

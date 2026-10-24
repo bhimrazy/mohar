@@ -141,7 +141,7 @@ test('cancelling lines needs a reason in the mode', function () {
 });
 
 test('a late fee on a numbered invoice is a debit note, and LateFeeApplied still fires (AC 24)', function () {
-    billingSettings(['late_fee.type' => 'fixed', 'late_fee.amount' => 1_130, 'late_fee.minimum' => 0]);
+    billingSettings(['late_fee.type' => 'fixed', 'late_fee.fixed_amount' => 1_130, 'late_fee.minimum' => 0]);
     Event::fake([LateFeeApplied::class, DebitNoteIssued::class]);
     $invoice = oldPathInvoice();
 

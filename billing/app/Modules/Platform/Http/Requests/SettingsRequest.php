@@ -48,7 +48,7 @@ class SettingsRequest extends FormRequest
         $catalog = app(SettingsCatalog::class);
 
         return collect($catalog->section((string) $this->route('section'))['settings'] ?? [])
-            ->mapWithKeys(fn ($definition): array => [$definition->key => mb_strtolower($definition->label)])
+            ->mapWithKeys(fn ($definition): array => [$definition->key => mb_strtolower($definition->label), $definition->key.'.*' => mb_strtolower($definition->label)])
             ->all();
     }
 }

@@ -24,9 +24,8 @@ class DomainDates
 
     public function leadDays(): int
     {
-        $lead = $this->settings->get('domains.invoice_lead_days');
-
-        return (int) ($lead ?? $this->settings->get('billing.invoice_lead_days', 14));
+        // A blank saved before the field became required reads as the shipped default.
+        return (int) ($this->settings->get('domains.invoice_lead_days') ?? config('domains.invoice_lead_days', 30));
     }
 
     public function dueOffsetDays(): int

@@ -188,6 +188,7 @@ test('Core writes the marker under the shared key and Billing follows it', funct
     $settings = app(Settings::class);
 
     expect($status)->toBe(0)
+        ->and(InstallMarkers::REGIONAL_COUNTRY)->toBe('core.regional_defaults')
         ->and($settings->get(InstallMarkers::REGIONAL_COUNTRY))->toBe('IN')
         ->and($settings->get('billing.tax.home_country'))->toBe('IN');
 });

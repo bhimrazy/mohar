@@ -47,18 +47,26 @@ class ApplyLateFee
      */
     public function feeFor(Invoice $invoice): int
     {
-        $amount = $this->settings->float('late_fee.amount');
-
-        if ($amount <= 0) {
+        if (! self::enabled($this->settings)) {
             return 0;
         }
 
         $base = $this->settings->string('late_fee.base', 'balance') === 'total' ? $invoice->total : $invoice->balance;
         $fee = $this->settings->string('late_fee.type', 'percent') === 'fixed'
-            ? (int) round($amount)
-            : TaxMath::roundDiv($base * (int) round($amount * 1000), 100_000);
+            ? $this->settings->int('late_fee.fixed_amount')
+            : TaxMath::roundDiv($base * (int) round($this->settings->float('late_fee.amount') * 1000), 100_000);
 
         return max($fee, $this->settings->int('late_fee.minimum'));
+    }
+
+    /**
+     * Whether the chosen late fee type has an amount: the percent for "percent", the fixed amount for "fixed".
+     */
+    public static function enabled(BillingSettings $settings): bool
+    {
+        return $settings->string('late_fee.type', 'percent') === 'fixed'
+            ? $settings->int('late_fee.fixed_amount') > 0
+            : $settings->float('late_fee.amount') > 0;
     }
 
     public function handle(Invoice $invoice): bool
