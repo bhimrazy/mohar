@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Support\ChunkedDelete;
 use App\Modules\Core\Support\Like;
+use App\Modules\Core\Support\RetentionRunDate;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Actions\Housekeeping\PruneSystemTables;
 use App\Modules\Platform\Drivers\ExchangeRates\EcbRateSource;
@@ -153,8 +154,8 @@ class PlatformServiceProvider extends ModuleServiceProvider
     private function registerAutomation(): void
     {
         $automation = $this->app->make(Automation::class);
-        // Retention cutoffs compare timestamps, so they start at the company midnight.
-        $cutoff = fn (CalendarDate $today, int $days): CarbonImmutable => $this->app->make(CompanyClock::class)->dayBounds($today->addDays(-$days))[0];
+        // Retention cutoffs compare timestamps, so they start at the company midnight; a future run date counts from today.
+        $cutoff = fn (CalendarDate $today, int $days): CarbonImmutable => $this->app->make(CompanyClock::class)->dayBounds(RetentionRunDate::of($today)->addDays(-$days))[0];
 
         $automation->task('platform.prune_invitations', Automation::HOUSEKEEPING, fn (CalendarDate $today): string => trans_choice(
             '{0} no invitations pruned|{1} 1 invitation pruned|[2,*] :count invitations pruned',
@@ -175,9 +176,9 @@ class PlatformServiceProvider extends ModuleServiceProvider
         }, label: 'Prune the activity log', description: 'Deletes activity log entries older than the retention period (client entries are kept).');
 
         $system = fn (): PruneSystemTables => $this->app->make(PruneSystemTables::class);
-        $automation->task('platform.prune_automation_log', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => $system()->automationLog($today),
+        $automation->task('platform.prune_automation_log', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => $system()->automationLog(RetentionRunDate::of($today)),
             label: 'Prune the automation log', description: 'Deletes automation runs older than the retention period; each task keeps its latest run.');
-        $automation->task('platform.prune_queue_tables', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => $system()->queueTables($today),
+        $automation->task('platform.prune_queue_tables', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => $system()->queueTables(RetentionRunDate::of($today)),
             label: 'Delete old failed jobs', description: 'Deletes failed background jobs, and finished job batches, older than the retention period.');
         $automation->task('platform.prune_cache', Automation::HOUSEKEEPING, fn (): int => $system()->expiredCache(),
             label: 'Delete expired cache entries', description: 'Removes expired entries and locks from the database cache.');

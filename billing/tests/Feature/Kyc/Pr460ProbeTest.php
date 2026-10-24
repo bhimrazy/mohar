@@ -90,7 +90,7 @@ test('a document on another client than its path names still keeps its file', fu
         ->and(Storage::disk(KycDocument::DISK)->exists($path))->toBeTrue();
 });
 
-test('probe C: a future --date does not widen any housekeeping cutoff', function () {
+test('probe C: a future --date does not widen any retention cutoff', function () {
     ServicesTestKit::bind();
     DB::table('gateway_log')->insert(['gateway' => 'esewa', 'direction' => 'response', 'result' => 'ten days old', 'payload' => '{}', 'created_at' => now()->subDays(10)]);
     DB::table('activity_log')->insert(['description' => 'Ten days old', 'client_id' => null, 'created_at' => now()->subDays(40)]);

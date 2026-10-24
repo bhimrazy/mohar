@@ -23,5 +23,5 @@
   the existing activity log, module log, registrar log, webhook delivery and cart prunes. Upgrade note: a migration adds
   an index on `failed_jobs.failed_at` (built concurrently on PostgreSQL); no migration deletes data.
 - **`automation:run --date` refuses dates older than the automation log retention (365 days by default).** Their run
-  records are pruned, so such a date would run every task again. A future `--date` no longer reaches housekeeping
-  tasks: they run as of today, so a rehearsal never widens a retention cutoff.
+  records are pruned, so such a date would run every task again. Retention tasks count their window from today when
+  `--date` is in the future, so a rehearsal never deletes rows still inside their window.

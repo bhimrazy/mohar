@@ -142,7 +142,7 @@ original day-of-month as an anchor on recurring items to avoid drift. Query `dat
 Stages run in order EXCHANGE_RATES → RENEWALS → LATE_FEES → AUTO_CHARGE → REMINDERS → CANCELLATIONS → SUSPENSIONS →
 TERMINATIONS → SYNC → HOUSEKEEPING via `php artisan automation:run [--date=] [--only=]`; each task must be
 idempotent for its run date (recorded in `automation_runs`; dates older than the automation log retention are refused, and
-HOUSEKEEPING tasks run as of today when the date is in the future: ADR 0013 Amendment (#460)). Renewal invoicing must call
+retention tasks cap the run date at today through `RetentionRunDate`: ADR 0013 Amendment (#460)). Renewal invoicing must call
 `Invoicer::hasInvoiceForPeriod()` before issuing.
 
 **Statuses** — PHP backed enums in the module (`Enums/InvoiceStatus.php`, TitleCase cases, snake values);

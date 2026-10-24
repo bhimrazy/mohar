@@ -8,6 +8,7 @@ use App\Events\Core\ClientMerged;
 use App\Events\Core\ClientReopened;
 use App\Models\User;
 use App\Modules\Core\Support\RequestMemo;
+use App\Modules\Core\Support\RetentionRunDate;
 use App\Modules\Kyc\Actions\PruneDocuments;
 use App\Modules\Kyc\Actions\SweepOrphanFiles;
 use App\Modules\Kyc\Enums\DocumentStatus;
@@ -117,7 +118,7 @@ class KycServiceProvider extends ModuleServiceProvider
             new SettingDefinition('kyc.phone_country_code', 'Default phone country code', help: 'Added to numbers entered without one, for example +977.', rules: ['regex:/^\+\d{1,4}$/']),
         ], 'kyc.settings.manage');
 
-        $this->app->make(Automation::class)->task('kyc.prune_documents', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneDocuments::class)->handle($today),
+        $this->app->make(Automation::class)->task('kyc.prune_documents', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneDocuments::class)->handle(RetentionRunDate::ofCarbon($today)),
             label: 'Delete identity documents past retention', description: 'Deletes replaced identity documents, and those of accounts closed 90 days ago.');
         $this->app->make(Automation::class)->task('kyc.sweep_orphan_files', Automation::HOUSEKEEPING, fn (): int => app(SweepOrphanFiles::class)->handle(),
             label: 'Delete identity images left without a document', description: 'Deletes identity image files older than a day that no document refers to, left by an upload that stopped partway.');

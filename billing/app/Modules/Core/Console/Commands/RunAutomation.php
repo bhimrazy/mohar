@@ -78,9 +78,8 @@ class RunAutomation extends Command
         }
 
         $failed = false;
-        $tasks = $automation->ordered();
 
-        foreach (array_keys($tasks) as $key) {
+        foreach (array_keys($automation->ordered()) as $key) {
             if ($this->option('only') && $this->option('only') !== $key) {
                 continue;
             }
@@ -97,8 +96,7 @@ class RunAutomation extends Command
             $started = hrtime(true);
 
             try {
-                // A future run date never widens a housekeeping cutoff: those tasks run as of today.
-                $summary = $automation->run($key, $tasks[$key]['stage'] === Automation::HOUSEKEEPING && $date->isAfter($today) ? $today : $date);
+                $summary = $automation->run($key, $date);
                 $run->fill(['status' => 'success', 'summary' => is_scalar($summary) ? (string) $summary : null]);
                 $this->components->twoColumnDetail($key, '<fg=green>'.($run->summary ?? 'done').'</>');
             } catch (Throwable $exception) {

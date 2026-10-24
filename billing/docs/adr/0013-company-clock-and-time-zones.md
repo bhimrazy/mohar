@@ -296,5 +296,6 @@ the (run date, task) key that stops a date running twice, so the rule above hold
 1. `automation:run --date` refuses a date before today minus the retention (`Core\Support\AutomationLogRetention`).
    The prune deletes only rows before that same date, and keeps each task's latest run. A date whose rows are gone
    can therefore no longer be run.
-2. A run date after today does not reach housekeeping tasks: they run as of the company today, so a rehearsal with a
-   future `--date` never widens a retention cutoff. Tasks in the other stages still get the date given.
+2. Retention tasks count their window from the run date capped at the company today (`Core\Support\RetentionRunDate`),
+   so a rehearsal with a future `--date` never widens a cutoff. Every other task, including the rest of the
+   housekeeping stage (auto-close of idle tickets), still gets the date given.

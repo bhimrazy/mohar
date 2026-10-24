@@ -45,7 +45,9 @@ test('every billing permission used by the module is registered', function () {
 });
 
 test('every billing config default has a setting definition', function () {
-    $keys = collect(app(SettingsRegistry::class)->sections()['billing']['settings'])->map(fn (SettingDefinition $definition) => $definition->key);
+    // Billing's own section, and the gateway log retention in its security-tier section.
+    $sections = app(SettingsRegistry::class)->sections();
+    $keys = collect([...$sections['billing']['settings'], ...$sections['billing_retention']['settings']])->map(fn (SettingDefinition $definition) => $definition->key);
     $defaults = collect(Arr::dot(config('billing')))->keys()
         ->map(fn (string $key) => 'billing.'.preg_replace('/\.\d+$/', '', $key))->unique();
 

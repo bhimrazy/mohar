@@ -24,6 +24,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\InstallSecrets;
 use App\Modules\Core\Support\RequestMemo;
+use App\Modules\Core\Support\RetentionRunDate;
 use App\Modules\Services\Actions\CompleteLimitedServices;
 use App\Modules\Services\Actions\ExpireUnpaidChanges;
 use App\Modules\Services\Actions\GenerateRenewals;
@@ -172,8 +173,8 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $automation->task('services.complete-limited', Automation::TERMINATIONS, fn (CarbonImmutable $today): int => app(CompleteLimitedServices::class)->handle($today), label: 'Complete fixed-term services', description: 'Marks services with a renewal limit as completed after their last paid period.');
         $automation->task('services.usage-sync', Automation::SYNC, fn (CarbonImmutable $today): int => app(SyncUsage::class)->handle($today), label: 'Sync usage from servers', description: 'Records one usage snapshot per service from each server.');
         $automation->task('services.import-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => ServerAccountImport::pruneExpired(), label: 'Discard expired account imports', description: 'Deletes up to 100 account lists a run that were fetched for import more than a day ago (or finished an import more than a day ago); they hold client emails. A list still being imported is kept.');
-        $automation->task('services.module-log-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneModuleLog::class)->handle($today), label: 'Prune the module log', description: 'Deletes provisioning module log entries older than the retention period.');
-        $automation->task('services.usage_prune', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(PruneUsageSnapshots::class)->handle($today), label: 'Prune usage history', description: 'Deletes disk and bandwidth snapshots older than the retention period, keeping each service\'s latest.');
+        $automation->task('services.module-log-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneModuleLog::class)->handle(RetentionRunDate::ofCarbon($today)), label: 'Prune the module log', description: 'Deletes provisioning module log entries older than the retention period.');
+        $automation->task('services.usage_prune', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(PruneUsageSnapshots::class)->handle(RetentionRunDate::of($today)), label: 'Prune usage history', description: 'Deletes disk and bandwidth snapshots older than the retention period, keeping each service\'s latest.');
     }
 
     private function registerNavigation(): void
