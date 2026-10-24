@@ -32,7 +32,7 @@ function seedImportRace(): void
     $account = ['username' => 'nepal', 'domain' => 'nepal.test', 'plan' => 'root_basic', 'owner' => 'root', 'email' => RACE_IMPORT_EMAIL, 'ip' => null,
         'suspended' => false, 'suspend_reason' => null, 'created_at' => '2025-03-15T00:00:00+00:00', 'disk_used_mb' => 1, 'disk_limit_mb' => 10,
         'category' => 'proposed', 'client_id' => $client->id, 'product_id' => 21, 'service_id' => null, 'note' => null, 'differences' => []];
-    ServerAccountImport::query()->create(['server_id' => $server->id, 'status' => ServerAccountImport::IMPORTING, 'accounts' => [$account], 'account_count' => 1, 'missing' => [],
+    importWithAccounts([$account], ['server_id' => $server->id, 'status' => ServerAccountImport::IMPORTING, 'account_count' => 1, 'missing' => [],
         'connection_user' => 'root', 'fetched_at' => now(), 'expires_at' => now()->addDay(), 'reviewed' => ['digest' => 'race', 'staff_id' => null, 'rows' => [[
             'username' => 'nepal', 'client_id' => $client->id, 'product_id' => 21, 'cycle' => 'monthly', 'next_due_date' => '2026-11-15', 'anchor_day' => 15, 'amount' => 1200, 'currency' => 'NPR',
         ]]]]);

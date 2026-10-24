@@ -7,6 +7,7 @@ use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerAccountImport;
 use App\Modules\Services\Models\ServerGroup;
 use App\Modules\Services\Models\Service;
+use App\Modules\Services\Support\AccountList;
 use App\Support\Permissions\PermissionRegistry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
@@ -64,7 +65,7 @@ function secFakeAccounts(array $rows, ?string $resolvesTo = Whm::IP): void
  */
 function secRows(Server $server): array
 {
-    return collect(ServerAccountImport::query()->where('server_id', $server->id)->sole()->accounts)->keyBy('username')->all();
+    return collect(ServerAccountImport::query()->where('server_id', $server->id)->sole()->accountRows())->keyBy('username')->all();
 }
 
 // 1. The permission
@@ -117,11 +118,15 @@ test('the stored list is encrypted, hidden from serialisation, scoped to its ser
 
     $this->post(route('admin.services.servers.import.fetch', $server))->assertRedirect();
 
-    $raw = (string) DB::table('server_account_imports')->value('accounts');
-    expect($raw)->not->toContain('victim@example.org')->not->toContain('alpha')
+    // The contact email is in no column in clear: the payload is ciphertext and the search column a keyed hash.
+    $records = DB::table('server_account_import_accounts')->get();
+    expect($records)->toHaveCount(1)
+        ->and(json_encode($records))->not->toContain('victim@example.org')
+        ->and($records[0]->payload)->not->toContain('alpha')->not->toContain('example.org')
+        ->and($records[0]->email_hash)->toBe(AccountList::emailHash('victim@example.org'))
         ->and(ServerAccountImport::query()->sole()->toArray())->not->toHaveKey('accounts');
 
-    ServerAccountImport::query()->create(['server_id' => $other->id, 'status' => 'ready', 'accounts' => [], 'expires_at' => now()->subMinute()]);
+    ServerAccountImport::query()->create(['server_id' => $other->id, 'status' => 'ready', 'expires_at' => now()->subMinute()]);
     $this->get(route('admin.services.servers.import.show', $other))->assertOk()->assertInertia(fn ($page) => $page->where('import', null));
     $this->artisan('automation:run', ['--date' => now()->toDateString(), '--only' => 'services.import-prune', '--force' => true])->assertSuccessful();
 
@@ -141,7 +146,7 @@ test('usernames and contact emails WHM reports are validated before they are sto
     confirmPassword();
 
     $this->post(route('admin.services.servers.import.fetch', $server))->assertRedirect();
-    $accounts = ServerAccountImport::query()->sole()->accounts;
+    $accounts = ServerAccountImport::query()->sole()->accountRows();
 
     foreach ($accounts as $account) {
         expect($account['username'])->toMatch('/^[a-z0-9][a-z0-9_.-]{0,31}$/')

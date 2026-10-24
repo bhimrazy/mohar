@@ -23,6 +23,9 @@ final class RegisterSummary
     /** Documents with no stored rate into the register currency, left out of the sums. */
     public int $unconverted = 0;
 
+    /** Documents that carry tax but whose tax levels were never classified: their tax is left out of VAT. */
+    public int $unclassified = 0;
+
     public function __construct(public readonly string $currency)
     {
         foreach (array_keys(RegisterDocument::KINDS) as $kind) {

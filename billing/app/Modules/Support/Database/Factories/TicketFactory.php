@@ -35,6 +35,7 @@ class TicketFactory extends Factory
             'tags' => [],
             'last_reply_at' => now(),
             'last_client_reply_at' => now(),
+            'first_unanswered_at' => now(),
         ];
     }
 

@@ -69,11 +69,11 @@ test('[R3] a Match again whose job never ran leaves the list usable once it is s
 test('[R4] Match again on a list stored without connection_user never proposes a reseller\'s account', function () {
     $this->post(route('admin.services.servers.import.fetch', $this->server))->assertSessionHasNoErrors();
     $import = ServerAccountImport::query()->where('server_id', $this->server->id)->sole();
-    expect(collect($import->accounts)->keyBy('username')['bravo']['category'])->toBe('reseller');
+    expect(collect($import->accountRows())->keyBy('username')['bravo']['category'])->toBe('reseller');
 
     // A list fetched before 2026_10_19_400450 added the column (lists live 24 hours across the deploy).
     DB::table('server_account_imports')->where('id', $import->id)->update(['connection_user' => null]);
     $this->post(route('admin.services.servers.import.rematch', $this->server))->assertSessionHasNoErrors();
 
-    expect(collect($import->refresh()->accounts)->keyBy('username')['bravo']['category'])->not->toBe('proposed');
+    expect(collect($import->refresh()->accountRows())->keyBy('username')['bravo']['category'])->not->toBe('proposed');
 });

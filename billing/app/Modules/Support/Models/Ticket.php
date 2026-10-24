@@ -49,6 +49,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property CarbonImmutable|null $last_reply_at
  * @property CarbonImmutable|null $last_client_reply_at
  * @property CarbonImmutable|null $last_staff_reply_at
+ * @property CarbonImmutable|null $first_unanswered_at oldest customer reply staff have not answered; null when none (queue order, spec §13)
  * @property CarbonImmutable|null $closed_at
  * @property ClosedBy|null $closed_by
  * @property CarbonImmutable|null $created_at
@@ -63,7 +64,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'number', 'access_key', 'department_id', 'client_id', 'user_id', 'contact_id', 'requester_name', 'requester_email',
     'subject', 'status', 'priority', 'source', 'service_id', 'domain_id', 'assigned_to', 'cc', 'tags', 'is_pinned',
     'prevent_client_close', 'is_unverified_requester', 'merged_into_id', 'first_staff_reply_at', 'last_reply_at', 'last_client_reply_at',
-    'last_staff_reply_at', 'closed_at', 'closed_by',
+    'last_staff_reply_at', 'first_unanswered_at', 'closed_at', 'closed_by',
 ])]
 class Ticket extends Model
 {
@@ -104,6 +105,7 @@ class Ticket extends Model
             'last_reply_at' => 'datetime',
             'last_client_reply_at' => 'datetime',
             'last_staff_reply_at' => 'datetime',
+            'first_unanswered_at' => 'datetime',
             'closed_at' => 'datetime',
         ];
     }
@@ -243,23 +245,29 @@ class Ticket extends Model
     }
 
     /**
-     * Queue order for "awaiting reply": oldest *unanswered* customer message first, so repeated
-     * customer replies don't bump a ticket (spec §13). Tickets without one sort last on every database.
+     * Queue order for "awaiting reply": oldest *unanswered* customer message first, so repeated customer replies don't
+     * bump a ticket (spec §13). Tickets without one sort last on every database. Matches the order of
+     * support_tickets_awaiting_queue_index when preceded by `is_pinned desc` and followed by `id desc`.
      *
      * @param  Builder<self>  $query
      */
     public function scopeOrderByOldestUnanswered(Builder $query): void
     {
-        $firstUnanswered = fn () => TicketMessage::query()
-            ->whereColumn('support_ticket_messages.ticket_id', 'support_tickets.id')
-            ->where('type', 'reply')
-            ->whereIn('author_type', ['client', 'guest'])
-            ->where(fn (Builder $messages) => $messages
-                ->whereNull('support_tickets.last_staff_reply_at')
-                ->orWhereColumn('support_ticket_messages.created_at', '>', 'support_tickets.last_staff_reply_at'));
+        $query->orderByRaw('support_tickets.first_unanswered_at asc nulls last');
+    }
 
-        $query->orderBy($firstUnanswered()->selectRaw('case when min(created_at) is null then 1 else 0 end'))
-            ->orderBy($firstUnanswered()->selectRaw('min(created_at)'));
+    /**
+     * The oldest customer reply after the last staff reply, read from the thread. The queue column is kept
+     * incrementally; this recomputes it after a change the increments cannot follow (a merge, a deleted message).
+     */
+    public function oldestUnansweredReplyAt(): ?CarbonImmutable
+    {
+        $created = TicketMessage::query()->where('ticket_id', $this->id)->where('type', 'reply')
+            ->whereIn('author_type', ['client', 'guest'])
+            ->when($this->last_staff_reply_at !== null, fn (Builder $messages) => $messages->where('created_at', '>', $this->last_staff_reply_at))
+            ->min('created_at');
+
+        return $created !== null ? CarbonImmutable::parse($created) : null;
     }
 
     /**
