@@ -52,3 +52,13 @@ it('points demo products at welcome emails that exist', function () {
         expect(app(TemplateCatalog::class)->find($key))->not->toBeNull("Missing template {$key}");
     }
 });
+
+it('rounds seeded setup fees and option prices in NPR like converted base prices', function () {
+    $unrounded = Price::query()->where('currency', 'NPR')->where('setup_fee', '>', 0)->get()
+        ->filter(fn (Price $price): bool => $price->setup_fee % 100 !== 0)->count()
+        + Price::query()->where('currency', 'NPR')->where('priceable_type', 'config_option_value')->get()
+            ->filter(fn (Price $price): bool => $price->amount % 100 !== 0)->count();
+
+    expect(Price::query()->where('currency', 'NPR')->where('setup_fee', '>', 0)->exists())->toBeTrue()
+        ->and($unrounded)->toBe(0);
+});

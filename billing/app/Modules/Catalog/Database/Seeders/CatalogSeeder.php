@@ -235,7 +235,7 @@ class CatalogSeeder extends DemoSeeder
     {
         $usd = $this->usd ??= Currency::query()->where('code', 'USD')->first();
 
-        return $usd === null || $usd->code === $currency->code ? $amount : $usd->convertTo($amount, $currency);
+        return $usd === null || $usd->code === $currency->code ? $amount : $currency->priceFromDefault($amount, $usd);
     }
 
     private function pricePoint(int $amount): int

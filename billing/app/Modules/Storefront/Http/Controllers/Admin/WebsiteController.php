@@ -38,8 +38,9 @@ class WebsiteController extends Controller
         $live = $this->store->publishedRevision();
         $content = $draft !== null ? SiteContent::normalise($draft->content) : $published;
         $codes = array_map(fn ($display): string => $display->code, $currencies->displays());
-        $withoutNotes = ['prices' => ['tax_inclusive' => [], 'notes' => []]] + SiteContent::defaults();
-        $allInclusive = ['prices' => ['tax_inclusive' => $codes, 'notes' => []]] + SiteContent::defaults();
+        $markets = $content['prices']['markets'];
+        $withoutNotes = ['prices' => ['tax_inclusive' => [], 'notes' => [], 'markets' => $markets]] + SiteContent::defaults();
+        $allInclusive = ['prices' => ['tax_inclusive' => $codes, 'notes' => [], 'markets' => $markets]] + SiteContent::defaults();
 
         return Inertia::render('admin/storefront/website', [
             'content' => $content,
@@ -61,11 +62,13 @@ class WebsiteController extends Controller
                 'sections' => SiteContent::SECTIONS,
                 'currencies' => array_map(fn (string $code): array => [
                     'code' => $code,
-                    // Only a currency priced for one market (storefront.tax_markets) can show prices with tax.
-                    'market' => config("storefront.tax_markets.{$code}"),
+                    // Only a currency priced for one market can show prices with tax; the host's choice or the default.
+                    'market' => PriceDisplay::market($code, $content),
+                    'default_market' => config("storefront.tax_markets.{$code}"),
                     'exclusive_note' => $prices->forCurrency($code, $withoutNotes)['note'],
                     'inclusive_note' => $prices->forCurrency($code, $allInclusive)['note'],
                 ], $codes),
+                'vat_mode_url' => Route::has('admin.billing.vat-mode.edit') ? route('admin.billing.vat-mode.edit') : null,
                 'tax_rules_url' => Route::has('admin.billing.tax-rules.index') ? route('admin.billing.tax-rules.index') : null,
                 'company_url' => Route::has('admin.platform.settings.edit') ? route('admin.platform.settings.edit', ['section' => 'company']) : null,
             ],

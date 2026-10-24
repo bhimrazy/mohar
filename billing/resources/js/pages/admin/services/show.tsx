@@ -494,7 +494,7 @@ export default function ServiceShow({
                                     {
                                         label: 'Suspension reason',
                                         value: suspensionReasonLabel(
-                                            service.suspension_reason,
+                                            service.suspension_reason ?? null,
                                         ),
                                     },
                                     {

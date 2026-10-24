@@ -250,7 +250,10 @@ final class Processes
 
     private static function remove(string $directory): void
     {
-        if (! is_dir($directory) || ! str_starts_with(realpath($directory) ?: $directory, Scenario::root().'/')) {
+        // Both sides resolved: on macOS the temp directory is itself a symlink (/var -> /private/var).
+        $root = realpath(Scenario::root()) ?: Scenario::root();
+
+        if (! is_dir($directory) || ! str_starts_with(realpath($directory) ?: $directory, $root.'/')) {
             return;
         }
 

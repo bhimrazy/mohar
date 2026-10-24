@@ -11,6 +11,7 @@ import type { FormEvent, ReactNode } from 'react';
 import WebsiteController from '@/actions/App/Modules/Storefront/Http/Controllers/Admin/WebsiteController';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { DateTime } from '@/components/app/date';
+import { CountrySelect } from '@/components/app/country-select';
 import { Field } from '@/components/app/field';
 import { FormActions } from '@/components/app/form-actions';
 import { Head } from '@/components/app/head';
@@ -53,7 +54,12 @@ type Content = {
     header: { products: 'auto' | 'menu' | 'links'; menu_label: string };
     seo: { title: string; description: string; noindex: boolean };
     legal: { terms_url: string; privacy_url: string; refund_url: string };
-    prices: { tax_inclusive: string[]; notes: Record<string, string> };
+    prices: {
+        tax_inclusive: string[];
+        notes: Record<string, string>;
+        /** Currency => ISO country its prices are for; '' = sold across markets. */
+        markets: Record<string, string>;
+    };
 };
 
 /** Content parts that are plain objects (the lists have their own setters). */
@@ -84,7 +90,10 @@ type Props = {
             inclusive_note: string | null;
             /** ISO country the currency is priced for; null for a currency sold across markets. */
             market: string | null;
+            /** The market used until the host chooses one. */
+            default_market: string | null;
         }[];
+        vat_mode_url: string | null;
         tax_rules_url: string | null;
         company_url: string | null;
     };
@@ -830,9 +839,22 @@ export default function Website({
                                 ) : (
                                     'Billing tax rules'
                                 )}{' '}
-                                for the market each currency is priced for (NPR:
-                                Nepal, INR: India); other currencies show a
-                                neutral note.
+                                for the market each currency is priced for; a
+                                currency sold across markets shows a neutral
+                                note.
+                                {options.vat_mode_url && (
+                                    <>
+                                        {' '}
+                                        Nepal’s VAT mode is set in{' '}
+                                        <a
+                                            href={options.vat_mode_url}
+                                            className="text-primary hover:underline"
+                                        >
+                                            Billing → Nepal VAT
+                                        </a>
+                                        .
+                                    </>
+                                )}
                             </>
                         }
                     >
@@ -842,6 +864,10 @@ export default function Website({
                                     data.prices.tax_inclusive.includes(
                                         currency.code,
                                     );
+                                const market =
+                                    data.prices.markets[currency.code] ??
+                                    currency.default_market ??
+                                    '';
                                 const automatic = inclusive
                                     ? currency.inclusive_note
                                     : currency.exclusive_note;
@@ -855,10 +881,43 @@ export default function Website({
                                             {currency.code}
                                         </span>
                                         <div className="grid gap-2">
+                                            <Field
+                                                htmlFor={`market-${currency.code}`}
+                                                label="Priced for"
+                                                hint="The country whose tax rules apply to these prices."
+                                            >
+                                                <CountrySelect
+                                                    id={`market-${currency.code}`}
+                                                    value={market}
+                                                    emptyLabel="Several markets (no tax shown)"
+                                                    onValueChange={(next) =>
+                                                        set('prices', {
+                                                            markets: {
+                                                                ...data.prices
+                                                                    .markets,
+                                                                [currency.code]:
+                                                                    next,
+                                                            },
+                                                            tax_inclusive:
+                                                                next === ''
+                                                                    ? data.prices.tax_inclusive.filter(
+                                                                          (
+                                                                              code,
+                                                                          ) =>
+                                                                              code !==
+                                                                              currency.code,
+                                                                      )
+                                                                    : data
+                                                                          .prices
+                                                                          .tax_inclusive,
+                                                        })
+                                                    }
+                                                />
+                                            </Field>
                                             <Label className="flex items-center gap-2 font-normal">
                                                 <Switch
                                                     checked={inclusive}
-                                                    disabled={!currency.market}
+                                                    disabled={!market}
                                                     onCheckedChange={(on) =>
                                                         set('prices', {
                                                             tax_inclusive: on
@@ -878,7 +937,7 @@ export default function Website({
                                                 />
                                                 Show prices with tax included
                                             </Label>
-                                            {!currency.market && (
+                                            {!market && (
                                                 <p className="text-xs text-muted-foreground">
                                                     {currency.code} is sold in
                                                     several markets, so prices
@@ -914,7 +973,8 @@ export default function Website({
                                                 Leave empty to use “
                                                 {automatic ?? 'no note'}”. Shown
                                                 under every price group and in
-                                                the footer.
+                                                the footer. The suggested note
+                                                follows the saved market.
                                             </p>
                                         </div>
                                     </div>

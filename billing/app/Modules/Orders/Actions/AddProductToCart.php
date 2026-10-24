@@ -45,7 +45,13 @@ class AddProductToCart
 
         $cycle = BillingCycle::tryFrom($input['cycle']);
 
-        if ($cycle === null || ! in_array($cycle, $this->priceBook->availableCycles($productId, $cart->currency), true)) {
+        $cycles = $this->priceBook->availableCycles($productId, $cart->currency);
+
+        if ($cycles === []) {
+            throw ValidationException::withMessages(['product_id' => __(':product is not sold in :currency.', ['product' => $product->name, 'currency' => $cart->currency])]);
+        }
+
+        if ($cycle === null || ! in_array($cycle, $cycles, true)) {
             throw ValidationException::withMessages(['cycle' => __('Choose one of the available billing cycles.')]);
         }
 

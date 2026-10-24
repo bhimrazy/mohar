@@ -12,6 +12,7 @@ import type { ReactNode } from 'react';
 import CartController from '@/actions/App/Modules/Orders/Http/Controllers/Public/CartController';
 import StoreController from '@/actions/App/Modules/Orders/Http/Controllers/Public/StoreController';
 import { Field } from '@/components/app/field';
+import { CurrencyUnavailable } from '@/components/orders/currency-unavailable';
 import { Money } from '@/components/app/money';
 import { SectionCard } from '@/components/app/section-card';
 import InputError from '@/components/input-error';
@@ -65,6 +66,11 @@ type Props = {
     };
     currency: string;
     cycles: PriceRow[];
+    /** Other currencies this product can be bought in; only filled when it has no price in `currency`. */
+    sold_in: string[];
+    /** The signed-in client's billing currency; null for guests. */
+    account_currency: string | null;
+    support_url: string | null;
     config_options: ConfigOption[];
     addons: Addon[];
     custom_fields: CustomField[];
@@ -192,6 +198,9 @@ export default function Configure({
     product,
     currency,
     cycles,
+    sold_in: soldIn,
+    account_currency: accountCurrency,
+    support_url: supportUrl,
     config_options: configOptions,
     addons,
     custom_fields: customFields,
@@ -305,6 +314,41 @@ export default function Configure({
         );
 
     const monthlyRow = priceFor(cycles, 'monthly');
+
+    // No price in this currency: say so and offer the way out, with no totals or add-on prices that read as orderable.
+    if (cycles.length === 0) {
+        return (
+            <>
+                <Head title={product.name} />
+
+                <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 md:px-6 lg:py-12">
+                    <Link
+                        href={store.index.url()}
+                        className="-ml-1 inline-flex items-center gap-1 self-start rounded-md px-1 text-sm text-muted-foreground hover:text-foreground"
+                    >
+                        <ChevronLeft className="size-4" aria-hidden="true" />
+                        Back to store
+                    </Link>
+                    <div className="space-y-2">
+                        {product.group && (
+                            <p className="text-sm font-medium text-muted-foreground">
+                                {product.group}
+                            </p>
+                        )}
+                        <h1 className="text-3xl font-semibold tracking-tight">
+                            {product.name}
+                        </h1>
+                    </div>
+                    <CurrencyUnavailable
+                        title={`${product.name} is not sold in ${currency}`}
+                        soldIn={soldIn}
+                        accountCurrency={accountCurrency}
+                        supportUrl={supportUrl}
+                    />
+                </div>
+            </>
+        );
+    }
 
     return (
         <>
