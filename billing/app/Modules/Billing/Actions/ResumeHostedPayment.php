@@ -38,7 +38,8 @@ class ResumeHostedPayment
         $url = null;
 
         if (self::payable($attempt) && PaymentInProgress::closable($attempt) && $driver instanceof ResumesHostedPayment) {
-            $url = $driver->resumeUrl($this->gateways->config($attempt->gateway), $attempt->toRef(interactive: true, withResumeUrl: true));
+            $config = $this->gateways->config($attempt->gateway);
+            $url = $this->gateways->during($config, fn (): ?string => $driver->resumeUrl($config, $attempt->toRef(interactive: true, withResumeUrl: true)));
             // Re-checked after the provider call: staff may have cancelled the invoice, or another payment cleared it.
             $url = $url !== null && self::acceptable($url) && self::payable($attempt) ? $url : null;
         }

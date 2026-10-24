@@ -3,6 +3,7 @@
 namespace App\Modules\Billing\Actions;
 
 use App\Contracts\Billing\CancelsHostedPayment;
+use App\Enums\HostedSessionCancel;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Exceptions\BillingException;
@@ -75,7 +76,8 @@ class CloseHostedPayment
             return $attempt->status;
         }
 
-        $outcome = $driver->cancelSession($this->gateways->config($attempt->gateway), $attempt->toRef(interactive: true));
+        $config = $this->gateways->config($attempt->gateway);
+        $outcome = $this->gateways->during($config, fn (): HostedSessionCancel => $driver->cancelSession($config, $attempt->toRef(interactive: true)));
         $this->log->log($attempt->gateway, 'request', 'hosted session close: '.$outcome->value, ['reference' => $attempt->reference], $attempt->invoice_id);
 
         return $this->settle->handle($attempt, interactive: true, cancelReturn: true);

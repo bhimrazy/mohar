@@ -431,13 +431,20 @@ missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this s
   processor on a handler tapped twice and leaves a `NullHandler` alone. Each logger's `MessageLogged` event carries
   the masked message and context (`RedactingLogEvents`, which masks only when a listener exists). The Arch ban adds
   `MessageLogged`, `Log::listen`, `app('log')->build` or `->listen`, `->build(['driver' …])`, `STDOUT` and
-  `php://stdout`; a bare `->build(` would match every builder in `app/`.
+  `php://stdout`; a bare `->build(` would match every builder in `app/`. Monolog is for the backstop only: any
+  `Monolog\` reference, `->pushHandler(`, `->setHandlers(`, `->getLogger(` and `new StreamHandler` (or another
+  writing handler) fail outside `Support/Logging/`, since a handler pushed after the tap writes unmasked.
 - **A Throwable nested in `context` or `extra`** (to depth 8) is masked by `maskThrowable()` with the sets attached
   to it, and logged as `exception` (class), `message` and `at` (file:line). Before, it was logged as `[]`.
 - **Gateway calls run in the scope** (step 7, first half, finished). `GatewayManager::during(GatewayConfig, Closure)`
-  runs a driver call in `RedactionScope::during()` with `GatewayConfig::secrets()`. Every host call to a gateway
-  driver uses it: capture, refund, refund lookup, attempt lookup, card token details, callback parsing, hosted
-  payment start and return parsing. `StartHostedPayment` masks the provider's message before it cuts it to 500
+  runs a driver call in `RedactionScope::during()` with `GatewayConfig::secrets()`. Every Billing call to a gateway
+  driver method that reaches the provider uses it: capture, refund, refund lookup, attempt lookup, card token details,
+  callback parsing, hosted payment start, return parsing, resume, session close and the connection test. The Stripe
+  smoke command runs its checks in one `RedactionScope::during()` with its test key. An Arch test
+  (`tests/Arch/LogRedactionTest.php`) fails a call to one of those contract methods in Billing or a `Payments*`
+  module, outside the drivers, that is not on a line with `during(`. The methods come from the gateway contracts by
+  reflection, less the ones that read only the driver (`key`, `limits`, …), so a new contract method is checked
+  too. `StartHostedPayment` masks the provider's message before it cuts it to 500
   characters. `GatewayLogger::redact()` requires the gateway key.
 - **Host pattern for steps 5 and 6**, as Billing now does it:
     1. Build the call's set from the config's `secrets()` and the request's `secrets()`.

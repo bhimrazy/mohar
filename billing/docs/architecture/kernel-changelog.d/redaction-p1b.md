@@ -13,7 +13,9 @@
   `RedactingFailedJobProvider` (wraps the `queue.failer` binding through `wrap()`, countable or prunable only when the
   wrapped provider is). `tests/Arch/LogRedactionTest.php` fails a channel without the tap and any `Log::build()`,
   `Log::listen()`, `app('log')->build()` or `->listen()`, `->build(['driver' …])`, `MessageLogged`, `error_log()`,
-  `syslog()`, `openlog()`, `STDERR`, `STDOUT`, `php://stderr` or `php://stdout` in `app/`.
+  `syslog()`, `openlog()`, `STDERR`, `STDOUT`, `php://stderr` or `php://stdout` in `app/`, and any Monolog reference,
+  `->pushHandler()`, `->setHandlers()`, `->getLogger()` or `new StreamHandler` outside `App\Support\Logging`. It also
+  fails a gateway driver call in Billing or a `Payments*` module that does not run in `GatewayManager::during()`.
 - The `log` binding is `@internal` `App\Support\Logging\RedactingLogManager` (extends `Illuminate\Log\LogManager`):
   it taps every channel it creates, `Log::stack()` and the emergency logger with `RedactLogs`, and gives each logger
   `@internal` `RedactingLogEvents`, which masks `MessageLogged` before listeners see it. `RedactLogs` keeps one

@@ -87,7 +87,8 @@ class GatewayController extends Controller
         abort_unless($driver instanceof ConnectionTester, 404);
 
         try {
-            $check = $driver->testConnection($this->gateways->config($gateway));
+            $config = $this->gateways->config($gateway);
+            $check = $this->gateways->during($config, fn (): ConnectionCheck => $driver->testConnection($config));
         } catch (Throwable $exception) {
             report($exception);
             $check = new ConnectionCheck(false, __('Couldn\'t reach the provider. Try again in a minute.'));

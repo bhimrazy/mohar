@@ -89,7 +89,8 @@ class GatewayManager implements GatewayRegistry
     /**
      * Runs a driver call for $config's gateway with its configured secrets (GatewayConfig::secrets()) in the redaction
      * scope (ADR 0023 §5): log lines written during the call, and an exception that leaves it when it is reported or
-     * stored as a failed job, are masked by those values too. Every call a host makes to a gateway driver goes through it.
+     * stored as a failed job, are masked by those values too. Every Billing call to a gateway driver method that reaches the
+     * provider goes through it; tests/Arch/LogRedactionTest.php fails one that does not.
      *
      * @template T
      *
