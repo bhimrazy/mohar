@@ -794,7 +794,7 @@ MD),
     $staff('staff.password_reissued', 'Staff one-time password issued', 'A new one-time password was issued for your staff account', <<<'MD'
 # A new one-time password was issued
 
-A new one-time password for your staff account was issued on the server ({{ notice.run_by }}). Your previous password and every signed-in session have stopped working.
+A new one-time password for your staff account was issued on the server ({{ notice.run_by }}). Your previous password and its "remember me" sign-ins no longer work.
 
 Sign in with the new password and choose your own. It expires after {{ notice.expires_in }}.
 

@@ -74,7 +74,7 @@ test('an install refuses to start while another holds the install lock, and writ
 
     expect($status)->toBe(1)
         ->and($output)->toContain('Another app:install is running, or one stopped in the last 15 minutes')
-        ->and($output)->toContain('php artisan app:install --release-lock')
+        ->and($output)->toContain('php artisan app:install --release-lock --force')
         ->and(User::query()->count())->toBe(0)
         ->and(TaxRule::query()->count())->toBe(0);
 
@@ -85,16 +85,26 @@ test('an install refuses to start while another holds the install lock, and writ
         ->and(Cache::lock(InstallCommand::LOCK, 1)->get())->toBeTrue();
 });
 
-test('--release-lock frees a lock a stopped run left behind, and only that', function () {
+test('--release-lock frees a lock a stopped run left behind only with --force and a confirmation that names the risk', function () {
     // A run killed mid-install never reaches its finally block.
     expect(Cache::lock(InstallCommand::LOCK, 900)->get())->toBeTrue();
+    $held = fn (): bool => ! Cache::lock(InstallCommand::LOCK, 1)->get();
 
     [$status, $output] = hardenedInstall(options: ['--release-lock' => true]);
+    expect($status)->toBe(1)->and($output)->toContain('needs --force and a terminal')->and($held())->toBeTrue();
 
-    expect($status)->toBe(0)
-        ->and($output)->toContain('Install lock released')
-        ->and(User::query()->count())->toBe(0)
-        ->and(Cache::lock(InstallCommand::LOCK, 1)->get())->toBeTrue();
+    // --force without a terminal: nobody confirmed.
+    [$status] = hardenedInstall(options: ['--release-lock' => true, '--force' => true]);
+    expect($status)->toBe(1)->and($held())->toBeTrue();
+
+    $question = 'Release the app:install lock? Do this only when no install is running on any server: releasing the lock of a run that is still going lets a second one write the same rows at the same time.';
+    $this->artisan('app:install', ['--release-lock' => true, '--force' => true])->expectsConfirmation($question, 'no')->assertFailed();
+    expect($held())->toBeTrue();
+
+    $this->artisan('app:install', ['--release-lock' => true, '--force' => true])->expectsConfirmation($question, 'yes')
+        ->expectsOutputToContain('Install lock released')->assertSuccessful();
+    expect($held())->toBeFalse()
+        ->and(User::query()->count())->toBe(0);
 });
 
 test('a unique-key clash with an install the lock could not see ends with a plain message, not a stack trace', function () {

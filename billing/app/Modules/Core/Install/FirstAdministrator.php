@@ -183,7 +183,7 @@ final class FirstAdministrator
         if ($outcome === SystemMailOutcome::Unavailable) {
             try {
                 $user->notify(new LoginEmailNotice(__('A new one-time password was issued for your staff account'), [
-                    __('A new one-time password for your staff account was issued on the server (:run_by). Your previous password and every signed-in session have stopped working.', ['run_by' => $runBy]),
+                    __('A new one-time password for your staff account was issued on the server (:run_by). Your previous password and its "remember me" sign-ins no longer work.', ['run_by' => $runBy]),
                     __('If you didn\'t ask for this, tell another administrator straight away.'),
                 ]));
 
