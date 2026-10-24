@@ -696,9 +696,9 @@ final class Redactor
     }
 
     /**
-     * Where a tail value [$start, $end) that maskTailPairs masks whole must end so that it also covers the value of any
-     * secret pair inside it (`1&hash:Bearer x`, `a,token:'x y'`), which the scan would have masked past $end. Matches
-     * are searched in windows of 256 bytes plus 280 for a name and separator, so the cost stays linear.
+     * Where a value [$start, $end) masked whole (a tail value, or one holding a mask) must end so that it also covers the
+     * value of any secret pair inside it (`1&hash:Bearer x`, `a,token:'x y'`), which the scan would have masked past
+     * $end. Matches are searched in windows of 256 bytes plus 280 for a name and separator, so the cost stays linear.
      *
      * @param  list<string>  $sensitiveKeys
      */
@@ -957,7 +957,7 @@ final class Redactor
 
     /**
      * Where an unquoted value that reaches a CDATA section at $at ends: past the section, which is part of the value,
-     * or at the end of the text when it is unterminated (fail closed). A section that holds a quote, bracket, `&`, `\\`,
+     * or at the end of the text when it is unterminated (fail closed). A section that holds a quote, bracket, `&`, `\`,
      * `<` or a cookie header could start a pair whose value the scan reads past `]]>`, so the value ends before it and
      * the scan reads it as before.
      */
