@@ -27,12 +27,12 @@ class RefundReservations
      *
      * @throws BillingException
      */
-    public function reserve(Invoice $invoice, Transaction $refund, int $gross, string $reasonText, ?int $userId): void
+    public function reserve(Invoice $invoice, Transaction $refund, int $gross, string $reasonText, ?int $userId, string $reasonCode = self::REASON_CODE): void
     {
-        $plan = $this->issuer->plan(NoteRequest::creditAmount($invoice->id, $gross, self::REASON_CODE, $reasonText, false, $userId, 'refund'), $invoice, reserving: true);
+        $plan = $this->issuer->plan(NoteRequest::creditAmount($invoice->id, $gross, $reasonCode, $reasonText, $userId === null, $userId, 'refund'), $invoice, reserving: true);
         $now = now();
         $id = DB::table('tax_note_reservations')->insertGetId([
-            'invoice_id' => $invoice->id, 'transaction_id' => $refund->id, 'reason_code' => self::REASON_CODE, 'reason_text' => mb_substr($reasonText, 0, 500),
+            'invoice_id' => $invoice->id, 'transaction_id' => $refund->id, 'reason_code' => $reasonCode, 'reason_text' => mb_substr($reasonText, 0, 500),
             'digest' => $plan->digest, 'created_by' => $userId, 'status' => 'pending', 'created_at' => $now, 'updated_at' => $now,
         ]);
 

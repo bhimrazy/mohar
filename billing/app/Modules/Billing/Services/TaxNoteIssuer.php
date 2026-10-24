@@ -192,7 +192,7 @@ class TaxNoteIssuer
         $plan = new NotePreview('credit', $parts, array_sum(array_column($parts, 'gross')), $net(true), $net(false), array_sum(array_column($parts, 'tax1')), array_sum(array_column($parts, 'tax2')),
             $invoice->balance, $invoice->version, '', 'refund');
 
-        return $this->write(NoteRequest::creditAmount($invoice->id, $plan->total, $reasonCode, $reasonText, false, $userId, 'refund'), $invoice, $plan, $at, false);
+        return $this->write(NoteRequest::creditAmount($invoice->id, $plan->total, $reasonCode, $reasonText, $userId === null, $userId, 'refund'), $invoice, $plan, $at, false);
     }
 
     /**

@@ -17,6 +17,7 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\TaxNoteIssuer;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
@@ -206,9 +207,80 @@ test('a refund the provider pays before the start day is the old-style refund, d
         ->and(DB::table('invoice_adjustments')->where('reason', 'refund')->value('created_at'))->toBe('2026-11-16 18:10:00');
 });
 
-test('a payment that placed account credit is refused until the credit is taken back (the credit-first split is a later step)', function () {
-    $payment = vatRefundPayment();
-    DB::table('credit_ledger')->insert(['client_id' => $payment->client_id, 'currency' => 'NPR', 'amount' => 700, 'balance_after' => 700, 'reason' => 'overpayment', 'transaction_id' => $payment->id, 'invoice_id' => $payment->invoice_id, 'created_at' => now(), 'updated_at' => now()]);
+test('a refund takes back the account credit the payment placed first, and only the rest goes through a credit note (AC 33)', function () {
+    $client = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']);
+    $payment = payInvoice(issueInvoice($client, [10_000]), 12_000, 'ch_over', 'sandbox_card');
+    $invoice = $payment->invoice->fresh();
 
-    expect(fn () => vatRefund($payment))->toThrow(BillingException::class, 'placed account credit');
+    expect(app(CreditLedgerService::class)->balance($client->id, 'NPR')->amount)->toBe(700)
+        ->and($invoice->amount_paid)->toBe(12_000);
+
+    $refund = vatRefund($payment, 1_000);
+    $note = TaxNote::query()->sole();
+
+    // 700 was the overpayment kept as credit: a plain refund with no note. The other 300 is the sale.
+    expect($note->total)->toBe(300)->and($refund)->status->toBe(TransactionStatus::Succeeded)->tax_note_id->toBe($note->id)
+        ->and(app(CreditLedgerService::class)->balance($client->id, 'NPR')->amount)->toBe(0)
+        ->and($invoice->fresh())->amount_paid->toBe(11_700)->balance->toBe(0)
+        ->and(vatReasons($invoice))->toBe(['overpayment', 'credit_note']);
+});
+
+test('a refund that is only the credit the payment placed issues no note and leaves the invoice alone', function () {
+    $client = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']);
+    $payment = payInvoice(issueInvoice($client, [10_000]), 12_000, 'ch_over2', 'sandbox_card');
+
+    $refund = vatRefund($payment, 700);
+
+    expect(TaxNote::query()->count())->toBe(0)->and($refund)->status->toBe(TransactionStatus::Succeeded)->tax_note_id->toBeNull()
+        ->and(app(CreditLedgerService::class)->balance($client->id, 'NPR')->amount)->toBe(0)
+        ->and($payment->invoice->fresh())->amount_paid->toBe(12_000)->balance->toBe(0);
+});
+
+/** A refund the provider reports on its own (the callback books it record-only, with no staff member). */
+function vatProviderRefund(Transaction $payment, int $amount, string $providerId): Transaction
+{
+    return app(RefundTransaction::class)->handle($payment, $amount, RefundMode::RecordOnly, false, null, $providerId, 'Refunded at the gateway');
+}
+
+test('a refund the provider reports becomes an automatic credit note in the same transaction, once per provider refund id (AC 31, 53)', function () {
+    VatScriptedDriver::$answer = ChargeResult::DECLINED;
+    $payment = vatRefundPayment();
+    expect(fn () => vatRefund($payment))->toThrow(BillingException::class);
+
+    // The reservation was released; the provider paid anyway.
+    $paid = vatProviderRefund($payment->fresh(), 5_650, 're_late_1');
+    $again = vatProviderRefund($payment->fresh(), 5_650, 're_late_1');
+    $note = TaxNote::query()->sole();
+
+    expect($again->id)->toBe($paid->id)
+        ->and($note)->automatic->toBeTrue()->reason_code->toBe('refunded_at_provider')->total->toBe(5_650)
+        ->and($paid)->tax_note_id->toBe($note->id)->review_amount->toBeNull()
+        ->and($payment->invoice->fresh())->amount_paid->toBe(5_650)->balance->toBe(0);
+});
+
+test('a provider refund of a sale that notes already credited to account credit takes that credit back and issues no note (AC 32)', function () {
+    $payment = vatRefundPayment();
+    $request = NoteRequest::creditAmount($payment->invoice_id, 11_300, 'goodwill', 'All to credit', settlement: 'credit');
+    app(TaxNoteIssuer::class)->issue($request, ($preview = app(TaxNoteIssuer::class)->preview($request))->version, $preview->digest);
+    $credit = fn () => app(CreditLedgerService::class)->balance($payment->client_id, 'NPR')->amount;
+    expect($credit())->toBe(11_300);
+
+    $refund = vatProviderRefund($payment->fresh(), 11_300, 're_over_1');
+
+    expect(TaxNote::query()->count())->toBe(1)->and($refund)->tax_note_id->toBeNull()->review_amount->toBeNull()
+        ->and($credit())->toBe(0)->and($payment->invoice->fresh())->amount_paid->toBe(11_300);
+});
+
+test('a provider refund larger than the cap left takes the note up to the cap and the rest from the credit the notes placed', function () {
+    $payment = vatRefundPayment();
+    $request = NoteRequest::creditAmount($payment->invoice_id, 5_000, 'goodwill', 'Part to credit', settlement: 'credit');
+    app(TaxNoteIssuer::class)->issue($request, ($preview = app(TaxNoteIssuer::class)->preview($request))->version, $preview->digest);
+
+    $refund = vatProviderRefund($payment->fresh(), 11_300, 're_over_2');
+    $notes = TaxNote::query()->orderBy('id')->get();
+
+    expect($notes)->toHaveCount(2)->and($notes[1])->total->toBe(6_300)->reason_code->toBe('refunded_at_provider')
+        ->and($refund)->tax_note_id->toBe($notes[1]->id)->review_amount->toBeNull()
+        ->and(app(CreditLedgerService::class)->balance($payment->client_id, 'NPR')->amount)->toBe(0)
+        ->and($payment->invoice->fresh())->amount_paid->toBe(11_300 - 6_300)->credited_total->toBe(11_300);
 });

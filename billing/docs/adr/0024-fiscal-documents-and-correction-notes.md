@@ -542,6 +542,17 @@ PR 4 is built in steps. This one is the §5 state machine for **staff refunds** 
 - **Release** (`DECLINED`, Check refund's "no such refund", staff "not refunded"): the refund row fails, `refundable_remaining`
   returns, the reservation is `released`, and no note or number exists. `ERROR` and `PENDING` leave everything pending; the
   existing "Refund outcome not known yet" and Check refund apply.
-- **Not yet built (later PR 4 steps):** the credit-first split of a payment that placed account credit; refunds that the provider
-  reports without a reservation of ours (still booked the old way, which is why the arch test still lists `RefundTransaction`);
-  `RefundAccountCredit` (§5a); lifting the feature flag and deleting the interim refusals.
+- **Credit first.** A refund of a payment that placed account credit (an overpayment, or a refund to credit) takes that credit
+  back before the invoice part: the part up to the credit is a plain refund with no note (a tagged ledger take-back, so a later
+  refund or callback does not take it twice), and only the rest reserves a note. The split is stored on the refund row
+  (`raw.mohar.credit_part`).
+- **Provider-initiated refunds** (a record-only refund with no staff member: the provider's callback, and "released, then paid
+  anyway"): reserved and finalised in the callback's transaction as an automatic note, reason `refunded_at_provider`, once per
+  provider refund id. What the invoice's cap cannot take as a note (usually because staff credited the sale to the account after a
+  release) is taken back from the account credit that notes placed on the invoice, newest note first, negative balance allowed;
+  anything the credit cannot cover goes to "Disputes to review" (`review_amount`). The arch test no longer lists the refund path.
+- **The register after the mode is switched off.** The VAT register is keyed on `enabled_from`, which is kept when the mode is
+  switched off (allowed while no note exists), so documents numbered under the mode stay listed. Documents numbered after the
+  switch-off carry no flags and appear as unclassified. Re-enabling takes a new start day, which then bounds the register.
+- **Not yet built (later PR 4 steps):** `RefundAccountCredit` (§5a); lifting `features.billing.nepal_vat_mode` and deleting the
+  interim refusals (a refund to account credit on a numbered invoice, the refusal of an unclassified invoice).
