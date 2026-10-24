@@ -135,7 +135,7 @@ class RefundAccountCredit
             $locked->forceFill([
                 'status' => TransactionStatus::Succeeded,
                 'gateway_txn_id' => $providerRefundId ?? $locked->gateway_txn_id,
-                'raw' => GatewayLogger::redact([...($locked->raw ?? []), ...$raw, Transaction::REFUND_STATE => $state]),
+                'raw' => GatewayLogger::redact([...($locked->raw ?? []), ...$raw, Transaction::REFUND_STATE => $state], (string) $locked->gateway),
             ]);
 
             if ($late) {
