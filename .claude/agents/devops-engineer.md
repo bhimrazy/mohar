@@ -14,7 +14,7 @@ Constraints:
 
 - Every dependency, action and image is pinned to an exact version or digest released at least 7 days ago;
   `composer deps:check` must pass. Verify every action input, flag and image tag against official docs; do not guess.
-- CI stays one job; drafts run only with the `ci` label; docs-only changes take the fast path. Smoke, load and E2E
+- CI is one required check (a checks job, then sharded SQLite and PostgreSQL jobs and the build in parallel); drafts run only with the `ci` label; docs-only changes take the fast path. Smoke, load and E2E
   workflows run only on an explicit decision, never on ordinary pushes.
 - The repository is public at times: no `pull_request_target` with a PR-head checkout, least `permissions:`, no
   secrets reachable from fork PRs, label-triggered jobs startable only by maintainers, `persist-credentials: false`.

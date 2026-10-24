@@ -1,8 +1,9 @@
 # CI design (GitHub Actions)
 
-One workflow, `.github/workflows/ci.yml` at the repository root, all steps in `billing/`. The repository is
-private, so Linux minutes are billed **per job, rounded up to the next whole minute** — the design minimises
-jobs, setup work and pointless runs.
+One workflow, `.github/workflows/ci.yml` at the repository root, all steps in `billing/`. While the repository is
+public, runner minutes are free and wall time is what counts, so the work runs in parallel jobs behind one required
+check. While it is private, Linux minutes are billed **per job, rounded up to the next whole minute**; see
+"Billable minutes" for what the parallel layout costs then.
 
 ## When it runs
 
@@ -22,32 +23,47 @@ The **E2E simulators (hosting lifecycle)** job (ADR 0016 §4) is opt-in.
 - **What it does:** `php artisan simulate:e2e --connection=pgsql` on its own PostgreSQL service, with `timeout-minutes: 10`.
 - **Cost:** setup (about 45 s) plus the scenario (25–40 s), about **2 billable minutes** a run.
 
-## One job
+## Jobs
 
-Every job pays its own runner start, checkout, PHP/Node setup, dependency install (~25 s) and, for the
-PostgreSQL suite, the service container start (~12–20 s), and each job is rounded up to a whole minute. One
-job therefore costs less than several parallel ones. Steps run cheapest first so a failure stops early, and
-the dependency policy runs **before** anything is installed (no package code — e.g. Composer's
-`package:discover` hook — executes before the lockfiles pass):
+```
+checks ──┬── Pest SQLite (1/2), (2/2)
+         ├── Pest PostgreSQL (1/3), (2/3), (3/3)   ──►  CI (policy, lint, types, static, tests, build)
+         └── Build
+```
 
-| #   | Step                                                                                                                                                                                                      | s (run 39279853998) |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
-| 0   | runner + PostgreSQL service container (`postgres:18.6-alpine@sha256…`)                                                                                                                                    | 20                  |
-| 1   | checkout (depth 2 for PRs, full history for pushes) · docs-only detection · dependency diff base · changelog fragments (PRs only, also on the fast path)                                                  | 3                   |
-| 2   | setup-php · setup-node (toolchain only, no project dependencies)                                                                                                                                          | 6                   |
-| 3   | postgres digest drift (ci.yml = compose.yaml)                                                                                                                                                             | 0                   |
-| 4   | `composer validate` on every code or dependency change · `composer audit --locked` · `npm audit --audit-level=high --package-lock-only` only when a manifest, lockfile, `.npmrc` or workflow file changed | 2                   |
-| 5   | dependency cooldown + binding (`check-dependency-age.mjs`, PR base or `github.event.before`)                                                                                                              | 1                   |
-| 6   | install: Composer + npm from lockfiles (cached), `.env`, Wayfinder                                                                                                                                        | 17                  |
-| 7   | `vp check` (format + lint) — the only step on docs-only PRs and pushes                                                                                                                                    | 10                  |
-| 8   | restore tool caches · Pint · tsc · Vitest (`npm test`)                                                                                                                                                    | 1 + 1 + 3 + 4       |
-| 9   | PHPStan (result cache restored)                                                                                                                                                                           | 2                   |
-| 10  | Pest on SQLite (`--parallel`, 2 workers, every suite)                                                                                                                                                     | 132                 |
-| 11  | tune PostgreSQL · `composer test:pgsql` (Pest on PostgreSQL, 4 workers, Feature and Extensions)                                                                                                           | 212                 |
-| 12  | `npm run build` · app without dev dependencies · cache save · container stop                                                                                                                              | 21 + 2 + 2          |
+**`checks`** (policy, lint, types, static) runs the cheap steps and the dependency policy, cheapest first, so a lint or
+policy failure fails the run in about a minute. The policy runs **before** anything is installed (no package code,
+e.g. Composer's `package:discover` hook, executes before the lockfiles pass), and the test and build jobs start only
+after `checks` passed, so they never install a lockfile the policy has not approved:
 
-`timeout-minutes: 15` caps a hung run. The job took 579–622 s on the last two runs (39279853998, 39383275452);
-the last step warns (`::warning::`) once the job passes 12 minutes, the point to act before runs are cancelled. Shared setup lives in `.github/actions/setup-app` (composite action).
+| #   | Step                                                                                                                                                                                                      |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | checkout (depth 2 for PRs, full history for pushes) · docs-only detection · dependency diff base · changelog fragments (PRs only, also on the fast path)                                                  |
+| 2   | setup-php · setup-node (toolchain only, no project dependencies)                                                                                                                                          |
+| 3   | postgres digest drift (ci.yml = compose.yaml = compose.prod.yaml)                                                                                                                                         |
+| 4   | `composer validate` on every code or dependency change · `composer audit --locked` · `npm audit --audit-level=high --package-lock-only` only when a manifest, lockfile, `.npmrc` or workflow file changed |
+| 5   | dependency cooldown + binding (`check-dependency-age.mjs`, PR base or `github.event.before`)                                                                                                              |
+| 6   | install: Composer + npm from lockfiles (cached), `.env`, Wayfinder                                                                                                                                        |
+| 7   | `vp check` (format + lint) and image sizes — the only steps on docs-only PRs and pushes                                                                                                                   |
+| 8   | restore tool caches · Pint · tsc · Vitest (`npm test`) · PHPStan                                                                                                                                          |
+
+**Test jobs.** `pest --shard=<n>/<total>` (in the installed Pest 5.3) gives each job a share of the test files, round-robin in file
+order, and each job runs its share with `--parallel`: SQLite in 2 shards (one worker per vCPU: 4 on the public-repository runner, every suite), PostgreSQL in
+3 (4 workers each; the counts are `SQLITE_SHARDS` and `PGSQL_SHARDS` at the top of the workflow, the checks job turns
+them into the matrix lists and each job runs `--shard=<n>/<strategy.job-total>`, so a list cannot drift from its
+total; Feature, Extensions and the simulator framework; `composer test:pgsql -- --shard=…`), each with
+its own PostgreSQL service. Each job prints its slowest files and test cases (`scripts/slowest-tests.mjs`). A
+time-balanced split is available (`--update-shards` writes `tests/.pest/shards.json`, which `--shard` then uses), not
+adopted: the file must be refreshed as tests are added. **`Build`** runs `npm run build`, then the check that the app
+runs without the dev-only simulators package (last: it removes the dev dependencies).
+
+**`CI (policy, lint, types, static, tests, build)`** is the required check. It `needs` every other job and runs with
+`always()`, so a failed, cancelled or timed-out job turns it red instead of leaving a skipped (passing) check: it
+passes when `checks` passed and every test and build job passed, or, on a docs-only change, was skipped. Each job
+has `timeout-minutes` (10, the final job 5). Shared setup lives in `.github/actions/setup-app` (composite action).
+
+Measured on PR #448 (see "Billable minutes"): about half the wall time of the one job, which took 529–567 s
+(created to finished, runs 40009444592 and 40008036890).
 
 Caches (keys derived from lockfiles): Composer downloads (`composer.lock`), npm (`package-lock.json`, via
 `setup-node`), and one tool cache restored from the latest run and saved again by every run: PHPStan's result cache
@@ -56,8 +72,8 @@ Caches (keys derived from lockfiles): Composer downloads (`composer.lock`), npm 
 own version and its configuration against the cache, so an older entry is safe; warm, Pint takes 1–4 s instead
 of 33–42 s and tsc 4–7 s instead of 17–19 s. Vite/vp builds have no persistent cache to reuse.
 
-`pest --parallel` uses one process per core on SQLite (2 on the standard private-repository runner, which has 2
-vCPUs; 4 in the Codespace). Every process gets its own SQLite in-memory database or its own
+`pest --parallel` uses one process per core on SQLite (4 on the standard runner of a public repository, 2 on a private
+one's; 4 in the Codespace). Every process gets its own SQLite in-memory database or its own
 `billing_test_test_<n>` PostgreSQL database, migrates it once and runs each test in a transaction, so it is
 reliable and nothing migrates or seeds the base database first.
 
@@ -115,28 +131,34 @@ time. It cannot share a pre-seeded database because it changes the registry and 
 
 ## Billable minutes per PR run
 
-| Design                                    | Jobs | Job durations                                                                                   | Billable      |
-| ----------------------------------------- | ---- | ----------------------------------------------------------------------------------------------- | ------------- |
-| Before (PR #1 layout; PRs #3–#5, develop) | 5    | measured: lint 43–52 s, static 23–34 s, sqlite 20–29 s, pgsql 39–59 s, build 34–43 s            | **5 min**     |
-| Considered: `quality` + `tests`           | 2    | estimated ≈ 75 s + ≈ 61 s                                                                       | 3–4 min       |
-| After: one job                            | 1    | measured 92 s (PR #9, run 39065947655, before Vitest)                                           | **2 min**     |
-| One job on 2026-10-18 (wave 1 merged)     | 1    | measured 202–319 s (PRs #8, #22; full suite on SQLite + PostgreSQL, Vitest)                     | **4–6 min**   |
-| One job on 2026-10-19, before PR #91      | 1    | measured 829–874 s (PRs #69, #72, #73; PostgreSQL step 544–550 s)                               | **14–15 min** |
-| One job after PR #91                      | 1    | measured 579–622 s (runs 39279853998, 39383275452; PostgreSQL step 212–309 s, SQLite 132–194 s) | **10 min**    |
-| After, docs/png-only PR                   | 1    | ≈ 50 s                                                                                          | **1 min**     |
-| Draft PR / feature-branch push            | 0    | —                                                                                               | **0**         |
-| E2E simulators, when opted in (`e2e`)     | +1   | ≈ 45 s setup + 25–40 s scenario (`simulate:e2e`, local runs 22–34 s)                            | **+2 min**    |
+| Design                                    | Jobs | Job durations                                                                                              | Billable      |
+| ----------------------------------------- | ---- | ---------------------------------------------------------------------------------------------------------- | ------------- |
+| Before (PR #1 layout; PRs #3–#5, develop) | 5    | measured: lint 43–52 s, static 23–34 s, sqlite 20–29 s, pgsql 39–59 s, build 34–43 s                       | **5 min**     |
+| Considered: `quality` + `tests`           | 2    | estimated ≈ 75 s + ≈ 61 s                                                                                  | 3–4 min       |
+| After: one job                            | 1    | measured 92 s (PR #9, run 39065947655, before Vitest)                                                      | **2 min**     |
+| One job on 2026-10-18 (wave 1 merged)     | 1    | measured 202–319 s (PRs #8, #22; full suite on SQLite + PostgreSQL, Vitest)                                | **4–6 min**   |
+| One job on 2026-10-19, before PR #91      | 1    | measured 829–874 s (PRs #69, #72, #73; PostgreSQL step 544–550 s)                                          | **14–15 min** |
+| One job after PR #91                      | 1    | measured 579–622 s (runs 39279853998, 39383275452; PostgreSQL step 212–309 s, SQLite 132–194 s)            | **10 min**    |
+| Parallel jobs (PR #448, run 40010815961)  | 8    | measured: checks 56 s, SQLite 153 + 138 s, PostgreSQL 176 + 190 + 118 s, build 63 s, final 3 s; 258 s wall | **19 min**    |
+| After, docs/png-only PR                   | 1    | ≈ 50 s                                                                                                     | **1 min**     |
+| Draft PR / feature-branch push            | 0    | —                                                                                                          | **0**         |
+| E2E simulators, when opted in (`e2e`)     | +1   | ≈ 45 s setup + 25–40 s scenario (`simulate:e2e`, local runs 22–34 s)                                       | **+2 min**    |
 
 Each merge additionally runs once on `develop`. Measure real runs with `gh run view <id> --json jobs`
-(job `startedAt`/`completedAt`); if the job regularly exceeds 120 s, the PHPStan cache and step order are the
-first levers. Trade-off: feedback arrives after ~2 min instead of ~1 min, and there is one status check.
+(job `startedAt`/`completedAt`). The parallel layout roughly doubles the billable minutes of a run (19 against 10): free
+while the repository is public. Before switching it to private, either accept that or fold the test jobs back into
+one (the shard steps run unchanged in one job without `--shard`); the local merge gate already runs everything in
+one sequence.
 
 ## Required checks
 
 Mark `CI (policy, lint, types, static, tests, build)` as the required status check on `develop` and `main`.
 `E2E simulators (hosting lifecycle)` is never required: it is opt-in. ADR 0016 CTO decision 5 counts its 10 consecutive green runs before anyone reconsiders that.
+It is the last job of the workflow, not a step, and passes only when every other job did (see "Jobs"); the jobs it
+waits for are not required checks themselves, so renaming or adding a shard needs no branch-protection change.
 There is no workflow-level `paths-ignore`, so every PR — including docs- or image-only ones — reports the
-check (green via the in-job fast path) and branch protection never waits for a check that was not created.
+check (green via the fast path, with the test and build jobs skipped) and branch protection never waits for a check
+that was not created.
 
 ## Changing the workflow
 
@@ -179,7 +201,7 @@ changes with no changelog fragment, or the kernel surface changes with no kernel
 ## Local merge gate
 
 When Actions is unavailable (private repository, minutes used up), `scripts/merge-gate.sh <pr> <head-sha>` stands in
-for the main CI job, on macOS or Linux. It fetches exactly `<head-sha>` (refusing if the PR head differs), merges it
+for the CI jobs, run in one sequence, on macOS or Linux. It fetches exactly `<head-sha>` (refusing if the PR head differs), merges it
 into `origin/develop` in a throwaway worktree and applies CI's change detection (docs-only fast path, audits only on
 dependency or workflow changes). As in CI, the policy checks (postgres pin, lockfiles, audits, cooldown) run before
 any dependency is installed; the cooldown checker is develop's copy, run against the PR's lockfiles. Then it installs

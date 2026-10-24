@@ -82,6 +82,13 @@ class AddonRequest extends FormRequest
         return $addon instanceof Addon ? $addon->driver_config : null;
     }
 
+    protected function storedDriver(): ?string
+    {
+        $addon = $this->route('addon');
+
+        return $addon instanceof Addon ? $addon->provisioning_driver : null;
+    }
+
     /**
      * @return array<string, mixed>
      */

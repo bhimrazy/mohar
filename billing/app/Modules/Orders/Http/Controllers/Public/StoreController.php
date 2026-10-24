@@ -18,6 +18,7 @@ use App\Modules\Orders\Services\TldAttributeInput;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -33,11 +34,17 @@ class StoreController extends Controller
     public function index(Request $request): Response
     {
         $currency = $this->carts->currencyFor($request);
+        $groups = $this->priceBook->storefront($currency);
 
         return Inertia::render('public/store/index', [
-            'groups' => $this->priceBook->storefront($currency),
+            'groups' => $groups,
             'currency' => $currency,
+            // Products unpriced in the visitor's currency are left out; an empty store says where products are sold.
+            'sold_in' => $groups === [] ? $this->currenciesSelling(fn (string $code): bool => $this->priceBook->storefront($code) !== [], $currency) : [],
             'existingDomain' => $this->existingDomain($request),
+            'hide_tax_note' => $groups === [],
+            'account_currency' => $request->user() === null ? null : $currency,
+            'support_url' => Route::has('support.tickets.create') ? route('support.tickets.create') : null,
             ...$this->carts->storeProps($request),
         ]);
     }
@@ -51,6 +58,19 @@ class StoreController extends Controller
         $domain = strtolower(trim($request->string('domain')->toString()));
 
         return DomainGuard::isValidName($domain) && DomainGuard::registryLevelError($domain) === null ? $domain : null;
+    }
+
+    /**
+     * Other currencies where $sells is true, default currency first.
+     *
+     * @param  callable(string): bool  $sells
+     * @return list<string>
+     */
+    private function currenciesSelling(callable $sells, string $current): array
+    {
+        $codes = Currency::query()->where('code', '!=', $current)->orderByDesc('is_default')->orderBy('code')->pluck('code')->map(strval(...))->all();
+
+        return array_values(array_filter($codes, $sells));
     }
 
     public function show(Request $request, int $product, CustomerResolver $customers, TldAttributeInput $tldAttributes): Response
@@ -82,6 +102,10 @@ class StoreController extends Controller
             ],
             'currency' => $currency,
             'cycles' => $cycles,
+            'hide_tax_note' => $cycles === [],
+            'account_currency' => $request->user() === null ? null : $currency,
+            'support_url' => Route::has('support.tickets.create') ? route('support.tickets.create') : null,
+            'sold_in' => $cycles === [] ? $this->currenciesSelling(fn (string $code): bool => $this->priceBook->availableCycles($product, $code) !== [], $currency) : [],
             'config_options' => $this->priceBook->configOptionsFor($product, $currency),
             'addons' => $this->priceBook->addonsFor($product, $currency),
             'custom_fields' => $this->priceBook->customFieldsFor($product),
