@@ -110,7 +110,7 @@ class SampleContext
                 'excerpt' => 'Thanks for the details — the mailbox quota was full.',
             ],
             'affiliate' => ['referral_url' => url('/?ref=ANN42'), 'code' => 'ANN42', 'balance_available' => '$45.00', 'balance_pending' => '$12.00', 'withdrawal_amount' => '$45.00'],
-            'failure' => ['action' => 'create', 'error' => 'Connection to the control panel timed out'],
+            'failure' => ['action' => 'create', 'action_label' => 'creating the account', 'error' => 'Connection to the control panel timed out', 'log_url' => url('/admin/services/module-log')],
             'sync' => ['change_count' => 2, 'error_count' => 1, 'lines' => ['example.com: expiry date updated', 'example.org: registrar timeout']],
             'automation' => ['run_at' => $today, 'status' => 'completed'],
             'security' => ['email' => 'sam@example.test', 'failures' => 10],
