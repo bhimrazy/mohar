@@ -35,6 +35,8 @@ type FormDialogProps<T extends FormDataType<T>> = {
     transform?: (data: T) => Record<string, FormDataConvertible>;
     /** Fields holding typed amounts, canonicalised with parseMoneyInput() before submit. */
     moneyFields?: string[];
+    /** Runs after the server accepted the form, before the dialog closes. */
+    onSuccess?: () => void;
     children: (form: DialogForm<T>) => ReactNode;
 };
 
@@ -54,6 +56,7 @@ export function FormDialog<T extends FormDataType<T>>({
     destructive = false,
     transform,
     moneyFields = [],
+    onSuccess,
     children,
 }: FormDialogProps<T>) {
     const [internalOpen, setInternalOpen] = useState(false);
@@ -89,7 +92,10 @@ export function FormDialog<T extends FormDataType<T>>({
 
         form.submit(action, {
             preserveScroll: true,
-            onSuccess: () => setOpen(false),
+            onSuccess: () => {
+                onSuccess?.();
+                setOpen(false);
+            },
         });
     };
 

@@ -40,6 +40,9 @@ class NepalVatMode
 
     public const EXPORT_RULE = 'billing.nepal_vat.export_rule';
 
+    /** The stretches the mode was on, `[{from, to}]` with `to` null while it is on (company dates, Y-m-d). */
+    public const PERIODS = 'billing.nepal_vat.periods';
+
     /** How many BS months ahead staff can pick as the start. */
     public const MONTHS_AHEAD = 24;
 
@@ -93,6 +96,33 @@ class NepalVatMode
         $from = $this->enabledFrom();
 
         return $this->enabled() && $from !== null && $this->clock->localDate($at) >= $from;
+    }
+
+    /**
+     * Whether the mode applies at `$at`, read for a transaction that is about to write a value adjustment or a note
+     * (ADR 0024 §8). Call it inside the transaction, after the invoice lock: it takes a shared lock on the `enabled` row,
+     * so enabling (FOR UPDATE on the same row) waits for this transaction and its enable-time check sees what it wrote.
+     * The same `$at` must date every row the transaction creates.
+     */
+    public function inEffectLocked(CarbonInterface $at): bool
+    {
+        $this->ensureRow();
+        Setting::query()->whereKey(self::ENABLED)->sharedLock()->first();
+        $mode = $this->stored();
+
+        return $mode['enabled'] && $mode['enabled_from'] !== null && $this->clock->localDate($at) >= $mode['enabled_from'];
+    }
+
+    /**
+     * Whether the mode is switched on, read from the database under a shared lock on the `enabled` row (a refund reserves from
+     * enabling, before the start day too, ADR 0024 §5). Call it inside the transaction, after the invoice lock.
+     */
+    public function enabledLocked(): bool
+    {
+        $this->ensureRow();
+        Setting::query()->whereKey(self::ENABLED)->sharedLock()->first();
+
+        return $this->stored()['enabled'];
     }
 
     /**
@@ -175,6 +205,10 @@ class NepalVatMode
             $blockers[] = __('Some invoices have credited or debited totals that differ from their adjustments. Run "php artisan billing:fiscal-snapshot".');
         }
 
+        if ($deep && $this->oldRefundsPending()) {
+            $blockers[] = __('A refund recorded the old way is still pending on a numbered invoice. Finish or cancel it first.');
+        }
+
         if ($deep && $from !== null && $this->oldStyleRowsFrom($from)) {
             $blockers[] = __('A cancellation, refund or late fee was recorded on a numbered invoice on or after that start date. Pick the next BS month.');
         }
@@ -218,6 +252,8 @@ class NepalVatMode
                 self::EXPORT_RULE => $after['export_rule'],
             ];
 
+            $values[self::PERIODS] = $this->nextPeriods($before, $after);
+
             if ($enabling) {
                 // Tax invoices are numbered on payment, one number at a time (vat-register §3).
                 $values += ['billing.sequential_paid_numbering' => true, 'billing.set_issue_date_on_payment' => true, 'billing.number_increment' => 1];
@@ -233,6 +269,67 @@ class NepalVatMode
         $this->settings->forgetCached();
 
         return $changed;
+    }
+
+    /**
+     * The stretches the mode was on, after this change: switching on opens one (from its start day), switching off closes the open
+     * one at today's company date, and moving the start day of a mode that has not started moves the open one. A re-enable
+     * never hides earlier months: every period stays (ADR 0024, Amendment #432).
+     *
+     * @param  array{enabled: bool, enabled_from: string|null}  $before
+     * @param  array{enabled: bool, enabled_from: string|null}  $after
+     * @return list<array{from: string, to: string|null}>
+     */
+    private function nextPeriods(array $before, array $after): array
+    {
+        $periods = $this->storedPeriods();
+        $last = array_key_last($periods);
+
+        if ($after['enabled'] && ! $before['enabled']) {
+            $periods[] = ['from' => (string) $after['enabled_from'], 'to' => null];
+        } elseif (! $after['enabled'] && $before['enabled']) {
+            if ($last === null && $before['enabled_from'] !== null) {
+                $periods[] = ['from' => $before['enabled_from'], 'to' => null];
+                $last = array_key_last($periods);
+            }
+
+            if ($last !== null) {
+                $periods[$last]['to'] = $this->clock->localDate($this->clock->now());
+            }
+        } elseif ($after['enabled'] && $last !== null && $after['enabled_from'] !== $before['enabled_from']) {
+            $periods[$last]['from'] = (string) $after['enabled_from'];
+        }
+
+        return $periods;
+    }
+
+    /** @return list<array{from: string, to: string|null}> */
+    private function storedPeriods(): array
+    {
+        $value = Setting::query()->whereKey(self::PERIODS)->value('value');
+
+        return array_values(array_filter(array_map(
+            fn (mixed $period): ?array => is_array($period) && is_string($period['from'] ?? null) ? ['from' => $period['from'], 'to' => is_string($period['to'] ?? null) ? $period['to'] : null] : null,
+            is_array($value) ? $value : [],
+        )));
+    }
+
+    /**
+     * The stretches of company dates the mode was on, for the register. A mode switched on before periods were kept is one open
+     * stretch from its start day; never switched on is none.
+     *
+     * @return list<array{from: string, to: string|null}>
+     */
+    public function periods(): array
+    {
+        $value = $this->billing->get('nepal_vat.periods', []);
+        $periods = array_values(array_filter(array_map(
+            fn (mixed $period): ?array => is_array($period) && is_string($period['from'] ?? null) ? ['from' => $period['from'], 'to' => is_string($period['to'] ?? null) ? $period['to'] : null] : null,
+            is_array($value) ? $value : [],
+        )));
+        $from = $this->enabledFrom();
+
+        return $periods !== [] || $from === null ? $periods : [['from' => $from, 'to' => null]];
     }
 
     /**
@@ -320,6 +417,9 @@ class NepalVatMode
 
         if (! $enabled && $before['enabled'] && TaxNote::query()->exists()) {
             $errors['enabled'] = __('The mode cannot be switched off: credit or debit notes have been issued under it.');
+        } elseif (! $enabled && $before['enabled'] && $this->reservationsPending()) {
+            // A reservation is a credit note waiting for the provider: switching off would turn it into an old-style row.
+            $errors['enabled'] = __('The mode cannot be switched off while a refund is waiting for the provider: wait for it to settle, or check it, first.');
         }
 
         if ($enabled && ! $before['enabled'] && $errors === [] && ($blockers = $this->blockers($from, deep: true)) !== []) {
@@ -361,6 +461,20 @@ class NepalVatMode
         }
 
         return $from;
+    }
+
+    /** Whether any refund reservation is still pending (a credit note waiting for the provider). */
+    public function reservationsPending(): bool
+    {
+        return DB::table('tax_note_reservations')->where('status', 'pending')->exists();
+    }
+
+    /** Whether a pending refund of a numbered invoice has no note reservation: the old refund path wrote it (ADR 0024 §8). */
+    private function oldRefundsPending(): bool
+    {
+        return DB::table('transactions as t')->join('invoices as i', 'i.id', '=', 't.invoice_id')
+            ->where('t.type', 'refund')->where('t.status', 'pending')->whereNotNull('i.numbered_at')
+            ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('tax_note_reservations as r')->whereColumn('r.transaction_id', 't.id'))->exists();
     }
 
     /** Whether an old-style value adjustment was written on a numbered invoice, after its numbering, on or after the start day. */

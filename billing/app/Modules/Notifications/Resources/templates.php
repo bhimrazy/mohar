@@ -717,6 +717,20 @@ The {{ failure.action }} action failed for {{ client.full_name }}'s {{ service.p
 
 [Open service]({{ service.admin_url }})
 MD),
+    $staff('staff.provisioning_unknown', 'Provisioning outcome unknown', 'Checking the outcome: {{ failure.action_label }} for {{ service.product_name }}', <<<'MD'
+# Outcome unknown, being checked
+
+The server gave no clear answer while {{ failure.action_label }} for {{ client.full_name }}'s {{ service.product_name }}. It may have completed, so it is not retried.
+
+| Service | {{ service.product_name }} |
+|---|---|
+| Domain | {{ service.domain | default('—') }} |
+| Details | {{ failure.error }} |
+
+Where the server can be checked, it is checked automatically for the next hour, and a confirmed result is applied without another email. Until then the entry stays open in the Module log, where you can check it yourself.
+
+{% if failure.log_url %}[Open the Module log]({{ failure.log_url }}){% else %}[Open service]({{ service.admin_url }}){% endif %}
+MD),
     $staff('staff.registrar_action_failed', 'Registrar action failed', 'Registrar action failed: {{ domain.domain }}', <<<'MD'
 # Registrar action failed
 
@@ -790,6 +804,15 @@ MD),
 If you didn't expect this, tell another administrator straight away.
 
 [Open admin area]({{ system.admin_url }})
+MD),
+    $staff('staff.password_reissued', 'Staff one-time password issued', 'A new one-time password was issued for your staff account', <<<'MD'
+# A new one-time password was issued
+
+A new one-time password for your staff account was issued on the server ({{ notice.run_by }}). Your previous password and its "remember me" sign-ins no longer work.
+
+Sign in with the new password and choose your own. It expires after {{ notice.expires_in }}.
+
+If you didn't ask for this, tell another administrator straight away.
 MD),
     $staff('staff.email_changed', 'Staff login email changed', 'Your staff login email was changed', <<<'MD'
 # Your login email was changed
@@ -977,6 +1000,7 @@ $descriptions = [
     'staff.ticket_mention' => 'Tells a staff member they were mentioned in a ticket note.',
     'staff.ticket_department_changed' => 'Tells staff a ticket was moved to their department.',
     'staff.provisioning_failed' => 'Tells staff that setting up a service failed.',
+    'staff.provisioning_unknown' => 'Tells staff a provisioning action got no clear answer and is being checked on the server.',
     'staff.registrar_action_failed' => 'Tells staff a registrar action failed.',
     'staff.domain_sync_report' => 'Report of domain changes found during a registrar sync.',
     'staff.free_domain_renewal_blocked' => 'Tells staff a free domain renewal was blocked and needs a decision.',
@@ -986,6 +1010,7 @@ $descriptions = [
     'staff.password_reset' => 'Sent to a staff member who asks to reset their password.',
     'staff.invitation' => 'Invites a new staff member to the admin area.',
     'staff.two_factor_reset' => 'Tells a staff member their two-factor authentication was reset.',
+    'staff.password_reissued' => 'Tells a full administrator a new one-time password was issued from the command line.',
     'staff.email_changed' => 'Tells a staff member their login email was changed.',
     'auth.email_changed' => 'Tells the previous address that a login\'s sign-in email was changed, with the new one partly masked.',
     'staff.settings_changed' => 'Tells staff that a security setting was changed.',

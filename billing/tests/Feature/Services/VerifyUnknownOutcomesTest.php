@@ -6,6 +6,7 @@ use App\Enums\ReconcileStatus;
 use App\Events\Services\ProvisioningFailed;
 use App\Events\Services\ServiceActivated;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Services\Actions\ExecuteModuleCommand;
 use App\Modules\Services\Actions\VerifyUnknownOutcomes;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\CertificateInspector;
@@ -24,8 +25,11 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Tests\Fakes\Services\ServicesTestKit;
 use Tests\Support\Cpanel\Whm;
+
+require_once __DIR__.'/../Notifications/helpers.php';
 
 /**
  * The verify sweep is generic host code (ReconcilesCommands); these tests drive it with the cPanel driver over
@@ -67,6 +71,28 @@ test('a create found on the server with our domain and owner completes on the ne
         ->and(ModuleCommand::query()->where('service_id', $service->id)->where('status', ModuleCommand::UNKNOWN)->exists())->toBeFalse()
         ->and(Whm::sent('createacct'))->toBeEmpty();
     Event::assertDispatched(ServiceActivated::class);
+});
+
+test('#147: a timed-out create tells staff it is being checked, and adopting the account sends no failure mail', function () {
+    Mail::fake();
+    seedEmailTemplates();
+    fullAdministrator('ops@example.test');
+
+    $service = unknownCpanelCreate();
+
+    expect(loggedRecipients('staff.provisioning_unknown'))->toBe(['ops@example.test'])
+        ->and(loggedRecipients('staff.provisioning_failed'))->toBe([]);
+    $notice = EmailMessage::query()->where('template_key', 'staff.provisioning_unknown')->sole();
+    expect($notice->subject)->toStartWith('Checking the outcome: creating the account for ')
+        ->and($notice->body_html)->toContain('Module log')->toContain(route('admin.services.module-log.index'))
+        ->and($notice->body_text)->not->toContain('(create)');
+
+    Whm::fake(['listaccts' => Whm::accounts(['unix_startdate' => now()->getTimestamp()])]);
+    $this->artisan('services:verify-unknown')->assertSuccessful();
+
+    expect($service->refresh()->status)->toBe(ServiceStatus::Active)
+        ->and(loggedRecipients('staff.provisioning_failed'))->toBe([])
+        ->and(loggedRecipients('staff.provisioning_unknown'))->toBe(['ops@example.test']);
 });
 
 test('a lookup that finds the username under another domain or owner leaves the item open as a conflict and sends no createacct', function () {

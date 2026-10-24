@@ -19,7 +19,7 @@ use Symfony\Component\HttpFoundation\Response;
 require_once __DIR__.'/../Billing/helpers.php';
 
 /** Ceilings for one admin dashboard visit, cold cache, every module and permission (measured: ~50 and ~24). */
-const FIRST_PAINT_QUERIES = 57; // measured 57 at #460, which added the KYC orphan-files to-do; an eager `health` prop (+13) must fail this
+const FIRST_PAINT_QUERIES = 58; // measured 57 at #460 (KYC orphan-files to-do), plus the Billing "notes refused" to-do; an eager `health` prop (+13) must fail this
 const DEFERRED_QUERIES = 28; // measured 20-24
 
 function dashboardSample(int $rows): void

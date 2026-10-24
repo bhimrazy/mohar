@@ -16,9 +16,11 @@ use App\Modules\Billing\Enums\InvoiceKind;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\InvoiceFiscalReview;
 use App\Modules\Billing\Support\BillingSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
+use Throwable;
 
 /**
  * Daily billing tasks registered in the central automation pipeline (§7). Each is idempotent for its run date.
@@ -35,6 +37,7 @@ class BillingAutomation
         private CancelInvoice $cancel,
         private Quotes $quotes,
         private PaymentGuard $guard,
+        private NoteRefusals $refusals,
     ) {}
 
     /**
@@ -57,7 +60,13 @@ class BillingAutomation
             ->whereDate('due_date', '<=', $cutoff->toDateString())
             ->chunkById(200, function (Collection $invoices) use (&$count): void {
                 foreach ($invoices as $invoice) {
-                    $count += $this->lateFee->handle($invoice) ? 1 : 0;
+                    // One invoice that cannot take its late fee never stops the run: it is recorded for staff.
+                    try {
+                        $count += $this->lateFee->handle($invoice) ? 1 : 0;
+                    } catch (Throwable $exception) {
+                        report($exception);
+                        $this->refusals->record($invoice, InvoiceFiscalReview::LATE_FEE_REFUSED, $exception->getMessage());
+                    }
                 }
             });
 
@@ -223,8 +232,13 @@ class BillingAutomation
             ->chunkById(200, function (Collection $invoices) use ($days, &$count): void {
                 foreach ($invoices as $invoice) {
                     if (! $invoice->transactions()->exists()) {
-                        $this->cancel->handle($invoice, note: __('Automatically cancelled after :days days overdue.', ['days' => $days]), strict: false);
-                        $count++;
+                        try {
+                            $this->cancel->handle($invoice, note: __('Automatically cancelled after :days days overdue.', ['days' => $days]), strict: false);
+                            $count++;
+                        } catch (Throwable $exception) {
+                            report($exception);
+                            $this->refusals->record($invoice, InvoiceFiscalReview::CANCEL_REFUSED, $exception->getMessage());
+                        }
                     }
                 }
             });

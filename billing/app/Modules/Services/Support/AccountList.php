@@ -6,6 +6,7 @@ use App\Modules\Core\Support\InstallSecrets;
 use App\Modules\Core\Support\Like;
 use App\Modules\Services\Models\ServerAccountImport;
 use App\Modules\Services\Models\ServerAccountImportAccount;
+use Generator;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Crypt;
@@ -23,7 +24,13 @@ class AccountList
     /** The install secret keying the email hash: it stays the same when APP_KEY is rotated. */
     public const EMAIL_HASH_SECRET = 'services.import_email_hash';
 
+    /** An account staff left out of the work list; remembered per server in server_import_ignores. */
+    public const IGNORED = 'ignored';
+
     private const TABLE = 'server_account_import_accounts';
+
+    /** The columns a read needs: the plain category wins over the payload's (shape()). */
+    private const READ = ['username', 'payload', 'category', 'client_id'];
 
     private const INSERT_CHUNK = 200;
 
@@ -64,8 +71,8 @@ class AccountList
             // A cursor, so PHP holds one record beside the decrypted rows (a PostgreSQL driver may still buffer the result).
             $rows = [];
 
-            foreach ($this->query($import)->orderBy('position')->select(['username', 'payload'])->cursor() as $record) {
-                $rows[(string) $record->username] = $record->payload;
+            foreach ($this->query($import)->orderBy('position')->select(self::READ)->cursor() as $record) {
+                $rows[(string) $record->username] = self::shape($record);
             }
 
             return $rows;
@@ -74,7 +81,7 @@ class AccountList
         $found = [];
 
         foreach (array_chunk(array_values(array_unique($usernames)), self::LOOKUP_CHUNK) as $chunk) {
-            array_push($found, ...$this->query($import)->whereIn('username', $chunk)->orderBy('position')->get(['username', 'payload'])->all());
+            array_push($found, ...$this->query($import)->whereIn('username', $chunk)->orderBy('position')->get(self::READ)->all());
         }
 
         return $this->decode($found);
@@ -100,7 +107,7 @@ class AccountList
             }));
 
         return [
-            'rows' => array_values($this->decode($filtered()->orderBy('position')->offset(($page - 1) * $perPage)->limit($perPage)->get(['username', 'payload'])->values()->all())),
+            'rows' => array_values($this->decode($filtered()->orderBy('position')->offset(($page - 1) * $perPage)->limit($perPage)->get(self::READ)->values()->all())),
             'total' => $filtered()->count(),
         ];
     }
@@ -145,19 +152,123 @@ class AccountList
     }
 
     /**
-     * Mark accounts as linked to the services created for them, decrypting only those accounts.
+     * Mark accounts as linked to the services created for them: one UPDATE of the plain columns per chunk, no
+     * decryption. shape() shows a linked row from them, whatever its payload still says.
      *
      * @param  array<string, int>  $services  service id by username
      */
     public function link(ServerAccountImport $import, array $services): void
     {
         foreach (array_chunk(array_keys($services), self::LOOKUP_CHUNK) as $chunk) {
-            foreach ($this->rows($import, $chunk) as $username => $row) {
-                $row = [...$row, 'category' => AccountImportMatcher::LINKED, 'client_id' => null, 'product_id' => null, 'service_id' => $services[$username], 'note' => null, 'differences' => []];
-                $this->query($import)->where('username', $username)->update(['category' => AccountImportMatcher::LINKED, 'client_id' => null,
-                    'payload' => Crypt::encryptString(json_encode($row, JSON_THROW_ON_ERROR))]);
+            $this->query($import)->whereIn('username', $chunk)->update(['category' => AccountImportMatcher::LINKED, 'client_id' => null]);
+        }
+    }
+
+    /**
+     * Ignore or restore accounts (never linked ones). A restored account returns to the category its payload holds.
+     *
+     * @param  list<string>  $usernames
+     */
+    public function setIgnored(ServerAccountImport $import, array $usernames, bool $ignored): void
+    {
+        foreach (array_chunk(array_values(array_unique($usernames)), self::LOOKUP_CHUNK) as $chunk) {
+            if ($ignored) {
+                $this->query($import)->whereIn('username', $chunk)->whereNotIn('category', [AccountImportMatcher::LINKED, self::IGNORED])->update(['category' => self::IGNORED]);
+
+                continue;
+            }
+
+            $restore = [];
+
+            foreach ($this->query($import)->whereIn('username', $chunk)->where('category', self::IGNORED)->get(['username', 'payload']) as $record) {
+                $restore[(string) ($record->payload['category'] ?? AccountImportMatcher::UNMATCHED)][] = (string) $record->username;
+            }
+
+            foreach ($restore as $category => $names) {
+                $this->query($import)->whereIn('username', $names)->update(['category' => $category]);
             }
         }
+    }
+
+    /**
+     * Mark the accounts the server's ignore list names, unless a service holds them.
+     */
+    public function applyIgnores(ServerAccountImport $import): void
+    {
+        $this->query($import)->where('category', '!=', AccountImportMatcher::LINKED)
+            ->whereIn('username', DB::table('server_import_ignores')->where('server_id', $import->server_id)->select('username'))
+            ->update(['category' => self::IGNORED]);
+    }
+
+    /**
+     * Which of these usernames are ignored.
+     *
+     * @param  list<string>  $usernames
+     * @return list<string>
+     */
+    public function ignoredAmong(ServerAccountImport $import, array $usernames): array
+    {
+        $found = [];
+
+        foreach (array_chunk(array_values(array_unique($usernames)), self::LOOKUP_CHUNK) as $chunk) {
+            array_push($found, ...$this->query($import)->whereIn('username', $chunk)->where('category', self::IGNORED)->pluck('username')->all());
+        }
+
+        return $found;
+    }
+
+    /**
+     * The whole list in position order, $size accounts at a time, so a caller holds one chunk of decrypted rows.
+     *
+     * @return Generator<int, list<array{username: string, payload: array<string, mixed>, category: string}>>
+     */
+    public function chunks(ServerAccountImport $import, int $size = self::LOOKUP_CHUNK): Generator
+    {
+        $last = -1;
+
+        while (true) {
+            $records = $this->query($import)->where('position', '>', $last)->orderBy('position')->limit($size)->get(['username', 'payload', 'category', 'position']);
+
+            if ($records->isEmpty()) {
+                return;
+            }
+
+            $last = (int) $records->last()->position;
+
+            yield array_values(array_map(fn (ServerAccountImportAccount $record): array => ['username' => (string) $record->username, 'payload' => $record->payload, 'category' => (string) $record->category], $records->all()));
+        }
+    }
+
+    /**
+     * Rewrite accounts in place after matching again: the payload and the plain columns of each.
+     *
+     * @param  array<string, array<string, mixed>>  $rows  new row by username
+     * @param  array<string, string>  $categories  plain category by username
+     */
+    public function rewrite(ServerAccountImport $import, array $rows, array $categories): void
+    {
+        foreach ($rows as $username => $row) {
+            $this->query($import)->where('username', $username)->update([
+                'category' => $categories[$username], 'client_id' => $row['client_id'] ?? null,
+                'payload' => Crypt::encryptString(json_encode($row, JSON_THROW_ON_ERROR)),
+            ]);
+        }
+    }
+
+    /**
+     * Recount the categories onto the import's columns.
+     *
+     * @return array<string, int>
+     */
+    public function refreshCounts(ServerAccountImport $import): array
+    {
+        $counts = $this->counts($import);
+        $import->update([
+            'proposed_count' => $counts[AccountImportMatcher::PROPOSED] ?? 0, 'unmatched_count' => $counts[AccountImportMatcher::UNMATCHED] ?? 0,
+            'reseller_count' => $counts[AccountImportMatcher::RESELLER] ?? 0, 'linked_count' => $counts[AccountImportMatcher::LINKED] ?? 0,
+        ]);
+
+        return $counts;
     }
 
     /**
@@ -182,7 +293,13 @@ class AccountList
             try {
                 $rows = json_decode(Crypt::decryptString($blob), true, flags: JSON_THROW_ON_ERROR);
             } catch (JsonException|DecryptException $exception) {
+                // Reported once: the blob is dropped, so no later view reads (and reports) it again.
                 report($exception);
+                DB::table('server_account_imports')->where('id', $import->id)->update(['accounts' => null]);
+                $import->forceFill([
+                    'account_count' => 0, 'proposed_count' => 0, 'unmatched_count' => 0, 'reseller_count' => 0, 'linked_count' => 0,
+                    'error' => __('The stored list of accounts could not be read, so it was dropped. Fetch the accounts again.'),
+                ] + (in_array($import->status, [ServerAccountImport::READY, ServerAccountImport::MATCHING], true) ? ['status' => ServerAccountImport::FAILED] : []))->save();
 
                 return;
             }
@@ -214,9 +331,26 @@ class AccountList
         $rows = [];
 
         foreach ($records as $record) {
-            $rows[(string) $record->username] = $record->payload;
+            $rows[(string) $record->username] = self::shape($record);
         }
 
         return $rows;
+    }
+
+    /**
+     * The account as its plain columns say: a linked or ignored row shows that, whatever its payload was written with
+     * (link() and setIgnored() change only the columns).
+     *
+     * @return array<string, mixed>
+     */
+    private static function shape(ServerAccountImportAccount $record): array
+    {
+        $row = $record->payload;
+
+        return match (true) {
+            $record->category === ($row['category'] ?? null) => $row,
+            $record->category === AccountImportMatcher::LINKED => [...$row, 'category' => AccountImportMatcher::LINKED, 'client_id' => null, 'product_id' => null, 'note' => null, 'differences' => []],
+            default => [...$row, 'category' => (string) $record->category],
+        };
     }
 }
