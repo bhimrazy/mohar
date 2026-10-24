@@ -139,7 +139,8 @@ class InvoiceParties
         $company = self::text($buyer['company'] ?? null);
         $person = self::text($buyer['name'] ?? null);
         $taxId = self::text($buyer['tax_id'] ?? null);
-        $locality = trim(implode(' ', array_filter([self::text($buyer['city'] ?? null), self::text($buyer['state'] ?? null), self::text($buyer['postcode'] ?? null)])));
+        $region = trim(implode(' ', array_filter([self::text($buyer['state'] ?? null), self::text($buyer['postcode'] ?? null)])));
+        $locality = implode(', ', array_filter([self::text($buyer['city'] ?? null), $region !== '' ? $region : null]));
 
         return [
             'name' => $company ?? $person ?? '',

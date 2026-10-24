@@ -44,7 +44,7 @@ test('the client invoice shows the seller with its PAN/VAT number and the buyer 
             ->where('parties.seller_from_settings', false)
             ->where('parties.buyer.name', 'Sagarmatha Traders')
             ->where('parties.buyer.contact', 'Sita Gurung')
-            ->where('parties.buyer.address', ['Lakeside Road', 'Pokhara Gandaki 33700', 'Nepal'])
+            ->where('parties.buyer.address', ['Lakeside Road', 'Pokhara, Gandaki 33700', 'Nepal'])
             ->where('parties.buyer.tax_id', ['label' => 'PAN/VAT No.', 'value' => '301234567'])
             ->where('parties.place_of_supply', null));
 });
