@@ -26,7 +26,6 @@ require_once __DIR__.'/helpers.php';
 */
 
 beforeEach(function () {
-    config(['features.billing.nepal_vat_mode' => true]);
     CarbonImmutable::setTestNow('2026-10-20 06:00:00');
     Currency::factory()->create();
     Currency::factory()->npr()->create();
@@ -322,16 +321,6 @@ test('the settings page shows the rules, the next BS months and what blocks enab
     $this->get(route('admin.billing.vat-mode.edit'))->assertForbidden();
 });
 
-test('the page and the save are hidden (404) until the mode is made available', function () {
-    config(['features.billing.nepal_vat_mode' => false]);
-    actingAsStaff(['billing.tax.manage']);
-    confirmPassword();
-
-    $this->get(route('admin.billing.vat-mode.edit'))->assertNotFound();
-    $this->put(route('admin.billing.vat-mode.update'), vatModePayload())->assertNotFound();
-    expect(app(NepalVatMode::class)->enabled())->toBeFalse();
-});
-
 test('a tax rule the mode uses cannot have its rate changed, other rules can', function () {
     vatModeSwitchOn();
     actingAsStaff(['billing.tax.manage']);
@@ -361,16 +350,6 @@ test('the split classifies an export-rule invoice as export and keeps a renamed 
 
     expect($abroad->fresh())->supply_class->toBe('export')->fiscal_tax1_is_vat->toBeFalse()
         ->and($home->fresh())->supply_class->toBe('taxable')->fiscal_tax1_is_vat->toBeTrue();
-});
-
-test('turning the feature flag off after enabling hides the page but the mode stays in effect', function () {
-    vatModeSwitchOn();
-    config(['features.billing.nepal_vat_mode' => false]);
-
-    $invoice = issueInvoice(vatModeClient(), [10_000])->fresh();
-
-    expect(app(NepalVatMode::class)->enabled())->toBeTrue()->and($invoice)->supply_class->toBe('taxable')->fiscal_tax1_is_vat->toBeTrue()
-        ->and(collect(app(SettingsCatalog::class)->fields('billing'))->firstWhere('key', 'billing.number_format')['locked_reason'])->not->toBeNull();
 });
 
 test('a Billing settings save does not create the mode row; the settings page and enabling do', function () {

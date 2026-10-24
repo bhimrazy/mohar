@@ -18,7 +18,6 @@ require_once __DIR__.'/helpers.php';
 /* Review probes for PR #432 (Nepal VAT mode). Same fixtures as NepalVatModeTest. */
 
 beforeEach(function () {
-    config(['features.billing.nepal_vat_mode' => true]);
     CarbonImmutable::setTestNow('2026-10-20 06:00:00');
     Currency::factory()->create();
     Currency::factory()->npr()->create();
@@ -84,14 +83,6 @@ test('probe C: the split uses the rule ids an invoice already stores before fall
     app(Kernel::class)->call('billing:fiscal-vat-split');
 
     expect($invoice->fresh())->fiscal_tax1_is_vat->toBeTrue()->supply_class->toBe('taxable');
-});
-
-test('probe D: with the feature off the save route 404s before validation and authorisation', function () {
-    config(['features.billing.nepal_vat_mode' => false]);
-    actingAsStaff(['billing.invoices.view']);
-    confirmPassword();
-
-    $this->put(route('admin.billing.vat-mode.update'), ['enabled' => 'x'])->assertNotFound();
 });
 
 test('probe E: the locked numbering fields save unchanged while the mode is on', function () {
