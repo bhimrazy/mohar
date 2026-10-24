@@ -277,7 +277,7 @@ account credit the default settlement, Billing adds one:
   reason `credit_refunded`) and a `refund` transaction (amount out, no invoice), with an activity entry. Lock order:
   client only (no payment or invoice is touched). **MUST** (recorded refund made outside)
 - Through the gateway, against an earlier payment of the client chosen by staff whose refundable amount covers it:
-  the `RefundAccountCredit` action, with its credit hold and permissions, as ADR 0024 §5a defines it. **SHOULD**
+  the `RefundAccountCredit` action, with its credit hold and permissions, as ADR 0024 §5a defines it. Built in PR 4c. **SHOULD**
 - No note: paying out credit is not a supply (assumption A4). The mode does not change this action.
 
 ## 6. VAT sales register
