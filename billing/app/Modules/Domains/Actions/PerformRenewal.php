@@ -18,7 +18,6 @@ use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainDates;
 use App\Modules\Domains\Services\DomainEvents;
-use App\Modules\Domains\Services\DomainStateMachine;
 use App\Modules\Domains\Services\RegistrarGateway;
 use App\Support\Domains\RegistrarException;
 use App\Support\Domains\RegistrarTimeout;
@@ -42,7 +41,6 @@ class PerformRenewal
 {
     public function __construct(
         private RegistrarGateway $gateway,
-        private DomainStateMachine $states,
         private DomainDates $dates,
         private ActivityLogger $activity,
         private ConfirmRenewal $confirm,
