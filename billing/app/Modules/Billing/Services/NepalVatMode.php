@@ -111,6 +111,18 @@ class NepalVatMode
     }
 
     /**
+     * Whether the mode is switched on, read from the database under a shared lock on the `enabled` row (a refund reserves from
+     * enabling, before the start day too, ADR 0024 §5). Call it inside the transaction, after the invoice lock.
+     */
+    public function enabledLocked(): bool
+    {
+        $this->ensureRow();
+        Setting::query()->whereKey(self::ENABLED)->sharedLock()->first();
+
+        return $this->stored()['enabled'];
+    }
+
+    /**
      * How a document is classified, from the tax rules of its two levels and its tax amounts. A level is Nepal VAT when
      * its rule is one chosen as VAT (whatever the amount). A level without a rule id (calculated before rule ids were
      * stored) is matched to a Nepal VAT rule by its name and rate instead; a 0% level has no name and never matches;

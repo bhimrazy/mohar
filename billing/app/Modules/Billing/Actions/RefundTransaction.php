@@ -4,6 +4,7 @@ namespace App\Modules\Billing\Actions;
 
 use App\Contracts\Billing\GatewayDriver;
 use App\Contracts\Billing\LooksUpRefunds;
+use App\Contracts\Core\CompanyClock;
 use App\Data\Billing\ChargeResult;
 use App\Data\Billing\RefundRequest;
 use App\Events\Billing\InvoiceRefunded;
@@ -20,12 +21,17 @@ use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\GatewayAmounts;
 use App\Modules\Billing\Services\GatewayLogger;
 use App\Modules\Billing\Services\InvoiceSettlement;
+use App\Modules\Billing\Services\NepalVatMode;
+use App\Modules\Billing\Services\RefundReservations;
+use App\Modules\Billing\Services\TaxNoteIssuer;
 use App\Modules\Billing\Support\AfterCommit;
+use App\Modules\Core\Models\Client;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
@@ -44,6 +50,10 @@ class RefundTransaction
         private CreditLedgerService $credit,
         private GatewayLogger $log,
         private GatewayAmounts $amounts,
+        private NepalVatMode $mode,
+        private RefundReservations $reservations,
+        private TaxNoteIssuer $notes,
+        private CompanyClock $clock,
     ) {}
 
     public function handle(
@@ -76,10 +86,12 @@ class RefundTransaction
                 $this->assertGatewayCanRefund($payment, $amount);
             }
 
+            $fiscal = $this->fiscalInvoice($payment, $mode, $reason, $userId);
+
             $payment->refundable_remaining -= $amount;
             $payment->save();
 
-            return Transaction::query()->create([
+            $refund = Transaction::query()->create([
                 'client_id' => $payment->client_id,
                 'invoice_id' => $payment->invoice_id,
                 'payment_batch_id' => $payment->payment_batch_id,
@@ -101,6 +113,14 @@ class RefundTransaction
                 'created_by' => $userId,
                 'occurred_at' => now(),
             ]);
+
+            // From the mode being switched on (before its start day too) a refund of a numbered tax invoice reserves the credit
+            // note it will become (ADR 0024 §5); the provider's word, or the record, decides it later.
+            if ($fiscal !== null) {
+                $this->reservations->reserve($fiscal, $refund, $amount, (string) $reason, $userId);
+            }
+
+            return $refund;
         });
 
         // 2. Call the provider outside any DB transaction (no locks held over network I/O; the log always survives).
@@ -258,6 +278,7 @@ class RefundTransaction
     {
         $payment = Transaction::query()->whereKey($refund->parent_transaction_id)->lockForUpdate()->first();
         $refund->update(['status' => TransactionStatus::Failed, 'refundable_remaining' => 0]);
+        $this->reservations->release($refund);
 
         if ($payment !== null) {
             // A chargeback row's amount_out is the whole dispute (what the payment gave, the credit taken back and the
@@ -336,20 +357,90 @@ class RefundTransaction
             }
 
             $invoice = $payment->invoice_id !== null ? Invoice::query()->lockForUpdate()->find($payment->invoice_id) : null;
+            $reservation = null;
+
+            if ($invoice !== null && DB::table('tax_note_reservations')->where('transaction_id', $refund->id)->where('status', 'pending')->exists()) {
+                // Invoice, then client, then the reservation (ADR 0024 §4); the reservation is read again under its lock.
+                Client::query()->whereKey($invoice->client_id)->lockForUpdate()->firstOrFail();
+                $reservation = $this->reservations->pending($refund);
+            }
 
             $refund->status = TransactionStatus::Succeeded;
+
+            if ($reservation === null) {
+                $refund->save();
+
+                if ($mode === RefundMode::ToCredit) {
+                    $this->credit->post($payment->client_id, Money::of($amount, $payment->currency), CreditReason::RefundToCredit, $payment->invoice_id, $refund->id, __('Refund to credit'), $userId);
+                }
+
+                if ($invoice !== null) {
+                    $this->applyToInvoice($invoice, $refund, $amount, $reverseEffects, $userId);
+                }
+
+                return $refund;
+            }
+
+            // The provider has paid (or the refund was recorded): finalise the reservation with this transaction's one instant. From
+            // the start day on it becomes the reserved credit note; before it, the old-style refund row, dated before every register
+            // period (ADR 0024 §5, §8).
+            $at = $this->clock->now()->utc();
+            $note = null;
+
+            if ($this->mode->inEffectLocked($at)) {
+                $note = $this->notes->issueReserved($invoice, $this->reservations->lines($reservation), $reservation->reason_code, (string) $reservation->reason_text, $reservation->created_by !== null ? (int) $reservation->created_by : null, $at);
+                $refund->tax_note_id = $note->id;
+            }
+
             $refund->save();
-
-            if ($mode === RefundMode::ToCredit) {
-                $this->credit->post($payment->client_id, Money::of($amount, $payment->currency), CreditReason::RefundToCredit, $payment->invoice_id, $refund->id, __('Refund to credit'), $userId);
-            }
-
-            if ($invoice !== null) {
-                $this->applyToInvoice($invoice, $refund, $amount, $reverseEffects, $userId);
-            }
+            $this->applyToInvoice($invoice, $refund, $amount, $reverseEffects, $userId, $note, $at);
+            $this->reservations->finalise($reservation, $note?->id);
 
             return $refund;
         });
+    }
+
+    /**
+     * The invoice whose credit note this refund must reserve, or null when it is an ordinary refund: staff refund a payment
+     * of a numbered tax invoice that is paid, while Nepal VAT mode is switched on (ADR 0024 §5; before the start day too).
+     * Locks the invoice and then the client, after the payment (§4). A provider-initiated refund (no staff member) keeps
+     * its own path until its VAT PR 4 step.
+     *
+     * @throws BillingException
+     */
+    private function fiscalInvoice(Transaction $payment, RefundMode $mode, ?string $reason, ?int $userId): ?Invoice
+    {
+        if ($payment->invoice_id === null || $userId === null) {
+            return null;
+        }
+
+        $invoice = Invoice::query()->lockForUpdate()->find($payment->invoice_id);
+
+        if ($invoice === null || $invoice->numbered_at === null || $invoice->kind === InvoiceKind::AddFunds
+            || ! in_array($invoice->status, [InvoiceStatus::Paid, InvoiceStatus::Refunded], true) || ! $this->mode->enabledLocked()) {
+            return null;
+        }
+
+        if ($mode === RefundMode::ToCredit) {
+            throw new BillingException(__('A numbered tax invoice is credited to the account with a credit note, not by refunding its payment to credit. Issue a credit note settled to account credit.'));
+        }
+
+        if ($payment->currency !== $invoice->currency) {
+            throw new BillingException(__('This payment is not in the invoice currency; refund it outside Nepal VAT mode.'));
+        }
+
+        // The account credit a payment placed (an overpayment) is refunded before the invoice part; that split is not built yet.
+        if (CreditLedgerEntry::query()->where('transaction_id', $payment->id)->where('amount', '>', 0)->exists()) {
+            throw new BillingException(__('This payment also placed account credit. Take that credit back first, then refund the invoice part.'));
+        }
+
+        if (trim((string) $reason) === '') {
+            throw new BillingException(__('Say why the invoice is refunded: the reason is printed on the credit note.'));
+        }
+
+        Client::query()->whereKey($invoice->client_id)->lockForUpdate()->firstOrFail();
+
+        return $invoice;
     }
 
     public function existing(string $gateway, string $gatewayTxnId): ?Transaction
@@ -423,13 +514,23 @@ class RefundTransaction
         );
     }
 
-    private function applyToInvoice(Invoice $invoice, Transaction $refund, int $amount, bool $reverseEffects, ?int $userId): void
+    private function applyToInvoice(Invoice $invoice, Transaction $refund, int $amount, bool $reverseEffects, ?int $userId, ?TaxNote $note = null, ?CarbonImmutable $at = null): void
     {
         $wasPaid = in_array($invoice->status, [InvoiceStatus::Paid, InvoiceStatus::Refunded], true);
         $invoice->amount_paid -= $amount;
 
         if ($wasPaid) {
-            $this->settlement->adjust($invoice, AdjustmentKind::Credit, AdjustmentReason::Refund, $amount, __('Refund'), $refund->id, $userId);
+            // A credit note carries the value change itself; only the old-style row writes a `refund` adjustment.
+            if ($note === null) {
+                $this->settlement->adjust($invoice, AdjustmentKind::Credit, AdjustmentReason::Refund, $amount, __('Refund'), $refund->id, $userId, at: $at);
+            } else {
+                $invoice->recalculateBalance();
+
+                // A payment that arrived meanwhile leaves more than the refund took: that excess goes to account credit.
+                if ($invoice->balance < 0) {
+                    $this->notes->creditExcess($invoice, $note, -$invoice->balance, $userId);
+                }
+            }
 
             if ($invoice->amount_paid <= 0) {
                 $invoice->status = InvoiceStatus::Refunded;

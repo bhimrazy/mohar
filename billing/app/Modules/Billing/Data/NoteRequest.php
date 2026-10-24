@@ -8,11 +8,12 @@ namespace App\Modules\Billing\Data;
  * line; a reversal is a debit note that repeats one credit note's lines (`reverses`). `reasonText` is shown to the client.
  *
  * `settlement` is where the part of a credit note above the open balance goes: nowhere (`balance`, refused when there
- * is such a part) or account credit (`credit`). `source` names who issued an automatic note (the activity entry).
+ * is such a part), account credit (`credit`) or a refund of the payment that is being made (`refund`, set only by the refund
+ * reservation, which then takes the amount off `amount_paid`). `source` names who issued an automatic note (the activity entry).
  */
 final readonly class NoteRequest
 {
-    public const SETTLEMENTS = ['balance', 'credit'];
+    public const SETTLEMENTS = ['balance', 'credit', 'refund'];
 
     /**
      * @param  array<int, int>|null  $lines

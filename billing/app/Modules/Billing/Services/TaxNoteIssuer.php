@@ -34,6 +34,7 @@ use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use OutOfRangeException;
+use stdClass;
 
 /**
  * Issues credit and debit notes against a numbered invoice (ADR 0024, vat-register §5.1). Confirm-then-apply (ADR 0021):
@@ -164,6 +165,38 @@ class TaxNoteIssuer
     }
 
     /**
+     * Issue the note a refund reserved: exactly the stored allocation, at the finalising transaction's instant `$at`. The
+     * caller holds the payment, invoice, client and reservation locks (ADR 0024 §4) and has checked that the mode is in
+     * effect at `$at`; it then takes the refund off `amount_paid`, so the note's credit and the refund net on the balance.
+     *
+     * @param  list<stdClass>  $lines  the reservation's lines
+     */
+    public function issueReserved(Invoice $invoice, array $lines, string $reasonCode, string $reasonText, ?int $userId, CarbonImmutable $at): TaxNote
+    {
+        $items = DB::table('invoice_items')->where('invoice_id', $invoice->id)->pluck('description', 'id');
+        $parts = array_map(fn (stdClass $line): array => [
+            'item_id' => $line->invoice_item_id !== null ? (int) $line->invoice_item_id : null,
+            'description' => (string) ($items[$line->invoice_item_id] ?? $reasonText),
+            'taxable' => (bool) $line->taxable, 'gross' => (int) $line->amount + (int) $line->tax1_amount + (int) $line->tax2_amount,
+            'net' => (int) $line->amount, 'tax1' => (int) $line->tax1_amount, 'tax2' => (int) $line->tax2_amount,
+        ], $lines);
+        $net = fn (bool $taxable): int => array_sum(array_map(fn (array $part): int => $part['net'], array_filter($parts, fn (array $part): bool => $part['taxable'] === $taxable)));
+        $plan = new NotePreview('credit', $parts, array_sum(array_column($parts, 'gross')), $net(true), $net(false), array_sum(array_column($parts, 'tax1')), array_sum(array_column($parts, 'tax2')),
+            $invoice->balance, $invoice->version, '', 'refund');
+
+        return $this->write(NoteRequest::creditAmount($invoice->id, $plan->total, $reasonCode, $reasonText, false, $userId, 'refund'), $invoice, $plan, $at, false);
+    }
+
+    /**
+     * Move an amount above the balance to account credit with the note's id (the refund finalised after a payment arrived
+     * meanwhile). Called with the invoice and client locked.
+     */
+    public function creditExcess(Invoice $invoice, TaxNote $note, int $amount, ?int $userId): void
+    {
+        $this->postToCredit($invoice, $note, $amount, $userId);
+    }
+
+    /**
      * @return array{0: Invoice, 1: NotePreview}
      */
     private function lockAndPlan(NoteRequest $request): array
@@ -241,7 +274,7 @@ class TaxNoteIssuer
         return $note;
     }
 
-    private function plan(NoteRequest $request, Invoice $invoice): NotePreview
+    public function plan(NoteRequest $request, Invoice $invoice): NotePreview
     {
         $this->guard($request, $invoice);
         $credit = $request->kind === 'credit';
@@ -270,7 +303,7 @@ class TaxNoteIssuer
                 throw new BillingException(__('At most :amount can still be credited on this invoice.', ['amount' => $money(max(0, $available))]));
             }
 
-            if ($balanceAfter < 0) {
+            if ($balanceAfter < 0 && $request->settlement !== 'refund') {
                 throw new BillingException(__('A credit note above the open balance of :amount needs a settlement: choose account credit.', ['amount' => $money($invoice->balance)]));
             }
         }
@@ -288,7 +321,7 @@ class TaxNoteIssuer
         return new NotePreview(
             $request->kind, $parts, $total, $net(true), $net(false), $tax1, $tax2, $balanceAfter, $invoice->version,
             hash('sha256', (string) json_encode([$request->kind, $invoice->id, $request->reasonCode, $total, $parts, $toCredit, $request->reverses, $dueDate, $creditAfter])),
-            $toCredit > 0 ? 'credit' : 'balance', $toCredit, $dueDate,
+            $toCredit > 0 ? 'credit' : ($request->settlement === 'refund' ? 'refund' : 'balance'), $toCredit, $dueDate,
             $creditAfter,
         );
     }
@@ -418,10 +451,15 @@ class TaxNoteIssuer
             return;
         }
 
+        $this->postToCredit($invoice, $note, $plan->toCredit, $userId);
+    }
+
+    private function postToCredit(Invoice $invoice, TaxNote $note, int $toCredit, ?int $userId): void
+    {
         $reversal = $note->reverses_tax_note_id !== null;
         $text = $reversal ? __('Credit taken back by debit note :number', ['number' => $note->number]) : __('Credit note :number to account credit', ['number' => $note->number]);
-        $this->settlement->adjust($invoice, $reversal ? AdjustmentKind::Credit : AdjustmentKind::Debit, AdjustmentReason::CreditNoteToCredit, $plan->toCredit, $text, userId: $userId, taxNoteId: $note->id);
-        $this->credit->post($invoice->client_id, Money::of($reversal ? -$plan->toCredit : $plan->toCredit, $invoice->currency), $reversal ? CreditReason::CreditNoteReversed : CreditReason::CreditNote,
+        $this->settlement->adjust($invoice, $reversal ? AdjustmentKind::Credit : AdjustmentKind::Debit, AdjustmentReason::CreditNoteToCredit, $toCredit, $text, userId: $userId, taxNoteId: $note->id);
+        $this->credit->post($invoice->client_id, Money::of($reversal ? -$toCredit : $toCredit, $invoice->currency), $reversal ? CreditReason::CreditNoteReversed : CreditReason::CreditNote,
             $invoice->id, description: $text, staffId: $userId, allowNegative: $reversal, taxNoteId: $note->id);
     }
 
@@ -434,12 +472,12 @@ class TaxNoteIssuer
     {
         $items = DB::table('invoice_items')->where('invoice_id', $invoice->id)->orderBy('id')->get();
 
-        if ($items->contains(fn (\stdClass $item): bool => (int) $item->amount < 0)) {
+        if ($items->contains(fn (stdClass $item): bool => (int) $item->amount < 0)) {
             throw new BillingException(__('This invoice has a discount line, so no credit note can be issued on it. To correct it, cancel the invoice and raise a new one.'));
         }
 
         $items = $items->values();
-        $weights = array_values($items->map(fn (\stdClass $item): int => (int) $item->tax_amount)->all());
+        $weights = array_values($items->map(fn (stdClass $item): int => (int) $item->tax_amount)->all());
         $tax = array_sum($weights);
 
         if ($tax !== $invoice->tax1_amount + $invoice->tax2_amount || $items->sum('amount') + ($invoice->tax_inclusive ? 0 : $tax) !== $invoice->total) {
@@ -481,7 +519,7 @@ class TaxNoteIssuer
             ->selectRaw("tax_note_lines.invoice_item_id as item, sum(case when n.kind = 'credit' then tax_note_lines.amount else -tax_note_lines.amount end) as net, "
                 ."sum(case when n.kind = 'credit' then tax_note_lines.tax1_amount else -tax_note_lines.tax1_amount end) as tax1, "
                 ."sum(case when n.kind = 'credit' then tax_note_lines.tax2_amount else -tax_note_lines.tax2_amount end) as tax2")->toBase()->get()
-            ->map(fn (\stdClass $row): array => ['item' => (int) $row->item, 'net' => (int) $row->net, 'tax1' => (int) $row->tax1, 'tax2' => (int) $row->tax2])->values()->all();
+            ->map(fn (stdClass $row): array => ['item' => (int) $row->item, 'net' => (int) $row->net, 'tax1' => (int) $row->tax1, 'tax2' => (int) $row->tax2])->values()->all();
     }
 
     /**
@@ -495,9 +533,9 @@ class TaxNoteIssuer
             ->where('r.invoice_id', $invoice->id)->where('r.status', 'pending')->get(['l.invoice_item_id', 'l.amount', 'l.tax1_amount', 'l.tax2_amount']);
 
         return [
-            'gross' => (int) $rows->sum(fn (\stdClass $row): int => (int) $row->amount + (int) $row->tax1_amount + (int) $row->tax2_amount),
-            'lines' => $rows->filter(fn (\stdClass $row): bool => $row->invoice_item_id !== null)
-                ->map(fn (\stdClass $row): array => ['item' => (int) $row->invoice_item_id, 'net' => (int) $row->amount, 'tax1' => (int) $row->tax1_amount, 'tax2' => (int) $row->tax2_amount])->values()->all(),
+            'gross' => (int) $rows->sum(fn (stdClass $row): int => (int) $row->amount + (int) $row->tax1_amount + (int) $row->tax2_amount),
+            'lines' => $rows->filter(fn (stdClass $row): bool => $row->invoice_item_id !== null)
+                ->map(fn (stdClass $row): array => ['item' => (int) $row->invoice_item_id, 'net' => (int) $row->amount, 'tax1' => (int) $row->tax1_amount, 'tax2' => (int) $row->tax2_amount])->values()->all(),
         ];
     }
 
@@ -506,7 +544,7 @@ class TaxNoteIssuer
      * ("Cancelled line: <description>", in this language or in English). Rows that match no line count against the
      * invoice cap only.
      *
-     * @param  array<int, \stdClass>  $items
+     * @param  array<int, stdClass>  $items
      * @param  array<int, Line>  $lines
      * @return array<int, array{item: int, net: int, tax1: int, tax2: int}>
      */
@@ -517,7 +555,7 @@ class TaxNoteIssuer
         $used = [];
 
         foreach ($rows as $row) {
-            $item = collect($items)->first(function (\stdClass $item) use ($row, $taken, $lines): bool {
+            $item = collect($items)->first(function (stdClass $item) use ($row, $taken, $lines): bool {
                 $text = mb_substr((string) $item->description, 0, 150);
 
                 return $item->cancelled_at !== null && ! in_array((int) $item->id, $taken, true) && isset($lines[(int) $item->id])
