@@ -24,7 +24,7 @@ import { StatusBadge } from '@/components/app/status-badge';
 import { FormDialog } from '@/components/billing/form-dialog';
 import { InvoiceDate } from '@/components/billing/invoice-date';
 import {
-    DOCUMENT_LABELS,
+    documentTitle,
     InvoicePartiesHeader,
 } from '@/components/billing/invoice-parties';
 import { InvoiceTotals } from '@/components/billing/invoice-totals';
@@ -442,7 +442,7 @@ export default function InvoiceShow({
             <Page>
                 <PageHeader
                     back={{ href: index(), label: 'Invoices' }}
-                    title={`${DOCUMENT_LABELS[parties.document]} ${invoice.number}`}
+                    title={documentTitle(invoice, parties)}
                     status={invoice.display_status}
                     badges={
                         invoice.kind === 'add_funds' ? (

@@ -3,6 +3,7 @@ import { InvoiceDate } from './invoice-date';
 import type { Invoice, InvoiceParties, TaxId } from './types';
 
 export const DOCUMENT_LABELS: Record<InvoiceParties['document'], string> = {
+    draft: 'Draft invoice',
     tax_invoice: 'Tax invoice',
     proforma: 'Proforma invoice',
     invoice: 'Invoice',
@@ -32,6 +33,13 @@ type InvoicePartiesHeaderProps = {
     aside?: { label: string; value: ReactNode }[];
 };
 
+/** The page title: "Tax invoice INV-1243"; a draft is just "Draft invoice". */
+export function documentTitle(invoice: Invoice, parties: InvoiceParties) {
+    return parties.document === 'draft'
+        ? DOCUMENT_LABELS.draft
+        : `${DOCUMENT_LABELS[parties.document]} ${invoice.number}`;
+}
+
 /**
  * The top of the invoice document: seller (From) with its tax registrations, the document facts, and the buyer
  * (Bill to) with their tax number, as printed on the PDF.
@@ -54,22 +62,32 @@ export function InvoicePartiesHeader({
             <div className="grid gap-4 p-4 sm:grid-cols-[1fr_auto] sm:gap-6 sm:px-(--card-p) sm:py-5">
                 <div className="min-w-0 space-y-1">
                     <Label>From</Label>
-                    <div className="font-display text-base">{seller.name}</div>
-                    {seller.address && (
-                        <div className="whitespace-pre-line text-muted-foreground">
-                            {seller.address}
-                        </div>
+                    {seller ? (
+                        <>
+                            <div className="font-display text-base">
+                                {seller.name}
+                            </div>
+                            {seller.address && (
+                                <div className="whitespace-pre-line text-muted-foreground">
+                                    {seller.address}
+                                </div>
+                            )}
+                            {(seller.email || seller.phone) && (
+                                <div className="break-words text-muted-foreground">
+                                    {[seller.email, seller.phone]
+                                        .filter(Boolean)
+                                        .join(' · ')}
+                                </div>
+                            )}
+                            {seller.tax_ids.map((taxId) => (
+                                <TaxIdLine key={taxId.label} taxId={taxId} />
+                            ))}
+                        </>
+                    ) : (
+                        <p className="text-muted-foreground">
+                            Seller details were not recorded on this invoice.
+                        </p>
                     )}
-                    {(seller.email || seller.phone) && (
-                        <div className="break-words text-muted-foreground">
-                            {[seller.email, seller.phone]
-                                .filter(Boolean)
-                                .join(' · ')}
-                        </div>
-                    )}
-                    {seller.tax_ids.map((taxId) => (
-                        <TaxIdLine key={taxId.label} taxId={taxId} />
-                    ))}
                     {parties.seller_from_settings && (
                         <p className="pt-1 text-xs text-muted-foreground">
                             Today&apos;s company details. They are saved on the

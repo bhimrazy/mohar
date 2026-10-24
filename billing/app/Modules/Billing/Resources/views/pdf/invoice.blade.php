@@ -21,16 +21,20 @@
             @endif
         </td>
         <td class="right">
-            <strong>{{ $seller['legal_name'] ?? '' }}</strong><br>
-            @if (! empty($seller['address']))
-                {!! nl2br(e($seller['address'])) !!}<br>
+            @if ($seller)
+                <strong>{{ $seller['name'] }}</strong><br>
+                @if ($seller['address'])
+                    {!! nl2br(e($seller['address'])) !!}<br>
+                @endif
+                @if ($seller['email'] || $seller['phone'])
+                    <span class="muted">{{ implode(' · ', array_filter([$seller['email'], $seller['phone']])) }}</span><br>
+                @endif
+                @foreach ($seller['tax_ids'] as $taxId)
+                    {{ $taxId['label'] }}: {{ $taxId['value'] }}@if (! $loop->last)<br>@endif
+                @endforeach
+            @else
+                <span class="muted">{{ __('Seller details were not recorded on this invoice.') }}</span>
             @endif
-            @if (! empty($seller['email']))
-                <span class="muted">{{ $seller['email'] }}</span><br>
-            @endif
-            @foreach ($sellerTaxIds as $taxId)
-                {{ $taxId['label'] }}: {{ $taxId['value'] }}@if (! $loop->last)<br>@endif
-            @endforeach
         </td>
     </tr>
 </table>
@@ -39,19 +43,16 @@
     <tr>
         <td class="party">
             <div class="label">{{ __('Bill to') }}</div>
-            <strong>{{ ($buyer['company'] ?? null) ?: ($buyer['name'] ?? '') }}</strong><br>
-            @if (! empty($buyer['company']))
-                {{ $buyer['name'] ?? '' }}<br>
-            @endif
-            @foreach (['address_1', 'address_2'] as $line)
-                @if (! empty($buyer[$line]))
-                    {{ $buyer[$line] }}<br>
+            @if ($buyer)
+                <strong>{{ $buyer['name'] }}</strong>
+                @foreach (array_filter([$buyer['contact'], ...$buyer['address'], $buyer['email']]) as $line)
+                    <br>{{ $line }}
+                @endforeach
+                @if ($buyer['tax_id'])
+                    <br>{{ $buyer['tax_id']['label'] }}: {{ $buyer['tax_id']['value'] }}
                 @endif
-            @endforeach
-            {{ trim(($buyer['city'] ?? '').' '.($buyer['state'] ?? '').' '.($buyer['postcode'] ?? '')) }}<br>
-            {{ $countryName($buyer['country'] ?? null) }}
-            @if (! empty($buyer['tax_id']))
-                <br>{{ $buyerTaxLabel }}: {{ $buyer['tax_id'] }}
+            @else
+                <span class="muted">{{ __('No billing details were recorded on this invoice.') }}</span>
             @endif
         </td>
         <td class="party right">

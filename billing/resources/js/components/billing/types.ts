@@ -74,14 +74,15 @@ export type TaxId = { label: string; value: string };
 
 /** Who the invoice is from and to, from the snapshots stored on it (`InvoiceParties`). */
 export type InvoiceParties = {
-    document: 'tax_invoice' | 'proforma' | 'invoice';
+    document: 'draft' | 'tax_invoice' | 'proforma' | 'invoice';
+    /** Null on a published invoice whose seller details were never stored; it never falls back to today's settings. */
     seller: {
         name: string;
         address: string | null;
         email: string | null;
         phone: string | null;
         tax_ids: TaxId[];
-    };
+    } | null;
     /** A draft has no seller snapshot yet; the block shows today's settings. */
     seller_from_settings: boolean;
     buyer: {

@@ -18,9 +18,3 @@
   instead of `staff:<id>`.
 - The admin invoice's separate "Bill to" card is replaced by the From / Bill to block; the payment method and the
   proforma number of a numbered invoice moved into it.
-
-### Fixed
-
-- **A provider's late success on a declined account-credit refund no longer fails.** `RefundAccountCredit` called the
-  gateway payload redactor without the gateway key (an argument error at runtime, also reported by PHPStan on
-  `develop`).

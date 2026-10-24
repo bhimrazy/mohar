@@ -13,7 +13,7 @@ import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
 import { InvoiceDate } from '@/components/billing/invoice-date';
 import {
-    DOCUMENT_LABELS,
+    documentTitle,
     InvoicePartiesHeader,
 } from '@/components/billing/invoice-parties';
 import { InvoiceTotals } from '@/components/billing/invoice-totals';
@@ -162,7 +162,7 @@ export default function ClientInvoiceShow({
             ),
         },
     ];
-    const title = `${DOCUMENT_LABELS[parties.document]} ${invoice.number}`;
+    const title = documentTitle(invoice, parties);
 
     return (
         <>

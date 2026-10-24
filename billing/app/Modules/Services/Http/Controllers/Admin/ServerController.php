@@ -55,8 +55,9 @@ class ServerController extends Controller
     }
 
     /**
-     * The cards above the list: servers in use, accounts against capacity, servers nearly full, and failed module
-     * commands in the last 24 hours (read through the `created_at` index of module_commands).
+     * The cards above the list: servers in use, accounts on active servers against their capacity, servers nearly
+     * full, and failed module commands in the last 24 hours (the module log's `period=24h` set, read through the
+     * `created_at` index of module_commands).
      *
      * @param  Collection<int, Server>  $servers
      * @return array{servers: int, active: int, accounts: int, capacity: int, unlimited: bool, near_full: int, failed_commands: int, failing_servers: int}
@@ -64,13 +65,14 @@ class ServerController extends Controller
     private function summary(Collection $servers): array
     {
         $active = $servers->where('is_active', true);
-        $failed = ModuleCommand::query()->whereNotNull('server_id')->where('created_at', '>=', now()->subDay())->where('success', false)
+        // Accounts and capacity both count active servers, so the share used never mixes the two sets.
+        $failed = ModuleCommand::query()->where('created_at', '>=', now()->subDay())->where('success', false)
             ->selectRaw('count(*) as failures, count(distinct server_id) as servers')->first();
 
         return [
             'servers' => $servers->count(),
             'active' => $active->count(),
-            'accounts' => (int) $servers->sum(fn (Server $server): int => (int) $server->active_accounts_count),
+            'accounts' => (int) $active->sum(fn (Server $server): int => (int) $server->active_accounts_count),
             'capacity' => (int) $active->sum('max_accounts'),
             'unlimited' => $active->contains(fn (Server $server): bool => $server->max_accounts === 0),
             'near_full' => $active->filter(fn (Server $server): bool => $server->max_accounts > 0 && (int) $server->active_accounts_count >= 0.9 * $server->max_accounts)->count(),

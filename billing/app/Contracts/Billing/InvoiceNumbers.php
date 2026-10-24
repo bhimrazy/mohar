@@ -9,7 +9,7 @@ namespace App\Contracts\Billing;
 interface InvoiceNumbers
 {
     /**
-     * The number printed on each invoice (legal number, else proforma number, else the draft label), keyed by id.
+     * The number printed on each invoice (legal number, else proforma number, else a label for a draft), keyed by id.
      * Unknown ids are left out.
      *
      * @param  list<int>  $invoiceIds

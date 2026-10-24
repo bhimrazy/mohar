@@ -284,7 +284,10 @@ export default function ServersIndex({
                         href={
                             canViewModuleLog
                                 ? moduleLogIndex({
-                                      query: { result: 'failed' },
+                                      query: {
+                                          result: 'failed',
+                                          period: '24h',
+                                      },
                                   })
                                 : undefined
                         }

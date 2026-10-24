@@ -2,7 +2,9 @@
 
 use App\Data\Billing\InvoiceLineData;
 use App\Enums\BillableType;
+use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\TaxRule;
+use App\Modules\Billing\Services\InvoicePdf;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use Carbon\CarbonImmutable;
@@ -18,6 +20,11 @@ beforeEach(function () {
     ]);
     TaxRule::factory()->create(['name' => 'VAT', 'level' => 1, 'country' => 'NP', 'rate' => '13.000']);
 });
+
+function partiesPdfHtml(Invoice $invoice): string
+{
+    return view('billing::pdf.invoice', app(InvoicePdf::class)->viewData($invoice))->render();
+}
 
 function nepalBuyerForParties(): Client
 {
@@ -88,14 +95,38 @@ test('in paid numbering the invoice is a proforma until paid, then a tax invoice
             ->where('parties.buyer.tax_id.value', '301234567'));
 });
 
-test('a draft shows the seller from today\'s settings and says so', function () {
+test('a taxed draft is a draft invoice with the seller from today\'s settings, and says so', function () {
     billingStaff();
     $invoice = issueInvoice(billingClient(['country' => 'NP']), [10_000], status: 'draft');
+    expect($invoice->fresh()->tax1_amount)->toBeGreaterThan(0);
 
     $this->get(route('admin.billing.invoices.show', $invoice->id))
         ->assertInertia(fn (Assert $page) => $page
+            ->where('parties.document', 'draft')
             ->where('parties.seller.name', 'Himal Hosting Pvt. Ltd.')
             ->where('parties.seller_from_settings', true));
+    expect(partiesPdfHtml($invoice->fresh()))->toContain('<h1>Draft Invoice</h1>');
+});
+
+test('a numbered invoice without a stored seller never shows today\'s settings, on the page or the PDF', function () {
+    $invoice = issueInvoice(billingClient(['country' => 'NP']), [10_000]);
+    Invoice::query()->whereKey($invoice->id)->update(['seller_snapshot' => null]);
+    billingSettings(['seller.legal_name' => 'Live Seller Today']);
+    billingStaff();
+
+    $this->get(route('admin.billing.invoices.show', $invoice->id))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('parties.seller', null)
+            ->where('parties.seller_from_settings', false));
+    expect(partiesPdfHtml($invoice->fresh()))->toContain('Seller details were not recorded on this invoice.')->not->toContain('Live Seller Today');
+});
+
+test('the PDF prints the buyer block the page shows', function () {
+    $client = nepalBuyerForParties();
+    $html = partiesPdfHtml(issueInvoice($client, [1_000_000])->fresh());
+
+    expect($html)->toContain('Sagarmatha Traders')->toContain('Sita Gurung')->toContain('Pokhara, Gandaki 33700')
+        ->toContain($client->email)->toContain('PAN/VAT No.: 301234567');
 });
 
 test('the client invoice lists the period each line covers', function () {

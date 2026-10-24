@@ -12,6 +12,7 @@ use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\ModuleCommand;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\Service;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
 
 beforeEach(function () {
@@ -29,7 +30,7 @@ function serviceWithDocumentsForNumbers(): array
 }
 
 test('the service page names its invoices, order and module-log staff by number and name, not id', function () {
-    $staff = actingAsStaff(['services.services.view', 'services.module_log.view']);
+    $staff = actingAsStaff(['services.services.view', 'services.module_log.view', 'billing.invoices.view', 'orders.orders.view']);
     $staff->forceFill(['name' => 'Anita Shrestha'])->save();
     [$service, $invoice] = serviceWithDocumentsForNumbers();
     ModuleCommand::query()->create(['service_id' => $service->id, 'driver' => 'cpanel', 'command' => 'suspend', 'initiator' => 'staff:'.$staff->id, 'success' => true, 'created_at' => now()]);
@@ -43,6 +44,39 @@ test('the service page names its invoices, order and module-log staff by number 
             ->where('order.number', '4815162342')
             ->where('moduleLog.0.initiator_label', 'System')
             ->where('moduleLog.1.initiator_label', 'Anita Shrestha'));
+});
+
+test('invoice and order numbers are plain text for staff who cannot open them', function () {
+    actingAsStaff(['services.services.view']);
+    [$service] = serviceWithDocumentsForNumbers();
+
+    $this->get(route('admin.services.services.show', $service))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('invoices.0.invoice_number', 'INV-1981')
+            ->where('invoices.0.invoice_url', null)
+            ->where('order.number', '4815162342')
+            ->where('order.url', null));
+});
+
+test('module-log staff names cost one query however many staff members appear', function () {
+    actingAsStaff(['services.services.view', 'services.module_log.view']);
+    $service = Service::factory()->create();
+    $queries = function (int $staff) use ($service): int {
+        ModuleCommand::query()->delete();
+        foreach (User::factory()->count($staff)->create() as $user) {
+            ModuleCommand::query()->create(['service_id' => $service->id, 'driver' => 'cpanel', 'command' => 'suspend', 'initiator' => 'staff:'.$user->id, 'success' => true, 'created_at' => now()]);
+        }
+        app()->forgetScopedInstances();
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $this->get(route('admin.services.services.show', $service))->assertOk();
+        DB::disableQueryLog();
+
+        return count(DB::getQueryLog());
+    };
+
+    $queries(1);
+    expect($queries(10))->toBe($queries(1));
 });
 
 test('the service page works without the Orders module', function () {
@@ -82,7 +116,8 @@ test('the servers page opens with capacity and failure cards', function () {
     actingAsStaff(['services.servers.view']);
     $full = Server::factory()->create(['max_accounts' => 10]);
     $roomy = Server::factory()->create(['max_accounts' => 100]);
-    Server::factory()->create(['max_accounts' => 50, 'is_active' => false]);
+    $inactive = Server::factory()->create(['max_accounts' => 50, 'is_active' => false]);
+    Service::factory()->count(3)->create(['server_id' => $inactive->id, 'status' => ServiceStatus::Active]);
     Service::factory()->count(9)->create(['server_id' => $full->id, 'status' => ServiceStatus::Active]);
     Service::factory()->create(['server_id' => $roomy->id, 'status' => ServiceStatus::Active]);
     ModuleCommand::query()->create(['server_id' => $full->id, 'driver' => 'cpanel', 'command' => 'create', 'initiator' => 'system', 'success' => false, 'created_at' => now()->subHour()]);
@@ -98,4 +133,15 @@ test('the servers page opens with capacity and failure cards', function () {
             ->where('summary.failed_commands', 1)
             ->where('summary.failing_servers', 1)
             ->where('canViewModuleLog', false));
+});
+
+test('the failed-commands card and the module log it links to count the same 24 hours', function () {
+    actingAsStaff(['services.servers.view', 'services.module_log.view']);
+    $server = Server::factory()->create();
+    ModuleCommand::query()->create(['server_id' => $server->id, 'driver' => 'cpanel', 'command' => 'create', 'initiator' => 'system', 'success' => false, 'created_at' => now()->subHour()]);
+    ModuleCommand::query()->create(['server_id' => $server->id, 'driver' => 'cpanel', 'command' => 'create', 'initiator' => 'system', 'success' => false, 'created_at' => now()->subDays(5)]);
+
+    $this->get(route('admin.services.servers.index'))->assertInertia(fn (Assert $page) => $page->where('summary.failed_commands', 1));
+    $this->get(route('admin.services.module-log.index', ['result' => 'failed', 'period' => '24h']))
+        ->assertInertia(fn (Assert $page) => $page->has('log.data', 1));
 });

@@ -2,14 +2,15 @@
 
 namespace App\Modules\Billing\Services;
 
+use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Services\Tax\IndianStates;
 use App\Modules\Billing\Services\Tax\VatNumber;
 
 /**
- * Who an invoice is from and to, as the PDF and the invoice pages print it. The buyer comes only from the snapshot taken
- * when the invoice was written (frozen with its number); the seller from the snapshot taken at publishing, or today's
- * settings for a draft that has none yet.
+ * Who an invoice is from and to, for the invoice pages and the PDF alike. The buyer comes only from the snapshot taken
+ * when the invoice was written (frozen with its number). The seller comes from the snapshot taken at publishing; only a
+ * draft, which has none yet, shows today's settings.
  */
 class InvoiceParties
 {
@@ -17,8 +18,8 @@ class InvoiceParties
 
     /**
      * @return array{
-     *     document: 'tax_invoice'|'proforma'|'invoice',
-     *     seller: array{name: string, address: string|null, email: string|null, phone: string|null, tax_ids: list<array{label: string, value: string}>},
+     *     document: 'draft'|'tax_invoice'|'proforma'|'invoice',
+     *     seller: array{name: string, address: string|null, email: string|null, phone: string|null, tax_ids: list<array{label: string, value: string}>}|null,
      *     seller_from_settings: bool,
      *     buyer: array{name: string, contact: string|null, address: list<string>, email: string|null, tax_id: array{label: string, value: string}|null}|null,
      *     place_of_supply: string|null,
@@ -26,36 +27,58 @@ class InvoiceParties
      */
     public function forInvoice(Invoice $invoice): array
     {
-        $seller = $invoice->seller_snapshot ?? $this->seller->snapshot();
+        $seller = $this->sellerSnapshot($invoice);
         $buyer = $invoice->client_snapshot;
 
         return [
             'document' => self::documentType($invoice),
-            'seller' => [
-                'name' => (string) ($seller['legal_name'] ?? ''),
-                'address' => self::text($seller['address'] ?? null),
-                'email' => self::text($seller['email'] ?? null),
-                'phone' => self::text($seller['phone'] ?? null),
-                'tax_ids' => self::sellerTaxIds($seller),
-            ],
-            'seller_from_settings' => $invoice->seller_snapshot === null,
-            'buyer' => is_array($buyer) ? self::buyer($buyer) : null,
-            'place_of_supply' => self::placeOfSupply($seller, is_array($buyer) ? $buyer : []),
+            'seller' => $seller !== null ? self::sellerBlock($seller) : null,
+            'seller_from_settings' => $seller !== null && $invoice->seller_snapshot === null,
+            'buyer' => is_array($buyer) ? self::buyerBlock($buyer) : null,
+            'place_of_supply' => self::placeOfSupply($seller ?? [], is_array($buyer) ? $buyer : []),
         ];
     }
 
     /**
-     * A proforma until it has a legal number; a tax invoice when it carries tax; otherwise a plain invoice.
+     * The seller as stored on the invoice. A draft without one reads today's settings; any other invoice without one
+     * gets null, never live company data.
      *
-     * @return 'tax_invoice'|'proforma'|'invoice'
+     * @return array<string, mixed>|null
+     */
+    public function sellerSnapshot(Invoice $invoice): ?array
+    {
+        return $invoice->seller_snapshot ?? ($invoice->status === InvoiceStatus::Draft ? $this->seller->snapshot() : null);
+    }
+
+    /**
+     * A draft is not a fiscal document; then a proforma until it has a legal number; a tax invoice when it carries tax;
+     * otherwise a plain invoice.
+     *
+     * @return 'draft'|'tax_invoice'|'proforma'|'invoice'
      */
     public static function documentType(Invoice $invoice): string
     {
         return match (true) {
+            $invoice->status === InvoiceStatus::Draft => 'draft',
             $invoice->number === null && $invoice->proforma_number !== null => 'proforma',
             $invoice->tax1_amount + $invoice->tax2_amount > 0 => 'tax_invoice',
             default => 'invoice',
         };
+    }
+
+    /**
+     * @param  array<string, mixed>  $seller
+     * @return array{name: string, address: string|null, email: string|null, phone: string|null, tax_ids: list<array{label: string, value: string}>}
+     */
+    public static function sellerBlock(array $seller): array
+    {
+        return [
+            'name' => (string) ($seller['legal_name'] ?? ''),
+            'address' => self::text($seller['address'] ?? null),
+            'email' => self::text($seller['email'] ?? null),
+            'phone' => self::text($seller['phone'] ?? null),
+            'tax_ids' => self::sellerTaxIds($seller),
+        ];
     }
 
     /**
@@ -134,7 +157,7 @@ class InvoiceParties
      * @param  array<string, mixed>  $buyer
      * @return array{name: string, contact: string|null, address: list<string>, email: string|null, tax_id: array{label: string, value: string}|null}
      */
-    private static function buyer(array $buyer): array
+    public static function buyerBlock(array $buyer): array
     {
         $company = self::text($buyer['company'] ?? null);
         $person = self::text($buyer['name'] ?? null);
