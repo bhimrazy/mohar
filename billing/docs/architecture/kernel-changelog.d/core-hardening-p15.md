@@ -7,5 +7,5 @@
 - `RequireRecentPasswordConfirmation::DOWNLOAD_KEY` and `::confirmingDownload(Request)`. The session value is now the
   file URL, not `true`; `PasswordConfirmedResponse` and the confirm view read it through `confirmingDownload()`.
 - `RunAutomation::inProgress()` reads the lock with `Lock::isLocked()` instead of acquiring it. Laravel's array lock
-  ignores expiry in `isLocked()`, so a test that travels past a lock's TTL uses the database store.
+  ignores expiry in `isLocked()`, so a test that travels past a lock's TTL uses a file store of its own.
 - `InstallCommand::LOCK` (`app:install`) is held from the pre-flight to the end of the run.
