@@ -3,8 +3,10 @@
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\Tld;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Service;
 use App\Modules\Support\Enums\TicketStatus;
@@ -16,7 +18,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/../Billing/helpers.php';
 
-/** Ceiling for one client dashboard visit with every module (measured: 16, the same for 3 and 15 rows of each kind). */
+/** Ceiling for one client dashboard visit with every module (measured: 19 with Renew now priced on every domain row, the same for 3 and 15 rows of each kind). */
 const CLIENT_DASHBOARD_QUERIES = 20;
 
 beforeEach(function () {
@@ -144,8 +146,97 @@ test('the domains panel lists live domains by expiry with auto-renew and an expi
 
     expect(array_column($items, 'title'))->toBe(['lapsed.com', 'soon.com', 'later.com'])
         ->and($items[0])->toMatchArray(['status' => 'grace', 'dateLabel' => 'Expired'])
-        ->and($items[1])->toMatchArray(['status' => 'expiring', 'subtitle' => 'Auto-renew off', 'dateLabel' => 'Expires', 'date' => '2026-10-29'])
-        ->and($items[2])->toMatchArray(['status' => 'active', 'subtitle' => 'Auto-renew on', 'dateLabel' => 'Renews']);
+        ->and($items[1])->toMatchArray(['status' => 'expiring', 'subtitle' => null, 'dateLabel' => 'Expires', 'date' => '2026-10-29'])
+        ->and($items[1]['toggle'])->toMatchArray(['on' => false])
+        ->and($items[2])->toMatchArray(['status' => 'active', 'subtitle' => null, 'dateLabel' => 'Renews'])
+        ->and($items[2]['toggle'])->toMatchArray(['on' => true]);
+});
+
+/** A client domain on a .com priced in NPR (renewal Rs 1,500.00 a year). */
+function p8bDashboardDomain(Client $client, string $name, string $expiry, array $attributes = []): Domain
+{
+    $extension = substr($name, (int) strpos($name, '.'));
+    $tld = Tld::query()->where('extension', $extension)->first() ?? Tld::factory()->extension($extension)->priced('NPR', renew: 150_000)->create();
+
+    return Domain::factory()->named(substr($name, 0, (int) strpos($name, '.')), $tld)->expiring($expiry)
+        ->create(['client_id' => $client->id, 'currency' => 'NPR', 'recurring_amount' => 150_000, ...$attributes]);
+}
+
+test('domain rows offer the auto-renew switch, and Renew now with its term and price only when renewal is due', function () {
+    $soon = p8bDashboardDomain($this->client, 'asha-traders.com', '2026-11-10', ['auto_renew' => false]);
+    $lapsed = p8bDashboardDomain($this->client, 'lapsed.com', '2026-10-15', ['status' => DomainStatus::Grace]);
+    $later = p8bDashboardDomain($this->client, 'later.com', '2027-06-01');
+
+    $items = collect(dashboardPanel('domains.list')['items'])->keyBy('title');
+
+    expect($items['asha-traders.com']['toggle'])->toBe([
+        'label' => 'Auto-renew asha-traders.com',
+        'text' => 'Auto-renew',
+        'href' => route('client.domains.auto-renew', $soon->id),
+        'field' => 'enabled',
+        'on' => false,
+    ])
+        ->and($items['asha-traders.com']['action'])->toBe([
+            'label' => 'Renew now',
+            'href' => route('client.domains.renew', $soon->id),
+            'method' => 'post',
+            'confirm' => [
+                'title' => 'Renew asha-traders.com for 1 year?',
+                'description' => 'We create an invoice for Rs 1,500.00 (1 year) and take you to it. The domain renews when the invoice is paid.',
+                'confirmLabel' => 'Create renewal invoice',
+                'data' => ['years' => 1],
+            ],
+        ])
+        ->and($items['lapsed.com']['action']['href'])->toBe(route('client.domains.renew', $lapsed->id))
+        ->and($items['later.com']['toggle']['on'])->toBeTrue()
+        ->and($items['later.com']['action'])->toBeNull();
+
+    // Confirming posts the term from the payload: the renewal invoice is created for it.
+    $this->post($items['asha-traders.com']['action']['href'], $items['asha-traders.com']['action']['confirm']['data'])
+        ->assertRedirect()->assertSessionHasNoErrors();
+    expect(app('session.store')->get('inertia.flash_data.toast.message'))->toStartWith('Renewal invoice');
+});
+
+test('no domain controls for names registered by the client, domains not open to changes, or with renewal orders off', function () {
+    $selfRegistered = Tld::factory()->extension('.np')->create(['registered_by_client' => true]);
+    Domain::factory()->named('asha', $selfRegistered)->create(['client_id' => $this->client->id, 'expiry_date' => null]);
+    p8bDashboardDomain($this->client, 'pending.com', '2026-11-01', ['status' => DomainStatus::PendingTransfer]);
+    p8bDashboardDomain($this->client, 'soon.com', '2026-11-01');
+
+    $items = collect(dashboardPanel('domains.list')['items'])->keyBy('title');
+
+    expect($items['asha.np']['toggle'])->toBeNull()->and($items['asha.np']['action'])->toBeNull()
+        ->and($items['pending.com']['toggle'])->toBeNull()->and($items['pending.com']['action'])->toBeNull()
+        ->and($items['soon.com']['action'])->not->toBeNull();
+
+    app(Settings::class)->set('domains.enable_renewal_orders', false);
+
+    expect(collect(dashboardPanel('domains.list')['items'])->firstWhere('title', 'soon.com'))
+        ->toMatchArray(['action' => null])->toHaveKey('toggle.on', true);
+});
+
+test('auto-renew toggled on the dashboard returns there; elsewhere or from another host it goes to the domain page', function () {
+    $domain = p8bDashboardDomain($this->client, 'asha-traders.com', '2026-11-10', ['auto_renew' => false]);
+
+    $this->from(route('client.dashboard'))->put(route('client.domains.auto-renew', $domain->id), ['enabled' => true])
+        ->assertRedirect(route('client.dashboard'))->assertSessionHas('inertia.flash_data.toast.message', 'Auto-renew is on.');
+    expect($domain->fresh()->auto_renew)->toBeTrue();
+
+    $this->from(route('client.domains.show', $domain->id))->put(route('client.domains.auto-renew', $domain->id), ['enabled' => false])
+        ->assertRedirect(route('client.domains.show', $domain->id));
+    $this->from('https://evil.example/phish')->put(route('client.domains.auto-renew', $domain->id), ['enabled' => true])
+        ->assertRedirect(route('client.domains.show', $domain->id));
+});
+
+test('the support panel adds New ticket and Help articles to its header only when it lists tickets', function () {
+    expect(dashboardPanel('support.tickets')['actions'])->toBe([]);
+
+    Ticket::factory()->forClient($this->client)->status(TicketStatus::Open)->create(['subject' => 'DNS question']);
+
+    expect(dashboardPanel('support.tickets')['actions'])->toBe([
+        ['label' => 'New ticket', 'href' => route('client.support.tickets.create'), 'icon' => 'Plus'],
+        ['label' => 'Help articles', 'href' => route('support.kb.index'), 'icon' => 'BookOpen'],
+    ]);
 });
 
 test('every panel has an empty state with a next step when the client has nothing yet', function () {
@@ -163,6 +254,7 @@ test('every panel has an empty state with a next step when the client has nothin
 
 test('an account user sees only the areas the owner granted', function () {
     issueInvoice($this->client, [5_000], dueDate: CarbonImmutable::parse('2026-10-20'));
+    p8bDashboardDomain($this->client, 'asha-traders.com', '2026-11-10');
     $contact = User::factory()->create();
     $this->client->users()->attach($contact, ['is_owner' => false, 'permissions' => json_encode(['support'])]);
     $this->actingAs($contact);
@@ -176,6 +268,8 @@ test('an account user sees only the areas the owner granted', function () {
 
 test('the dashboard runs a bounded number of queries however many records the client has', function () {
     $count = function (): int {
+        // Each real request starts with empty request-scoped memos (the TLD price cache).
+        app()->forgetScopedInstances();
         DB::flushQueryLog();
         DB::enableQueryLog();
         test()->get(route('client.dashboard'))->assertOk();
@@ -190,7 +284,8 @@ test('the dashboard runs a bounded number of queries however many records the cl
             issueInvoice($this->client, [1_000 + $i], dueDate: CarbonImmutable::parse('2026-10-20')->addDays($i));
             Service::factory()->create(['client_id' => $this->client->id]);
             Ticket::factory()->forClient($this->client)->create(['department_id' => $department->id]);
-            Domain::factory()->create(['client_id' => $this->client->id]);
+            // Due for renewal on a different extension each, so every listed row prices Renew now from its own TLD.
+            p8bDashboardDomain($this->client, "renew-{$rows}-{$i}".['.com', '.net', '.org', '.io', '.dev'][$i % 5], '2026-11-01');
         }
     };
 

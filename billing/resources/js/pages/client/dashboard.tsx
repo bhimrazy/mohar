@@ -139,6 +139,7 @@ export default function ClientDashboard({
                                     status: item.status ?? undefined,
                                 }))}
                                 href={panel.href}
+                                links={panel.actions}
                                 empty={<PanelEmpty panel={panel} />}
                                 // A lone last panel (a module not installed) takes the full row.
                                 className="lg:[&:last-child:nth-child(odd)]:col-span-2"

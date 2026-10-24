@@ -20,7 +20,11 @@ use Closure;
  *   'list'  => ['title' => 'Recent orders', 'items' => [['title', 'subtitle'?, 'href'?, 'meta'?, 'money'?, 'status'?]], 'href'? (view all),
  *               'empty'?, 'group'? + 'groupTitle'? (lists sharing a group render as tabs of one card)]
  *               An item may add 'date' + 'dateLabel' ("Renews", "Due"), shown after its subtitle, and 'action' =>
- *               ['label', 'href'] (a button on the row); a list may add 'emptyAction' => ['label', 'href'].
+ *               ['label', 'href', 'method'? ('post'), 'confirm'? => ['title', 'description', 'confirmLabel', 'data'?]]
+ *               (a button on the row: a link, or a request sent after the confirm dialog with 'data' as its body), and
+ *               'toggle' => ['label' (accessible name), 'text'? (visible caption), 'href' (PUT), 'field', 'on' => bool]
+ *               (a switch that saves immediately). A list may add 'emptyAction' => ['label', 'href'] and 'actions' =>
+ *               [['label', 'href', 'icon'?]] (link buttons in its header; 'icon' is a nav icon name).
  *   'chart' => ['title' => 'Income', 'kind' => 'line'|'bar', 'currency'?, 'stacked'?, 'description'?, 'xFormat'? ('month'|'day'|'dayOfMonth'|'week'),
  *               'series' => [['name', 'compare'? (drawn as the neutral baseline), 'points' => [['x' => '2026-10-01', 'y' => 1234]]]],
  *               'summary'? => ['money'|'value', 'label', 'trend'?], 'ranges'? => ['12m' => ['label', 'series', 'summary'?, 'xFormat'?]], 'href'?]

@@ -97,7 +97,13 @@ class DomainController extends Controller
     {
         $autoRenew->handle($this->manageable($domain), $request->boolean('enabled'));
 
-        return $this->done($request->boolean('enabled') ? __('Auto-renew is on.') : __('Auto-renew is off. Renew the domain before it expires to keep it.'), $domain);
+        Inertia::flash('toast', ['type' => 'success', 'message' => $request->boolean('enabled') ? __('Auto-renew is on.') : __('Auto-renew is off. Renew the domain before it expires to keep it.')]);
+
+        // Toggled from the dashboard or the domain page: return there, but never to another host.
+        $fallback = route('client.domains.show', $domain);
+        $previous = url()->previous($fallback);
+
+        return redirect()->to(parse_url($previous, PHP_URL_HOST) === $request->getHost() ? $previous : $fallback);
     }
 
     public function lock(ToggleRequest $request, int $domain, SetRegistrarLock $lock): RedirectResponse
