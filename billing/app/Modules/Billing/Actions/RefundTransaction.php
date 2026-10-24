@@ -70,7 +70,7 @@ class RefundTransaction
         }
 
         // 1. Reserve: validate under lock and record the refund as pending (refundable amount held back).
-        $refund = DB::transaction(function () use ($payment, $amount, $mode, $reverseEffects, $userId, $gatewayTxnId, $reason): Transaction {
+        $reserve = function () use ($payment, $amount, $mode, $reverseEffects, $userId, $gatewayTxnId, $reason): Transaction {
             $payment = Transaction::query()->lockForUpdate()->findOrFail($payment->id);
 
             if (! $payment->isRefundable()) {
@@ -129,29 +129,41 @@ class RefundTransaction
 
             // From the mode being switched on (before its start day too) a refund of a numbered tax invoice reserves the credit
             // note it will become (ADR 0024 §5); the provider's word, or the record, decides it later.
+            // The credit taken back is held from now on (a tagged ledger row), so a second refund of the same payment cannot take it again;
+            // a release gives it back.
+            if ($creditPart > 0) {
+                $this->credit->post($payment->client_id, Money::of($creditPart, $payment->currency)->negate(), CreditReason::CreditRemoved, $payment->invoice_id, $payment->id,
+                    mb_substr((string) __('Refunded at the gateway (:refund)', ['refund' => $refund->id]), 0, 255), $userId, allowNegative: true, gateway: $payment->gateway ?? 'manual', externalRef: 'refund:'.$refund->id);
+            }
+
             if ($fiscal !== null && $noteGross > 0) {
                 $this->reservations->reserve($fiscal, $refund, $noteGross, (string) ($reason ?? __('Refunded at the gateway')), $userId, $userId === null ? 'refunded_at_provider' : RefundReservations::REASON_CODE);
             }
 
             return $refund;
-        });
+        };
 
-        // 2. Call the provider outside any DB transaction (no locks held over network I/O; the log always survives).
-        if ($mode === RefundMode::Gateway) {
-            try {
-                $result = $this->refundAtGateway($payment->fresh() ?? $payment, $amount, $refund);
-            } catch (Throwable $exception) {
-                // Whether the request left is unknown: the same as a timeout.
-                report($exception);
-                $result = new ChargeResult(ChargeResult::ERROR, declineReason: 'the refund call failed before an answer arrived');
-            }
-
-            if (! $result->succeeded()) {
-                return $this->unsettled($refund, $result);
-            }
+        // A refund recorded as made outside has no provider call: reserve and finalise in one transaction, so a failure leaves nothing.
+        if ($mode !== RefundMode::Gateway) {
+            return DB::transaction(fn (): Transaction => $this->finalise($reserve(), $payment, $amount, $mode, $reverseEffects, $userId, null));
         }
 
-        return $this->finalise($refund, $payment, $amount, $mode, $reverseEffects, $userId, $result ?? null);
+        $refund = DB::transaction($reserve);
+
+        // 2. Call the provider outside any DB transaction (no locks held over network I/O; the log always survives).
+        try {
+            $result = $this->refundAtGateway($payment->fresh() ?? $payment, $amount, $refund);
+        } catch (Throwable $exception) {
+            // Whether the request left is unknown: the same as a timeout.
+            report($exception);
+            $result = new ChargeResult(ChargeResult::ERROR, declineReason: 'the refund call failed before an answer arrived');
+        }
+
+        if (! $result->succeeded()) {
+            return $this->unsettled($refund, $result);
+        }
+
+        return $this->finalise($refund, $payment, $amount, $mode, $reverseEffects, $userId, $result);
     }
 
     /**
@@ -282,6 +294,13 @@ class RefundTransaction
         return DB::transaction(function () use ($refund): bool {
             $locked = Transaction::query()->lockForUpdate()->find($refund->id);
 
+            // A DECLINED that arrives after the provider confirmed the refund changes nothing, but staff are told (ADR 0024 §5).
+            if ($locked !== null && $locked->status === TransactionStatus::Succeeded) {
+                $locked->forceFill(['review_amount' => $locked->amount_out, 'reviewed_at' => null, 'description' => __('Provider reports conflicting outcome: declined after it was confirmed')])->save();
+
+                return false;
+            }
+
             return $locked !== null && $locked->status === TransactionStatus::Pending && $this->releaseLocked($locked);
         });
     }
@@ -292,6 +311,7 @@ class RefundTransaction
         $payment = Transaction::query()->whereKey($refund->parent_transaction_id)->lockForUpdate()->first();
         $refund->update(['status' => TransactionStatus::Failed, 'refundable_remaining' => 0]);
         $this->reservations->release($refund);
+        $this->returnCreditHold($refund);
 
         if ($payment !== null) {
             // A chargeback row's amount_out is the whole dispute (what the payment gave, the credit taken back and the
@@ -396,12 +416,6 @@ class RefundTransaction
                 return $refund;
             }
 
-            // The credit part first: the credit this payment placed goes back, and is not part of the sale (credit first, §5).
-            if ($creditPart > 0) {
-                $this->credit->post($payment->client_id, Money::of($creditPart, $payment->currency)->negate(), CreditReason::CreditRemoved, $payment->invoice_id, $payment->id,
-                    mb_substr((string) __('Refunded at the gateway (:refund)', ['refund' => $refund->id]), 0, 255), $userId, allowNegative: true, gateway: $refund->gateway, externalRef: 'refund:'.$refund->id);
-            }
-
             // What the cap could not take as a note comes out of the credit that notes placed; the rest is for staff to review.
             if ($uncovered > 0) {
                 $left = $uncovered - $this->takeBackNoteCredit($invoice, $uncovered, $refund, $userId);
@@ -436,7 +450,7 @@ class RefundTransaction
 
     /**
      * The invoice whose credit note this refund must reserve, or null when it is an ordinary refund: staff refund a payment
-     * of a numbered tax invoice that is paid, while Nepal VAT mode is switched on (ADR 0024 §5; before the start day too).
+     * kept on a numbered tax invoice that is paid or was cancelled (§5.4: refunding it later is a further note), while Nepal VAT mode is switched on (ADR 0024 §5; before the start day too).
      * Locks the invoice and then the client, after the payment (§4). A refund the provider reports (no staff member, record-only) reserves and
      * finalises at once.
      *
@@ -452,7 +466,7 @@ class RefundTransaction
         $invoice = Invoice::query()->lockForUpdate()->find($payment->invoice_id);
 
         if ($invoice === null || $invoice->numbered_at === null || $invoice->kind === InvoiceKind::AddFunds
-            || ! in_array($invoice->status, [InvoiceStatus::Paid, InvoiceStatus::Refunded], true) || ! $this->mode->enabledLocked()) {
+            || ! in_array($invoice->status, [InvoiceStatus::Paid, InvoiceStatus::Refunded, InvoiceStatus::Cancelled], true) || ! $this->mode->enabledLocked()) {
             return null;
         }
 
@@ -506,6 +520,17 @@ class RefundTransaction
         }
 
         return $taken;
+    }
+
+    /** The provider did not pay: the credit held at reserve goes back to the account. */
+    private function returnCreditHold(Transaction $refund): void
+    {
+        $creditPart = (int) ($refund->raw[Transaction::REFUND_STATE]['credit_part'] ?? 0);
+
+        if ($creditPart > 0) {
+            $this->credit->post($refund->client_id, Money::of($creditPart, $refund->currency), CreditReason::Reversal, $refund->invoice_id, $refund->parent_transaction_id,
+                mb_substr((string) __('Refund :refund not made: credit returned', ['refund' => $refund->id]), 0, 255), $refund->created_by, allowNegative: true, gateway: $refund->gateway ?? 'manual', externalRef: 'refund-released:'.$refund->id);
+        }
     }
 
     public function existing(string $gateway, string $gatewayTxnId): ?Transaction

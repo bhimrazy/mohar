@@ -18,11 +18,13 @@ use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Billing\Services\TaxNoteIssuer;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 require_once __DIR__.'/helpers.php';
 
@@ -283,4 +285,30 @@ test('a provider refund larger than the cap left takes the note up to the cap an
         ->and($refund)->tax_note_id->toBe($notes[1]->id)->review_amount->toBeNull()
         ->and(app(CreditLedgerService::class)->balance($payment->client_id, 'NPR')->amount)->toBe(0)
         ->and($payment->invoice->fresh())->amount_paid->toBe(11_300 - 6_300)->credited_total->toBe(11_300);
+});
+
+test('a DECLINED that arrives after the provider confirmed the refund changes nothing and tells staff (ADR 0024 §5, conflicting outcome)', function () {
+    $payment = vatRefundPayment();
+    $refund = vatRefund($payment);
+    expect($refund)->status->toBe(TransactionStatus::Succeeded)->review_amount->toBeNull();
+
+    $released = app(RefundTransaction::class)->release($refund->fresh());
+
+    expect($released)->toBeFalse()
+        ->and($refund->fresh())->status->toBe(TransactionStatus::Succeeded)->review_amount->toBe(5_650)->tax_note_id->not->toBeNull()
+        ->and(Transaction::toReview()->count())->toBe(1)->and(TaxNote::query()->count())->toBe(1);
+});
+
+test('the mode cannot be switched off while a refund is waiting for the provider', function () {
+    VatScriptedDriver::$answer = ChargeResult::ERROR;
+    $refund = vatRefund(vatRefundPayment());
+    $mode = app(NepalVatMode::class);
+    $apply = fn () => $mode->apply(User::factory()->staff(['billing.*'])->create(), ['enabled' => false, 'enabled_from' => null, 'vat_rules' => $mode->vatRules(), 'export_rule' => null]);
+
+    expect($apply(...))->toThrow(ValidationException::class, 'waiting for the provider');
+
+    // Once it settles it is a note, and a mode with a note cannot be switched off either.
+    app(RefundTransaction::class)->settle($refund, 're_off');
+
+    expect($apply(...))->toThrow(ValidationException::class, 'credit or debit notes');
 });

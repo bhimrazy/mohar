@@ -543,16 +543,31 @@ PR 4 is built in steps. This one is the §5 state machine for **staff refunds** 
   returns, the reservation is `released`, and no note or number exists. `ERROR` and `PENDING` leave everything pending; the
   existing "Refund outcome not known yet" and Check refund apply.
 - **Credit first.** A refund of a payment that placed account credit (an overpayment, or a refund to credit) takes that credit
-  back before the invoice part: the part up to the credit is a plain refund with no note (a tagged ledger take-back, so a later
-  refund or callback does not take it twice), and only the rest reserves a note. The split is stored on the refund row
-  (`raw.mohar.credit_part`).
+  back before the invoice part: the part up to the credit is a plain refund with no note, and only the rest reserves a note.
+  The take-back is posted **at reserve**, as a tagged ledger row (a hold), and a release posts it back, so a second refund of the
+  same payment, or a callback, cannot take the same credit again. The split is stored on the refund row (`raw.mohar.credit_part`).
+- **One transaction without a provider.** A refund recorded as made outside has no provider call: reserve and finalise run in
+  one transaction, so a failure leaves no succeeded refund row and no pending reservation.
+- **A cancelled invoice keeps its payments** (§5.4): refunding a payment kept on a numbered invoice that was cancelled in the
+  mode reserves and finalises a note like a paid one, so the register's sale falls with the money and the cancelled invoice
+  does not show a balance owed.
 - **Provider-initiated refunds** (a record-only refund with no staff member: the provider's callback, and "released, then paid
   anyway"): reserved and finalised in the callback's transaction as an automatic note, reason `refunded_at_provider`, once per
-  provider refund id. What the invoice's cap cannot take as a note (usually because staff credited the sale to the account after a
-  release) is taken back from the account credit that notes placed on the invoice, newest note first, negative balance allowed;
-  anything the credit cannot cover goes to "Disputes to review" (`review_amount`). The arch test no longer lists the refund path.
-- **The register after the mode is switched off.** The VAT register is keyed on `enabled_from`, which is kept when the mode is
-  switched off (allowed while no note exists), so documents numbered under the mode stay listed. Documents numbered after the
-  switch-off carry no flags and appear as unclassified. Re-enabling takes a new start day, which then bounds the register.
+  provider refund id. When the callback loses the race to a release (the request's DECLINED, Check refund or staff
+  committed between the handler's read and the row lock), `settle` reports the row as failed and the handler books the refund as
+  provider-initiated. What the invoice's cap cannot take as a note (usually because staff credited the sale to the account after
+  a release) is taken back from the account credit that notes placed on the invoice, newest note first, negative balance
+  allowed; anything the credit cannot cover goes to "Disputes to review" (`review_amount`), and the callback's log line says
+  so.
+- **A DECLINED after SUCCESS** changes nothing and puts the confirmed refund on "Disputes to review" ("Provider reports
+  conflicting outcome"), the staff to-do of the §5 table.
+- **Switching the mode off** is refused while any reservation is pending (a note waiting for the provider), as it is once a
+  note exists; the check runs under the `enabled` row lock, and reserving reads the mode under a shared lock on it.
+- **The register keeps every stretch the mode was on** (open for the owner and the accountant to confirm). Each time the mode is
+  switched on a period opens at its start day; switching off closes it at that company date; moving the start day of a mode
+  that has not started moves the open one (`billing.nepal_vat.periods`). The register lists documents dated inside any
+  period, so a switch-off and a re-enable never hide an earlier month, and documents numbered in the gap (they carry no flags)
+  are neither listed nor counted as unclassified. The page says when the mode is off and since when. Re-enabling still
+  needs the gap's invoices classified (the enable-time check) and a start day on or after the current BS month.
 - **Not yet built (later PR 4 steps):** `RefundAccountCredit` (§5a); lifting `features.billing.nepal_vat_mode` and deleting the
   interim refusals (a refund to account credit on a numbered invoice, the refusal of an unclassified invoice).

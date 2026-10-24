@@ -89,9 +89,16 @@ class VatRegisterController extends Controller
             'filterErrors' => (object) $errors,
             // What was asked for, so a refused year or range stays in the picker beside its error.
             'submitted' => (object) ($errors === [] ? [] : $submitted),
-            'options' => $this->options($clock, $mode->enabledFrom()),
+            'options' => $this->options($clock, $mode->periods()[0]['from'] ?? null),
             // The register lists documents from the mode's start day on; with the mode never switched on there is nothing to list.
-            'mode' => ['enabled' => $mode->enabledFrom() !== null, 'from' => $mode->enabledFrom(), 'started' => $mode->inEffect($clock->now())],
+            'mode' => [
+                // Ever on: the register has something to show. `on` is the switch now; `offSince` the day the last stretch ended.
+                'enabled' => $mode->periods() !== [],
+                'on' => $mode->enabled(),
+                'from' => $mode->periods()[0]['from'] ?? null,
+                'started' => $mode->inEffect($clock->now()),
+                'offSince' => $mode->enabled() ? null : (collect($mode->periods())->last()['to'] ?? null),
+            ],
             'warnings' => ['withoutPan' => $summary->withoutPan, 'unconverted' => $summary->unconverted, 'unclassified' => $summary->unclassified],
             'can' => ['export' => (bool) $user?->hasPermission("reports.{$key}.export")],
         ]);

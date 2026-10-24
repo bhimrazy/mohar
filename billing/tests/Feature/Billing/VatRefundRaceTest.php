@@ -36,7 +36,7 @@ beforeEach(function () {
  * Three paid numbered invoices of 11,300 for one client: a pending refund of 8,000 (callback against late answer), two
  * payments of one invoice after a note used part of the cap, and a pending refund against a staff note to credit.
  *
- * @return array{late: array{refund: int, payment: int}, cap: array{invoice: int, a: int, b: int}, deadlock: array{refund: int, invoice: int}}
+ * @return array{late: array{refund: int, payment: int}, cap: array{invoice: int, a: int, b: int}, deadlock: array{refund: int, invoice: int}, release: array{refund: int, invoice: int, payment: int}}
  */
 function seedRefundRaces(): array
 {
@@ -70,6 +70,9 @@ function seedRefundRaces(): array
         $deadlock = payInvoice(issueInvoice($client, [10_000]), 11_300, 'ch_dead', 'sandbox_card');
         $pendingRefund($deadlock, 4_000);
 
+        $release = payInvoice(issueInvoice($client, [10_000]), 11_300, 'ch_rel', 'sandbox_card');
+        $pendingRefund($release, 6_000);
+
         $cap = issueInvoice($client, [10_000]);
         payInvoice($cap, 6_000, 'ch_a', 'sandbox_card');
         payInvoice($cap->fresh(), 5_300, 'ch_b', 'sandbox_card');
@@ -86,7 +89,8 @@ function seedRefundRaces(): array
 
     return [
         'late' => ['refund' => $pending($invoices[0]), 'payment' => $payments($invoices[0])[0]],
-        'cap' => ['invoice' => $invoices[2], 'a' => $payments($invoices[2])[0], 'b' => $payments($invoices[2])[1]],
+        'cap' => ['invoice' => $invoices[3], 'a' => $payments($invoices[3])[0], 'b' => $payments($invoices[3])[1]],
+        'release' => ['refund' => $pending($invoices[2]), 'invoice' => $invoices[2], 'payment' => $payments($invoices[2])[0]],
         'deadlock' => ['refund' => $pending($invoices[1]), 'invoice' => $invoices[1]],
     ];
 }
@@ -144,4 +148,22 @@ test('a provider callback finalising a reservation and a staff note settled to a
     expect(collect($results)->pluck('outcome')->sort()->values()->all())->toBe(['issued', 'settled'])
         ->and(TaxNote::query()->where('invoice_id', $ids['invoice'])->count())->toBe(2)
         ->and(Transaction::query()->findOrFail($ids['refund'])->status)->toBe(TransactionStatus::Succeeded);
+});
+
+test('the provider callback against a release of the same pending refund: one note, one refund, the money out once', function () {
+    $ids = seedRefundRaces()['release'];
+    $database = DB::connection()->getDatabaseName();
+    $start = refundRaceStart();
+
+    $results = runRaceWorkers([
+        'callback' => ['settle', $database, (string) $ids['refund'], $start],
+        'release' => ['release', $database, (string) $ids['refund'], $start],
+    ], script: __DIR__.'/Support/refund-worker.php');
+
+    // Callback first: the refund is settled and the late release only tells staff. Release first: the callback books the refund the
+    // provider made as a provider-initiated one. Either way the provider paid 6,000 once.
+    expect($results['callback']['status'])->toBe(200)
+        ->and(Transaction::query()->where('invoice_id', $ids['invoice'])->where('type', 'refund')->where('status', 'succeeded')->count())->toBe(1)
+        ->and(TaxNote::query()->where('invoice_id', $ids['invoice'])->where('total', 6_000)->count())->toBe(1)
+        ->and(Transaction::query()->findOrFail($ids['payment'])->refundable_remaining)->toBe(5_300);
 });
