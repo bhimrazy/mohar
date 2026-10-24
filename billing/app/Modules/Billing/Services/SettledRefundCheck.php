@@ -49,6 +49,7 @@ class SettledRefundCheck
         private GatewayLogger $log,
         private BillingSettings $settings,
         private ActivityLogger $activity,
+        private CreditLedgerService $credit,
     ) {}
 
     /**
@@ -152,7 +153,8 @@ class SettledRefundCheck
             $locked->last_lookup_at = now();
             $locked->lookup_count++;
             $full = $result->status === LookupResult::REFUNDED;
-            $known = $this->refundedAtProvider($payment);
+            $credit = $this->creditPart($payment);
+            $known = $this->refundedAtProvider($payment) + $this->recordedFromCredit($payment, $credit);
             $uncovered = $full ? $known < $payment->amount_in : $known === 0;
             $flagged = $locked->raw[self::RAW_KEY]['status'] ?? null;
 
@@ -166,18 +168,17 @@ class SettledRefundCheck
             $previous = $locked->needsCheck() && $locked->check_reason !== PaymentAttempt::CHECK_PORTAL_REFUND
                 ? ['check_reason' => $locked->check_reason, 'review_reason' => $locked->review_reason]
                 : ($locked->raw[self::RAW_KEY]['previous_check'] ?? null);
-            $credited = (int) CreditLedgerEntry::query()->where('transaction_id', $payment->id)->where('amount', '>', 0)->sum('amount');
             $was = is_array($previous) && is_string($previous['review_reason'] ?? null) ? '; was: '.$previous['review_reason'] : '';
 
             $locked->check_reason = PaymentAttempt::CHECK_PORTAL_REFUND;
             $locked->late_checked_at = null;
             $locked->review_reason = mb_substr(($full ? 'Refunded in full at the provider, but not recorded here: ' : 'Partly refunded at the provider, but no refund recorded here: ')
-                .self::instruction($credited, $payment->amount_in).$was, 0, 191);
+                .self::instruction($credit, $payment->refundable_remaining).$was, 0, 191);
             $locked->raw = [...($locked->raw ?? []), self::RAW_KEY => array_filter([
                 'status' => $result->status,
                 'seen_at' => now()->toIso8601String(),
                 'refunded_here' => $known,
-                'credited' => $credited,
+                'credited' => $credit,
                 'previous_check' => $previous,
             ], fn (mixed $value): bool => $value !== null)];
             $locked->save();
@@ -189,7 +190,7 @@ class SettledRefundCheck
                 'provider_status' => $result->status,
                 'amount' => $payment->amount_in,
                 'refunded_here' => $known,
-                'credited' => $credited,
+                'credited' => $credit,
                 'previous_check' => $previous['check_reason'] ?? null,
                 'currency' => $payment->currency,
             ], 'billing.payment.portal_refund');
@@ -212,14 +213,48 @@ class SettledRefundCheck
     }
 
     /**
-     * Where staff record the refund: on the invoice for the part the payment paid there, with Refund account credit
-     * for the part it left as account credit (the invoice's refund refuses that part).
+     * The account credit this payment placed (an overpayment, or its own refunds to credit), less the credit payouts
+     * made through the gateway from it, which refundedAtProvider() already counts.
      */
-    private static function instruction(int $credited, int $amount): string
+    private function creditPart(Transaction $payment): int
+    {
+        $refunds = Transaction::query()->where('parent_transaction_id', $payment->id)->where('type', TransactionType::Refund)->where('status', TransactionStatus::Succeeded)->select('id');
+        $placed = (int) CreditLedgerEntry::query()->where('currency', $payment->currency)->where('amount', '>', 0)
+            ->where(fn ($lines) => $lines->where(fn ($own) => $own->where('transaction_id', $payment->id)->where('reason', CreditReason::Overpayment))
+                ->orWhere(fn ($refunded) => $refunded->whereIn('transaction_id', $refunds)->where('reason', CreditReason::RefundToCredit)))
+            ->sum('amount');
+
+        return max(0, $placed - Transaction::creditPaidOut([$payment->id], $payment->currency));
+    }
+
+    /**
+     * The part of $credit that staff already recorded as paid out with Refund account credit (recorded). That payout
+     * names no payment, so it counts here only up to what the client no longer holds: payouts recorded since the
+     * payment, and at most $credit less the client's credit balance now. A client still holding the credit is flagged.
+     */
+    private function recordedFromCredit(Transaction $payment, int $credit): int
+    {
+        if ($credit <= 0) {
+            return 0;
+        }
+
+        $recorded = (int) Transaction::query()->where('client_id', $payment->client_id)->where('purpose', Transaction::PURPOSE_CREDIT_REFUND)
+            ->whereNull('parent_transaction_id')->where('status', TransactionStatus::Succeeded)->where('currency', $payment->currency)
+            ->where('created_at', '>=', $payment->created_at)->sum('amount_out');
+        $held = $this->credit->balance($payment->client_id, $payment->currency)->amount;
+
+        return max(0, min($credit, $recorded, $credit - $held));
+    }
+
+    /**
+     * Where staff record the refund: on the invoice for what the payment can still refund there, with Refund account
+     * credit for the part it left (or a refund turned) into account credit, which the invoice's refund refuses.
+     */
+    private static function instruction(int $credit, int $refundable): string
     {
         return match (true) {
-            $credited <= 0 => 'record the refund on the invoice',
-            $credited >= $amount => 'the payment went to account credit, so record it with Refund account credit',
+            $credit <= 0 => 'record the refund on the invoice',
+            $refundable <= 0 => 'the payment went to account credit, so record it with Refund account credit',
             default => 'record it on the invoice, and the part kept as account credit with Refund account credit',
         };
     }

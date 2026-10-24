@@ -117,7 +117,7 @@ class BillingDashboard
             'href' => route('admin.billing.payment-attempts.index', ['check' => PaymentAttempt::CHECK_PORTAL_REFUND]),
             'tone' => 'danger',
             'icon' => 'CreditCard',
-            'hint' => 'Refunded in the gateway\'s portal: record the refund on the invoice, then mark it checked',
+            'hint' => 'Refunded in the gateway\'s portal: record it on the invoice or with Refund account credit, as the reason says, then mark it checked',
         ], 'billing.payments.manage', 14);
 
         $dashboard->todo('admin', 'billing.reversals_review', fn (?User $user): array => [

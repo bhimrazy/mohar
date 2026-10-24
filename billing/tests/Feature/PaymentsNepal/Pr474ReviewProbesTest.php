@@ -1,13 +1,18 @@
 <?php
 
+use App\Modules\Billing\Actions\RefundAccountCredit;
 use App\Modules\Billing\Actions\RefundTransaction;
 use App\Modules\Billing\Enums\AttemptStatus;
+use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\SettledRefundCheck;
+use App\Modules\Core\Models\Client;
 use App\Modules\PaymentsNepal\Drivers\KhaltiDriver;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Money;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 
@@ -111,4 +116,47 @@ test('the "Gateway payments to review" to-do opens a list that shows the payment
     expect($todo['count'])->toBe(1);
     $this->get($todo['href'])->assertOk()
         ->assertInertia(fn ($page) => $page->has('attempts.data', 1)->where('attempts.data.0.id', $refunded->id));
+});
+
+test('RR-D: after a full refund to credit, the portal flag points staff to Refund account credit', function () {
+    [$attempt, $payment] = probeSettledKhalti();
+    app(RefundTransaction::class)->handle($payment, 150_000, RefundMode::ToCredit);
+    $this->travel(1)->days();
+    app(SettledRefundCheck::class)->run();
+
+    expect($payment->fresh()->refundable_remaining)->toBe(0)
+        ->and($attempt->fresh()->review_reason)->toContain('Refund account credit')->not->toContain('on the invoice');
+});
+
+test('RR-E: a credit-kept payment whose portal refund is already recorded with Refund account credit is not flagged', function () {
+    [$attempt, $payment] = probeSettledKhalti(paidFirst: true);
+    app(RefundAccountCredit::class)->recorded(Client::query()->findOrFail($payment->client_id), 150_000, 'khalti', 'KHALTI-PORTAL-1', 'Refunded in Khalti portal', null);
+    $this->travel(1)->days();
+    app(SettledRefundCheck::class)->run();
+
+    expect($attempt->fresh()->check_reason)->toBeNull();
+});
+
+test('RR-E: a recorded payout does not cover the payment while the client still holds its credit', function () {
+    [$attempt, $payment] = probeSettledKhalti(paidFirst: true);
+    // Other credit, paid out on its own: the client still holds the Rs 1,500 this payment left.
+    app(CreditLedgerService::class)->post($payment->client_id, Money::of(50_000, 'NPR'), CreditReason::Manual, null, null, 'Goodwill');
+    app(RefundAccountCredit::class)->recorded(Client::query()->findOrFail($payment->client_id), 50_000, 'khalti', 'KHALTI-PORTAL-2', 'Goodwill paid out', null);
+    $this->travel(1)->days();
+    app(SettledRefundCheck::class)->run();
+
+    expect($attempt->fresh()->check_reason)->toBe(PaymentAttempt::CHECK_PORTAL_REFUND);
+});
+
+test('RR-F: a long Devanagari previous reason is cut on a character boundary, the instruction kept whole', function () {
+    $long = str_repeat('भुक्तानी खातामा राखियो ', 20);
+    [$attempt] = probeSettledKhalti(['check_reason' => PaymentAttempt::CHECK_LATE, 'review_reason' => mb_substr($long, 0, 191)]);
+    $this->answer = 'Partially refunded';
+    $this->travel(1)->days();
+    app(SettledRefundCheck::class)->run();
+
+    $fresh = $attempt->fresh();
+    expect(mb_check_encoding($fresh->review_reason, 'UTF-8'))->toBeTrue()
+        ->and(mb_strlen($fresh->review_reason))->toBeLessThanOrEqual(191)
+        ->and($fresh->review_reason)->toStartWith('Partly refunded at the provider, but no refund recorded here: record the refund on the invoice; was: ');
 });

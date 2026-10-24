@@ -339,15 +339,19 @@ customer with credit they never had.
   least recently looked up first, at most `billing.gateways.refund_checks_per_run` (300, at most 1,000), with a 10-minute
   deadline. A transient error (`retryable`) stops that gateway for the run and leaves the attempt unstamped.
 - **What is flagged:** a `refunded` answer while the payment's own refund rows (succeeded or pending, including payouts
-  of account credit through the gateway, but never refunds to account credit, which pay nothing out) total less than the payment, or a `partially_refunded` answer while it has none. The answer is applied under
+  of account credit through the gateway, but never refunds to account credit, which pay nothing out) total less than the payment,
+  counting also a payout of the payment's credit (its overpayment, or its own refunds to credit) recorded with Refund
+  account credit (recorded). That payout names no payment, so it counts only up to what the client no longer holds:
+  payouts recorded since the payment, and at most the payment's credit less the client's credit balance now. A client
+  who still holds the credit is flagged, or a `partially_refunded` answer while it has none. The answer is applied under
   the payment's lock, then the attempt's, the order the provider refund callback uses; a staff refund reserves under the
   payment's lock, so it is either counted or comes after the flag (race tests on PostgreSQL). Neither provider reports the
   refunded amount, so a second partial portal refund after one recorded here is not told apart.
 - **What happens:** no money moves. The attempt gets `check_reason = portal_refund` (to-do "Refunds made at the provider to
   record", `billing.payments.manage`), a review reason, `raw.portal_refund` (status, time, amount refunded here, amount
   the payment left as credit) and an activity entry `billing.payment.portal_refund`. Staff record the refund on the
-  invoice (Refund → record); for the part the payment left as account credit, which the invoice's refund refuses, the
-  reason points to Refund account credit. Then they mark the payment checked. An open late or credit flag on the same
+  invoice (Refund → record); for the part the payment left as account credit, or that a refund to credit turned into
+  credit, which the invoice's refund refuses, the reason points to Refund account credit. Then they mark the payment checked. An open late or credit flag on the same
   attempt is not lost: it is kept in `raw.portal_refund.previous_check` and after "; was:" in the review reason. The same status is not flagged twice; a partial refund that becomes full is flagged again.
 - **Khalti bank-funded payments** stay manual for v1 (no payer mobile number stored): every refund Khalti declines tells
   staff to refund a bank-funded payment in the Khalti portal and record it.
