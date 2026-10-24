@@ -112,6 +112,13 @@ logged with the document id only (never the path) and retried the next day. At m
 the next day. It reads `kyc_documents_delete_after_index` (superseded rows get `delete_after` = the day they are
 replaced), skips current documents whose client is no longer closed, and is idempotent.
 
+`kyc.sweep_orphan_files` (housekeeping, #298) deletes image files under `kyc/<client id>/` that no document refers to:
+an upload whose process was killed between storing a file and writing its row skips `StoreDocument`'s cleanup. A file
+is a candidate only when it is older than `kyc.orphan_min_age_hours` (24, never less) and not in the re-encoder's
+rewrite journal; references are read per client and again under the client's row lock before the delete. One run
+reads the `kyc/` listing once, checks at most `kyc.orphan_scan_limit` (5,000) files after a stored cursor and deletes
+at most `kyc.orphan_delete_limit` (200). The log has counts and client ids, never paths.
+
 ## 7. Staff review
 
 - Two new **sensitive** permissions (no wildcard grants them, only the exact key or `*`), owner decision 2026-10-21:
