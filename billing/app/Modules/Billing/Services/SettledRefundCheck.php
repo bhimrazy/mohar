@@ -69,7 +69,7 @@ class SettledRefundCheck
         $checked = 0;
 
         // Served by payment_attempts_created_at_index: only attempts started inside the window are read, so the work
-        // grows with a week of payments, not with the table. Least recently looked up first; the rest wait a day.
+        // grows with the payments of the window, not with the table. Least recently looked up first; the rest wait a day.
         $attempts = PaymentAttempt::query()
             ->where('created_at', '>=', $start->subDays($days))
             ->where('status', AttemptStatus::Succeeded)
