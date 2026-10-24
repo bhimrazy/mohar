@@ -5,24 +5,29 @@
  * line past it.
  */
 
-use App\Support\Logging\RedactLogs;
-
+// Arch tests run without the application, so the config is read as text: each channel is a block indented by eight
+// spaces under 'channels' (the layout Pint keeps).
 test('every channel in config/logging.php taps RedactLogs, stack and null excepted', function () {
-    $channels = (require base_path('config/logging.php'))['channels'];
-    $untapped = array_keys(array_filter(
-        $channels,
-        fn (array $channel, string $name): bool => ! in_array($name, ['stack', 'null', 'emergency'], true) && ! in_array(RedactLogs::class, $channel['tap'] ?? [], true),
-        ARRAY_FILTER_USE_BOTH,
-    ));
+    $config = (string) file_get_contents(__DIR__.'/../../config/logging.php');
+    $channels = substr($config, (int) strpos($config, "'channels' => ["));
+    preg_match_all("/^ {8}'([a-z_]+)' => \\[\\n(.*?)^ {8}\\],/ms", $channels, $blocks, PREG_SET_ORDER);
+    $untapped = [];
 
-    expect($untapped)->toBe([]);
+    foreach ($blocks as [, $name, $body]) {
+        if (! in_array($name, ['stack', 'null', 'emergency'], true) && ! str_contains($body, "'tap' => [RedactLogs::class]")) {
+            $untapped[] = $name;
+        }
+    }
+
+    expect(count($blocks))->toBeGreaterThan(8)
+        ->and($untapped)->toBe([]);
 });
 
 test('app/ never logs past the processor', function () {
     $forbidden = '/\b(?:Log::build|LogManager|error_log|syslog|openlog)\s*\(|::build\s*\(\s*\[\s*[\'"]driver|\bSTDERR\b|php:\/\/stderr/i';
     $found = [];
 
-    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(app_path(), FilesystemIterator::SKIP_DOTS)) as $file) {
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(__DIR__.'/../../app', FilesystemIterator::SKIP_DOTS)) as $file) {
         if ($file->getExtension() !== 'php') {
             continue;
         }
@@ -34,7 +39,7 @@ test('app/ never logs past the processor', function () {
         }
 
         if (preg_match($forbidden, $code, $match) === 1) {
-            $found[] = str_replace(app_path().'/', '', $file->getPathname()).': '.$match[0];
+            $found[] = basename($file->getPathname()).': '.$match[0];
         }
     }
 
