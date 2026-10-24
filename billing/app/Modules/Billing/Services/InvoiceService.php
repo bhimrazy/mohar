@@ -83,7 +83,11 @@ class InvoiceService implements Invoicer
             $this->cancel->handle($invoice, note: $reason, strict: false);
         } catch (BillingException $exception) {
             // The invoice stays payable. Staff see it on their list, and the caller is told so it keeps its own record open.
-            app(NoteRefusals::class)->record($invoice, InvoiceFiscalReview::CANCEL_REFUSED, $exception->getMessage());
+            $refusals = app(NoteRefusals::class);
+            $refusals->record($invoice, InvoiceFiscalReview::CANCEL_REFUSED, $exception->getMessage());
+
+            // A caller that lets the refusal roll its own transaction back (an order cancel) must not lose the record with it.
+            DB::afterRollBack(fn () => $refusals->record($invoice, InvoiceFiscalReview::CANCEL_REFUSED, $exception->getMessage()));
 
             throw new InvoiceNotCancellable($exception->getMessage(), previous: $exception);
         }

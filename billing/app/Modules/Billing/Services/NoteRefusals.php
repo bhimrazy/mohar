@@ -23,7 +23,13 @@ class NoteRefusals
     public function record(Invoice $invoice, string $reason, string $message): void
     {
         $now = now();
-        DB::table('invoice_fiscal_reviews')->insertOrIgnore(['invoice_id' => $invoice->id, 'reason' => $reason, 'subject' => 'invoice', 'detail' => mb_substr($message, 0, 500), 'created_at' => $now, 'updated_at' => $now]);
+        $inserted = DB::table('invoice_fiscal_reviews')->insertOrIgnore(['invoice_id' => $invoice->id, 'reason' => $reason, 'subject' => 'invoice', 'detail' => mb_substr($message, 0, 500), 'created_at' => $now, 'updated_at' => $now]);
+
+        // A refusal retried every run (a late fee) is told once: the list row is unique per invoice and reason.
+        if ($inserted === 0) {
+            return;
+        }
+
         $this->activity->log($reason === InvoiceFiscalReview::CANCEL_REFUSED ? 'Invoice not cancelled: its credit note was refused' : 'Late fee not added: its debit note was refused', $invoice, $invoice->client_id, ['reason' => $message], 'billing.note_refused');
     }
 

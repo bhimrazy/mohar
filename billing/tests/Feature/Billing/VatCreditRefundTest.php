@@ -173,3 +173,13 @@ test('staff with the permission and a recent password refund credit from the pag
 
     expect(($this->balance)())->toBe(30_000);
 });
+
+test('the credit page offers the refundable payments by gateway name, date and invoice, not by key and provider id', function () {
+    actingAsStaff(['billing.credit.manage', 'billing.credit.refund', 'billing.refunds.manage']);
+
+    $this->get(route('admin.billing.credit.index', ['client' => $this->client->id]))->assertInertia(fn ($page) => $page
+        ->has('refundable_payments', 1)
+        ->where('refundable_payments.0.id', $this->payment->id)
+        ->where('refundable_payments.0.label', fn (string $label): bool => ! str_contains($label, 'ch_cr') && ! str_contains($label, 'sandbox_card') && str_contains($label, '2026-10-20'))
+        ->where('can.refund_gateway', true));
+});

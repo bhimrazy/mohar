@@ -72,7 +72,6 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
 
     Route::get('tax-rules', [TaxRuleController::class, 'index'])->name('tax-rules.index');
     Route::resource('tax-rules', TaxRuleController::class)->only(['store', 'update', 'destroy'])->parameters(['tax-rules' => 'taxRule'])->middleware('password.recent');
-    // Behind the feature flag until VAT PR 4 (ADR 0024); the gate runs before step-up, authorization and validation.
     Route::get('vat-mode', [NepalVatController::class, 'edit'])->name('vat-mode.edit');
     Route::put('vat-mode', [NepalVatController::class, 'update'])->middleware('password.recent')->name('vat-mode.update');
     Route::get('vat-register', [VatRegisterController::class, 'index'])->middleware('throttle:billing-registers')->name('vat-register.index');

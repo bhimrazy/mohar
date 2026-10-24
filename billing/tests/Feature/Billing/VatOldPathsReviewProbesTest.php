@@ -289,3 +289,17 @@ test('refusals are marked seen when the invoice is paid or swept, and the Needs 
     expect(app(NoteRefusals::class)->sweep())->toBe(1)->and(InvoiceFiscalReview::query()->where('invoice_id', $swept->id)->value('seen_at'))->not->toBeNull()
         ->and(NoteRefusals::LIST_LIMIT)->toBe(500);
 });
+
+test('a refused cancel inside a caller transaction that rolls back keeps its staff record, and a retried refusal is told once', function () {
+    $invoice = oldPathProbeInvoice();
+    DB::table('invoice_items')->where('invoice_id', $invoice->id)->update(['tax_amount' => DB::raw('tax_amount + 1')]);
+
+    expect(fn () => DB::transaction(fn () => app(Invoicer::class)->cancel($invoice->id, 'Cancelled by Orders')))->toThrow(InvoiceNotCancellable::class)
+        ->and(app(NoteRefusals::class)->open())->toBe(1)
+        ->and(ActivityLog::query()->where('event', 'billing.note_refused')->count())->toBe(1);
+
+    app(NoteRefusals::class)->record($invoice, InvoiceFiscalReview::LATE_FEE_REFUSED, 'again');
+    app(NoteRefusals::class)->record($invoice, InvoiceFiscalReview::LATE_FEE_REFUSED, 'again');
+
+    expect(ActivityLog::query()->where('event', 'billing.note_refused')->count())->toBe(2);
+});

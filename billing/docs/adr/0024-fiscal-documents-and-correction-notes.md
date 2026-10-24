@@ -572,7 +572,7 @@ PR 4 is built in steps. This one is the §5 state machine for **staff refunds** 
 ## Amendment (#464) — 2026-10-24, refund account credit and lifting the flag (PR 4c)
 
 - **Built as §5a defines it.** `RefundAccountCredit` has a recorded variant (one transaction, the client is the only lock) and a
-  gateway variant (locks payment, then client, then the refund row). Both post `credit_refunded` −amount tied to the refund row
+  gateway variant (reserving locks payment, then client; settle and release lock the refund row first, then payment and client, as the invoice path does). Both post `credit_refunded` −amount tied to the refund row
   (`credit_ledger.transaction_id`) and write a refund row with `purpose = credit_refund` and no invoice; permissions
   `billing.credit.refund` (both) and `billing.refunds.manage` (gateway), step-up on the route. The recorded variant stores the
   chosen method as the row's `gateway` and the reference as `gateway_txn_id`, so a reference used twice with one method is refused.
@@ -587,3 +587,10 @@ PR 4 is built in steps. This one is the §5 state machine for **staff refunds** 
   invoice (a guard against computing VAT without flags) and the enable-time ones.
 - **`features.billing.nepal_vat_mode` is lifted.** The menu item and the two routes are always on; the flag mechanism
   (`config/features.php`, the `feature:` middleware) stays, empty.
+- **Payouts count against the credit a payment placed.** A `credit_refunded` row is tied to its refund row, not the payment, so
+  `creditHeld` and the callback's credit take-back subtract the net payouts of the payment's credit refunds
+  (`Transaction::creditPaidOut`), or a later refund would take the same credit back again.
+- **A late success that cannot be booked** (a different amount, or no refund id) on a failed credit refund puts the row on
+  Disputes to review (`review_amount`), and the callback's log line says so.
+- **Refused cancels and late fees.** A cancel refused inside a caller's transaction that rolls back (an order cancel or delete)
+  keeps its staff record (written again after the rollback); a late fee refused every day is logged once.

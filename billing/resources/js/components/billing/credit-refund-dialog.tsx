@@ -32,7 +32,7 @@ export function CreditRefundDialog({
         <FormDialog
             trigger={<Button variant="outline">Refund credit</Button>}
             title="Refund account credit"
-            description="Pays the credit back to the client. It is not a sale: no credit note is issued and no invoice changes."
+            description={`Pays the credit back to the client. It is not a sale: no credit note is issued and no invoice changes.${canGateway && payments.length === 0 ? ' No payment of this client can be refunded through its gateway.' : ''}`}
             submitLabel="Refund credit"
             action={refund()}
             moneyFields={['amount']}
@@ -68,7 +68,7 @@ export function CreditRefundDialog({
                                     value: 'recorded',
                                     label: 'Paid outside, record it',
                                 },
-                                ...(canGateway
+                                ...(canGateway && payments.length > 0
                                     ? [
                                           {
                                               value: 'gateway',

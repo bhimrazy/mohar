@@ -14,6 +14,7 @@ use App\Modules\Billing\Http\Requests\Admin\CreditRefundRequest;
 use App\Modules\Billing\Http\Resources\CreditEntryResource;
 use App\Modules\Billing\Models\ClientFlag;
 use App\Modules\Billing\Models\CreditLedgerEntry;
+use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Core\Models\Client;
@@ -21,6 +22,7 @@ use App\Modules\Core\Support\ActivityLogger;
 use App\Support\Money;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -50,8 +52,8 @@ class CreditController extends Controller
                 'refund' => $request->user()?->hasPermission('billing.credit.refund') ?? false,
                 'refund_gateway' => ($request->user()?->hasPermission('billing.credit.refund') ?? false) && $request->user()->hasPermission('billing.refunds.manage'),
             ],
-            'refund_methods' => array_values(array_map(fn ($driver): array => ['value' => $driver->key(), 'label' => $gateways->gateway($driver->key())->display_name], $gateways->drivers())),
-            'refundable_payments' => $client === null ? [] : $this->refundablePayments($client, $gateways),
+            'refund_methods' => $this->gatewayNames($gateways)->map(fn (string $name, string $key): array => ['value' => $key, 'label' => $name])->values()->all(),
+            'refundable_payments' => $client === null ? [] : $this->refundablePayments($client, $gateways, $this->gatewayNames($gateways)),
             'owing' => $owing,
             'client' => $client === null ? null : [
                 'id' => $client->id,
@@ -99,19 +101,31 @@ class CreditController extends Controller
     }
 
     /**
+     * Display name of each registered gateway by key, from one query for the saved ones.
+     *
+     * @return Collection<string, string>
+     */
+    private function gatewayNames(GatewayManager $gateways): Collection
+    {
+        $saved = Gateway::query()->whereIn('key', array_keys($gateways->drivers()))->pluck('display_name', 'key');
+
+        return collect($gateways->drivers())->map(fn (GatewayDriver $driver, string $key): string => (string) ($saved[$key] ?? $driver->name()));
+    }
+
+    /**
      * Payments of this client the gateway can still refund, newest first, for the gateway variant of Refund credit.
      *
      * @return list<array{id: int, label: string, gateway: string, refundable: int, currency: string}>
      */
-    private function refundablePayments(Client $client, GatewayManager $gateways): array
+    private function refundablePayments(Client $client, GatewayManager $gateways, Collection $names): array
     {
         return array_values(Transaction::query()->where('client_id', $client->id)->where('type', TransactionType::Payment)->where('status', TransactionStatus::Succeeded)
             ->where('refundable_remaining', '>', 0)->where('currency', $client->currency)->whereNotNull('gateway_txn_id')
-            ->latest('id')->limit(50)->get(['id', 'gateway', 'gateway_txn_id', 'refundable_remaining', 'currency', 'occurred_at'])
+            ->with('invoice:id,number,proforma_number')->latest('id')->limit(50)->get(['id', 'invoice_id', 'gateway', 'gateway_txn_id', 'refundable_remaining', 'currency', 'occurred_at'])
             ->filter(fn (Transaction $payment): bool => isset($gateways->drivers()[$payment->gateway]) && $gateways->driver($payment->gateway)->supports(GatewayDriver::REFUND))
             ->map(fn (Transaction $payment): array => [
                 'id' => $payment->id,
-                'label' => $payment->gateway.' · '.$payment->gateway_txn_id,
+                'label' => implode(' · ', array_filter([$names->get($payment->gateway, $payment->gateway), $payment->occurred_at->format('Y-m-d'), $payment->invoice?->displayNumber()])),
                 'gateway' => $payment->gateway,
                 'refundable' => $payment->refundable_remaining,
                 'currency' => $payment->currency,

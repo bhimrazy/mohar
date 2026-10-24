@@ -23,11 +23,13 @@ use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Models\TaxRule;
+use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Enums\ClientOrigin;
 use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Models\Client;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
 
 /**
@@ -90,6 +92,7 @@ class BillingSeeder extends DemoSeeder
             // Nepali invoices show the Bikram Sambat date beside the AD date.
             'billing.show_bs_dates' => true,
         ]);
+        $this->nepalVatMode($today);
         BillingSequence::query()->firstOrCreate(['sequence' => 'invoice', 'period' => ''], ['next_number' => 1041]);
         BillingSequence::query()->firstOrCreate(['sequence' => 'quote', 'period' => ''], ['next_number' => 204]);
 
@@ -184,6 +187,9 @@ class BillingSeeder extends DemoSeeder
 
         $this->marketInvoices($issue, $pay, $today);
 
+        // Anything numbered before the mode took effect (none, with the start below) would be classified here.
+        Artisan::call('billing:fiscal-vat-split');
+
         if ($first = $others->first()) {
             $drafts->handle(['client_id' => $first->id, 'notes' => 'Thank you for your business.', 'items' => [
                 ['description' => 'Custom development (hours)', 'quantity' => 6, 'unit_amount' => 450_000, 'taxable' => true],
@@ -268,6 +274,25 @@ class BillingSeeder extends DemoSeeder
                 $pay->handle($invoice, new PaymentData($invoice->balance, 'bank_transfer', 'NEFT-'.(310000 + $index)));
             }
         }
+    }
+
+    /**
+     * The demo host files Nepal VAT: the mode is on from before the first seeded invoice (the history starts 730 days back), so every
+     * seeded document is classified when it is numbered and the VAT register has rows. Only when no mode was ever stored.
+     */
+    private function nepalVatMode(CarbonImmutable $today): void
+    {
+        $vat = TaxRule::query()->where('country', 'NP')->where('name', 'VAT')->value('id');
+
+        if ($vat === null) {
+            return;
+        }
+
+        $this->fillEmptySettings([
+            NepalVatMode::ENABLED => true,
+            NepalVatMode::ENABLED_FROM => $today->subDays(740)->toDateString(),
+            NepalVatMode::VAT_RULES => [(int) $vat],
+        ]);
     }
 
     private function taxRules(): void
