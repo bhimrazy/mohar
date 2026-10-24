@@ -91,8 +91,10 @@ class MessageWriter
         if ($author->type === AuthorType::Staff) {
             $ticket->last_staff_reply_at = $now;
             $ticket->first_staff_reply_at ??= $now;
+            $ticket->first_unanswered_at = null;
         } elseif ($author->type->isCustomer()) {
             $ticket->last_client_reply_at = $now;
+            $ticket->first_unanswered_at ??= $now;
         }
     }
 

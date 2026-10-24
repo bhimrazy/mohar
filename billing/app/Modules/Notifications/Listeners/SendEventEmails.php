@@ -37,6 +37,7 @@ use App\Events\Services\ServiceTerminated;
 use App\Events\Services\ServiceUnsuspended;
 use App\Events\Services\ServiceUpgraded;
 use App\Events\Support\InboundEmailBounced;
+use App\Events\Support\TicketAccessLinkReplaced;
 use App\Events\Support\TicketAssigned;
 use App\Events\Support\TicketClosed;
 use App\Events\Support\TicketDepartmentChanged;
@@ -56,6 +57,7 @@ use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Services\MergeContext;
 use App\Modules\Notifications\Services\NotificationMailer;
 use App\Modules\Notifications\Services\RecipientResolver;
+use App\Modules\Notifications\Services\TicketStaffRecipients;
 use App\Modules\Notifications\Support\EventKey;
 use App\Modules\Notifications\Support\MailDates;
 use App\Modules\Notifications\Webhooks\WebhookUrlGuard;
@@ -116,6 +118,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         TicketNoteAdded::class => 'ticketNoteAdded',
         TicketDepartmentChanged::class => 'ticketDepartmentChanged',
         TicketClosed::class => 'ticketClosed',
+        TicketAccessLinkReplaced::class => 'ticketLinkReplaced',
         DocumentDecided::class => 'kycDocumentDecided',
         InboundEmailBounced::class => 'inboundBounced',
         AffiliateActivated::class => 'affiliateActivated',
@@ -167,6 +170,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
                 $event instanceof TicketNoteAdded => $this->ticketNoteAdded($event),
                 $event instanceof TicketDepartmentChanged => $this->ticketDepartmentChanged($event),
                 $event instanceof TicketClosed => $this->ticketClosed($event),
+                $event instanceof TicketAccessLinkReplaced => $this->ticketLinkReplaced($event),
                 $event instanceof DocumentDecided => $this->kycDocumentDecided($event),
                 $event instanceof InboundEmailBounced => $this->inboundBounced($event),
                 $event instanceof AffiliateActivated => $this->affiliateActivated($event),
@@ -465,7 +469,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
                 $this->send('ticket.autoresponse', $this->ticketRecipients($context, $event->clientId), $context, $event, $event->clientId, 'ticket', $event->ticketId);
             }
 
-            $this->staffMail('staff.ticket_new', StaffCategory::Support, $context, $event, $event->clientId, 'ticket', $event->ticketId, 'support.tickets.view');
+            $this->send('staff.ticket_new', $this->ticketStaff()->forNewTicket($event->ticketId), $context, $event, $event->clientId, 'ticket', $event->ticketId);
         });
     }
 
@@ -484,7 +488,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
                 return;
             }
 
-            $this->staffMail('staff.ticket_client_reply', StaffCategory::Support, $context, $event, $event->clientId, 'ticket', $event->ticketId, 'support.tickets.view');
+            $this->send('staff.ticket_client_reply', $this->ticketStaff()->forCustomerReply($event->ticketId), $context, $event, $event->clientId, 'ticket', $event->ticketId);
         });
     }
 
@@ -508,7 +512,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
 
     public function ticketDepartmentChanged(TicketDepartmentChanged $event): void
     {
-        $this->staffMail('staff.ticket_department_changed', StaffCategory::Support, $this->context->ticket($event->ticketId), $event, null, 'ticket', $event->ticketId, 'support.tickets.view');
+        $this->safely(fn () => $this->send('staff.ticket_department_changed', $this->ticketStaff()->forDepartmentMove($event->ticketId), $this->context->ticket($event->ticketId), $event, null, 'ticket', $event->ticketId));
     }
 
     /**
@@ -537,6 +541,19 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
             $client = $event->clientId !== null ? Client::query()->find($event->clientId) : null;
 
             $this->send('ticket.auto_closed', $this->recipients->addresses([$requester], $client, (string) data_get($context, 'ticket.requester_name', '')), $context, $event, $event->clientId, 'ticket', $event->ticketId);
+        });
+    }
+
+    /**
+     * The new link goes to the ticket's requester address only (no CC, no account owner): it opens the ticket.
+     */
+    public function ticketLinkReplaced(TicketAccessLinkReplaced $event): void
+    {
+        $this->safely(function () use ($event): void {
+            $context = $this->context->ticket($event->ticketId);
+            $requester = (string) data_get($context, 'ticket.requester_email', '');
+
+            $this->send('ticket.link_replaced', $this->recipients->addresses([$requester], null, (string) data_get($context, 'ticket.requester_name', '')), $context, $event, $event->clientId, 'ticket', $event->ticketId);
         });
     }
 
@@ -627,6 +644,11 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
             $this->recipients->staff($category ?? StaffCategory::System, $permission, $onlyUserIds),
             $context, $event, $clientId, $relatedType, $relatedId,
         ));
+    }
+
+    private function ticketStaff(): TicketStaffRecipients
+    {
+        return app(TicketStaffRecipients::class);
     }
 
     private function domainMail(string $templateKey, int $domainId, int $clientId, object $event): void
