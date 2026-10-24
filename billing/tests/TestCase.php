@@ -202,6 +202,25 @@ abstract class TestCase extends BaseTestCase
         }
 
         parent::tearDown();
+        $this->assertTrackedTestingPlaceholderKept();
+    }
+
+    /**
+     * storage/framework/testing/.gitignore is tracked (#54). A test that wipes the directory instead of its own
+     * subdirectory deletes it; put it back and fail that test, so a clean checkout stays clean.
+     */
+    private function assertTrackedTestingPlaceholderKept(): void
+    {
+        // Not storage_path(): the application is gone after parent::tearDown().
+        $file = dirname(__DIR__).'/storage/framework/testing/.gitignore';
+
+        if (file_exists($file)) {
+            return;
+        }
+
+        @mkdir(dirname($file), 0775, true);
+        file_put_contents($file, "*\n!.gitignore\n");
+        $this->fail('This test deleted the tracked storage/framework/testing/.gitignore; clean only its own subdirectory.');
     }
 
     /**
