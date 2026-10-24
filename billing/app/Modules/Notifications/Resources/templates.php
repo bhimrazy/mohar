@@ -717,6 +717,20 @@ The {{ failure.action }} action failed for {{ client.full_name }}'s {{ service.p
 
 [Open service]({{ service.admin_url }})
 MD),
+    $staff('staff.provisioning_unknown', 'Provisioning outcome unknown', 'Checking the outcome: {{ failure.action_label }} for {{ service.product_name }}', <<<'MD'
+# Outcome unknown, being checked
+
+The server gave no clear answer while {{ failure.action_label }} for {{ client.full_name }}'s {{ service.product_name }}. It may have completed, so it is not retried.
+
+| Service | {{ service.product_name }} |
+|---|---|
+| Domain | {{ service.domain | default('—') }} |
+| Details | {{ failure.error }} |
+
+Where the server can be checked, it is checked automatically for the next hour, and a confirmed result is applied without another email. Until then the entry stays open in the Module log, where you can check it yourself.
+
+{% if failure.log_url %}[Open the Module log]({{ failure.log_url }}){% else %}[Open service]({{ service.admin_url }}){% endif %}
+MD),
     $staff('staff.registrar_action_failed', 'Registrar action failed', 'Registrar action failed: {{ domain.domain }}', <<<'MD'
 # Registrar action failed
 
@@ -986,6 +1000,7 @@ $descriptions = [
     'staff.ticket_mention' => 'Tells a staff member they were mentioned in a ticket note.',
     'staff.ticket_department_changed' => 'Tells staff a ticket was moved to their department.',
     'staff.provisioning_failed' => 'Tells staff that setting up a service failed.',
+    'staff.provisioning_unknown' => 'Tells staff a provisioning action got no clear answer and is being checked on the server.',
     'staff.registrar_action_failed' => 'Tells staff a registrar action failed.',
     'staff.domain_sync_report' => 'Report of domain changes found during a registrar sync.',
     'staff.free_domain_renewal_blocked' => 'Tells staff a free domain renewal was blocked and needs a decision.',

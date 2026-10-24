@@ -21,6 +21,7 @@ import { StatCard } from '@/components/app/stat-card';
 import { StatusBadge } from '@/components/app/status-badge';
 import { ChangeOptionsPicker } from '@/components/services/change-options';
 import { FormDialog } from '@/components/services/form-dialog';
+import { PasswordReveal } from '@/components/services/password-reveal';
 import { UsageMeter } from '@/components/services/usage-meter';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -56,7 +57,9 @@ type Props = {
     creditOnDowngrade: boolean;
     /** Nameservers the service's domain should use: the server's, else the default setting. */
     nameservers: string[];
-    can: { cancel: boolean; changePassword: boolean };
+    can: { cancel: boolean; changePassword: boolean; revealPassword: boolean };
+    /** Set when staff are signed in as the client: Show password is disabled with this reason. */
+    revealBlockedReason: string | null;
 };
 
 export default function ClientServiceShow({
@@ -69,6 +72,7 @@ export default function ClientServiceShow({
     creditOnDowngrade,
     nameservers,
     can,
+    revealBlockedReason,
 }: Props) {
     const [cancelOpen, setCancelOpen] = useState(false);
     const [copiedNameservers, copy] = useClipboard();
@@ -180,6 +184,26 @@ export default function ClientServiceShow({
                                             </span>
                                         ),
                                     },
+                                    // Panels that sign in only by SSO store no password: no row then.
+                                    ...(can.revealPassword
+                                        ? [
+                                              {
+                                                  label: 'Password',
+                                                  value: (
+                                                      <PasswordReveal
+                                                          disabledReason={
+                                                              revealBlockedReason
+                                                          }
+                                                          url={
+                                                              ServiceActionController.revealPassword(
+                                                                  service.id,
+                                                              ).url
+                                                          }
+                                                      />
+                                                  ),
+                                              },
+                                          ]
+                                        : []),
                                     {
                                         label: 'Dedicated IP',
                                         value: service.dedicated_ip,
