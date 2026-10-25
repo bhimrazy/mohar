@@ -697,12 +697,10 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
         }
 
         $fromAdmin = ($refund['metadata']['mohar_origin'] ?? null) === self::REFUND_ORIGIN;
+        // A refund can fail after it succeeded (the card or bank returns it): Billing puts one it booked on staff review.
+        $failed = in_array($status, ['failed', 'canceled'], true);
 
-        if ($fromAdmin && $status === 'failed') {
-            return $context->ignored('refund from the admin FAILED at Stripe, check it');
-        }
-
-        if ($status !== 'succeeded') {
+        if ($status !== 'succeeded' && ! $failed) {
             return $context->ignored('refund '.$status);
         }
 
@@ -714,16 +712,16 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
         }
 
         return new CallbackEvent(
-            type: CallbackEvent::REFUND,
+            type: $failed ? CallbackEvent::REFUND_FAILED : CallbackEvent::REFUND,
             invoiceId: null,
             txnId: $refund['id'],
             amount: $amount,
             currency: strtoupper($currency),
             parentTxnId: $intent,
-            reason: is_string($refund['reason'] ?? null) ? $refund['reason'] : null,
+            reason: is_string($refund[$failed ? 'failure_reason' : 'reason'] ?? null) ? $refund[$failed ? 'failure_reason' : 'reason'] : null,
             // Billing books an admin refund only when its own refund row didn't record it (e.g. the answer timed out).
             reference: $fromAdmin && is_string($refund['metadata']['mohar_refund'] ?? null) ? $refund['metadata']['mohar_refund'] : null,
-            raw: [...$context->raw(), 'refund' => $refund['id'], 'payment_intent' => $intent, 'amount' => $refund['amount'], 'currency' => $currency, 'from_admin' => $fromAdmin],
+            raw: [...$context->raw(), 'refund' => $refund['id'], 'payment_intent' => $intent, 'amount' => $refund['amount'], 'currency' => $currency, 'status' => $status, 'from_admin' => $fromAdmin],
             sentAt: $context->sentAt,
         );
     }

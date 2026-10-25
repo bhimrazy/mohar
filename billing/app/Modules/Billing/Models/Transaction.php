@@ -165,6 +165,9 @@ class Transaction extends Model
     /** Key under REFUND_STATE for the provider refund id a released refund row held, kept off `gateway_txn_id`. */
     public const RELEASED_REFUND_ID = 'released_provider_refund_id';
 
+    /** Key under REFUND_STATE: when the provider reported this booked refund as failed (it went to staff review once). */
+    public const PROVIDER_FAILED_AT = 'provider_failed_at';
+
     /** A pending refund older than this has outlived any provider call, so staff may check or settle it. */
     public const REFUND_STALE_MINUTES = 10;
 

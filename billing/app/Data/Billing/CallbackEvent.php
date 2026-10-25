@@ -15,6 +15,13 @@ final readonly class CallbackEvent
 
     public const REFUND = 'refund';
 
+    /**
+     * The provider reports a refund as failed or cancelled: the money did not leave. $txnId is the provider refund id;
+     * $reference, $amount, $currency and $parentTxnId as for REFUND. Billing never books or reverses money from it: a
+     * refund it already booked goes to staff review, anything else is acknowledged unchanged.
+     */
+    public const REFUND_FAILED = 'refund_failed';
+
     public const CHARGEBACK = 'chargeback';
 
     /**

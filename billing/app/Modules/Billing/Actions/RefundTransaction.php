@@ -314,6 +314,34 @@ class RefundTransaction
         });
     }
 
+    /**
+     * The provider reports a refund we booked as made as failed after all (#498): the money may never have left. The
+     * books are not reversed; the row goes on "Disputes to review" for at least what was booked, or `$reported` (the
+     * provider's amount in document currency) when larger. Once per row, under its lock: the mark stays after staff
+     * mark it reviewed, so a replay does not reopen it. Returns false when there was nothing to do.
+     */
+    public function failedAfterBooking(Transaction $refund, int $reported): bool
+    {
+        return DB::transaction(function () use ($refund, $reported): bool {
+            $locked = Transaction::query()->lockForUpdate()->find($refund->id);
+
+            if ($locked === null || $locked->status !== TransactionStatus::Succeeded || isset($locked->raw[Transaction::REFUND_STATE][Transaction::PROVIDER_FAILED_AT])) {
+                return false;
+            }
+
+            $raw = $locked->raw ?? [];
+            $raw[Transaction::REFUND_STATE][Transaction::PROVIDER_FAILED_AT] = now()->toIso8601String();
+            $locked->forceFill([
+                'review_amount' => max($locked->review_amount ?? 0, $locked->amount_out, $reported),
+                'reviewed_at' => null,
+                'description' => mb_substr((string) __('Provider reports conflicting outcome: failed after it was booked'), 0, 255),
+                'raw' => $raw,
+            ])->save();
+
+            return true;
+        });
+    }
+
     /** Called with the pending row locked. */
     private function releaseLocked(Transaction $refund): bool
     {

@@ -572,3 +572,41 @@ test('pending refunds past ten minutes are on the to-do list and the waiting fil
     billingStaff();
     $this->get(route('admin.billing.transactions.index', ['waiting' => 1]))->assertInertia(fn ($page) => $page->has('transactions.data', 2));
 });
+
+test('the backfill moves the refund id of a row released before #497 into raw, so a later paid report is booked once for review', function () {
+    useLookupDriver();
+    $payment = refundablePayment();
+    ScriptedRefundDriver::$answer = ChargeResult::ERROR;
+    ScriptedRefundDriver::$answerId = 're_released_old';
+    $pending = app(RefundTransaction::class)->handle($payment, 4_000, RefundMode::Gateway);
+    ScriptedLookupDriver::$lookup = new ChargeResult(ChargeResult::DECLINED, 're_released_old', declineReason: 'failed at the provider');
+    app(RefundTransaction::class)->check($pending);
+
+    // The shape a release left before #497: the id still on gateway_txn_id.
+    $pending = $pending->fresh();
+    $state = $pending->raw[Transaction::REFUND_STATE];
+    unset($state[Transaction::RELEASED_REFUND_ID]);
+    $pending->forceFill(['gateway_txn_id' => 're_released_old', 'raw' => [Transaction::REFUND_STATE => $state]])->save();
+    $callback = sandboxRefundCallback($payment, $pending, 're_released_old');
+    sandboxWebhook($callback)->assertOk()->assertJson(['result' => 'duplicate']);
+
+    // Left alone: a booked refund, and a failed row with no raw at all is still given the key.
+    $booked = Transaction::query()->create(['client_id' => $payment->client_id, 'invoice_id' => $payment->invoice_id, 'gateway' => 'sandbox_card', 'gateway_txn_id' => 're_booked',
+        'type' => TransactionType::Refund, 'status' => TransactionStatus::Succeeded, 'amount_out' => 100, 'currency' => $payment->currency, 'parent_transaction_id' => $payment->id, 'occurred_at' => now()]);
+    $bare = Transaction::query()->create(['client_id' => $payment->client_id, 'invoice_id' => $payment->invoice_id, 'gateway' => 'sandbox_card', 'gateway_txn_id' => 're_bare',
+        'type' => TransactionType::Refund, 'status' => TransactionStatus::Failed, 'amount_out' => 100, 'currency' => $payment->currency, 'parent_transaction_id' => $payment->id, 'occurred_at' => now()]);
+
+    $migration = require base_path('app/Modules/Billing/Database/Migrations/2026_11_03_300800_move_released_refund_ids_into_raw.php');
+    $migration->up();
+    $migration->up();
+
+    expect($pending->fresh())->gateway_txn_id->toBeNull()->raw->toBe([Transaction::REFUND_STATE => [...$state, Transaction::RELEASED_REFUND_ID => 're_released_old']])
+        ->and($bare->fresh())->gateway_txn_id->toBeNull()->raw->toBe([Transaction::REFUND_STATE => [Transaction::RELEASED_REFUND_ID => 're_bare']])
+        ->and($booked->fresh())->gateway_txn_id->toBe('re_booked')->raw->toBeNull();
+
+    sandboxWebhook($callback)->assertOk()->assertJson(['result' => 'refund recorded; part of it needs staff review']);
+    sandboxWebhook($callback)->assertOk()->assertJson(['result' => 'duplicate']);
+
+    expect(Transaction::query()->where('gateway_txn_id', 're_released_old')->sole())->status->toBe(TransactionStatus::Succeeded)->amount_out->toBe(4_000)->review_amount->toBe(4_000)
+        ->and($payment->invoice->fresh()->amount_paid)->toBe(6_000);
+});

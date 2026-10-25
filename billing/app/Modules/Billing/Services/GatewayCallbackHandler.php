@@ -135,6 +135,7 @@ class GatewayCallbackHandler
                 CallbackEvent::PAYMENT_SUCCEEDED => $this->payment($gatewayKey, $event),
                 CallbackEvent::PAYMENT_FAILED => $this->failure($gatewayKey, $event),
                 CallbackEvent::REFUND => $this->refunded($gatewayKey, $event),
+                CallbackEvent::REFUND_FAILED => $this->refundFailed($gatewayKey, $event),
                 CallbackEvent::CHARGEBACK => $this->reversed($gatewayKey, $event),
                 CallbackEvent::DISPUTE_WON => $this->won($gatewayKey, $event),
                 CallbackEvent::DISPUTE_INQUIRY => $this->inquiry($gatewayKey, $event),
@@ -418,6 +419,56 @@ class GatewayCallbackHandler
             // Another delivery of the same refund booked it first (refund row or credit line).
             return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $parents[0]->invoice_id);
         }
+    }
+
+    /**
+     * The provider reports a refund as failed (#498). Nothing is booked or reversed here. A refund we booked as made
+     * goes on "Disputes to review", once; a pending one is left to Check refund, which asks the provider and releases
+     * it; one we never recorded, or already released, changes nothing. The row is matched by the provider refund id,
+     * or by our reference when it holds no other id, and must belong to the payment the event names.
+     *
+     * @return Outcome
+     */
+    private function refundFailed(string $gatewayKey, CallbackEvent $event): array
+    {
+        if ($event->txnId === '') {
+            return $this->outcome($gatewayKey, 200, 'failed refund without an id; nothing changed', $event->raw);
+        }
+
+        $row = $this->refund->existing($gatewayKey, $event->txnId)
+            ?? ($event->reference !== null && ctype_digit($event->reference)
+                ? Transaction::query()->whereKey((int) $event->reference)->where('gateway', $gatewayKey)->where('type', TransactionType::Refund)
+                    ->where(fn ($own) => $own->whereNull('gateway_txn_id')->orWhere('gateway_txn_id', $event->txnId))->first()
+                : null);
+
+        if ($row === null) {
+            return $this->outcome($gatewayKey, 200, 'failed refund not recorded here; nothing changed', $event->raw);
+        }
+
+        $parent = Transaction::query()->find($row->parent_transaction_id);
+
+        if ($parent === null || ($event->parentTxnId !== null && $event->parentTxnId !== $this->amounts->charge($parent)['txnId'])) {
+            return $this->outcome($gatewayKey, 200, 'failed refund names another payment; nothing changed', $event->raw, $row->invoice_id);
+        }
+
+        if ($row->status === TransactionStatus::Pending) {
+            return $this->outcome($gatewayKey, 200, 'refund failed at the provider; Check refund releases it', $event->raw, $row->invoice_id);
+        }
+
+        if ($row->status !== TransactionStatus::Succeeded) {
+            return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $row->invoice_id);
+        }
+
+        try {
+            $reported = $this->amounts->toDocument($parent, $event->amount, $event->currency);
+        } catch (BillingException) {
+            // A currency we can't convert: the booked amount is still reviewed.
+            $reported = 0;
+        }
+
+        return $this->refund->failedAfterBooking($row, $reported)
+            ? $this->outcome($gatewayKey, 200, 'refund failed at the provider after it was booked; put on Disputes to review', $event->raw, $row->invoice_id)
+            : $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $row->invoice_id);
     }
 
     /**
