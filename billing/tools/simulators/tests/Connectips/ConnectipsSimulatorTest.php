@@ -14,8 +14,9 @@ uses(TestCase::class);
 
 /**
  * The connectips simulator over its TLS port, as a driver would meet it: the signed form post, the hosted page and its
- * outcomes, validatetxn and gettxndetail with their credit codes, and the open assumptions as configuration. There is
- * no connectIPS driver yet; the tests sign and look up the way the driver will (payments-gateways-expansion.md §4).
+ * outcomes, validatetxn and gettxndetail with their credit codes, and the open assumptions as configuration. The tests
+ * sign and look up the way the driver does (payments-gateways-expansion.md §4); ConnectipsDriverAgainstSimulatorTest
+ * runs the driver itself.
  */
 beforeEach(function () {
     $this->scenario = Processes::start(Sim::class);

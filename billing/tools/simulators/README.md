@@ -225,7 +225,7 @@ Built from the public developer reference only (pages used: the API overview, ge
     - The request log keeps the `identifier`; the redactor masks `secret`, `password` and `accesskey`.
 - **Using it from the app.** The source URL is the scenario's API URL, with the identifier and secret above. Set `OUTBOUND_ALLOW_LOOPBACK=true` (development only).
 
-### `connectips`: connectIPS (NCHL) creditor gateway, for the future connectIPS driver
+### `connectips`: connectIPS (NCHL) creditor gateway, for the connectIPS driver
 
 Built from NCHL's public connectIPS merchant documents only; there is no NCHL UAT capture. connectIPS is an extension driver verified against this simulator (owner decision); no NCHL account is needed for now.
 
@@ -244,7 +244,8 @@ Built from NCHL's public connectIPS merchant documents only; there is no NCHL UA
 - **Outcomes.** Pay: SUCCESS. Decline: FAILED. Leave: INCOMPLETE. Cancel and abandon: NOT FOUND. All redirect to the failure URL except Pay.
 - **No refund.** connectIPS has no refund API; there is no route and `ConnectipsSimulator` declares none.
 - **Control actions.** `register_return_urls`, `pay` / `defer` / `decline` / `leave` / `cancel` {txn_id, app_id?, credit_status?, charge_liability?, debit_bank?} (return `redirect`), `settle` {txn_id, outcome | credit_status}, `configure`. Faults target `loginpage`, `payment_choice`, `validatetxn` and `gettxndetail`.
-- **Hosts.** NCHL's public docs give no host names. The driver reads them from the printed `INTEGRATION_ENDPOINTS` (`connectips.gateway`, `connectips.api`; names provisional until the driver lands), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`.
+- **Hosts.** NCHL's public docs give no host names. The driver (`App\Modules\PaymentsNepal\Drivers\ConnectipsDriver`) reads them from `payments_nepal.connectips` per mode, overridden by the printed `INTEGRATION_ENDPOINTS` (`connectips.gateway`, `connectips.api`), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`.
+- **Driver run.** `tests/Connectips/ConnectipsDriverAgainstSimulatorTest.php` runs the unchanged driver through the app's routes: the scenario's `CREDITOR.pfx` uploaded through the gateway form, Pay on the hosted page, decline, cancel and leave until they expire, a payment completed after the payer left, the credit codes and fee liability, every `echo_variant`, rupee amounts, a tampered form and a reused `TXNID`, `token_spacing: space` refusing our form, `commit_then_hang` on validatetxn, a failing gettxndetail, and a wrong app password.
 - **Assumptions to verify in UAT, not facts.** Each is a `configure` setting where the answer could differ:
     - `token_spacing` (`none` default, or `space`): the docs' template shows ", " and their example ",";
     - `validation_algorithm` (`sha256` default, or `sha1`): the docs do not name the validation token's algorithm;

@@ -3,14 +3,16 @@
 namespace App\Modules\PaymentsNepal;
 
 use App\Contracts\Billing\GatewayRegistry;
+use App\Modules\PaymentsNepal\Drivers\ConnectipsDriver;
 use App\Modules\PaymentsNepal\Drivers\EsewaDriver;
 use App\Modules\PaymentsNepal\Drivers\KhaltiDriver;
 use App\Support\Modules\ModuleServiceProvider;
 
 /**
- * Nepal payment gateway drivers (docs/product/payments-nepal.md): Khalti and eSewa as hosted, lookup-confirmed
- * drivers. The module only registers drivers with Billing's GatewayRegistry; it holds no tables, routes or
- * settings of its own (credentials live encrypted in Billing's gateway configuration).
+ * Nepal payment gateway drivers (docs/product/payments-nepal.md): Khalti, eSewa and connectIPS
+ * (payments-gateways-expansion.md §4) as hosted, lookup-confirmed drivers. The module only registers drivers with
+ * Billing's GatewayRegistry; it holds no tables, routes or settings of its own (credentials live encrypted in
+ * Billing's gateway configuration).
  */
 class PaymentsNepalServiceProvider extends ModuleServiceProvider
 {
@@ -25,6 +27,7 @@ class PaymentsNepalServiceProvider extends ModuleServiceProvider
         $this->callAfterResolving(GatewayRegistry::class, function (GatewayRegistry $registry): void {
             $registry->register($this->app->make(KhaltiDriver::class));
             $registry->register($this->app->make(EsewaDriver::class));
+            $registry->register($this->app->make(ConnectipsDriver::class));
         });
     }
 }

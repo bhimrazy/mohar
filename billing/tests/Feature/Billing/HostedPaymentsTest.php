@@ -13,6 +13,7 @@ use App\Data\Billing\RedirectInstruction;
 use App\Data\Billing\ReturnHint;
 use App\Events\Billing\InvoicePaid;
 use App\Models\User;
+use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Actions\StartHostedPayment;
 use App\Modules\Billing\BillingServiceProvider;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
@@ -36,6 +37,7 @@ use App\Modules\PaymentsRazorpay\Support\RazorpayException;
 use App\Modules\PaymentsStripe\Support\StripeException;
 use App\Support\Billing\AbstractGatewayDriver;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Integrations\Redactor;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterval;
@@ -130,15 +132,29 @@ function hostedSandbox(): void
 }
 
 /** The hosted drivers every contract test runs against: Billing's own, the test double and the extension modules'. */
-const HOSTED_DRIVERS = ['sandbox_card', 'fake_wallet', 'khalti', 'esewa', 'stripe', 'cybersource', 'razorpay'];
+const HOSTED_DRIVERS = ['sandbox_card', 'fake_wallet', 'khalti', 'esewa', 'stripe', 'cybersource', 'razorpay', 'connectips'];
+
+/** A throwaway RSA key (PEM) for the connectIPS gateway, made once: key generation is slow. */
+function contractConnectipsKey(): string
+{
+    static $pem = null;
+
+    if ($pem === null) {
+        openssl_pkey_export(openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]), $pem);
+    }
+
+    return $pem;
+}
 
 const CONTRACT_RAZORPAY_SECRET = 'ContractRazorpayKeySecret0000001';
 
 /**
- * Active Khalti, eSewa, Stripe, Cybersource and Razorpay gateways in sandbox mode with fake credentials.
+ * Active Khalti, eSewa, Stripe, Cybersource, Razorpay and connectIPS gateways in sandbox mode with fake credentials.
  */
 function hostedProviderGateways(): void
 {
+    Gateway::query()->create(['key' => 'connectips', 'display_name' => 'connectIPS', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'merchant_id' => '550',
+        'app_id' => 'MER-550-APP-1', 'app_name' => 'Contract Hosting', 'app_password' => 'contract-connectips-password', 'signing_key' => contractConnectipsKey()]]);
     Gateway::query()->create(['key' => 'khalti', 'display_name' => 'Khalti', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'secret_key' => 'test_secret_contract_khalti']]);
     Gateway::query()->create(['key' => 'esewa', 'display_name' => 'eSewa', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'product_code' => 'EPAYTEST', 'secret_key' => 'contract-esewa-secret']]);
     Gateway::query()->create(['key' => 'cybersource', 'display_name' => 'Cards', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'merchant_id' => 'contract_merchant',
@@ -242,6 +258,15 @@ function hostedDriverCase(string $key, array $lines): array
 
             return Http::response(cybersourceContractTxn($attempt->reference, $attempt->amount));
         },
+        'https://uat.connectips.com/connectipswebws/api/creditor/*' => function (ProviderRequest $request) use (&$paid) {
+            $echo = ['merchantId' => $request['merchantId'], 'appId' => $request['appId'], 'referenceId' => $request['referenceId'], 'token' => null];
+
+            return Http::response(! $paid ? [...$echo, 'txnAmt' => $request['txnAmt'], 'status' => 'ERROR', 'statusDesc' => 'TRANSACTION NOT FOUND']
+                : (str_ends_with($request->url(), 'gettxndetail')
+                    ? [...$echo, 'txnAmt' => number_format((int) $request['txnAmt'] / 100, 2, '.', ''), 'status' => 'SUCCESS', 'statusDesc' => 'TRANSACTION SUCCESSFUL', 'txnId' => '8100000001',
+                        'debitBankCode' => '0401', 'chargeAmt' => '4.00', 'chargeLiability' => 'MN', 'creditStatus' => '000']
+                    : [...$echo, 'txnAmt' => $request['txnAmt'], 'status' => 'SUCCESS', 'statusDesc' => 'TRANSACTION SUCCESSFUL']));
+        },
         STRIPE_API.'checkout/sessions' => fn (ProviderRequest $request) => Http::response(stripeCreatedSession($request['client_reference_id'], $invoice->id)),
         STRIPE_API.'checkout/sessions/'.STRIPE_SESSION.'*' => function () use (&$paid, $invoice) {
             $attempt = PaymentAttempt::query()->where('gateway', 'stripe')->where('provider_ref', STRIPE_SESSION)->sole();
@@ -282,6 +307,11 @@ function hostedDriverCase(string $key, array $lines): array
         'razorpay' => [$invoice, $markPaid,
             fn (PaymentAttempt $attempt) => $returnUrl(contractRazorpayReturn($attempt->reference)),
             fn () => $sent('https://api.razorpay.com/v1/payment_links')['amount'],
+        ],
+        // NCHL returns only TXNID, our provider reference.
+        'connectips' => [$invoice, $markPaid,
+            fn (PaymentAttempt $attempt) => $returnUrl(['TXNID' => $attempt->provider_ref]),
+            fn (PaymentAttempt $attempt, FormPost $form) => (int) $form->fields['TXNAMT'],
         ],
     };
 }
@@ -331,6 +361,7 @@ function forgedSuccessReturn(string $key, string $reference): array
         'stripe' => ['ref' => $reference, 'session_id' => 'cs_test_forged0000000001'],
         // A paid link return signed with a key that is not the merchant's.
         'razorpay' => contractRazorpayReturn($reference, 'attacker-key-secret'),
+        'connectips' => ['ref' => $reference, 'status' => 'SUCCESS'],
     };
 }
 
@@ -545,6 +576,28 @@ test('clients cannot start payments on other clients invoices and returns are bo
     expect($attempt->fresh()->lookup_count)->toBe(0);
 });
 
+// The posted form is kept on the attempt (SettlePaymentAttempt::PROVIDER_FORM), masked by key name only. A new driver
+// whose signature field has another name fails here instead of storing it.
+test('a posted provider form is kept on the attempt with every signature-like field masked', function (string $key) {
+    [$invoice] = hostedDriverCase($key, [150_000]);
+
+    [$attempt, $instruction] = app(StartHostedPayment::class)->handle($invoice, $key);
+
+    if (! $instruction instanceof FormPost) {
+        expect($attempt->fresh()->raw[SettlePaymentAttempt::PROVIDER_FORM] ?? null)->toBeNull();
+
+        return;
+    }
+
+    $stored = $attempt->fresh()->raw[SettlePaymentAttempt::PROVIDER_FORM];
+    $signed = array_filter($instruction->fields, fn (string $value, string $name): bool => preg_match('/signature|token|hash|checksum|hmac|digest|^dv$/i', $name) === 1, ARRAY_FILTER_USE_BOTH);
+
+    expect(array_keys($stored))->toBe(array_keys($instruction->fields));
+    foreach ($signed as $name => $value) {
+        expect($stored[$name])->toBe(Redactor::MASK)->and(json_encode($stored))->not->toContain($value);
+    }
+})->with(HOSTED_DRIVERS);
+
 test('a hosted payment on a part-paid invoice asks the provider for the remaining balance only', function (string $key) {
     [$invoice, $markPaid, $returnUrl, $requested] = hostedDriverCase($key, [150_000]);
     payInvoice($invoice, 40_000, 'bank-part-1');
@@ -662,6 +715,7 @@ test('every hosted driver refuses to start a payment in a currency it does not l
         'stripe' => [StripeException::class, 'Stripe can\'t take 5000 minor units of XTS exactly.'],
         'cybersource' => [CybersourceException::class, 'This Cybersource profile takes NPR, not XTS.'],
         'razorpay' => [RazorpayException::class, 'Razorpay only takes INR, not XTS.'],
+        'connectips' => [ProviderException::class, 'connectIPS only takes NPR, not XTS.'],
     };
 
     expect($driver)->toBeInstanceOf(HostedPaymentDriver::class)
@@ -678,6 +732,8 @@ test('every hosted driver honours the contract', function (string $key) {
         'https://dev.khalti.com/api/v2/epayment/lookup/' => Http::response(['pidx' => 'PIDX1', 'status' => 'Pending', 'total_amount' => 5_000, 'transaction_id' => null, 'fee' => 0, 'refunded' => false]),
         'https://rc.esewa.com.np/api/epay/transaction/status/*' => Http::response(['product_code' => 'EPAYTEST', 'transaction_uuid' => 'inv-0-a1', 'total_amount' => 50.0, 'status' => 'PENDING', 'ref_id' => null]),
         'https://apitest.cybersource.com/tss/v2/searches' => Http::response(['_embedded' => ['transactionSummaries' => []]]),
+        'https://uat.connectips.com/connectipswebws/api/creditor/validatetxn' => fn (ProviderRequest $request) => Http::response(['merchantId' => '550', 'appId' => 'MER-550-APP-1',
+            'referenceId' => $request['referenceId'], 'txnAmt' => $request['txnAmt'], 'token' => null, 'status' => 'ERROR', 'statusDesc' => 'TRANSACTION INCOMPLETE']),
         'https://api.stripe.com/v1/checkout/sessions/cs_test_contract0001*' => Http::response(['id' => 'cs_test_contract0001', 'object' => 'checkout.session', 'client_reference_id' => 'inv-0-a1', 'metadata' => ['mohar_reference' => 'inv-0-a1'], 'mode' => 'payment', 'livemode' => false, 'status' => 'open', 'payment_status' => 'unpaid', 'payment_intent' => null]),
         'https://api.razorpay.com/v1/payment_links/plink_Contract0001' => Http::response(contractRazorpayLink('inv-0-a1', 5_000, false)),
     ]);

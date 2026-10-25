@@ -46,6 +46,9 @@ class SettlePaymentAttempt
     /** Key in the attempt's raw for the provider-signed paid return (status, amount, code, time). */
     public const SIGNED_RETURN = 'signed_return';
 
+    /** Key in the attempt's raw for the form the customer was sent with (StartHostedPayment), kept across lookups. */
+    public const PROVIDER_FORM = 'provider_form';
+
     /** The review reason of an attempt staff closed as not paid: final, no lookup reopens it. */
     public const STAFF_CLOSED_REASON = 'Closed by staff: no payment found at the provider';
 
@@ -92,10 +95,12 @@ class SettlePaymentAttempt
                 return $attempt->status;
             }
 
-            // The provider's signed paid return outlives later lookups, which replace raw.
-            // Only this class writes that key: one a driver put in its own answer is dropped.
-            unset($raw[self::SIGNED_RETURN]);
+            // The provider's signed paid return and the form the customer posted outlive later lookups, which replace
+            // raw. Only Billing writes those keys: ones a driver put in its own answer are dropped.
+            unset($raw[self::SIGNED_RETURN], $raw[self::PROVIDER_FORM]);
             $signed = self::evidence($returnHint, $attempt);
+            $form = $attempt->raw[self::PROVIDER_FORM] ?? null;
+            $raw = is_array($form) ? [...$raw, self::PROVIDER_FORM => $form] : $raw;
             $attempt->fill(['last_lookup_at' => now(), 'lookup_count' => $attempt->lookup_count + 1, 'raw' => $signed === null ? $raw : [...$raw, self::SIGNED_RETURN => $signed]]);
 
             if ($result->retryable) {
@@ -521,12 +526,17 @@ class SettlePaymentAttempt
 
     /**
      * Paid at the provider and still settling: no expiry any more, so the invoice stays locked (PaymentInProgress)
-     * until a lookup settles or fails it, or staff resolve it after the grace period.
+     * until a lookup settles or fails it, or staff resolve it after the grace period. An attempt already in review keeps
+     * its reason.
      */
     private function processing(PaymentAttempt $attempt): void
     {
         $attempt->expires_at = null;
-        $this->stillPending($attempt, LookupResult::PROCESSING);
+
+        // Already in staff review: keep the reason it was sent there for (e.g. a failed credit leg).
+        if ($attempt->status !== AttemptStatus::Ambiguous) {
+            $this->stillPending($attempt, LookupResult::PROCESSING);
+        }
     }
 
     private function review(PaymentAttempt $attempt, string $reason): void

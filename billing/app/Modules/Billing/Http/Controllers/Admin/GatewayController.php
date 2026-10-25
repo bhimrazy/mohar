@@ -124,6 +124,7 @@ class GatewayController extends Controller
             'sort_order' => $model->sort_order,
             'convert_to_currency' => $model->convert_to_currency,
             'capabilities' => $driver->capabilities(),
+            'refund_note' => $this->gateways->manualRefundNote($driver->key()),
             'sandbox' => $this->gateways->isSandbox($model),
             'logo' => $this->gateways->logo($driver->key()),
         ];

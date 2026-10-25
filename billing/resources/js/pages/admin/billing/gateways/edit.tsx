@@ -40,6 +40,8 @@ type Props = {
         sandbox: boolean;
         logo: GatewayLogoData | null;
         capabilities: string[];
+        /** The driver's own refund instructions when it has no refund API. */
+        refund_note: string | null;
         is_active: boolean;
         show_on_order_form: boolean;
         sort_order: number;
@@ -406,7 +408,8 @@ export default function GatewayEdit({
                         <SectionCard title="Refunds">
                             <p className="text-sm text-muted-foreground">
                                 {!gateway.capabilities.includes('refund')
-                                    ? `${gateway.display_name} has no refund API: refund in the ${gateway.driver_name} merchant portal first, then record the refund on the invoice.`
+                                    ? (gateway.refund_note ??
+                                      `${gateway.display_name} has no refund API: refund in the ${gateway.driver_name} merchant portal first, then record the refund on the invoice.`)
                                     : !gateway.capabilities.includes(
                                             'partial_refund',
                                         )

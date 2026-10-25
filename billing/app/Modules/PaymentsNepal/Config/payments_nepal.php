@@ -41,6 +41,22 @@ return [
         'attempt_ttl_minutes' => 60,
     ],
 
+    // Hosts are not in NCHL's public docs: these are the ones community integrations use, to confirm at onboarding
+    // (spec §4.3, Q2). Paths are NCHL's documented ones.
+    'connectips' => [
+        'gateway' => [
+            'sandbox' => 'https://uat.connectips.com/connectipswebgw',
+            'live' => 'https://login.connectips.com/connectipswebgw',
+        ],
+        'api' => [
+            'sandbox' => 'https://uat.connectips.com/connectipswebws/api/creditor',
+            'live' => 'https://login.connectips.com/connectipswebws/api/creditor',
+        ],
+        'min_amount' => 100, // paisa (Rs 1)
+        'max_amount' => 200_000_000, // paisa (Rs 2,000,000), NCHL's per-transaction limit for web payments
+        'attempt_ttl_minutes' => 30, // to confirm in UAT; values below 15 are raised to 15
+    ],
+
     'http' => [
         'connect_timeout_seconds' => 5,
         // Background lookups only (never initiate, refund or the customer's return): retried on connection errors

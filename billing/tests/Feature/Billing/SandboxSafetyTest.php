@@ -11,6 +11,7 @@ use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Services\GatewayLogger;
+use App\Support\Integrations\CertificateBundle;
 use App\Support\Permissions\PermissionRegistry;
 
 require_once __DIR__.'/helpers.php';
@@ -42,10 +43,19 @@ test('a disabled sandbox is not registered and cannot be activated', function ()
 test('sandbox mode can\'t be turned on in production for any gateway that has one', function (string $key, array $credentials) {
     $withSandboxSetting = collect(app(GatewayRegistry::class)->drivers())
         ->filter(fn ($driver) => collect($driver->settingsFields())->contains('key', 'sandbox'))->keys()->sort()->values()->all();
+    // connectIPS also needs its signing certificate before the sandbox check is reached.
+    $certificates = [];
+
+    if ($key === 'connectips') {
+        $pkey = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        openssl_pkcs12_export(openssl_csr_sign(openssl_csr_new(['commonName' => 'CREDITOR'], $pkey), null, $pkey, 30), $pfx, $pkey, 'pass');
+        $certificates = ['signing_key' => CertificateBundle::fromPkcs12($pfx, 'pass')];
+    }
+
     app()->detectEnvironment(fn () => 'production');
 
-    expect($withSandboxSetting)->toBe(['cybersource', 'esewa', 'khalti', 'razorpay', 'stripe'])
-        ->and(fn () => app(ConfigureGateway::class)->handle($key, ['display_name' => ucfirst($key), 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 0, 'convert_to_currency' => null], [...$credentials, 'sandbox' => '1']))
+    expect($withSandboxSetting)->toBe(['connectips', 'cybersource', 'esewa', 'khalti', 'razorpay', 'stripe'])
+        ->and(fn () => app(ConfigureGateway::class)->handle($key, ['display_name' => ucfirst($key), 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 0, 'convert_to_currency' => null], [...$credentials, 'sandbox' => '1'], certificates: $certificates))
         ->toThrow(BillingException::class, 'Sandbox mode can\'t be used in production.')
         ->and(Gateway::query()->where('key', $key)->exists())->toBeFalse();
 })->with([
@@ -54,6 +64,7 @@ test('sandbox mode can\'t be turned on in production for any gateway that has on
     'esewa' => ['esewa', ['product_code' => 'EPAYTEST', 'secret_key' => 'sandbox-policy-esewa-secret']],
     'cybersource' => ['cybersource', ['merchant_id' => 'm', 'profile_id' => 'p', 'access_key' => 'a', 'secret_key' => 'sandbox-policy-cybersource-secret', 'rest_key_id' => 'k', 'rest_secret' => 'U2FuZGJveFBvbGljeUN5YmVyc291cmNl']],
     'razorpay' => ['razorpay', ['key_id' => 'rzp_test_SandboxPolicy01', 'key_secret' => 'sandbox-policy-razorpay-secret', 'webhook_secret' => 'sandbox-policy-razorpay-webhook']],
+    'connectips' => ['connectips', ['merchant_id' => '550', 'app_id' => 'MER-550-APP-1', 'app_name' => 'Hosting', 'app_password' => 'sandbox-policy-connectips-password']],
 ]);
 
 test('the seeder never creates the sandbox gateway outside local and testing', function () {

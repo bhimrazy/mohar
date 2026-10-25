@@ -11,7 +11,7 @@ use Mohar\Simulators\Http\Route;
 use Mohar\Simulators\Kernel\Scenario;
 
 /**
- * connectIPS (NCHL) creditor gateway for the future connectIPS driver (ADR 0016 §2), written from NCHL's public
+ * connectIPS (NCHL) creditor gateway for the connectIPS driver (ADR 0016 §2), written from NCHL's public
  * connectIPS merchant documents, in our own words:
  *
  * - the login page, which takes the browser's form post signed with the merchant's RSA key (SHA-256, PKCS#1 v1.5);
@@ -118,7 +118,6 @@ final class ConnectipsSimulator implements HasControlActions, RedactsPayments, S
 
         return [
             'env' => [
-                // Key names are provisional until the connectIPS driver lands.
                 'INTEGRATION_ENDPOINTS' => (string) json_encode(['connectips.gateway' => $api.'/connectipswebgw', 'connectips.api' => $api.'/connectipswebws/api/creditor'], JSON_UNESCAPED_SLASHES),
                 'OUTBOUND_ALLOW_LOOPBACK' => 'true',
             ],

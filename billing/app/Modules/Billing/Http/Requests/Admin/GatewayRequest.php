@@ -2,6 +2,8 @@
 
 namespace App\Modules\Billing\Http\Requests\Admin;
 
+use App\Contracts\Billing\GatewayDriver;
+use App\Contracts\Integrations\ValidatesSettings;
 use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
@@ -74,6 +76,25 @@ class GatewayRequest extends FormRequest
                 return;
             }
 
+            $driver = $this->driver();
+
+            if ($driver instanceof ValidatesSettings) {
+                $submitted = $this->input('settings');
+                $values = [];
+
+                foreach ($this->fields() as $field) {
+                    $value = is_array($submitted) ? ($submitted[$field->key] ?? null) : null;
+
+                    if (! $field->type->isSecret() && is_string($value) && trim($value) !== '') {
+                        $values[$field->key] = trim($value);
+                    }
+                }
+
+                foreach ($driver->validateSettings($values) as $key => $message) {
+                    $validator->errors()->add("settings.{$key}", $message);
+                }
+            }
+
             foreach ($this->certificateFields() as $field) {
                 $file = $this->file("certificates.{$field->key}.file");
 
@@ -113,11 +134,16 @@ class GatewayRequest extends FormRequest
      */
     private function fields(): array
     {
+        $driver = $this->driver();
+
+        return $driver !== null ? array_map(SettingField::fromArray(...), $driver->settingsFields()) : [];
+    }
+
+    private function driver(): ?GatewayDriver
+    {
         $key = (string) $this->route('gateway');
 
-        return array_key_exists($key, app(GatewayManager::class)->drivers())
-            ? array_map(SettingField::fromArray(...), app(GatewayManager::class)->driver($key)->settingsFields())
-            : [];
+        return array_key_exists($key, app(GatewayManager::class)->drivers()) ? app(GatewayManager::class)->driver($key) : null;
     }
 
     /**
