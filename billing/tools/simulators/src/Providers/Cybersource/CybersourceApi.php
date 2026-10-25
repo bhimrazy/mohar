@@ -307,7 +307,11 @@ final class CybersourceApi
         return $fields;
     }
 
-    /** Queue the signed server notice for the merchant notification URL, when there is one. */
+    /**
+     * Queue the signed server notice for the merchant notification URL, when there is one.
+     *
+     * @param  array<string, mixed>  $session
+     */
     private function notify(array $session): void
     {
         $url = $session['notice_url'] ?? $this->scenario->state()->get('config', 'notice_url');
