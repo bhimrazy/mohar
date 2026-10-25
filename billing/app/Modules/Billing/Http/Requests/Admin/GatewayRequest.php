@@ -3,7 +3,7 @@
 namespace App\Modules\Billing\Http\Requests\Admin;
 
 use App\Contracts\Billing\GatewayDriver;
-use App\Contracts\Billing\ValidatesGatewaySettings;
+use App\Contracts\Integrations\ValidatesSettings;
 use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
@@ -78,7 +78,7 @@ class GatewayRequest extends FormRequest
 
             $driver = $this->driver();
 
-            if ($driver instanceof ValidatesGatewaySettings) {
+            if ($driver instanceof ValidatesSettings) {
                 $submitted = $this->input('settings');
                 $values = [];
 
@@ -90,7 +90,7 @@ class GatewayRequest extends FormRequest
                     }
                 }
 
-                foreach ($driver->settingsErrors($values) as $key => $message) {
+                foreach ($driver->validateSettings($values) as $key => $message) {
                     $validator->errors()->add("settings.{$key}", $message);
                 }
             }

@@ -526,12 +526,17 @@ class SettlePaymentAttempt
 
     /**
      * Paid at the provider and still settling: no expiry any more, so the invoice stays locked (PaymentInProgress)
-     * until a lookup settles or fails it, or staff resolve it after the grace period.
+     * until a lookup settles or fails it, or staff resolve it after the grace period. An attempt already in review keeps
+     * its reason.
      */
     private function processing(PaymentAttempt $attempt): void
     {
         $attempt->expires_at = null;
-        $this->stillPending($attempt, LookupResult::PROCESSING);
+
+        // Already in staff review: keep the reason it was sent there for (e.g. a failed credit leg).
+        if ($attempt->status !== AttemptStatus::Ambiguous) {
+            $this->stillPending($attempt, LookupResult::PROCESSING);
+        }
     }
 
     private function review(PaymentAttempt $attempt, string $reason): void

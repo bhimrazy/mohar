@@ -113,9 +113,10 @@ thing Nepal has to a universal online debit.
    ~~If gettxndetail fails, the payment still settles on validatetxn and the fee stays 0 with a note; the poller does
    not retry a settled attempt just for the fee.~~
    **Amendment (#491), 2026-10-25:** nothing settles without gettxndetail, since the credit leg is part of the
-   rule. A timeout, connection error or 5xx leaves the attempt as it is for the next lookup (retryable); any other
-   failure (4xx, a refused token, no status, a non-SUCCESS answer) sends it to staff review as "credit leg
-   unconfirmed". An attempt in review (for example `creditStatus` F01) is never booked by a later failed call.
+   rule. A timeout, connection error or 5xx after a validatetxn SUCCESS makes the attempt processing: no expiry, so
+   the invoice stays locked, the poller books it once gettxndetail answers, and staff review it after the grace
+   period (an attempt already in review keeps its reason). Any other failure (4xx, a refused token, no status, a
+   non-SUCCESS answer) sends it to staff review as "credit leg unconfirmed". An attempt in review (for example `creditStatus` F01) is never booked by a later failed call.
 
 ### 4.2 Signing and the certificate
 

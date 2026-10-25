@@ -13,6 +13,7 @@ use App\Data\Billing\RedirectInstruction;
 use App\Data\Billing\ReturnHint;
 use App\Events\Billing\InvoicePaid;
 use App\Models\User;
+use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Actions\StartHostedPayment;
 use App\Modules\Billing\BillingServiceProvider;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
@@ -36,6 +37,7 @@ use App\Modules\PaymentsRazorpay\Support\RazorpayException;
 use App\Modules\PaymentsStripe\Support\StripeException;
 use App\Support\Billing\AbstractGatewayDriver;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Integrations\Redactor;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterval;
@@ -573,6 +575,28 @@ test('clients cannot start payments on other clients invoices and returns are bo
 
     expect($attempt->fresh()->lookup_count)->toBe(0);
 });
+
+// The posted form is kept on the attempt (SettlePaymentAttempt::PROVIDER_FORM), masked by key name only. A new driver
+// whose signature field has another name fails here instead of storing it.
+test('a posted provider form is kept on the attempt with every signature-like field masked', function (string $key) {
+    [$invoice] = hostedDriverCase($key, [150_000]);
+
+    [$attempt, $instruction] = app(StartHostedPayment::class)->handle($invoice, $key);
+
+    if (! $instruction instanceof FormPost) {
+        expect($attempt->fresh()->raw[SettlePaymentAttempt::PROVIDER_FORM] ?? null)->toBeNull();
+
+        return;
+    }
+
+    $stored = $attempt->fresh()->raw[SettlePaymentAttempt::PROVIDER_FORM];
+    $signed = array_filter($instruction->fields, fn (string $value, string $name): bool => preg_match('/signature|token|hash|checksum|hmac|digest|^dv$/i', $name) === 1, ARRAY_FILTER_USE_BOTH);
+
+    expect(array_keys($stored))->toBe(array_keys($instruction->fields));
+    foreach ($signed as $name => $value) {
+        expect($stored[$name])->toBe(Redactor::MASK)->and(json_encode($stored))->not->toContain($value);
+    }
+})->with(HOSTED_DRIVERS);
 
 test('a hosted payment on a part-paid invoice asks the provider for the remaining balance only', function (string $key) {
     [$invoice, $markPaid, $returnUrl, $requested] = hostedDriverCase($key, [150_000]);

@@ -5,9 +5,9 @@ namespace App\Modules\PaymentsNepal\Drivers;
 use App\Contracts\Billing\ConnectionTester;
 use App\Contracts\Billing\DescribesManualRefund;
 use App\Contracts\Billing\HostedPaymentDriver;
-use App\Contracts\Billing\ValidatesGatewaySettings;
 use App\Contracts\Branding\BrandProvider;
 use App\Contracts\Integrations\ProvidesLogo;
+use App\Contracts\Integrations\ValidatesSettings;
 use App\Data\Billing\AmountLimits;
 use App\Data\Billing\FormPost;
 use App\Data\Billing\GatewayConfig;
@@ -37,7 +37,7 @@ use OpenSSLAsymmetricKey;
  * credit leg), called with the stored amount, settles. NCHL signs no answer, so every echoed field is compared with
  * the stored attempt. There is no refund API: the merchant refunds by bank transfer and records it.
  */
-final class ConnectipsDriver extends AbstractGatewayDriver implements ConnectionTester, DescribesManualRefund, HostedPaymentDriver, ProvidesLogo, ValidatesGatewaySettings
+final class ConnectipsDriver extends AbstractGatewayDriver implements ConnectionTester, DescribesManualRefund, HostedPaymentDriver, ProvidesLogo, ValidatesSettings
 {
     public const KEY = 'connectips';
 
@@ -113,7 +113,7 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
      * The formats NCHL's form takes: a digits-only merchant ID of up to 20, an app ID of up to 15 and an app name of up
      * to 30 characters. A comma would break the comma-joined token string.
      */
-    public function settingsErrors(array $settings): array
+    public function validateSettings(array $settings): array
     {
         $errors = [];
         $merchantId = $settings['merchant_id'] ?? null;
@@ -309,8 +309,10 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
 
     /**
      * gettxndetail after a SUCCESS. The credit leg must be done, or deferred by NCHL's rule, for the payment to count;
-     * the fee is ours only when the merchant bears it. Nothing settles without it (spec §4.1.5, amended in #491): an
-     * outage is retried by the next lookup, and any other failure leaves the credit leg unconfirmed for staff.
+     * the fee is ours only when the merchant bears it. Nothing settles without it (spec §4.1.5, amended in #491). During
+     * an outage the payment is PROCESSING: validatetxn says the money left the customer, so the invoice stays locked,
+     * the poller books it once the details answer, and staff review it after the grace period. Any other failure leaves
+     * the credit leg unconfirmed for staff.
      *
      * @param  array{merchant_id: string, app_id: string, app_name: string, app_password: string, key: OpenSSLAsymmetricKey}  $credentials
      * @param  array<string, mixed>  $raw
@@ -320,13 +322,13 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
         try {
             $response = $this->call($gateway, $credentials, 'gettxndetail', (string) $attempt->providerRef, (string) $attempt->amount->amount, $attempt->interactive);
         } catch (ConnectionException) {
-            return new LookupResult(LookupResult::PENDING, raw: [...$raw, 'error' => 'gettxndetail unreachable'], retryable: true);
+            return new LookupResult(LookupResult::PROCESSING, raw: [...$raw, 'error' => 'gettxndetail unreachable']);
         }
 
         $body = self::body($response);
 
         if ($response->serverError()) {
-            return new LookupResult(LookupResult::PENDING, raw: [...$raw, 'error' => 'gettxndetail answered HTTP '.$response->status()], retryable: true);
+            return new LookupResult(LookupResult::PROCESSING, raw: [...$raw, 'error' => 'gettxndetail answered HTTP '.$response->status()]);
         }
 
         if (! $response->successful() || self::status($body) === null) {
@@ -479,7 +481,7 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
             throw new ProviderException(__('Enter and save the connectIPS merchant ID, app ID, app name, app password and signing certificate first.'));
         }
 
-        $errors = $this->settingsErrors(['merchant_id' => $merchantId, 'app_id' => $appId, 'app_name' => $appName]);
+        $errors = $this->validateSettings(['merchant_id' => $merchantId, 'app_id' => $appId, 'app_name' => $appName]);
 
         if ($errors !== []) {
             throw new ProviderException(implode(' ', $errors));

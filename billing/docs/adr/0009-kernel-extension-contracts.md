@@ -383,3 +383,17 @@ RSA key NCHL ships as a PKCS#12 file).
    show such a driver as unavailable rather than as manual setup. A host whose owner record can be deleted deletes its
    `integration_credentials` rows in the same transaction; gateways are never deleted, so none does yet.
 8. The step-up refusal change is recorded in ADR 0018 Amendment (#490).
+
+## Amendment (#491) — 2026-10-25, gateway capability list and settings validation
+
+1. **Gateway optional capabilities, as the code has them.** The table's "Optional capabilities" row for gateways
+   names three interfaces; the full set is: `HostedPaymentDriver`, `ConnectionTester`, `ProvidesLogo`,
+   `LooksUpRefunds` (ask about a refund whose answer never arrived), `CancelsHostedPayment` (close an open provider
+   session), `ResumesHostedPayment` (reopen it), `DescribesManualRefund` (#491: the driver's own refund note, read
+   only when it does not declare `REFUND`) and `Integrations\ValidatesSettings` (#491). Each is a provider contract,
+   detected with `instanceof` (ADR 0012).
+2. **`Integrations\ValidatesSettings`** (`validateSettings(array $settings): array<string, string>`) is family-neutral,
+   like `ProvidesLogo`, and shaped like `ValidatesTldAttributes`: pure (no network, database or settings access, since
+   it runs in the save request), messages name the field by its label and never repeat the value, and secret values
+   are never passed. The gateway form calls it after its own field checks and shows each message at
+   `settings.<key>`. The registrar and server forms do not call it yet; they adopt it when a driver needs it.
