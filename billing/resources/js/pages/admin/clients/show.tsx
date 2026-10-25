@@ -29,7 +29,9 @@ import { DescriptionList } from '@/components/app/description-list';
 import { EmptyState } from '@/components/app/empty-state';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
+import type { DashboardWidget } from '@/components/app/dashboard/types';
 import { SectionCard } from '@/components/app/section-card';
+import { ClientSummary } from '@/components/clients/client-summary';
 import { ContactDialog } from '@/components/clients/contact-dialog';
 import { LoginDialog } from '@/components/clients/login-dialog';
 import { MergeDialog } from '@/components/clients/merge-dialog';
@@ -67,6 +69,7 @@ type Props = {
     client: ClientRecord;
     contacts: ClientContact[];
     users: ClientLogin[];
+    summary: DashboardWidget[];
     links: { title: string; href: string; icon: string }[];
     imported: {
         at: string;
@@ -111,6 +114,7 @@ export default function ClientShow({
     client,
     contacts,
     users,
+    summary,
     links,
     imported,
     activity,
@@ -489,6 +493,8 @@ export default function ClientShow({
                         </>
                     }
                 />
+
+                <ClientSummary widgets={summary} />
 
                 <div className="grid gap-4 lg:grid-cols-3">
                     <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">

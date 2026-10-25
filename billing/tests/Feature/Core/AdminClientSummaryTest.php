@@ -1,0 +1,135 @@
+<?php
+
+use App\Contracts\Billing\CreditLedger;
+use App\Modules\Core\Models\Client;
+use App\Modules\Core\Models\Currency;
+use App\Modules\Domains\Models\Domain;
+use App\Modules\Services\Models\Service;
+use App\Modules\Support\Enums\TicketStatus;
+use App\Modules\Support\Models\Department;
+use App\Modules\Support\Models\Ticket;
+use App\Support\Money;
+use Illuminate\Support\Facades\DB;
+use Inertia\Testing\AssertableInertia as Assert;
+
+require_once __DIR__.'/../Billing/helpers.php';
+
+/**
+ * @return array<string, array<string, mixed>> the summary widgets of a client page, keyed by widget key
+ */
+function clientSummaryWidgets(Client $client): array
+{
+    $widgets = [];
+    test()->get(route('admin.clients.show', $client))->assertOk()
+        ->assertInertia(function (Assert $page) use (&$widgets): void {
+            $widgets = collect($page->toArray()['props']['summary'])->keyBy('key')->all();
+        });
+
+    return $widgets;
+}
+
+function clientSummaryStaff(): void
+{
+    actingAsStaff(['core.clients.view', 'billing.*', 'billing.credit.manage']);
+}
+
+function clientSummaryNepalClient(): Client
+{
+    Currency::factory()->create();
+    Currency::factory()->npr()->create();
+
+    return Client::factory()->create(['currency' => 'NPR', 'country' => 'NP']);
+}
+
+test('the client page sums outstanding, overdue, credit and paid in the client currency', function () {
+    clientSummaryStaff();
+    $client = clientSummaryNepalClient();
+    issueInvoice($client, [100_000], dueDate: now()->toImmutable()->subDays(5));
+    issueInvoice($client, [50_000], dueDate: now()->toImmutable()->addDays(5));
+    $paid = issueInvoice($client, [20_000]);
+    payInvoice($paid, $paid->total);
+    app(CreditLedger::class)->credit($client->id, Money::of(7_500, 'NPR'), 'Goodwill');
+    issueInvoice(Client::factory()->create(['currency' => 'NPR']), [999_000], dueDate: now()->toImmutable()->subDay());
+
+    $widgets = clientSummaryWidgets($client);
+
+    expect($widgets['billing.outstanding']['money'])->toBe(['amount' => 150_000, 'currency' => 'NPR'])
+        ->and($widgets['billing.overdue']['money']['amount'])->toBe(100_000)
+        ->and($widgets['billing.overdue']['tone'])->toBe('danger')
+        ->and($widgets['billing.credit']['money'])->toBe(['amount' => 7_500, 'currency' => 'NPR'])
+        ->and($widgets['billing.paid']['money']['amount'])->toBe(20_000)
+        ->and($widgets['billing.unpaid']['value'])->toBe(2)
+        ->and($widgets['billing.unpaid']['hint'])->toBe('1 overdue')
+        ->and($widgets['billing.invoices']['items'])->toHaveCount(3);
+});
+
+test('amounts in a currency other than the client currency are named in the hint, not added up', function () {
+    clientSummaryStaff();
+    $client = clientSummaryNepalClient();
+    Currency::factory()->euro()->create();
+    issueInvoice($client, [30_000]);
+    DB::table('invoices')->where('client_id', $client->id)->update(['currency' => 'EUR']);
+    issueInvoice($client, [10_000]);
+
+    $outstanding = clientSummaryWidgets($client)['billing.outstanding'];
+
+    expect($outstanding['money'])->toBe(['amount' => 10_000, 'currency' => 'NPR'])
+        ->and($outstanding['hint'])->toContain('€');
+});
+
+test('counts and latest rows come from services, domains and tickets, and show no database ids', function () {
+    actingAsStaff(['*']);
+    $client = clientSummaryNepalClient();
+    Service::factory()->count(2)->create(['client_id' => $client->id, 'status' => 'active']);
+    Service::factory()->create(['client_id' => $client->id, 'status' => 'suspended']);
+    Service::factory()->create(['status' => 'active']);
+    Domain::factory()->create(['client_id' => $client->id, 'expiry_date' => today()->addDays(10)]);
+    Domain::factory()->create(['client_id' => $client->id]);
+    Ticket::factory()->forClient($client)->create();
+    Ticket::factory()->forClient($client)->status(TicketStatus::Closed)->create();
+
+    $widgets = clientSummaryWidgets($client);
+
+    expect($widgets['services.count']['value'])->toBe(2)
+        ->and($widgets['services.count']['hint'])->toBe('1 suspended')
+        ->and($widgets['services.recent']['items'])->toHaveCount(3)
+        ->and($widgets['domains.count']['value'])->toBe(2)
+        ->and($widgets['domains.count']['hint'])->toBe('1 expiring in 30 days')
+        ->and($widgets['support.count']['value'])->toBe(1)
+        ->and($widgets['support.recent']['items'])->toHaveCount(1)
+        ->and($widgets['support.recent']['items'][0]['subtitle'])->toStartWith('#')
+        ->and($widgets['services.recent']['items'][0])->not->toHaveKey('id');
+});
+
+test('each section needs its own permission', function () {
+    actingAsStaff(['core.clients.view', 'services.services.view']);
+    $client = clientSummaryNepalClient();
+    issueInvoice($client, [10_000]);
+
+    expect(array_keys(clientSummaryWidgets($client)))->toBe(['services.count', 'services.recent']);
+});
+
+test('the client page stays within its query budget however many rows the client has', function () {
+    actingAsStaff(['*']);
+    $client = clientSummaryNepalClient();
+    $count = function () use ($client): int {
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $this->get(route('admin.clients.show', $client))->assertOk();
+        DB::disableQueryLog();
+
+        return count(DB::getQueryLog());
+    };
+
+    $count(); // warms per-process caches
+    $few = $count();
+    foreach (range(1, 12) as $i) {
+        issueInvoice($client, [1_000 + $i], dueDate: now()->toImmutable()->subDays($i));
+    }
+    Service::factory()->count(12)->create(['client_id' => $client->id]);
+    Domain::factory()->count(12)->create(['client_id' => $client->id]);
+    Ticket::factory()->count(12)->forClient($client)->create(['department_id' => Ticket::query()->value('department_id') ?? Department::factory()->create()->id]);
+    $many = $count();
+
+    expect($many)->toBe($few)->and($many)->toBeLessThanOrEqual(60);
+});

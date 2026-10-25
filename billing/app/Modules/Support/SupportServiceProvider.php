@@ -25,6 +25,7 @@ use App\Modules\Support\Models\KbArticle;
 use App\Modules\Support\Models\NetworkIncident;
 use App\Modules\Support\Models\Ticket;
 use App\Modules\Support\Models\TicketMessage;
+use App\Modules\Support\Services\SupportAdminClientSummary;
 use App\Modules\Support\Services\SupportPublicHelp;
 use App\Modules\Support\Services\SupportSettings;
 use App\Modules\Support\Services\SupportTicketStaff;
@@ -129,6 +130,7 @@ class SupportServiceProvider extends ModuleServiceProvider
     private function registerDashboard(): void
     {
         $dashboard = $this->app->make(Dashboard::class);
+        $this->app->make(SupportAdminClientSummary::class)->register($dashboard);
         $scoped = fn (?User $user) => $user !== null
             ? app(TicketAccess::class)->scope(Ticket::query()->notMerged(), $user)
             : Ticket::query()->whereRaw('1 = 0');

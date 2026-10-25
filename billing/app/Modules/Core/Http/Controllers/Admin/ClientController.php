@@ -20,6 +20,7 @@ use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\ClientCurrencyLock;
 use App\Modules\Core\Support\Settings;
+use App\Support\Dashboard\Dashboard;
 use App\Support\Navigation\Navigation;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -68,7 +69,7 @@ class ClientController extends Controller
         return to_route('admin.clients.show', $client);
     }
 
-    public function show(Request $request, Client $client, Navigation $navigation): Response|RedirectResponse
+    public function show(Request $request, Client $client, Navigation $navigation, Dashboard $dashboard): Response|RedirectResponse
     {
         $this->authorize('core.clients.view');
 
@@ -98,6 +99,8 @@ class ClientController extends Controller
                         'expires_at' => $invitation->expires_at->toIso8601String(),
                     ],
                 ]),
+            // Modules contribute stat cards and lists to the "admin-client" dashboard area (money, counts, latest rows).
+            'summary' => $dashboard->resolveWidgets('admin-client', $user, null, $client),
             'links' => $navigation->clientLinks($client->id, $user),
             // Columns an import kept as they were (client-import spec §6.13), with when the client was imported.
             'imported' => $client->imported_at === null ? null : [
