@@ -18,6 +18,7 @@ use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Daily: warns staff before a certificate an active gateway uses expires (payments-gateways-expansion §9.2). Each
@@ -81,9 +82,16 @@ class CheckGatewayCredentials
      */
     public function health(CalendarDate $today): ?array
     {
-        $names = $this->activeGatewayNames(array_keys($this->certificateLabels()));
+        $labels = $this->certificateLabels();
+        $names = $this->activeGatewayNames(array_keys($labels));
+        // Only the certificate settings active gateways' drivers still declare.
         $soonest = $names === [] ? null : IntegrationCredential::query()->where('family', IntegrationCredential::GATEWAY)
-            ->whereIn('owner_key', array_keys($names))->orderBy('not_after')->orderBy('id')->first();
+            ->where(function ($query) use ($names, $labels): void {
+                foreach (array_keys($names) as $key) {
+                    $query->orWhere(fn ($pair) => $pair->where('owner_key', $key)->whereIn('setting_key', array_keys($labels[$key])));
+                }
+            })
+            ->orderBy('not_after')->orderBy('id')->first();
 
         if ($soonest === null) {
             return null;
@@ -174,7 +182,7 @@ class CheckGatewayCredentials
     }
 
     /**
-     * Labels of the certificate settings each registered driver declares.
+     * Labels of the certificate settings each registered driver still declares.
      *
      * @return array<string, array<string, string>> gateway key => setting key => label
      */
@@ -183,8 +191,14 @@ class CheckGatewayCredentials
         $labels = [];
 
         foreach ($this->gateways->drivers() as $key => $driver) {
-            foreach ($this->certificateFields($driver) as $field) {
-                $labels[(string) $key][$field->key] = $field->label;
+            // A driver whose fields cannot be read (an invalid key, a malformed row) is reported and skipped, never the
+            // others.
+            try {
+                foreach ($this->certificateFields($driver) as $field) {
+                    $labels[(string) $key][$field->key] = $field->label;
+                }
+            } catch (Throwable $exception) {
+                report($exception);
             }
         }
 
