@@ -456,7 +456,7 @@ class GatewayCallbackHandler
         }
 
         if ($row->status !== TransactionStatus::Succeeded) {
-            return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $row->invoice_id);
+            return $this->outcome($gatewayKey, 200, 'refund already released; nothing changed', $event->raw, $row->invoice_id);
         }
 
         try {
