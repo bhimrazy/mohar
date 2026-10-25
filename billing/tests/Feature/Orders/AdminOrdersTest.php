@@ -239,7 +239,9 @@ describe('fraud', function () {
         expect($order->fresh()->status)->toBe(OrderStatus::Fraud)
             ->and($item->fresh()->status)->toBe(OrderItemStatus::Fraud)
             ->and($this->fakes->services->cancelled)->toBe([])
-            ->and($this->fakes->billing->status($order->invoice_id))->toBe('cancelled');
+            ->and($this->fakes->billing->status($order->invoice_id))->toBe('cancelled')
+            // A credit note from this cancel is filed, never emailed to the client (PR #482).
+            ->and($this->fakes->billing->cancelNotifies)->toBe([$order->invoice_id => false]);
         Event::assertDispatched(OrderMarkedFraud::class);
     });
 

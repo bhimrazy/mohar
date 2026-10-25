@@ -41,10 +41,11 @@ class CancelInvoice
      * a cancellation adjustment (vat-register §5.4); the note's reason is `$note`, which staff must give.
      *
      * @param  bool  $strict  throw instead of silently ignoring invoices that can't be cancelled
+     * @param  bool  $notify  false keeps the cancelling credit note from being emailed (Invoicer::cancel)
      */
-    public function handle(Invoice $invoice, ?int $userId = null, ?string $note = null, bool $strict = true): Invoice
+    public function handle(Invoice $invoice, ?int $userId = null, ?string $note = null, bool $strict = true, bool $notify = true): Invoice
     {
-        return DB::transaction(function () use ($invoice, $userId, $note, $strict): Invoice {
+        return DB::transaction(function () use ($invoice, $userId, $note, $strict, $notify): Invoice {
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
 
             if (! in_array($invoice->status, [InvoiceStatus::Draft, InvoiceStatus::Unpaid, InvoiceStatus::PaymentPending], true)) {
@@ -74,7 +75,7 @@ class CancelInvoice
 
             if ($invoice->status !== InvoiceStatus::Draft && $invoice->balance > 0) {
                 if ($fiscal) {
-                    $this->notes->issueNow(NoteRequest::cancellation($invoice->id, $invoice->balance, $note ?? __('Invoice cancelled'), $userId === null, $userId), $at, settle: false);
+                    $this->notes->issueNow(NoteRequest::cancellation($invoice->id, $invoice->balance, $note ?? __('Invoice cancelled'), $userId === null, $userId)->notifying($notify), $at, settle: false);
                     $invoice->refresh();
                 } else {
                     $this->settlement->adjust($invoice, AdjustmentKind::Credit, AdjustmentReason::Cancellation, $invoice->balance, $note ?? __('Invoice cancelled'), userId: $userId, at: $at);

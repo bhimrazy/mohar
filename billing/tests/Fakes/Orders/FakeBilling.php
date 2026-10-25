@@ -30,6 +30,9 @@ class FakeBilling implements Invoicer, TaxCalculator
     /** @var list<int> */
     public array $cancelled = [];
 
+    /** @var array<int, bool> invoice id => whether its cancel may email the client */
+    public array $cancelNotifies = [];
+
     private int $nextId = 900;
 
     public function issue(InvoiceDraft $draft): InvoiceResult
@@ -46,9 +49,10 @@ class FakeBilling implements Invoicer, TaxCalculator
         return new InvoiceResult($id, "INV-{$id}", $this->statuses[$id], $draft->currency, $totals->subtotal, $totals->taxAmount(), $totals->total);
     }
 
-    public function cancel(int $invoiceId, ?string $reason = null): void
+    public function cancel(int $invoiceId, ?string $reason = null, bool $notify = true): void
     {
         $this->cancelled[] = $invoiceId;
+        $this->cancelNotifies[$invoiceId] = $notify;
 
         if (in_array($this->statuses[$invoiceId] ?? null, ['unpaid', 'draft'], true)) {
             $this->statuses[$invoiceId] = 'cancelled';

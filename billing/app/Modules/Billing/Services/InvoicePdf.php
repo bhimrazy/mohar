@@ -47,9 +47,12 @@ class InvoicePdf
         return $path;
     }
 
-    public function render(Invoice $invoice): string
+    /**
+     * @param  int|null  $print  the print number of a copy (2 or more, DocumentDownloads); null for the original
+     */
+    public function render(Invoice $invoice, ?int $print = null): string
     {
-        return Pdf::loadView('billing::pdf.invoice', $this->viewData($invoice))
+        return Pdf::loadView('billing::pdf.invoice', $this->viewData($invoice, $print))
             ->setPaper(strtolower($this->settings->string('pdf.paper', 'A4')))->output();
     }
 
@@ -58,7 +61,7 @@ class InvoicePdf
      *
      * @return array<string, mixed>
      */
-    public function viewData(Invoice $invoice): array
+    public function viewData(Invoice $invoice, ?int $print = null): array
     {
         $invoice->loadMissing(['items', 'adjustments', 'transactions']);
         $seller = $this->parties->sellerSnapshot($invoice);
@@ -70,6 +73,7 @@ class InvoicePdf
 
         return [
             'invoice' => $invoice,
+            'copy' => $print !== null && $print > 1 ? __('Copy of original — print :n', ['n' => $print]) : null,
             // The same blocks the invoice pages show (InvoiceParties), so the page and the PDF print one thing.
             'seller' => $seller !== null ? InvoiceParties::sellerBlock($seller) : null,
             'buyer' => is_array($buyer) ? InvoiceParties::buyerBlock($buyer) : null,

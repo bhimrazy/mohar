@@ -120,7 +120,12 @@ class SampleContext
                 'changes' => 'Require two-step sign-in', 'old_email' => 'sam@example.test', 'new_email' => 'sam.rivera@example.test',
                 'run_by' => 'console: deploy@billing-1', 'expires_in' => '24 hours',
             ],
-            'credit_note' => ['amount' => '$10.00'],
+            'tax_note' => [
+                // A Nepal VAT note (13%): notes exist only in Nepal VAT mode.
+                'number' => 'CN-00012', 'kind' => 'credit', 'kind_label' => 'Credit Note', 'invoice_number' => 'INV-00042', 'amount' => 'Rs 1,130.00',
+                'tax' => 'Rs 130.00', 'issue_date' => $today, 'issue_date_bs' => '3 Kartik 2083 BS', 'reason' => 'Price correction', 'reason_text' => 'Plan price corrected.',
+                'pdf_url' => url('/client/invoices/notes/12/pdf'), 'pdf_attached' => true,
+            ],
             'template' => ['key' => 'invoice.created', 'name' => 'Invoice created', 'error' => 'Line 3: "{% if %}" is never closed.', 'admin_url' => url('/admin/notifications/templates/1/edit')],
         ];
     }
@@ -135,7 +140,7 @@ class SampleContext
         $groups = match ($type) {
             TemplateType::General => ['client', 'user', 'auth', 'order', 'quote', 'affiliate', 'notice'],
             TemplateType::Product => ['client', 'service', 'cancellation'],
-            TemplateType::Invoice => ['client', 'invoice', 'payment', 'refund', 'credit_note'],
+            TemplateType::Invoice => ['client', 'invoice', 'payment', 'refund', 'tax_note'],
             TemplateType::Domain => ['client', 'domain', 'domains'],
             TemplateType::Support => ['ticket', 'reply'],
             TemplateType::Admin => ['staff', 'client', 'order', 'service', 'domain', 'ticket', 'reply', 'invoice', 'failure', 'sync', 'automation', 'security', 'webhook', 'template', 'auth', 'cancellation', 'affiliate', 'notice'],

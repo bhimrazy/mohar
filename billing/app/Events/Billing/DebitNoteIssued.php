@@ -12,7 +12,8 @@ use Illuminate\Foundation\Events\Dispatchable;
  * Dispatched with `event()` after the note commits, never through `AfterCommit::dispatch` (that would defer it twice).
  *
  * $amount is positive (the note's gross total), in minor units of $currency. $automatic is true when automation, a gateway callback or another
- * module issued the note, false when staff did.
+ * module issued the note, false when staff did. $notify is false when staff chose not to send the note to the client; the
+ * webhook is delivered either way.
  */
 final class DebitNoteIssued implements DomainEvent, ShouldDispatchAfterCommit
 {
@@ -26,5 +27,6 @@ final class DebitNoteIssued implements DomainEvent, ShouldDispatchAfterCommit
         public int $amount,
         public string $currency,
         public bool $automatic,
+        public bool $notify = true,
     ) {}
 }

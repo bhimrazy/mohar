@@ -2,8 +2,10 @@
 
 namespace App\Modules\Notifications\Mail;
 
+use App\Data\Billing\DocumentFile;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Address;
+use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Mail\Mailables\Headers;
@@ -26,6 +28,7 @@ class TemplatedMail extends Mailable
 
     /**
      * @param  string|null  $htmlBody  null for plain-text-only templates
+     * @param  DocumentFile|null  $document  a billing document to attach (App\Contracts\Billing\BillingDocuments)
      */
     public function __construct(
         public string $subjectLine,
@@ -36,6 +39,7 @@ class TemplatedMail extends Mailable
         public ?string $replyToEmail = null,
         public ?string $messageUuid = null,
         public bool $automatic = true,
+        public ?DocumentFile $document = null,
     ) {}
 
     public function envelope(): Envelope
@@ -54,6 +58,16 @@ class TemplatedMail extends Mailable
             with: ['plainText' => $this->plainText],
             htmlString: $this->htmlBody,
         );
+    }
+
+    /**
+     * @return list<Attachment>
+     */
+    public function attachments(): array
+    {
+        return $this->document === null ? [] : [
+            Attachment::fromStorageDisk($this->document->disk, $this->document->path)->as($this->document->filename)->withMime($this->document->mime),
+        ];
     }
 
     /**

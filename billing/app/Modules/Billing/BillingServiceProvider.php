@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing;
 
+use App\Contracts\Billing\BillingDocuments;
 use App\Contracts\Billing\CreditLedger;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\GatewayRegistry;
@@ -14,6 +15,8 @@ use App\Contracts\Core\CompanyClock;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Data\Integrations\SettingField;
 use App\Enums\BillableType;
+use App\Events\Billing\CreditNoteIssued;
+use App\Events\Billing\DebitNoteIssued;
 use App\Events\Billing\InvoiceCancelled;
 use App\Events\Billing\InvoiceCreated;
 use App\Events\Billing\InvoiceOverdue;
@@ -24,6 +27,7 @@ use App\Events\Billing\PaymentReceived;
 use App\Events\Billing\PaymentReinstated;
 use App\Events\Billing\PaymentReversed;
 use App\Events\Billing\QuoteAccepted;
+use App\Events\Notifications\EmailSent;
 use App\Events\Orders\OrderAccepted;
 use App\Models\User;
 use App\Modules\Billing\Actions\PruneGatewayLog;
@@ -35,12 +39,15 @@ use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Import\OpeningBalanceImporter;
 use App\Modules\Billing\Install\RegionalTaxDefaults;
 use App\Modules\Billing\Listeners\RecordAcceptedOrder;
+use App\Modules\Billing\Listeners\RecordNoteEmailed;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\InvoiceItem;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Models\Quote;
+use App\Modules\Billing\Models\TaxNote;
+use App\Modules\Billing\Models\TaxNoteLine;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Reports\RegisterDocuments;
 use App\Modules\Billing\Reports\TaxNoteRegisterReport;
@@ -48,6 +55,7 @@ use App\Modules\Billing\Reports\VatRegisterReport;
 use App\Modules\Billing\Rules\EuVatHomeCountry;
 use App\Modules\Billing\Services\BillingAutomation;
 use App\Modules\Billing\Services\BillingDirectory;
+use App\Modules\Billing\Services\BillingDocumentAttachments;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\DocumentNumbers;
 use App\Modules\Billing\Services\InvoiceService;
@@ -116,6 +124,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $this->app->bind(GatewayDirectory::class, BillingDirectory::class);
         $this->app->bind(InvoiceQueries::class, BillingDirectory::class);
         $this->app->bind(InvoiceNumbers::class, BillingDirectory::class);
+        $this->app->bind(BillingDocuments::class, BillingDocumentAttachments::class);
 
         $this->app->singleton(GatewayRegistry::class, fn (): GatewayManager => $this->app->make(GatewayManager::class));
         $this->app->singleton(GatewayManager::class, function (): GatewayManager {
@@ -143,6 +152,8 @@ class BillingServiceProvider extends ModuleServiceProvider
         $webhooks->register(PaymentReversed::class, 'payment.reversed', 'transaction', 'transactionId');
         $webhooks->register(PaymentReinstated::class, 'payment.reinstated', 'transaction', 'transactionId');
         $webhooks->register(QuoteAccepted::class, 'quote.accepted', 'quote', 'quoteId');
+        $webhooks->register(CreditNoteIssued::class, 'credit_note.issued', 'tax_note', 'taxNoteId');
+        $webhooks->register(DebitNoteIssued::class, 'debit_note.issued', 'tax_note', 'taxNoteId');
 
         // Encrypted casts, for `security:reencrypt` (ADR 0022).
         $encrypted = $this->app->make(EncryptedStorage::class);
@@ -169,6 +180,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $reports->register('tax_note_register', TaxNoteRegisterReport::class);
 
         Event::listen(OrderAccepted::class, RecordAcceptedOrder::class);
+        Event::listen(EmailSent::class, RecordNoteEmailed::class);
 
         // Opening credit balances of imported clients (client-import spec §6.12).
         $this->app->make(ImportRegistry::class)->register('credit_balance', OpeningBalanceImporter::class, dependsOn: ['client']);
@@ -416,7 +428,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             $bool('quotes.auto_invoice_on_accept', 'Invoice quotes automatically on acceptance'),
             $int('quotes.valid_days', 'Default quote validity (days)'),
             $bool('show_bs_dates', 'Show the Bikram Sambat date beside the AD date on invoices', 'Issue and due dates on invoice pages, PDFs and invoice emails also show the BS date, e.g. 12 Jan 2026 (28 Poush 2082 BS). Dates from 15 April 2039 on show the AD date only.'),
-            $bool('pdf.attach_to_emails', 'Attach PDFs to invoice emails'),
+            $bool('pdf.attach_to_emails', 'Attach PDFs to invoice and note emails', 'Credit and debit note emails carry the note as a PDF.'),
             new SettingDefinition('billing.pdf.paper', 'PDF paper size', 'select', options: ['A4' => 'A4', 'letter' => 'Letter']),
         ], 'billing.settings.manage');
 
@@ -502,6 +514,46 @@ class BillingServiceProvider extends ModuleServiceProvider
         ];
     }
 
+    /**
+     * A credit or debit note as merge fields and webhook payload: its number, amounts in its currency, the invoice it
+     * corrects and the client-visible reason. Snapshots only, so the payload is the document as issued.
+     *
+     * @return array<string, mixed>
+     */
+    private function taxNoteMergeFields(TaxNote $note): array
+    {
+        $money = fn (int $amount): string => app(MoneyFormatter::class)->format(Money::of($amount, $note->currency));
+
+        return [
+            'client_id' => $note->client_id,
+            'id' => $note->id,
+            'number' => $note->number,
+            'kind' => $note->kind,
+            'kind_label' => $note->kindLabel(),
+            'invoice_id' => $note->invoice_id,
+            'invoice_number' => $note->invoice_number,
+            'currency' => $note->currency,
+            'amount' => $money($note->total),
+            'amount_minor' => $note->total,
+            'taxable' => $money($note->taxable_amount),
+            'exempt' => $money($note->exempt_amount),
+            'tax' => $money($note->tax1_amount + $note->tax2_amount),
+            'tax_minor' => $note->tax1_amount + $note->tax2_amount,
+            'issue_date' => $note->issue_date->toDateString(),
+            'issue_date_bs' => TaxNote::bsLabel($note->bs_issue_date),
+            'reason_code' => $note->reason_code,
+            'reason' => $note->reasonLabel(),
+            'reason_text' => $note->reason_text,
+            'automatic' => $note->automatic,
+            'lines' => $note->lines->map(fn (TaxNoteLine $line): array => [
+                'description' => $line->description,
+                'amount' => $money($line->amount + $line->tax1_amount + $line->tax2_amount),
+            ])->values()->all(),
+            'url' => route('client.invoices.show', $note->invoice_id),
+            'pdf_url' => route('client.invoices.notes.pdf', $note->id),
+        ];
+    }
+
     private function registerMergeFields(): void
     {
         $registry = $this->app->make(MergeFieldRegistry::class);
@@ -511,6 +563,15 @@ class BillingServiceProvider extends ModuleServiceProvider
         // The oldest overdue invoice that bills a service or one of its add-ons (for the suspension email); [] when none.
         $registry->register('service_overdue_invoice', fn (int $serviceId): array => $this->overdueInvoiceFor(BillableType::Service, $serviceId));
         $registry->register('service_addon_overdue_invoice', fn (int $addonId): array => $this->overdueInvoiceFor(BillableType::ServiceAddon, $addonId));
+
+        $registry->register('tax_note', fn (int $id): array => $this->taxNoteMergeFields(TaxNote::query()->with('lines')->findOrFail($id)));
+        // Mail-only facts about a note, kept out of the `tax_note` webhook payload: whether its email carries the PDF (in
+        // the client's language), so the text can say so.
+        $registry->register('tax_note_mail', function (int $id): array {
+            $note = TaxNote::query()->with('client:id,language')->findOrFail($id);
+
+            return ['client_id' => $note->client_id, 'pdf_attached' => app(BillingDocumentAttachments::class)->attaches($note, $note->client->language ?: null)];
+        });
 
         $registry->register('quote', function (int $id): array {
             $quote = Quote::query()->findOrFail($id);

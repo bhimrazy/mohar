@@ -87,7 +87,7 @@ duration_ms, next_attempt_at, created_at, updated_at` — unique `(event_id, end
 `service.suspended` M · `service.unsuspended` M · `service.cancellation_requested` M · `service.upgrade_completed` S · `service.terminated` C
 **Invoice:** `invoice.created` M · `invoice.created_autocharge` (card/stored method will be charged) M · `invoice.payment_reminder` M ·
 `invoice.overdue_first` M · `invoice.overdue_second` M · `invoice.overdue_third` M · `invoice.payment_confirmation` M · `invoice.payment_failed` M ·
-`invoice.refunded` M · `invoice.modified` M · `payment_method.expiring` S · `credit_note.issued` C
+`invoice.refunded` M · `invoice.modified` M · `payment_method.expiring` S · `credit_note.issued` M · `debit_note.issued` M
 **Domain:** `domain.registration_confirmation` M · `domain.transfer_initiated` M · `domain.transfer_completed` M · `domain.transfer_failed` M ·
 `domain.renewal_confirmation` M · `domain.renewal_upcoming` M · `domain.expired_notice` M
 **Support (client):** `ticket.autoresponse` M · `ticket.opened_by_staff` M · `ticket.reply` M · `ticket.auto_closed` M · `ticket.link_replaced` M · `ticket.closed_bounce` M ·

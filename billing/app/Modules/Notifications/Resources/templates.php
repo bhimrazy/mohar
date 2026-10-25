@@ -485,10 +485,30 @@ Add a new one so renewals continue without interruption.
 
 [Update payment method]({{ system.client_area_url }})
 MD.$signOff),
-    $client('credit_note.issued', 'invoice', 'Credit note issued', 'Credit note from {{ company.name }}: {{ credit_note.amount }} for invoice {{ invoice.number }}', <<<'MD'
-# Credit note issued
+    $client('credit_note.issued', 'invoice', 'Credit note issued', 'Credit note {{ tax_note.number }} from {{ company.name }}: {{ tax_note.amount }} for invoice {{ invoice.number }}', <<<'MD'
+# Credit note {{ tax_note.number }}
 
-We've issued a credit note for {{ credit_note.amount }} against invoice {{ invoice.number }}. The amount is now credit on your account.
+We've issued a credit note for {{ tax_note.amount }} against invoice {{ invoice.number }}.{% if tax_note.pdf_attached %} The note is attached.{% endif %}
+
+| Credit note | {{ tax_note.number }} |
+|---|---|
+| Invoice | {{ invoice.number }} |
+| Date | {{ tax_note.issue_date | date }}{% if tax_note.issue_date_bs %} ({{ tax_note.issue_date_bs }}){% endif %} |
+| Reason | {{ tax_note.reason_text }} |
+
+[View invoice]({{ invoice.url }})
+MD.$signOff),
+    $client('debit_note.issued', 'invoice', 'Debit note issued', 'Debit note {{ tax_note.number }} from {{ company.name }}: {{ tax_note.amount }} added to invoice {{ invoice.number }}', <<<'MD'
+# Debit note {{ tax_note.number }}
+
+We've issued a debit note for {{ tax_note.amount }} against invoice {{ invoice.number }}.{% if tax_note.pdf_attached %} The note is attached.{% endif %}
+
+| Debit note | {{ tax_note.number }} |
+|---|---|
+| Invoice | {{ invoice.number }} |
+| Date | {{ tax_note.issue_date | date }}{% if tax_note.issue_date_bs %} ({{ tax_note.issue_date_bs }}){% endif %} |
+| Reason | {{ tax_note.reason_text }} |
+| Now due | {{ invoice.balance }} |
 
 [View invoice]({{ invoice.url }})
 MD.$signOff),
@@ -915,6 +935,7 @@ $preheaders = [
     'invoice.modified' => '{{ invoice.balance }} is due by {{ invoice.due_date | date }}.',
     'payment_method.expiring' => 'Add a new one before then so renewals keep going through.',
     'credit_note.issued' => 'Issued against invoice {{ invoice.number }}.',
+    'debit_note.issued' => 'Issued against invoice {{ invoice.number }}.',
     'domain.registration_confirmation' => 'It\'s active until {{ domain.expiry_date | date }}. DNS changes can take a few hours to reach everyone.',
     'domain.transfer_initiated' => 'Most transfers finish within 5–7 days. Approving the request at your current registrar speeds it up.',
     'domain.transfer_completed' => 'Transfer complete. It renews on {{ domain.expiry_date | date }}.',
@@ -976,7 +997,8 @@ $descriptions = [
     'invoice.refunded' => 'Tells the client a refund was issued.',
     'invoice.modified' => 'Sent when an issued invoice is changed.',
     'payment_method.expiring' => 'Warns the client that a saved payment method is about to expire.',
-    'credit_note.issued' => 'Sent when a credit note is issued against an invoice.',
+    'credit_note.issued' => 'Sends the client a credit note issued against their invoice, with its PDF.',
+    'debit_note.issued' => 'Sends the client a debit note issued against their invoice, with its PDF.',
     'domain.registration_confirmation' => 'Confirms a domain registration.',
     'domain.transfer_initiated' => 'Confirms that a domain transfer to us has started.',
     'domain.transfer_completed' => 'Confirms a domain transfer finished.',
@@ -1020,4 +1042,7 @@ $descriptions = [
     'staff.template_render_failed' => 'Tells staff an email template failed to render, with the error.',
 ];
 
-return array_map(fn (array $template): array => [...$template, 'preheader' => $preheaders[$template['key']] ?? null, 'description' => $descriptions[$template['key']] ?? null], $templates);
+// Templates whose message carries its related record's PDF (App\Contracts\Billing\BillingDocuments), attached at send time.
+$attachesDocument = ['credit_note.issued', 'debit_note.issued'];
+
+return array_map(fn (array $template): array => [...$template, 'preheader' => $preheaders[$template['key']] ?? null, 'description' => $descriptions[$template['key']] ?? null, 'attaches_document' => in_array($template['key'], $attachesDocument, true)], $templates);

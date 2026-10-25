@@ -7,11 +7,14 @@ use App\Modules\Billing\Data\NotePreview;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Http\Requests\Admin\TaxNoteRequest;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\TaxNote;
+use App\Modules\Billing\Services\DocumentDownloads;
 use App\Modules\Billing\Services\TaxNoteIssuer;
 use App\Modules\Billing\Support\TaxNotePanel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Staff issue credit and debit notes on a tax invoice, and reverse a credit note (vat-register §5.1, §5.5). The preview
@@ -36,6 +39,14 @@ class TaxNoteController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __(':kind note :number issued.', ['kind' => $note->kind === 'credit' ? __('Credit') : __('Debit'), 'number' => $note->number])]);
 
         return back();
+    }
+
+    /** The note's PDF; each download is a print (DocumentDownloads). */
+    public function pdf(TaxNote $taxNote, DocumentDownloads $downloads): Response
+    {
+        $this->authorize('billing.tax_notes.view');
+
+        return $downloads->note($taxNote);
     }
 
     private function ensureIssuable(Invoice $invoice): void

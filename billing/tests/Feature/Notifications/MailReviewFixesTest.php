@@ -457,7 +457,7 @@ it('shows a Paid row between the total and the balance of a partly paid invoice'
 });
 
 it('states the amount of a refund and of a credit note', function () {
-    $context = ['invoice' => ['number' => 'INV-7'], 'refund' => ['amount' => '$5.00'], 'credit_note' => ['amount' => '$4.00']];
+    $context = ['invoice' => ['number' => 'INV-7'], 'refund' => ['amount' => '$5.00'], 'tax_note' => ['number' => 'CN-7', 'amount' => '$4.00']];
 
     expect(reviewCompose('invoice.refunded', $context)->text)->toContain('Refunded: $5.00', "We've refunded $5.00 for invoice INV-7")
         ->and(reviewCompose('credit_note.issued', $context))->subject->toContain('$4.00')->text->toContain('Credit: $4.00');

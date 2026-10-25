@@ -26,10 +26,13 @@ interface Invoicer
      * create a legal document; `$reason` is the text printed on it ("Cancelled by Orders"). Callers hold their own row locks
      * before Billing's invoice lock.
      *
+     * `$notify` false keeps that credit note from being emailed to the client (a cancel the client did not ask
+     * for and need not hear about, such as a fraud flag or a stale unpaid order); the webhook is sent either way.
+     *
      * @throws InvoiceNotCancellable when the invoice stays payable (for example its credit note was
      *                               refused). Billing has put it on its staff list; the caller must not mark its own record cancelled.
      */
-    public function cancel(int $invoiceId, ?string $reason = null): void;
+    public function cancel(int $invoiceId, ?string $reason = null, bool $notify = true): void;
 
     /**
      * Whether an unpaid or draft invoice already contains a line for this billable item.

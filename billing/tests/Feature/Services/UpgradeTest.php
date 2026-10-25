@@ -64,6 +64,8 @@ test('an unpaid upgrade expires after the configured days and its invoice is can
 
     expect($change->refresh()->status)->toBe(ChangeStatus::Expired)
         ->and($this->kit->invoicer->status($change->invoice_id))->toBe('cancelled')
+        // A system cancel: its credit note is not emailed (PR #482).
+        ->and($this->kit->invoicer->cancelNotifies)->toBe([$change->invoice_id => false])
         ->and($service->refresh()->product_id)->toBe(1);
 });
 

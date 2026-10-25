@@ -4,6 +4,7 @@ namespace App\Modules\Billing\Models;
 
 use App\Models\User;
 use App\Modules\Billing\Exceptions\ImmutableInvoiceException;
+use App\Modules\Billing\Support\BikramSambatDate;
 use App\Modules\Core\Models\Client;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -24,16 +25,27 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $client_id
  * @property string $currency
  * @property CarbonImmutable $issue_date
+ * @property CarbonImmutable $issued_at
+ * @property string $invoice_number snapshot of the invoice's number
+ * @property string|null $invoice_bs_issue_date snapshot of the invoice's BS issue date (Y-m-d)
  * @property string $bs_issue_date
  * @property string $reason_code
  * @property string $reason_text client-visible
+ * @property int $taxable_amount
+ * @property int $exempt_amount
  * @property int $tax1_amount
  * @property int $tax2_amount
  * @property bool|null $tax1_is_vat whether the level is Nepal VAT, copied from the invoice; null = not classified
  * @property bool|null $tax2_is_vat
  * @property bool $automatic
  * @property int $total minor units, positive; the kind gives the direction
+ * @property string|null $report_currency
  * @property string|null $report_rate
+ * @property string $supply_class
+ * @property array<string, mixed>|null $seller_snapshot copied from the invoice
+ * @property array<string, mixed>|null $buyer_snapshot copied from the invoice
+ * @property string $bs_fiscal_year
+ * @property int|null $created_by
  * @property string $bs_period
  * @property int $print_count
  * @property int|null $reverses_tax_note_id the credit note this debit note reverses
@@ -54,6 +66,34 @@ class TaxNote extends Model
 {
     /** The only columns that change after numbering (vat-register §9). */
     public const MUTABLE = ['print_count', 'cbms_status', 'cbms_reference', 'updated_at'];
+
+    /** Each reason code in words, as the client reads it on the note, the client area and the email. */
+    private const REASONS = [
+        'invoice_cancelled' => 'Invoice cancelled', 'lines_cancelled' => 'Lines cancelled', 'refunded' => 'Refunded',
+        'refunded_at_provider' => 'Refunded by the payment provider', 'service_not_delivered' => 'Service not delivered',
+        'price_correction' => 'Price correction', 'duplicate_invoice' => 'Duplicate invoice', 'discount_after_sale' => 'Discount after sale',
+        'goodwill' => 'Goodwill', 'late_fee' => 'Late payment fee', 'reverses_credit_note' => 'Reverses a credit note', 'other' => 'Other',
+    ];
+
+    public function reasonLabel(): string
+    {
+        return __(self::REASONS[$this->reason_code] ?? 'Other');
+    }
+
+    /** A stored BS date (Y-m-d) as "28 Poush 2082 BS", or null. */
+    public static function bsLabel(?string $bsDate): ?string
+    {
+        if ($bsDate === null || preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $bsDate, $parts) !== 1) {
+            return null;
+        }
+
+        return (new BikramSambatDate((int) $parts[1], (int) $parts[2], (int) $parts[3]))->format();
+    }
+
+    public function kindLabel(): string
+    {
+        return $this->kind === 'credit' ? __('Credit Note') : __('Debit Note');
+    }
 
     protected function casts(): array
     {

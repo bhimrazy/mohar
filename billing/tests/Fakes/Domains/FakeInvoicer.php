@@ -51,7 +51,7 @@ class FakeInvoicer implements Invoicer
     /** Billing refuses every cancel (a tax invoice whose credit note it cannot write): the invoice stays unpaid. */
     public bool $refuseCancel = false;
 
-    public function cancel(int $invoiceId, ?string $reason = null): void
+    public function cancel(int $invoiceId, ?string $reason = null, bool $notify = true): void
     {
         if ($this->refuseCancel && isset($this->invoices[$invoiceId]) && $this->invoices[$invoiceId]['status'] === 'unpaid') {
             throw new InvoiceNotCancellable('Scripted refusal');

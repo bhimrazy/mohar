@@ -25,9 +25,10 @@ use App\Modules\Billing\Http\Resources\InvoiceResource;
 use App\Modules\Billing\Http\Resources\TransactionResource;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
+use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Billing\Services\DocumentDownloads;
 use App\Modules\Billing\Services\InvoiceParties;
-use App\Modules\Billing\Services\InvoicePdf;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\ClientPaymentOptions;
 use App\Modules\Billing\Support\PaymentInProgress;
@@ -37,11 +38,9 @@ use App\Support\Billing\SandboxPolicy;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Client-area invoices. Every query is scoped to the current client account (never trust ids alone).
@@ -80,6 +79,7 @@ class InvoiceController extends Controller
                 'credit' => $credit->balance($client->id, $client->currency)->amount,
             ],
             'mass_pay' => $settings->bool('mass_pay_enabled'),
+            'has_notes' => TaxNote::query()->where('client_id', $client->id)->exists(),
         ]);
     }
 
@@ -100,15 +100,15 @@ class InvoiceController extends Controller
                 ->where(fn ($query) => $query->where('amount_in', '>', 0)->orWhere('amount_out', '>', 0))->get()),
             'payment' => $invoice->status === InvoiceStatus::Unpaid && $invoice->balance > 0 ? $options->forInvoice($invoice) : null,
             'payment_in_progress' => $invoice->status->isPayable() ? $inProgress->forInvoice($invoice) : null,
+            'notes' => TaxNoteController::rows(TaxNote::query()->where('client_id', $invoice->client_id)->where('invoice_id', $invoice->id)->orderBy('id')->get()),
         ]);
     }
 
-    public function pdf(int $invoice, InvoicePdf $pdf): StreamedResponse
+    public function pdf(int $invoice, DocumentDownloads $downloads): SymfonyResponse
     {
         $this->context->authorize('billing');
-        $invoice = $this->find($invoice);
 
-        return Storage::disk('objects')->download($pdf->ensure($invoice), $pdf->filename($invoice), ['Content-Type' => 'application/pdf']);
+        return $downloads->invoice($this->find($invoice));
     }
 
     public function pay(PayInvoiceRequest $request, int $invoice, CaptureInvoice $capture, ManagePayMethods $payMethods, ClientPaymentOptions $options, StartHostedPayment $start, PaymentInProgress $inProgress): RedirectResponse|SymfonyResponse
