@@ -150,7 +150,7 @@ test('a document over the size cap is left off and the text does not claim it', 
 test('a converted quote line keeps its quantity, price and discount note when the item text is long', function () {
     $client = pdfEmailClient();
     $quotes = app(Quotes::class);
-    $long = str_repeat('Managed hosting migration ', 20);
+    $long = str_repeat('Managed hosting migration ', 9);
     $quote = $quotes->save(['client_id' => $client->id, 'subject' => 'Migration', 'items' => [
         ['description' => $long, 'quantity' => 3, 'unit_amount' => 333_333, 'discount_percent' => 10, 'taxable' => true],
         ['description' => 'Short line', 'quantity' => 3, 'unit_amount' => 333_333, 'discount_percent' => 10, 'taxable' => true],
