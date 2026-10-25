@@ -254,7 +254,7 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
         $description = is_string($body['statusDesc'] ?? null) ? strtoupper(trim($body['statusDesc'])) : '';
 
         return match (true) {
-            $response->status() === 401 => new ConnectionCheck(false, __('connectIPS rejected the app ID or app password (:mode mode).', ['mode' => $mode])),
+            $response->status() === 401 => new ConnectionCheck(false, __('connectIPS rejected the app ID or app password (:mode mode). If they are right, check the signing certificate.', ['mode' => $mode])),
             ($body['status'] ?? null) === 'ERROR' && str_contains($description, 'NOT FOUND') => new ConnectionCheck(true, __('connectIPS accepted the app ID, password and signing key (:mode mode).', ['mode' => $mode])),
             default => new ConnectionCheck(false, __('connectIPS answered, but the credentials could not be confirmed (:mode mode): :reason', [
                 'mode' => $mode,
