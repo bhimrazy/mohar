@@ -24,6 +24,7 @@ use App\Modules\Notifications\Models\WebhookDelivery;
 use App\Modules\Notifications\Models\WebhookEndpoint;
 use App\Modules\Notifications\Services\NotificationMailer;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
@@ -343,3 +344,17 @@ test('an event copy serialised before a defaulted parameter existed gets the def
 
     expect($copy->notify)->toBeTrue()->and($copy->number)->toBe('CN-1');
 });
+
+test('the print number is taken under a row lock', function () {
+    $note = documentNote(documentInvoice(), notify: false);
+    actingAsStaff(['billing.tax_notes.view']);
+    $sql = [];
+    DB::listen(function ($query) use (&$sql): void {
+        $sql[] = strtolower($query->sql);
+    });
+
+    $this->get(route('admin.billing.notes.pdf', $note))->assertOk();
+
+    $locks = array_filter($sql, fn (string $query): bool => str_contains($query, 'from "tax_notes"') && str_contains($query, 'for update'));
+    expect($locks)->toHaveCount(1);
+})->skip(fn (): bool => DB::getDriverName() !== 'pgsql', 'SQLite has no FOR UPDATE');
