@@ -311,8 +311,17 @@ migrations must be ones the previous release can run against:
 4. **Jobs too:** a queued job's payload must stay readable by both versions, because old workers drain while new
    ones start. Add properties with defaults; remove them a release later.
 
-`php artisan deploy:check-migrations` enforces rules 1 to 3: `--since=origin/develop` locally before a pull request,
-and `--pending` in the new image before every deploy (the deploy script stops on a finding). It is not part of CI.
+`php artisan deploy:check-migrations` enforces rules 1 to 3, and 5 and 6 below: `--since=origin/develop` locally
+before a pull request, and `--pending` in the new image before every deploy (the deploy script stops on a finding).
+It also refuses a migration timestamp that another migration already has (two merged pairs are allow-listed in
+`MigrationLint`). It reads every method except `down()`, so a drop in a helper or through `Schema::connection()` is
+seen, as are raw `ALTER COLUMN … TYPE`, `SET NOT NULL`, `ADD CONSTRAINT`, a unique index on an existing table and a
+foreign key dropped and added again without a `nullOnDelete`/`cascadeOnDelete` action. A `@contract` or `@compatible`
+tag needs a reason and excuses the statement it directly precedes; a tag on the class excuses a file that has one such
+statement. Rules 5 and 6 cannot be excused. Migrations merged before the checker are listed in
+`database/migration-rules-baseline.txt` and skipped; do not add to it. It is not a CI step, but
+`CheckMigrationsRulesTest` runs the same checks over every migration not in the baseline, so a new one that breaks them
+fails CI.
 
 Locks, for every new migration (the old release keeps serving while it runs):
 

@@ -2,6 +2,7 @@
 
 namespace App\Modules\Core\Console\Commands;
 
+use App\Modules\Core\Support\MigrationLint;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -9,33 +10,23 @@ use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Support\Facades\Process;
 
 /**
- * The expand-then-contract rule (docs/architecture.md, "Migrations during blue-green deploys"): a release's
- * migrations may only add, because the previous release keeps running against the same schema until the switch.
- * This flags an up() that drops, renames or changes a column or table. Two tags, with the reason next to them, turn
- * a finding into a report: the contract tag for the contract step (removing what no released code uses any more),
- * and the compatible tag for an in-place change the previous release still works with (widening a column, say).
+ * The migration rules of docs/architecture.md, "Migrations during blue-green deploys": expand then contract
+ * (rules 1 to 3), DDL under LockTimeout::run (5), indexes through OnlineIndex (6), and one timestamp per migration.
+ * The analysis is App\Modules\Core\Support\MigrationLint. A `@contract` or `@compatible` tag with a reason, in a
+ * comment before the statement, excuses that statement; locks and indexes cannot be excused. Migrations listed in
+ * database/migration-rules-baseline.txt were merged before this checker's rules and are never rewritten, so they are skipped.
  */
 #[Signature('deploy:check-migrations
     {paths?* : Migration files to check}
     {--pending : Check the migrations this database has not run yet (before a deploy)}
     {--since= : Check migration files added or changed since this git ref (locally, before a pull request)}')]
-#[Description('Fail when a migration drops, renames or changes a column or table in one step (expand-then-contract)')]
+#[Description('Fail when a migration breaks the blue-green rules: one-step drops or changes, DDL outside LockTimeout, indexes outside OnlineIndex, duplicate timestamps')]
 class CheckMigrationsCommand extends Command
 {
-    /** @var array<string, string> pattern => what it does */
-    private const DESTRUCTIVE = [
-        '/->\s*drop(Column|Columns|Morphs|NullableMorphs|Timestamps|TimestampsTz|SoftDeletes|SoftDeletesTz|RememberToken)\s*\(/' => 'drops a column',
-        '/->\s*renameColumn\s*\(/' => 'renames a column',
-        '/->\s*change\s*\(\s*\)/' => 'changes a column definition',
-        '/Schema::\s*(drop|dropIfExists|dropColumns)\s*\(/' => 'drops a table or columns',
-        '/Schema::\s*rename\s*\(/' => 'renames a table',
-        '/->\s*rename\s*\(/' => 'renames a table',
-        '/DB::\s*(statement|unprepared)\s*\([^;]*\b(DROP|RENAME)\b/is' => 'runs raw SQL that drops or renames',
-    ];
-
     public function handle(Migrator $migrator): int
     {
-        $files = $this->files($migrator);
+        $known = $migrator->getMigrationFiles(array_merge([database_path('migrations')], $migrator->paths()));
+        $files = $this->files($migrator, $known);
 
         if ($files === null) {
             return self::FAILURE;
@@ -48,6 +39,7 @@ class CheckMigrationsCommand extends Command
         }
 
         $failures = 0;
+        $baseline = $this->baseline();
 
         foreach ($files as $file) {
             if (! is_file($file) || ! is_readable($file)) {
@@ -56,51 +48,108 @@ class CheckMigrationsCommand extends Command
                 return self::FAILURE;
             }
 
-            $source = (string) file_get_contents($file);
-            $problems = $this->problems($this->upBody($source));
             $name = basename($file);
 
-            if ($problems === []) {
+            if (in_array(basename($file, '.php'), $baseline, true)) {
+                $this->components->twoColumnDetail($name, '<fg=gray>merged before these rules (baseline)</>');
+
+                continue;
+            }
+
+            $findings = MigrationLint::analyse((string) file_get_contents($file));
+            $errors = $this->describe($findings, 'error');
+            $warnings = $this->describe($findings, 'warning');
+
+            if ($errors !== []) {
+                $failures++;
+                $this->components->twoColumnDetail($name, '<fg=red>'.implode(', ', $errors).'</>');
+            }
+
+            foreach (['contract' => 'contract step (@contract)', 'compatible' => 'compatible change (@compatible)'] as $tag => $label) {
+                $excused = $this->describe(array_filter($findings, fn (array $f): bool => $f['tag'] === $tag), 'excused');
+
+                if ($excused !== []) {
+                    $this->components->twoColumnDetail($name, "<fg=yellow>{$label}: ".implode(', ', $excused).'</>');
+                }
+            }
+
+            if ($warnings !== []) {
+                $this->components->twoColumnDetail($name, '<fg=yellow>warning: '.implode(', ', $warnings).'</>');
+            }
+
+            if ($findings === []) {
                 $this->components->twoColumnDetail($name, '<fg=green>expand only</>');
-
-                continue;
             }
+        }
 
-            if (preg_match('/@(contract|compatible)\b/', $source, $tag) === 1) {
-                $label = $tag[1] === 'contract' ? 'contract step (@contract)' : 'compatible change (@compatible)';
-                $this->components->twoColumnDetail($name, "<fg=yellow>{$label}: ".implode(', ', $problems).'</>');
+        $duplicates = MigrationLint::duplicateTimestamps($files, array_values($known));
 
-                continue;
-            }
-
-            $failures++;
-            $this->components->twoColumnDetail($name, '<fg=red>'.implode(', ', $problems).'</>');
+        foreach ($duplicates as $duplicate) {
+            $this->components->error($duplicate);
         }
 
         if ($failures > 0) {
-            $this->components->error("{$failures} migration(s) remove or change schema the running release still uses. Split them: "
+            $this->components->error("{$failures} migration(s) break the blue-green rules. Split a drop, rename or change: "
                 .'add in this release, remove in a later one once no released code reads the old schema, and tag that '
-                .'migration @contract; tag an in-place change the old release tolerates @compatible (docs/architecture.md, '
-                .'"Migrations during blue-green deploys").');
-
-            return self::FAILURE;
+                .'statement @contract with a reason; tag an in-place change the old release tolerates @compatible. A tag '
+                .'excuses the statement it precedes (a tag on the class, only a file with one such statement). Run DDL on an '
+                .'existing table in LockTimeout::run and build indexes with OnlineIndex::create in a migration with '
+                .'`public $withinTransaction = false;` (docs/architecture.md, "Migrations during blue-green deploys").');
         }
 
-        return self::SUCCESS;
+        return $failures > 0 || $duplicates !== [] ? self::FAILURE : self::SUCCESS;
     }
 
     /**
+     * @param  iterable<array{message: string, line: int, level: string, tag: string|null}>  $findings
+     * @return list<string>
+     */
+    private function describe(iterable $findings, string $level): array
+    {
+        $lines = [];
+
+        foreach ($findings as $finding) {
+            if ($finding['level'] === $level) {
+                $lines[$finding['message']][] = $finding['line'];
+            }
+        }
+
+        $out = [];
+
+        foreach ($lines as $message => $at) {
+            $out[] = $message.' (line '.implode(', ', array_unique($at)).')';
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return list<string> migration names (no .php) skipped
+     */
+    private function baseline(): array
+    {
+        $path = database_path('migration-rules-baseline.txt');
+
+        if (! is_file($path)) {
+            return [];
+        }
+
+        $lines = array_map('trim', file($path, FILE_IGNORE_NEW_LINES) ?: []);
+
+        return array_values(array_filter($lines, fn (string $line): bool => $line !== '' && ! str_starts_with($line, '#')));
+    }
+
+    /**
+     * @param  array<string, string>  $known
      * @return list<string>|null
      */
-    private function files(Migrator $migrator): ?array
+    private function files(Migrator $migrator, array $known): ?array
     {
         $given = array_values(array_filter((array) $this->argument('paths')));
 
         if ($given !== []) {
             return $given;
         }
-
-        $known = $migrator->getMigrationFiles(array_merge([database_path('migrations')], $migrator->paths()));
 
         if ($this->option('pending')) {
             if (! $migrator->repositoryExists()) {
@@ -132,74 +181,5 @@ class CheckMigrationsCommand extends Command
         $this->components->error('Pass migration files, --pending or --since=<git ref>.');
 
         return null;
-    }
-
-    /**
-     * The source of the migration's up() method, so down() (which may drop anything) is not checked.
-     */
-    private function upBody(string $source): string
-    {
-        $tokens = token_get_all($source);
-        $count = count($tokens);
-
-        for ($i = 0; $i < $count; $i++) {
-            if (! is_array($tokens[$i]) || $tokens[$i][0] !== T_FUNCTION) {
-                continue;
-            }
-
-            $j = $i + 1;
-
-            while ($j < $count && is_array($tokens[$j]) && $tokens[$j][0] === T_WHITESPACE) {
-                $j++;
-            }
-
-            if (! is_array($tokens[$j] ?? null) || strtolower($tokens[$j][1]) !== 'up') {
-                continue;
-            }
-
-            while ($j < $count && $tokens[$j] !== '{') {
-                $j++;
-            }
-
-            $depth = 0;
-            $body = '';
-
-            for (; $j < $count; $j++) {
-                $text = is_array($tokens[$j]) ? $tokens[$j][1] : $tokens[$j];
-
-                if (is_array($tokens[$j]) && in_array($tokens[$j][0], [T_COMMENT, T_DOC_COMMENT], true)) {
-                    continue;
-                }
-
-                $depth += match ($text) {
-                    '{', '${' => 1,
-                    '}' => -1,
-                    default => is_array($tokens[$j]) && $tokens[$j][0] === T_CURLY_OPEN ? 1 : 0,
-                };
-                $body .= $text;
-
-                if ($depth === 0) {
-                    return $body;
-                }
-            }
-        }
-
-        return '';
-    }
-
-    /**
-     * @return list<string>
-     */
-    private function problems(string $body): array
-    {
-        $found = [];
-
-        foreach (self::DESTRUCTIVE as $pattern => $meaning) {
-            if (preg_match($pattern, $body) === 1) {
-                $found[] = $meaning;
-            }
-        }
-
-        return array_values(array_unique($found));
     }
 }
