@@ -369,5 +369,10 @@ RSA key NCHL ships as a PKCS#12 file).
    added meanwhile.
 6. **`Dashboard::health()` resolvers may return null** to leave the check out (Billing's certificate line shows only
    when an active gateway has a certificate: amber within the first warning stage, red once expired).
-7. **Step-up refusals carry no old input.** `password.recent` now redirects back with its error only, because it runs
-   before any form request that keeps secrets out of the session; the confirm dialog replays the visit itself.
+7. **Hosts list only valid drivers** (#490). `DriverRegistry::get()` runs the family's `validate()` hook (the registrar
+   and provisioning registries refuse certificate settings there), and `keys()`/`all()` report and leave out a driver
+   that fails it, so one broken package cannot break the pages that list every driver. Billing's certificate check and
+   health line skip, and report, a gateway driver whose fields cannot be read, and count only certificate settings a
+   driver still declares. A host whose owner record can be deleted deletes its `integration_credentials` rows in the
+   same transaction; gateways are never deleted, so none does yet.
+8. The step-up refusal change is recorded in ADR 0018 Amendment (#490).
