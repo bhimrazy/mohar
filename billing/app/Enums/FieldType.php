@@ -8,7 +8,7 @@ use InvalidArgumentException;
  * Input type of an integration setting (gateway, provisioning driver, registrar). A secret is a type, not a flag:
  * Secret, SecretText and Certificate values are stored encrypted, never sent back to the browser, and redacted from
  * logs. A Certificate is uploaded as a PKCS#12 file with its passphrase; the host keeps only the PEM private key and
- * the certificate's metadata (ADR 0009 Amendment (#PR)). Only the gateway form accepts one so far.
+ * the certificate's metadata (ADR 0009 Amendment (#489)). Only the gateway form accepts one so far.
  *
  * Closed enum (ADR 0010): a new case is a major change, because every settings form renders each case.
  */

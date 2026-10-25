@@ -331,3 +331,29 @@ a mask would change one. The host uses it to mask a customer's free-text TLD ans
 3. Core binds a null `RegistrarRefs` for installs without Domains.
 4. A driver is active without a saved account only if it implements the marker `StandaloneRegistrar` or declares no
    settings (`RegistrarDriverRegistry::needsAccount`). Other drivers are inactive until staff save the account.
+
+## Amendment (#489) — 2026-10-25, certificate settings and credential expiry
+
+Approved by the owner and CTO as K1 of `docs/product/payments-gateways-expansion.md` §9.2 (connectIPS signs with an
+RSA key NCHL ships as a PKCS#12 file).
+
+1. **`FieldType::Certificate` (`certificate`).** A closed-enum case added before 1.0, with every in-repo renderer
+   updated in the same PR (ADR 0010 counts it as a major change after 1.0). It is a secret type: write-only, encrypted,
+   in `GatewayConfig::$secretSettingKeys` and so redacted line by line (`RedactionSet`). Staff upload the `.pfx`/`.p12`
+   (at most 64 KB) with its passphrase; `Support\Integrations\CertificateBundle::fromPkcs12()` reads it in memory with
+   OpenSSL, checks that the key belongs to the certificate and that it has not expired, and returns the unencrypted PEM
+   key with `Data\Integrations\CertificateInfo` (subject, issuer, serial, validity). The file and passphrase are never
+   kept. A refusal is `CertificateRefused`, whose message is safe to show and never carries OpenSSL's text. An empty
+   save keeps the stored certificate; text sent for the setting is ignored.
+2. **Storage.** The PEM key is the setting's value. The metadata sits in the same encrypted settings under
+   `GatewayConfig::CERTIFICATES` (`_certificates.<key>`), so forms and checks read it without parsing the key; drivers
+   read it through `GatewayConfig::certificate($key)`. Only the gateway host stores certificates so far; the registrar
+   and server forms render a "not supported here" note for the type, and a driver of those families must not declare
+   one until its host supports it.
+3. **`Events\Billing\GatewayCredentialExpiring`** (gateway key and name, setting key and label, expiry instant, days
+   left). Billing's daily task `billing.gateway_credentials` raises it once per stage of
+   `billing.gateways.certificate_warning_days` (30, 7, 1 by default) and once on expiry, for active gateways; the
+   stage reached is recorded beside the metadata, so a missed day warns once and a new upload starts again.
+   Notifications emails staff with `billing.gateways.manage` (`staff.gateway_credential_expiring`).
+4. **`Dashboard::health()` resolvers may return null** to leave the check out (Billing's certificate line shows only
+   when an active gateway has a certificate: amber within the first warning stage, red once expired).
