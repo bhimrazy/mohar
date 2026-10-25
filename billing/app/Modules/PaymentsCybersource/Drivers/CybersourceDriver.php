@@ -300,11 +300,11 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
             return new ChargeResult(ChargeResult::ERROR, declineReason: CybersourceRest::summary($response), raw: $raw);
         }
 
-        // A refund Cybersource created in a status we don't know stays pending: the refund check decides, so the
-        // amount is never released while money may already be on its way back.
+        // Any other 2xx (an unknown status, or no refund id) stays pending: the refund check decides, so the amount is
+        // never released while money may already be on its way back. Only an explicit refusal or a 4xx declines.
         return match (true) {
             $response->successful() && is_string($id) && in_array($status, ['PENDING', 'TRANSMITTED', 'COMPLETED', 'SUCCEEDED'], true) => new ChargeResult(ChargeResult::SUCCESS, $id, raw: $raw),
-            $response->successful() && is_string($id) && ! in_array($status, ['DECLINED', 'INVALID_REQUEST', 'FAILED'], true) => new ChargeResult(ChargeResult::ERROR, $id, declineReason: 'Cybersource answered with refund status '.($status ?? 'none').'; check the refund', raw: $raw),
+            $response->successful() && ! in_array($status, ['DECLINED', 'INVALID_REQUEST', 'FAILED'], true) => new ChargeResult(ChargeResult::ERROR, is_string($id) ? $id : null, declineReason: 'Cybersource answered with refund status '.($status ?? 'none').(is_string($id) ? '' : ' and no refund id').'; check the refund', raw: $raw),
             default => new ChargeResult(ChargeResult::DECLINED, is_string($id) ? $id : null, declineReason: mb_substr(CybersourceRest::summary($response), 0, 150), raw: $raw),
         };
     }
@@ -419,24 +419,27 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
             return null;
         }
 
-        $unknown = array_values(array_filter($names, fn (string $name): bool => preg_match(self::RESPONSE_SIGNABLE, $name) !== 1));
-
-        if ($unknown !== []) {
-            // Names only, never values: a real profile signing a field we don't list would otherwise fail silently.
-            Log::warning('Cybersource reply refused: it signs fields outside the allowed list.', ['gateway' => self::KEY, 'fields' => array_slice(array_map(fn (string $name): string => mb_substr($name, 0, 64), $unknown), 0, 20)]);
-
-            return null;
-        }
-
         try {
             [$accessKey, $profileId, $secret] = $this->profile($gateway);
         } catch (CybersourceException) {
             return null;
         }
 
-        return hash_equals(self::signature($fields, $fields['signed_field_names'], $secret), $signature)
-            && $fields['req_access_key'] === $accessKey && $fields['req_profile_id'] === $profileId
-            && self::isReference($fields['req_reference_number'])
+        if (! hash_equals(self::signature($fields, $fields['signed_field_names'], $secret), $signature)) {
+            return null;
+        }
+
+        $unknown = array_values(array_filter($names, fn (string $name): bool => preg_match(self::RESPONSE_SIGNABLE, $name) !== 1));
+
+        if ($unknown !== []) {
+            // Only for a valid signature, so no anonymous sender writes names to the log: a real profile signing a
+            // field we don't list. Names only, never values.
+            Log::warning('Cybersource reply refused: it signs fields outside the allowed list.', ['gateway' => self::KEY, 'fields' => array_slice(array_map(fn (string $name): string => mb_substr($name, 0, 64), $unknown), 0, 20)]);
+
+            return null;
+        }
+
+        return $fields['req_access_key'] === $accessKey && $fields['req_profile_id'] === $profileId && self::isReference($fields['req_reference_number'])
             ? $fields : null;
     }
 
