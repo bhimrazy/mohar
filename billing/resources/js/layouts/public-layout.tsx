@@ -234,16 +234,19 @@ function HomeLink() {
 function useCurrentGroup(site: Site): number | null {
     const { url, props } = usePage();
     const product = (props as { product?: { group?: string } }).product;
+    const parsed = new URL(url, 'http://localhost');
     const hash =
-        new URL(url, 'http://localhost').hash ||
+        parsed.hash ||
         (typeof window === 'undefined' ? '' : window.location.hash);
+    const pathGroup = /^\/store\/([^/]+)\/?$/.exec(parsed.pathname)?.[1];
 
     return (
         site.products.groups.find(
             (group) =>
                 (product?.group !== undefined &&
                     product.group === group.name) ||
-                hash === `#${group.slug}`,
+                hash === `#${group.slug}` ||
+                pathGroup === group.slug,
         )?.id ?? null
     );
 }

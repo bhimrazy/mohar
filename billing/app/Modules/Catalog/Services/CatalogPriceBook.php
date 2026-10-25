@@ -37,14 +37,14 @@ class CatalogPriceBook implements PriceBook
 
     public function product(int $productId): ?ProductSummary
     {
-        $product = Product::query()->with('group:id,name,allowed_gateways')->find($productId);
+        $product = Product::query()->with('group:id,name,slug,allowed_gateways')->find($productId);
 
         return $product === null ? null : $this->summarise($product);
     }
 
     public function productsForDriver(string $driverKey): array
     {
-        return array_values(Product::query()->with('group:id,name,allowed_gateways')
+        return array_values(Product::query()->with('group:id,name,slug,allowed_gateways')
             ->where('provisioning_driver', $driverKey)
             ->where('is_retired', false)
             ->orderBy('id')
@@ -55,7 +55,7 @@ class CatalogPriceBook implements PriceBook
 
     public function productBySlug(string $slug): ?ProductSummary
     {
-        $product = Product::query()->with('group:id,name,allowed_gateways')->where('slug', strtolower(trim($slug)))->first();
+        $product = Product::query()->with('group:id,name,slug,allowed_gateways')->where('slug', strtolower(trim($slug)))->first();
 
         return $product === null ? null : $this->summarise($product);
     }
@@ -486,6 +486,7 @@ class CatalogPriceBook implements PriceBook
             termDays: $product->fixed_term_days > 0 ? $product->fixed_term_days : null,
             slug: $product->slug,
             allowedGateways: $product->group->allowed_gateways === null ? null : array_map('strval', $product->group->allowed_gateways),
+            groupSlug: $product->group->slug,
         );
     }
 

@@ -12,7 +12,6 @@ use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Models\TldPrice;
 use App\Support\Domains\RegistrarDriverRegistry;
 use Illuminate\Support\Facades\File;
-use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Domains\DomainFixtures;
 
 beforeEach(function () {
@@ -80,16 +79,16 @@ test('guests may choose a currency', function () {
     $this->getJson(route('domains.lookup', ['q' => 'example.com', 'currency' => 'XXX']))->assertJsonPath('currency', 'USD');
 });
 
-test('the public search page renders results for guests', function () {
-    $this->get(route('domains.search'))
-        ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page->component('public/domains/search')->where('search', null));
+test('the search page sends visitors to the store domain search, the one search page', function () {
+    $this->get(route('domains.search'))->assertRedirect(route('store.domains'));
+    $this->get(route('domains.search', ['q' => 'asha-traders.com']))->assertRedirect(route('store.domains', ['domain' => 'asha-traders.com']));
+});
 
-    $this->get(route('domains.search', ['q' => 'Bücher']))
+test('the lookup normalises international names for the search page', function () {
+    $this->getJson(route('domains.lookup', ['q' => 'Bücher']))
         ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page
-            ->where('search.normalised', 'xn--bcher-kva')
-            ->where('search.results.0.domain_unicode', 'bücher.com'));
+        ->assertJsonPath('normalised', 'xn--bcher-kva')
+        ->assertJsonPath('results.0.domain_unicode', 'bücher.com');
 });
 
 test('lookups are rate limited per IP', function () {
@@ -105,8 +104,6 @@ test('repeated lookups are served from a serialising cache store', function () {
 
     $first = $this->getJson(route('domains.lookup', ['q' => 'cached']))->assertOk()->json();
     $this->getJson(route('domains.lookup', ['q' => 'cached']))->assertOk()->assertExactJson($first);
-    $this->get(route('domains.search', ['q' => 'cached']))->assertOk();
-    $this->get(route('domains.search', ['q' => 'cached']))->assertOk();
 
     expect($first['results'][0]['status'])->toBe('available')
         ->and($first['suggestions'])->not->toBe([]);

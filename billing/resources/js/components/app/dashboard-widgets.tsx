@@ -357,6 +357,7 @@ export function DashboardWidgets({
                             key={card.list.key}
                             title={card.list.title}
                             href={card.list.href}
+                            links={card.list.actions}
                             empty={card.list.empty}
                             items={card.list.items
                                 .slice(0, LIST_ROWS)

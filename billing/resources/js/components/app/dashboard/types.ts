@@ -1,3 +1,8 @@
+import type {
+    ListWidgetAction,
+    ListWidgetLink,
+    ListWidgetToggle,
+} from '@/components/app/list-widget';
 import type { StatTrend } from '@/components/app/stat-card';
 import type { StatusTone } from '@/components/app/status-badge';
 import type {
@@ -55,8 +60,10 @@ export type DashboardListItem = {
     /** ISO date shown after the subtitle, prefixed with `dateLabel`. */
     date?: string | null;
     dateLabel?: string;
-    /** A button at the end of the row ("Pay"). */
-    action?: { label: string; href: string } | null;
+    /** A button at the end of the row: a link ("Pay"), or a POST behind a confirm ("Renew now"). */
+    action?: ListWidgetAction | null;
+    /** An on/off switch at the end of the row that saves immediately ("Auto-renew"). */
+    toggle?: ListWidgetToggle | null;
 };
 
 export type ListWidgetData = WidgetBase & {
@@ -67,6 +74,8 @@ export type ListWidgetData = WidgetBase & {
     empty?: string;
     /** The next step offered in the empty state ("Register a domain"). */
     emptyAction?: { label: string; href: string } | null;
+    /** Link buttons in the list's header ("New ticket"); `icon` is a nav icon name. */
+    actions?: ListWidgetLink[];
     /** Lists sharing a group render as tabs of one card titled `groupTitle`. */
     group?: string;
     groupTitle?: string;

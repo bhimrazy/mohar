@@ -27,16 +27,23 @@ function Row({
     );
 }
 
+/** What the client's group saves against guest prices (display only, from the server). */
+export type GroupSaving = { label: string; amount: number } | null;
+
 /**
  * Totals of a priced cart exactly as computed by the server: subtotal,
- * setup fees, discount, taxes, due today and what renews afterwards.
+ * setup fees, discount, taxes, due today and what renews afterwards. With a
+ * client-group saving the subtotal is shown at guest prices and the saving as
+ * its own line, so the total a guest saw before signing in still adds up.
  */
 export function OrderSummary({
     cart,
+    groupSaving = null,
     footer,
     className,
 }: {
     cart: PricedCart;
+    groupSaving?: GroupSaving;
     footer?: ReactNode;
     className?: string;
 }) {
@@ -60,8 +67,19 @@ export function OrderSummary({
             </div>
             <dl className="grid gap-2.5 px-5 py-4">
                 <Row label="Subtotal">
-                    <Money amount={cart.subtotal} currency={currency} />
+                    <Money
+                        amount={cart.subtotal + (groupSaving?.amount ?? 0)}
+                        currency={currency}
+                    />
                 </Row>
+                {groupSaving && (
+                    <Row label={groupSaving.label}>
+                        <Money
+                            amount={-groupSaving.amount}
+                            currency={currency}
+                        />
+                    </Row>
+                )}
                 {cart.setup_total > 0 && (
                     <Row label="Includes setup fees" muted>
                         <Money amount={cart.setup_total} currency={currency} />

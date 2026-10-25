@@ -771,6 +771,7 @@ export default function ServiceShow({
                                             service.id,
                                         )}
                                         currentProduct={service.product_name}
+                                        currentCycle={service.cycle}
                                         creditOnDowngrade={creditOnDowngrade}
                                         staff
                                     />

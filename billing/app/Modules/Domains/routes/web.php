@@ -48,7 +48,7 @@ Route::clientArea(fn () => Route::prefix('domains')->name('domains.')->group(fun
     Route::put('{domain}/contacts', [ClientDomainController::class, 'contacts'])->whereNumber('domain')->name('contacts');
     Route::post('{domain}/epp', [ClientDomainController::class, 'epp'])->whereNumber('domain')->middleware('throttle:10,1')->name('epp');
     Route::put('{domain}/transfer', [ClientDomainController::class, 'resubmitTransfer'])->whereNumber('domain')->name('transfer');
-    Route::post('{domain}/renew', [ClientDomainController::class, 'renew'])->whereNumber('domain')->name('renew');
+    Route::post('{domain}/renew', [ClientDomainController::class, 'renew'])->whereNumber('domain')->middleware('throttle:10,1')->name('renew');
 }));
 
 Route::prefix('domains')->name('domains.')->middleware('throttle:domain-lookup')->group(function (): void {

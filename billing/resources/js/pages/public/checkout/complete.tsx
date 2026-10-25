@@ -1,4 +1,5 @@
 import { Link } from '@inertiajs/react';
+import { StoreTitle } from '@/components/orders/storefront-hero';
 import { Head } from '@/components/app/head';
 import { CheckCircle2, FileText } from 'lucide-react';
 import { DateTime } from '@/components/app/date';
@@ -33,9 +34,7 @@ export default function Complete({
                     <span className="flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground">
                         <CheckCircle2 className="size-6" aria-hidden="true" />
                     </span>
-                    <h1 className="text-3xl font-semibold tracking-tight">
-                        Thanks, your order is in
-                    </h1>
+                    <StoreTitle>Thanks, your order is in</StoreTitle>
                     <p className="max-w-md text-muted-foreground">
                         Order{' '}
                         <span className="font-medium text-foreground">

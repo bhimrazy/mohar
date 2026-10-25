@@ -5,6 +5,7 @@ namespace App\Modules\Orders;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Billing\TaxCalculator;
+use App\Contracts\Catalog\PriceBook;
 use App\Contracts\Core\CompanyClock;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Orders\OrderNumbers;
@@ -20,6 +21,7 @@ use App\Events\Orders\OrderMarkedFraud;
 use App\Events\Orders\OrderPlaced;
 use App\Events\Services\ServiceActivated;
 use App\Models\User;
+use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Like;
 use App\Modules\Core\Support\RequestMemo;
 use App\Modules\Core\Support\Settings;
@@ -106,10 +108,28 @@ class OrdersServiceProvider extends ModuleServiceProvider
         $this->registerSearchAndMergeFields();
         $this->registerAutomation();
 
-        $this->app->make(SitemapRegistry::class)->register('orders', fn (): array => [
-            ['loc' => route('store.index'), 'lastmod' => null],
-            ['loc' => route('store.domains'), 'lastmod' => null],
-        ]);
+        $this->app->make(SitemapRegistry::class)->register('orders', function (): array {
+            $urls = [
+                ['loc' => route('store.index'), 'lastmod' => null],
+                ['loc' => route('store.domains'), 'lastmod' => null],
+            ];
+
+            if (! $this->app->bound(PriceBook::class)) {
+                return $urls;
+            }
+
+            $currency = Currency::default()->code;
+
+            foreach ($this->app->make(PriceBook::class)->storefront($currency) as $group) {
+                $urls[] = ['loc' => route('store.groups.show', $group['slug']), 'lastmod' => null];
+
+                foreach ($group['products'] as $product) {
+                    $urls[] = ['loc' => route('store.products.show', ['group' => $group['slug'], 'product' => $product['slug']]), 'lastmod' => null];
+                }
+            }
+
+            return $urls;
+        });
     }
 
     /**
@@ -164,7 +184,8 @@ class OrdersServiceProvider extends ModuleServiceProvider
         $navigation->add('admin-create', new NavItem('New order', 'admin.orders.create', 'ShoppingCart', order: 20, permission: 'orders.orders.create'));
         $navigation->add('admin', new NavItem('Promotions', 'admin.promotions.index', 'Percent', 'Orders', 20, 'orders.promotions.manage', 'admin.promotions.*'));
         $navigation->add('client', new NavItem('Order history', 'client.orders.index', 'Receipt', 'Orders', 10, null, 'client.orders.*'));
-        $navigation->add('client', new NavItem('Store', 'store.index', 'ShoppingCart', 'Orders', 20));
+        // Every store page except the domain search, which "Register a domain" (Domains) marks.
+        $navigation->add('client', new NavItem('Store', 'store.index', 'ShoppingCart', 'Orders', 20, null, 'store.[!d]*'));
         $navigation->add('admin-client', new NavItem('Orders', 'admin.orders.index', 'ShoppingCart', order: 20, permission: 'orders.orders.view'));
 
         $dashboard = $this->app->make(Dashboard::class);

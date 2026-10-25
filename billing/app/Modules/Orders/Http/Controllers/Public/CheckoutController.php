@@ -11,6 +11,7 @@ use App\Modules\Orders\Http\Requests\CheckoutRequest;
 use App\Modules\Orders\Http\Resources\OrderResource;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Pricing\CartPricer;
+use App\Modules\Orders\Pricing\ClientGroupSaving;
 use App\Modules\Orders\Services\CartManager;
 use App\Modules\Orders\Services\CheckoutGateways;
 use App\Modules\Orders\Services\CustomerResolver;
@@ -35,7 +36,7 @@ class CheckoutController extends Controller
         private Settings $settings,
     ) {}
 
-    public function show(Request $request, CartPricer $pricer, CheckoutGateways $gateways): Response|RedirectResponse
+    public function show(Request $request, CartPricer $pricer, CheckoutGateways $gateways, ClientGroupSaving $saving): Response|RedirectResponse
     {
         $cart = $this->carts->find($request);
 
@@ -52,6 +53,7 @@ class CheckoutController extends Controller
 
         return Inertia::render('public/checkout/index', [
             'cart' => $priced->toArray(),
+            'group_saving' => $saving->for($cart->cartItems(), $priced, $client),
             'gateways' => collect($gateways->forProducts($priced->productIds(), $priced->currency))->map(fn (string $label, string $key): array => ['value' => $key, 'label' => $label])->values(),
             'account' => $client === null ? null : ['name' => $client->display_name, 'email' => $client->email, 'currency' => $client->currency],
             'blocked_reason' => $request->user() === null || $client !== null ? null : ($request->user()->is_staff

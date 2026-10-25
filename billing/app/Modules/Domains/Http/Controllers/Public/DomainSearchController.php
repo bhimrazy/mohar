@@ -2,25 +2,36 @@
 
 namespace App\Modules\Domains\Http\Controllers\Public;
 
+use App\Contracts\Orders\ShopperSession;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Domains\Services\DomainLookup;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Inertia\Response;
 
 /**
  * Public domain search page and JSON lookup (spec §6). Prices use the signed-in client's currency
- * and group; guests may pick a currency.
+ * and group; guests may pick a currency, else see the store's. With the store installed its domain search is the one search
+ * page (issue #37): this page redirects there and the store reads availability from `lookup`.
  */
 class DomainSearchController extends Controller
 {
-    public function page(Request $request, DomainLookup $lookup): Response
+    public function page(Request $request, DomainLookup $lookup): Response|RedirectResponse
     {
         $request->validate(['q' => ['nullable', 'string', 'max:255'], 'currency' => ['nullable', 'string', 'size:3']]);
+
+        if (Route::has('store.domains')) {
+            $query = trim($request->string('q')->toString());
+
+            return redirect()->route('store.domains', $query === '' ? [] : ['domain' => $query]);
+        }
+
         [$currency, $group] = $this->pricingContext($request);
         $query = trim($request->string('q')->toString());
 
@@ -53,7 +64,8 @@ class DomainSearchController extends Controller
         }
 
         $requested = strtoupper($request->string('currency')->toString());
-        $currency = $requested !== '' && Currency::query()->where('code', $requested)->exists() ? $requested : Currency::default()->code;
+        // A guest's explicit pick, else the store's (the currency switcher), so the store page and this lookup agree.
+        $currency = $requested !== '' && Currency::query()->where('code', $requested)->exists() ? $requested : app(ShopperSession::class)->currency($request);
 
         return [$currency, null];
     }
