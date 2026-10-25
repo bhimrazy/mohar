@@ -1,6 +1,6 @@
 ### Added
 
-- **Card payments through NIC Asia's Cybersource gateway (#PR).** A new gateway, "Cards (Cybersource, NIC Asia)",
+- **Card payments through NIC Asia's Cybersource gateway (#492).** A new gateway, "Cards (Cybersource, NIC Asia)",
   sends the customer to Cybersource's hosted card page (Secure Acceptance Hosted Checkout); the card number, CVV and
   expiry are typed there and never reach our servers. A payment is marked paid only when the Cybersource REST API
   confirms a captured sale with the same amount, currency and reference; the signed browser return and the signed
