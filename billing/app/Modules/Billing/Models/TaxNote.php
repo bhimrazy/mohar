@@ -4,6 +4,7 @@ namespace App\Modules\Billing\Models;
 
 use App\Models\User;
 use App\Modules\Billing\Exceptions\ImmutableInvoiceException;
+use App\Modules\Billing\Support\BikramSambat;
 use App\Modules\Billing\Support\BikramSambatDate;
 use App\Modules\Core\Models\Client;
 use Carbon\CarbonImmutable;
@@ -75,6 +76,14 @@ class TaxNote extends Model
         'goodwill' => 'Goodwill', 'late_fee' => 'Late payment fee', 'reverses_credit_note' => 'Reverses a credit note', 'other' => 'Other',
     ];
 
+    /**
+     * @return list<array{value: string, label: string}>
+     */
+    public static function reasonOptions(): array
+    {
+        return array_map(fn (string $code): array => ['value' => $code, 'label' => (string) __(self::REASONS[$code])], array_keys(self::REASONS));
+    }
+
     public function reasonLabel(): string
     {
         return __(self::REASONS[$this->reason_code] ?? 'Other');
@@ -88,6 +97,14 @@ class TaxNote extends Model
         }
 
         return (new BikramSambatDate((int) $parts[1], (int) $parts[2], (int) $parts[3]))->format();
+    }
+
+    /** A stored BS period (Y-m) as "Kartik 2083". */
+    public static function bsMonthLabel(string $period): string
+    {
+        [$year, $month] = array_map('intval', explode('-', $period)) + [0, 0];
+
+        return (BikramSambat::MONTHS[$month - 1] ?? $period).' '.$year;
     }
 
     public function kindLabel(): string
