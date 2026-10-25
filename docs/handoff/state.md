@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-24 by the CTO session, on the owner's Mac. Update this file whenever a PR merges, a workstream starts or
+Last updated: 2026-10-25 by the CTO session, on the owner's Mac. Update this file whenever a PR merges, a workstream starts or
 stops, or the owner makes a decision. Keep it short: merges older than the current day move to `billing/docs/progress.md`, and history goes in `history.md` and `docs/reviews/`.
 
 ## Summary
@@ -88,9 +88,18 @@ import features), #464 (VAT PR 4c: credit refunds, Nepal VAT mode flag lifted, d
 (handoff docs; develop fix for the #459/#461 scan; docs-site Overview and Walkthrough; pre-walkthrough sweep;
 walkthrough VAT step and `schedule:work` in `composer dev`). Issues closed by hand.
 
-Session wrapped on the owner's request 2026-10-24 (walkthrough ready). No agents running.
+Merged 2026-10-25: #471 (`.np` rule, per-TLD how-to, registrar_refs merge), #472, #473 (invoice From / Bill to), #474 (daily
+re-lookup of Khalti and eSewa payments for portal refunds, P5c), #475 (settings controls), #476, #477, #478 (store, cart and
+checkout inside the client area, one domain search, slug URLs; reserved group slugs renamed by migration
+`2026_10_25_100600`), #479 (`deploy:check-migrations` enforces architecture rules 5 and 6; baseline of 39 old migrations,
+sha256-frozen in `CheckMigrationsRulesTest`), #480 (VAT register `detail`/`ird`/`summary` layouts, PDF export, Billing role
+gets the two register export permissions), #481 (admin client summary), #482 (VAT PR 5: credit/debit note PDF, email with
+PDF via `BillingDocuments::document()`, webhooks, client-area notes, print counting; kernel: `$notify` on note events and
+`Invoicer::cancel`, `EmailSent` related ids). Issues closed by hand: #27, #32, #37, #157, #307, #317, #389.
 
-| PR   | Workstream                                    | Status and next step (2026-10-24)                                                                 |
+No agents running. Open PRs: #128 only (draft, owner questions).
+
+| PR   | Workstream                                    | Status and next step (2026-10-25)                                                                 |
 | ---- | --------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | #128 | Gateway expansion spec                        | Draft. Owner questions in the PR.                                                                 |
 
@@ -117,7 +126,18 @@ new issues; a PR merges when nothing blocks, except money, auth and data deletio
   `2026_10_24_400750` (#453, deletes duplicate report lines), `2026_10_24_000110` (#459, re-keys or demotes keyless
   system roles); `billing:fiscal-vat-split`; #460's retention tasks delete old rows on the first daily run;
   `support:recompute-unanswered --since=<deploy start>` after a blue-green deploy (#450).
-- Next: VAT PR 5 and 7, P6a/P6b (VAT PR 4c is merged), P7a settings controls, P2c, P5c, P8c, P13 (issue plan).
+- Data-changing since: migration `2026_10_25_100600` (#478) renames groups whose slug the store now reserves (to `<slug>-plans`,
+  logged); `app:install` resets the Billing system role to add the two register export permissions (#480).
+- Next: VAT PR 6 and 8 if planned, P6b (extend `BillingDocuments`, do not add `InvoiceDocuments`), #483 admin Credit notes list
+  with resend, P2c remainder, P13 (issue plan).
+- Deferred from this wave (add to packages): #480 accept only csv/pdf in the export route, throw on unknown layout, drop dead
+  `can.export`, Nepali IRD header labels (kernel change), release note that Billing-role staff can export buyer PANs; #478
+  `/domains/search` drops `?currency=` on redirect, reserved-slug test from registered routes, Change plan wording for staff,
+  discount label percentage; #481 screenshots show old labels, unchanged Quick links card; #482 shared default objects in
+  `IdentifiesOccurrence`, a render failure fails all three mail attempts, no `kernel:api-snapshot` check yet (ADR 0010);
+  #474 recorded-credit refund should name the payment; #471 target's ResellerClub customer wins on merge.
+- Owner decisions open from this wave: Nepali labels in the IRD CSV header (kernel change), accountant on whether the emailed
+  note PDF counts as a print, keeping both emails on a staff refund (kept for now).
 - Namecheap is merged but not enabled. Before enabling it: a sandbox check of the not-in-account error numbers (2016166, 2019166), the `.us`,
   `.ca` and `.eu` extension details and the transfer texts (simulator README "verify" list).
 
