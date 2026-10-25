@@ -85,7 +85,7 @@ Dispatch the matching domain event as well (`TwoFactorReset`, `SettingsUpdated`,
   plaintext, and never sent to the browser. Tests assert that no secret value appears in any rendered page.
 - Secret fields are never written to the session: they are excluded from flashed old input on validation
   errors, driven by the `SettingField` secret flag rather than a list of names. (Added 2026-10-18 from the #65
-  review.)
+  review.) A step-up refusal redirects back with its error and no old input at all (ADR 0018 Amendment (#490)).
 - Tokens in URLs (invitations, password resets) are hashed at rest, single-use, expiring, and served with
   `Referrer-Policy: no-referrer`.
 

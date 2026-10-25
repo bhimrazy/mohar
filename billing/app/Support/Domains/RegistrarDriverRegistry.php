@@ -18,6 +18,7 @@ use App\Contracts\Domains\Registrar\SuggestsNames;
 use App\Contracts\Domains\Registrar\SyncsDomains;
 use App\Contracts\Domains\Registrar\TestsRegistrarConnection;
 use App\Contracts\Domains\Registrar\TransfersDomains;
+use App\Contracts\Integrations\IntegrationDriver;
 use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Support\Integrations\DriverRegistry;
@@ -118,16 +119,21 @@ final class RegistrarDriverRegistry extends DriverRegistry
      */
     public function fields(string $key): array
     {
-        $fields = $this->get($key)->settingsFields();
+        return $this->get($key)->settingsFields();
+    }
 
-        foreach ($fields as $field) {
-            // Only the gateway host stores certificate uploads so far (ADR 0009 Amendment (#489)).
+    /**
+     * Only the gateway host stores certificate uploads so far (ADR 0009 Amendment (#489)).
+     *
+     * @param  RegistrarDriver  $driver
+     */
+    protected function validate(IntegrationDriver $driver): void
+    {
+        foreach ($driver->settingsFields() as $field) {
             if ($field->type === FieldType::Certificate) {
-                throw new LogicException("The registrar driver [{$key}] declares the certificate setting [{$field->key}], which registrar accounts do not support yet.");
+                throw new LogicException("The registrar driver [{$driver->key()}] declares the certificate setting [{$field->key}], which registrar accounts do not support yet.");
             }
         }
-
-        return $fields;
     }
 
     /**
