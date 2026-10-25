@@ -1,4 +1,5 @@
-import { Link, router, useForm } from '@inertiajs/react';
+import { Link, router, useForm, usePage } from '@inertiajs/react';
+import { Check, Copy } from 'lucide-react';
 import { useState } from 'react';
 import { Head } from '@/components/app/head';
 import { Field } from '@/components/app/field';
@@ -7,8 +8,14 @@ import { FormActions } from '@/components/app/form-actions';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
-import { SettingFieldInput } from '@/components/app/setting-field';
-import type { SettingFieldData } from '@/components/app/setting-field';
+import {
+    CertificateFieldInput,
+    SettingFieldInput,
+} from '@/components/app/setting-field';
+import type {
+    CertificateInfoData,
+    SettingFieldData,
+} from '@/components/app/setting-field';
 import { GatewayLogo } from '@/components/billing/gateway-logo';
 import type { GatewayLogoData } from '@/components/billing/gateway-logo';
 import { SelectField } from '@/components/billing/select-field';
@@ -17,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
+import { useClipboard } from '@/hooks/use-clipboard';
 import {
     index,
     test as testConnection,
@@ -40,13 +48,19 @@ type Props = {
         secrets_set: Record<string, boolean>;
         /** Keys of stored secrets shorter than their minimum. */
         secrets_short: string[];
+        /** Stored certificate details per certificate setting; null when none is stored. */
+        certificates: Record<string, CertificateInfoData | null>;
     };
     fields: SettingFieldData[];
     currencies: string[];
     replacements: SelectOption[];
     webhook_url: string | null;
+    /** Where the provider sends customers back (hosted gateways). */
+    return_url: string | null;
     can_test_connection: boolean;
 };
+
+type CertificateUpload = { file: File | null; passphrase: string };
 
 const NO_CONVERSION = 'none';
 
@@ -82,9 +96,11 @@ export default function GatewayEdit({
     currencies,
     replacements,
     webhook_url,
+    return_url,
     can_test_connection,
 }: Props) {
     const [testing, setTesting] = useState(false);
+    const [copied, copy] = useClipboard();
     const form = useForm({
         display_name: gateway.display_name,
         is_active: gateway.is_active,
@@ -92,15 +108,31 @@ export default function GatewayEdit({
         sort_order: String(gateway.sort_order ?? 0),
         convert_to_currency: gateway.convert_to_currency ?? NO_CONVERSION,
         settings: gateway.settings,
+        certificates: Object.fromEntries(
+            Object.keys(gateway.certificates).map((key) => [
+                key,
+                { file: null, passphrase: '' },
+            ]),
+        ) as Record<string, CertificateUpload>,
         replacement: '',
     });
-    const errors = form.errors as Record<string, string | undefined>;
+    // A save repeated after the password step-up is a plain visit: its errors arrive as page props, not on the form.
+    const pageErrors = usePage().props.errors as Record<string, string>;
+    const errors = { ...pageErrors, ...form.errors } as Record<
+        string,
+        string | undefined
+    >;
     const deactivating = gateway.is_active && !form.data.is_active;
 
     const submit = (event: React.FormEvent) => {
         event.preventDefault();
+        // A file goes as multipart, which PHP reads only from a POST: spoof the PUT.
+        const uploading = Object.values(form.data.certificates).some(
+            (upload) => upload.file !== null,
+        );
         form.transform((data) => ({
             ...data,
+            ...(uploading ? { _method: 'put' } : {}),
             sort_order: Number(data.sort_order) || 0,
             convert_to_currency:
                 data.convert_to_currency === NO_CONVERSION
@@ -108,6 +140,13 @@ export default function GatewayEdit({
                     : data.convert_to_currency,
             replacement: data.replacement || null,
         }));
+
+        if (uploading) {
+            form.post(update.url(gateway.key), { forceFormData: true });
+
+            return;
+        }
+
         form.submit(update(gateway.key));
     };
 
@@ -261,6 +300,55 @@ export default function GatewayEdit({
                                             [field.key]: next,
                                         });
 
+                                    if (field.type === 'certificate') {
+                                        const upload = form.data.certificates[
+                                            field.key
+                                        ] ?? {
+                                            file: null,
+                                            passphrase: '',
+                                        };
+                                        const setUpload = (
+                                            next: Partial<CertificateUpload>,
+                                        ) =>
+                                            form.setData('certificates', {
+                                                ...form.data.certificates,
+                                                [field.key]: {
+                                                    ...upload,
+                                                    ...next,
+                                                },
+                                            });
+
+                                        return (
+                                            <CertificateFieldInput
+                                                key={field.key}
+                                                id={id}
+                                                field={field}
+                                                stored={
+                                                    gateway.certificates[
+                                                        field.key
+                                                    ] ?? null
+                                                }
+                                                passphrase={upload.passphrase}
+                                                onFileChange={(file) =>
+                                                    setUpload({ file })
+                                                }
+                                                onPassphraseChange={(
+                                                    passphrase,
+                                                ) => setUpload({ passphrase })}
+                                                fileError={
+                                                    errors[
+                                                        `certificates.${field.key}.file`
+                                                    ]
+                                                }
+                                                passphraseError={
+                                                    errors[
+                                                        `certificates.${field.key}.passphrase`
+                                                    ]
+                                                }
+                                            />
+                                        );
+                                    }
+
                                     return (
                                         <SettingFieldInput
                                             key={field.key}
@@ -325,6 +413,32 @@ export default function GatewayEdit({
                                       ? `Full refunds go through ${gateway.driver_name}. Refund part of a payment in the ${gateway.driver_name} merchant portal, then record it on the invoice.`
                                       : `Full and partial refunds go through ${gateway.driver_name}.`}
                             </p>
+                        </SectionCard>
+                    )}
+
+                    {return_url && (
+                        <SectionCard
+                            title="Return address"
+                            description="Customers come back here after paying, whether or not the payment went through; we then ask the provider for the result. Providers that require it, such as connectIPS, must have this exact address registered."
+                        >
+                            <div className="flex items-start gap-2">
+                                <code className="block min-w-0 flex-1 rounded-md bg-muted px-3 py-2 text-sm break-all">
+                                    {return_url}
+                                </code>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    aria-label="Copy return address"
+                                    onClick={() => copy(return_url)}
+                                >
+                                    {copied === return_url ? (
+                                        <Check />
+                                    ) : (
+                                        <Copy />
+                                    )}
+                                </Button>
+                            </div>
                         </SectionCard>
                     )}
 

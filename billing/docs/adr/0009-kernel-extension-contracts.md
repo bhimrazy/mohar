@@ -331,3 +331,43 @@ a mask would change one. The host uses it to mask a customer's free-text TLD ans
 3. Core binds a null `RegistrarRefs` for installs without Domains.
 4. A driver is active without a saved account only if it implements the marker `StandaloneRegistrar` or declares no
    settings (`RegistrarDriverRegistry::needsAccount`). Other drivers are inactive until staff save the account.
+
+## Amendment (#489) — 2026-10-25, certificate settings and credential expiry
+
+Approved by the owner and CTO as K1 of `docs/product/payments-gateways-expansion.md` §9.2 (connectIPS signs with an
+RSA key NCHL ships as a PKCS#12 file).
+
+1. **`FieldType::Certificate` (`certificate`).** A new case on a closed enum, so breaking under ADR 0010; allowed
+   before 1.0 because every in-repo consumer is updated in the same PR. It is a secret type: write-only, encrypted, in
+   `GatewayConfig::$secretSettingKeys` and so redacted line by line (`RedactionSet`). Staff upload the `.pfx`/`.p12`
+   (at most 64 KB) with its passphrase; `Support\Integrations\CertificateBundle::fromPkcs12()` reads it in memory with
+   OpenSSL, checks that the key belongs to the certificate and that it has not expired, and returns the unencrypted PEM
+   key with `Data\Integrations\CertificateInfo` (subject, issuer, serial, validity, the certificate and the chain the
+   file carried, so mutual TLS later needs no new upload). The file and passphrase are never kept; the bundle masks
+   the key in dumps and refuses serialisation. A refusal is `CertificateRefused`, whose message is safe to show.
+   RC2-protected files are refused (OpenSSL 3 reads them only with its legacy provider); 3DES and AES files read. A
+   file with a huge key-derivation iteration count costs CPU time in that request: accepted, because only staff with
+   the integration's manage permission can upload, after the password step-up. An empty save keeps the stored
+   certificate; text sent for the setting is ignored.
+2. **Storage.** The PEM key is the setting's value. `CertificateInfo` sits in the same encrypted settings under
+   `CertificateInfo::SETTINGS_KEY` (`_certificates.<key>`); drivers read it through `GatewayConfig::certificate($key)`.
+   Setting keys starting with `_` are reserved for such host entries (`SettingField` refuses them). Expiry bookkeeping
+   (serial, expiry instant, last warning sent) lives in Core's plain `integration_credentials` table (family, owner,
+   setting key), so the daily check and the dashboard never decrypt settings.
+3. **Hosts.** Only the gateway host stores certificates so far. `RegistrarDriverRegistry::fields()` and
+   `ProvisioningDriverRegistry::metadata()` throw for a driver that declares one, and the registrar and server forms
+   refuse the input (`prohibited`).
+4. **Events** `Events\Billing\GatewayCredentialExpiring` (gateway key and name, setting key and label, `expiresAt` as
+   UTC `CarbonImmutable`, company-calendar days left) and `GatewayCredentialExpired` (the same, `expiredAt`), like
+   `DomainExpiring`/`DomainExpired`. Billing's daily task `billing.gateway_credentials` raises the first once per stage
+   of `billing.gateways.certificate_warning_days` (30, 7, 1 by default) and the second once after the expiry instant,
+   for active gateways. Notifications emails staff with `billing.gateways.manage`.
+5. **Planned, not built:** when a registrar or server host first needs certificates, a family-neutral path replaces the
+   gateway-only one: a source registry of stored credentials (like `StoredSecrets`, ADR 0023), one Core daily check over
+   `integration_credentials`, and `Events\Integrations\IntegrationCredentialExpiring`/`Expired`, with the gateway
+   events dispatched beside them for the ADR 0010 deprecation window. No `RegistrarCredentialExpiring` or similar is
+   added meanwhile.
+6. **`Dashboard::health()` resolvers may return null** to leave the check out (Billing's certificate line shows only
+   when an active gateway has a certificate: amber within the first warning stage, red once expired).
+7. **Step-up refusals carry no old input.** `password.recent` now redirects back with its error only, because it runs
+   before any form request that keeps secrets out of the session; the confirm dialog replays the visit itself.

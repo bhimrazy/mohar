@@ -42,7 +42,8 @@ use Closure;
  * "Needs attention" to-do items (aggregated into one widget, zero counts hidden). Optional 'icon' (nav icon name) and 'hint':
  *   $dashboard->todo('admin', 'support.awaiting', fn ($user) => ['label' => 'Tickets awaiting reply', 'count' => 4, 'href' => ..., 'tone' => 'warning'], 'support.tickets.view');
  *
- * System health checks (aggregated into one card, always shown when permitted):
+ * System health checks (aggregated into one card, shown when permitted; a resolver that returns null has nothing to
+ * check for this install and is left out):
  *   $dashboard->health('admin', 'services.provisioning', fn ($user) => ['label' => 'Provisioning', 'detail' => '146 of 148 succeeded (7 days)',
  *       'value' => '98.6%', 'tone' => 'success'|'warning'|'danger'|'neutral', 'icon' => 'Server', 'href'?], 'services.module_log.view');
  *
@@ -170,7 +171,8 @@ class Dashboard
         return array_values(collect($this->health[$area] ?? [])
             ->filter(fn (array $check): bool => $this->allowed($check['permission'], $user))
             ->sortBy('order')
-            ->map(fn (array $check): array => ['key' => $check['key'], ...($check['resolver'])($user, ...$arguments)])
+            ->map(fn (array $check): ?array => ($result = ($check['resolver'])($user, ...$arguments)) === null ? null : ['key' => $check['key'], ...$result])
+            ->filter()
             ->all());
     }
 

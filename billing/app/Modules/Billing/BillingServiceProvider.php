@@ -30,6 +30,7 @@ use App\Events\Billing\QuoteAccepted;
 use App\Events\Notifications\EmailSent;
 use App\Events\Orders\OrderAccepted;
 use App\Models\User;
+use App\Modules\Billing\Actions\CheckGatewayCredentials;
 use App\Modules\Billing\Actions\PruneGatewayLog;
 use App\Modules\Billing\Drivers\Gateways\BankTransferDriver;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
@@ -233,6 +234,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $automation->task('billing.reminders', Automation::REMINDERS, fn (CarbonImmutable $today): int => $tasks()->reminders($today), label: 'Send invoice reminders', description: 'Marks invoices overdue and sends the before-due and overdue reminders, once a day at most.');
         $automation->task('billing.payment_reconciliation', Automation::SYNC, fn (CarbonImmutable $today): int => $this->app->make(PaymentReconciler::class)->run(), label: 'Reconcile gateway payments', description: 'Looks up pending and unclear gateway payments whose customer never returned.');
         $automation->task('billing.gateway_refund_check', Automation::SYNC, fn (CalendarDate $today): int => $this->app->make(SettledRefundCheck::class)->run(), label: 'Check paid gateway payments for refunds', description: 'Looks up recent payments again at gateways that send no refund notice (such as Khalti and eSewa) and flags refunds made in their portal for staff to record.');
+        $automation->task('billing.gateway_credentials', Automation::REMINDERS, fn (CalendarDate $today): int => $this->app->make(CheckGatewayCredentials::class)->handle($today), label: 'Check gateway certificates', description: 'Warns staff before a certificate an active payment gateway signs with expires, and when it has expired.');
         $automation->task('billing.auto_cancel', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $tasks()->autoCancel($today), label: 'Cancel unpaid overdue invoices', description: 'Cancels overdue invoices that have no payments and no credit applied.');
         $automation->task('billing.housekeeping', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $tasks()->housekeeping($today), label: 'Expire old quotes', description: 'Marks quotes past their validity date as expired.');
         $automation->task('billing.gateway_log_prune', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => $this->app->make(PruneGatewayLog::class)->handle(RetentionRunDate::of($today)), label: 'Prune the gateway log', description: 'Deletes gateway log entries older than the retention period.');
@@ -418,6 +420,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             $int('gateways.lookup_interval_minutes', 'Hosted payments: minutes between status lookups'),
             new SettingDefinition('billing.gateways.lookups_per_run', 'Hosted payments: status lookups per run', 'integer', 'At most this many open payments are looked up every five minutes (1 to 1,000); the least recently checked go first.', rules: ['min:1', 'max:'.PaymentReconciler::MAX_LOOKUPS_PER_RUN]),
             $int('gateways.lookup_grace_minutes', 'Hosted payments: grace after expiry before giving up (minutes)'),
+            $list('gateways.certificate_warning_days', 'Gateway certificates: warn this many days before expiry', 'Comma-separated, e.g. 30, 7, 1. Staff are also told when a certificate has expired.'),
             new SettingDefinition('billing.gateways.late_lookup_hours', 'Hosted payments: keep checking closed payments for late success (hours)', 'integer', 'Hourly, up to 168 hours after the payment started. 0 turns it off.', rules: ['min:0', 'max:'.PaymentReconciler::MAX_LATE_LOOKUP_HOURS]),
             new SettingDefinition('billing.gateways.late_lookups_per_run', 'Hosted payments: late checks per hourly run', 'integer', 'At most this many closed payments are looked up each hour (1 to 1,000).', rules: ['min:1', 'max:1000']),
             new SettingDefinition('billing.gateways.refund_check_days', 'Hosted payments: check paid payments for portal refunds (days)', 'integer', 'Daily, up to 30 days after the payment started, for gateways that send no refund notice (Khalti, eSewa). 0 turns it off.', rules: ['min:0', 'max:'.SettledRefundCheck::MAX_DAYS]),

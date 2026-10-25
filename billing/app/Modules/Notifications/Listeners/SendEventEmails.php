@@ -3,10 +3,13 @@
 namespace App\Modules\Notifications\Listeners;
 
 use App\Contracts\Catalog\PriceBook;
+use App\Contracts\Core\CompanyClock;
 use App\Events\Affiliates\AffiliateActivated;
 use App\Events\Affiliates\AffiliateWithdrawalRequested;
 use App\Events\Billing\CreditNoteIssued;
 use App\Events\Billing\DebitNoteIssued;
+use App\Events\Billing\GatewayCredentialExpired;
+use App\Events\Billing\GatewayCredentialExpiring;
 use App\Events\Billing\InvoiceCreated;
 use App\Events\Billing\InvoiceModified;
 use App\Events\Billing\InvoicePaymentReminder;
@@ -64,6 +67,7 @@ use App\Modules\Notifications\Support\EventKey;
 use App\Modules\Notifications\Support\MailDates;
 use App\Modules\Notifications\Webhooks\WebhookUrlGuard;
 use App\Support\Currencies\MoneyFormatter;
+use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
 use Illuminate\Support\Facades\Route;
@@ -131,6 +135,8 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         StaffLoginFailuresThreshold::class => 'staffLoginFailures',
         AutomationRunCompleted::class => 'automationCompleted',
         WebhookEndpointDisabled::class => 'webhookEndpointDisabled',
+        GatewayCredentialExpiring::class => 'gatewayCredentialExpiring',
+        GatewayCredentialExpired::class => 'gatewayCredentialExpired',
     ];
 
     /**
@@ -184,6 +190,8 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
                 $event instanceof StaffLoginFailuresThreshold => $this->staffLoginFailures($event),
                 $event instanceof AutomationRunCompleted => $this->automationCompleted($event),
                 $event instanceof WebhookEndpointDisabled => $this->webhookEndpointDisabled($event),
+                $event instanceof GatewayCredentialExpiring => $this->gatewayCredentialExpiring($event),
+                $event instanceof GatewayCredentialExpired => $this->gatewayCredentialExpired($event),
                 default => null,
             });
         } catch (Throwable $exception) {
@@ -663,6 +671,34 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
                 'admin_url' => $this->context->link('admin.notifications.webhooks.show', $event->endpointId),
             ],
         ], $event, null, 'webhook_endpoint', $event->endpointId);
+    }
+
+    public function gatewayCredentialExpiring(GatewayCredentialExpiring $event): void
+    {
+        $this->credentialMail('staff.gateway_credential_expiring', $event, $event->gateway, $event->gatewayName, $event->credentialLabel, $event->expiresAt, $event->daysLeft);
+    }
+
+    public function gatewayCredentialExpired(GatewayCredentialExpired $event): void
+    {
+        $this->credentialMail('staff.gateway_credential_expired', $event, $event->gateway, $event->gatewayName, $event->credentialLabel, $event->expiredAt, 0);
+    }
+
+    private function credentialMail(string $templateKey, object $event, string $gateway, string $gatewayName, string $label, CarbonImmutable $expiresAt, int $daysLeft): void
+    {
+        $this->staffMail($templateKey, StaffCategory::System, [
+            'credential' => [
+                'gateway' => $gatewayName,
+                'label' => $label,
+                'expires_on' => app(CompanyClock::class)->localDate($expiresAt),
+                'days_left' => $daysLeft,
+                'when' => match (true) {
+                    $daysLeft <= 0 => __('today'),
+                    $daysLeft === 1 => __('tomorrow'),
+                    default => __('in :count days', ['count' => $daysLeft]),
+                },
+                'admin_url' => $this->context->link('admin.billing.gateways.edit', $gateway),
+            ],
+        ], $event, permission: 'billing.gateways.manage');
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────────────────────

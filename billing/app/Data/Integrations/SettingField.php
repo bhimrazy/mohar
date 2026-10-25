@@ -14,6 +14,8 @@ use InvalidArgumentException;
  * that would hide ordinary words. A field with a shorter known format (a 6-digit PIN) declares $minLength, at least
  * MIN_SECRET_FLOOR.
  *
+ * Keys starting with "_" are reserved for entries the host keeps beside the settings (certificate metadata).
+ *
  * A Select field may take its options from the remote system instead of $options: `$optionsSource = 'remote'` (the
  * only value so far) asks the driver for them (ProvidesFieldOptions for provisioning drivers). The host fills the
  * select and falls back to free text when the remote system cannot be reached.
@@ -34,6 +36,10 @@ final readonly class SettingField
         public ?string $optionsSource = null,
         public ?int $minLength = null,
     ) {
+        if (str_starts_with($key, '_')) {
+            throw new InvalidArgumentException("The setting key [{$key}] starts with an underscore, which is reserved for the host's own entries (CertificateInfo::SETTINGS_KEY).");
+        }
+
         if ($type->isSecret() && $default !== null) {
             throw new InvalidArgumentException("The secret setting [{$key}] cannot have a default.");
         }

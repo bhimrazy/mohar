@@ -18,6 +18,7 @@ use App\Modules\Billing\Services\GatewayLogger;
 use App\Modules\Billing\Support\PaymentInProgress;
 use App\Support\Integrations\Redactor;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -82,35 +83,55 @@ class StartHostedPayment
 
         $snapshot = $invoice->client_snapshot ?? [];
 
+        $initiate = fn (): RedirectInstruction|FormPost|QrPayload => $this->gateways->during($config, fn (): RedirectInstruction|FormPost|QrPayload => $driver->initiate($config, new PaymentIntent(
+            reference: $attempt->reference,
+            amount: $amount,
+            description: __('Invoice :number', ['number' => $invoice->displayNumber()]),
+            returnUrl: route('billing.gateways.return', $gatewayKey),
+            cancelUrl: route('billing.gateways.return', [$gatewayKey, 'ref' => $attempt->reference, 'cancelled' => 1]),
+            customerName: is_string($snapshot['name'] ?? null) ? $snapshot['name'] : null,
+            customerEmail: is_string($snapshot['email'] ?? null) ? $snapshot['email'] : null,
+            invoiceId: $invoice->id,
+        )));
+
         try {
-            $instruction = $this->gateways->during($config, fn (): RedirectInstruction|FormPost|QrPayload => $driver->initiate($config, new PaymentIntent(
-                reference: $attempt->reference,
-                amount: $amount,
-                description: __('Invoice :number', ['number' => $invoice->displayNumber()]),
-                returnUrl: route('billing.gateways.return', $gatewayKey),
-                cancelUrl: route('billing.gateways.return', [$gatewayKey, 'ref' => $attempt->reference, 'cancelled' => 1]),
-                customerName: is_string($snapshot['name'] ?? null) ? $snapshot['name'] : null,
-                customerEmail: is_string($snapshot['email'] ?? null) ? $snapshot['email'] : null,
-                invoiceId: $invoice->id,
-            )));
+            $instruction = $initiate();
+
+            // A provider reference is unique per gateway, because a return may carry only it (connectIPS). A driver
+            // that draws its own random reference gets one more draw when it collides.
+            if ($this->providerRefTaken($gatewayKey, $instruction->providerRef)) {
+                $instruction = $initiate();
+
+                if ($this->providerRefTaken($gatewayKey, $instruction->providerRef)) {
+                    throw new RuntimeException('The provider reference of the new payment already belongs to another payment.');
+                }
+            }
+
+            // The provider's own session expiry, when it states one, decides how long the invoice stays locked. A
+            // resumable provider page is kept (encrypted) for "Continue payment" (#251), only for a driver that can
+            // reopen it. In its own savepoint: a reference another start took meanwhile fails this one cleanly.
+            DB::transaction(fn () => $attempt->update(array_filter([
+                'provider_ref' => $instruction->providerRef,
+                'expires_at' => $instruction->expiresAt,
+                'resume_url' => $instruction instanceof RedirectInstruction && $instruction->keepForResume && $driver instanceof ResumesHostedPayment ? $instruction->url : null,
+            ], fn (mixed $value): bool => $value !== null)));
         } catch (Throwable $exception) {
-            // Nothing was handed to the customer, so the attempt can never be paid: close it and say so plainly.
-            $attempt->update(['status' => AttemptStatus::Failed, 'review_reason' => 'Provider refused to start the payment']);
+            // Nothing was handed to the customer, so the attempt can never be paid: close it and say so plainly. Unsaved
+            // values from a failed save are dropped first.
+            $attempt->refresh()->update(['status' => AttemptStatus::Failed, 'review_reason' => 'Provider refused to start the payment']);
             $this->log->log($gatewayKey, 'response', 'hosted payment start failed', ['reference' => $attempt->reference, 'error' => mb_substr(app(Redactor::class)->maskValues($exception->getMessage(), GatewayLogger::secrets($gatewayKey)), 0, 500)], $invoice->id);
             report($exception);
 
             throw new BillingException(__(':gateway couldn\'t start the payment. Try again in a few minutes or use another method.', ['gateway' => $gateway->display_name]));
         }
 
-        // The provider's own session expiry, when it states one, decides how long the invoice stays locked. A resumable
-        // provider page is kept (encrypted) for "Continue payment" (#251), only for a driver that can reopen it.
-        $attempt->update(array_filter([
-            'provider_ref' => $instruction->providerRef,
-            'expires_at' => $instruction->expiresAt,
-            'resume_url' => $instruction instanceof RedirectInstruction && $instruction->keepForResume && $driver instanceof ResumesHostedPayment ? $instruction->url : null,
-        ], fn (mixed $value): bool => $value !== null));
         $this->log->log($gatewayKey, 'request', 'hosted payment started', ['reference' => $attempt->reference, 'amount' => $amount->amount, 'currency' => $amount->currency], $invoice->id);
 
         return [$attempt, $instruction];
+    }
+
+    private function providerRefTaken(string $gatewayKey, ?string $providerRef): bool
+    {
+        return $providerRef !== null && PaymentAttempt::query()->where('gateway', $gatewayKey)->where('provider_ref', $providerRef)->exists();
     }
 }

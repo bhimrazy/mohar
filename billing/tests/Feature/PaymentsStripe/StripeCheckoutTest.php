@@ -17,6 +17,7 @@ use App\Modules\PaymentsStripe\Drivers\StripeDriver;
 use App\Modules\PaymentsStripe\Support\StripeAmount;
 use App\Support\Money;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
@@ -313,9 +314,12 @@ test('a completed session whose payment failed fails the attempt with the reason
     $this->get(stripeReturn($attempt));
 
     expect($attempt->fresh())->status->toBe(AttemptStatus::Failed)->review_reason->toContain('payment_intent_payment_attempt_failed');
+    // A new session has a new id (provider references are unique per gateway); the first fake would answer first.
+    Http::swap(new HttpFactory);
     Http::fake([STRIPE_API.'checkout/sessions' => fn (Request $request) => Http::response(stripeCreatedSession($request['client_reference_id'], $invoice->id, ['id' => 'cs_test_a1MoharSession0002']))]);
     app(StartHostedPayment::class)->handle($invoice->fresh(), StripeDriver::KEY);
-    expect(PaymentAttempt::query()->count())->toBe(2);
+    expect(PaymentAttempt::query()->count())->toBe(2)
+        ->and(PaymentAttempt::query()->latest('id')->first()->provider_ref)->toBe('cs_test_a1MoharSession0002');
 });
 
 test('the Stripe fee is booked only when its balance transaction is in the charge currency', function (string $feeCurrency, int $fee) {

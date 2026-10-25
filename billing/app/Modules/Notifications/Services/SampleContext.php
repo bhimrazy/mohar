@@ -114,6 +114,7 @@ class SampleContext
             'sync' => ['change_count' => 2, 'error_count' => 1, 'lines' => ['example.com: expiry date updated', 'example.org: registrar timeout']],
             'automation' => ['run_at' => $today, 'status' => 'completed'],
             'security' => ['email' => 'sam@example.test', 'failures' => 10],
+            'credential' => ['gateway' => 'connectIPS', 'label' => 'Signing certificate', 'expires_on' => $today, 'days_left' => 7, 'when' => 'in 7 days', 'admin_url' => url('/admin/billing/gateways/connectips/edit')],
             'webhook' => ['url' => 'https://hooks.example.com/billing', 'consecutive_failures' => 20, 'admin_url' => url('/admin/notifications/webhooks/1')],
             'notice' => [
                 'account' => 'Example Studio', 'email' => 'sam@example.test', 'actor' => 'Sam Rivera', 'section' => 'Security',

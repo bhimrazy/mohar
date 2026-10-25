@@ -2,6 +2,8 @@
 
 namespace App\Data\Billing;
 
+use App\Data\Integrations\CertificateInfo;
+
 /**
  * A gateway's staff configuration as handed to drivers (drivers never load models).
  */
@@ -23,6 +25,17 @@ final readonly class GatewayConfig
     public function setting(string $key, mixed $default = null): mixed
     {
         return $this->settings[$key] ?? $default;
+    }
+
+    /**
+     * Metadata of the certificate stored for a FieldType::Certificate setting (the PEM key is setting($key)), or null
+     * when none is stored.
+     */
+    public function certificate(string $key): ?CertificateInfo
+    {
+        $stored = $this->settings[CertificateInfo::SETTINGS_KEY][$key] ?? null;
+
+        return is_array($stored) ? CertificateInfo::fromArray($stored) : null;
     }
 
     /**

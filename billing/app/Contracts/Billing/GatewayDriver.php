@@ -63,9 +63,11 @@ interface GatewayDriver extends IntegrationDriver
 
     /**
      * Staff-configurable settings. Types: string, text, secret (single line), secret_text (multi-line, e.g. PEM),
-     * boolean (e.g. sandbox toggle), select (with options). Secrets are write-only in the admin UI.
+     * boolean (e.g. sandbox toggle), select (with options), certificate (a .pfx/.p12 upload; the driver reads the PEM
+     * private key as the setting and its metadata through GatewayConfig::certificate()). Secrets are write-only in the
+     * admin UI.
      *
-     * @return list<array{key: string, label: string, type: 'string'|'text'|'secret'|'secret_text'|'boolean'|'select', help?: string, options?: array<string, string>, required?: bool, default?: string|bool}>
+     * @return list<array{key: string, label: string, type: 'string'|'text'|'secret'|'secret_text'|'certificate'|'boolean'|'select', help?: string, options?: array<string, string>, required?: bool, default?: string|bool}>
      */
     public function settingsFields(): array;
 

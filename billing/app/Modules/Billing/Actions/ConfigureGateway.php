@@ -3,6 +3,7 @@
 namespace App\Modules\Billing\Actions;
 
 use App\Contracts\Billing\GatewayDriver;
+use App\Data\Integrations\CertificateInfo;
 use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Events\Billing\GatewayConfigurationChanged;
@@ -13,13 +14,16 @@ use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Support\AfterCommit;
+use App\Modules\Core\Models\IntegrationCredential;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Support\Billing\SandboxPolicy;
+use App\Support\Integrations\CertificateBundle;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Save a gateway's staff configuration. Secret settings left empty keep their stored value; deactivating can move
- * unpaid invoices to a replacement gateway.
+ * Save a gateway's staff configuration. Secret settings left empty keep their stored value; a certificate setting
+ * changes only through an upload read by GatewayRequest (never from text); deactivating can move unpaid invoices to a
+ * replacement gateway.
  */
 class ConfigureGateway
 {
@@ -31,8 +35,9 @@ class ConfigureGateway
     /**
      * @param  array{display_name: string, is_active: bool, show_on_order_form: bool, sort_order: int, convert_to_currency: string|null}  $attributes
      * @param  array<string, string|null>  $settings
+     * @param  array<string, CertificateBundle>  $certificates  uploaded certificates, by setting key
      */
-    public function handle(string $key, array $attributes, array $settings, ?string $replacement = null, ?int $userId = null): Gateway
+    public function handle(string $key, array $attributes, array $settings, ?string $replacement = null, ?int $userId = null, array $certificates = []): Gateway
     {
         if (str_starts_with($key, 'sandbox') && ! SandboxCardDriver::enabled() && $attributes['is_active']) {
             throw new BillingException(__('Sandbox gateways can\'t be activated in production.'));
@@ -45,6 +50,19 @@ class ConfigureGateway
         $changes = [];
 
         foreach (array_map(SettingField::fromArray(...), $driver->settingsFields()) as $field) {
+            if ($field->type === FieldType::Certificate) {
+                if (isset($certificates[$field->key])) {
+                    $info = $certificates[$field->key]->info;
+                    $before = $config[CertificateInfo::SETTINGS_KEY][$field->key]['not_after'] ?? null;
+                    $config[$field->key] = $certificates[$field->key]->privateKeyPem;
+                    $config[CertificateInfo::SETTINGS_KEY][$field->key] = $info->toArray();
+                    $changes['settings.'.$field->key] = 'rotated';
+                    $changes['settings.'.$field->key.'.expires'] = ['from' => $before, 'to' => $info->summary()['not_after']];
+                }
+
+                continue;
+            }
+
             $value = (string) ($settings[$field->key] ?? '');
             $secret = $field->isSecret();
 
@@ -70,8 +88,17 @@ class ConfigureGateway
             }
         }
 
-        return DB::transaction(function () use ($gateway, $attributes, $config, $wasActive, $key, $replacement, $changes, $userId): Gateway {
+        return DB::transaction(function () use ($gateway, $attributes, $config, $wasActive, $key, $replacement, $changes, $userId, $certificates): Gateway {
             $gateway->fill([...$attributes, 'config' => $config])->save();
+
+            // Expiry bookkeeping outside the encrypted settings; a new certificate starts its warnings again.
+            foreach ($certificates as $setting => $certificate) {
+                IntegrationCredential::query()->upsert([[
+                    'family' => IntegrationCredential::GATEWAY, 'owner_key' => $key, 'setting_key' => $setting,
+                    'serial' => mb_substr($certificate->info->serial, 0, 80), 'not_after' => $certificate->info->notAfter, 'warned_stage' => null,
+                    'created_at' => now(), 'updated_at' => now(),
+                ]], ['family', 'owner_key', 'setting_key'], ['serial', 'not_after', 'warned_stage', 'updated_at']);
+            }
 
             if ($wasActive && ! $gateway->is_active && $replacement !== null) {
                 Invoice::query()->where('payment_gateway', $key)->whereIn('status', InvoiceStatus::payable())->update(['payment_gateway' => $replacement]);
