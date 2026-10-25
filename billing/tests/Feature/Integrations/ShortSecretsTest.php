@@ -82,36 +82,36 @@ test('the server form refuses a short secret driver setting', function () {
 });
 
 test('a short secret stored before the minimum still loads, is flagged by key only, and survives a save that keeps it', function () {
-    Gateway::query()->create(['key' => 'sandbox_card', 'display_name' => 'Card', 'config' => ['webhook_secret' => 'q7z']]);
-    RegistrarAccount::query()->create(['key' => 'pin_registrar', 'is_active' => true, 'settings' => ['api_key' => 'long-enough-key', 'pin' => 'k9x']]);
-    $server = Server::factory()->create(['driver' => 'log', 'settings' => ['webhook_secret' => 'w4v']]);
+    Gateway::query()->create(['key' => 'sandbox_card', 'display_name' => 'Card', 'config' => ['webhook_secret' => 'q7~']]);
+    RegistrarAccount::query()->create(['key' => 'pin_registrar', 'is_active' => true, 'settings' => ['api_key' => 'long-enough-key', 'pin' => 'k9~']]);
+    $server = Server::factory()->create(['driver' => 'log', 'settings' => ['webhook_secret' => 'w4~']]);
 
-    $this->get(route('admin.billing.gateways.edit', 'sandbox_card'))->assertOk()->assertDontSee('q7z')
+    $this->get(route('admin.billing.gateways.edit', 'sandbox_card'))->assertOk()->assertDontSee('q7~')
         ->assertInertia(fn (Assert $page) => $page->where('gateway.secrets_short', ['webhook_secret'])->where('gateway.secrets_set.webhook_secret', true));
-    $this->get(route('admin.domains.registrars.index'))->assertOk()->assertDontSee('k9x')
+    $this->get(route('admin.domains.registrars.index'))->assertOk()->assertDontSee('k9~')
         ->assertInertia(fn (Assert $page) => $page->where('registrars', fn ($rows) => collect($rows)->firstWhere('key', 'pin_registrar')['secrets_short'] === ['pin']));
-    $this->get(route('admin.services.servers.edit', $server))->assertOk()->assertDontSee('w4v')
+    $this->get(route('admin.services.servers.edit', $server))->assertOk()->assertDontSee('w4~')
         ->assertInertia(fn (Assert $page) => $page->where('server.settings.secrets_short', ['webhook_secret']));
 
     // A blank secret input keeps the stored value: unrelated edits are not blocked by it.
     $this->put(route('admin.billing.gateways.update', 'sandbox_card'), shortSecretGatewayPayload(''))->assertSessionHasNoErrors();
-    expect(Gateway::query()->where('key', 'sandbox_card')->sole()->setting('webhook_secret'))->toBe('q7z');
+    expect(Gateway::query()->where('key', 'sandbox_card')->sole()->setting('webhook_secret'))->toBe('q7~');
 });
 
 test('integrations:short-secrets lists stored short secrets by name across gateways, registrars and servers, never by value', function () {
     expect(Artisan::call('integrations:short-secrets'))->toBe(0)
         ->and(Artisan::output())->toContain('No stored secret is shorter than its minimum length.');
 
-    Gateway::query()->create(['key' => 'sandbox_card', 'display_name' => 'Sandbox card', 'config' => ['webhook_secret' => 'q7z']]);
+    Gateway::query()->create(['key' => 'sandbox_card', 'display_name' => 'Sandbox card', 'config' => ['webhook_secret' => 'q7~']]);
     RegistrarAccount::query()->create(['key' => 'pin_registrar', 'is_active' => true, 'settings' => ['api_key' => 'long-enough-key', 'pin' => '12345']]);
-    Server::factory()->create(['driver' => 'log', 'name' => 'Demo panel', 'settings' => ['webhook_secret' => 'w4v', 'region' => 'np']]);
+    Server::factory()->create(['driver' => 'log', 'name' => 'Demo panel', 'settings' => ['webhook_secret' => 'w4~', 'region' => 'np']]);
 
     expect(Artisan::call('integrations:short-secrets'))->toBe(1);
     $output = Artisan::output();
 
     expect($output)->toContain('Sandbox card')->toContain('Webhook signing secret (webhook_secret)')
         ->toContain('Reseller PIN (pin)')->toContain('Demo panel')->toContain('Webhook secret (demo) (webhook_secret)')
-        ->not->toContain('q7z')->not->toContain('12345')->not->toContain('w4v')->not->toContain('API key');
+        ->not->toContain('q7~')->not->toContain('12345')->not->toContain('w4~')->not->toContain('API key');
     expect(collect(app(StoredSecrets::class)->check()['short'])->pluck('minimum', 'key')->all())->toBe(['webhook_secret' => 8, 'pin' => 6]);
 });
 
