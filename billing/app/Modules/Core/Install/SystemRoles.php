@@ -35,8 +35,9 @@ final class SystemRoles implements InstallsReferenceData
         ],
         'billing' => [
             'name' => 'Billing',
+            // The register exports are sensitive (buyer PANs in bulk), so `reports.*` does not grant them (vat-register §8.1).
             'description' => 'Clients, orders, invoices and billing reports.',
-            'permissions' => ['core.clients.view', 'core.clients.create', 'core.clients.update', 'core.contacts.manage', 'billing.*', 'billing.payments.manage', 'billing.transactions.manage', 'billing.refunds.manage', 'billing.credit.adjust', 'billing.tax_notes.issue', 'orders.*', 'reports.*'],
+            'permissions' => ['core.clients.view', 'core.clients.create', 'core.clients.update', 'core.contacts.manage', 'billing.*', 'billing.payments.manage', 'billing.transactions.manage', 'billing.refunds.manage', 'billing.credit.adjust', 'billing.tax_notes.issue', 'orders.*', 'reports.*', 'reports.tax_note_register.export', 'reports.vat_register.export'],
         ],
         'support' => [
             'name' => 'Support',

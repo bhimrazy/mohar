@@ -359,7 +359,8 @@ own.
 - **CSV, layout `ird`**: the prescribed columns in the prescribed order with the template's Nepali headings, the header
   block as leading rows (PAN, name, year, period), then our extra columns. **MUST**
 - **PDF**: the kernel report view (A4 landscape, header block, page and grand totals, "Printed by <staff> at <company
-  time>", brand from `BrandProvider`). **MUST**
+  time>", brand from `BrandProvider`). **MUST** It prints the `summary` layout (VAT PR 7): date (BS), number, type,
+  buyer, PAN and the amounts, because the 21 detail columns do not fit an A4 landscape page; the CSVs keep every column.
 - Exports are synchronous in this build; the queued export waits for the Reports module (PR 0c). One `report.exported`
   activity entry per export, written by the pipeline (ADR 0025 §5). **MUST**
 - Note PDF (Billing's own document view, beside the invoice PDF): titled "Credit Note" / "Debit Note", seller name,

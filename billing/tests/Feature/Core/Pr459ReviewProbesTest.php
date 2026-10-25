@@ -3,7 +3,6 @@
 use App\Models\User;
 use App\Modules\Core\Install\FirstAdministrator;
 use App\Modules\Core\Install\ReferenceDataInstaller;
-use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\Role;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -54,10 +53,11 @@ test('probe D: renamed full-admin orphan with the admin attached becomes custom 
     app(ReferenceDataInstaller::class)->install();
     $orphan = Role::query()->forceCreate(['name' => 'Owner', 'permissions' => ['*'], 'is_system' => true]);
     $owner = User::factory()->create(['is_staff' => true, 'is_active' => true, 'role_id' => $orphan->id]);
-    $orphan2 = Role::query()->forceCreate(['name' => 'Accounts', 'permissions' => array_reverse(SystemRoles::permissions('billing')), 'is_system' => true]);
+    $migration = require base_path('app/Modules/Core/Database/Migrations/2026_10_24_000110_key_orphaned_system_roles.php');
+    $orphan2 = Role::query()->forceCreate(['name' => 'Accounts', 'permissions' => array_reverse((new ReflectionClassConstant($migration, 'PERMISSIONS'))->getValue()['billing']), 'is_system' => true]);
     Role::query()->where('key', 'billing')->delete();
 
-    (require base_path('app/Modules/Core/Database/Migrations/2026_10_24_000110_key_orphaned_system_roles.php'))->up();
+    $migration->up();
 
     expect($orphan->refresh()->is_system)->toBeFalse()
         ->and($orphan->key)->toBeNull()

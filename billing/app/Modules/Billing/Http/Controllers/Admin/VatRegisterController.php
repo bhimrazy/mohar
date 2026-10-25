@@ -26,8 +26,11 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Billing → VAT register (vat-register §6, §8): the VAT sales register and the note register as two tabs, paged
- * through ReportViewer (which checks the view permission and fills the totals), and the CSV export through the
- * kernel exporter (export permission, step-up, row cap, `report.exported`). Both routes are rate-limited.
+ * through ReportViewer (which checks the view permission and fills the totals), and the exports through the kernel
+ * exporter (export permission, step-up, row cap, `report.exported`). Both routes are rate-limited.
+ *
+ * Exports offered (vat-register §7, D4): CSV in the `detail` layout, CSV in the `ird` layout (the VAT register only)
+ * and a PDF of the `summary` layout, which fits A4 landscape.
  */
 class VatRegisterController extends Controller
 {
@@ -101,6 +104,7 @@ class VatRegisterController extends Controller
             ],
             'warnings' => ['withoutPan' => $summary->withoutPan, 'unconverted' => $summary->unconverted, 'unclassified' => $summary->unclassified],
             'can' => ['export' => (bool) $user?->hasPermission("reports.{$key}.export")],
+            'exports' => $user?->hasPermission("reports.{$key}.export") ? $this->exports($report) : [],
         ]);
     }
 
@@ -109,14 +113,40 @@ class VatRegisterController extends Controller
         $key = self::TABS[$this->tab($request)];
         $this->authorize("reports.{$key}.export");
 
-        $query = $exporter->query($key, $this->filters($request, $clock), $request->user()?->getAuthIdentifier());
-        $response = $exporter->export($key, $query, ExportFormat::Csv);
         /** @var RegisterReport $report */
         $report = $reports->get($key);
-        $name = str_replace('_', '-', $key).'-'.$report->period($query)->slug().'.csv';
+        $format = $request->query('format', 'csv');
+        $format = is_string($format) ? ExportFormat::tryFrom($format) : null;
+        // A PDF is always the summary: the other layouts have more columns than an A4 landscape page holds.
+        $layout = $format === ExportFormat::Pdf ? 'summary' : $request->query('layout', 'detail');
+
+        if ($format === null || ! is_string($layout) || ! array_key_exists($layout, $report->layouts())) {
+            throw ValidationException::withMessages(['export' => __('This export does not exist.')]);
+        }
+        $query = $exporter->query($key, $this->filters($request, $clock), $request->user()?->getAuthIdentifier());
+        $response = $exporter->export($key, $query, $format, $layout);
+        $name = str_replace('_', '-', $key).($layout === 'ird' ? '-ird' : '').'-'.$report->period($query)->slug().'.'.$format->value;
         $response->headers->set('Content-Disposition', HeaderUtils::makeDisposition(HeaderUtils::DISPOSITION_ATTACHMENT, $name, $name));
 
         return $response;
+    }
+
+    /**
+     * The exports the page offers, each with the query that selects it.
+     *
+     * @return list<array{label: string, format: string, layout: string}>
+     */
+    private function exports(RegisterReport $report): array
+    {
+        $exports = [['label' => __('CSV (detail)'), 'format' => ExportFormat::Csv->value, 'layout' => 'detail']];
+
+        if (array_key_exists('ird', $report->layouts())) {
+            $exports[] = ['label' => __('CSV (IRD sales book)'), 'format' => ExportFormat::Csv->value, 'layout' => 'ird'];
+        }
+
+        $exports[] = ['label' => __('PDF'), 'format' => ExportFormat::Pdf->value, 'layout' => 'summary'];
+
+        return $exports;
     }
 
     private function tab(Request $request): string
