@@ -440,7 +440,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             $bool('quotes.auto_invoice_on_accept', 'Invoice quotes automatically on acceptance'),
             $int('quotes.valid_days', 'Default quote validity (days)'),
             $bool('show_bs_dates', 'Show the Bikram Sambat date beside the AD date on invoices', 'Issue and due dates on invoice pages, PDFs and invoice emails also show the BS date, e.g. 12 Jan 2026 (28 Poush 2082 BS). Dates from 15 April 2039 on show the AD date only.'),
-            $bool('pdf.attach_to_emails', 'Attach PDFs to invoice and note emails', 'Credit and debit note emails carry the note as a PDF.'),
+            $bool('pdf.attach_to_emails', 'Attach PDFs to invoice, quote and note emails', 'Invoice, quote, credit note and debit note emails carry the document as a PDF.'),
             new SettingDefinition('billing.pdf.paper', 'PDF paper size', 'select', options: ['A4' => 'A4', 'letter' => 'Letter']),
         ], 'billing.settings.manage');
 
@@ -566,6 +566,14 @@ class BillingServiceProvider extends ModuleServiceProvider
         ];
     }
 
+    /**
+     * @return array{client_id: int, pdf_attached: bool}
+     */
+    private function documentMail(Invoice|Quote $record): array
+    {
+        return ['client_id' => $record->client_id, 'pdf_attached' => app(BillingDocumentAttachments::class)->attaches($record, $record->getAttribute('language') ?: null)];
+    }
+
     private function registerMergeFields(): void
     {
         $registry = $this->app->make(MergeFieldRegistry::class);
@@ -584,6 +592,9 @@ class BillingServiceProvider extends ModuleServiceProvider
 
             return ['client_id' => $note->client_id, 'pdf_attached' => app(BillingDocumentAttachments::class)->attaches($note, $note->client->language ?: null)];
         });
+        // One query each: the record and the client's language (the message's language). Kept out of the `invoice` entity, which webhooks share.
+        $registry->register('invoice_mail', fn (int $id): array => $this->documentMail(Invoice::query()->select('invoices.*')->addSelect(['language' => Client::query()->select('language')->whereColumn('clients.id', 'invoices.client_id')])->findOrFail($id)));
+        $registry->register('quote_mail', fn (int $id): array => $this->documentMail(Quote::query()->select('quotes.*')->addSelect(['language' => Client::query()->select('language')->whereColumn('clients.id', 'quotes.client_id')])->findOrFail($id)));
 
         $registry->register('quote', function (int $id): array {
             $quote = Quote::query()->findOrFail($id);

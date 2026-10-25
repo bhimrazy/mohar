@@ -104,8 +104,7 @@ class SendEmailMessage implements ShouldBeEncrypted, ShouldQueue
 
     /**
      * The related record's document, for a template that carries one, in the message's locale. Asked for at each send, so
-     * a resend carries it too. Inside the send's try: a document that cannot be produced fails this attempt like a
-     * transport error. One over the size cap is left off (the mail links to it) and logged.
+     * a resend carries it too. A document that cannot be produced is reported and the mail goes without it. One over the size cap is left off (the mail links to it) and logged.
      */
     private function document(EmailMessage $message): ?DocumentFile
     {
@@ -113,7 +112,14 @@ class SendEmailMessage implements ShouldBeEncrypted, ShouldQueue
             return null;
         }
 
-        $document = app(BillingDocuments::class)->document($message->related_type, (int) $message->related_id, $message->locale);
+        try {
+            $document = app(BillingDocuments::class)->document($message->related_type, (int) $message->related_id, $message->locale);
+        } catch (Throwable $exception) {
+            report($exception);
+            Log::warning('Email document could not be produced; the mail is sent without it.', ['email_message_id' => $message->id, 'related_type' => $message->related_type, 'related_id' => $message->related_id]);
+
+            return null;
+        }
 
         $cap = (int) app(Settings::class)->get('notifications.attachment_max_bytes');
 

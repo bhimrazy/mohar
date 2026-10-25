@@ -197,6 +197,8 @@ MD.$signOff),
 
 We've prepared a quote for {{ quote.subject }}.
 
+{% if quote.pdf_attached %}A PDF copy of the quote is attached.{% endif %}
+
 | Quote | {{ quote.number }} |
 |---|---|
 | Total | {{ quote.total }} |
@@ -354,6 +356,8 @@ Here's your new invoice. Please pay it by {{ invoice.due_date | date }} to keep 
 
 [Pay {{ invoice.balance }}]({{ invoice.url }})
 
+{% if invoice.pdf_attached %}A PDF copy of the invoice is attached.{% endif %}
+
 | Invoice | {{ invoice.number }} |
 |---|---|
 | Issued | {{ invoice.issue_date | date }}{% if invoice.issue_date_bs %} ({{ invoice.issue_date_bs }}){% endif %} |
@@ -368,6 +372,8 @@ We'll charge your saved payment method on {{ invoice.due_date | date }}. There's
 
 [View invoice]({{ invoice.url }})
 
+{% if invoice.pdf_attached %}A PDF copy of the invoice is attached.{% endif %}
+
 | Invoice | {{ invoice.number }} |
 |---|---|
 | Issued | {{ invoice.issue_date | date }}{% if invoice.issue_date_bs %} ({{ invoice.issue_date_bs }}){% endif %} |
@@ -379,6 +385,8 @@ MD.$signOff),
 A friendly reminder that invoice {{ invoice.number }} is due on {{ invoice.due_date | date }}. Paying online takes a minute.
 
 [Pay {{ invoice.balance }}]({{ invoice.url }})
+
+{% if invoice.pdf_attached %}A PDF copy of the invoice is attached.{% endif %}
 
 | Invoice | {{ invoice.number }} |
 |---|---|
@@ -393,6 +401,8 @@ MD.$signOff),
 We haven't received payment for invoice {{ invoice.number }}, which was due on {{ invoice.due_date | date }}. Please pay it soon so your services keep running.
 
 [Pay {{ invoice.balance }}]({{ invoice.url }})
+
+{% if invoice.pdf_attached %}A PDF copy of the invoice is attached.{% endif %}
 
 | Invoice | {{ invoice.number }} |
 |---|---|
@@ -410,6 +420,8 @@ Invoice {{ invoice.number }} is now {{ invoice.days_overdue }} days overdue. Ple
 
 [Pay {{ invoice.balance }}]({{ invoice.url }})
 
+{% if invoice.pdf_attached %}A PDF copy of the invoice is attached.{% endif %}
+
 | Invoice | {{ invoice.number }} |
 |---|---|
 | Was due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
@@ -424,6 +436,8 @@ Invoice {{ invoice.number }} is {{ invoice.days_overdue }} days overdue. If it s
 
 [Pay {{ invoice.balance }}]({{ invoice.url }})
 
+{% if invoice.pdf_attached %}A PDF copy of the invoice is attached.{% endif %}
+
 | Invoice | {{ invoice.number }} |
 |---|---|
 | Was due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
@@ -435,6 +449,8 @@ MD.$signOff),
 # Payment received
 
 Thank you. We've received your payment of {{ payment.amount }}{% if invoice.balance_due %}, and {{ invoice.balance }} is still due on invoice {{ invoice.number }}{% else %}, and invoice {{ invoice.number }} is paid in full{% endif %}.
+
+{% if invoice.pdf_attached %}A PDF copy of the invoice is attached.{% endif %}
 
 | Invoice | {{ invoice.number }} |
 |---|---|
@@ -472,6 +488,8 @@ MD.$signOff),
 We've changed this invoice. {{ invoice.balance }} is now due by {{ invoice.due_date | date }}.
 
 [Pay {{ invoice.balance }}]({{ invoice.url }})
+
+{% if invoice.pdf_attached %}A PDF copy of the invoice is attached.{% endif %}
 
 | Invoice | {{ invoice.number }} |
 |---|---|
@@ -1069,6 +1087,6 @@ $descriptions = [
 ];
 
 // Templates whose message carries its related record's PDF (App\Contracts\Billing\BillingDocuments), attached at send time.
-$attachesDocument = ['credit_note.issued', 'debit_note.issued'];
+$attachesDocument = ['credit_note.issued', 'debit_note.issued', 'invoice.created', 'invoice.created_autocharge', 'invoice.payment_reminder', 'invoice.overdue_first', 'invoice.overdue_second', 'invoice.overdue_third', 'invoice.payment_confirmation', 'invoice.modified', 'quote.delivered'];
 
 return array_map(fn (array $template): array => [...$template, 'preheader' => $preheaders[$template['key']] ?? null, 'description' => $descriptions[$template['key']] ?? null, 'attaches_document' => in_array($template['key'], $attachesDocument, true)], $templates);

@@ -265,7 +265,7 @@ test('a resend from the email log attaches the PDF again', function () {
 
     app(NotificationMailer::class)->resend($message->fresh());
 
-    expect(Mail::sent(TemplatedMail::class, fn (TemplatedMail $mail): bool => count($mail->attachments()) === 1))->toHaveCount(2)
+    expect(Mail::sent(TemplatedMail::class, fn (TemplatedMail $mail): bool => $mail->subjectLine === $message->subject && count($mail->attachments()) === 1))->toHaveCount(2)
         ->and($note->fresh()->print_count)->toBe(0);
 });
 
@@ -280,7 +280,7 @@ test('with attachments off the note email has no PDF and does not say it is atta
 
 test('only templates that carry a document get one: other mail about the note has none', function () {
     $note = documentNote(documentInvoice(), notify: false);
-    $message = EmailMessage::factory()->create(['template_key' => 'invoice.modified', 'related_type' => 'tax_note', 'related_id' => $note->id, 'status' => EmailStatus::Queued]);
+    $message = EmailMessage::factory()->create(['template_key' => 'invoice.payment_failed', 'related_type' => 'tax_note', 'related_id' => $note->id, 'status' => EmailStatus::Queued]);
 
     (new SendEmailMessage($message->id))->handle(app(Settings::class));
 
@@ -299,15 +299,16 @@ test('without Billing bound the note email is sent with no attachment', function
 });
 
 test('a document over the size cap is left off the mail and logged', function () {
+    $invoice = documentInvoice();
     config(['notifications.attachment_max_bytes' => 10]);
     Log::spy();
 
-    documentNote(documentInvoice());
+    documentNote($invoice);
 
     Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => str_contains($mail->subjectLine, 'Credit note') && $mail->document === null);
     // The PDF was rendered after commit, before the mail was composed: its text does not claim an attachment.
     expect(EmailMessage::query()->where('related_type', 'tax_note')->sole()->body_text)->not->toContain('attached');
-    Log::shouldHaveReceived('warning')->withArgs(fn (string $message): bool => str_contains($message, 'too large to attach'))->once();
+    Log::shouldHaveReceived('warning')->withArgs(fn (string $message, array $context = []): bool => str_contains($message, 'too large to attach') && $context['related_type'] === 'tax_note')->once();
 });
 
 test('the attachment is rendered in the message locale and cached per locale', function () {

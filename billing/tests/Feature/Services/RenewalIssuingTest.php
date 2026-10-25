@@ -72,7 +72,7 @@ function renewalSnapshot(Service $service): array
 }
 
 /** Queries for an automation run that renews one service: the run's own bookkeeping plus the renewal (measured 2026-10-20). */
-const RENEWAL_QUERY_BUDGET = 46; // 52 before the renewal query work; +2 for the fiscal snapshot (lines, default currency)
+const RENEWAL_QUERY_BUDGET = 47; // 52 before the renewal query work; +2 for the fiscal snapshot (lines, default currency); +1 for the invoice email's PDF check (record and client language, one query)
 
 beforeEach(function () {
     $this->travelTo('2026-11-01 08:00:00');
