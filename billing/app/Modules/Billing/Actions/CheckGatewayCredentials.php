@@ -18,7 +18,7 @@ use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
-use InvalidArgumentException;
+use Throwable;
 
 /**
  * Daily: warns staff before a certificate an active gateway uses expires (payments-gateways-expansion §9.2). Each
@@ -84,10 +84,14 @@ class CheckGatewayCredentials
     {
         $labels = $this->certificateLabels();
         $names = $this->activeGatewayNames(array_keys($labels));
-        // One row per certificate setting of an active gateway; a setting its driver no longer declares is left out.
+        // Only the certificate settings active gateways' drivers still declare.
         $soonest = $names === [] ? null : IntegrationCredential::query()->where('family', IntegrationCredential::GATEWAY)
-            ->whereIn('owner_key', array_keys($names))->orderBy('not_after')->orderBy('id')->get()
-            ->first(fn (IntegrationCredential $credential): bool => isset($labels[$credential->owner_key][$credential->setting_key]));
+            ->where(function ($query) use ($names, $labels): void {
+                foreach (array_keys($names) as $key) {
+                    $query->orWhere(fn ($pair) => $pair->where('owner_key', $key)->whereIn('setting_key', array_keys($labels[$key])));
+                }
+            })
+            ->orderBy('not_after')->orderBy('id')->first();
 
         if ($soonest === null) {
             return null;
@@ -187,12 +191,13 @@ class CheckGatewayCredentials
         $labels = [];
 
         foreach ($this->gateways->drivers() as $key => $driver) {
-            // A driver whose fields cannot be read (an invalid key) is reported and skipped, never the others.
+            // A driver whose fields cannot be read (an invalid key, a malformed row) is reported and skipped, never the
+            // others.
             try {
                 foreach ($this->certificateFields($driver) as $field) {
                     $labels[(string) $key][$field->key] = $field->label;
                 }
-            } catch (InvalidArgumentException $exception) {
+            } catch (Throwable $exception) {
                 report($exception);
             }
         }

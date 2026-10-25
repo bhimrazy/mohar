@@ -373,6 +373,11 @@ RSA key NCHL ships as a PKCS#12 file).
    and provisioning registries refuse certificate settings there), and `keys()`/`all()` report and leave out a driver
    that fails it, so one broken package cannot break the pages that list every driver. Billing's certificate check and
    health line skip, and report, a gateway driver whose fields cannot be read, and count only certificate settings a
-   driver still declares. A host whose owner record can be deleted deletes its `integration_credentials` rows in the
+   driver still declares. `has()` agrees with `keys()`, so nothing new is bound to a hidden driver (a product keeps a
+   driver it is already bound to); `isRegistered()` answers for every registered key, and a caller that handles a
+   driver's secrets fails closed on a registered but hidden driver (Catalog's `DriverSecrets` treats every setting as
+   secret). A failure of the family's own checks is remembered for 60 seconds; any other failure is checked again on
+   the next call, so a long-running worker does not hide a driver for good. `unavailable()` lists hidden drivers with a
+   reason, and the admin dashboard health card names them. A host whose owner record can be deleted deletes its `integration_credentials` rows in the
    same transaction; gateways are never deleted, so none does yet.
 8. The step-up refusal change is recorded in ADR 0018 Amendment (#490).

@@ -20,8 +20,11 @@ use Throwable;
  * register() does no I/O and resolves nothing. get() builds the driver through the container each time (bind it as
  * a singleton to share one instance) and checks that it implements the family interface, reports the key it was
  * registered under and passes the family's validate() rules. Drivers hold no account state, so a resolved driver is
- * safe to reuse. keys() and all() list only drivers that pass those checks: a driver that fails them is reported once
- * and left out, so one broken package cannot take down the pages that list every driver.
+ * safe to reuse. has(), keys() and all() count only drivers that pass those checks: a driver that fails them is
+ * reported, left out and listed by unavailable() for staff, so one broken package cannot take down the pages that list
+ * every driver, and nothing new can be bound to it. A failure of the family's own checks (a LogicException) is
+ * remembered for FAILURE_TTL seconds; any other failure (a constructor that failed once) is checked again next time.
+ * isRegistered() answers for every registered key, for callers that must fail closed on a hidden driver.
  *
  * @api
  *
@@ -34,8 +37,14 @@ abstract class DriverRegistry
     /** @var array<string, class-string<TDriver>|Closure(Container): TDriver> */
     private array $drivers = [];
 
-    /** @var array<string, bool> whether each resolved key passed get()'s checks */
+    /** Seconds a driver that failed the family's checks stays hidden before it is checked again. */
+    public const FAILURE_TTL = 60;
+
+    /** @var array<string, true> keys that passed get()'s checks */
     private array $usable = [];
+
+    /** @var array<string, array{reason: string, until: int}> keys that failed the family's checks, until a recheck */
+    private array $failed = [];
 
     public function __construct(protected Container $container) {}
 
@@ -71,12 +80,41 @@ abstract class DriverRegistry
         }
 
         $this->drivers[$key] = $driver;
-        unset($this->usable[$key]);
+        unset($this->usable[$key], $this->failed[$key]);
     }
 
+    /**
+     * Whether a usable driver is registered as $key (the same set keys() lists).
+     */
     public function has(string $key): bool
     {
+        return isset($this->drivers[$key]) && $this->usable($key);
+    }
+
+    /**
+     * Whether anything is registered as $key, usable or not.
+     */
+    public function isRegistered(string $key): bool
+    {
         return isset($this->drivers[$key]);
+    }
+
+    /**
+     * Registered drivers that fail get()'s checks, with a reason staff can read.
+     *
+     * @return array<string, string>
+     */
+    public function unavailable(): array
+    {
+        $unavailable = [];
+
+        foreach (array_keys($this->drivers) as $key) {
+            if (! $this->usable($key)) {
+                $unavailable[$key] = $this->failed[$key]['reason'] ?? __('It could not be loaded; the error log has the details.');
+            }
+        }
+
+        return $unavailable;
     }
 
     /**
@@ -106,8 +144,8 @@ abstract class DriverRegistry
     }
 
     /**
-     * Keys of the drivers that pass get()'s checks, in registration order. A driver that fails them is reported (once
-     * per process) and left out.
+     * Keys of the drivers that pass get()'s checks, in registration order. A driver that fails them is reported and
+     * left out.
      *
      * @return list<string>
      */
@@ -125,17 +163,29 @@ abstract class DriverRegistry
 
     private function usable(string $key): bool
     {
-        if (! isset($this->usable[$key])) {
-            try {
-                $this->get($key);
-                $this->usable[$key] = true;
-            } catch (Throwable $exception) {
-                report($exception);
-                $this->usable[$key] = false;
-            }
+        if (isset($this->usable[$key])) {
+            return true;
         }
 
-        return $this->usable[$key];
+        if (isset($this->failed[$key]) && $this->failed[$key]['until'] > now()->getTimestamp()) {
+            return false;
+        }
+
+        unset($this->failed[$key]);
+
+        try {
+            $this->get($key);
+            $this->usable[$key] = true;
+
+            return true;
+        } catch (LogicException $exception) {
+            report($exception);
+            $this->failed[$key] = ['reason' => $exception->getMessage(), 'until' => now()->getTimestamp() + self::FAILURE_TTL];
+        } catch (Throwable $exception) {
+            report($exception);
+        }
+
+        return false;
     }
 
     /**

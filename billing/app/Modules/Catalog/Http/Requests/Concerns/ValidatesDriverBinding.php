@@ -22,7 +22,9 @@ trait ValidatesDriverBinding
     {
         return [
             'provisioning_driver' => ['required', 'string', 'max:50', 'regex:/^[a-z0-9_-]+$/', function (string $attribute, mixed $value, Closure $fail) use ($drivers): void {
-                if (is_string($value) && $value !== 'none' && $drivers->all() !== [] && ! $drivers->exists($value)) {
+                // A driver that is installed but unavailable (it failed the host's checks) takes no new bindings; a
+                // product already bound to it keeps its key.
+                if (is_string($value) && $value !== 'none' && $drivers->all() !== [] && ! $drivers->exists($value) && $value !== $this->storedDriver()) {
                     $fail(__('Choose an installed provisioning driver, or “none” for manual setup.'));
                 }
             }],
