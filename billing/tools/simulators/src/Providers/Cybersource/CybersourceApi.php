@@ -94,6 +94,7 @@ final class CybersourceApi
             $id = bin2hex(random_bytes(8));
             $this->scenario->state()->put('sessions', $fields['transaction_uuid'], [
                 'id' => $id, 'fields' => $fields, 'type' => $type, 'amount' => $amount, 'currency' => $fields['currency'], 'receipt_url' => $receipt,
+                'cancel_url' => $fields['override_custom_cancel_page'] ?? null,
                 'notice_url' => $fields['override_backoffice_post_url'] ?? null, 'status' => 'OPEN', 'choice' => null, 'txn_id' => null, 'expires_at' => time() + 60 * self::SESSION_MINUTES,
             ]);
             $this->scenario->state()->put('session_ids', $id, $fields['transaction_uuid']);
@@ -143,7 +144,10 @@ final class CybersourceApi
                 $session = $this->decide($session, $choice, $options);
             }
 
-            return ['post' => ['url' => $session['receipt_url'], 'fields' => $this->returnFields($session, (string) ($options['variant'] ?? ''))]];
+            // A cancel goes to the form's cancel page when it names one, as the hosted page's Cancel button does.
+            $url = $choice === 'cancel' && is_string($session['cancel_url'] ?? null) && $session['cancel_url'] !== '' ? $session['cancel_url'] : $session['receipt_url'];
+
+            return ['post' => ['url' => $url, 'fields' => $this->returnFields($session, (string) ($options['variant'] ?? ''))]];
         });
     }
 
