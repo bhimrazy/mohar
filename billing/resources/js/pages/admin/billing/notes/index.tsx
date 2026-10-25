@@ -11,7 +11,6 @@ import { Money } from '@/components/app/money';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { Pagination } from '@/components/app/pagination';
-import { StatusBadge } from '@/components/app/status-badge';
 import { useQueryParams } from '@/components/app/use-query-params';
 import { ClientPicker } from '@/components/billing/client-picker';
 import type { ClientOption } from '@/components/billing/types';
@@ -87,6 +86,7 @@ export default function NotesIndex({
                     <span className="font-medium">{note.number}</span>
                     <span className="text-xs text-muted-foreground">
                         {note.kind_label}
+                        {note.automatic && ' · Automatic'}
                     </span>
                 </span>
             ),
@@ -108,39 +108,28 @@ export default function NotesIndex({
         {
             key: 'client',
             header: 'Client',
-            cell: (note) => note.client.display_name,
-        },
-        {
-            key: 'invoice',
-            header: 'Invoice',
-            hideOnMobile: true,
             cell: (note) => (
-                <Link
-                    href={showInvoice(note.invoice_id)}
-                    className="hover:underline"
-                >
-                    {note.invoice_number}
-                </Link>
+                <span className="inline-flex flex-col">
+                    <span>{note.client.display_name}</span>
+                    <Link
+                        href={showInvoice(note.invoice_id)}
+                        className="text-xs text-muted-foreground hover:underline"
+                    >
+                        {note.invoice_number}
+                    </Link>
+                </span>
             ),
         },
         {
             key: 'reason',
             header: 'Reason',
             hideOnMobile: true,
-            cell: (note) => note.reason,
-        },
-        {
-            key: 'settlement',
-            header: 'Settled as',
-            hideOnMobile: true,
             cell: (note) => (
-                <span className="inline-flex flex-wrap items-center gap-1.5">
-                    {note.settlement.length > 0
-                        ? note.settlement.join(', ')
-                        : '—'}
-                    {note.automatic && (
-                        <StatusBadge status="automatic" label="Automatic" />
-                    )}
+                <span className="inline-flex flex-col">
+                    <span>{note.reason}</span>
+                    <span className="text-xs text-muted-foreground">
+                        {note.settlement.join(', ') || '—'}
+                    </span>
                 </span>
             ),
         },
@@ -215,7 +204,7 @@ export default function NotesIndex({
                             <FilterSelect
                                 name="automatic"
                                 label="Issued by"
-                                allLabel="Staff and automatic"
+                                allLabel="All issuers"
                                 options={[
                                     { value: '0', label: 'Staff' },
                                     { value: '1', label: 'Automatic' },
@@ -224,6 +213,7 @@ export default function NotesIndex({
                             <FilterSelect
                                 name="period"
                                 label="BS months"
+                                allLabel="All BS months"
                                 options={periods}
                             />
                             <Input
