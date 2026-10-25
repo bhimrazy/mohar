@@ -2,6 +2,7 @@
 
 namespace App\Modules\Domains;
 
+use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Core\CompanyClock;
 use App\Contracts\Domains\DomainNameRules;
 use App\Contracts\Domains\DomainPricing;
@@ -9,6 +10,8 @@ use App\Contracts\Domains\DomainRegistry;
 use App\Contracts\Domains\Registrar\RegistrarRefs;
 use App\Contracts\Domains\TldAttributes;
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Data\Billing\InvoiceLineData;
+use App\Enums\BillableType;
 use App\Events\Billing\InvoiceCancelled;
 use App\Events\Billing\InvoicePaid;
 use App\Events\Core\ClientMerged;
@@ -324,8 +327,9 @@ class DomainsServiceProvider extends ModuleServiceProvider
             ->filter(fn (DomainInvoice $invoice): bool => $invoice->period_start->toDateString() === $domains->find($invoice->domain_id)?->next_due_date->toDateString())
             ->keyBy('domain_id');
         app(DomainPricingService::class)->primePrices(array_values(array_filter($offers->pluck('tld_id')->all())));
+        $tax = $offers->count() > $open->count() ? $this->renewalTax($client) : '';
 
-        return array_values($domains->map(function (Domain $domain) use ($client, $today, $soon, $offers, $open): array {
+        return array_values($domains->map(function (Domain $domain) use ($client, $today, $soon, $offers, $open, $invoices, $tax): array {
             $expiry = $domain->expiry_date?->toDateString();
             $manageable = $this->manageableOnDashboard($domain);
 
@@ -348,7 +352,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
                     'field' => 'enabled',
                     'on' => $domain->auto_renew,
                 ] : null,
-                'action' => $offers->has($domain->id) ? $this->renewalAction($domain, $client, $open->get($domain->id)) : null,
+                'action' => $offers->has($domain->id) ? $this->renewalAction($domain, $client, $open->get($domain->id), $invoices, $tax) : null,
             ];
         })->all());
     }
@@ -359,12 +363,34 @@ class DomainsServiceProvider extends ModuleServiceProvider
     }
 
     /**
+     * How tax relates to a renewal's price for this client, as a phrase for the Renew now dialog: ", VAT included"
+     * (tax-inclusive prices), " plus VAT" (added on the invoice), or nothing. One calculation for the dashboard: every
+     * row is a domain line for the same client.
+     */
+    private function renewalTax(Client $client): string
+    {
+        if (! app()->bound(TaxCalculator::class)) {
+            return '';
+        }
+
+        $base = 100_000;
+        $totals = app(TaxCalculator::class)->calculateForClient([new InvoiceLineData('Domain renewal', $base, billableType: BillableType::Domain)], $client->id, $client->currency);
+        $names = implode(' and ', array_column(array_filter($totals->taxes, fn (array $tax): bool => $tax['amount'] > 0), 'name'));
+
+        return match (true) {
+            $names === '' => '',
+            $totals->total === $base => ", {$names} included",
+            default => " plus {$names}",
+        };
+    }
+
+    /**
      * Pay invoice when the period's renewal invoice is open (Renew now would be refused), otherwise Renew now with the
-     * amount IssueRenewalNow bills before tax: the term plus the grace or redemption fee.
+     * amount IssueRenewalNow bills: the term plus the grace or redemption fee, with how tax applies.
      *
      * @return array<string, mixed>|null
      */
-    private function renewalAction(Domain $domain, Client $client, ?DomainInvoice $open): ?array
+    private function renewalAction(Domain $domain, Client $client, ?DomainInvoice $open, RenewalInvoices $invoices, string $tax): ?array
     {
         if ($open !== null) {
             return Route::has('client.invoices.show') ? ['label' => 'Pay invoice', 'href' => route('client.invoices.show', $open->invoice_id)] : null;
@@ -376,7 +402,6 @@ class DomainsServiceProvider extends ModuleServiceProvider
             return null;
         }
 
-        $invoices = app(RenewalInvoices::class);
         [$kind, $fee] = $invoices->charge($domain);
         $total = array_sum(array_map(fn ($line): int => $line->unitAmount, $invoices->lines($domain, $kind, $fee, $term['years'], $term['price'])));
         $years = $term['years'];
@@ -394,7 +419,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
             'method' => 'post',
             'confirm' => [
                 'title' => "Renew {$domain->name_unicode} for {$period}?",
-                'description' => "We create an invoice for {$amount} ({$what}), plus tax where it applies, and take you to it. The domain renews when the invoice is paid.",
+                'description' => "We create an invoice for {$amount} ({$what}){$tax} and take you to it. The domain renews when the invoice is paid.",
                 'confirmLabel' => 'Create renewal invoice',
                 'data' => ['years' => $years],
             ],

@@ -26,6 +26,11 @@ class RenewalInvoices
 
     public const RENEWAL_KINDS = ['renewal', 'grace', 'redemption'];
 
+    private ?Currency $defaultCurrency = null;
+
+    /** @var array<string, Currency|null> */
+    private array $currencies = [];
+
     public function available(): bool
     {
         return app()->bound(Invoicer::class);
@@ -185,13 +190,21 @@ class RenewalInvoices
      */
     public function convertFromDefault(int $amount, string $currency): int
     {
-        $default = Currency::default();
+        // One query for the default and target currencies, memoised per instance: the dashboard converts a fee for each
+        // grace or redemption row.
+        if ($this->defaultCurrency === null || ! array_key_exists($currency, $this->currencies)) {
+            $found = Currency::query()->where('is_default', true)->orWhere('code', $currency)->get();
+            $this->defaultCurrency ??= $found->firstWhere('is_default', true) ?? Currency::default();
+            $this->currencies[$currency] = $found->firstWhere('code', $currency);
+        }
+
+        $default = $this->defaultCurrency;
 
         if ($default->code === $currency) {
             return $amount;
         }
 
-        $target = Currency::query()->where('code', $currency)->first();
+        $target = $this->currencies[$currency];
 
         return $target === null ? $amount : $target->priceFromDefault($amount, $default);
     }

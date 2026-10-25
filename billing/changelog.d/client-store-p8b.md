@@ -10,8 +10,9 @@
 - **Store product groups and products have readable links.** A group opens at `/store/{group}` and a product at
   `/store/{group}/{product}`. The header's group links, the plan buttons, the cart's Edit link and the sitemap use them.
 - **Client dashboard controls (#31).** The Domains panel has an auto-renew switch and, for domains due within 30 days
-  or in grace or redemption, Renew now. Its confirmation states the term and the invoice amount before tax, including
-  the grace or redemption fee, and says tax is added where it applies. A domain whose renewal invoice is already open
+  or in grace or redemption, Renew now. Its confirmation states the term and the invoice amount, including the grace
+  or redemption fee, and how tax applies to it: "VAT included" with tax-inclusive prices, "plus VAT" when tax is added,
+  nothing when no tax applies. A domain whose renewal invoice is already open
   shows Pay invoice instead. A refused auto-renew change shows the reason. Renew now accepts 10 requests a minute per
   client. The Support panel has New ticket and Help articles buttons.
 - **"Register a domain" opens the store's domain search** when the store is installed, in the client sidebar and the

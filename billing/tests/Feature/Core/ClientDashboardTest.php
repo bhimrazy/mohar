@@ -22,8 +22,13 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/../Billing/helpers.php';
 
-/** Ceiling for one client dashboard visit with every module (measured: 19 with Renew now priced on every domain row, the same for 3 and 15 rows of each kind). */
-const CLIENT_DASHBOARD_QUERIES = 20;
+/**
+ * Ceiling for one client dashboard visit with every module, the same for 3 and 15 rows of each kind. Measured 24 with
+ * VAT on and only grace rows listed (each converting its fee): 19 before Renew now's fixes, plus one query each for the
+ * open renewal invoices, the client and the tax rules (one tax calculation per visit) and the default and domain
+ * currencies (one for all rows), plus the settings reload the seeding causes.
+ */
+const CLIENT_DASHBOARD_QUERIES = 24;
 
 beforeEach(function () {
     $this->travelTo(CarbonImmutable::parse('2026-10-23 10:00:00', 'Asia/Kathmandu'));
@@ -186,7 +191,7 @@ test('domain rows offer the auto-renew switch, and Renew now with its term and p
             'method' => 'post',
             'confirm' => [
                 'title' => 'Renew asha-traders.com for 1 year?',
-                'description' => 'We create an invoice for Rs 1,500.00 (1 year), plus tax where it applies, and take you to it. The domain renews when the invoice is paid.',
+                'description' => 'We create an invoice for Rs 1,500.00 (1 year) and take you to it. The domain renews when the invoice is paid.',
                 'confirmLabel' => 'Create renewal invoice',
                 'data' => ['years' => 1],
             ],
@@ -201,22 +206,35 @@ test('domain rows offer the auto-renew switch, and Renew now with its term and p
     expect(app('session.store')->get('inertia.flash_data.toast.message'))->toStartWith('Renewal invoice');
 });
 
-test('Renew now on a redemption domain states the term plus the fee, the invoice\'s amount before VAT', function () {
+test('Renew now on a redemption domain states the term plus the fee and how VAT applies, matching the invoice', function (string $mode, string $taxPhrase) {
     TaxRule::factory()->create(['name' => 'VAT', 'country' => 'NP', 'rate' => '13.000']);
+    billingSettings(['tax.enabled' => true, 'tax.mode' => $mode, 'tax.apply_to' => ['service', 'domain']]);
     $tld = Tld::factory()->extension('.com')->priced('NPR', renew: 150_000)->create(['redemption_fee' => 8_000]);
-    $domain = Domain::factory()->named('restore', $tld)->expiring('2026-09-01')
+    Domain::factory()->named('restore', $tld)->expiring('2026-09-01')
         ->create(['client_id' => $this->client->id, 'currency' => 'NPR', 'recurring_amount' => 150_000, 'status' => DomainStatus::Redemption]);
 
     $action = collect(dashboardPanel('domains.list')['items'])->firstWhere('title', 'restore.com')['action'];
 
     $this->post($action['href'], $action['confirm']['data'])->assertSessionHasNoErrors();
     $invoice = Invoice::query()->where('client_id', $this->client->id)->sole();
-    $beforeTax = app(MoneyFormatter::class)->format(Money::of($invoice->subtotal, 'NPR'));
+    $tax = $invoice->tax1_amount + $invoice->tax2_amount;
+    // The dialog states the price lines: the invoice total when tax is included, the subtotal when it is added.
+    $stated = app(MoneyFormatter::class)->format(Money::of($mode === 'inclusive' ? $invoice->total : $invoice->subtotal, 'NPR'));
 
     // The fee is stored in the default currency and converted, as on the invoice.
-    expect($invoice->subtotal)->toBeGreaterThan(150_000)
-        ->and($action['confirm']['description'])->toBe("We create an invoice for {$beforeTax} (1 year plus the redemption fee), plus tax where it applies, and take you to it. The domain renews when the invoice is paid.")
-        ->and($invoice->total)->toBe($invoice->subtotal + $invoice->tax1_amount + $invoice->tax2_amount);
+    expect($tax)->toBeGreaterThan(0)
+        ->and($invoice->total)->toBe($invoice->subtotal + $tax)
+        ->and($action['confirm']['description'])->toBe("We create an invoice for {$stated} (1 year plus the redemption fee){$taxPhrase} and take you to it. The domain renews when the invoice is paid.");
+})->with([
+    'tax added' => ['exclusive', ' plus VAT'],
+    'tax included' => ['inclusive', ', VAT included'],
+]);
+
+test('Renew now says nothing about tax when none applies', function () {
+    p8bDashboardDomain($this->client, 'asha-traders.com', '2026-11-10');
+
+    expect(collect(dashboardPanel('domains.list')['items'])->firstWhere('title', 'asha-traders.com')['action']['confirm']['description'])
+        ->toBe('We create an invoice for Rs 1,500.00 (1 year) and take you to it. The domain renews when the invoice is paid.');
 });
 
 test('a domain whose renewal invoice is already open offers Pay invoice instead of Renew now', function () {
@@ -333,7 +351,12 @@ test('the dashboard runs a bounded number of queries however many records the cl
             Ticket::factory()->forClient($this->client)->create(['department_id' => $department->id]);
             // Due for renewal on a different extension each, so every listed row prices Renew now from its own TLD.
             p8bDashboardDomain($this->client, "renew-{$rows}-{$i}".['.com', '.net', '.org', '.io', '.dev'][$i % 5], '2026-11-01');
+            // And lapsed, so each row also converts its grace fee from the default currency.
+            p8bDashboardDomain($this->client, "lapsed-{$rows}-{$i}.com", '2026-10-01', ['status' => DomainStatus::Grace]);
         }
+        Tld::query()->where('extension', '.com')->update(['grace_fee' => 2_000]);
+        TaxRule::factory()->create(['name' => 'VAT', 'country' => 'NP', 'rate' => '13.000']);
+        billingSettings(['tax.enabled' => true, 'tax.apply_to' => ['service', 'domain']]);
     };
 
     $seed(3);
