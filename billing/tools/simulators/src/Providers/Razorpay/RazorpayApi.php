@@ -176,6 +176,7 @@ final class RazorpayApi
             $this->scenario->state()->put('orders', $orderId, [...$order, 'status' => 'attempted', 'attempts' => $order['attempts'] + 1]);
 
             $payment = [
+                'seq' => $this->scenario->state()->increment('seq', 'payments'),
                 'id' => self::newId('pay_'),
                 'entity' => 'payment',
                 'amount' => $order['amount'],
@@ -278,7 +279,7 @@ final class RazorpayApi
     public function payments(): array
     {
         $payments = array_values(array_filter($this->scenario->state()->all('payments'), 'is_array'));
-        usort($payments, fn (array $a, array $b): int => [$a['created_at'], $a['id']] <=> [$b['created_at'], $b['id']]);
+        usort($payments, fn (array $a, array $b): int => $a['seq'] <=> $b['seq']);
 
         return $payments;
     }
@@ -351,6 +352,7 @@ final class RazorpayApi
         $total = $payment['amount_refunded'] + $amount;
         $payment = [...$payment, 'amount_refunded' => $total, 'refund_status' => $total >= $payment['amount'] ? 'full' : 'partial', 'status' => $total >= $payment['amount'] ? 'refunded' : 'captured'];
         $refund = [
+            'seq' => $this->scenario->state()->increment('seq', 'refunds'),
             'id' => self::newId('rfnd_'),
             'entity' => 'refund',
             'amount' => $amount,
@@ -415,7 +417,7 @@ final class RazorpayApi
         }
 
         $refunds = array_values(array_filter($this->scenario->state()->all('refunds'), fn (mixed $refund): bool => is_array($refund) && $refund['payment_id'] === $paymentId));
-        usort($refunds, fn (array $a, array $b): int => [$a['created_at'], $a['id']] <=> [$b['created_at'], $b['id']]);
+        usort($refunds, fn (array $a, array $b): int => $a['seq'] <=> $b['seq']);
 
         return self::collection($refunds);
     }
