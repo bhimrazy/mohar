@@ -162,6 +162,9 @@ class Transaction extends Model
     /** Key in `raw` for what a gateway refund row remembers about its own request (ours; never a provider field). */
     public const REFUND_STATE = 'mohar';
 
+    /** Key under REFUND_STATE for the provider refund id a released refund row held, kept off `gateway_txn_id`. */
+    public const RELEASED_REFUND_ID = 'released_provider_refund_id';
+
     /** A pending refund older than this has outlived any provider call, so staff may check or settle it. */
     public const REFUND_STALE_MINUTES = 10;
 

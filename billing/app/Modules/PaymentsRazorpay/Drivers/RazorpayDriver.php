@@ -629,8 +629,7 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
         return match ($status) {
             'processed' => new ChargeResult(ChargeResult::SUCCESS, $id, raw: $raw),
             'failed' => new ChargeResult(ChargeResult::DECLINED, $id, declineReason: 'Razorpay refund failed', raw: $raw),
-            // No refund id on an unknown answer: Billing would keep it on the pending row, and then answer the
-            // refund.processed webhook "duplicate" by that id instead of settling the row.
+            // The refund id of an unknown answer is kept in raw only; the pending row is matched by our reference.
             default => new ChargeResult(ChargeResult::ERROR, declineReason: 'Razorpay refund '.(is_string($status) ? mb_substr($status, 0, 20) : 'unconfirmed').'; it stays pending until Razorpay confirms it', raw: $raw),
         };
     }

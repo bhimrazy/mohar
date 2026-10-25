@@ -318,7 +318,15 @@ class RefundTransaction
     private function releaseLocked(Transaction $refund): bool
     {
         $payment = Transaction::query()->whereKey($refund->parent_transaction_id)->lockForUpdate()->first();
-        $refund->update(['status' => TransactionStatus::Failed, 'refundable_remaining' => 0]);
+        // A provider refund id stored from an unknown answer moves into raw: a later report of that refund as paid must
+        // reach the late-refund path (booked once, staff review), not match this failed row as a duplicate.
+        $raw = $refund->raw;
+
+        if ($refund->gateway_txn_id !== null) {
+            $raw[Transaction::REFUND_STATE][Transaction::RELEASED_REFUND_ID] = $refund->gateway_txn_id;
+        }
+
+        $refund->update(['status' => TransactionStatus::Failed, 'refundable_remaining' => 0, 'gateway_txn_id' => null, 'raw' => $raw]);
 
         if ($refund->isCreditRefund()) {
             app(RefundAccountCredit::class)->returnPayout($refund);

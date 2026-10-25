@@ -316,10 +316,22 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
             return new ChargeResult(ChargeResult::DECLINED, declineReason: mb_substr(StripeClient::errorSummary($response), 0, 150), raw: $raw);
         }
 
-        // pending and requires_action refunds exist at Stripe and complete on their own; failed/canceled don't.
-        return in_array($status, ['succeeded', 'pending', 'requires_action'], true)
-            ? new ChargeResult(ChargeResult::SUCCESS, $id, raw: $raw)
-            : new ChargeResult(ChargeResult::DECLINED, $id, declineReason: 'Stripe refund '.(is_string($status) ? $status : 'not accepted'), raw: $raw);
+        return self::refundOutcome($id, $status, $raw);
+    }
+
+    /**
+     * Only a succeeded refund is made, and only failed or canceled is a definite no. pending, requires_action or any
+     * other state can still go either way: the amount stays held until refund.updated or Check refund decides.
+     *
+     * @param  array<string, mixed>  $raw
+     */
+    private static function refundOutcome(string $id, mixed $status, array $raw): ChargeResult
+    {
+        return match ($status) {
+            'succeeded' => new ChargeResult(ChargeResult::SUCCESS, $id, raw: $raw),
+            'failed', 'canceled' => new ChargeResult(ChargeResult::DECLINED, $id, declineReason: 'Stripe refund '.$status, raw: $raw),
+            default => new ChargeResult(ChargeResult::ERROR, $id, declineReason: 'Stripe refund '.(is_string($status) ? $status : 'in an unknown state').'; waiting for Stripe to finish it', raw: $raw),
+        };
     }
 
     /**
@@ -394,9 +406,7 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
                 return new ChargeResult(ChargeResult::ERROR, $refund['id'], declineReason: 'the refund at Stripe has another amount or currency', raw: $raw);
             }
 
-            return in_array($status, ['succeeded', 'pending', 'requires_action'], true)
-                ? new ChargeResult(ChargeResult::SUCCESS, $refund['id'], raw: $raw)
-                : new ChargeResult(ChargeResult::DECLINED, $refund['id'], declineReason: 'Stripe refund '.(is_string($status) ? $status : 'not accepted'), raw: $raw);
+            return self::refundOutcome($refund['id'], $status, $raw);
         }
 
         if ($response->json('has_more') === true || $sentAt === null || $sentAt->gt(now()->subHours(self::IDEMPOTENCY_WINDOW_HOURS))) {

@@ -249,15 +249,19 @@ class GatewayCallbackHandler
      */
     private function refunded(string $gatewayKey, CallbackEvent $event): array
     {
-        if ($this->refund->existing($gatewayKey, $event->txnId) !== null) {
+        $known = $event->txnId !== '' ? $this->refund->existing($gatewayKey, $event->txnId) : null;
+
+        // A pending row can already hold the provider's refund id: an unknown answer (a pending state) that carried it.
+        // The callback is the provider's word on that row, so it is settled below like any pending refund we sent.
+        if ($known !== null && $known->status !== TransactionStatus::Pending) {
             return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $event->invoiceId);
         }
 
         // A refund started from our admin names its refund row. A row that recorded it ends here, a pending one is
         // settled below, and one marked failed (declined or released, yet the refund happened) is booked now.
-        $own = $event->reference !== null && ctype_digit($event->reference)
+        $own = $known ?? ($event->reference !== null && ctype_digit($event->reference)
             ? Transaction::query()->whereKey((int) $event->reference)->where('gateway', $gatewayKey)->where('type', TransactionType::Refund)->first()
-            : null;
+            : null) ?? $this->releasedRefund($gatewayKey, $event);
 
         if ($own?->status === TransactionStatus::Succeeded) {
             return $this->outcome($gatewayKey, 200, 'refund already recorded', $event->raw, $own->invoice_id);
@@ -414,6 +418,23 @@ class GatewayCallbackHandler
             // Another delivery of the same refund booked it first (refund row or credit line).
             return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $parents[0]->invoice_id);
         }
+    }
+
+    /**
+     * A refund row we released (failed) while it held this provider refund id: a report that the refund was made is
+     * then a late refund after a failure (booked once, staff review). Looked up among the payment's refund rows.
+     */
+    private function releasedRefund(string $gatewayKey, CallbackEvent $event): ?Transaction
+    {
+        $parents = $event->txnId !== '' ? $this->parents($gatewayKey, $event) : [];
+
+        if ($parents === []) {
+            return null;
+        }
+
+        return Transaction::query()->whereIn('parent_transaction_id', array_map(fn (Transaction $parent): int => $parent->id, $parents))
+            ->where('type', TransactionType::Refund)->where('status', TransactionStatus::Failed)->orderBy('id')->get()
+            ->first(fn (Transaction $row): bool => ($row->raw[Transaction::REFUND_STATE][Transaction::RELEASED_REFUND_ID] ?? null) === $event->txnId);
     }
 
     /**

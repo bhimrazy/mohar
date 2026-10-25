@@ -35,6 +35,9 @@ class ScriptedRefundDriver extends SandboxCardDriver
 
     public static int $calls = 0;
 
+    /** The provider refund id an unsettled answer carries (a refund the provider holds in a pending state). */
+    public static ?string $answerId = null;
+
     /** @var list<string> */
     public static array $references = [];
 
@@ -55,7 +58,7 @@ class ScriptedRefundDriver extends SandboxCardDriver
 
         return self::$answer === ChargeResult::SUCCESS
             ? parent::refund($gateway, $request)
-            : new ChargeResult(self::$answer, declineReason: 'scripted_'.self::$answer, raw: ['scripted' => self::$answer]);
+            : new ChargeResult(self::$answer, self::$answerId, declineReason: 'scripted_'.self::$answer, raw: ['scripted' => self::$answer]);
     }
 }
 
@@ -79,6 +82,7 @@ beforeEach(function () {
     ScriptedRefundDriver::$answer = ChargeResult::SUCCESS;
     ScriptedRefundDriver::$throw = false;
     ScriptedRefundDriver::$calls = 0;
+    ScriptedRefundDriver::$answerId = null;
     ScriptedRefundDriver::$references = [];
     ScriptedRefundDriver::$during = null;
     ScriptedLookupDriver::$lookedUp = [];
@@ -181,6 +185,38 @@ test('the provider callback settles the pending refund row, once', function () {
     expect(Transaction::query()->where('type', TransactionType::Refund)->sole())->id->toBe($pending->id)->status->toBe(TransactionStatus::Succeeded)->gateway_txn_id->toBe('re_late_1')
         ->and($payment->fresh()->refundable_remaining)->toBe(6_000)
         ->and($payment->invoice->fresh()->amount_paid)->toBe(6_000);
+});
+
+test('an unknown answer that carried the provider refund id is settled by that refund\'s callback, not answered duplicate', function (bool $withReference) {
+    $payment = refundablePayment();
+    ScriptedRefundDriver::$answer = ChargeResult::ERROR;
+    ScriptedRefundDriver::$answerId = 're_held_1';
+    $pending = app(RefundTransaction::class)->handle($payment, 4_000, RefundMode::Gateway);
+    expect($pending)->status->toBe(TransactionStatus::Pending)->gateway_txn_id->toBe('re_held_1');
+
+    $callback = sandboxRefundCallback($payment, $pending, 're_held_1');
+    if (! $withReference) {
+        unset($callback['reference']);
+    }
+
+    sandboxWebhook($callback)->assertOk()->assertJson(['result' => 'refund recorded']);
+    sandboxWebhook($callback)->assertOk()->assertJson(['result' => 'duplicate']);
+
+    expect(Transaction::query()->where('type', TransactionType::Refund)->sole())->id->toBe($pending->id)->status->toBe(TransactionStatus::Succeeded)
+        ->and($payment->fresh()->refundable_remaining)->toBe(6_000)
+        ->and($payment->invoice->fresh()->amount_paid)->toBe(6_000);
+})->with(['naming our row' => true, 'by refund id only' => false]);
+
+test('a callback for a pending row holding its refund id but for another amount leaves it pending for staff', function () {
+    $payment = refundablePayment();
+    ScriptedRefundDriver::$answer = ChargeResult::ERROR;
+    ScriptedRefundDriver::$answerId = 're_held_2';
+    $pending = app(RefundTransaction::class)->handle($payment, 4_000, RefundMode::Gateway);
+
+    sandboxWebhook(sandboxRefundCallback($payment, $pending, 're_held_2', 1_000))->assertOk()->assertJson(['result' => 'refund differs from the pending refund; staff review']);
+
+    expect($pending->fresh()->status)->toBe(TransactionStatus::Pending)->and($payment->fresh()->refundable_remaining)->toBe(6_000)
+        ->and(Transaction::query()->where('type', TransactionType::Refund)->count())->toBe(1);
 });
 
 test('the callback keeps the reverse-effects choice made when the refund was reserved', function () {
@@ -376,6 +412,49 @@ test('"Release" frees the amount, and a callback that later proves the provider 
         ->and($pending->fresh()->status)->toBe(TransactionStatus::Failed)
         ->and($payment->fresh()->refundable_remaining)->toBe(6_000);
 });
+
+test('a released refund that held the provider refund id is booked once and flagged when the provider reports that refund paid', function (string $release, bool $withReference) {
+    if ($release === 'check') {
+        useLookupDriver();
+    }
+
+    $payment = refundablePayment();
+    ScriptedRefundDriver::$answer = ChargeResult::ERROR;
+    ScriptedRefundDriver::$answerId = 're_held_released';
+    $pending = app(RefundTransaction::class)->handle($payment, 4_000, RefundMode::Gateway);
+    expect($pending->gateway_txn_id)->toBe('re_held_released');
+
+    if ($release === 'check') {
+        ScriptedLookupDriver::$lookup = new ChargeResult(ChargeResult::DECLINED, 're_held_released', declineReason: 'failed at the provider');
+        app(RefundTransaction::class)->check($pending);
+    } else {
+        billingStaff();
+        confirmPassword();
+        $this->post(route('admin.billing.transactions.refund.resolve', $pending), ['outcome' => 'not_refunded'])->assertSessionHasNoErrors();
+    }
+
+    expect($pending->fresh())->status->toBe(TransactionStatus::Failed)->gateway_txn_id->toBeNull()
+        ->and($pending->fresh()->raw[Transaction::REFUND_STATE][Transaction::RELEASED_REFUND_ID])->toBe('re_held_released')
+        ->and($payment->fresh()->refundable_remaining)->toBe(10_000);
+
+    $callback = sandboxRefundCallback($payment, $pending, 're_held_released');
+    if (! $withReference) {
+        unset($callback['reference']);
+    }
+
+    sandboxWebhook($callback)->assertOk()->assertJson(['result' => 'refund recorded; part of it needs staff review']);
+    sandboxWebhook($callback)->assertOk()->assertJson(['result' => 'duplicate']);
+
+    $booked = Transaction::query()->where('type', TransactionType::Refund)->where('status', TransactionStatus::Succeeded)->sole();
+    expect($booked)->gateway_txn_id->toBe('re_held_released')->amount_out->toBe(4_000)->review_amount->toBe(4_000)->reviewed_at->toBeNull()
+        ->and($payment->fresh()->refundable_remaining)->toBe(6_000)
+        ->and($payment->invoice->fresh()->amount_paid)->toBe(6_000);
+})->with([
+    'released by Check refund, callback names our row' => ['check', true],
+    'released by Check refund, callback by refund id only' => ['check', false],
+    'released by staff, callback names our row' => ['staff', true],
+    'released by staff, callback by refund id only' => ['staff', false],
+]);
 
 test('a late refund absorbed entirely by account credit is still flagged for review', function () {
     $invoice = issueInvoice(billingClient(), [1_000]);

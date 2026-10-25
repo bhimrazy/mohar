@@ -43,7 +43,7 @@ test('staff refund part of a Stripe payment and then the rest, keyed and tagged 
     $payment = paidStripePayment();
     Http::fake([STRIPE_API.'refunds' => Http::sequence()
         ->push(stripeFixture('refund', ['id' => 're_3MoharRefund0001', 'amount' => 1_000]))
-        ->push(stripeFixture('refund', ['id' => 're_3MoharRefund0002', 'amount' => 1_500, 'status' => 'pending']))]);
+        ->push(stripeFixture('refund', ['id' => 're_3MoharRefund0002', 'amount' => 1_500]))]);
 
     app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
     expect($payment->invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
@@ -233,3 +233,71 @@ test('a Check replay answering an error (400, 402, 404) releases nothing: it say
     expect(app(RefundTransaction::class)->check($pending)->status)->toBe(TransactionStatus::Pending)
         ->and($payment->fresh()->refundable_remaining)->toBe(1_500);
 })->with([400, 402, 404]);
+
+test('a refund Stripe accepts as pending or requires_action is not booked: the amount stays held and the row keeps the refund id', function (string $state) {
+    $payment = paidStripePayment();
+    Http::fake([STRIPE_API.'refunds' => Http::response(stripeFixture('refund', ['status' => $state]))]);
+
+    $row = app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
+
+    expect($row)->status->toBe(TransactionStatus::Pending)->gateway_txn_id->toBe('re_3MoharRefund0001')
+        ->and($payment->fresh()->refundable_remaining)->toBe(1_500)
+        ->and($payment->invoice->fresh()->amount_paid)->toBe(2_500);
+})->with(['pending', 'requires_action', 'an unknown state' => 'processing']);
+
+/**
+ * Stripe as it moves one $10.00 refund (re_3MoharRefund0001) through its states: the POST and the retrieve both
+ * answer the refund in `$state`, tagged with our row once it exists.
+ */
+function stripeRefundAt(string &$state, ?Transaction &$row): void
+{
+    $answer = function () use (&$state, &$row) {
+        return Http::response(stripeFixture('refund', ['status' => $state, 'metadata' => $row !== null ? ['mohar_origin' => 'admin', 'mohar_refund' => (string) $row->id] : []]));
+    };
+    Http::fake([STRIPE_API.'refunds' => $answer, STRIPE_API.'refunds/re_3MoharRefund0001*' => $answer]);
+}
+
+test('a pending Stripe refund that later succeeds is settled on that row by refund.updated, once', function () {
+    $payment = paidStripePayment();
+    [$state, $row] = ['pending', null];
+    stripeRefundAt($state, $row);
+    $row = app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
+
+    postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0001'))->assertOk()->assertJson(['result' => 'ignored event type']);
+    expect($row->fresh()->status)->toBe(TransactionStatus::Pending);
+
+    $state = 'succeeded';
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0011'))->assertOk()->assertJson(['result' => 'refund recorded']);
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0012'))->assertOk()->assertJson(['result' => 'duplicate']);
+
+    expect(Transaction::query()->where('type', TransactionType::Refund)->sole())->id->toBe($row->id)->status->toBe(TransactionStatus::Succeeded)
+        ->and($payment->fresh()->refundable_remaining)->toBe(1_500)
+        ->and($payment->invoice->fresh()->amount_paid)->toBe(1_500);
+});
+
+test('a pending Stripe refund that later fails books nothing from refund.updated, and Check refund releases the amount', function () {
+    $payment = paidStripePayment();
+    [$state, $row] = ['pending', null];
+    stripeRefundAt($state, $row);
+    $row = app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
+
+    $state = 'failed';
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001'))->assertOk()->assertJson(['result' => 'ignored event type']);
+    expect($row->fresh()->status)->toBe(TransactionStatus::Pending)->and($payment->fresh()->refundable_remaining)->toBe(1_500);
+
+    // Check refund repeats the request with the same key, and Stripe answers with the refund, now failed.
+    expect(app(RefundTransaction::class)->check($row->fresh())->status)->toBe(TransactionStatus::Failed)
+        ->and($payment->fresh()->refundable_remaining)->toBe(2_500)
+        ->and($payment->invoice->fresh()->amount_paid)->toBe(2_500);
+});
+
+test('Check refund settles a pending Stripe refund once Stripe reports it succeeded', function () {
+    $payment = paidStripePayment();
+    [$state, $row] = ['requires_action', null];
+    stripeRefundAt($state, $row);
+    $row = app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
+
+    $state = 'succeeded';
+    expect(app(RefundTransaction::class)->check($row->fresh()))->status->toBe(TransactionStatus::Succeeded)->gateway_txn_id->toBe('re_3MoharRefund0001')
+        ->and($payment->invoice->fresh()->amount_paid)->toBe(1_500);
+});
