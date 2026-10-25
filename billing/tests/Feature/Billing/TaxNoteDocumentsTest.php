@@ -305,6 +305,8 @@ test('a document over the size cap is left off the mail and logged', function ()
     documentNote(documentInvoice());
 
     Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => str_contains($mail->subjectLine, 'Credit note') && $mail->document === null);
+    // The PDF was rendered after commit, before the mail was composed: its text does not claim an attachment.
+    expect(EmailMessage::query()->where('related_type', 'tax_note')->sole()->body_text)->not->toContain('attached');
     Log::shouldHaveReceived('warning')->withArgs(fn (string $message): bool => str_contains($message, 'too large to attach'))->once();
 });
 
@@ -322,14 +324,14 @@ test('a new note\'s PDF is rendered after it commits, before the email is sent',
     Queue::fake();
     $note = documentNote(documentInvoice());
 
-    Queue::assertPushed(RenderTaxNotePdf::class, fn (RenderTaxNotePdf $job): bool => $job->taxNoteId === $note->id);
+    Queue::assertPushed(RenderTaxNotePdf::class, fn (RenderTaxNotePdf $job): bool => $job->taxNoteId === $note->id && $job->locale === 'en');
 });
 
 test('Invoicer::cancel emails the cancelling credit note, unless the caller says not to', function () {
     $client = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']);
     $noteMail = fn (): array => EmailMessage::query()->where('related_type', 'tax_note')->pluck('template_key')->all();
 
-    app(Invoicer::class)->cancel(issueInvoice($client, [1_000_000])->id, 'Cancelled by Orders', notifyClient: false);
+    app(Invoicer::class)->cancel(issueInvoice($client, [1_000_000])->id, 'Cancelled by Orders', notify: false);
     expect(TaxNote::query()->count())->toBe(1)->and($noteMail())->toBe([]);
 
     app(Invoicer::class)->cancel(issueInvoice($client, [1_000_000])->id, 'Cancelled by Orders');

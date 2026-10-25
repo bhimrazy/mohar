@@ -599,9 +599,10 @@ PR 4 is built in steps. This one is the §5 state machine for **staff refunds** 
 
 - `CreditNoteIssued` and `DebitNoteIssued` (§6) have an eighth parameter, `bool $notify = true`. It is false when the
   note is not to be emailed to the client: staff unticked "Send to client", or a caller of `Invoicer::cancel` passed
-  `notifyClient: false`. Orders passes false for a fraud flag and for the automatic cancel of a stale unpaid order. The
+  `notify: false`. Orders passes false for a fraud flag and for the automatic cancel of a stale unpaid order, Services for an expired
+  unpaid plan change. The
   webhook is delivered either way. Refund, late-fee and other cancel notes are emailed (CTO decision, #482).
-- `Invoicer::cancel(int $invoiceId, ?string $reason = null, bool $notifyClient = true)` gains the trailing flag
+- `Invoicer::cancel(int $invoiceId, ?string $reason = null, bool $notify = true)` gains the trailing flag
   (ADR 0010: a compatible addition).
 - The note email carries the note's PDF through `App\Contracts\Billing\BillingDocuments` (architecture.md,
   "Email documents"). The send is logged as `billing.tax_note.emailed`, from `EmailSent`, which gains

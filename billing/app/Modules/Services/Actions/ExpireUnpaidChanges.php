@@ -43,7 +43,8 @@ class ExpireUnpaidChanges
                     // The invoice goes first: a change whose invoice stayed payable is not expired.
                     if ($billable) {
                         try {
-                            $this->billing->invoicer()->cancel((int) $locked->invoice_id, __('Cancelled by :module', ['module' => 'Services']));
+                            // The system expires the change: the credit note is filed, not emailed.
+                            $this->billing->invoicer()->cancel((int) $locked->invoice_id, __('Cancelled by :module', ['module' => 'Services']), notify: false);
                         } catch (InvoiceNotCancellable) {
                             return false;
                         }

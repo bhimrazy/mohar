@@ -115,7 +115,9 @@ class SendEmailMessage implements ShouldBeEncrypted, ShouldQueue
 
         $document = app(BillingDocuments::class)->document($message->related_type, (int) $message->related_id, $message->locale);
 
-        if ($document !== null && Storage::disk($document->disk)->size($document->path) > (int) config('notifications.attachment_max_bytes', 5 * 1024 * 1024)) {
+        $cap = (int) app(Settings::class)->get('notifications.attachment_max_bytes');
+
+        if ($document !== null && $cap > 0 && Storage::disk($document->disk)->size($document->path) > $cap) {
             Log::warning('Email document too large to attach; the mail links to it instead.', ['email_message_id' => $message->id, 'related_type' => $message->related_type, 'related_id' => $message->related_id]);
 
             return null;

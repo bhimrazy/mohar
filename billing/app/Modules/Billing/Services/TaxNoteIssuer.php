@@ -278,7 +278,8 @@ class TaxNoteIssuer
                 'source' => $request->automatic ? ($request->source ?? 'automation') : 'staff',
             ], 'billing.tax_note.issued');
         if ($request->notify && $this->settings->bool('pdf.attach_to_emails')) {
-            RenderTaxNotePdf::dispatch($note->id)->afterCommit();
+            // In the client's language, which their note email is composed in.
+            RenderTaxNotePdf::dispatch($note->id, Client::query()->whereKey($invoice->client_id)->value('language') ?: null)->afterCommit();
         }
         event($credit
             ? new CreditNoteIssued($note->id, $number, $invoice->id, $invoice->client_id, $plan->total, $invoice->currency, $request->automatic, $request->notify)

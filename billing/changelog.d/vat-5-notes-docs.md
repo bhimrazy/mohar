@@ -8,8 +8,8 @@
 - **Note emails (#482).** "Credit note issued" and the new "Debit note issued" templates send the note to the client's
   billing contacts, with its PDF attached in the recipient's language while Settings → Billing → "Attach PDFs to invoice
   and note emails" is on (the default; the setting was "Attach PDFs to invoice emails"). Staff can untick "Send to
-  client" when issuing. Notes from refunds, late fees and cancels are sent; the note from a fraud flag or the automatic
-  cancel of a stale unpaid order is not. Each send is in the activity log (`billing.tax_note.emailed`). A PDF over 5 MB
+  client" when issuing. Notes from refunds, late fees and cancels are sent; the note from a fraud flag, the automatic
+  cancel of a stale unpaid order or an expired unpaid plan change is not. Each send is in the activity log (`billing.tax_note.emailed`). A PDF over 5 MB
   is left off the mail, which links to it.
 - **Webhooks `credit_note.issued` and `debit_note.issued`**, with the note (number, kind, amounts, invoice, reason) as
   the payload object. Merge fields `tax_note.*` for templates.
