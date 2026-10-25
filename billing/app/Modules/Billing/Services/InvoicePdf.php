@@ -61,7 +61,7 @@ class InvoicePdf
         $locale ??= app()->getLocale();
         $quote->load(['items', 'client']);
         $directory = 'billing/quotes/'.$quote->id;
-        $digest = substr(hash('sha256', (string) json_encode([$quote->only(['number', 'subject', 'currency', 'valid_until', 'proposal_text', 'customer_notes', 'subtotal', 'total', 'tax1_amount', 'tax2_amount']), $quote->items->map->only(['description', 'quantity', 'unit_amount', 'discount_percent', 'amount', 'taxable', 'sort_order'])->all(), $quote->client?->only(['first_name', 'last_name', 'company_name']), $this->seller->snapshot(), DateFormats::current(), $this->settings->string('pdf.paper', 'A4')])), 0, 16);
+        $digest = substr(hash('sha256', (string) json_encode([$quote->only(['number', 'subject', 'currency', 'valid_until', 'proposal_text', 'customer_notes', 'subtotal', 'total', 'tax1_amount', 'tax2_amount']), $quote->items->map->only(['description', 'quantity', 'unit_amount', 'discount_percent', 'amount', 'taxable', 'sort_order'])->all(), $quote->client->only(['first_name', 'last_name', 'company_name']), $this->seller->snapshot(), DateFormats::current(), $this->settings->string('pdf.paper', 'A4')])), 0, 16);
         $path = sprintf('%s/%s-%s.pdf', $directory, $digest, $locale);
         $disk = Storage::disk('objects');
 
