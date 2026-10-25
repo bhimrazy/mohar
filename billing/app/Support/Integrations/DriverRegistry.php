@@ -8,6 +8,7 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use LogicException;
+use Throwable;
 
 /**
  * Base of the kernel-owned driver registries (ADR 0009 §5, ADR 0012). A family registry extends it, names its core
@@ -17,8 +18,10 @@ use LogicException;
  *   $this->app->make(ProvisioningDriverRegistry::class)->register('cpanel', CpanelDriver::class);
  *
  * register() does no I/O and resolves nothing. get() builds the driver through the container each time (bind it as
- * a singleton to share one instance) and checks that it implements the family interface and reports the key it was
- * registered under. Drivers hold no account state, so a resolved driver is safe to reuse.
+ * a singleton to share one instance) and checks that it implements the family interface, reports the key it was
+ * registered under and passes the family's validate() rules. Drivers hold no account state, so a resolved driver is
+ * safe to reuse. keys() and all() list only drivers that pass those checks: a driver that fails them is reported once
+ * and left out, so one broken package cannot take down the pages that list every driver.
  *
  * @api
  *
@@ -30,6 +33,9 @@ abstract class DriverRegistry
 
     /** @var array<string, class-string<TDriver>|Closure(Container): TDriver> */
     private array $drivers = [];
+
+    /** @var array<string, bool> whether each resolved key passed get()'s checks */
+    private array $usable = [];
 
     public function __construct(protected Container $container) {}
 
@@ -65,6 +71,7 @@ abstract class DriverRegistry
         }
 
         $this->drivers[$key] = $driver;
+        unset($this->usable[$key]);
     }
 
     public function has(string $key): bool
@@ -93,17 +100,42 @@ abstract class DriverRegistry
             throw new LogicException("The driver registered as [{$key}] reports the key [{$driver->key()}].");
         }
 
+        $this->validate($driver);
+
         return $driver;
     }
 
     /**
-     * Registered keys, in registration order.
+     * Keys of the drivers that pass get()'s checks, in registration order. A driver that fails them is reported (once
+     * per process) and left out.
      *
      * @return list<string>
      */
     public function keys(): array
     {
-        return array_keys($this->drivers);
+        return array_values(array_filter(array_keys($this->drivers), fn (string $key): bool => $this->usable($key)));
+    }
+
+    /**
+     * Family rules a resolved driver must meet; throws a LogicException naming the driver when it does not.
+     *
+     * @param  TDriver  $driver
+     */
+    protected function validate(IntegrationDriver $driver): void {}
+
+    private function usable(string $key): bool
+    {
+        if (! isset($this->usable[$key])) {
+            try {
+                $this->get($key);
+                $this->usable[$key] = true;
+            } catch (Throwable $exception) {
+                report($exception);
+                $this->usable[$key] = false;
+            }
+        }
+
+        return $this->usable[$key];
     }
 
     /**

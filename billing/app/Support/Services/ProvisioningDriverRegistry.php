@@ -2,6 +2,7 @@
 
 namespace App\Support\Services;
 
+use App\Contracts\Integrations\IntegrationDriver;
 use App\Contracts\Services\Provisioning\ChangesPackage;
 use App\Contracts\Services\Provisioning\ChangesPassword;
 use App\Contracts\Services\Provisioning\ListsAccounts;
@@ -73,15 +74,22 @@ final class ProvisioningDriverRegistry extends DriverRegistry
 
     public function metadata(string $key): DriverMetadata
     {
-        $metadata = $this->get($key)->metadata();
+        return $this->get($key)->metadata();
+    }
+
+    /**
+     * Only the gateway host stores certificate uploads so far (ADR 0009 Amendment (#489)).
+     *
+     * @param  ProvisioningDriver  $driver
+     */
+    protected function validate(IntegrationDriver $driver): void
+    {
+        $metadata = $driver->metadata();
 
         foreach ([...$metadata->productConfigFields, ...$metadata->serverFields] as $field) {
-            // Only the gateway host stores certificate uploads so far (ADR 0009 Amendment (#489)).
             if ($field->type === FieldType::Certificate) {
-                throw new LogicException("The provisioning driver [{$key}] declares the certificate setting [{$field->key}], which servers and products do not support yet.");
+                throw new LogicException("The provisioning driver [{$driver->key()}] declares the certificate setting [{$field->key}], which servers and products do not support yet.");
             }
         }
-
-        return $metadata;
     }
 }

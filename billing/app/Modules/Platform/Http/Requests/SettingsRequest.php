@@ -26,7 +26,14 @@ class SettingsRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         if (app(SettingsCatalog::class)->requiresConfirmation((string) $this->route('section')) && ! RequireRecentPasswordConfirmation::recentlyConfirmed($this)) {
-            throw ValidationException::withMessages([RequireRecentPasswordConfirmation::ERROR_KEY => __('Confirm your password to continue.')]);
+            $refusal = ValidationException::withMessages([RequireRecentPasswordConfirmation::ERROR_KEY => __('Confirm your password to continue.')]);
+
+            // Back with the error only, never the old input: the section may hold secrets (ADR 0018 Amendment).
+            if (! $this->expectsJson()) {
+                $refusal->response = back()->withErrors($refusal->errors());
+            }
+
+            throw $refusal;
         }
     }
 
