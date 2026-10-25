@@ -224,14 +224,18 @@ test('a validatetxn that hangs while the customer waits is left to the poller, w
     expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)->and(Transaction::query()->count())->toBe(1);
 });
 
-test('gettxndetail failing still settles on validatetxn, under our TXNID, with no fee', function () {
+test('a failing gettxndetail settles nothing; the poller books the payment once the details come back', function () {
     [$invoice, $attempt] = cipsSimStart();
     $this->scenario->faults()->add('gettxndetail', Fault::status(500), nth: 1);
 
     $this->get(cipsSimChoose($attempt, 'pay'));
+    expect($attempt->fresh()->status)->toBe(AttemptStatus::Pending)->and(Transaction::query()->count())->toBe(0);
+
+    $this->travel(6)->minutes();
+    $this->artisan('billing:reconcile-payments', ['--only' => 'open'])->assertSuccessful();
 
     expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
-        ->and(Transaction::query()->sole())->fee->toBe(0)->gateway_txn_id->toBe($attempt->provider_ref);
+        ->and(Transaction::query()->sole())->fee->toBe(400)->gateway_txn_id->not->toBe($attempt->provider_ref);
 });
 
 test('a wrong app password puts the payment in staff review, and Test connection names it', function () {

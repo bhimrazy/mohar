@@ -5,6 +5,7 @@ namespace App\Modules\PaymentsNepal\Drivers;
 use App\Contracts\Billing\ConnectionTester;
 use App\Contracts\Billing\DescribesManualRefund;
 use App\Contracts\Billing\HostedPaymentDriver;
+use App\Contracts\Billing\ValidatesGatewaySettings;
 use App\Contracts\Branding\BrandProvider;
 use App\Contracts\Integrations\ProvidesLogo;
 use App\Data\Billing\AmountLimits;
@@ -36,7 +37,7 @@ use OpenSSLAsymmetricKey;
  * credit leg), called with the stored amount, settles. NCHL signs no answer, so every echoed field is compared with
  * the stored attempt. There is no refund API: the merchant refunds by bank transfer and records it.
  */
-final class ConnectipsDriver extends AbstractGatewayDriver implements ConnectionTester, DescribesManualRefund, HostedPaymentDriver, ProvidesLogo
+final class ConnectipsDriver extends AbstractGatewayDriver implements ConnectionTester, DescribesManualRefund, HostedPaymentDriver, ProvidesLogo, ValidatesGatewaySettings
 {
     public const KEY = 'connectips';
 
@@ -108,19 +109,40 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
         ];
     }
 
+    /**
+     * The formats NCHL's form takes: a digits-only merchant ID of up to 20, an app ID of up to 15 and an app name of up
+     * to 30 characters. A comma would break the comma-joined token string.
+     */
+    public function settingsErrors(array $settings): array
+    {
+        $errors = [];
+        $merchantId = $settings['merchant_id'] ?? null;
+        $appId = $settings['app_id'] ?? null;
+        $appName = $settings['app_name'] ?? null;
+
+        if ($merchantId !== null && preg_match('/^\d{1,20}$/', $merchantId) !== 1) {
+            $errors['merchant_id'] = __('The connectIPS merchant ID is digits only, at most 20.');
+        }
+
+        if ($appId !== null && (strlen($appId) > 15 || str_contains($appId, ','))) {
+            $errors['app_id'] = __('The connectIPS app ID is at most 15 characters, without commas.');
+        }
+
+        if ($appName !== null && (mb_strlen($appName) > 30 || str_contains($appName, ','))) {
+            $errors['app_name'] = __('The connectIPS app name is at most 30 characters, without commas.');
+        }
+
+        return $errors;
+    }
+
     public function limits(GatewayConfig $gateway): AmountLimits
     {
-        $min = config('payments_nepal.connectips.min_amount', 100);
-        $max = config('payments_nepal.connectips.max_amount', 200_000_000);
-
-        return new AmountLimits(min: is_numeric($min) ? (int) $min : 100, max: is_numeric($max) ? (int) $max : 200_000_000);
+        return new AmountLimits(min: ProviderHttp::intConfig('connectips.min_amount', 100), max: ProviderHttp::intConfig('connectips.max_amount', 200_000_000));
     }
 
     public function attemptTtl(GatewayConfig $gateway): CarbonInterval
     {
-        $minutes = config('payments_nepal.connectips.attempt_ttl_minutes', 30);
-
-        return CarbonInterval::minutes(max(15, is_numeric($minutes) ? (int) $minutes : 30));
+        return CarbonInterval::minutes(max(15, ProviderHttp::intConfig('connectips.attempt_ttl_minutes', 30)));
     }
 
     /**
@@ -193,8 +215,8 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
         }
 
         $body = self::body($response);
-        $status = is_string($body['status'] ?? null) ? strtoupper(trim($body['status'])) : null;
-        $description = is_string($body['statusDesc'] ?? null) ? strtoupper(trim($body['statusDesc'])) : '';
+        $status = self::status($body);
+        $description = self::description($body);
         $raw = array_filter([
             'http_status' => $response->status(),
             'status' => $status,
@@ -207,13 +229,17 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
             return new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'connectIPS refused the app ID and password, or the token (HTTP 401): check the gateway settings']);
         }
 
-        if ($status === null) {
-            $transient = $response->serverError() || $body === [];
-
-            return new LookupResult($transient ? LookupResult::PENDING : LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'connectIPS answered HTTP '.$response->status().' without a status'], retryable: $transient);
+        // A status only counts on a 2xx: a 5xx (whatever its body says) is left to the next lookup, any other refusal
+        // or an answer without a status goes to staff review.
+        if ($response->serverError() || ($status === null && $body === [] && $response->successful())) {
+            return new LookupResult(LookupResult::PENDING, raw: [...$raw, 'error' => 'connectIPS answered HTTP '.$response->status()], retryable: true);
         }
 
-        $mismatch = self::echoMismatch($body, $credentials, $attempt, strict: $status === 'SUCCESS', rupees: false);
+        if ($status === null || ! $response->successful()) {
+            return new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'connectIPS answered HTTP '.$response->status().($status === null ? ' without a status' : ' '.$status)]);
+        }
+
+        $mismatch = self::echoMismatch($body, $credentials, $attempt, strict: $status === 'SUCCESS');
 
         if ($mismatch !== null) {
             return new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'validatetxn answered for another '.$mismatch]);
@@ -251,11 +277,11 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
         }
 
         $body = self::body($response);
-        $description = is_string($body['statusDesc'] ?? null) ? strtoupper(trim($body['statusDesc'])) : '';
+        $description = self::description($body);
 
         return match (true) {
             $response->status() === 401 => new ConnectionCheck(false, __('connectIPS rejected the app ID or app password (:mode mode). If they are right, check the signing certificate.', ['mode' => $mode])),
-            ($body['status'] ?? null) === 'ERROR' && str_contains($description, 'NOT FOUND') => new ConnectionCheck(true, __('connectIPS accepted the app ID, password and signing key (:mode mode).', ['mode' => $mode])),
+            $response->successful() && self::status($body) === 'ERROR' && str_contains($description, 'NOT FOUND') => new ConnectionCheck(true, __('connectIPS accepted the app ID, password and signing key (:mode mode).', ['mode' => $mode])),
             default => new ConnectionCheck(false, __('connectIPS answered, but the credentials could not be confirmed (:mode mode): :reason', [
                 'mode' => $mode,
                 'reason' => $description !== '' ? mb_substr($description, 0, 80) : 'HTTP '.$response->status(),
@@ -283,34 +309,28 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
 
     /**
      * gettxndetail after a SUCCESS. The credit leg must be done, or deferred by NCHL's rule, for the payment to count;
-     * the fee is ours only when the merchant bears it. If the details can't be read, the payment still settles on
-     * validatetxn, under our TXNID, with no fee.
+     * the fee is ours only when the merchant bears it. Nothing settles without it (spec §4.1.5, amended in #491): an
+     * outage is retried by the next lookup, and any other failure leaves the credit leg unconfirmed for staff.
      *
      * @param  array{merchant_id: string, app_id: string, app_name: string, app_password: string, key: OpenSSLAsymmetricKey}  $credentials
      * @param  array<string, mixed>  $raw
      */
     private function detail(GatewayConfig $gateway, array $credentials, PaymentAttemptRef $attempt, array $raw): LookupResult
     {
-        $paid = fn (string $txnId, int $fee, array $extra): LookupResult => new LookupResult(
-            LookupResult::SUCCEEDED,
-            providerTxnId: $txnId,
-            amount: $attempt->amount->amount,
-            currency: 'NPR',
-            fee: $fee,
-            payerRef: is_string($extra['debit_bank_code'] ?? null) ? $extra['debit_bank_code'] : null,
-            raw: [...$raw, ...$extra],
-        );
-
         try {
             $response = $this->call($gateway, $credentials, 'gettxndetail', (string) $attempt->providerRef, (string) $attempt->amount->amount, $attempt->interactive);
         } catch (ConnectionException) {
-            return $paid((string) $attempt->providerRef, 0, ['detail' => 'unavailable: connectIPS unreachable']);
+            return new LookupResult(LookupResult::PENDING, raw: [...$raw, 'error' => 'gettxndetail unreachable'], retryable: true);
         }
 
         $body = self::body($response);
 
-        if (! $response->successful() || ! is_string($body['status'] ?? null)) {
-            return $paid((string) $attempt->providerRef, 0, ['detail' => 'unavailable: HTTP '.$response->status()]);
+        if ($response->serverError()) {
+            return new LookupResult(LookupResult::PENDING, raw: [...$raw, 'error' => 'gettxndetail answered HTTP '.$response->status()], retryable: true);
+        }
+
+        if (! $response->successful() || self::status($body) === null) {
+            return new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'credit leg unconfirmed: gettxndetail answered HTTP '.$response->status().(self::description($body) !== '' ? ' '.mb_substr(self::description($body), 0, 60) : '')]);
         }
 
         $creditStatus = is_scalar($body['creditStatus'] ?? null) ? strtoupper(trim((string) $body['creditStatus'])) : null;
@@ -324,7 +344,7 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
             'credit_status' => $creditStatus,
         ], fn (mixed $value): bool => $value !== null && $value !== '');
 
-        $mismatch = strtoupper($body['status']) !== 'SUCCESS' ? 'status ('.mb_substr($body['status'], 0, 20).')' : self::echoMismatch($body, $credentials, $attempt, strict: true, rupees: true);
+        $mismatch = self::status($body) !== 'SUCCESS' ? 'status ('.mb_substr((string) self::status($body), 0, 20).')' : self::echoMismatch($body, $credentials, $attempt, strict: true);
 
         if ($mismatch !== null) {
             return new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, ...$extra, 'error' => 'gettxndetail disagrees with validatetxn: '.$mismatch]);
@@ -334,9 +354,15 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
             return new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, ...$extra, 'error' => 'paid, but the credit to the merchant is not done (creditStatus '.($creditStatus ?? 'missing').')']);
         }
 
-        $fee = $liability === 'MN' ? (NprAmount::toPaisa($body['chargeAmt'] ?? null) ?? 0) : 0;
-
-        return $paid($extra['nchl_txn_id'] ?? (string) $attempt->providerRef, $fee, $extra);
+        return new LookupResult(
+            LookupResult::SUCCEEDED,
+            providerTxnId: $extra['nchl_txn_id'] ?? (string) $attempt->providerRef,
+            amount: $attempt->amount->amount,
+            currency: 'NPR',
+            fee: $liability === 'MN' ? (NprAmount::toPaisa($body['chargeAmt'] ?? null) ?? 0) : 0,
+            payerRef: $extra['debit_bank_code'] ?? null,
+            raw: [...$raw, ...$extra],
+        );
     }
 
     /**
@@ -365,13 +391,13 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
 
     /**
      * What an answer says it is about, against the stored attempt: null when it matches, else what differs. With
-     * $strict (a SUCCESS), every field must be present. txnAmt may be paisa digits or a rupee decimal (NCHL's examples
-     * show both); a value that is neither form of the stored amount is a mismatch.
+     * $strict (a SUCCESS), every field must be present. txnAmt is read by its form (NCHL's examples show both): bare
+     * digits are paisa and a value with a decimal point is rupees, so "1130" never matches Rs 1,130.00.
      *
      * @param  array<string, mixed>  $body
      * @param  array{merchant_id: string, app_id: string}  $credentials
      */
-    private static function echoMismatch(array $body, array $credentials, PaymentAttemptRef $attempt, bool $strict, bool $rupees): ?string
+    private static function echoMismatch(array $body, array $credentials, PaymentAttemptRef $attempt, bool $strict): ?string
     {
         $expected = ['referenceId' => (string) $attempt->providerRef, 'merchantId' => $credentials['merchant_id'], 'appId' => $credentials['app_id']];
 
@@ -387,16 +413,44 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
             }
         }
 
-        $amount = is_scalar($body['txnAmt'] ?? null) ? trim((string) $body['txnAmt']) : null;
+        $amount = $body['txnAmt'] ?? null;
 
         if ($amount === null) {
             return $strict ? 'amount' : null;
         }
 
-        $stored = $attempt->amount->amount;
-        $matches = (! $rupees && $amount === (string) $stored) || NprAmount::toPaisa($amount) === $stored;
+        return self::paisa($amount) === $attempt->amount->amount ? null : 'amount';
+    }
 
-        return $matches ? null : 'amount';
+    /**
+     * An echoed txnAmt in paisa: an integer or bare digits are paisa, a float or a string with a decimal point is
+     * rupees; anything else is null.
+     */
+    private static function paisa(mixed $amount): ?int
+    {
+        return match (true) {
+            is_int($amount) => $amount,
+            is_float($amount) => NprAmount::toPaisa($amount),
+            is_string($amount) && preg_match('/^\d{1,15}$/', trim($amount)) === 1 => (int) trim($amount),
+            is_string($amount) && preg_match('/^\d{1,13}\.\d{1,6}$/', trim($amount)) === 1 => NprAmount::toPaisa(trim($amount)),
+            default => null,
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $body
+     */
+    private static function status(array $body): ?string
+    {
+        return is_string($body['status'] ?? null) && trim($body['status']) !== '' ? strtoupper(trim($body['status'])) : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $body
+     */
+    private static function description(array $body): string
+    {
+        return is_string($body['statusDesc'] ?? null) ? strtoupper(trim($body['statusDesc'])) : '';
     }
 
     /**
@@ -425,8 +479,10 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
             throw new ProviderException(__('Enter and save the connectIPS merchant ID, app ID, app name, app password and signing certificate first.'));
         }
 
-        if (preg_match('/^\d{1,20}$/', $merchantId) !== 1 || strlen($appId) > 15 || mb_strlen($appName) > 30 || str_contains($appId.$appName, ',')) {
-            throw new ProviderException(__('The connectIPS merchant ID must be digits, the app ID at most 15 characters and the app name at most 30, without commas.'));
+        $errors = $this->settingsErrors(['merchant_id' => $merchantId, 'app_id' => $appId, 'app_name' => $appName]);
+
+        if ($errors !== []) {
+            throw new ProviderException(implode(' ', $errors));
         }
 
         $key = openssl_pkey_get_private($pem);

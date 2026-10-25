@@ -110,7 +110,9 @@ class StartHostedPayment
             // The provider's own session expiry, when it states one, decides how long the invoice stays locked. A
             // resumable provider page is kept (encrypted) for "Continue payment" (#251), only for a driver that can
             // reopen it. In its own savepoint: a reference another start took meanwhile fails this one cleanly.
+            // The form's fields (signatures redacted) stay on the attempt for reconciliation, e.g. connectIPS TXNDATE.
             DB::transaction(fn () => $attempt->update(array_filter([
+                'raw' => $instruction instanceof FormPost ? [SettlePaymentAttempt::PROVIDER_FORM => GatewayLogger::redact($instruction->fields, $gatewayKey)] : null,
                 'provider_ref' => $instruction->providerRef,
                 'expires_at' => $instruction->expiresAt,
                 'resume_url' => $instruction instanceof RedirectInstruction && $instruction->keepForResume && $driver instanceof ResumesHostedPayment ? $instruction->url : null,

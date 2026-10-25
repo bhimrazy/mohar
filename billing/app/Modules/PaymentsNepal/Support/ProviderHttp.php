@@ -59,6 +59,14 @@ final class ProviderHttp
         return Endpoints::for($key, $url);
     }
 
+    /** An integer from payments_nepal config, e.g. intConfig('khalti.min_amount', 1000); the default when not numeric. */
+    public static function intConfig(string $key, int $default): int
+    {
+        $value = config('payments_nepal.'.$key, $default);
+
+        return is_numeric($value) ? (int) $value : $default;
+    }
+
     /** Single-shot request (initiate, refund, connection test): never retried, so nothing is sent twice. */
     public function request(): PendingRequest
     {

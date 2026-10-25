@@ -110,8 +110,12 @@ thing Nepal has to a universal online debit.
    read NCHL's own `txnId` (stored as `providerTxnId`), `debitBankCode`, `chargeAmt` and `chargeLiability`.
    `chargeAmt` is recorded as the fee only when `chargeLiability = MN` (merchant pays). `creditStatus` of `000`,
    `999` or `DEFER` means the credit leg is done; any other value with a `SUCCESS` validation goes to staff review.
-   If gettxndetail fails, the payment still settles on validatetxn and the fee stays 0 with a note; the poller does
-   not retry a settled attempt just for the fee.
+   ~~If gettxndetail fails, the payment still settles on validatetxn and the fee stays 0 with a note; the poller does
+   not retry a settled attempt just for the fee.~~
+   **Amendment (#491), 2026-10-25:** nothing settles without gettxndetail, since the credit leg is part of the
+   rule. A timeout, connection error or 5xx leaves the attempt as it is for the next lookup (retryable); any other
+   failure (4xx, a refused token, no status, a non-SUCCESS answer) sends it to staff review as "credit leg
+   unconfirmed". An attempt in review (for example `creditStatus` F01) is never booked by a later failed call.
 
 ### 4.2 Signing and the certificate
 
@@ -185,6 +189,8 @@ thing Nepal has to a universal online debit.
 - `txnAmt` units: validatetxn shows `"500"` and gettxndetail shows `1000.00` in the docs. We compare only
   validatetxn's amount, normalised from either form, and treat a value that is neither the paisa nor the rupee form of
   the stored amount as a mismatch.
+  **Amendment (#491), 2026-10-25:** both answers are compared, by form: an integer or bare digits are paisa, and a
+  value with a decimal point is rupees. So `"1130"` never matches Rs 1,130.00 (it would be Rs 11.30).
 - The 403 "multiple gateway payments" for a reused `TXNID`: every retry is a new attempt with a new `TXNID`.
 - Hosts and the certificate's validity period are not public.
 - The connection test (`ConnectionTester`): validatetxn for a random `TXNID`. HTTP 401 means wrong app id or

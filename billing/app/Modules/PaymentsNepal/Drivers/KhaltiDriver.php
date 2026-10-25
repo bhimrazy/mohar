@@ -103,12 +103,12 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
 
     public function limits(GatewayConfig $gateway): AmountLimits
     {
-        return new AmountLimits(min: self::intConfig('khalti.min_amount', 1000));
+        return new AmountLimits(min: ProviderHttp::intConfig('khalti.min_amount', 1000));
     }
 
     public function attemptTtl(GatewayConfig $gateway): CarbonInterval
     {
-        return CarbonInterval::minutes(self::intConfig('khalti.attempt_ttl_minutes', 60));
+        return CarbonInterval::minutes(ProviderHttp::intConfig('khalti.attempt_ttl_minutes', 60));
     }
 
     public function initiate(GatewayConfig $gateway, PaymentIntent $intent): RedirectInstruction
@@ -438,12 +438,5 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
         $secret = $gateway->setting('secret_key', '');
 
         return is_string($secret) ? trim($secret) : '';
-    }
-
-    private static function intConfig(string $key, int $default): int
-    {
-        $value = config('payments_nepal.'.$key, $default);
-
-        return is_numeric($value) ? (int) $value : $default;
     }
 }

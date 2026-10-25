@@ -6,8 +6,8 @@ use App\Data\Billing\GatewayConfig;
 use App\Data\Billing\PaymentAttemptRef;
 
 /**
- * Opt-in for a HostedPaymentDriver whose provider page stays open after a failed try (a declined card on Stripe
- * Checkout, a closed Khalti tab) and can be opened again. Billing asks only for an attempt it still holds open, at the
+ * Provider contract, opt-in (ADR 0010, ADR 0012), for a HostedPaymentDriver whose provider page stays open after a
+ * failed try (a declined card on Stripe Checkout, a closed Khalti tab) and can be opened again. Billing asks only for an attempt it still holds open, at the
  * invoice owner's request, and sends the answer to the browser only as the redirect target: it is never logged, put
  * in a page prop or returned in JSON. A driver whose provider can't return the URL later (Khalti) sets
  * RedirectInstruction::$keepForResume; Billing then keeps that URL encrypted on the attempt and passes it back in

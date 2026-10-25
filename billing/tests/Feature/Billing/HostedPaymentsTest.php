@@ -127,13 +127,27 @@ function hostedSandbox(): void
 }
 
 /** The hosted drivers every contract test runs against: Billing's own, the test double and the extension modules'. */
-const HOSTED_DRIVERS = ['sandbox_card', 'fake_wallet', 'khalti', 'esewa', 'stripe'];
+const HOSTED_DRIVERS = ['sandbox_card', 'fake_wallet', 'khalti', 'esewa', 'stripe', 'connectips'];
+
+/** A throwaway RSA key (PEM) for the connectIPS gateway, made once: key generation is slow. */
+function contractConnectipsKey(): string
+{
+    static $pem = null;
+
+    if ($pem === null) {
+        openssl_pkey_export(openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]), $pem);
+    }
+
+    return $pem;
+}
 
 /**
- * Active Khalti, eSewa and Stripe gateways in sandbox mode with fake credentials.
+ * Active Khalti, eSewa, Stripe and connectIPS gateways in sandbox mode with fake credentials.
  */
 function hostedProviderGateways(): void
 {
+    Gateway::query()->create(['key' => 'connectips', 'display_name' => 'connectIPS', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'merchant_id' => '550',
+        'app_id' => 'MER-550-APP-1', 'app_name' => 'Contract Hosting', 'app_password' => 'contract-connectips-password', 'signing_key' => contractConnectipsKey()]]);
     Gateway::query()->create(['key' => 'khalti', 'display_name' => 'Khalti', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'secret_key' => 'test_secret_contract_khalti']]);
     Gateway::query()->create(['key' => 'esewa', 'display_name' => 'eSewa', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'product_code' => 'EPAYTEST', 'secret_key' => 'contract-esewa-secret']]);
     Gateway::query()->create(['key' => 'stripe', 'display_name' => 'Stripe', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'secret_key' => 'sk_test_51ContractStripeSecret0000', 'webhook_secret' => 'whsec_ContractStripeWebhook00']]);
@@ -198,6 +212,15 @@ function hostedDriverCase(string $key, array $lines): array
             return Http::response(['product_code' => 'EPAYTEST', 'transaction_uuid' => $request['transaction_uuid'], 'total_amount' => (float) $request['total_amount'],
                 'status' => $paid ? 'COMPLETE' : 'PENDING', 'ref_id' => $paid ? '0007G36' : null]);
         },
+        'https://uat.connectips.com/connectipswebws/api/creditor/*' => function (ProviderRequest $request) use (&$paid) {
+            $echo = ['merchantId' => $request['merchantId'], 'appId' => $request['appId'], 'referenceId' => $request['referenceId'], 'token' => null];
+
+            return Http::response(! $paid ? [...$echo, 'txnAmt' => $request['txnAmt'], 'status' => 'ERROR', 'statusDesc' => 'TRANSACTION NOT FOUND']
+                : (str_ends_with($request->url(), 'gettxndetail')
+                    ? [...$echo, 'txnAmt' => NprAmount::toRupees((int) $request['txnAmt']).'.00', 'status' => 'SUCCESS', 'statusDesc' => 'TRANSACTION SUCCESSFUL', 'txnId' => '8100000001',
+                        'debitBankCode' => '0401', 'chargeAmt' => '4.00', 'chargeLiability' => 'MN', 'creditStatus' => '000']
+                    : [...$echo, 'txnAmt' => $request['txnAmt'], 'status' => 'SUCCESS', 'statusDesc' => 'TRANSACTION SUCCESSFUL']));
+        },
         STRIPE_API.'checkout/sessions' => fn (ProviderRequest $request) => Http::response(stripeCreatedSession($request['client_reference_id'], $invoice->id)),
         STRIPE_API.'checkout/sessions/'.STRIPE_SESSION.'*' => function () use (&$paid, $invoice) {
             $attempt = PaymentAttempt::query()->where('gateway', 'stripe')->where('provider_ref', STRIPE_SESSION)->sole();
@@ -218,6 +241,11 @@ function hostedDriverCase(string $key, array $lines): array
         'stripe' => [$invoice, $markPaid,
             fn (PaymentAttempt $attempt) => $returnUrl(['ref' => $attempt->reference]),
             fn () => $sent(STRIPE_API.'checkout/sessions')['line_items'][0]['price_data']['unit_amount'],
+        ],
+        // NCHL returns only TXNID, our provider reference.
+        'connectips' => [$invoice, $markPaid,
+            fn (PaymentAttempt $attempt) => $returnUrl(['TXNID' => $attempt->provider_ref]),
+            fn (PaymentAttempt $attempt, FormPost $form) => (int) $form->fields['TXNAMT'],
         ],
     };
 }
@@ -244,6 +272,7 @@ function forgedSuccessReturn(string $key, string $reference): array
         'fake_wallet' => ['ref' => $reference, 'status' => 'COMPLETE'],
         'khalti' => ['pidx' => 'PIDX1', 'purchase_order_id' => $reference, 'status' => 'Completed', 'transaction_id' => 'FORGED-1', 'total_amount' => '5000'],
         'stripe' => ['ref' => $reference, 'session_id' => 'cs_test_forged0000000001'],
+        'connectips' => ['ref' => $reference, 'status' => 'SUCCESS'],
     };
 }
 
@@ -573,6 +602,7 @@ test('every hosted driver refuses to start a payment in a currency it does not l
         'khalti' => [ProviderException::class, 'Khalti only takes NPR, not XTS.'],
         'esewa' => [ProviderException::class, 'eSewa only takes NPR, not XTS.'],
         'stripe' => [StripeException::class, 'Stripe can\'t take 5000 minor units of XTS exactly.'],
+        'connectips' => [ProviderException::class, 'connectIPS only takes NPR, not XTS.'],
     };
 
     expect($driver)->toBeInstanceOf(HostedPaymentDriver::class)
@@ -588,6 +618,8 @@ test('every hosted driver honours the contract', function (string $key) {
     Http::fake([
         'https://dev.khalti.com/api/v2/epayment/lookup/' => Http::response(['pidx' => 'PIDX1', 'status' => 'Pending', 'total_amount' => 5_000, 'transaction_id' => null, 'fee' => 0, 'refunded' => false]),
         'https://rc.esewa.com.np/api/epay/transaction/status/*' => Http::response(['product_code' => 'EPAYTEST', 'transaction_uuid' => 'inv-0-a1', 'total_amount' => 50.0, 'status' => 'PENDING', 'ref_id' => null]),
+        'https://uat.connectips.com/connectipswebws/api/creditor/validatetxn' => fn (ProviderRequest $request) => Http::response(['merchantId' => '550', 'appId' => 'MER-550-APP-1',
+            'referenceId' => $request['referenceId'], 'txnAmt' => $request['txnAmt'], 'token' => null, 'status' => 'ERROR', 'statusDesc' => 'TRANSACTION INCOMPLETE']),
         'https://api.stripe.com/v1/checkout/sessions/cs_test_contract0001*' => Http::response(['id' => 'cs_test_contract0001', 'object' => 'checkout.session', 'client_reference_id' => 'inv-0-a1', 'metadata' => ['mohar_reference' => 'inv-0-a1'], 'mode' => 'payment', 'livemode' => false, 'status' => 'open', 'payment_status' => 'unpaid', 'payment_intent' => null]),
     ]);
     $registry = app(GatewayRegistry::class);

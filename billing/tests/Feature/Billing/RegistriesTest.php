@@ -58,7 +58,7 @@ test('every registered gateway declares REDIRECT exactly when it is a hosted pay
     $drivers = app(GatewayRegistry::class)->drivers();
 
     // Billing's own drivers and the extension modules' (PaymentsStripe, PaymentsNepal), hosted and offline.
-    expect(array_keys($drivers))->toContain('bank_transfer', 'manual', 'sandbox_card', 'stripe', 'khalti', 'esewa');
+    expect(array_keys($drivers))->toContain('bank_transfer', 'manual', 'sandbox_card', 'stripe', 'khalti', 'esewa', 'connectips');
     foreach ($drivers as $key => $driver) {
         expect($driver->supports(GatewayDriver::REDIRECT))->toBe($driver instanceof HostedPaymentDriver, "{$key} declares REDIRECT without being a hosted payment driver, or the other way round");
     }

@@ -7,9 +7,9 @@ use App\Data\Billing\PaymentAttemptRef;
 use App\Enums\HostedSessionCancel;
 
 /**
- * Opt-in for a HostedPaymentDriver whose provider can close an open session so it can no longer be paid (Stripe:
- * expire the Checkout Session). Billing calls it before it frees an invoice for another way to pay, outside any
- * database transaction, and always settles from lookup() afterwards.
+ * Provider contract, opt-in (ADR 0010, ADR 0012), for a HostedPaymentDriver whose provider can close an open session
+ * so it can no longer be paid (Stripe: expire the Checkout Session). Billing calls it before it frees an invoice for
+ * another way to pay, outside any database transaction, and always settles from lookup() afterwards.
  */
 interface CancelsHostedPayment
 {

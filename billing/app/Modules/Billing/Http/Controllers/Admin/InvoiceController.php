@@ -2,7 +2,6 @@
 
 namespace App\Modules\Billing\Http\Controllers\Admin;
 
-use App\Contracts\Billing\DescribesManualRefund;
 use App\Contracts\Billing\GatewayDriver;
 use App\Contracts\Billing\LooksUpRefunds;
 use App\Contracts\Core\CompanyClock;
@@ -217,7 +216,7 @@ class InvoiceController extends Controller
                 'refund' => $driver->supports(GatewayDriver::REFUND),
                 'partial_refund' => $driver->supports(GatewayDriver::PARTIAL_REFUND),
                 'refund_lookup' => $driver instanceof LooksUpRefunds,
-                'refund_note' => $driver instanceof DescribesManualRefund ? $driver->manualRefundNote() : null,
+                'refund_note' => $this->gateways->manualRefundNote($driver->key()),
                 'sandbox' => $this->gateways->isSandbox($model),
             ];
         }, $this->gateways->drivers()));

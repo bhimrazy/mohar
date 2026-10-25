@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Drivers\Gateways;
 
+use App\Contracts\Billing\DescribesManualRefund;
 use App\Contracts\Billing\GatewayDriver;
 use App\Contracts\Billing\GatewayRegistry;
 use App\Contracts\Billing\HostedPaymentDriver;
@@ -140,6 +141,16 @@ class GatewayManager implements GatewayRegistry
         $driver = $this->drivers[$key] ?? null;
 
         return $driver instanceof ProvidesLogo ? $driver->logo()?->toArray() : null;
+    }
+
+    /**
+     * The driver's own refund instructions when it has no refund API (DescribesManualRefund), or null.
+     */
+    public function manualRefundNote(string $key): ?string
+    {
+        $driver = $this->drivers[$key] ?? null;
+
+        return $driver instanceof DescribesManualRefund && ! $driver->supports(GatewayDriver::REFUND) ? $driver->manualRefundNote() : null;
     }
 
     /**
