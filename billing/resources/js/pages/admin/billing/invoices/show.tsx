@@ -169,7 +169,8 @@ function RefundDialog({
                     canRefundAtGateway &&
                     (!fullOnly || isFullRefund(form.data.amount));
                 const guidance = !canRefundAtGateway
-                    ? `${name} can't refund through the API. Refund in the ${name} merchant portal first, then record it here.`
+                    ? (option?.refund_note ??
+                      `${name} can't refund through the API. Refund in the ${name} merchant portal first, then record it here.`)
                     : !gatewayAllowed
                       ? `${name} refunds only the full payment through the API. Refund part of it in the ${name} merchant portal, then record it here.`
                       : `If ${name} refuses (for example a payment made from a bank account), refund it in the ${name} merchant portal and record it here.`;

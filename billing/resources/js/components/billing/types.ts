@@ -240,6 +240,8 @@ export type GatewayOption = {
     value: string;
     partial_refund?: boolean;
     refund_lookup?: boolean;
+    /** The driver's own refund instructions when it has no refund API (connectIPS: bank transfer). */
+    refund_note?: string | null;
     sandbox?: boolean;
     label: string;
     capture?: boolean;

@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Http\Controllers\Admin;
 
+use App\Contracts\Billing\DescribesManualRefund;
 use App\Contracts\Billing\GatewayDriver;
 use App\Contracts\Billing\LooksUpRefunds;
 use App\Contracts\Core\CompanyClock;
@@ -202,7 +203,7 @@ class InvoiceController extends Controller
     }
 
     /**
-     * @return list<array{value: string, label: string, capture: bool, refund: bool, partial_refund: bool, refund_lookup: bool, sandbox: bool}>
+     * @return list<array{value: string, label: string, capture: bool, refund: bool, partial_refund: bool, refund_lookup: bool, refund_note: string|null, sandbox: bool}>
      */
     private function gatewayOptions(): array
     {
@@ -216,6 +217,7 @@ class InvoiceController extends Controller
                 'refund' => $driver->supports(GatewayDriver::REFUND),
                 'partial_refund' => $driver->supports(GatewayDriver::PARTIAL_REFUND),
                 'refund_lookup' => $driver instanceof LooksUpRefunds,
+                'refund_note' => $driver instanceof DescribesManualRefund ? $driver->manualRefundNote() : null,
                 'sandbox' => $this->gateways->isSandbox($model),
             ];
         }, $this->gateways->drivers()));

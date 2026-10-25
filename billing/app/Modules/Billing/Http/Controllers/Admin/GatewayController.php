@@ -3,6 +3,7 @@
 namespace App\Modules\Billing\Http\Controllers\Admin;
 
 use App\Contracts\Billing\ConnectionTester;
+use App\Contracts\Billing\DescribesManualRefund;
 use App\Contracts\Billing\GatewayDriver;
 use App\Data\Integrations\ConnectionCheck;
 use App\Data\Integrations\SettingField;
@@ -124,6 +125,7 @@ class GatewayController extends Controller
             'sort_order' => $model->sort_order,
             'convert_to_currency' => $model->convert_to_currency,
             'capabilities' => $driver->capabilities(),
+            'refund_note' => $driver instanceof DescribesManualRefund ? $driver->manualRefundNote() : null,
             'sandbox' => $this->gateways->isSandbox($model),
             'logo' => $this->gateways->logo($driver->key()),
         ];
