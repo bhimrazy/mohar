@@ -71,6 +71,7 @@ function deliverRazorpayWebhooks(?string $variant = null): array
 
 beforeEach(function () {
     $this->refuseAnyDatabaseButAThrowawayOne();
+    $this->artisan('migrate:fresh', ['--force' => true])->assertSuccessful();
     $scenario = razorpaySimulator(Processes::start(RazorpaySimulator::class));
     config([
         'integrations.outbound.allow_loopback' => true,
