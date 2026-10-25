@@ -7,5 +7,5 @@
 - **A Cybersource cancel ends the attempt without per-process memory (#500).** The signed CANCEL on the customer's
   return is passed to that return's status check, so the invoice can be paid again at once, as before. A CANCEL that
   reaches only the merchant notice URL no longer ends the attempt early; it ends at the usual grace period.
-- **A Razorpay refund tagged with our reference but for another amount or currency is never matched to our refund
-  (#500).** Check refund leaves it pending, with the Razorpay refund id kept only in the gateway log.
+- **A Razorpay or Cybersource refund tagged with our reference but for another amount or currency is never matched to
+  our refund (#500).** Check refund leaves it pending, with the provider's refund id kept only in the gateway log.

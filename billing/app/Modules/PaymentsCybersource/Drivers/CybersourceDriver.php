@@ -328,7 +328,8 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
             $raw = ['refund' => (string) $row['id'], 'status' => data_get($row, 'applicationInformation.status'), 'payment' => $request->providerTxnId];
 
             if (self::minor(data_get($row, 'orderInformation.amountDetails.totalAmount')) !== $request->amount->amount || data_get($row, 'orderInformation.amountDetails.currency') !== $request->amount->currency) {
-                return new ChargeResult(ChargeResult::ERROR, (string) $row['id'], declineReason: 'the refund at Cybersource has another amount or currency', raw: $raw);
+                // No refund id: a refund that is not ours as asked must never be matched to our row (raw keeps it).
+                return new ChargeResult(ChargeResult::ERROR, declineReason: 'the refund at Cybersource has another amount or currency', raw: $raw);
             }
 
             return in_array(strtoupper((string) $raw['status']), self::DECLINED, true)

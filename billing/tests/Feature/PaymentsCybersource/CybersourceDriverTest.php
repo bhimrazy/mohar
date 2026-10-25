@@ -259,6 +259,18 @@ test('a refund check finds our refund by reference under the payment, and says n
         ->and($driver->lookupRefund($config, $request(60))->status)->toBe('declined');
 });
 
+test('a refund under our reference for another amount or currency is an error that takes no refund id', function (string $amount, string $currency) {
+    $config = new GatewayConfig('cybersource', 'Cards', cybersourceSettings(), sandbox: true);
+    fakeCardRest([cardTxn('42', 'PENDING', $amount, $currency, id: '7290000000000000000099', rootId: '7290000000000000000001')]);
+
+    $result = app(CybersourceDriver::class)->lookupRefund($config, new RefundRequest('7290000000000000000001', Money::of(13_000, 'NPR'), Money::of(113_000, 'NPR'), reference: '42'));
+
+    expect($result)->status->toBe('error')->txnId->toBeNull()->raw->toMatchArray(['refund' => '7290000000000000000099']);
+})->with([
+    'amount' => ['200.00', 'NPR'],
+    'currency' => ['130.00', 'USD'],
+]);
+
 test('the notice only triggers a lookup: a bad signature is refused, a stale one too', function () {
     [, $attempt] = startCard();
     fakeCardRest([]);
