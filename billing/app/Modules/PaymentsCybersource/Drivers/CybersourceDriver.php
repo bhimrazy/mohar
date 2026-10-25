@@ -57,14 +57,6 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
     /** Statuses of a payment taken back after it was made: staff look at it, whatever the application codes say. */
     private const TAKEN_BACK = ['VOIDED', 'REVERSED'];
 
-    /**
-     * References Cybersource signed a CANCEL for, in this process (see lookup()). Static because Billing may resolve
-     * the driver more than once in one request.
-     *
-     * @var array<string, true>
-     */
-    private static array $signedCancels = [];
-
     public function __construct(private CybersourceRest $rest) {}
 
     public function key(): string
@@ -183,7 +175,6 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
         }
 
         $decision = strtoupper($fields['decision']);
-        self::rememberCancel($decision, $fields['req_reference_number']);
 
         return new ReturnHint(
             reference: $fields['req_reference_number'],
@@ -192,6 +183,7 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
             signatureValid: true,
             raw: [...self::hintRaw($fields), 'signature_valid' => true],
             signedPaid: $decision === 'ACCEPT',
+            signedCancel: $decision === 'CANCEL',
         );
     }
 
@@ -206,7 +198,6 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
             return new CallbackRejection(CallbackRejection::INVALID_SIGNATURE);
         }
 
-        self::rememberCancel(strtoupper($fields['decision']), $fields['req_reference_number']);
         // Signed, so Billing's five-minute replay window applies to it.
         $sentAt = preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/', $fields['signed_date_time']) === 1
             ? CarbonImmutable::createFromFormat('Y-m-d\TH:i:s\Z', $fields['signed_date_time'], 'UTC')
@@ -219,8 +210,8 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
      * Search by our reference, then read each payment found (only the newest while the customer waits, so a return
      * costs at most two short calls). Succeeded only for one authorised and captured sale under
      * our reference; Billing then checks its amount and currency against the attempt. REST has no record of a
-     * session the customer cancelled, so "not found" ends the session early only when Cybersource signed a CANCEL
-     * for this reference to this process (the return or notice that Billing parsed just before this lookup).
+     * session the customer cancelled, so "not found" ends the session early only when this lookup follows a return
+     * carrying Cybersource's signed CANCEL for this reference (PaymentAttemptRef::$signedCancel, set by Billing).
      */
     public function lookup(GatewayConfig $gateway, PaymentAttemptRef $attempt): LookupResult
     {
@@ -255,7 +246,7 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
             return new LookupResult(LookupResult::PENDING, raw: ['error' => $exception->getMessage()], retryable: true);
         }
 
-        $cancelled = isset(self::$signedCancels[$attempt->reference]);
+        $cancelled = $attempt->signedCancel;
 
         // The search may not have indexed a payment made seconds ago: while the customer waits, "nothing yet" is left
         // to the poller rather than read as not found (which would send a signed ACCEPT straight to staff review).
@@ -463,23 +454,6 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
     }
 
     /**
-     * Remembered so a lookup that finds nothing can say the session is over. Only a signed CANCEL counts; bounded so a
-     * long-lived worker does not grow it without limit.
-     */
-    private static function rememberCancel(string $decision, string $reference): void
-    {
-        if ($decision !== 'CANCEL') {
-            return;
-        }
-
-        if (count(self::$signedCancels) >= 500) {
-            self::$signedCancels = array_slice(self::$signedCancels, 250, preserve_keys: true);
-        }
-
-        self::$signedCancels[$reference] = true;
-    }
-
-    /**
      * @param  list<array<array-key, mixed>>  $details  transactions found under our reference
      */
     private static function classify(array $details, string $reference): LookupResult
@@ -511,7 +485,7 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
         return match (true) {
             count($paid) > 1 => new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'Cybersource holds more than one captured payment for this reference']),
             $takenBack !== [] => new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'Cybersource shows the payment voided or reversed']),
-            // Billing compares a currency only when one is given, so a paid answer without both is never a success.
+            // A paid answer without both is never a success (Billing would hold it for review too).
             count($paid) === 1 && ($amount === null || ! is_string($currency) || preg_match('/^[A-Z]{3}$/', $currency) !== 1) => new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'Cybersource answered without an amount or currency']),
             count($paid) === 1 && $authorised !== null && self::minor($authorised) !== $amount => new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'Cybersource authorised a different amount than the sale (partial authorisation)']),
             count($paid) === 1 => new LookupResult(LookupResult::SUCCEEDED, providerTxnId: is_string($first['id'] ?? null) ? $first['id'] : null, amount: $amount, currency: $currency, raw: $raw),

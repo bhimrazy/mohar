@@ -66,6 +66,9 @@ class FakeNprWalletDriver extends AbstractGatewayDriver implements HostedPayment
     /** Seconds each lookup takes (the clock moves on by this much), to model a sweep's provider round trips. */
     public static int $lookupSeconds = 0;
 
+    /** What the last lookup was asked about. */
+    public static ?PaymentAttemptRef $lastRef = null;
+
     public function key(): string
     {
         return 'fake_wallet';
@@ -112,11 +115,13 @@ class FakeNprWalletDriver extends AbstractGatewayDriver implements HostedPayment
 
     public function parseReturn(GatewayConfig $gateway, Request $request): ReturnHint
     {
-        return new ReturnHint($request->string('ref')->toString() ?: null, claimedStatus: $request->string('status')->toString() ?: null);
+        return new ReturnHint($request->string('ref')->toString() ?: null, claimedStatus: $request->string('status')->toString() ?: null, signedCancel: $request->boolean('signed_cancel'));
     }
 
     public function lookup(GatewayConfig $gateway, PaymentAttemptRef $attempt): LookupResult
     {
+        self::$lastRef = $attempt;
+
         if (self::$lookupSeconds > 0) {
             Carbon::setTestNow(now()->addSeconds(self::$lookupSeconds));
         }
@@ -368,6 +373,7 @@ function forgedSuccessReturn(string $key, string $reference): array
 beforeEach(function () {
     FakeNprWalletDriver::$provider = [];
     FakeNprWalletDriver::$lookupSeconds = 0;
+    FakeNprWalletDriver::$lastRef = null;
     app(GatewayRegistry::class)->register(new FakeNprWalletDriver);
     Gateway::query()->create(['key' => 'fake_wallet', 'display_name' => 'Wallet', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['secret_key' => 'super-secret-wallet-key']]);
 });
@@ -482,6 +488,45 @@ test('an amount mismatch records nothing and raises a staff todo', function () {
     $this->travel(31)->minutes();
     $todo = collect(app(Dashboard::class)->resolveTodos('admin', billingStaff()))->firstWhere('key', 'billing.payment_review');
     expect($todo['count'])->toBe(1);
+});
+
+test('a success that does not say what was paid goes to staff review and books nothing', function (bool $withAmount, ?string $currency, string $reason) {
+    [, $client] = actingAsClient(Client::factory()->create(['currency' => 'NPR', 'country' => 'NP']));
+    Currency::factory()->npr()->create();
+    $invoice = issueInvoice($client, [50_000]);
+    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => 'fake_wallet']);
+    $attempt = PaymentAttempt::query()->sole();
+    FakeNprWalletDriver::$provider[$attempt->reference] = new LookupResult(LookupResult::SUCCEEDED, 'wallet-txn-unsaid', $withAmount ? $attempt->amount : null, $currency);
+
+    $this->artisan('billing:reconcile-payments')->assertSuccessful();
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Ambiguous)->review_reason->toBe($reason)->transaction_id->toBeNull()
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid)
+        ->and(Transaction::query()->count())->toBe(0);
+})->with([
+    'no currency' => [true, null, 'Provider reported success without a currency'],
+    'empty currency' => [true, '', 'Provider reported success without a currency'],
+    'no amount' => [false, 'NPR', 'Provider reported success without an amount'],
+]);
+
+test('a signed cancel on the return reaches only the lookup of the attempt it names', function () {
+    [, $client] = actingAsClient(Client::factory()->create(['currency' => 'NPR', 'country' => 'NP']));
+    Currency::factory()->npr()->create();
+    $this->post(route('client.invoices.pay', issueInvoice($client, [50_000])->id), ['gateway' => 'fake_wallet']);
+    $this->post(route('client.invoices.pay', issueInvoice($client, [60_000])->id), ['gateway' => 'fake_wallet']);
+    [$first, $second] = PaymentAttempt::query()->orderBy('id')->get()->all();
+    FakeNprWalletDriver::$provider[$first->reference] = new LookupResult(LookupResult::NOT_FOUND, sessionEnded: true);
+
+    $this->get(route('billing.gateways.return', ['fake_wallet', 'ref' => $first->reference, 'cancelled' => 1, 'signed_cancel' => 1]));
+    expect(FakeNprWalletDriver::$lastRef)->reference->toBe($first->reference)->signedCancel->toBeTrue()
+        ->and($first->fresh()->status)->toBe(AttemptStatus::Failed);
+
+    app(SettlePaymentAttempt::class)->handle($second, returnHint: new ReturnHint($first->reference, signedCancel: true));
+    expect(FakeNprWalletDriver::$lastRef)->reference->toBe($second->reference)->signedCancel->toBeFalse();
+
+    $this->travel(2)->minutes();
+    $this->artisan('billing:reconcile-payments')->assertSuccessful();
+    expect(FakeNprWalletDriver::$lastRef->signedCancel)->toBeFalse();
 });
 
 test('unseen attempts expire after the grace period while provider-pending ones go to review', function () {

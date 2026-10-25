@@ -67,7 +67,8 @@ class SettlePaymentAttempt
      * @param  bool  $interactive  a customer's browser is waiting (return route): one quick provider try, no retries
      * @param  bool  $cancelReturn  the browser came back through the attempt's cancel URL (a hint: only the lookup decides)
      * @param  ReturnHint|null  $returnHint  the customer's return, when this settle comes from it: a provider-signed
-     *                                       paid status is kept on the attempt as evidence (#323)
+     *                                       paid status is kept on the attempt as evidence (#323), and a signed
+     *                                       cancel is passed to the lookup
      */
     public function handle(PaymentAttempt $attempt, bool $interactive = false, bool $cancelReturn = false, ?ReturnHint $returnHint = null): AttemptStatus
     {
@@ -84,7 +85,8 @@ class SettlePaymentAttempt
         }
 
         $config = $this->gateways->config($attempt->gateway);
-        $result = $this->lastResult = $this->gateways->during($config, fn (): LookupResult => $driver->lookup($config, $attempt->toRef($interactive)));
+        $ref = $attempt->toRef($interactive, signedCancel: self::signedCancelFor($returnHint, $attempt));
+        $result = $this->lastResult = $this->gateways->during($config, fn (): LookupResult => $driver->lookup($config, $ref));
         $raw = GatewayLogger::redact($result->raw, $attempt->gateway);
         $this->log->log($attempt->gateway, 'response', 'lookup '.$result->status, ['reference' => $attempt->reference, ...$raw], $attempt->invoice_id);
 
@@ -166,6 +168,19 @@ class SettlePaymentAttempt
             $locked->raw = [...($locked->raw ?? []), self::SIGNED_RETURN => self::evidence($returnHint, $locked)];
             $locked->save();
         });
+    }
+
+    /**
+     * A signed cancel counts only for the attempt the return names.
+     */
+    private static function signedCancelFor(?ReturnHint $returnHint, PaymentAttempt $attempt): bool
+    {
+        if ($returnHint?->signedCancel !== true) {
+            return false;
+        }
+
+        return $returnHint->reference === $attempt->reference
+            || ($returnHint->reference === null && $returnHint->providerRef !== null && $returnHint->providerRef === $attempt->provider_ref);
     }
 
     /**
@@ -347,8 +362,11 @@ class SettlePaymentAttempt
     {
         $reason = match (true) {
             $result->providerTxnId === null || $result->providerTxnId === '' => 'Provider reported success without a transaction id',
-            $result->currency !== null && strtoupper($result->currency) !== $attempt->currency => "Currency mismatch: {$result->currency} vs {$attempt->currency}",
-            $result->amount !== $attempt->amount => 'Amount mismatch: provider '.($result->amount ?? 'none')." vs expected {$attempt->amount}",
+            // A success that does not say what was paid is never booked: staff check it at the provider.
+            $result->currency === null || $result->currency === '' => 'Provider reported success without a currency',
+            $result->amount === null => 'Provider reported success without an amount',
+            strtoupper($result->currency) !== $attempt->currency => "Currency mismatch: {$result->currency} vs {$attempt->currency}",
+            $result->amount !== $attempt->amount => "Amount mismatch: provider {$result->amount} vs expected {$attempt->amount}",
             PaymentAttempt::query()->where('gateway', $attempt->gateway)->where('provider_txn_id', $result->providerTxnId)->whereKeyNot($attempt->id)->exists() => 'Provider transaction already used by another attempt',
             default => null,
         };

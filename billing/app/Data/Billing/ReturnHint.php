@@ -12,6 +12,9 @@ final readonly class ReturnHint
      * @param  bool  $signedPaid  the return carries the provider's own valid signature over a paid status (eSewa
      *                            COMPLETE). Still only a hint for settling, but evidence that money was taken: a later
      *                            "not found" must go to staff review, never end the attempt
+     * @param  bool  $signedCancel  the return carries the provider's own valid signature over a cancel (Cybersource
+     *                              CANCEL). Billing passes it to this attempt's lookup() (PaymentAttemptRef), which may
+     *                              then answer that the session is over; it never settles anything by itself
      */
     public function __construct(
         public ?string $reference,
@@ -20,5 +23,6 @@ final readonly class ReturnHint
         public bool $signatureValid = false,
         public array $raw = [],
         public bool $signedPaid = false,
+        public bool $signedCancel = false,
     ) {}
 }
