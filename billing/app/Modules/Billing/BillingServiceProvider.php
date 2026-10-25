@@ -545,8 +545,6 @@ class BillingServiceProvider extends ModuleServiceProvider
             'reason' => $note->reasonLabel(),
             'reason_text' => $note->reason_text,
             'automatic' => $note->automatic,
-            // Whether the note email carries the PDF (in the client's language), so its text can say so.
-            'pdf_attached' => app(BillingDocumentAttachments::class)->attaches($note, $note->client->language ?: null),
             'lines' => $note->lines->map(fn (TaxNoteLine $line): array => [
                 'description' => $line->description,
                 'amount' => $money($line->amount + $line->tax1_amount + $line->tax2_amount),
@@ -566,7 +564,14 @@ class BillingServiceProvider extends ModuleServiceProvider
         $registry->register('service_overdue_invoice', fn (int $serviceId): array => $this->overdueInvoiceFor(BillableType::Service, $serviceId));
         $registry->register('service_addon_overdue_invoice', fn (int $addonId): array => $this->overdueInvoiceFor(BillableType::ServiceAddon, $addonId));
 
-        $registry->register('tax_note', fn (int $id): array => $this->taxNoteMergeFields(TaxNote::query()->with(['lines', 'client:id,language'])->findOrFail($id)));
+        $registry->register('tax_note', fn (int $id): array => $this->taxNoteMergeFields(TaxNote::query()->with('lines')->findOrFail($id)));
+        // Mail-only facts about a note, kept out of the `tax_note` webhook payload: whether its email carries the PDF (in
+        // the client's language), so the text can say so.
+        $registry->register('tax_note_mail', function (int $id): array {
+            $note = TaxNote::query()->with('client:id,language')->findOrFail($id);
+
+            return ['client_id' => $note->client_id, 'pdf_attached' => app(BillingDocumentAttachments::class)->attaches($note, $note->client->language ?: null)];
+        });
 
         $registry->register('quote', function (int $id): array {
             $quote = Quote::query()->findOrFail($id);

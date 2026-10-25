@@ -386,7 +386,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
 
         $this->clientMail($event instanceof CreditNoteIssued ? 'credit_note.issued' : 'debit_note.issued', $event->clientId, EmailCategory::Invoice, [
             ...$this->invoiceContext($event->invoiceId),
-            'tax_note' => $this->context->resolve('tax_note', $event->taxNoteId),
+            'tax_note' => [...$this->context->resolve('tax_note', $event->taxNoteId), 'pdf_attached' => (bool) ($this->context->resolve('tax_note_mail', $event->taxNoteId)['pdf_attached'] ?? false)],
         ], $event, 'tax_note', $event->taxNoteId);
     }
 

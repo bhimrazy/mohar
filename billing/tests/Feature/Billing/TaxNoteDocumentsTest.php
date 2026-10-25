@@ -235,7 +235,7 @@ test('issuing a note queues the credit_note.issued and debit_note.issued webhook
         ->and($deliveries[1]->payload['data']['object'])->toMatchArray(['number' => $debit->number, 'kind' => 'debit', 'amount_minor' => 113_000])
         ->and($deliveries[0]->payload['data']['ids'])->toMatchArray(['tax_note_id' => $credit->id, 'invoice_id' => $invoice->id])
         // No snapshots, staff or the email flag in the payload.
-        ->and($deliveries[0]->payload['data']['object'])->not->toHaveKeys(['seller_snapshot', 'buyer_snapshot', 'created_by', 'notify']);
+        ->and($deliveries[0]->payload['data']['object'])->not->toHaveKeys(['seller_snapshot', 'buyer_snapshot', 'created_by', 'notify', 'pdf_attached']);
 });
 
 test('an account user without the billing permission cannot list or download notes', function () {
