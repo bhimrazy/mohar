@@ -39,7 +39,7 @@ final class StripeRecording
             'latest_charge', 'latest_charge.id', 'latest_charge.amount_refunded', 'latest_charge.refunded',
             'latest_charge.balance_transaction', 'latest_charge.balance_transaction.currency', 'latest_charge.balance_transaction.fee',
         ],
-        'refund' => ['id', 'object', 'amount', 'currency', 'metadata', 'reason', 'status', 'payment_intent', 'payment_intent.id', 'payment_intent.metadata'],
+        'refund' => ['id', 'object', 'amount', 'currency', 'failure_reason', 'metadata', 'reason', 'status', 'payment_intent', 'payment_intent.id', 'payment_intent.metadata'],
         'error' => ['error', 'error.code', 'error.type'],
     ];
 

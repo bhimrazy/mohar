@@ -14,8 +14,10 @@ use App\Modules\Billing\Models\Transaction;
 use App\Modules\PaymentsStripe\Drivers\StripeDriver;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
 require_once __DIR__.'/helpers.php';
@@ -102,14 +104,14 @@ test('a staff refund that timed out stays pending with its amount reserved, and 
         ->and($payment->invoice->fresh()->amount_paid)->toBe(1_500);
 });
 
-test('a refund from the admin that failed at Stripe books nothing and is logged for staff', function () {
+test('a failed Stripe refund we never recorded books nothing and is logged', function () {
     paidStripePayment();
     Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001*' => Http::response(stripeFixture('refund', ['status' => 'failed', 'metadata' => ['mohar_origin' => 'admin', 'mohar_refund' => '99']]))]);
 
-    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001'))->assertOk()->assertJson(['result' => 'ignored event type']);
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001'))->assertOk()->assertJson(['result' => 'failed refund not recorded here; nothing changed']);
 
     expect(Transaction::query()->where('type', TransactionType::Refund)->count())->toBe(0)
-        ->and(GatewayLog::query()->latest('id')->first()->payload['type'])->toContain('FAILED at Stripe');
+        ->and(GatewayLog::query()->latest('id')->first()->payload['status'])->toBe('failed');
 });
 
 test('a refund Stripe refuses leaves the payment refundable', function (Closure $response, string $message) {
@@ -282,13 +284,17 @@ test('a pending Stripe refund that later fails books nothing from refund.updated
     $row = app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
 
     $state = 'failed';
-    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001'))->assertOk()->assertJson(['result' => 'ignored event type']);
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001'))->assertOk()->assertJson(['result' => 'refund failed at the provider; Check refund releases it']);
     expect($row->fresh()->status)->toBe(TransactionStatus::Pending)->and($payment->fresh()->refundable_remaining)->toBe(1_500);
 
     // Check refund repeats the request with the same key, and Stripe answers with the refund, now failed.
     expect(app(RefundTransaction::class)->check($row->fresh())->status)->toBe(TransactionStatus::Failed)
         ->and($payment->fresh()->refundable_remaining)->toBe(2_500)
         ->and($payment->invoice->fresh()->amount_paid)->toBe(2_500);
+
+    // Released rows keep the refund id in raw: a later failed event finds the row by our reference and changes nothing.
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0015'))->assertOk()->assertJson(['result' => 'refund already released; nothing changed']);
+    expect($row->fresh()->status)->toBe(TransactionStatus::Failed)->and(Transaction::toReview()->count())->toBe(0);
 });
 
 test('Check refund settles a pending Stripe refund once Stripe reports it succeeded', function () {
@@ -300,4 +306,112 @@ test('Check refund settles a pending Stripe refund once Stripe reports it succee
     $state = 'succeeded';
     expect(app(RefundTransaction::class)->check($row->fresh()))->status->toBe(TransactionStatus::Succeeded)->gateway_txn_id->toBe('re_3MoharRefund0001')
         ->and($payment->invoice->fresh()->amount_paid)->toBe(1_500);
+});
+
+test('a Stripe refund booked as made that later fails goes on Disputes to review once, and the books stay as they are', function (string $failure) {
+    $payment = paidStripePayment();
+    [$state, $row] = ['pending', null];
+    stripeRefundAt($state, $row);
+    $row = app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
+    // Before #497 a pending refund was booked as made: the same row, settled.
+    app(RefundTransaction::class)->settle($row, 're_3MoharRefund0001');
+    expect($row->fresh()->status)->toBe(TransactionStatus::Succeeded)->and(Transaction::toReview()->count())->toBe(0);
+
+    $state = $failure;
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001'))->assertOk()
+        ->assertJson(['result' => 'refund failed at the provider after it was booked; put on Disputes to review']);
+
+    expect(Transaction::toReview()->sole())->id->toBe($row->id)->review_amount->toBe(1_000)->status->toBe(TransactionStatus::Succeeded)
+        ->description->toBe('Provider reports conflicting outcome: failed after it was booked')
+        ->and($payment->fresh()->refundable_remaining)->toBe(1_500)
+        ->and($payment->invoice->fresh()->amount_paid)->toBe(1_500);
+
+    // Staff mark it reviewed; a replay or a second failed event does not reopen it.
+    Transaction::toReview()->update(['reviewed_at' => now()]);
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001'))->assertOk()->assertJson(['result' => 'duplicate']);
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0013'))->assertOk()->assertJson(['result' => 'duplicate']);
+
+    expect(Transaction::toReview()->count())->toBe(0)->and(Transaction::query()->where('type', TransactionType::Refund)->count())->toBe(1);
+})->with(['failed', 'canceled']);
+
+test('a refund made in the Stripe Dashboard that later fails goes on Disputes to review', function () {
+    $payment = paidStripePayment();
+    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001*' => Http::sequence()
+        ->push(stripeFixture('refund', ['amount' => 2_500]))
+        ->push(stripeFixture('refund', ['amount' => 2_500, 'status' => 'failed', 'failure_reason' => 'expired_or_canceled_card']))]);
+
+    postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0001'))->assertOk()->assertJson(['result' => 'refund recorded']);
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0014'))->assertOk()
+        ->assertJson(['result' => 'refund failed at the provider after it was booked; put on Disputes to review']);
+
+    expect(Transaction::toReview()->sole())->review_amount->toBe(2_500)->parent_transaction_id->toBe($payment->id)
+        ->and($payment->invoice->fresh()->status)->toBe(InvoiceStatus::Refunded);
+});
+
+test('a failed Stripe refund with another refund id, or of another payment, changes nothing', function () {
+    $payment = paidStripePayment();
+    Http::fake([STRIPE_API.'refunds' => Http::response(stripeFixture('refund'))]);
+    $row = app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
+    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0002*' => Http::response(stripeFixture('refund', ['id' => 're_3MoharRefund0002', 'status' => 'failed', 'metadata' => ['mohar_origin' => 'admin', 'mohar_refund' => (string) $row->id]]))]);
+
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0002'))->assertOk()->assertJson(['result' => 'failed refund not recorded here; nothing changed']);
+
+    // Our refund id, but retrieved against another PaymentIntent of this site.
+    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001*' => Http::response(stripeFixture('refund', ['status' => 'failed', 'payment_intent' => ['id' => 'pi_3MoharIntentOther'], 'metadata' => ['mohar_origin' => 'admin', 'mohar_refund' => (string) $row->id]]))]);
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0016'))->assertOk()->assertJson(['result' => 'failed refund names another payment; nothing changed']);
+
+    expect(Transaction::toReview()->count())->toBe(0)->and($row->fresh()->status)->toBe(TransactionStatus::Succeeded);
+});
+
+test('a pending refund reported failed and then booked after all (the two deliveries raced) goes on Disputes to review', function () {
+    $payment = paidStripePayment();
+    [$state, $row] = ['pending', null];
+    stripeRefundAt($state, $row);
+    $row = app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
+
+    $state = 'failed';
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001'))->assertOk()->assertJson(['result' => 'refund failed at the provider; Check refund releases it']);
+    expect(Transaction::toReview()->count())->toBe(0);
+
+    // The "succeeded" delivery that fetched the refund first commits its settle after the failed one.
+    $state = 'succeeded';
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0017'))->assertOk()->assertJson(['result' => 'refund recorded']);
+
+    expect(Transaction::toReview()->sole())->id->toBe($row->id)->status->toBe(TransactionStatus::Succeeded)->review_amount->toBe(1_000);
+
+    $state = 'failed';
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0018'))->assertOk()->assertJson(['result' => 'duplicate']);
+});
+
+test('a booked credit refund that Stripe reports failed goes on Disputes to review, and an earlier review note is kept', function () {
+    $payment = paidStripePayment();
+    Http::fake([STRIPE_API.'refunds' => Http::response(stripeFixture('refund'))]);
+    $row = app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
+    $row->forceFill(['purpose' => Transaction::PURPOSE_CREDIT_REFUND, 'review_amount' => 200, 'description' => 'Part beyond the cap'])->save();
+    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001*' => Http::response(stripeFixture('refund', ['status' => 'failed', 'metadata' => ['mohar_origin' => 'admin', 'mohar_refund' => (string) $row->id]]))]);
+
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001'))->assertOk()
+        ->assertJson(['result' => 'refund failed at the provider after it was booked; put on Disputes to review']);
+
+    expect(Transaction::toReview()->sole())->id->toBe($row->id)->review_amount->toBe(1_000)
+        ->description->toBe('Part beyond the cap; Provider reports conflicting outcome: failed after it was booked');
+});
+
+test('a failed report that finds no row waits on the payment locks, and sees a refund another delivery booked meanwhile', function () {
+    $payment = paidStripePayment();
+    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001*' => Http::response(stripeFixture('refund', ['amount' => 2_500, 'status' => 'failed']))]);
+
+    // A "succeeded" delivery for this Dashboard refund holds the payment lock and commits once the failed one asks for it.
+    $booked = false;
+    DB::listen(function (QueryExecuted $query) use ($payment, &$booked) {
+        if (! $booked && str_contains($query->sql, 'from "transactions" where "id" in') && $query->bindings === [$payment->id]) {
+            $booked = true;
+            app(RefundTransaction::class)->handle($payment->fresh(), 2_500, RefundMode::RecordOnly, gatewayTxnId: 're_3MoharRefund0001', reason: 'Refunded at the gateway');
+        }
+    });
+
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001'))->assertOk()
+        ->assertJson(['result' => 'refund failed at the provider after it was booked; put on Disputes to review']);
+
+    expect($booked)->toBeTrue()->and(Transaction::toReview()->sole())->gateway_txn_id->toBe('re_3MoharRefund0001')->review_amount->toBe(2_500);
 });

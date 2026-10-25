@@ -314,6 +314,75 @@ class RefundTransaction
         });
     }
 
+    /** failedAtProvider() outcomes. */
+    public const FAILED_FLAGGED = 'flagged';
+
+    public const FAILED_PENDING = 'pending';
+
+    public const FAILED_RELEASED = 'released';
+
+    public const FAILED_DUPLICATE = 'duplicate';
+
+    /**
+     * The provider reports this refund as failed (#498): the money may never have left. Nothing is booked or reversed.
+     * Under the row lock: a refund booked as made goes on "Disputes to review" (flagFailedAtProvider()); a pending
+     * one is only marked, so that a booking that wins a race with this report still puts it on review, and Check
+     * refund releases it otherwise. `$reported` is the provider's amount in document currency (0 when unknown).
+     */
+    public function failedAtProvider(Transaction $refund, int $reported): string
+    {
+        return DB::transaction(function () use ($refund, $reported): string {
+            $locked = Transaction::query()->lockForUpdate()->find($refund->id);
+            $marked = isset($locked?->raw[Transaction::REFUND_STATE][Transaction::PROVIDER_FAILED_AT]);
+
+            if ($locked === null || $locked->status === TransactionStatus::Failed) {
+                return self::FAILED_RELEASED;
+            }
+
+            if ($locked->status === TransactionStatus::Pending) {
+                if (! $marked) {
+                    $raw = $locked->raw ?? [];
+                    $raw[Transaction::REFUND_STATE][Transaction::PROVIDER_FAILED_AT] = now()->toIso8601String();
+                    $raw[Transaction::REFUND_STATE][Transaction::PROVIDER_FAILED_AMOUNT] = $reported;
+                    $locked->forceFill(['raw' => $raw])->save();
+                }
+
+                return self::FAILED_PENDING;
+            }
+
+            // A booked row carrying the mark was flagged when it was marked or booked: once per row, so a replay after
+            // staff marked it reviewed does not reopen it.
+            if ($marked) {
+                return self::FAILED_DUPLICATE;
+            }
+
+            $this->flagFailedAtProvider($locked, $reported);
+
+            return self::FAILED_FLAGGED;
+        });
+    }
+
+    /**
+     * Put a booked refund the provider reported as failed on "Disputes to review" for at least what was booked, reopened
+     * if staff had reviewed it for another reason. An earlier review note is kept. Called with the row locked; saves it.
+     */
+    public function flagFailedAtProvider(Transaction $locked, int $reported): void
+    {
+        $raw = $locked->raw ?? [];
+        $state = $raw[Transaction::REFUND_STATE] ?? [];
+        $reported = max($reported, (int) ($state[Transaction::PROVIDER_FAILED_AMOUNT] ?? 0));
+        $state[Transaction::PROVIDER_FAILED_AT] ??= now()->toIso8601String();
+        $raw[Transaction::REFUND_STATE] = $state;
+        $note = (string) __('Provider reports conflicting outcome: failed after it was booked');
+
+        $locked->forceFill([
+            'review_amount' => max($locked->review_amount ?? 0, $locked->amount_out, $reported),
+            'reviewed_at' => null,
+            'description' => mb_substr($locked->review_amount !== null && (string) $locked->description !== '' ? $locked->description.'; '.$note : $note, 0, 255),
+            'raw' => $raw,
+        ])->save();
+    }
+
     /** Called with the pending row locked. */
     private function releaseLocked(Transaction $refund): bool
     {
@@ -385,6 +454,22 @@ class RefundTransaction
      * never books a refund the callback already settled; it reads its reverse-effects choice from the row.
      */
     private function finalise(Transaction $refund, Transaction $payment, int $amount, RefundMode $mode, bool $reverseEffects, ?int $userId, ?ChargeResult $result): Transaction
+    {
+        return DB::transaction(function () use ($refund, $payment, $amount, $mode, $reverseEffects, $userId, $result): Transaction {
+            $marked = $mode === RefundMode::Gateway && isset(Transaction::query()->lockForUpdate()->find($refund->id)?->raw[Transaction::REFUND_STATE][Transaction::PROVIDER_FAILED_AT]);
+            $booked = $this->book($refund, $payment, $amount, $mode, $reverseEffects, $userId, $result);
+
+            // The provider reported it failed while it was pending (failedAtProvider()): booked anyway, it goes to review.
+            if ($marked && $booked->id === $refund->id && $booked->status === TransactionStatus::Succeeded && $booked->wasChanged('status')) {
+                $this->flagFailedAtProvider($booked, 0);
+            }
+
+            return $booked;
+        });
+    }
+
+    /** finalise() without the failed-report check; inside its transaction. */
+    private function book(Transaction $refund, Transaction $payment, int $amount, RefundMode $mode, bool $reverseEffects, ?int $userId, ?ChargeResult $result): Transaction
     {
         return DB::transaction(function () use ($refund, $payment, $amount, $mode, $reverseEffects, $userId, $result): Transaction {
             if ($mode === RefundMode::Gateway) {
