@@ -50,6 +50,7 @@ use App\Modules\Domains\Services\DomainRegistryService;
 use App\Modules\Domains\Services\EloquentRegistrarRefs;
 use App\Modules\Domains\Services\RenewalInvoices;
 use App\Modules\Domains\Services\TldAttributeService;
+use App\Modules\Domains\Support\DomainsAdminClientSummary;
 use App\Modules\Domains\Support\RegistryLevels;
 use App\Support\Automation\Automation;
 use App\Support\CalendarDate;
@@ -233,6 +234,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
     private function registerDashboardCards(): void
     {
         $dashboard = $this->app->make(Dashboard::class);
+        $this->app->make(DomainsAdminClientSummary::class)->register($dashboard);
 
         $dashboard->card('admin', 'domains.expiring', fn (?User $user): array => [
             'label' => 'Domains expiring in 30 days',

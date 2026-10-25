@@ -99,6 +99,9 @@ class Invoice extends Model
     /** @use HasFactory<InvoiceFactory> */
     use HasFactory;
 
+    /** Statuses whose balance is still owed (with balance > 0); see scopeOutstanding(). */
+    public const OUTSTANDING_STATUSES = [InvoiceStatus::Unpaid->value, InvoiceStatus::Collections->value, InvoiceStatus::PaymentPending->value];
+
     /** Columns frozen once an invoice has been issued (§2: issued invoices are immutable). */
     private const FROZEN = ['client_id', 'currency', 'subtotal', 'discount_total', 'tax1_name', 'tax1_rate', 'tax1_amount',
         'tax2_name', 'tax2_rate', 'tax2_amount', 'tax_compound', 'tax_inclusive', 'total'];
@@ -299,13 +302,29 @@ class Invoice extends Model
     }
 
     /**
-     * Filter by display status, including the derived "overdue".
+     * Still owed: unpaid, in collections or awaiting a payment confirmation, with a balance left.
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeOutstanding(Builder $query): void
+    {
+        $query->whereIn('status', self::OUTSTANDING_STATUSES)->where('balance', '>', 0);
+    }
+
+    /**
+     * Filter by display status, including the derived "overdue" and "outstanding".
      *
      * @param  Builder<self>  $query
      */
     public function scopeDisplayStatus(Builder $query, ?string $status): void
     {
         if ($status === null || $status === '') {
+            return;
+        }
+
+        if ($status === 'outstanding') {
+            $query->outstanding();
+
             return;
         }
 
