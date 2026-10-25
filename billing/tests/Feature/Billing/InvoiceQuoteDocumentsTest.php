@@ -39,13 +39,13 @@ beforeEach(function () {
 
 afterEach(fn () => CarbonImmutable::setTestNow());
 
-function nepalClient(): Client
+function pdfEmailClient(): Client
 {
     return Client::factory()->create(['country' => 'NP', 'currency' => 'NPR', 'tax_id' => '301234567', 'company_name' => 'Everest Traders']);
 }
 
 test('a new invoice email carries the invoice PDF and says so', function () {
-    $invoice = issueInvoice(nepalClient(), [1_000_000]);
+    $invoice = issueInvoice(pdfEmailClient(), [1_000_000]);
     $message = EmailMessage::query()->where('template_key', 'invoice.created')->where('related_id', $invoice->id)->sole();
 
     Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => $mail->subjectLine === $message->subject
@@ -55,7 +55,7 @@ test('a new invoice email carries the invoice PDF and says so', function () {
 });
 
 test('the receipt carries the invoice as it stands after payment: a tax invoice', function () {
-    $invoice = issueInvoice(nepalClient(), [1_000_000]);
+    $invoice = issueInvoice(pdfEmailClient(), [1_000_000]);
     payInvoice($invoice, 1_130_000);
 
     $file = app(BillingDocuments::class)->document(BillingDocuments::INVOICE, $invoice->id);
@@ -67,7 +67,7 @@ test('the receipt carries the invoice as it stands after payment: a tax invoice'
 });
 
 test('an invoice PDF is rendered in the message locale and cached per locale', function () {
-    $invoice = issueInvoice(nepalClient(), [1_000_000]);
+    $invoice = issueInvoice(pdfEmailClient(), [1_000_000]);
 
     $file = app(BillingDocuments::class)->document(BillingDocuments::INVOICE, $invoice->id, 'ne');
 
@@ -77,7 +77,7 @@ test('an invoice PDF is rendered in the message locale and cached per locale', f
 });
 
 test('a draft invoice and an unknown invoice have no document', function () {
-    $draft = issueInvoice(nepalClient(), [1_000_000], status: 'draft');
+    $draft = issueInvoice(pdfEmailClient(), [1_000_000], status: 'draft');
 
     expect(app(BillingDocuments::class)->document(BillingDocuments::INVOICE, $draft->id))->toBeNull()
         ->and(app(BillingDocuments::class)->document(BillingDocuments::INVOICE, 999_999))->toBeNull();
@@ -85,7 +85,7 @@ test('a draft invoice and an unknown invoice have no document', function () {
 
 test('with attachments off the invoice and quote emails have no PDF and do not say so', function () {
     billingSettings(['pdf.attach_to_emails' => false]);
-    $client = nepalClient();
+    $client = pdfEmailClient();
     issueInvoice($client, [1_000_000]);
     $quote = app(Quotes::class)->save(['client_id' => $client->id, 'subject' => 'Migration', 'items' => [['description' => 'Setup', 'quantity' => 1, 'unit_amount' => 500_000, 'taxable' => true]]]);
     app(Quotes::class)->deliver($quote);
@@ -96,7 +96,7 @@ test('with attachments off the invoice and quote emails have no PDF and do not s
 });
 
 test('a delivered quote is emailed with its PDF; a draft has none', function () {
-    $client = nepalClient();
+    $client = pdfEmailClient();
     $quote = app(Quotes::class)->save(['client_id' => $client->id, 'subject' => 'Migration', 'items' => [['description' => 'Setup', 'quantity' => 2, 'unit_amount' => 500_000, 'taxable' => true]]]);
 
     expect(app(BillingDocuments::class)->document(BillingDocuments::QUOTE, $quote->id))->toBeNull();
@@ -110,7 +110,7 @@ test('a delivered quote is emailed with its PDF; a draft has none', function () 
 });
 
 test('an edited quote gets a new PDF and the old file is removed', function () {
-    $quote = app(Quotes::class)->save(['client_id' => nepalClient()->id, 'subject' => 'Migration', 'items' => [['description' => 'Setup', 'quantity' => 1, 'unit_amount' => 500_000, 'taxable' => false]]]);
+    $quote = app(Quotes::class)->save(['client_id' => pdfEmailClient()->id, 'subject' => 'Migration', 'items' => [['description' => 'Setup', 'quantity' => 1, 'unit_amount' => 500_000, 'taxable' => false]]]);
     $quote = app(Quotes::class)->deliver($quote);
     $first = app(BillingDocuments::class)->document(BillingDocuments::QUOTE, $quote->id);
 
@@ -124,7 +124,7 @@ test('an edited quote gets a new PDF and the old file is removed', function () {
 });
 
 test('a resend of the invoice email attaches the document again', function () {
-    $invoice = issueInvoice(nepalClient(), [1_000_000]);
+    $invoice = issueInvoice(pdfEmailClient(), [1_000_000]);
     $original = EmailMessage::query()->where('template_key', 'invoice.created')->sole();
     Mail::fake();
     $original->update(['status' => EmailStatus::Queued]);
@@ -136,7 +136,7 @@ test('a resend of the invoice email attaches the document again', function () {
 
 test('a document over the size cap is left off and the text does not claim it', function () {
     config(['notifications.attachment_max_bytes' => 10]);
-    $invoice = issueInvoice(nepalClient(), [1_000_000]);
+    $invoice = issueInvoice(pdfEmailClient(), [1_000_000]);
     app(BillingDocuments::class)->document(BillingDocuments::INVOICE, $invoice->id);
     $message = EmailMessage::query()->where('template_key', 'invoice.created')->sole();
     $message->update(['status' => EmailStatus::Queued]);
@@ -148,7 +148,7 @@ test('a document over the size cap is left off and the text does not claim it', 
 });
 
 test('a converted quote line keeps its quantity, price and discount note when the item text is long', function () {
-    $client = nepalClient();
+    $client = pdfEmailClient();
     $quotes = app(Quotes::class);
     $long = str_repeat('Managed hosting migration ', 20);
     $quote = $quotes->save(['client_id' => $client->id, 'subject' => 'Migration', 'items' => [

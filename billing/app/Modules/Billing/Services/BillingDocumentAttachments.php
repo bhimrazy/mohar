@@ -41,17 +41,16 @@ class BillingDocumentAttachments implements BillingDocuments
      * `quote.pdf_attached`): attachments are on, the record has a document, and the PDF in `$locale` is within
      * Notifications' size cap. A PDF not rendered yet counts as within it.
      */
-    public function attaches(string $type, int $id, ?string $locale = null): bool
+    public function attaches(Invoice|Quote|TaxNote $record, ?string $locale = null): bool
     {
         if (! $this->settings->bool('pdf.attach_to_emails')) {
             return false;
         }
 
-        $path = match ($type) {
-            self::TAX_NOTE => ($note = TaxNote::query()->find($id)) === null ? null : $this->notePdf->path($note, $locale),
-            self::INVOICE => ($invoice = $this->issuedInvoice($id)) === null ? null : $this->invoicePdf->path($invoice, $locale),
-            self::QUOTE => $this->sentQuote($id) === null ? null : '',
-            default => null,
+        $path = match (true) {
+            $record instanceof TaxNote => $this->notePdf->path($record, $locale),
+            $record instanceof Invoice => $record->status === InvoiceStatus::Draft ? null : $this->invoicePdf->path($record, $locale),
+            default => $record->stage === QuoteStage::Draft ? null : '',
         };
 
         if ($path === null) {

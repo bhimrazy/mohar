@@ -558,11 +558,11 @@ class BillingServiceProvider extends ModuleServiceProvider
     }
 
     /**
-     * @return array{client_id: int|null, pdf_attached: bool}
+     * @return array{client_id: int, pdf_attached: bool}
      */
-    private function documentMail(string $type, Invoice|Quote $record): array
+    private function documentMail(Invoice|Quote $record): array
     {
-        return ['client_id' => $record->client_id, 'pdf_attached' => app(BillingDocumentAttachments::class)->attaches($type, $record->id, $record->client->language ?: null)];
+        return ['client_id' => $record->client_id, 'pdf_attached' => app(BillingDocumentAttachments::class)->attaches($record, $record->getAttribute('language') ?: null)];
     }
 
     private function registerMergeFields(): void
@@ -581,10 +581,11 @@ class BillingServiceProvider extends ModuleServiceProvider
         $registry->register('tax_note_mail', function (int $id): array {
             $note = TaxNote::query()->with('client:id,language')->findOrFail($id);
 
-            return ['client_id' => $note->client_id, 'pdf_attached' => app(BillingDocumentAttachments::class)->attaches(BillingDocuments::TAX_NOTE, $note->id, $note->client->language ?: null)];
+            return ['client_id' => $note->client_id, 'pdf_attached' => app(BillingDocumentAttachments::class)->attaches($note, $note->client->language ?: null)];
         });
-        $registry->register('invoice_mail', fn (int $id): array => $this->documentMail(BillingDocuments::INVOICE, Invoice::query()->with('client:id,language')->findOrFail($id)));
-        $registry->register('quote_mail', fn (int $id): array => $this->documentMail(BillingDocuments::QUOTE, Quote::query()->with('client:id,language')->findOrFail($id)));
+        // One query each: only the columns the check reads, and the client's language (the language of the message).
+        $registry->register('invoice_mail', fn (int $id): array => $this->documentMail(Invoice::query()->select(['id', 'client_id', 'status', 'version'])->addSelect(['language' => Client::query()->select('language')->whereColumn('clients.id', 'invoices.client_id')])->findOrFail($id)));
+        $registry->register('quote_mail', fn (int $id): array => $this->documentMail(Quote::query()->select(['id', 'client_id', 'stage'])->addSelect(['language' => Client::query()->select('language')->whereColumn('clients.id', 'quotes.client_id')])->findOrFail($id)));
 
         $registry->register('quote', function (int $id): array {
             $quote = Quote::query()->findOrFail($id);
