@@ -29,7 +29,7 @@ const REMOVED_SPI = [
  *
  * @return array<string, string>
  */
-function appSources(string $directory = ''): array
+function removedSpiSources(string $directory = ''): array
 {
     $root = dirname(__DIR__, 2).'/app'.($directory === '' ? '' : '/'.$directory);
     $sources = [];
@@ -44,7 +44,7 @@ function appSources(string $directory = ''): array
 }
 
 /** Whether the source names the class: in full, or as a namespace segment followed by `\`, `;`, `:` or a non-name character. */
-function namesClass(string $source, string $class): bool
+function sourceNamesClass(string $source, string $class): bool
 {
     return preg_match('/(?<![\w\\\\])\\\\?'.preg_quote($class, '/').'(?![\w])/', $source) === 1;
 }
@@ -52,9 +52,9 @@ function namesClass(string $source, string $class): bool
 test('nothing uses the removed module-internal provisioning and registrar SPIs (ADR 0009)', function () {
     $uses = [];
 
-    foreach (appSources() as $path => $source) {
+    foreach (removedSpiSources() as $path => $source) {
         foreach (REMOVED_SPI as $class) {
-            if (namesClass($source, $class)) {
+            if (sourceNamesClass($source, $class)) {
                 $uses[] = basename($path).' names '.$class;
             }
         }
@@ -66,8 +66,8 @@ test('nothing uses the removed module-internal provisioning and registrar SPIs (
 test('no module extends the kernel driver registry (ADR 0012)', function () {
     $extending = [];
 
-    foreach (appSources('Modules') as $path => $source) {
-        $imported = namesClass($source, 'App\Support\Integrations\DriverRegistry');
+    foreach (removedSpiSources('Modules') as $path => $source) {
+        $imported = sourceNamesClass($source, 'App\Support\Integrations\DriverRegistry');
 
         if (preg_match('/\bextends\s+\\\\?App\\\\Support\\\\Integrations\\\\DriverRegistry\b/', $source) === 1
             || ($imported && preg_match('/\bextends\s+DriverRegistry\b/', $source) === 1)) {
@@ -79,9 +79,9 @@ test('no module extends the kernel driver registry (ADR 0012)', function () {
 });
 
 test('the scans catch a use of a removed class and an extended registry', function () {
-    expect(namesClass("use App\\Modules\\Services\\Support\\Redactor;\n", 'App\Modules\Services\Support\Redactor'))->toBeTrue()
-        ->and(namesClass('throw new \App\Modules\Domains\Exceptions\RegistrarTimeout();', 'App\Modules\Domains\Exceptions\RegistrarTimeout'))->toBeTrue()
-        ->and(namesClass('use App\Modules\Services\Support\RedactorRules;', 'App\Modules\Services\Support\Redactor'))->toBeFalse()
-        ->and(namesClass('use App\Modules\Domains\Drivers\Registrars\RegistrarFactory;', 'App\Modules\Domains\Drivers\Registrars\Registrar'))->toBeFalse()
-        ->and(appSources('Modules'))->not->toBe([]);
+    expect(sourceNamesClass("use App\\Modules\\Services\\Support\\Redactor;\n", 'App\Modules\Services\Support\Redactor'))->toBeTrue()
+        ->and(sourceNamesClass('throw new \App\Modules\Domains\Exceptions\RegistrarTimeout();', 'App\Modules\Domains\Exceptions\RegistrarTimeout'))->toBeTrue()
+        ->and(sourceNamesClass('use App\Modules\Services\Support\RedactorRules;', 'App\Modules\Services\Support\Redactor'))->toBeFalse()
+        ->and(sourceNamesClass('use App\Modules\Domains\Drivers\Registrars\RegistrarFactory;', 'App\Modules\Domains\Drivers\Registrars\Registrar'))->toBeFalse()
+        ->and(removedSpiSources('Modules'))->not->toBe([]);
 });
