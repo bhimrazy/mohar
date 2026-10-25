@@ -210,18 +210,21 @@ test('a system role left without a key is adopted when its permissions match a m
     app(ReferenceDataInstaller::class)->install();
     // A Billing role renamed before the roles.key backfill (#60): the install then created a keyed "Billing" beside it.
     Role::query()->where('key', 'billing')->delete();
-    $renamed = Role::query()->forceCreate(['name' => 'Accounts', 'permissions' => SystemRoles::permissions('billing'), 'is_system' => true]);
+    // The migration matches the built-in permissions of its own day, which later releases may extend.
+    $migration = require base_path('app/Modules/Core/Database/Migrations/2026_10_24_000110_key_orphaned_system_roles.php');
+    $renamed = Role::query()->forceCreate(['name' => 'Accounts', 'permissions' => (new ReflectionClassConstant($migration, 'PERMISSIONS'))->getValue()['billing'], 'is_system' => true]);
     $edited = Role::query()->forceCreate(['name' => 'Old helpdesk', 'permissions' => ['support.*'], 'is_system' => true]);
     $member = User::factory()->create(['is_staff' => true, 'role_id' => $edited->id]);
 
-    (require base_path('app/Modules/Core/Database/Migrations/2026_10_24_000110_key_orphaned_system_roles.php'))->up();
+    $migration->up();
 
     expect($renamed->refresh()->only(['key', 'name', 'is_system']))->toBe(['key' => 'billing', 'name' => 'Accounts', 'is_system' => true])
         ->and($edited->refresh()->only(['key', 'is_system', 'permissions']))->toBe(['key' => null, 'is_system' => false, 'permissions' => ['support.*']])
         ->and($member->refresh()->role_id)->toBe($edited->id);
 
     $results = app(ReferenceDataInstaller::class)->install();
-    expect($results['core_roles']['result'])->toEqual(new ReferenceDataResult(unchanged: 4))
+    expect($results['core_roles']['result'])->toEqual(new ReferenceDataResult(updated: 1, unchanged: 3))
+        ->and($renamed->refresh()->permissions)->toBe(SystemRoles::permissions('billing'))
         ->and(Role::query()->whereNull('key')->where('is_system', true)->count())->toBe(0);
 });
 

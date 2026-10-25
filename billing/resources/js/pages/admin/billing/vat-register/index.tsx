@@ -1,5 +1,5 @@
-import { Link, router } from '@inertiajs/react';
-import { AlertTriangle, BookOpen, Download } from 'lucide-react';
+import { Link, router, usePage } from '@inertiajs/react';
+import { AlertTriangle, BookOpen, ChevronDown, Download } from 'lucide-react';
 import { useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { DataTable } from '@/components/app/data-table';
@@ -19,7 +19,13 @@ import { SelectField } from '@/components/app/select-field';
 import { StatCard } from '@/components/app/stat-card';
 import { StepUpDownloadLink } from '@/components/app/step-up-download-link';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import {
     Tooltip,
@@ -81,6 +87,8 @@ type Props = {
         offSince: string | null;
     };
     can: { export: boolean };
+    /** The exports offered: empty without the export permission. */
+    exports: { label: string; format: 'csv' | 'pdf'; layout: string }[];
 };
 
 const TAB_LABELS: Record<Tab, string> = {
@@ -203,8 +211,11 @@ export default function VatRegister({
     options,
     documents,
     warnings,
-    can,
+    exports,
 }: Props) {
+    // An export refused by the server (over the row limit) comes back here as a validation error.
+    const exportError = usePage<{ errors: Record<string, string> }>().props
+        .errors?.export;
     // After a refused period the page shows the default month; the picker keeps what was asked for, beside its error.
     const asked = { ...filters, ...submitted };
     const [kind, setKind] = useState<Kind>(
@@ -238,7 +249,6 @@ export default function VatRegister({
         );
     };
 
-    const exportUrl = exportMethod.url({ query: { tab, ...filters } });
     const net = totals.at(-1);
     const monthRows = totals.slice(0, period.months);
     const kindRows = totals.slice(period.months);
@@ -423,23 +433,44 @@ export default function VatRegister({
                     title="VAT register"
                     description="Tax invoices, credit notes and debit notes by Nepali tax period, from the amounts stored when each document was numbered."
                     actions={
-                        can.export ? (
-                            <StepUpDownloadLink
-                                href={exportUrl}
-                                className={buttonVariants({
-                                    variant: 'outline',
-                                })}
-                            >
-                                <Download />
-                                Export CSV
-                            </StepUpDownloadLink>
+                        exports.length > 0 ? (
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="outline">
+                                        <Download />
+                                        Export
+                                        <ChevronDown />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    {exports.map((option) => (
+                                        <DropdownMenuItem
+                                            key={`${option.format}-${option.layout}`}
+                                            asChild
+                                        >
+                                            <StepUpDownloadLink
+                                                href={exportMethod.url({
+                                                    query: {
+                                                        tab,
+                                                        ...filters,
+                                                        format: option.format,
+                                                        layout: option.layout,
+                                                    },
+                                                })}
+                                            >
+                                                {option.label}
+                                            </StepUpDownloadLink>
+                                        </DropdownMenuItem>
+                                    ))}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
                         ) : (
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <span tabIndex={0}>
                                         <Button variant="outline" disabled>
                                             <Download />
-                                            Export CSV
+                                            Export
                                         </Button>
                                     </span>
                                 </TooltipTrigger>
@@ -451,6 +482,13 @@ export default function VatRegister({
                         )
                     }
                 />
+
+                {exportError && (
+                    <Alert variant="destructive">
+                        <AlertTriangle />
+                        <AlertDescription>{exportError}</AlertDescription>
+                    </Alert>
+                )}
 
                 {tabs.length > 1 && (
                     <nav aria-label="Registers" className="flex gap-1 border-b">

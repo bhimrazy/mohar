@@ -14,6 +14,7 @@ use App\Modules\Billing\Reports\RegisterPeriod;
 use App\Modules\Billing\Reports\RegisterSummary;
 use App\Modules\Billing\Services\TaxNoteIssuer;
 use App\Modules\Billing\Support\BikramSambat;
+use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
@@ -24,6 +25,8 @@ use App\Support\Reports\ReportRegistry;
 use App\Support\Reports\ReportViewer;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\View;
 use Illuminate\Validation\ValidationException;
 use Inertia\Testing\AssertableInertia;
 use Tests\Support\Reports\ReportConformance;
@@ -31,7 +34,7 @@ use Tests\Support\Reports\ReportConformance;
 require_once __DIR__.'/helpers.php';
 
 /*
-| The VAT sales register and the note register (VAT PR 6; vat-register §6, AC 37–43): NPR, VAT 13%, Nepal time.
+| The VAT sales register and the note register (VAT PRs 6 and 7; vat-register §6, §7, AC 37–47): NPR, VAT 13%, Nepal time.
 | Kartik 2083 BS runs from 2026-10-18 to 2026-11-16 AD; Mangsir 2083 starts on 2026-11-17.
 */
 
@@ -466,4 +469,132 @@ test('both registers are registered with a sensitive export', function () {
     expect($registry->keys())->toContain('vat_register', 'tax_note_register')
         ->and(app(PermissionRegistry::class)->isSensitive('reports.vat_register.export'))->toBeTrue()
         ->and(app(PermissionRegistry::class)->isSensitive('reports.tax_note_register.export'))->toBeTrue();
+});
+
+/*
+| Layouts and exports (VAT PR 7; vat-register §7, AC 44, 46, 47).
+*/
+
+/** @return list<list<string>> the CSV's rows, BOM removed */
+function registerCsv(string $csv): array
+{
+    $lines = preg_split('/\r?\n/', rtrim(substr($csv, strlen("\u{FEFF}")), "\r\n")) ?: [];
+
+    return array_map(fn (string $line): array => str_getcsv($line, ',', '"', ''), $lines);
+}
+
+function registerExportUrl(array $query = []): string
+{
+    return route('admin.billing.vat-register.export', ['month' => '2083-07', ...$query]);
+}
+
+test('the IRD-layout CSV has the header rows, then the template columns in order with their Nepali headings, then ours (AC 44)', function () {
+    ['a' => $a] = kartikRegisterFixture();
+    CarbonImmutable::setTestNow('2026-11-20 06:00:00');
+    actingAsStaff(['reports.vat_register.export']);
+    confirmPassword();
+
+    $response = $this->get(registerExportUrl(['layout' => 'ird']))->assertOk();
+    $rows = registerCsv($response->streamedContent());
+
+    expect(array_slice($rows, 0, 4))->toBe([
+        ['Seller PAN', '609876543'],
+        ['Seller name', 'Himal Hosting Pvt. Ltd.'],
+        ['Fiscal year (BS)', '2083/84'],
+        ['Tax period', 'Kartik 2083 (month 7)'],
+    ])->and($rows[4])->toBe([
+        'मिति', 'बीजक नम्बर', 'खरिदकर्ताको नाम', 'खरिदकर्ताको स्थायी लेखा नम्बर', 'वस्तु वा सेवाको नाम',
+        'वस्तु वा सेवाको परिमाण', 'वस्तु वा सेवाको परिमाण मापन गर्ने इकाइ', 'जम्मा बिक्री / निकासी (रु)',
+        'स्थानीय कर छुटको बिक्री मूल्य (रु)', 'करयोग्य बिक्री मूल्य (रु)', 'करयोग्य बिक्री कर (रु)',
+        'निकासी गरेको वस्तु वा सेवाको मूल्य (रु)', 'निकासी गरेको देश', 'निकासी प्रज्ञापनपत्र नम्बर', 'निकासी प्रज्ञापनपत्र मिति',
+        'Date (AD)', 'Document', 'Reference invoice', 'Reference date (BS)', 'Document currency', 'Document amount', 'Rate',
+    ])->and($rows[5])->toBe(['2083-07-03', $a->number, 'Everest Treks Pvt. Ltd.', '301234567', 'Web hosting + 1 more', '2', 'service', '150.00', '0.00', '150.00', '19.50', '0.00', '', '', '', '2026-10-20', 'Tax invoice', '', '', '', '', ''])
+        ->and($rows[7])->toBe(['2083-07-10', 'CN-1', 'Everest Treks Pvt. Ltd.', '301234567', 'Web hosting + 1 more', '2', 'service', '-10.00', '0.00', '-10.00', '-1.30', '0.00', '', '', '', '2026-10-27', 'Credit note', $a->number, '2083-07-03', '', '', ''])
+        ->and(array_column(array_slice($rows, 9), 0))->toBe(['Tax invoices', 'Credit notes', 'Debit notes', 'Net'])
+        ->and($response->headers->get('Content-Disposition'))->toContain('vat-register-ird-2083-07-kartik.csv')
+        ->and(ActivityLog::query()->where('event', 'report.exported')->sole()->properties)->toMatchArray(['layout' => 'ird', 'format' => 'csv', 'rows' => 4]);
+});
+
+test('the PDF prints the summary columns, which fit A4 landscape, with the header block and totals, for both registers', function (string $tab, string $key, array $columns, string $label) {
+    kartikRegisterFixture();
+    CarbonImmutable::setTestNow('2026-11-20 06:00:00');
+    actingAsStaff(["reports.{$key}.export"]);
+    confirmPassword();
+    $data = [];
+    View::composer('reports.pdf', function ($view) use (&$data) {
+        $data = $view->getData();
+    });
+
+    $response = $this->get(registerExportUrl(['tab' => $tab, 'format' => 'pdf', 'layout' => 'ird']))->assertOk();
+
+    expect($response->headers->get('Content-Type'))->toBe('application/pdf')
+        ->and($response->streamedContent())->toStartWith('%PDF')
+        ->and($response->headers->get('Content-Disposition'))->toContain(str_replace('_', '-', $key).'-2083-07-kartik.pdf')
+        ->and(array_map(fn ($column) => $column->key, $data['columns']))->toBe($columns)
+        ->and(array_sum(array_map('floatval', $data['widths'])))->toBeLessThanOrEqual(100.0)
+        ->and($data['header'][0])->toBe(['Seller PAN', '609876543'])
+        ->and(array_column($data['totals'], $columns[0]))->toContain($label, 'Net')
+        // A PDF is the summary whatever layout was asked for.
+        ->and(ActivityLog::query()->where('event', 'report.exported')->sole()->properties)->toMatchArray(['layout' => 'summary', 'format' => 'pdf']);
+})->with([
+    'VAT register' => ['register', 'vat_register', ['bs_date', 'number', 'type', 'buyer', 'pan', 'total_sales', 'exempt', 'taxable', 'vat', 'export_value'], 'Tax invoices'],
+    'note register' => ['notes', 'tax_note_register', ['number', 'bs_date', 'type', 'invoice', 'buyer', 'pan', 'taxable', 'exempt', 'vat', 'total'], 'Credit notes'],
+]);
+
+test('the register offers CSV (detail), CSV (IRD sales book) and PDF; the note register has no IRD layout (AC 47)', function () {
+    kartikRegisterFixture();
+    actingAsStaff(['reports.vat_register.view', 'reports.vat_register.export', 'reports.tax_note_register.view', 'reports.tax_note_register.export']);
+
+    $this->get(route('admin.billing.vat-register.index'))->assertInertia(fn (AssertableInertia $page) => $page->where('exports', [
+        ['label' => 'CSV (detail)', 'format' => 'csv', 'layout' => 'detail'],
+        ['label' => 'CSV (IRD sales book)', 'format' => 'csv', 'layout' => 'ird'],
+        ['label' => 'PDF', 'format' => 'pdf', 'layout' => 'summary'],
+    ]));
+    $this->get(route('admin.billing.vat-register.index', ['tab' => 'notes']))->assertInertia(fn (AssertableInertia $page) => $page->where('exports', [
+        ['label' => 'CSV (detail)', 'format' => 'csv', 'layout' => 'detail'],
+        ['label' => 'PDF', 'format' => 'pdf', 'layout' => 'summary'],
+    ]));
+
+    confirmPassword();
+    $this->getJson(registerExportUrl(['tab' => 'notes', 'layout' => 'ird']))->assertUnprocessable()->assertJsonValidationErrors('export');
+    $this->getJson(registerExportUrl(['format' => 'xlsx']))->assertUnprocessable()->assertJsonValidationErrors('export');
+    $this->getJson(registerExportUrl(['format' => ['csv']]))->assertUnprocessable()->assertJsonValidationErrors('export');
+    expect(ActivityLog::query()->where('event', 'report.exported')->count())->toBe(0);
+});
+
+test('without the export permission no export is offered and every format is refused; with it each asks for a recent password (AC 46)', function () {
+    kartikRegisterFixture();
+    $formats = [['layout' => 'detail'], ['layout' => 'ird'], ['format' => 'pdf']];
+
+    actingAsStaff(['reports.vat_register.view']);
+    confirmPassword();
+    $this->get(route('admin.billing.vat-register.index'))->assertInertia(fn (AssertableInertia $page) => $page->where('exports', []));
+
+    foreach ($formats as $query) {
+        $this->get(registerExportUrl($query))->assertForbidden();
+    }
+    $this->flushSession();
+
+    actingAsStaff(['reports.vat_register.export']);
+
+    foreach ($formats as $query) {
+        $this->getJson(registerExportUrl($query))->assertStatus(423);
+    }
+
+    expect(ActivityLog::query()->where('event', 'report.exported')->count())->toBe(0);
+});
+
+test('the seeded Billing role may export both registers; the wildcard alone does not grant it (vat-register §8.1)', function () {
+    expect(SystemRoles::permissions('billing'))->toContain('reports.*', 'reports.vat_register.export', 'reports.tax_note_register.export')
+        ->and(SystemRoles::permissions('support'))->not->toContain('reports.vat_register.export');
+});
+
+test('issuing a tax invoice and a note sends nothing to CBMS and leaves its status empty (AC 47, D5)', function () {
+    Http::fake();
+
+    kartikRegisterFixture();
+
+    Http::assertNothingSent();
+    expect(TaxNote::query()->count())->toBe(3)
+        ->and(TaxNote::query()->whereNotNull('cbms_status')->orWhereNotNull('cbms_reference')->exists())->toBeFalse();
 });

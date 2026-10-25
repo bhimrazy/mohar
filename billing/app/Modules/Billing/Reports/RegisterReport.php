@@ -6,6 +6,7 @@ use App\Contracts\Core\CompanyClock;
 use App\Contracts\Reports\HasSensitiveExport;
 use App\Contracts\Reports\ProvidesCsvOptions;
 use App\Contracts\Reports\ProvidesHeaderBlock;
+use App\Contracts\Reports\ProvidesLayouts;
 use App\Contracts\Reports\ProvidesTotals;
 use App\Contracts\Reports\Report;
 use App\Data\Reports\ReportColumn;
@@ -17,10 +18,14 @@ use Carbon\CarbonImmutable;
 
 /**
  * What the VAT sales register and the credit and debit note register share (vat-register §6, §7): the period
- * filters, the header block, the stored documents and the totals. The export is sensitive (buyer PANs in bulk) and
- * the CSV starts with a BOM so Excel reads Nepali names.
+ * filters, the header block, the stored documents, the totals and the layouts. The export is sensitive (buyer PANs in
+ * bulk) and the CSV starts with a BOM so Excel reads Nepali names.
+ *
+ * Layouts: `detail` is every column (the default); `summary` is the few that fit an A4 landscape PDF, whose kernel
+ * table gives each text column at least 90px. The VAT register adds `ird`. Every layout's first column carries the
+ * totals rows' label.
  */
-abstract class RegisterReport implements HasSensitiveExport, ProvidesCsvOptions, ProvidesHeaderBlock, ProvidesTotals, Report
+abstract class RegisterReport implements HasSensitiveExport, ProvidesCsvOptions, ProvidesHeaderBlock, ProvidesLayouts, ProvidesTotals, Report
 {
     public function __construct(
         protected RegisterDocuments $documents,
@@ -38,6 +43,46 @@ abstract class RegisterReport implements HasSensitiveExport, ProvidesCsvOptions,
 
     /** The column that carries a totals row's label. */
     abstract protected function labelColumn(): string;
+
+    /**
+     * The keys of the `summary` layout, in order, starting with the label column.
+     *
+     * @return list<string>
+     */
+    abstract protected function summaryKeys(): array;
+
+    /**
+     * Layouts beyond `detail` and `summary`, by key.
+     *
+     * @return array<string, array{label: string, columns: list<ReportColumn>}>
+     */
+    protected function extraLayouts(): array
+    {
+        return [];
+    }
+
+    public function layouts(): array
+    {
+        return [
+            'detail' => __('Detail'),
+            ...array_map(fn (array $layout): string => $layout['label'], $this->extraLayouts()),
+            'summary' => __('Summary'),
+        ];
+    }
+
+    public function layoutColumns(string $layout, ReportQuery $query): array
+    {
+        $columns = $this->columns($query);
+
+        return match ($layout) {
+            'summary' => array_values(array_filter(array_map(
+                fn (string $key): ?ReportColumn => collect($columns)->first(fn (ReportColumn $column): bool => $column->key === $key),
+                $this->summaryKeys(),
+            ))),
+            'detail' => $columns,
+            default => $this->extraLayouts()[$layout]['columns'] ?? $columns,
+        };
+    }
 
     /**
      * The summed figures as this report's money columns show them.
