@@ -2,7 +2,7 @@
 
 namespace App\Modules\Billing\Http\Controllers\Admin;
 
-use App\Events\Billing\TaxNoteResent;
+use App\Events\Billing\TaxNoteResendRequested;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Billing\Support\TaxNoteList;
@@ -83,7 +83,7 @@ class TaxNoteListController extends Controller
     {
         $this->authorize('billing.tax_notes.resend');
 
-        event(new TaxNoteResent($taxNote->id, $taxNote->kind, $taxNote->invoice_id, $taxNote->client_id));
+        event(new TaxNoteResendRequested($taxNote->id, $taxNote->invoice_id, $taxNote->client_id));
         $activity->log(__('Resend of :kind :number requested', ['kind' => $taxNote->kindLabel(), 'number' => $taxNote->number]), $taxNote, $taxNote->client_id,
             ['number' => $taxNote->number], 'billing.tax_note.resend_requested');
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Resend of :number requested. The email log shows when it is sent.', ['number' => $taxNote->number])]);
