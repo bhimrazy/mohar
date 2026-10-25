@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Billing\GatewayDriver;
 use App\Contracts\Core\CompanyClock;
 use App\Data\Billing\GatewayConfig;
 use App\Data\Integrations\CertificateInfo;
@@ -18,7 +19,7 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Daily: warns staff before a certificate an active gateway uses expires (payments-gateways-expansion §9.2). Each
- * stage of billing.gateways.credential_warning_days (30, 7 and 1 days before by default), and the expiry itself,
+ * stage of billing.gateways.certificate_warning_days (30, 7 and 1 days before by default), and the expiry itself,
  * raises GatewayCredentialExpiring once per certificate; the stage reached is recorded beside the certificate's
  * metadata, so a missed day still warns once, and a new upload starts again. The work is one row per registered driver
  * that declares a certificate setting, each read by its unique key under a row lock.
@@ -40,7 +41,7 @@ class CheckGatewayCredentials
         $raised = 0;
 
         foreach ($this->gateways->drivers() as $key => $driver) {
-            $fields = array_filter(array_map(SettingField::fromArray(...), $driver->settingsFields()), fn (SettingField $field): bool => $field->type === FieldType::Certificate);
+            $fields = $this->certificateFields($driver);
 
             if ($fields !== []) {
                 $raised += DB::transaction(fn (): int => $this->checkGateway((string) $key, $fields, $today, $stages));
@@ -78,13 +79,9 @@ class CheckGatewayCredentials
         $soonest = null;
 
         foreach ($this->gateways->drivers() as $key => $driver) {
-            foreach ($driver->settingsFields() as $field) {
-                if (($field['type'] ?? null) !== FieldType::Certificate->value) {
-                    continue;
-                }
-
+            foreach ($this->certificateFields($driver) as $field) {
                 $gateway = Gateway::query()->where('key', $key)->where('is_active', true)->first();
-                $info = $gateway !== null ? $this->gateways->config($gateway)->certificate($field['key']) : null;
+                $info = $gateway !== null ? $this->gateways->config($gateway)->certificate($field->key) : null;
 
                 if ($gateway !== null && $info !== null && ($soonest === null || $info->notAfter->lt($soonest[1]->notAfter))) {
                     $soonest = [$gateway, $info];
@@ -121,13 +118,13 @@ class CheckGatewayCredentials
     }
 
     /**
-     * @param  array<int, SettingField>  $fields
+     * @param  list<SettingField>  $fields
      * @param  list<int>  $stages
      */
     private function checkGateway(string $key, array $fields, CalendarDate $today, array $stages): int
     {
         $gateway = Gateway::query()->where('key', $key)->where('is_active', true)->lockForUpdate()->first();
-        $config = $gateway?->config ?? [];
+        $config = $gateway->config ?? [];
         $events = [];
 
         foreach ($fields as $field) {
@@ -159,11 +156,19 @@ class CheckGatewayCredentials
     }
 
     /**
+     * @return list<SettingField>
+     */
+    private function certificateFields(GatewayDriver $driver): array
+    {
+        return array_values(array_filter(array_map(SettingField::fromArray(...), $driver->settingsFields()), fn (SettingField $field): bool => $field->type === FieldType::Certificate));
+    }
+
+    /**
      * @return list<int> warning days, descending: at most five, each 1 to 365
      */
     private function stages(): array
     {
-        $days = array_values(array_unique(array_filter($this->settings->intList('gateways.credential_warning_days'), fn (int $day): bool => $day >= 1 && $day <= 365)));
+        $days = array_values(array_unique(array_filter($this->settings->intList('gateways.certificate_warning_days'), fn (int $day): bool => $day >= 1 && $day <= 365)));
         rsort($days);
 
         return array_slice($days, 0, 5);

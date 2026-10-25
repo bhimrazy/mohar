@@ -296,8 +296,9 @@ export default function GatewayEdit({
                                         });
 
                                     if (field.type === 'certificate') {
-                                        const upload = form.data
-                                            .certificates[field.key] ?? {
+                                        const upload = form.data.certificates[
+                                            field.key
+                                        ] ?? {
                                             file: null,
                                             passphrase: '',
                                         };
@@ -426,7 +427,11 @@ export default function GatewayEdit({
                                     aria-label="Copy return address"
                                     onClick={() => copy(return_url)}
                                 >
-                                    {copied === return_url ? <Check /> : <Copy />}
+                                    {copied === return_url ? (
+                                        <Check />
+                                    ) : (
+                                        <Copy />
+                                    )}
                                 </Button>
                             </div>
                         </SectionCard>

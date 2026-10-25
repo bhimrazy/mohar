@@ -82,7 +82,7 @@ final readonly class CertificateBundle
     }
 
     /**
-     * "CN=…, O=…, C=…" from openssl_x509_parse()'s subject or issuer.
+     * "C=…, O=…, CN=…" (in the certificate's order) from openssl_x509_parse()'s subject or issuer.
      */
     private static function name(mixed $parts): string
     {
@@ -92,7 +92,7 @@ final readonly class CertificateBundle
 
         $pairs = [];
 
-        foreach (array_reverse($parts, true) as $attribute => $value) {
+        foreach ($parts as $attribute => $value) {
             foreach ((array) $value as $one) {
                 $pairs[] = $attribute.'='.(is_scalar($one) ? (string) $one : '');
             }

@@ -22,6 +22,14 @@ return new class extends Migration
 
     public function up(): void
     {
+        $this->resolveDuplicates();
+
+        // @compatible the pairs are resolved first, and the previous release stores provider session ids or random draws
+        OnlineIndex::create('payment_attempts', ['gateway', 'provider_ref'], self::NAME, unique: true);
+    }
+
+    public function resolveDuplicates(): void
+    {
         $pairs = DB::table('payment_attempts')->whereNotNull('provider_ref')
             ->select('gateway', 'provider_ref')->groupBy('gateway', 'provider_ref')->havingRaw('count(*) > 1')
             ->orderBy('gateway')->orderBy('provider_ref')->get();
@@ -49,9 +57,6 @@ return new class extends Migration
                 }
             });
         }
-
-        // @compatible the pairs above are resolved first, and the previous release stores provider session ids or random draws
-        OnlineIndex::create('payment_attempts', ['gateway', 'provider_ref'], self::NAME, unique: true);
     }
 
     public function down(): void

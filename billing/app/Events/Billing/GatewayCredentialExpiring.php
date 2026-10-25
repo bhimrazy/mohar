@@ -8,7 +8,7 @@ use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * A credential an active gateway needs (so far a FieldType::Certificate setting) expires soon or has expired. Raised
- * by Billing's daily check once per warning stage (billing.gateways.credential_warning_days, then once on expiry);
+ * by Billing's daily check once per warning stage (billing.gateways.certificate_warning_days, then once on expiry);
  * Notifications emails staff. Never carries the credential.
  */
 final class GatewayCredentialExpiring implements DomainEvent

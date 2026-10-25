@@ -6,6 +6,7 @@ use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Core\Models\Currency;
 use App\Modules\PaymentsNepal\Drivers\EsewaDriver;
 use App\Modules\PaymentsNepal\Drivers\KhaltiDriver;
+use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -58,7 +59,10 @@ test('a started payment stays on the invoice and blocks a second one until its s
     $this->travel(61)->minutes();
     $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
         ->where('payment_in_progress.can_pay_another_way', true));
-    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => KhaltiDriver::KEY])->assertRedirect('https://test-pay.khalti.com/?pidx=PIDX1');
+    // Khalti gives the new payment its own pidx (provider references are unique per gateway).
+    Http::swap(new HttpFactory);
+    Http::fake([STATES_INITIATE => Http::response(['pidx' => 'PIDX2', 'payment_url' => 'https://test-pay.khalti.com/?pidx=PIDX2'])]);
+    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => KhaltiDriver::KEY])->assertRedirect('https://test-pay.khalti.com/?pidx=PIDX2');
 
     expect(PaymentAttempt::query()->count())->toBe(2);
 });

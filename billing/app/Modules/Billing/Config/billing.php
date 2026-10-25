@@ -70,7 +70,7 @@ return [
         // Gateway log entries (request and response payloads) are deleted after this many days (90 to 3,650).
         'log_retention_days' => 180,
         // Staff are warned this many days before a gateway certificate expires (at most five stages), and on expiry.
-        'credential_warning_days' => [30, 7, 1],
+        'certificate_warning_days' => [30, 7, 1],
     ],
 
     // Refunds & reversals (§4.7, §4.8)
