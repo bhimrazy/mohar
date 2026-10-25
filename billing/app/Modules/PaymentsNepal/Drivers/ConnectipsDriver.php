@@ -451,13 +451,14 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
     /** 20 lowercase base32 characters (100 random bits): NCHL's TXNID limit, unique per gateway in Billing. */
     private static function newTxnId(): string
     {
-        $bits = '';
+        $alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
+        $txnId = '';
 
-        foreach (str_split(random_bytes(13)) as $byte) {
-            $bits .= str_pad(decbin(ord($byte)), 8, '0', STR_PAD_LEFT);
+        for ($i = 0; $i < 20; $i++) {
+            $txnId .= $alphabet[random_int(0, 31)];
         }
 
-        return implode('', array_map(fn (string $chunk): string => 'abcdefghijklmnopqrstuvwxyz234567'[bindec($chunk)], str_split(substr($bits, 0, 100), 5)));
+        return $txnId;
     }
 
     /**

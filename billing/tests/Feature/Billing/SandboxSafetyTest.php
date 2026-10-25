@@ -11,6 +11,7 @@ use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Services\GatewayLogger;
+use App\Support\Integrations\CertificateBundle;
 use App\Support\Permissions\PermissionRegistry;
 
 require_once __DIR__.'/helpers.php';
@@ -42,16 +43,26 @@ test('a disabled sandbox is not registered and cannot be activated', function ()
 test('sandbox mode can\'t be turned on in production for any gateway that has one', function (string $key, array $credentials) {
     $withSandboxSetting = collect(app(GatewayRegistry::class)->drivers())
         ->filter(fn ($driver) => collect($driver->settingsFields())->contains('key', 'sandbox'))->keys()->sort()->values()->all();
+    // connectIPS also needs its signing certificate before the sandbox check is reached.
+    $certificates = [];
+
+    if ($key === 'connectips') {
+        $pkey = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        openssl_pkcs12_export(openssl_csr_sign(openssl_csr_new(['commonName' => 'CREDITOR'], $pkey), null, $pkey, 30), $pfx, $pkey, 'pass');
+        $certificates = ['signing_key' => CertificateBundle::fromPkcs12($pfx, 'pass')];
+    }
+
     app()->detectEnvironment(fn () => 'production');
 
-    expect($withSandboxSetting)->toBe(['esewa', 'khalti', 'stripe'])
-        ->and(fn () => app(ConfigureGateway::class)->handle($key, ['display_name' => ucfirst($key), 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 0, 'convert_to_currency' => null], [...$credentials, 'sandbox' => '1']))
+    expect($withSandboxSetting)->toBe(['connectips', 'esewa', 'khalti', 'stripe'])
+        ->and(fn () => app(ConfigureGateway::class)->handle($key, ['display_name' => ucfirst($key), 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 0, 'convert_to_currency' => null], [...$credentials, 'sandbox' => '1'], certificates: $certificates))
         ->toThrow(BillingException::class, 'Sandbox mode can\'t be used in production.')
         ->and(Gateway::query()->where('key', $key)->exists())->toBeFalse();
 })->with([
     'stripe' => ['stripe', ['secret_key' => 'sk_test_51SandboxPolicyCheck00000', 'webhook_secret' => 'whsec_SandboxPolicyCheck000000']],
     'khalti' => ['khalti', ['secret_key' => 'test_secret_key_sandbox_policy_check']],
     'esewa' => ['esewa', ['product_code' => 'EPAYTEST', 'secret_key' => 'sandbox-policy-esewa-secret']],
+    'connectips' => ['connectips', ['merchant_id' => '550', 'app_id' => 'MER-550-APP-1', 'app_name' => 'Hosting', 'app_password' => 'sandbox-policy-connectips-password']],
 ]);
 
 test('the seeder never creates the sandbox gateway outside local and testing', function () {
