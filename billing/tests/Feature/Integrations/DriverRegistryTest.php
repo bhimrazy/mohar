@@ -74,9 +74,13 @@ test('registration is lazy and drivers resolve through the container on demand',
 
     expect($resolved)->toBe(0)
         ->and($registry->has('example_one'))->toBeTrue()
-        ->and($registry->keys())->toBe(['example_one'])
+        ->and($resolved)->toBe(0)
         ->and($registry->get('example_one')->key())->toBe('example_one')
-        ->and($resolved)->toBe(1);
+        ->and($resolved)->toBe(1)
+        // keys() checks each driver once per process (#490), then lists it without resolving again.
+        ->and($registry->keys())->toBe(['example_one'])
+        ->and($registry->keys())->toBe(['example_one'])
+        ->and($resolved)->toBe(2);
 });
 
 test('capabilities are computed from the interfaces a driver implements', function () {
