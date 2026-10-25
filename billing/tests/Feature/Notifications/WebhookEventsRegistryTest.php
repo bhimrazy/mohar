@@ -30,19 +30,25 @@ const WEBHOOK_TYPES_BEFORE_REGISTRY = [
     'affiliate.commission_earned' => ['affiliate', 'affiliateId'],
 ];
 
+/** Types registered since, with their payload source. */
+const WEBHOOK_TYPES_SINCE_REGISTRY = [
+    'credit_note.issued' => ['tax_note', 'taxNoteId'], 'debit_note.issued' => ['tax_note', 'taxNoteId'],
+];
+
 test('every type that was listed before the registry is still registered, with its entity and id property', function () {
     $registry = app(WebhookEvents::class);
+    $types = [...WEBHOOK_TYPES_BEFORE_REGISTRY, ...WEBHOOK_TYPES_SINCE_REGISTRY];
 
-    expect($registry->types())->toEqualCanonicalizing([...array_keys(WEBHOOK_TYPES_BEFORE_REGISTRY), 'webhook.ping']);
+    expect($registry->types())->toEqualCanonicalizing([...array_keys($types), 'webhook.ping']);
 
     foreach ($registry->events() as $event) {
         $registered = $registry->forEvent($event);
 
         expect($event)->toBeString()
-            ->and([$registered['entity'], $registered['idProperty']])->toBe(WEBHOOK_TYPES_BEFORE_REGISTRY[$registered['type']]);
+            ->and([$registered['entity'], $registered['idProperty']])->toBe($types[$registered['type']]);
     }
 
-    expect($registry->events())->toHaveCount(30)->and($registry->types())->toContain('webhook.ping');
+    expect($registry->events())->toHaveCount(32)->and($registry->types())->toContain('webhook.ping');
 });
 
 test('the endpoint form lists the registered types', function () {
