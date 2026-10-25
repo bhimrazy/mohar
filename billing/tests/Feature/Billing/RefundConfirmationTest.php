@@ -413,6 +413,49 @@ test('"Release" frees the amount, and a callback that later proves the provider 
         ->and($payment->fresh()->refundable_remaining)->toBe(6_000);
 });
 
+test('a released refund that held the provider refund id is booked once and flagged when the provider reports that refund paid', function (string $release, bool $withReference) {
+    if ($release === 'check') {
+        useLookupDriver();
+    }
+
+    $payment = refundablePayment();
+    ScriptedRefundDriver::$answer = ChargeResult::ERROR;
+    ScriptedRefundDriver::$answerId = 're_held_released';
+    $pending = app(RefundTransaction::class)->handle($payment, 4_000, RefundMode::Gateway);
+    expect($pending->gateway_txn_id)->toBe('re_held_released');
+
+    if ($release === 'check') {
+        ScriptedLookupDriver::$lookup = new ChargeResult(ChargeResult::DECLINED, 're_held_released', declineReason: 'failed at the provider');
+        app(RefundTransaction::class)->check($pending);
+    } else {
+        billingStaff();
+        confirmPassword();
+        $this->post(route('admin.billing.transactions.refund.resolve', $pending), ['outcome' => 'not_refunded'])->assertSessionHasNoErrors();
+    }
+
+    expect($pending->fresh())->status->toBe(TransactionStatus::Failed)->gateway_txn_id->toBeNull()
+        ->and($pending->fresh()->raw[Transaction::REFUND_STATE][Transaction::RELEASED_REFUND_ID])->toBe('re_held_released')
+        ->and($payment->fresh()->refundable_remaining)->toBe(10_000);
+
+    $callback = sandboxRefundCallback($payment, $pending, 're_held_released');
+    if (! $withReference) {
+        unset($callback['reference']);
+    }
+
+    sandboxWebhook($callback)->assertOk()->assertJson(['result' => 'refund recorded; part of it needs staff review']);
+    sandboxWebhook($callback)->assertOk()->assertJson(['result' => 'duplicate']);
+
+    $booked = Transaction::query()->where('type', TransactionType::Refund)->where('status', TransactionStatus::Succeeded)->sole();
+    expect($booked)->gateway_txn_id->toBe('re_held_released')->amount_out->toBe(4_000)->review_amount->toBe(4_000)->reviewed_at->toBeNull()
+        ->and($payment->fresh()->refundable_remaining)->toBe(6_000)
+        ->and($payment->invoice->fresh()->amount_paid)->toBe(6_000);
+})->with([
+    'released by Check refund, callback names our row' => ['check', true],
+    'released by Check refund, callback by refund id only' => ['check', false],
+    'released by staff, callback names our row' => ['staff', true],
+    'released by staff, callback by refund id only' => ['staff', false],
+]);
+
 test('a late refund absorbed entirely by account credit is still flagged for review', function () {
     $invoice = issueInvoice(billingClient(), [1_000]);
     app(Invoicer::class)->cancel($invoice->id);
