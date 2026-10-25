@@ -5,14 +5,15 @@ namespace App\Modules\Billing\Services;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Core\Support\ActivityLogger;
+use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * PDF downloads of fiscal documents, admin and client alike (vat-register §9, F7, AC 55). Every download of a note, and
- * of a numbered invoice while Nepal VAT mode is on, is a print: the first is the original, each later one says
- * "Copy of original — print n". Other invoices are served as before, uncounted.
+ * PDF downloads of fiscal documents, admin and client alike (vat-register §9, F7, AC 55). While Nepal VAT mode is on,
+ * each GET of a note or of a numbered invoice is a print: the first is the original, each later one says
+ * "Copy of original — print n". A HEAD request, and any download with the mode off, is served uncounted.
  */
 class DocumentDownloads
 {
@@ -25,42 +26,52 @@ class DocumentDownloads
 
     public function invoice(Invoice $invoice): Response
     {
-        $print = $invoice->numbered_at !== null && $this->mode->enabled() ? $this->count($invoice) : null;
+        $filename = $this->invoicePdf->filename($invoice);
+        $original = fn (): Response => Storage::disk('objects')->download($this->invoicePdf->ensure($invoice), $filename, ['Content-Type' => 'application/pdf']);
 
-        if ($print !== null && $print > 1) {
-            return $this->attachment($this->invoicePdf->render($invoice, $print), $this->invoicePdf->filename($invoice));
-        }
-
-        return Storage::disk('objects')->download($this->invoicePdf->ensure($invoice), $this->invoicePdf->filename($invoice), ['Content-Type' => 'application/pdf']);
+        return $invoice->numbered_at !== null && $this->counts()
+            ? $this->print($invoice, $original, fn (int $print): Response => $this->attachment($this->invoicePdf->render($invoice, $print), $filename))
+            : $original();
     }
 
     public function note(TaxNote $note): Response
     {
-        $print = $this->count($note);
+        $filename = $this->notePdf->filename($note);
+        $original = fn (): Response => Storage::disk('objects')->download($this->notePdf->ensure($note), $filename, ['Content-Type' => 'application/pdf']);
 
-        if ($print > 1) {
-            return $this->attachment($this->notePdf->render($note, $print), $this->notePdf->filename($note));
-        }
+        return $this->counts()
+            ? $this->print($note, $original, fn (int $print): Response => $this->attachment($this->notePdf->render($note, $print), $filename))
+            : $original();
+    }
 
-        return Storage::disk('objects')->download($this->notePdf->ensure($note), $this->notePdf->filename($note), ['Content-Type' => 'application/pdf']);
+    private function counts(): bool
+    {
+        return request()->isMethod('GET') && $this->mode->enabled();
     }
 
     /**
-     * Takes the next print number under a row lock, so two downloads at once never share one, and logs it.
+     * Takes the next print number under the document's row lock and renders that print before committing, so two
+     * downloads at once never share a number and a render that fails takes none. The lock is held while dompdf runs
+     * (about a second at most for one document).
+     *
+     * @param  Closure(): Response  $original
+     * @param  Closure(int): Response  $copy
      */
-    private function count(Invoice|TaxNote $document): int
+    private function print(Invoice|TaxNote $document, Closure $original, Closure $copy): Response
     {
-        return DB::transaction(function () use ($document): int {
+        return DB::transaction(function () use ($document, $original, $copy): Response {
             $locked = $document::query()->whereKey($document->getKey())->lockForUpdate()->firstOrFail();
-            $locked->print_count = $locked->print_count + 1;
+            $print = $locked->print_count + 1;
+            $response = $print === 1 ? $original() : $copy($print);
+            $locked->print_count = $print;
             $locked->save();
-            $number = $document instanceof TaxNote ? $document->number : $document->displayNumber();
+            $number = $locked instanceof TaxNote ? $locked->number : $locked->displayNumber();
 
-            $this->activity->log(__(':document :number printed (print :n)', ['document' => $document instanceof TaxNote ? $document->kindLabel() : __('Invoice'), 'number' => $number, 'n' => $locked->print_count]),
-                $locked, $document->client_id, ['number' => $number, 'print_count' => $locked->print_count],
-                $document instanceof TaxNote ? 'billing.tax_note.printed' : 'billing.invoice.printed');
+            $this->activity->log(__(':document :number printed (print :n)', ['document' => $locked instanceof TaxNote ? $locked->kindLabel() : __('Invoice'), 'number' => $number, 'n' => $print]),
+                $locked, $locked->client_id, ['number' => $number, 'print_count' => $print],
+                $locked instanceof TaxNote ? 'billing.tax_note.printed' : 'billing.invoice.printed');
 
-            return $locked->print_count;
+            return $response;
         });
     }
 

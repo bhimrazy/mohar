@@ -26,9 +26,12 @@ class CancelOrder
         private ActivityLogger $activity,
     ) {}
 
-    public function handle(Order $order): void
+    /**
+     * @param  bool  $notifyClient  false when the system cancels on its own (a stale unpaid order): the credit note is not emailed
+     */
+    public function handle(Order $order, bool $notifyClient = true): void
     {
-        DB::transaction(function () use ($order): void {
+        DB::transaction(function () use ($order, $notifyClient): void {
             if (! $order->transition([OrderStatus::Pending, OrderStatus::Active, OrderStatus::Fraud], OrderStatus::Cancelled, ['cancelled_at' => now()])) {
                 throw new DomainException(__('This order is already cancelled.'));
             }
@@ -40,7 +43,7 @@ class CancelOrder
                     $this->promotions->handle($order);
                 }
 
-                $this->invoicer->cancel($order->invoice_id, __('Cancelled by :module', ['module' => 'Orders']));
+                $this->invoicer->cancel($order->invoice_id, __('Cancelled by :module', ['module' => 'Orders']), $notifyClient);
             } else {
                 $this->promotions->handle($order);
             }

@@ -37,7 +37,7 @@ class TaxNoteController extends Controller
     }
 
     /**
-     * What the client sees of each note: no staff names, no internal ids beyond the links.
+     * What the client sees of each note: no staff names; the ids are only for its links.
      *
      * @param  Collection<int, TaxNote>  $notes
      * @return list<array<string, mixed>>

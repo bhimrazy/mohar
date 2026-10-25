@@ -121,8 +121,10 @@ class SampleContext
                 'run_by' => 'console: deploy@billing-1', 'expires_in' => '24 hours',
             ],
             'tax_note' => [
-                'number' => 'CN-00012', 'kind' => 'credit', 'kind_label' => 'Credit Note', 'invoice_number' => 'INV-00042', 'amount' => '$10.00',
-                'tax' => '$1.15', 'issue_date' => $today, 'issue_date_bs' => null, 'reason' => 'Price correction', 'reason_text' => 'Plan price corrected.', 'pdf_url' => url('/client/invoices/notes/12/pdf'),
+                // A Nepal VAT note (13%): notes exist only in Nepal VAT mode.
+                'number' => 'CN-00012', 'kind' => 'credit', 'kind_label' => 'Credit Note', 'invoice_number' => 'INV-00042', 'amount' => 'Rs 1,130.00',
+                'tax' => 'Rs 130.00', 'issue_date' => $today, 'issue_date_bs' => '3 Kartik 2083 BS', 'reason' => 'Price correction', 'reason_text' => 'Plan price corrected.',
+                'pdf_url' => url('/client/invoices/notes/12/pdf'), 'pdf_attached' => true,
             ],
             'template' => ['key' => 'invoice.created', 'name' => 'Invoice created', 'error' => 'Line 3: "{% if %}" is never closed.', 'admin_url' => url('/admin/notifications/templates/1/edit')],
         ];

@@ -80,7 +80,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $credited_total value credited after numbering; written only by InvoiceSettlement::adjust
  * @property int $debited_total
  * @property int $version
- * @property int $print_count PDF downloads of the tax invoice while Nepal VAT mode is on (DocumentPrints)
+ * @property int $print_count PDF downloads of the tax invoice while Nepal VAT mode is on (DocumentDownloads)
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  * @property-read Client $client

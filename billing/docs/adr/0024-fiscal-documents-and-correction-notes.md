@@ -594,3 +594,15 @@ PR 4 is built in steps. This one is the §5 state machine for **staff refunds** 
   Disputes to review (`review_amount`), and the callback's log line says so.
 - **Refused cancels and late fees.** A cancel refused inside a caller's transaction that rolls back (an order cancel or delete)
   keeps its staff record (written again after the rollback); a late fee refused every day is logged once.
+
+## Amendment (#482) — 2026-10-25, notify parameter on note events
+
+- `CreditNoteIssued` and `DebitNoteIssued` (§6) have an eighth parameter, `bool $notify = true`. It is false when the
+  note is not to be emailed to the client: staff unticked "Send to client", or a caller of `Invoicer::cancel` passed
+  `notifyClient: false`. Orders passes false for a fraud flag and for the automatic cancel of a stale unpaid order. The
+  webhook is delivered either way. Refund, late-fee and other cancel notes are emailed (CTO decision, #482).
+- `Invoicer::cancel(int $invoiceId, ?string $reason = null, bool $notifyClient = true)` gains the trailing flag
+  (ADR 0010: a compatible addition).
+- The note email carries the note's PDF through `App\Contracts\Billing\BillingDocuments` (architecture.md,
+  "Email documents"). The send is logged as `billing.tax_note.emailed`, from `EmailSent`, which gains
+  `relatedType` and `relatedId`.

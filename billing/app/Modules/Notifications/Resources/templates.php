@@ -488,7 +488,7 @@ MD.$signOff),
     $client('credit_note.issued', 'invoice', 'Credit note issued', 'Credit note {{ tax_note.number }} from {{ company.name }}: {{ tax_note.amount }} for invoice {{ invoice.number }}', <<<'MD'
 # Credit note {{ tax_note.number }}
 
-We've issued a credit note for {{ tax_note.amount }} against invoice {{ invoice.number }}. The note is attached.
+We've issued a credit note for {{ tax_note.amount }} against invoice {{ invoice.number }}.{% if tax_note.pdf_attached %} The note is attached.{% endif %}
 
 | Credit note | {{ tax_note.number }} |
 |---|---|
@@ -501,7 +501,7 @@ MD.$signOff),
     $client('debit_note.issued', 'invoice', 'Debit note issued', 'Debit note {{ tax_note.number }} from {{ company.name }}: {{ tax_note.amount }} added to invoice {{ invoice.number }}', <<<'MD'
 # Debit note {{ tax_note.number }}
 
-We've issued a debit note for {{ tax_note.amount }} against invoice {{ invoice.number }}. The note is attached.
+We've issued a debit note for {{ tax_note.amount }} against invoice {{ invoice.number }}.{% if tax_note.pdf_attached %} The note is attached.{% endif %}
 
 | Debit note | {{ tax_note.number }} |
 |---|---|
@@ -1042,4 +1042,7 @@ $descriptions = [
     'staff.template_render_failed' => 'Tells staff an email template failed to render, with the error.',
 ];
 
-return array_map(fn (array $template): array => [...$template, 'preheader' => $preheaders[$template['key']] ?? null, 'description' => $descriptions[$template['key']] ?? null], $templates);
+// Templates whose message carries its related record's PDF (App\Contracts\Billing\BillingDocuments), attached at send time.
+$attachesDocument = ['credit_note.issued', 'debit_note.issued'];
+
+return array_map(fn (array $template): array => [...$template, 'preheader' => $preheaders[$template['key']] ?? null, 'description' => $descriptions[$template['key']] ?? null, 'attaches_document' => in_array($template['key'], $attachesDocument, true)], $templates);

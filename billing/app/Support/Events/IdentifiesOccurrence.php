@@ -39,6 +39,9 @@ trait IdentifiesOccurrence
     }
 
     /**
+     * A copy serialised before a trailing defaulted constructor parameter was added has no value for it: it gets the
+     * default, as a new event would (ADR 0010 Amendment (#482)).
+     *
      * @param  array<string, mixed>  $data
      */
     public function __unserialize(array $data): void
@@ -46,5 +49,26 @@ trait IdentifiesOccurrence
         foreach ($data as $property => $value) {
             $this->{$property} = $value;
         }
+
+        foreach (self::promotedDefaults() as $property => $default) {
+            if (! array_key_exists($property, $data)) {
+                $this->{$property} = $default;
+            }
+        }
+    }
+
+    /**
+     * Promoted constructor parameters that have a default, per class.
+     *
+     * @return array<string, mixed>
+     */
+    private static function promotedDefaults(): array
+    {
+        static $defaults = [];
+
+        return $defaults[static::class] ??= collect((new \ReflectionClass(static::class))->getConstructor()?->getParameters() ?? [])
+            ->filter(fn (\ReflectionParameter $parameter): bool => $parameter->isPromoted() && $parameter->isDefaultValueAvailable())
+            ->mapWithKeys(fn (\ReflectionParameter $parameter): array => [$parameter->getName() => $parameter->getDefaultValue()])
+            ->all();
     }
 }

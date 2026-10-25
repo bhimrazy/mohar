@@ -48,7 +48,7 @@ class InvoicePdf
     }
 
     /**
-     * @param  int|null  $print  the print number of a copy (2 or more, DocumentPrints); null for the original
+     * @param  int|null  $print  the print number of a copy (2 or more, DocumentDownloads); null for the original
      */
     public function render(Invoice $invoice, ?int $print = null): string
     {

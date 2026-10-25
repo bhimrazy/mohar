@@ -11,10 +11,13 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Mail\TemplatedMail;
 use App\Modules\Notifications\Models\EmailMessage;
+use App\Modules\Notifications\Services\TemplateCatalog;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -96,20 +99,29 @@ class SendEmailMessage implements ShouldBeEncrypted, ShouldQueue
             'failure_reason' => null,
             'provider_message_id' => $sent?->getMessageId(),
         ]);
-        EmailSent::dispatch($message->id, $message->template_key, $message->client_id);
+        EmailSent::dispatch($message->id, $message->template_key, $message->client_id, $message->related_type, $message->related_id);
     }
 
     /**
-     * The billing document the message is about, asked for at each send so a resend carries it too. Inside the send's
-     * try: a document that cannot be rendered fails this attempt like a transport error.
+     * The related record's document, for a template that carries one, in the message's locale. Asked for at each send, so
+     * a resend carries it too. Inside the send's try: a document that cannot be produced fails this attempt like a
+     * transport error. One over the size cap is left off (the mail links to it) and logged.
      */
     private function document(EmailMessage $message): ?DocumentFile
     {
-        if ($message->related_type === null || $message->related_id === null || ! app()->bound(BillingDocuments::class)) {
+        if ($message->related_type === null || $message->related_id === null || ! app(TemplateCatalog::class)->attachesDocument($message->template_key) || ! app()->bound(BillingDocuments::class)) {
             return null;
         }
 
-        return app(BillingDocuments::class)->emailAttachment($message->related_type, (int) $message->related_id);
+        $document = app(BillingDocuments::class)->document($message->related_type, (int) $message->related_id, $message->locale);
+
+        if ($document !== null && Storage::disk($document->disk)->size($document->path) > (int) config('notifications.attachment_max_bytes', 5 * 1024 * 1024)) {
+            Log::warning('Email document too large to attach; the mail links to it instead.', ['email_message_id' => $message->id, 'related_type' => $message->related_type, 'related_id' => $message->related_id]);
+
+            return null;
+        }
+
+        return $document;
     }
 
     /**

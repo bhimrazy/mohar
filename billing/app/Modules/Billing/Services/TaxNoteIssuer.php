@@ -16,6 +16,7 @@ use App\Modules\Billing\Enums\InvoiceKind;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Exceptions\StaleNoteException;
+use App\Modules\Billing\Jobs\RenderTaxNotePdf;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Billing\Models\TaxNoteLine;
@@ -276,6 +277,9 @@ class TaxNoteIssuer
                 'reason_code' => $request->reasonCode, 'reverses_tax_note_id' => $request->reverses, 'reverses_number' => $reverses, 'due_date' => $plan->dueDate,
                 'source' => $request->automatic ? ($request->source ?? 'automation') : 'staff',
             ], 'billing.tax_note.issued');
+        if ($request->notify && $this->settings->bool('pdf.attach_to_emails')) {
+            RenderTaxNotePdf::dispatch($note->id)->afterCommit();
+        }
         event($credit
             ? new CreditNoteIssued($note->id, $number, $invoice->id, $invoice->client_id, $plan->total, $invoice->currency, $request->automatic, $request->notify)
             : new DebitNoteIssued($note->id, $number, $invoice->id, $invoice->client_id, $plan->total, $invoice->currency, $request->automatic, $request->notify));

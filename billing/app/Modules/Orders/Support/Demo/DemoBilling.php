@@ -51,7 +51,7 @@ class DemoBilling implements GatewayDirectory, Invoicer, TaxCalculator
         return new InvoiceResult($id, 'DEMO-'.str_pad((string) $id, 4, '0', STR_PAD_LEFT), $status, $draft->currency, $tax->subtotal, $tax->taxAmount(), $tax->total);
     }
 
-    public function cancel(int $invoiceId, ?string $reason = null): void
+    public function cancel(int $invoiceId, ?string $reason = null, bool $notifyClient = true): void
     {
         if ($this->status($invoiceId) === 'unpaid') {
             Cache::forever("orders.demo.invoice.{$invoiceId}", 'cancelled');

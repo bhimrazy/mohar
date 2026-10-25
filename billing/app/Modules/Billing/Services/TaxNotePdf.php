@@ -8,6 +8,7 @@ use App\Modules\Core\Support\DateFormats;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Traits\Localizable;
 
 /**
  * The PDF of a credit or debit note (vat-register §8, AC 36). A note never changes, so the original is rendered once per
@@ -15,6 +16,8 @@ use Illuminate\Support\Facades\Storage;
  */
 class TaxNotePdf
 {
+    use Localizable;
+
     public function __construct(private BillingSettings $settings, private MoneyFormatter $money) {}
 
     public function path(TaxNote $note, ?string $locale = null): string
@@ -22,14 +25,17 @@ class TaxNotePdf
         return sprintf('billing/tax-notes/%d/original-%s.pdf', $note->id, $locale ?? app()->getLocale());
     }
 
-    /** Path of the cached original, rendering it first when needed. */
-    public function ensure(TaxNote $note): string
+    /**
+     * Path of the cached original in `$locale` (the request's when null), rendering it first when needed.
+     */
+    public function ensure(TaxNote $note, ?string $locale = null): string
     {
-        $path = $this->path($note);
+        $locale ??= app()->getLocale();
+        $path = $this->path($note, $locale);
         $disk = Storage::disk('objects');
 
         if (! $disk->exists($path)) {
-            $disk->put($path, $this->render($note));
+            $disk->put($path, $this->withLocale($locale, fn (): string => $this->render($note)));
         }
 
         return $path;
@@ -53,7 +59,7 @@ class TaxNotePdf
     {
         $note->loadMissing(['lines', 'invoice:id,issue_date,tax1_name,tax1_rate,tax2_name,tax2_rate']);
         $dateFormat = DateFormats::current();
-        $rate = fn (?string $value): string => rtrim(rtrim((string) $value, '0'), '.');
+        $rate = fn (string $value): string => rtrim(rtrim($value, '0'), '.');
         $invoice = $note->invoice;
 
         return [
@@ -64,8 +70,8 @@ class TaxNotePdf
             'issued' => $this->date($note->issue_date, $dateFormat, TaxNote::bsLabel($note->bs_issue_date)),
             'invoiceDate' => $this->date($invoice->issue_date, $dateFormat, TaxNote::bsLabel($note->invoice_bs_issue_date)),
             'taxes' => array_values(array_filter([
-                $note->tax1_amount !== 0 ? ['label' => ($invoice->tax1_name ?? __('Tax')).($invoice->tax1_rate !== null ? ' @ '.$rate($invoice->tax1_rate).'%' : ''), 'amount' => $note->tax1_amount] : null,
-                $note->tax2_amount !== 0 ? ['label' => ($invoice->tax2_name ?? __('Tax')).($invoice->tax2_rate !== null ? ' @ '.$rate($invoice->tax2_rate).'%' : ''), 'amount' => $note->tax2_amount] : null,
+                $note->tax1_amount !== 0 ? ['label' => ($invoice->tax1_name ?? __('Tax')).' @ '.$rate($invoice->tax1_rate).'%', 'amount' => $note->tax1_amount] : null,
+                $note->tax2_amount !== 0 ? ['label' => ($invoice->tax2_name ?? __('Tax')).' @ '.$rate($invoice->tax2_rate).'%', 'amount' => $note->tax2_amount] : null,
             ])),
             'copy' => $print !== null && $print > 1 ? __('Copy of original — print :n', ['n' => $print]) : null,
             'money' => fn (int $amount): string => $this->money->format($amount, $note->currency),

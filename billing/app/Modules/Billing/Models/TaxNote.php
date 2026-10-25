@@ -25,16 +25,27 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $client_id
  * @property string $currency
  * @property CarbonImmutable $issue_date
+ * @property CarbonImmutable $issued_at
+ * @property string $invoice_number snapshot of the invoice's number
+ * @property string|null $invoice_bs_issue_date snapshot of the invoice's BS issue date (Y-m-d)
  * @property string $bs_issue_date
  * @property string $reason_code
  * @property string $reason_text client-visible
+ * @property int $taxable_amount
+ * @property int $exempt_amount
  * @property int $tax1_amount
  * @property int $tax2_amount
  * @property bool|null $tax1_is_vat whether the level is Nepal VAT, copied from the invoice; null = not classified
  * @property bool|null $tax2_is_vat
  * @property bool $automatic
  * @property int $total minor units, positive; the kind gives the direction
+ * @property string|null $report_currency
  * @property string|null $report_rate
+ * @property string $supply_class
+ * @property array<string, mixed>|null $seller_snapshot copied from the invoice
+ * @property array<string, mixed>|null $buyer_snapshot copied from the invoice
+ * @property string $bs_fiscal_year
+ * @property int|null $created_by
  * @property string $bs_period
  * @property int $print_count
  * @property int|null $reverses_tax_note_id the credit note this debit note reverses

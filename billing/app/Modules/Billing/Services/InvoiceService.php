@@ -71,7 +71,7 @@ class InvoiceService implements Invoicer
         );
     }
 
-    public function cancel(int $invoiceId, ?string $reason = null): void
+    public function cancel(int $invoiceId, ?string $reason = null, bool $notifyClient = true): void
     {
         $invoice = Invoice::query()->find($invoiceId);
 
@@ -80,7 +80,7 @@ class InvoiceService implements Invoicer
         }
 
         try {
-            $this->cancel->handle($invoice, note: $reason, strict: false);
+            $this->cancel->handle($invoice, note: $reason, strict: false, notifyClient: $notifyClient);
         } catch (BillingException $exception) {
             // The invoice stays payable. Staff see it on their list, and the caller is told so it keeps its own record open.
             $refusals = app(NoteRefusals::class);

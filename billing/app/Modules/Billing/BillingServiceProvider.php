@@ -27,6 +27,7 @@ use App\Events\Billing\PaymentReceived;
 use App\Events\Billing\PaymentReinstated;
 use App\Events\Billing\PaymentReversed;
 use App\Events\Billing\QuoteAccepted;
+use App\Events\Notifications\EmailSent;
 use App\Events\Orders\OrderAccepted;
 use App\Models\User;
 use App\Modules\Billing\Actions\PruneGatewayLog;
@@ -38,6 +39,7 @@ use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Import\OpeningBalanceImporter;
 use App\Modules\Billing\Install\RegionalTaxDefaults;
 use App\Modules\Billing\Listeners\RecordAcceptedOrder;
+use App\Modules\Billing\Listeners\RecordNoteEmailed;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\InvoiceItem;
@@ -178,6 +180,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $reports->register('tax_note_register', TaxNoteRegisterReport::class);
 
         Event::listen(OrderAccepted::class, RecordAcceptedOrder::class);
+        Event::listen(EmailSent::class, RecordNoteEmailed::class);
 
         // Opening credit balances of imported clients (client-import spec §6.12).
         $this->app->make(ImportRegistry::class)->register('credit_balance', OpeningBalanceImporter::class, dependsOn: ['client']);
@@ -425,7 +428,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             $bool('quotes.auto_invoice_on_accept', 'Invoice quotes automatically on acceptance'),
             $int('quotes.valid_days', 'Default quote validity (days)'),
             $bool('show_bs_dates', 'Show the Bikram Sambat date beside the AD date on invoices', 'Issue and due dates on invoice pages, PDFs and invoice emails also show the BS date, e.g. 12 Jan 2026 (28 Poush 2082 BS). Dates from 15 April 2039 on show the AD date only.'),
-            $bool('pdf.attach_to_emails', 'Attach PDFs to invoice emails'),
+            $bool('pdf.attach_to_emails', 'Attach PDFs to invoice and note emails', 'Credit and debit note emails carry the note as a PDF.'),
             new SettingDefinition('billing.pdf.paper', 'PDF paper size', 'select', options: ['A4' => 'A4', 'letter' => 'Letter']),
         ], 'billing.settings.manage');
 
@@ -542,6 +545,8 @@ class BillingServiceProvider extends ModuleServiceProvider
             'reason' => $note->reasonLabel(),
             'reason_text' => $note->reason_text,
             'automatic' => $note->automatic,
+            // Whether the note email carries the PDF, so its text can say so.
+            'pdf_attached' => app(BillingSettings::class)->bool('pdf.attach_to_emails'),
             'lines' => $note->lines->map(fn (TaxNoteLine $line): array => [
                 'description' => $line->description,
                 'amount' => $money($line->amount + $line->tax1_amount + $line->tax2_amount),

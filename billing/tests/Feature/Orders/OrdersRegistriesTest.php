@@ -104,6 +104,7 @@ it('cancels stale unpaid pending orders in the automation run', function () {
     $this->artisan('automation:run', ['--only' => 'orders.cancel_stale_pending'])->assertSuccessful();
 
     expect($stale->fresh()->status)->toBe(OrderStatus::Cancelled)
+        ->and($fakes->billing->cancelNotifies)->toBe([$stale->invoice_id => false])
         ->and($fresh->fresh()->status)->toBe(OrderStatus::Pending)
         ->and($paid->fresh()->status)->toBe(OrderStatus::Pending);
 });
