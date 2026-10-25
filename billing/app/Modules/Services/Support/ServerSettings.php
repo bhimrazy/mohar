@@ -129,6 +129,11 @@ class ServerSettings
      */
     private function fieldRules(SettingField $field, bool $stored): array
     {
+        // Servers take no certificate uploads (the registry refuses such a driver too).
+        if ($field->type === FieldType::Certificate) {
+            return ['prohibited'];
+        }
+
         return [
             $field->required && ! $stored && $field->type !== FieldType::Boolean ? 'required' : 'nullable',
             ...match ($field->type) {
@@ -273,6 +278,7 @@ class ServerSettings
         }
 
         return match ($field->type) {
+            FieldType::Certificate => null,
             FieldType::Boolean => filter_var($value, FILTER_VALIDATE_BOOLEAN),
             FieldType::Number => is_numeric($value) ? $value + 0 : null,
             default => is_scalar($value) ? (string) $value : null,

@@ -9,9 +9,6 @@ use App\Data\Integrations\CertificateInfo;
  */
 final readonly class GatewayConfig
 {
-    /** Settings key holding the metadata of each certificate setting, keyed by the setting's key. */
-    public const CERTIFICATES = '_certificates';
-
     /**
      * @param  array<string, mixed>  $settings  driver settings (secrets included; never log or expose them)
      * @param  list<string>  $secretSettingKeys  settings typed Secret or SecretText; the host masks their values
@@ -36,7 +33,7 @@ final readonly class GatewayConfig
      */
     public function certificate(string $key): ?CertificateInfo
     {
-        $stored = $this->settings[self::CERTIFICATES][$key] ?? null;
+        $stored = $this->settings[CertificateInfo::SETTINGS_KEY][$key] ?? null;
 
         return is_array($stored) ? CertificateInfo::fromArray($stored) : null;
     }

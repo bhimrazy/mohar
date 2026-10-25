@@ -53,7 +53,7 @@ class GatewayController extends Controller
                 'secrets_short' => StoredSecrets::tooShort($fields, $model->config ?? []),
                 // The stored certificates' public metadata (subject, serial, validity), never the key.
                 'certificates' => collect($fields)->filter(fn (SettingField $field): bool => $field->type === FieldType::Certificate)
-                    ->mapWithKeys(fn (SettingField $field): array => [$field->key => $config->certificate($field->key)?->toArray()]),
+                    ->mapWithKeys(fn (SettingField $field): array => [$field->key => $config->certificate($field->key)?->summary()]),
             ],
             'fields' => array_map(fn (SettingField $field): array => $field->toArray(), $fields),
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->pluck('code'),

@@ -10,9 +10,10 @@ use Illuminate\Support\Facades\DB;
  * SQLite. Built CONCURRENTLY on PostgreSQL (no write lock).
  *
  * Every shipped driver's reference is a provider session id or a random draw, so pairs are not expected; any that
- * exist are resolved first. Within a pair the succeeded attempt (else the oldest) keeps the reference; the others
- * lose it, keep it in raw.duplicate_provider_ref, and an open one goes to staff review, because a lookup without it
- * cannot reach the provider.
+ * exist are resolved first. Within a pair the succeeded attempt (else the oldest) keeps the reference. The others lose
+ * it, keep it in raw (a duplicate_provider_ref key, or an entry appended to a list), and carry a review reason for
+ * staff: an open one goes to staff review, and a closed one is no longer swept for late payments, because a lookup
+ * without the reference cannot reach the provider.
  */
 return new class extends Migration
 {
@@ -37,7 +38,7 @@ return new class extends Migration
         foreach ($pairs as $pair) {
             DB::transaction(function () use ($pair): void {
                 $attempts = DB::table('payment_attempts')->where('gateway', $pair->gateway)->where('provider_ref', $pair->provider_ref)
-                    ->lockForUpdate()->orderBy('id')->get(['id', 'status', 'transaction_id', 'raw']);
+                    ->lockForUpdate()->orderBy('id')->get(['id', 'status', 'transaction_id', 'raw', 'lookups_closed_at']);
                 $keep = $attempts->first(fn (object $attempt): bool => $attempt->status === 'succeeded' || $attempt->transaction_id !== null) ?? $attempts->first();
 
                 foreach ($attempts as $attempt) {
@@ -45,15 +46,18 @@ return new class extends Migration
                         continue;
                     }
 
-                    $raw = is_string($attempt->raw) ? (json_decode($attempt->raw, true) ?: []) : [];
+                    $raw = is_string($attempt->raw) ? json_decode($attempt->raw, true) : null;
+                    $raw = is_array($raw) ? $raw : [];
+                    $raw = array_is_list($raw) && $raw !== [] ? [...$raw, ['duplicate_provider_ref' => $pair->provider_ref]] : [...$raw, 'duplicate_provider_ref' => $pair->provider_ref];
                     $open = in_array($attempt->status, ['pending', 'ambiguous'], true);
 
-                    DB::table('payment_attempts')->where('id', $attempt->id)->update(array_filter([
+                    DB::table('payment_attempts')->where('id', $attempt->id)->update([
                         'provider_ref' => null,
-                        'raw' => json_encode([...(is_array($raw) ? $raw : []), 'duplicate_provider_ref' => $pair->provider_ref]),
-                        'status' => $open ? 'ambiguous' : null,
-                        'review_reason' => $open ? 'Another payment had the same provider reference. Check this one at the provider.' : null,
-                    ], fn (mixed $value, string $column): bool => $column === 'provider_ref' || $value !== null, ARRAY_FILTER_USE_BOTH));
+                        'raw' => json_encode($raw),
+                        'status' => $open ? 'ambiguous' : $attempt->status,
+                        'review_reason' => 'Another payment had the same provider reference. Check this one at the provider.',
+                        'lookups_closed_at' => $open ? $attempt->lookups_closed_at : ($attempt->lookups_closed_at ?? now()),
+                    ]);
                 }
             });
         }

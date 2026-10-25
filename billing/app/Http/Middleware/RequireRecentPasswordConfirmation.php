@@ -4,7 +4,6 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -18,8 +17,8 @@ use Symfony\Component\HttpFoundation\Response;
  * (`auth.password_timeout`), and ADR 0018 §4 makes `auth.step_up_seconds` the one step-up window.
  *
  * Unlike Laravel's RequirePassword (which redirects, and so cannot resume a POST), this rejects the request:
- * JSON clients get 423, Inertia gets a "password_confirmation" validation error that the UI turns into a
- * confirm-password dialog before retrying.
+ * JSON clients get 423, Inertia gets a "password_confirmation" validation error (redirected back without the old
+ * input, so no submitted secret reaches the session) that the UI turns into a confirm-password dialog before retrying.
  *
  * Downloads (GET routes, #272) cannot use that dialog by themselves, so they have three paths, all of which keep the
  * rule that the file is never sent without a recent confirmation:
@@ -81,7 +80,9 @@ class RequireRecentPasswordConfirmation
             return $this->toConfirmPage();
         }
 
-        throw ValidationException::withMessages(
+        // Back with the error only, never the old input: this runs before any form request that keeps secrets out of
+        // the session, and the dialog replays the visit itself (security standards §6).
+        return back()->withErrors(
             $this->hasNoPassword($request)
                 ? [self::ERROR_KEY => __('Your account has no password. Set a password to continue.'), self::REASON_KEY => self::NO_PASSWORD_CODE]
                 : [self::ERROR_KEY => __('Confirm your password to continue.')],

@@ -106,22 +106,25 @@ class StartHostedPayment
                     throw new RuntimeException('The provider reference of the new payment already belongs to another payment.');
                 }
             }
+
+            // The provider's own session expiry, when it states one, decides how long the invoice stays locked. A
+            // resumable provider page is kept (encrypted) for "Continue payment" (#251), only for a driver that can
+            // reopen it. In its own savepoint: a reference another start took meanwhile fails this one cleanly.
+            DB::transaction(fn () => $attempt->update(array_filter([
+                'provider_ref' => $instruction->providerRef,
+                'expires_at' => $instruction->expiresAt,
+                'resume_url' => $instruction instanceof RedirectInstruction && $instruction->keepForResume && $driver instanceof ResumesHostedPayment ? $instruction->url : null,
+            ], fn (mixed $value): bool => $value !== null)));
         } catch (Throwable $exception) {
-            // Nothing was handed to the customer, so the attempt can never be paid: close it and say so plainly.
-            $attempt->update(['status' => AttemptStatus::Failed, 'review_reason' => 'Provider refused to start the payment']);
+            // Nothing was handed to the customer, so the attempt can never be paid: close it and say so plainly. Unsaved
+            // values from a failed save are dropped first.
+            $attempt->refresh()->update(['status' => AttemptStatus::Failed, 'review_reason' => 'Provider refused to start the payment']);
             $this->log->log($gatewayKey, 'response', 'hosted payment start failed', ['reference' => $attempt->reference, 'error' => mb_substr(app(Redactor::class)->maskValues($exception->getMessage(), GatewayLogger::secrets($gatewayKey)), 0, 500)], $invoice->id);
             report($exception);
 
             throw new BillingException(__(':gateway couldn\'t start the payment. Try again in a few minutes or use another method.', ['gateway' => $gateway->display_name]));
         }
 
-        // The provider's own session expiry, when it states one, decides how long the invoice stays locked. A resumable
-        // provider page is kept (encrypted) for "Continue payment" (#251), only for a driver that can reopen it.
-        $attempt->update(array_filter([
-            'provider_ref' => $instruction->providerRef,
-            'expires_at' => $instruction->expiresAt,
-            'resume_url' => $instruction instanceof RedirectInstruction && $instruction->keepForResume && $driver instanceof ResumesHostedPayment ? $instruction->url : null,
-        ], fn (mixed $value): bool => $value !== null));
         $this->log->log($gatewayKey, 'request', 'hosted payment started', ['reference' => $attempt->reference, 'amount' => $amount->amount, 'currency' => $amount->currency], $invoice->id);
 
         return [$attempt, $instruction];

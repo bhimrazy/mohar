@@ -3,7 +3,7 @@
 - **Gateway certificates and expiry warnings (#489).** A payment gateway can take a signing certificate as a .pfx or
   .p12 upload with its passphrase. Only the private key (encrypted) and the certificate's details are kept; the form
   shows the expiry date and serial, never the key. Staff with `billing.gateways.manage` get an email 30, 7 and 1 days
-  before an active gateway's certificate expires and when it has expired (setting: Billing → "Gateway certificates:
+  before an active gateway's certificate expires and another once it has expired (setting: Billing → "Gateway certificates:
   warn this many days before expiry"), and the dashboard health card shows it amber, then red. New daily automation
   task "Check gateway certificates". No shipped gateway uses a certificate yet; connectIPS will.
 - **Return address on hosted gateway forms (#489).** Every gateway that sends customers to a provider page shows the
@@ -17,3 +17,9 @@
   are expected, since shipped gateways use provider session ids.
 - **Errors after the password step-up show on the gateway form (#489).** A save repeated after confirming the password
   now shows its validation errors next to the fields.
+
+### Security
+
+- **A save refused for the password step-up no longer stores what was typed in the session (#489).** Any form behind
+  the step-up (gateways, registrars, servers and others) is sent back with the "confirm your password" error only, so
+  secrets such as API keys or a certificate passphrase never reach the session store.

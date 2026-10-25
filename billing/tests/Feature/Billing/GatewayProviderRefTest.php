@@ -79,6 +79,23 @@ test('a provider reference that is already taken is drawn once more, and a secon
         ->status->toBe(AttemptStatus::Failed)->provider_ref->toBeNull();
 });
 
+test('a provider reference another start takes between the check and the save fails this start cleanly', function () {
+    FakeSigningGatewayDriver::$providerRefs = ['racedref'];
+    $raced = false;
+    // A concurrent start commits the same reference right after this start's check.
+    DB::listen(function ($query) use (&$raced): void {
+        if (! $raced && str_contains($query->sql, 'exists') && str_contains($query->sql, 'provider_ref')) {
+            $raced = true;
+            storedAttempt(['gateway' => 'fake_signing', 'provider_ref' => 'racedref']);
+        }
+    });
+    $invoice = signingInvoice();
+
+    expect(fn () => app(StartHostedPayment::class)->handle($invoice, 'fake_signing'))->toThrow(BillingException::class);
+    expect(PaymentAttempt::query()->where('invoice_id', $invoice->id)->sole())
+        ->status->toBe(AttemptStatus::Failed)->provider_ref->toBeNull();
+});
+
 test('the database refuses a second attempt with the same provider reference on one gateway', function () {
     storedAttempt(['gateway' => 'fake_signing', 'provider_ref' => 'sameref']);
     storedAttempt(['gateway' => 'sandbox_card', 'provider_ref' => 'sameref']);
@@ -95,6 +112,7 @@ test('the migration resolves existing duplicate provider references before build
     $paid = storedAttempt(['gateway' => 'fake_signing', 'provider_ref' => 'dup', 'status' => AttemptStatus::Succeeded]);
     $older = storedAttempt(['gateway' => 'fake_signing', 'provider_ref' => 'dup', 'status' => AttemptStatus::Pending]);
     $closed = storedAttempt(['gateway' => 'fake_signing', 'provider_ref' => 'dup', 'status' => AttemptStatus::Expired, 'raw' => ['a' => 1]]);
+    $listed = storedAttempt(['gateway' => 'fake_signing', 'provider_ref' => 'dup', 'status' => AttemptStatus::Succeeded, 'raw' => [1, 2]]);
     $other = storedAttempt(['gateway' => 'sandbox_card', 'provider_ref' => 'dup']);
 
     (require base_path('app/Modules/Billing/Database/Migrations/2026_11_02_300790_add_provider_ref_unique_to_payment_attempts.php'))->resolveDuplicates();
@@ -104,6 +122,9 @@ test('the migration resolves existing duplicate provider references before build
         ->and($older->fresh())->provider_ref->toBeNull()->status->toBe(AttemptStatus::Ambiguous)->raw->toBe(['duplicate_provider_ref' => 'dup'])
         ->review_reason->toBe('Another payment had the same provider reference. Check this one at the provider.')
         ->and($closed->fresh())->provider_ref->toBeNull()->status->toBe(AttemptStatus::Expired)->raw->toBe(['a' => 1, 'duplicate_provider_ref' => 'dup'])
+        ->review_reason->not->toBeNull()->lookups_closed_at->not->toBeNull()
+        ->and($listed->fresh())->provider_ref->toBeNull()->status->toBe(AttemptStatus::Succeeded)->raw->toBe([1, 2, ['duplicate_provider_ref' => 'dup']])
+        ->review_reason->not->toBeNull()
         ->and($other->fresh()->provider_ref)->toBe('dup');
     expect(fn () => DB::table('payment_attempts')->where('id', $older->id)->update(['provider_ref' => 'dup']))->toThrow(UniqueConstraintViolationException::class);
 });

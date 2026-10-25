@@ -2,17 +2,21 @@
 
 namespace App\Support\Integrations;
 
+use App\Contracts\Core\CompanyClock;
 use App\Data\Integrations\CertificateInfo;
 use App\Modules\Core\Support\DateFormats;
+use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
+use LogicException;
 use OpenSSLAsymmetricKey;
 
 /**
- * A private key and its certificate read from a PKCS#12 file (.pfx/.p12) in memory, for a FieldType::Certificate
- * setting. The file and its passphrase are never kept: the host stores the unencrypted PEM key in its encrypted
- * settings, and the metadata beside it. Only OpenSSL parses the upload.
- *
- * @api
+ * A private key, its certificate and chain read from a PKCS#12 file (.pfx/.p12) in memory, for a
+ * FieldType::Certificate setting. The file and its passphrase are never kept: the host stores the unencrypted PEM key
+ * in its encrypted settings, and the certificate, chain and metadata beside it. Only OpenSSL parses the upload, so a
+ * file with a huge key-derivation iteration count costs CPU time in that request; only staff who manage the
+ * integration, after the password step-up, can upload (ADR 0009 Amendment (#489)). The key never leaves through a
+ * dump or serialisation.
  */
 final readonly class CertificateBundle
 {
@@ -23,6 +27,22 @@ final readonly class CertificateBundle
         #[\SensitiveParameter] public string $privateKeyPem,
         public CertificateInfo $info,
     ) {}
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function __debugInfo(): array
+    {
+        return ['privateKeyPem' => '[redacted]', 'info' => $this->info];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function __serialize(): array
+    {
+        throw new LogicException('A certificate bundle holds a private key and is never serialised.');
+    }
 
     /**
      * @throws CertificateRefused with a message staff can act on; it never contains the passphrase or the key
@@ -37,9 +57,9 @@ final readonly class CertificateBundle
         $parts = [];
 
         if (! openssl_pkcs12_read($contents, $parts, $passphrase)) {
-            // OpenSSL 3 reads RC2 and 3DES-protected files (older exports) only with its legacy provider.
+            // OpenSSL 3 reads RC2-protected files (older exports) only with its legacy provider; 3DES still reads.
             throw new CertificateRefused(str_contains(self::clearErrors(), 'unsupported')
-                ? __('This file uses old encryption that this server cannot read. Ask the provider for a new file, or export it again with AES encryption.')
+                ? __('This file uses old encryption (RC2) that this server cannot read. Ask the provider for a new file, or export it again with AES encryption.')
                 : __('This file could not be opened with that passphrase. Check the passphrase, and that the file is the .pfx or .p12 file the provider sent.'));
         }
 
@@ -72,10 +92,14 @@ final readonly class CertificateBundle
             serial: is_string($parsed['serialNumberHex'] ?? null) ? $parsed['serialNumberHex'] : '',
             notBefore: CarbonImmutable::createFromTimestampUTC((int) ($parsed['validFrom_time_t'] ?? 0)),
             notAfter: CarbonImmutable::createFromTimestampUTC((int) ($parsed['validTo_time_t'] ?? 0)),
+            certificatePem: $certificate,
+            chainPems: array_values(array_filter((array) ($parts['extracerts'] ?? []), 'is_string')),
         );
 
         if ($info->notAfter->isPast()) {
-            throw new CertificateRefused(__('This certificate expired on :date. Ask the provider for a new one.', ['date' => $info->notAfter->format(DateFormats::current())]));
+            $date = CalendarDate::parse(app(CompanyClock::class)->localDate($info->notAfter))->format(DateFormats::current());
+
+            throw new CertificateRefused(__('This certificate expired on :date. Ask the provider for a new one.', ['date' => $date]));
         }
 
         return new self($pem, $info);

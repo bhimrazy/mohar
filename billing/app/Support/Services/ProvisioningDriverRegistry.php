@@ -14,7 +14,9 @@ use App\Contracts\Services\Provisioning\RenewsAccounts;
 use App\Contracts\Services\Provisioning\ReportsUsage;
 use App\Contracts\Services\Provisioning\TestsServerConnection;
 use App\Data\Services\Provisioning\DriverMetadata;
+use App\Enums\FieldType;
 use App\Support\Integrations\DriverRegistry;
+use LogicException;
 
 /**
  * Every installed provisioning driver (ADR 0009 §5). Kernel-owned, so a package registers in its own boot() even
@@ -71,6 +73,15 @@ final class ProvisioningDriverRegistry extends DriverRegistry
 
     public function metadata(string $key): DriverMetadata
     {
-        return $this->get($key)->metadata();
+        $metadata = $this->get($key)->metadata();
+
+        foreach ([...$metadata->productConfigFields, ...$metadata->serverFields] as $field) {
+            // Only the gateway host stores certificate uploads so far (ADR 0009 Amendment (#489)).
+            if ($field->type === FieldType::Certificate) {
+                throw new LogicException("The provisioning driver [{$key}] declares the certificate setting [{$field->key}], which servers and products do not support yet.");
+            }
+        }
+
+        return $metadata;
     }
 }

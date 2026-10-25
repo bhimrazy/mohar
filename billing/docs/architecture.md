@@ -83,8 +83,9 @@ Settings, connection checks, logos and log redaction are shared by every driver 
 
 - `Data\Integrations\SettingField` with `Enums\FieldType` is the one settings-field schema. A secret is a type
   (`Secret`, `SecretText`, `Certificate`), not a flag. A `Certificate` is a .pfx/.p12 upload read in memory by
-  `Support\Integrations\CertificateBundle`; the host keeps the PEM key as the secret and `CertificateInfo` beside it
-  (ADR 0009 Amendment (#489); only the gateway form takes one so far). Gateways still return arrays, which Billing reads through
+  `Support\Integrations\CertificateBundle`; the host keeps the PEM key as the secret, `CertificateInfo` beside it, and
+  expiry bookkeeping in Core's `integration_credentials` (ADR 0009 Amendment (#489); only the gateway host takes one
+  so far, the registrar and provisioning registries refuse it). Gateways still return arrays, which Billing reads through
   `SettingField::fromArray()` until the gateway family is aligned. Every field list sent to the browser is
   `SettingField::toArray()`, rendered by `resources/js/components/app/setting-field.tsx`.
 - `Data\Integrations\ConnectionCheck` is the result of any credential test.

@@ -274,10 +274,11 @@ final class MailFramer
         $expires = $this->string($context, 'auth.expires_at');
 
         [$tone, $label] = match (true) {
-            in_array($key, ['staff.order_fraud', 'staff.provisioning_failed', 'staff.registrar_action_failed', 'staff.login_failures', 'staff.webhook_endpoint_disabled', 'staff.template_render_failed', 'staff.gateway_credential_expiring'], true) => ['danger', self::text('Needs attention')],
+            in_array($key, ['staff.order_fraud', 'staff.provisioning_failed', 'staff.registrar_action_failed', 'staff.login_failures', 'staff.webhook_endpoint_disabled', 'staff.template_render_failed', 'staff.gateway_credential_expired'], true) => ['danger', self::text('Needs attention')],
             $key === 'staff.automation_summary' => data_get($context, 'automation.status') === 'failed' ? ['danger', self::text('Failed')] : ['success', self::text('Completed')],
             $key === 'staff.free_domain_renewal_blocked' || $key === 'staff.cancellation_request' => ['warning', self::text('Review')],
             $key === 'staff.provisioning_unknown' => ['warning', self::text('Checking')],
+            $key === 'staff.gateway_credential_expiring' => ['warning', self::text('Expires soon')],
             str_starts_with($key, 'staff.ticket_') => ['info', self::text('Support')],
             $key === 'staff.order_new' => ['accent', self::text('New order')],
             in_array($key, ['staff.password_reset', 'staff.invitation'], true) => ['accent', $key === 'staff.invitation' ? self::text('Invitation') : self::text('Reset requested')],

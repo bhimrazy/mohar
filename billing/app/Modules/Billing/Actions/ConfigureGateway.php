@@ -3,7 +3,7 @@
 namespace App\Modules\Billing\Actions;
 
 use App\Contracts\Billing\GatewayDriver;
-use App\Data\Billing\GatewayConfig;
+use App\Data\Integrations\CertificateInfo;
 use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Events\Billing\GatewayConfigurationChanged;
@@ -14,6 +14,7 @@ use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Support\AfterCommit;
+use App\Modules\Core\Models\IntegrationCredential;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Support\Billing\SandboxPolicy;
 use App\Support\Integrations\CertificateBundle;
@@ -52,11 +53,11 @@ class ConfigureGateway
             if ($field->type === FieldType::Certificate) {
                 if (isset($certificates[$field->key])) {
                     $info = $certificates[$field->key]->info;
-                    $before = $config[GatewayConfig::CERTIFICATES][$field->key]['not_after'] ?? null;
+                    $before = $config[CertificateInfo::SETTINGS_KEY][$field->key]['not_after'] ?? null;
                     $config[$field->key] = $certificates[$field->key]->privateKeyPem;
-                    $config[GatewayConfig::CERTIFICATES][$field->key] = $info->toArray();
+                    $config[CertificateInfo::SETTINGS_KEY][$field->key] = $info->toArray();
                     $changes['settings.'.$field->key] = 'rotated';
-                    $changes['settings.'.$field->key.'.expires'] = ['from' => $before, 'to' => $info->toArray()['not_after']];
+                    $changes['settings.'.$field->key.'.expires'] = ['from' => $before, 'to' => $info->summary()['not_after']];
                 }
 
                 continue;
@@ -88,16 +89,16 @@ class ConfigureGateway
         }
 
         return DB::transaction(function () use ($gateway, $attributes, $config, $wasActive, $key, $replacement, $changes, $userId, $certificates): Gateway {
-            // The daily expiry check records its warnings on the row; keep the ones it wrote since this form was read.
-            $locked = $gateway->exists ? Gateway::query()->lockForUpdate()->find($gateway->id) : null;
-
-            foreach ($locked?->config[GatewayConfig::CERTIFICATES] ?? [] as $field => $stored) {
-                if (! isset($certificates[$field]) && is_array($stored) && isset($config[GatewayConfig::CERTIFICATES][$field])) {
-                    $config[GatewayConfig::CERTIFICATES][$field] = $stored;
-                }
-            }
-
             $gateway->fill([...$attributes, 'config' => $config])->save();
+
+            // Expiry bookkeeping outside the encrypted settings; a new certificate starts its warnings again.
+            foreach ($certificates as $setting => $certificate) {
+                IntegrationCredential::query()->upsert([[
+                    'family' => IntegrationCredential::GATEWAY, 'owner_key' => $key, 'setting_key' => $setting,
+                    'serial' => mb_substr($certificate->info->serial, 0, 80), 'not_after' => $certificate->info->notAfter, 'warned_stage' => null,
+                    'created_at' => now(), 'updated_at' => now(),
+                ]], ['family', 'owner_key', 'setting_key'], ['serial', 'not_after', 'warned_stage', 'updated_at']);
+            }
 
             if ($wasActive && ! $gateway->is_active && $replacement !== null) {
                 Invoice::query()->where('payment_gateway', $key)->whereIn('status', InvoiceStatus::payable())->update(['payment_gateway' => $replacement]);
