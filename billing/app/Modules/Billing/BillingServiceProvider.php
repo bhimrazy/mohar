@@ -583,9 +583,9 @@ class BillingServiceProvider extends ModuleServiceProvider
 
             return ['client_id' => $note->client_id, 'pdf_attached' => app(BillingDocumentAttachments::class)->attaches($note, $note->client->language ?: null)];
         });
-        // One query each: only the columns the check reads, and the client's language (the language of the message).
-        $registry->register('invoice_mail', fn (int $id): array => $this->documentMail(Invoice::query()->select(['id', 'client_id', 'status', 'version'])->addSelect(['language' => Client::query()->select('language')->whereColumn('clients.id', 'invoices.client_id')])->findOrFail($id)));
-        $registry->register('quote_mail', fn (int $id): array => $this->documentMail(Quote::query()->select(['id', 'client_id', 'stage'])->addSelect(['language' => Client::query()->select('language')->whereColumn('clients.id', 'quotes.client_id')])->findOrFail($id)));
+        // One query each: the record and the client's language (the message's language). Kept out of the `invoice` entity, which webhooks share.
+        $registry->register('invoice_mail', fn (int $id): array => $this->documentMail(Invoice::query()->select('invoices.*')->addSelect(['language' => Client::query()->select('language')->whereColumn('clients.id', 'invoices.client_id')])->findOrFail($id)));
+        $registry->register('quote_mail', fn (int $id): array => $this->documentMail(Quote::query()->select('quotes.*')->addSelect(['language' => Client::query()->select('language')->whereColumn('clients.id', 'quotes.client_id')])->findOrFail($id)));
 
         $registry->register('quote', function (int $id): array {
             $quote = Quote::query()->findOrFail($id);

@@ -52,14 +52,17 @@ class InvoicePdf
     }
 
     /**
-     * Path of the quote's PDF in `$locale`, rendering it first when this edit of the quote has none. The path carries
-     * the quote's `updated_at`, so an edit gets a new file; the older ones are removed.
+     * Path of the quote's PDF in `$locale`, rendering it first when this content has none. The file name is a digest of
+     * what the PDF prints, so any edit (items included, even within one second) gets a new file; the older ones in that
+     * locale are removed.
      */
     public function ensureQuote(Quote $quote, ?string $locale = null): string
     {
         $locale ??= app()->getLocale();
+        $quote->load(['items', 'client']);
         $directory = 'billing/quotes/'.$quote->id;
-        $path = sprintf('%s/%d-%s.pdf', $directory, $quote->updated_at?->getTimestamp() ?? 0, $locale);
+        $digest = substr(hash('sha256', (string) json_encode([$quote->only(['number', 'subject', 'currency', 'valid_until', 'proposal_text', 'customer_notes', 'subtotal', 'total', 'tax1_amount', 'tax2_amount']), $quote->items->map->only(['description', 'quantity', 'unit_amount', 'discount_percent', 'amount', 'taxable', 'sort_order'])->all(), $quote->client?->only(['first_name', 'last_name', 'company_name']), $this->seller->snapshot(), DateFormats::current(), $this->settings->string('pdf.paper', 'A4')])), 0, 16);
+        $path = sprintf('%s/%s-%s.pdf', $directory, $digest, $locale);
         $disk = Storage::disk('objects');
 
         if (! $disk->exists($path)) {

@@ -54,16 +54,23 @@ test('a new invoice email carries the invoice PDF and says so', function () {
     expect($message->body_text)->toContain('A PDF copy of the invoice is attached.');
 });
 
-test('the receipt carries the invoice as it stands after payment: a tax invoice', function () {
+test('the receipt carries the invoice as it stands after payment: a tax invoice, not the earlier proforma', function () {
     $invoice = issueInvoice(pdfEmailClient(), [1_000_000]);
+    $before = app(BillingDocuments::class)->document(BillingDocuments::INVOICE, $invoice->id);
     payInvoice($invoice, 1_130_000);
+    $receipt = EmailMessage::query()->where('template_key', 'invoice.payment_confirmation')->sole();
+    $sent = null;
+    Mail::assertSent(TemplatedMail::class, function (TemplatedMail $mail) use ($receipt, &$sent): bool {
+        $sent = $mail->subjectLine === $receipt->subject ? $mail->document : $sent;
 
-    $file = app(BillingDocuments::class)->document(BillingDocuments::INVOICE, $invoice->id);
-    $html = view('billing::pdf.invoice', app(InvoicePdf::class)->viewData($invoice->fresh()))->render();
+        return $sent !== null;
+    });
 
-    expect($file->filename)->toStartWith('invoice-')
-        ->and(EmailMessage::query()->where('template_key', 'invoice.payment_confirmation')->sole()->body_text)->toContain('A PDF copy of the invoice is attached.')
-        ->and($html)->toContain('Tax Invoice');
+    expect($sent->path)->not->toBe($before->path)
+        ->and(Storage::disk('objects')->exists($sent->path))->toBeTrue()
+        ->and($sent->path)->toBe(app(InvoicePdf::class)->path($invoice->fresh()))
+        ->and($receipt->body_text)->toContain('A PDF copy of the invoice is attached.')
+        ->and(view('billing::pdf.invoice', app(InvoicePdf::class)->viewData($invoice->fresh()))->render())->toContain('Tax Invoice');
 });
 
 test('an invoice PDF is rendered in the message locale and cached per locale', function () {
@@ -110,12 +117,14 @@ test('a delivered quote is emailed with its PDF; a draft has none', function () 
 });
 
 test('an edited quote gets a new PDF and the old file is removed', function () {
-    $quote = app(Quotes::class)->save(['client_id' => pdfEmailClient()->id, 'subject' => 'Migration', 'items' => [['description' => 'Setup', 'quantity' => 1, 'unit_amount' => 500_000, 'taxable' => false]]]);
+    $client = pdfEmailClient();
+    $item = fn (string $description): array => ['description' => $description, 'quantity' => 1, 'unit_amount' => 500_000, 'taxable' => false];
+    $quote = app(Quotes::class)->save(['client_id' => $client->id, 'subject' => 'Migration', 'items' => [$item('Setup')]]);
     $quote = app(Quotes::class)->deliver($quote);
     $first = app(BillingDocuments::class)->document(BillingDocuments::QUOTE, $quote->id);
 
-    CarbonImmutable::setTestNow('2026-10-20 06:05:00');
-    Quote::query()->whereKey($quote->id)->update(['subject' => 'Migration, revised', 'updated_at' => now()]);
+    // Only an item's text changes, in the same second: the quote's own columns and updated_at stay as they were.
+    app(Quotes::class)->save(['client_id' => $client->id, 'subject' => 'Migration', 'valid_until' => $quote->valid_until->toDateString(), 'items' => [$item('Setup and cut-over')]], $quote->fresh());
     $second = app(BillingDocuments::class)->document(BillingDocuments::QUOTE, $quote->id);
 
     expect($second->path)->not->toBe($first->path)
@@ -134,17 +143,36 @@ test('a resend of the invoice email attaches the document again', function () {
     Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => $mail->document?->filename === 'invoice-'.$invoice->displayNumber().'.pdf');
 });
 
-test('a document over the size cap is left off and the text does not claim it', function () {
+test('a first send over the size cap neither attaches nor claims the PDF', function () {
     config(['notifications.attachment_max_bytes' => 10]);
+    issueInvoice(pdfEmailClient(), [1_000_000]);
+
+    Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => $mail->document === null);
+    expect(EmailMessage::query()->where('template_key', 'invoice.created')->sole()->body_text)->not->toContain('attached');
+});
+
+test('a quote over the size cap neither attaches nor claims the PDF', function () {
+    config(['notifications.attachment_max_bytes' => 10]);
+    $quote = app(Quotes::class)->save(['client_id' => pdfEmailClient()->id, 'subject' => 'Migration', 'items' => [['description' => 'Setup', 'quantity' => 1, 'unit_amount' => 500_000, 'taxable' => true]]]);
+    app(Quotes::class)->deliver($quote);
+
+    Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => str_contains($mail->subjectLine, 'Quote') && $mail->document === null);
+    expect(EmailMessage::query()->where('template_key', 'quote.delivered')->sole()->body_text)->not->toContain('attached');
+});
+
+test('a PDF that cannot be rendered is reported; the mail goes without it and without the claim', function () {
     $invoice = issueInvoice(pdfEmailClient(), [1_000_000]);
-    app(BillingDocuments::class)->document(BillingDocuments::INVOICE, $invoice->id);
     $message = EmailMessage::query()->where('template_key', 'invoice.created')->sole();
     $message->update(['status' => EmailStatus::Queued]);
     Mail::fake();
+    $failing = Mockery::mock(BillingDocuments::class);
+    $failing->shouldReceive('document')->andThrow(new RuntimeException('render failed'));
+    $this->instance(BillingDocuments::class, $failing);
 
     (new SendEmailMessage($message->id))->handle(app(Settings::class));
 
     Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => $mail->document === null);
+    expect($message->fresh()->status)->toBe(EmailStatus::Sent);
 });
 
 test('a converted quote line keeps its quantity, price and discount note when the item text is long', function () {
