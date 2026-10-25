@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Billing's part of the admin client page ("admin-client" dashboard area): the client's money in the client's own
- * currency (other currencies it holds are named in the hint), the unpaid count and the latest invoices.
+ * currency (other currencies it holds are named in the hint), the outstanding count and the latest invoices.
  */
 class BillingAdminClientSummary
 {
@@ -29,23 +29,24 @@ class BillingAdminClientSummary
     {
         $href = fn (Client $client, array $query = []): string => route('admin.billing.invoices.index', ['client' => $client->id, ...$query]);
 
-        $dashboard->card('admin-client', 'billing.outstanding', fn (?User $user, Client $client): array => $this->money($client, 'Outstanding balance', 'outstanding', $href($client, ['status' => 'unpaid']), 'Receipt'), 'billing.invoices.view', 10);
+        $dashboard->card('admin-client', 'billing.outstanding', fn (?User $user, Client $client): array => $this->money($client, 'Outstanding balance', 'outstanding', $href($client, ['status' => 'outstanding']), 'Receipt'), 'billing.invoices.view', 10);
         $dashboard->card('admin-client', 'billing.overdue', fn (?User $user, Client $client): array => [
             ...$this->money($client, 'Overdue', 'overdue', $href($client, ['status' => 'overdue']), 'Receipt'),
             'tone' => ($this->totals($client)[$client->currency]['overdue'] ?? 0) > 0 ? 'danger' : 'default',
         ], 'billing.invoices.view', 11);
         $dashboard->card('admin-client', 'billing.credit', fn (?User $user, Client $client): array => $this->money($client, 'Credit balance', 'credit', route('admin.billing.credit.index', ['client' => $client->id]), 'Wallet'), 'billing.credit.manage', 12);
-        $dashboard->card('admin-client', 'billing.paid', fn (?User $user, Client $client): array => $this->money($client, 'Paid to date', 'paid', $href($client, ['status' => 'paid']), 'ArrowLeftRight'), 'billing.invoices.view', 13);
+        // amount_paid is net of refunds and chargebacks and leaves out account credit applied (the credit ledger holds that).
+        $dashboard->card('admin-client', 'billing.paid', fn (?User $user, Client $client): array => $this->money($client, 'Payments received', 'paid', $href($client), 'ArrowLeftRight', 'Net of refunds, excl. account credit'), 'billing.invoices.view', 13);
 
         $dashboard->card('admin-client', 'billing.unpaid', function (?User $user, Client $client) use ($href): array {
-            $count = collect($this->totals($client))->sum('unpaid_count');
+            $count = collect($this->totals($client))->sum('outstanding_count');
             $overdue = collect($this->totals($client))->sum('overdue_count');
 
             return [
-                'label' => 'Unpaid invoices',
+                'label' => 'Outstanding invoices',
                 'value' => $count,
                 'hint' => $overdue > 0 ? "{$overdue} overdue" : null,
-                'href' => $href($client, ['status' => 'unpaid']),
+                'href' => $href($client, ['status' => 'outstanding']),
                 'icon' => 'FileText',
             ];
         }, 'billing.invoices.view', 20);
@@ -56,7 +57,7 @@ class BillingAdminClientSummary
     /**
      * @return array<string, mixed>
      */
-    private function money(Client $client, string $label, string $figure, string $href, string $icon): array
+    private function money(Client $client, string $label, string $figure, string $href, string $icon, ?string $note = null): array
     {
         $totals = $this->totals($client);
         $formatter = app(MoneyFormatter::class);
@@ -66,7 +67,7 @@ class BillingAdminClientSummary
         return [
             'label' => $label,
             'money' => ['amount' => (int) ($totals[$client->currency][$figure] ?? 0), 'currency' => $client->currency],
-            'hint' => $others->isEmpty() ? null : 'Also '.$others->implode(', '),
+            'hint' => collect([$note, $others->isEmpty() ? null : 'Also '.$others->implode(', ')])->filter()->implode('. ') ?: null,
             'href' => $href,
             'icon' => $icon,
             'primary' => true,
@@ -76,30 +77,31 @@ class BillingAdminClientSummary
     /**
      * One pass over the client's invoices (index client_id,status) and one over its credit ledger, shared by the cards.
      *
-     * @return array<string, array{outstanding: int, overdue: int, paid: int, credit: int, unpaid_count: int, overdue_count: int}>
+     * @return array<string, array{outstanding: int, overdue: int, paid: int, credit: int, outstanding_count: int, overdue_count: int}>
      */
     private function totals(Client $client): array
     {
         return RequestMemo::remember("billing.client-summary.{$client->id}", function () use ($client): array {
             $today = app(CompanyClock::class)->todayDate()->toDateString();
-            $due = [InvoiceStatus::Unpaid->value, InvoiceStatus::Collections->value];
+            $open = Invoice::OUTSTANDING_STATUSES;
             $rows = [];
-            $blank = ['outstanding' => 0, 'overdue' => 0, 'paid' => 0, 'credit' => 0, 'unpaid_count' => 0, 'overdue_count' => 0];
+            $blank = ['outstanding' => 0, 'overdue' => 0, 'paid' => 0, 'credit' => 0, 'outstanding_count' => 0, 'overdue_count' => 0];
 
+            // Outstanding and its count match the invoice list's "outstanding" filter (Invoice::scopeOutstanding).
             $invoices = Invoice::query()->where('client_id', $client->id)->whereIn('status', array_map(fn (InvoiceStatus $status): string => $status->value, self::COUNTED))
                 ->groupBy('currency')
                 ->selectRaw(
                     'currency, '
-                    .'sum(case when status in (?, ?, ?) then balance else 0 end) as outstanding, '
+                    .'sum(case when status in (?, ?, ?) and balance > 0 then balance else 0 end) as outstanding, '
                     .'sum(case when status = ? and due_date < ? then balance else 0 end) as overdue, '
                     .'sum(amount_paid) as paid, '
-                    .'sum(case when status in (?, ?) and balance > 0 then 1 else 0 end) as unpaid_count, '
+                    .'sum(case when status in (?, ?, ?) and balance > 0 then 1 else 0 end) as outstanding_count, '
                     .'sum(case when status = ? and due_date < ? then 1 else 0 end) as overdue_count',
-                    [...array_merge($due, [InvoiceStatus::PaymentPending->value]), InvoiceStatus::Unpaid->value, $today, ...$due, InvoiceStatus::Unpaid->value, $today],
+                    [...$open, InvoiceStatus::Unpaid->value, $today, ...$open, InvoiceStatus::Unpaid->value, $today],
                 )->toBase()->get();
 
             foreach ($invoices as $row) {
-                $rows[$row->currency] = [...$blank, 'outstanding' => (int) $row->outstanding, 'overdue' => (int) $row->overdue, 'paid' => (int) $row->paid, 'unpaid_count' => (int) $row->unpaid_count, 'overdue_count' => (int) $row->overdue_count];
+                $rows[$row->currency] = [...$blank, 'outstanding' => (int) $row->outstanding, 'overdue' => (int) $row->overdue, 'paid' => (int) $row->paid, 'outstanding_count' => (int) $row->outstanding_count, 'overdue_count' => (int) $row->overdue_count];
             }
 
             // The balance is the latest entry's balance_after per currency.

@@ -58,9 +58,28 @@ test('the client page sums outstanding, overdue, credit and paid in the client c
         ->and($widgets['billing.overdue']['tone'])->toBe('danger')
         ->and($widgets['billing.credit']['money'])->toBe(['amount' => 7_500, 'currency' => 'NPR'])
         ->and($widgets['billing.paid']['money']['amount'])->toBe(20_000)
+        ->and($widgets['billing.paid']['hint'])->toBe('Net of refunds, excl. account credit')
         ->and($widgets['billing.unpaid']['value'])->toBe(2)
         ->and($widgets['billing.unpaid']['hint'])->toBe('1 overdue')
         ->and($widgets['billing.invoices']['items'])->toHaveCount(3);
+});
+
+test('the outstanding figures and their links cover unpaid, collections and payment pending invoices alike', function () {
+    clientSummaryStaff();
+    $client = clientSummaryNepalClient();
+    issueInvoice($client, [10_000]);
+    DB::table('invoices')->where('id', issueInvoice($client, [20_000])->id)->update(['status' => 'collections']);
+    DB::table('invoices')->where('id', issueInvoice($client, [40_000])->id)->update(['status' => 'payment_pending']);
+
+    $widgets = clientSummaryWidgets($client);
+
+    expect($widgets['billing.outstanding']['money']['amount'])->toBe(70_000)
+        ->and($widgets['billing.unpaid']['value'])->toBe(3)
+        ->and($widgets['billing.outstanding']['href'])->toBe($widgets['billing.unpaid']['href'])
+        ->and($widgets['billing.unpaid']['href'])->toContain('status=outstanding');
+
+    $this->get($widgets['billing.unpaid']['href'])->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->has('invoices.data', 3));
 });
 
 test('amounts in a currency other than the client currency are named in the hint, not added up', function () {
@@ -107,6 +126,33 @@ test('each section needs its own permission', function () {
     issueInvoice($client, [10_000]);
 
     expect(array_keys(clientSummaryWidgets($client)))->toBe(['services.count', 'services.recent']);
+});
+
+test('open tickets are limited to the staff member\'s departments', function () {
+    $client = clientSummaryNepalClient();
+    $mine = Department::factory()->create();
+    $theirs = Department::factory()->create();
+    $visible = Ticket::factory()->forClient($client)->create(['department_id' => $mine->id]);
+    Ticket::factory()->forClient($client)->create(['department_id' => $theirs->id]);
+    $staff = actingAsStaff(['core.clients.view', 'support.tickets.view']);
+    DB::table('support_department_user')->insert(['department_id' => $mine->id, 'user_id' => $staff->id]);
+
+    $widgets = clientSummaryWidgets($client);
+
+    expect($widgets['support.count']['value'])->toBe(1)
+        ->and($widgets['support.recent']['items'])->toHaveCount(1)
+        ->and($widgets['support.recent']['items'][0]['subtitle'])->toBe('#'.$visible->number);
+});
+
+test('staff with ticket access but no department see no tickets', function () {
+    $client = clientSummaryNepalClient();
+    Ticket::factory()->forClient($client)->create();
+    actingAsStaff(['core.clients.view', 'support.tickets.view']);
+
+    $widgets = clientSummaryWidgets($client);
+
+    expect($widgets['support.count']['value'])->toBe(0)
+        ->and($widgets['support.recent']['items'])->toBe([]);
 });
 
 test('a staff member with no module permission gets the page without a summary', function () {

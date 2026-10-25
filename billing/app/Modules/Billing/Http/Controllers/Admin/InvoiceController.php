@@ -42,7 +42,7 @@ class InvoiceController extends Controller
 
         $filters = $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in([...array_column(InvoiceStatus::cases(), 'value'), 'overdue'])],
+            'status' => ['nullable', Rule::in([...array_column(InvoiceStatus::cases(), 'value'), 'overdue', 'outstanding'])],
             'client' => ['nullable', 'integer'],
             'gateway' => ['nullable', 'string', 'max:50'],
             'from' => ['nullable', 'date'],
@@ -197,6 +197,7 @@ class InvoiceController extends Controller
         return [
             ...array_map(fn (InvoiceStatus $status): array => ['value' => $status->value, 'label' => $status->label()], InvoiceStatus::cases()),
             ['value' => 'overdue', 'label' => 'Overdue'],
+            ['value' => 'outstanding', 'label' => 'Outstanding'],
         ];
     }
 
