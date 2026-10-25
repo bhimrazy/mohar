@@ -13,8 +13,10 @@ final readonly class ReturnHint
      *                            COMPLETE). Still only a hint for settling, but evidence that money was taken: a later
      *                            "not found" must go to staff review, never end the attempt
      * @param  bool  $signedCancel  the return carries the provider's own valid signature over a cancel (Cybersource
-     *                              CANCEL). Billing passes it to this attempt's lookup() (PaymentAttemptRef), which may
-     *                              then answer that the session is over; it never settles anything by itself
+     *                              CANCEL). Billing keeps it on the attempt the return names and tells every later
+     *                              lookup() of it (PaymentAttemptRef::$signedCancel), which may then answer that the
+     *                              session is over; it never settles anything by itself. Both signed flags count only
+     *                              with $signatureValid
      */
     public function __construct(
         public ?string $reference,

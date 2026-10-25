@@ -46,6 +46,12 @@ class SettlePaymentAttempt
     /** Key in the attempt's raw for the provider-signed paid return (status, amount, code, time). */
     public const SIGNED_RETURN = 'signed_return';
 
+    /**
+     * Key in the attempt's raw for a provider-signed cancel return matched to the attempt: every later lookup is told
+     * of it (PaymentAttemptRef::$signedCancel), so a cancel that arrives while no lookup is made is not lost.
+     */
+    public const SIGNED_CANCEL = 'signed_cancel';
+
     /** Key in the attempt's raw for the form the customer was sent with (StartHostedPayment), kept across lookups. */
     public const PROVIDER_FORM = 'provider_form';
 
@@ -67,8 +73,8 @@ class SettlePaymentAttempt
      * @param  bool  $interactive  a customer's browser is waiting (return route): one quick provider try, no retries
      * @param  bool  $cancelReturn  the browser came back through the attempt's cancel URL (a hint: only the lookup decides)
      * @param  ReturnHint|null  $returnHint  the customer's return, when this settle comes from it: a provider-signed
-     *                                       paid status is kept on the attempt as evidence (#323), and a signed
-     *                                       cancel is passed to the lookup
+     *                                       paid status is kept on the attempt as evidence (#323), and so is a
+     *                                       signed cancel, which every later lookup is told of
      */
     public function handle(PaymentAttempt $attempt, bool $interactive = false, bool $cancelReturn = false, ?ReturnHint $returnHint = null): AttemptStatus
     {
@@ -85,7 +91,8 @@ class SettlePaymentAttempt
         }
 
         $config = $this->gateways->config($attempt->gateway);
-        $ref = $attempt->toRef($interactive, signedCancel: self::signedCancelFor($returnHint, $attempt));
+        // Read again under the lock below; a cancel stored between here and there reaches the next lookup.
+        $ref = $attempt->toRef($interactive, signedCancel: self::cancelEvidence($returnHint, $attempt) !== null);
         $result = $this->lastResult = $this->gateways->during($config, fn (): LookupResult => $driver->lookup($config, $ref));
         $raw = GatewayLogger::redact($result->raw, $attempt->gateway);
         $this->log->log($attempt->gateway, 'response', 'lookup '.$result->status, ['reference' => $attempt->reference, ...$raw], $attempt->invoice_id);
@@ -99,10 +106,12 @@ class SettlePaymentAttempt
 
             // The provider's signed paid return and the form the customer posted outlive later lookups, which replace
             // raw. Only Billing writes those keys: ones a driver put in its own answer are dropped.
-            unset($raw[self::SIGNED_RETURN], $raw[self::PROVIDER_FORM]);
+            unset($raw[self::SIGNED_RETURN], $raw[self::SIGNED_CANCEL], $raw[self::PROVIDER_FORM]);
             $signed = self::evidence($returnHint, $attempt);
+            $cancelled = self::cancelEvidence($returnHint, $attempt);
             $form = $attempt->raw[self::PROVIDER_FORM] ?? null;
             $raw = is_array($form) ? [...$raw, self::PROVIDER_FORM => $form] : $raw;
+            $raw = $cancelled === null ? $raw : [...$raw, self::SIGNED_CANCEL => $cancelled];
             $attempt->fill(['last_lookup_at' => now(), 'lookup_count' => $attempt->lookup_count + 1, 'raw' => $signed === null ? $raw : [...$raw, self::SIGNED_RETURN => $signed]]);
 
             if ($result->retryable) {
@@ -135,7 +144,8 @@ class SettlePaymentAttempt
                 LookupResult::EXPIRED => $attempt->status = AttemptStatus::Expired,
                 LookupResult::AMBIGUOUS => $this->review($attempt, is_string($result->raw['error'] ?? null) ? 'Provider: '.$result->raw['error'] : 'The provider could not confirm the payment yet'),
                 LookupResult::REFUNDED, LookupResult::PARTIALLY_REFUNDED => $this->review($attempt, 'Refunded at the provider before it was recorded here'),
-                LookupResult::NOT_FOUND => $this->notFound($attempt, $result->sessionEnded, $cancelReturn, $signed),
+                // A signed cancel counts as a cancel return, whichever URL it came back to.
+                LookupResult::NOT_FOUND => $this->notFound($attempt, $result->sessionEnded, $cancelReturn || $cancelled !== null, $signed),
                 default => $this->stillPending($attempt, $result->status),
             };
 
@@ -148,13 +158,13 @@ class SettlePaymentAttempt
     }
 
     /**
-     * The customer came back with a provider-signed paid return but no lookup is made now (the one-minute floor of the
-     * return route): keep the evidence under the attempt's lock anyway, so the next lookup that says NOT_FOUND goes to
-     * staff review (#323).
+     * The customer came back with a provider-signed paid or cancel return but no lookup is made now (the floor of the
+     * return route): keep it under the attempt's lock anyway. A paid return sends the next lookup that says NOT_FOUND
+     * to staff review (#323); a cancel is passed to every later lookup.
      */
     public function keepSignedReturn(PaymentAttempt $attempt, ReturnHint $returnHint): void
     {
-        if (! $returnHint->signedPaid) {
+        if (! self::verified($returnHint, 'signedPaid') && ! self::verified($returnHint, 'signedCancel')) {
             return;
         }
 
@@ -165,22 +175,46 @@ class SettlePaymentAttempt
                 return;
             }
 
-            $locked->raw = [...($locked->raw ?? []), self::SIGNED_RETURN => self::evidence($returnHint, $locked)];
+            $raw = $locked->raw ?? [];
+            $signed = self::evidence($returnHint, $locked);
+            $cancelled = self::cancelEvidence($returnHint, $locked);
+            $raw = $signed === null ? $raw : [...$raw, self::SIGNED_RETURN => $signed];
+            $locked->raw = $cancelled === null ? $raw : [...$raw, self::SIGNED_CANCEL => $cancelled];
             $locked->save();
         });
     }
 
     /**
-     * A signed cancel counts only for the attempt the return names.
+     * A signed flag counts only with the driver's own verified signature.
+     *
+     * @param  'signedPaid'|'signedCancel'  $flag
      */
-    private static function signedCancelFor(?ReturnHint $returnHint, PaymentAttempt $attempt): bool
+    private static function verified(?ReturnHint $returnHint, string $flag): bool
     {
-        if ($returnHint?->signedCancel !== true) {
-            return false;
+        return $returnHint !== null && $returnHint->signatureValid && $returnHint->{$flag} === true;
+    }
+
+    /**
+     * The signed cancel kept on the attempt: this return's when it has one for this attempt, else what an earlier
+     * return left. The return must name the attempt (by reference, or by provider reference when it has none); the
+     * gateway is matched by the caller (GatewayReturnController). Null when there is none.
+     *
+     * @return array<string, mixed>|null
+     */
+    private static function cancelEvidence(?ReturnHint $returnHint, PaymentAttempt $attempt): ?array
+    {
+        $kept = $attempt->raw[self::SIGNED_CANCEL] ?? null;
+        $kept = is_array($kept) ? $kept : null;
+
+        if (! self::verified($returnHint, 'signedCancel')) {
+            return $kept;
         }
 
-        return $returnHint->reference === $attempt->reference
-            || ($returnHint->reference === null && $returnHint->providerRef !== null && $returnHint->providerRef === $attempt->provider_ref);
+        $named = $returnHint->reference !== null
+            ? $returnHint->reference === $attempt->reference
+            : $returnHint->providerRef !== null && $returnHint->providerRef !== '' && $returnHint->providerRef === $attempt->provider_ref;
+
+        return $named ? ($kept ?? ['status' => $returnHint->claimedStatus, 'at' => now()->toIso8601String()]) : $kept;
     }
 
     /**
@@ -194,7 +228,7 @@ class SettlePaymentAttempt
         $kept = $attempt->raw[self::SIGNED_RETURN] ?? null;
         $kept = is_array($kept) ? $kept : null;
 
-        if ($returnHint?->signedPaid !== true) {
+        if (! self::verified($returnHint, 'signedPaid')) {
             return $kept;
         }
 

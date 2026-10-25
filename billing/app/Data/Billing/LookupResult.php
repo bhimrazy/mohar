@@ -34,7 +34,10 @@ final readonly class LookupResult
     public const STATUSES = [self::SUCCEEDED, self::PENDING, self::PROCESSING, self::AMBIGUOUS, self::FAILED, self::CANCELLED, self::EXPIRED, self::NOT_FOUND, self::REFUNDED, self::PARTIALLY_REFUNDED];
 
     /**
+     * $amount and $currency are required with SUCCEEDED; without either, Billing holds the attempt for staff review.
+     *
      * @param  int|null  $amount  minor units actually paid, as reported by the provider
+     * @param  string|null  $currency  ISO 4217 code of what was paid (the attempt's currency), as reported by the provider
      * @param  array<string, mixed>  $raw  response (redacted before storage)
      * @param  bool  $retryable  transient provider error: try again later
      * @param  bool  $sessionEnded  with not_found: the provider says it holds no payable session for this reference

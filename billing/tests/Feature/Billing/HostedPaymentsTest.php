@@ -115,7 +115,7 @@ class FakeNprWalletDriver extends AbstractGatewayDriver implements HostedPayment
 
     public function parseReturn(GatewayConfig $gateway, Request $request): ReturnHint
     {
-        return new ReturnHint($request->string('ref')->toString() ?: null, claimedStatus: $request->string('status')->toString() ?: null, signedCancel: $request->boolean('signed_cancel'));
+        return new ReturnHint($request->string('ref')->toString() ?: null, claimedStatus: $request->string('status')->toString() ?: null, signatureValid: $request->boolean('signed_cancel'), signedCancel: $request->boolean('signed_cancel'));
     }
 
     public function lookup(GatewayConfig $gateway, PaymentAttemptRef $attempt): LookupResult
@@ -126,7 +126,7 @@ class FakeNprWalletDriver extends AbstractGatewayDriver implements HostedPayment
             Carbon::setTestNow(now()->addSeconds(self::$lookupSeconds));
         }
 
-        return self::$provider[$attempt->reference] ?? new LookupResult(LookupResult::NOT_FOUND, raw: ['key' => $gateway->setting('secret_key') ? '[redacted]' : null]);
+        return self::$provider[$attempt->reference] ?? new LookupResult(LookupResult::NOT_FOUND, raw: ['key' => $gateway->setting('secret_key') ? '[redacted]' : null], sessionEnded: $attempt->signedCancel);
     }
 }
 
@@ -521,12 +521,41 @@ test('a signed cancel on the return reaches only the lookup of the attempt it na
     expect(FakeNprWalletDriver::$lastRef)->reference->toBe($first->reference)->signedCancel->toBeTrue()
         ->and($first->fresh()->status)->toBe(AttemptStatus::Failed);
 
-    app(SettlePaymentAttempt::class)->handle($second, returnHint: new ReturnHint($first->reference, signedCancel: true));
+    app(SettlePaymentAttempt::class)->handle($second, returnHint: new ReturnHint($first->reference, signatureValid: true, signedCancel: true));
     expect(FakeNprWalletDriver::$lastRef)->reference->toBe($second->reference)->signedCancel->toBeFalse();
+
+    // Without the driver's verified signature the flag is ignored.
+    app(SettlePaymentAttempt::class)->handle($second, returnHint: new ReturnHint($second->reference, signedCancel: true));
+    expect(FakeNprWalletDriver::$lastRef->signedCancel)->toBeFalse()
+        ->and($second->fresh()->raw)->not->toHaveKey(SettlePaymentAttempt::SIGNED_CANCEL);
 
     $this->travel(2)->minutes();
     $this->artisan('billing:reconcile-payments')->assertSuccessful();
-    expect(FakeNprWalletDriver::$lastRef->signedCancel)->toBeFalse();
+    expect(FakeNprWalletDriver::$lastRef)->reference->toBe($second->reference)->signedCancel->toBeFalse();
+});
+
+test('a signed cancel that comes back within seconds of a lookup is kept, and the next lookup ends the attempt', function () {
+    [, $client] = actingAsClient(Client::factory()->create(['currency' => 'NPR', 'country' => 'NP']));
+    Currency::factory()->npr()->create();
+    $invoice = issueInvoice($client, [50_000]);
+    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => 'fake_wallet']);
+    $attempt = PaymentAttempt::query()->sole();
+    // A poll while the customer is still on the provider's page.
+    app(SettlePaymentAttempt::class)->handle($attempt);
+    FakeNprWalletDriver::$lastRef = null;
+    $this->travel(3)->seconds();
+
+    $this->get(route('billing.gateways.return', ['fake_wallet', 'ref' => $attempt->reference, 'cancelled' => 1, 'signed_cancel' => 1]));
+
+    expect(FakeNprWalletDriver::$lastRef)->toBeNull()
+        ->and($attempt->fresh())->status->toBe(AttemptStatus::Pending)->raw->toHaveKey(SettlePaymentAttempt::SIGNED_CANCEL);
+
+    // The poller's lookup, with no return hint, is told of the kept cancel; it counts as a cancel return.
+    app(SettlePaymentAttempt::class)->handle($attempt->fresh());
+
+    expect(FakeNprWalletDriver::$lastRef->signedCancel)->toBeTrue()
+        ->and($attempt->fresh())->status->toBe(AttemptStatus::Failed)->review_reason->toContain('Cancelled by the customer');
+    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => 'fake_wallet'])->assertRedirect()->assertSessionHasNoErrors();
 });
 
 test('unseen attempts expire after the grace period while provider-pending ones go to review', function () {

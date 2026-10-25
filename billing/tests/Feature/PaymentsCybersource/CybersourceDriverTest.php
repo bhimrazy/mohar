@@ -5,6 +5,7 @@ use App\Data\Billing\RefundRequest;
 use App\Events\Billing\InvoicePaid;
 use App\Modules\Billing\Actions\ConfigureGateway;
 use App\Modules\Billing\Actions\RefundTransaction;
+use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\RefundMode;
@@ -175,6 +176,19 @@ test('a signed CANCEL to the cancel page ends the attempt, so the invoice can be
     expect($attempt->fresh())->status->toBe(AttemptStatus::Failed)->review_reason->toContain('Cancelled by the customer')
         ->and(session('inertia.flash_data.toast.message'))->toContain('Payment cancelled');
     $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => CybersourceDriver::KEY])->assertRedirect()->assertSessionHasNoErrors();
+});
+
+test('a signed CANCEL within seconds of a poll is kept, and the next poll ends the attempt', function () {
+    [, $attempt] = startCard();
+    fakeCardRest([]);
+    app(SettlePaymentAttempt::class)->handle($attempt);
+    $this->travel(3)->seconds();
+
+    postCardReturn(cardReturn($attempt, 'CANCEL', ['reason_code' => '']), cancel: true, attempt: $attempt);
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Pending)->raw->toHaveKey(SettlePaymentAttempt::SIGNED_CANCEL);
+
+    app(SettlePaymentAttempt::class)->handle($attempt->fresh());
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Failed)->review_reason->toContain('Cancelled by the customer');
 });
 
 test('an unsigned cancel does not end the attempt while the customer may still be paying', function () {

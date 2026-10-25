@@ -71,9 +71,15 @@ each add another path.
   `LookupResult::SUCCEEDED` only when it carries both, and both equal the attempt's. Without either, the attempt goes
   to staff review (§1: the provider may have taken money, but we cannot prove how much). The guard no longer skips
   the currency check when the driver gives none.
-- **Signed cancels are a hint for one lookup, not driver state.** A driver that verifies the provider's signature
-  over a cancel sets `ReturnHint::$signedCancel`; Billing passes it to that attempt's lookup as
-  `PaymentAttemptRef::$signedCancel`, and the lookup alone decides (it may answer `not_found` with `sessionEnded`).
-  Drivers keep no static memory of returns: it held only within one PHP process and grew with a long-lived worker.
-  A signed cancel that arrives only through the merchant notice (`CallbackEvent`) is not carried; the attempt then
-  ends at the grace period.
+- **Signed cancels are kept on the attempt, not in driver state.** A driver that verifies the provider's signature
+  over a cancel sets `ReturnHint::$signedCancel`. Billing stores it on the attempt the return names, under the
+  attempt's lock, as it stores the signed paid return (§4), also when the return route makes no lookup. Every later
+  lookup of that attempt gets `PaymentAttemptRef::$signedCancel`, and the lookup alone decides (it may answer
+  `not_found` with `sessionEnded`; a payment it finds still wins). Both signed flags count only with
+  `ReturnHint::$signatureValid`. Drivers keep no static memory of returns: it held only within one PHP process and
+  grew with a long-lived worker. A signed cancel that arrives only through the merchant notice (`CallbackEvent`) is not
+  carried; the attempt then ends at the grace period.
+- **One rule for return data a lookup needs.** Billing stores it on the attempt and derives the ref from what is
+  stored. The return context planned in the gateway expansion spec §9.4 follows the same rule.
+- **A third signed signal becomes an enum.** `signedPaid` and `signedCancel` are the second normalised signal on
+  `ReturnHint`. A third one replaces them with one `?SignedOutcome` enum, not another bool.
