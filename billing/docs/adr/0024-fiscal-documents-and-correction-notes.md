@@ -608,7 +608,7 @@ PR 4 is built in steps. This one is the §5 state machine for **staff refunds** 
   "Email documents"). The send is logged as `billing.tax_note.emailed`, from `EmailSent`, which gains
   `relatedType` and `relatedId`.
 
-## Amendment (#P6b) — 2026-10-25, invoice and quote documents
+## Amendment (#504) — 2026-10-25, invoice and quote documents
 
 - `BillingDocuments` gains the types `invoice` and `quote` (constants `INVOICE`, `QUOTE`); no signature changes. The invoice
   document is the current version (`InvoicePdf::ensure`, now rendered in the message locale), so a receipt or a resend
