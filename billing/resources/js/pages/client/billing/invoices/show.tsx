@@ -11,6 +11,10 @@ import { Money } from '@/components/app/money';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
+import {
+    ClientTaxNotesTable,
+    type ClientTaxNote,
+} from '@/components/billing/client-tax-notes';
 import { InvoiceDate } from '@/components/billing/invoice-date';
 import {
     documentTitle,
@@ -55,6 +59,7 @@ type Props = {
     transactions: Transaction[];
     payment: PaymentOptions | null;
     payment_in_progress: PaymentInProgressData | null;
+    notes: ClientTaxNote[];
 };
 
 function ApplyCreditForm({
@@ -123,6 +128,7 @@ export default function ClientInvoiceShow({
     transactions,
     payment,
     payment_in_progress,
+    notes,
 }: Props) {
     const [payAnotherWay, setPayAnotherWay] = useState(false);
     const { errors } = usePage<{ errors: Record<string, string> }>().props;
@@ -324,6 +330,14 @@ export default function ClientInvoiceShow({
                                 />
                             </div>
                         </SectionCard>
+                        {notes.length > 0 && (
+                            <SectionCard title="Credit and debit notes" flush>
+                                <ClientTaxNotesTable
+                                    notes={notes}
+                                    showInvoice={false}
+                                />
+                            </SectionCard>
+                        )}
                         {payments.length > 0 && (
                             <SectionCard title="Payments" flush>
                                 <DataTable

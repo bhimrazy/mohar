@@ -1,5 +1,5 @@
 import { router } from '@inertiajs/react';
-import { FilePlus2, FileMinus2, Undo2 } from 'lucide-react';
+import { Download, FilePlus2, FileMinus2, Undo2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { DateTime } from '@/components/app/date';
 import { EmptyState } from '@/components/app/empty-state';
@@ -27,6 +27,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { normalizeMoney } from '@/components/billing/types';
 import { formatMoney, labelWithCurrency } from '@/lib/money';
 import {
+    pdf as notePdf,
     preview as previewNote,
     store as storeNote,
 } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/TaxNoteController';
@@ -253,6 +254,12 @@ export function TaxNotesPanel({
                                     signed
                                     className="font-medium"
                                 />
+                                <Button variant="ghost" size="sm" asChild>
+                                    <a href={notePdf.url(note.id)}>
+                                        <Download />
+                                        PDF
+                                    </a>
+                                </Button>
                                 {actions &&
                                     note.kind === 'credit' &&
                                     !note.reversed_by &&
@@ -311,6 +318,8 @@ function NoteDialog({
     const [taxable, setTaxable] = useState(true);
     const [reasonCode, setReasonCode] = useState('');
     const [reasonText, setReasonText] = useState('');
+    // Not part of the preview: changing it keeps the preview and its digest.
+    const [notify, setNotify] = useState(true);
     const [preview, setPreview] = useState<Preview | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -436,7 +445,12 @@ function NoteDialog({
 
         router.post(
             storeNote.url(invoiceId),
-            { ...data(), version: preview.version, digest: preview.digest },
+            {
+                ...data(),
+                notify,
+                version: preview.version,
+                digest: preview.digest,
+            },
             {
                 preserveScroll: true,
                 onStart: () => setProcessing(true),
@@ -642,6 +656,22 @@ function NoteDialog({
                             reversal={reversal}
                         />
                     )}
+                    <div className="flex items-start gap-2">
+                        <Checkbox
+                            id="note-notify"
+                            checked={notify}
+                            onCheckedChange={(checked) =>
+                                setNotify(checked === true)
+                            }
+                        />
+                        <div className="grid gap-0.5">
+                            <Label htmlFor="note-notify">Send to client</Label>
+                            <p className="text-xs text-muted-foreground">
+                                Emails the note to the client’s billing
+                                contacts.
+                            </p>
+                        </div>
+                    </div>
                     <InputError message={error ?? undefined} />
                 </div>
 

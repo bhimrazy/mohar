@@ -10,6 +10,7 @@ namespace App\Modules\Billing\Data;
  * `settlement` is where the part of a credit note above the open balance goes: nowhere (`balance`, refused when there
  * is such a part), account credit (`credit`) or a refund of the payment that is being made (`refund`, set only by the refund
  * reservation, which then takes the amount off `amount_paid`). `source` names who issued an automatic note (the activity entry).
+ * `notify` sends the note to the client by email (CreditNoteIssued::$notify).
  */
 final readonly class NoteRequest
 {
@@ -32,7 +33,15 @@ final readonly class NoteRequest
         public ?int $reverses = null,
         public ?string $source = null,
         public bool $cancel = false,
+        public bool $notify = true,
     ) {}
+
+    /** The same request; `$notify` false keeps the note email from the client (staff untick "Send to client"). */
+    public function notifying(bool $notify): self
+    {
+        return new self($this->kind, $this->invoiceId, $this->reasonCode, $this->reasonText, $this->lines, $this->amount, $this->taxable,
+            $this->automatic, $this->userId, $this->settlement, $this->reverses, $this->source, $this->cancel, $notify);
+    }
 
     /**
      * @param  array<int, int>  $lines  invoice item id => gross

@@ -277,8 +277,8 @@ class TaxNoteIssuer
                 'source' => $request->automatic ? ($request->source ?? 'automation') : 'staff',
             ], 'billing.tax_note.issued');
         event($credit
-            ? new CreditNoteIssued($note->id, $number, $invoice->id, $invoice->client_id, $plan->total, $invoice->currency, $request->automatic)
-            : new DebitNoteIssued($note->id, $number, $invoice->id, $invoice->client_id, $plan->total, $invoice->currency, $request->automatic));
+            ? new CreditNoteIssued($note->id, $number, $invoice->id, $invoice->client_id, $plan->total, $invoice->currency, $request->automatic, $request->notify)
+            : new DebitNoteIssued($note->id, $number, $invoice->id, $invoice->client_id, $plan->total, $invoice->currency, $request->automatic, $request->notify));
 
         return $note;
     }

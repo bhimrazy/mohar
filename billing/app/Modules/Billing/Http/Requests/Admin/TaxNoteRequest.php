@@ -42,6 +42,7 @@ class TaxNoteRequest extends FormRequest
             'reason_code' => [Rule::requiredIf(! $reversal), 'nullable', Rule::in([...TaxNoteIssuer::CREDIT_REASONS, ...TaxNoteIssuer::DEBIT_REASONS])],
             'reason_text' => ['required', 'string', 'max:500'],
             'settlement' => ['nullable', Rule::in(NoteRequest::SETTLEMENTS)],
+            'notify' => ['boolean'],
             'version' => [Rule::requiredIf($this->isMethod('POST')), 'integer'],
             'digest' => [Rule::requiredIf($this->isMethod('POST')), 'string', 'size:64'],
         ];
@@ -71,6 +72,11 @@ class TaxNoteRequest extends FormRequest
     }
 
     public function note(Invoice $invoice): NoteRequest
+    {
+        return $this->request($invoice)->notifying($this->boolean('notify', true));
+    }
+
+    private function request(Invoice $invoice): NoteRequest
     {
         $userId = $this->user()?->id;
         $text = (string) $this->input('reason_text');

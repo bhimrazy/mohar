@@ -3,6 +3,9 @@
 @section('title', $title.' '.$invoice->displayNumber())
 
 @section('content')
+@if ($copy ?? null)
+    <div class="right" style="margin-bottom: 8px"><span class="stamp info">{{ $copy }}</span></div>
+@endif
 <table class="header">
     <tr>
         <td>

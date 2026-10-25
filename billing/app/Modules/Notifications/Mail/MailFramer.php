@@ -28,7 +28,8 @@ final class MailFramer
 
         return match (true) {
             $key === 'invoice.payment_confirmation' => $this->receipt($context),
-            in_array($key, ['invoice.refunded', 'credit_note.issued'], true) => $this->refund($key, $context),
+            $key === 'invoice.refunded' => $this->refund($context),
+            in_array($key, ['credit_note.issued', 'debit_note.issued'], true) => $this->taxNote($key, $context),
             $key === 'payment_method.expiring' => new MailFrame(label: self::text('Billing'), statusTone: 'warning', statusLabel: self::text('Expires soon'), reason: $this->billingReason($context)),
             $family === 'invoice' => $this->invoice($key, $context),
             $key === 'quote.delivered' => $this->quote($context),
@@ -104,17 +105,40 @@ final class MailFramer
     /**
      * @param  array<string, mixed>  $context
      */
-    private function refund(string $key, array $context): MailFrame
+    private function refund(array $context): MailFrame
     {
         return new MailFrame(
             label: self::text('Refund from :company', ['company' => $this->legalName()]),
-            amount: $this->string($context, $key === 'invoice.refunded' ? 'refund.amount' : 'credit_note.amount'),
-            amountLabel: $key === 'invoice.refunded' ? self::text('Refunded') : self::text('Credit'),
+            amount: $this->string($context, 'refund.amount'),
+            amountLabel: self::text('Refunded'),
             statusTone: 'info',
-            statusLabel: $key === 'invoice.refunded' ? self::text('Refunded') : self::text('Credit issued'),
+            statusLabel: self::text('Refunded'),
             statusWhen: $this->date(MailDates::companyDate()),
             document: true,
             downloads: $this->invoiceDownload($context),
+            reason: $this->billingReason($context),
+        );
+    }
+
+    /**
+     * A credit or debit note: its amount, its date, and its own PDF to download.
+     *
+     * @param  array<string, mixed>  $context
+     */
+    private function taxNote(string $key, array $context): MailFrame
+    {
+        $credit = $key === 'credit_note.issued';
+        $pdf = $this->string($context, 'tax_note.pdf_url');
+
+        return new MailFrame(
+            label: $credit ? self::text('Credit note from :company', ['company' => $this->legalName()]) : self::text('Debit note from :company', ['company' => $this->legalName()]),
+            amount: $this->string($context, 'tax_note.amount'),
+            amountLabel: $credit ? self::text('Credit') : self::text('Added'),
+            statusTone: 'info',
+            statusLabel: $credit ? self::text('Credit note issued') : self::text('Debit note issued'),
+            statusWhen: $this->date($this->string($context, 'tax_note.issue_date') ?? MailDates::companyDate()),
+            document: true,
+            downloads: $pdf === null ? [] : [['label' => $credit ? self::text('Download credit note') : self::text('Download debit note'), 'url' => $pdf]],
             reason: $this->billingReason($context),
         );
     }

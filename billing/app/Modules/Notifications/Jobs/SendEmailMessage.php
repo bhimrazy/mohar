@@ -2,6 +2,8 @@
 
 namespace App\Modules\Notifications\Jobs;
 
+use App\Contracts\Billing\BillingDocuments;
+use App\Data\Billing\DocumentFile;
 use App\Events\Notifications\EmailFailed;
 use App\Events\Notifications\EmailSent;
 use App\Events\Notifications\EmailSuppressed;
@@ -80,6 +82,7 @@ class SendEmailMessage implements ShouldBeEncrypted, ShouldQueue
                     replyToEmail: $message->reply_to,
                     messageUuid: $message->uuid,
                     automatic: TemplatedMail::isAutomatic($message->template_key),
+                    document: $this->document($message),
                 ));
         } catch (Throwable $exception) {
             $this->recordFailure($message, $exception);
@@ -94,6 +97,19 @@ class SendEmailMessage implements ShouldBeEncrypted, ShouldQueue
             'provider_message_id' => $sent?->getMessageId(),
         ]);
         EmailSent::dispatch($message->id, $message->template_key, $message->client_id);
+    }
+
+    /**
+     * The billing document the message is about, asked for at each send so a resend carries it too. Inside the send's
+     * try: a document that cannot be rendered fails this attempt like a transport error.
+     */
+    private function document(EmailMessage $message): ?DocumentFile
+    {
+        if ($message->related_type === null || $message->related_id === null || ! app()->bound(BillingDocuments::class)) {
+            return null;
+        }
+
+        return app(BillingDocuments::class)->emailAttachment($message->related_type, (int) $message->related_id);
     }
 
     /**

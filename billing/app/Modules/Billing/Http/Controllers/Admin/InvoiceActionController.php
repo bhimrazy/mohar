@@ -20,15 +20,14 @@ use App\Modules\Billing\Http\Requests\Admin\AmountRequest;
 use App\Modules\Billing\Http\Requests\Admin\RecordPaymentRequest;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PayMethod;
-use App\Modules\Billing\Services\InvoicePdf;
+use App\Modules\Billing\Services\DocumentDownloads;
 use App\Modules\Core\Support\ActivityLogger;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Staff actions on a single invoice and bulk actions on the list.
@@ -152,11 +151,11 @@ class InvoiceActionController extends Controller
         return $this->done(__('Credit removed from invoice :number.', ['number' => $invoice->displayNumber()]));
     }
 
-    public function pdf(Invoice $invoice, InvoicePdf $pdf): StreamedResponse
+    public function pdf(Invoice $invoice, DocumentDownloads $downloads): Response
     {
         $this->authorize('billing.invoices.view');
 
-        return Storage::disk('objects')->download($pdf->ensure($invoice), $pdf->filename($invoice), ['Content-Type' => 'application/pdf']);
+        return $downloads->invoice($invoice);
     }
 
     /**

@@ -19,6 +19,7 @@ use App\Modules\Billing\Http\Controllers\Client\InvoiceController;
 use App\Modules\Billing\Http\Controllers\Client\PaymentBatchController;
 use App\Modules\Billing\Http\Controllers\Client\PayMethodController;
 use App\Modules\Billing\Http\Controllers\Client\QuoteController;
+use App\Modules\Billing\Http\Controllers\Client\TaxNoteController as ClientTaxNoteController;
 use App\Modules\Billing\Http\Controllers\Public\GatewayReturnController;
 use App\Modules\Billing\Http\Controllers\Public\SandboxHostedController;
 use App\Modules\Billing\Http\Controllers\Public\SandboxVaultController;
@@ -46,6 +47,8 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
         Route::get('notes/preview', [TaxNoteController::class, 'preview'])->name('notes.preview');
         Route::post('notes', [TaxNoteController::class, 'store'])->middleware('password.recent')->name('notes.store');
     });
+
+    Route::get('notes/{taxNote}/pdf', [TaxNoteController::class, 'pdf'])->name('notes.pdf');
 
     Route::get('transactions', [TransactionController::class, 'index'])->name('transactions.index');
     Route::post('transactions', [TransactionController::class, 'store'])->middleware('password.recent')->name('transactions.store');
@@ -89,6 +92,8 @@ Route::clientArea(function (): void {
         Route::post('batches', [PaymentBatchController::class, 'store'])->name('batches.store');
         Route::get('batches/{batch}', [PaymentBatchController::class, 'show'])->whereNumber('batch')->name('batches.show');
         Route::post('batches/{batch}/pay', [PaymentBatchController::class, 'pay'])->whereNumber('batch')->middleware('throttle:billing-pay')->name('batches.pay');
+        Route::get('notes', [ClientTaxNoteController::class, 'index'])->name('notes.index');
+        Route::get('notes/{note}/pdf', [ClientTaxNoteController::class, 'pdf'])->whereNumber('note')->name('notes.pdf');
         Route::get('{invoice}', 'show')->whereNumber('invoice')->name('show');
         Route::get('{invoice}/pdf', 'pdf')->whereNumber('invoice')->name('pdf');
         Route::post('{invoice}/pay', 'pay')->whereNumber('invoice')->middleware('throttle:billing-pay')->name('pay');

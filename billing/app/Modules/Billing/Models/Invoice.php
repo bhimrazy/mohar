@@ -80,6 +80,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $credited_total value credited after numbering; written only by InvoiceSettlement::adjust
  * @property int $debited_total
  * @property int $version
+ * @property int $print_count PDF downloads of the tax invoice while Nepal VAT mode is on (DocumentPrints)
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  * @property-read Client $client
@@ -114,7 +115,7 @@ class Invoice extends Model
 
     /** Bookkeeping columns that do not change the rendered document (no PDF version bump). */
     private const UNVERSIONED = ['version', 'updated_at', 'last_capture_attempt_at', 'capture_attempts',
-        'first_capture_failure_on', 'reminder_log', 'overdue_notified_at', 'admin_notes'];
+        'first_capture_failure_on', 'reminder_log', 'overdue_notified_at', 'admin_notes', 'print_count'];
 
     protected $attributes = [
         'status' => 'draft',
@@ -166,6 +167,7 @@ class Invoice extends Model
             'balance' => 'integer',
             'capture_attempts' => 'integer',
             'version' => 'integer',
+            'print_count' => 'integer',
         ];
     }
 

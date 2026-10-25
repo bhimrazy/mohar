@@ -5,6 +5,8 @@ namespace App\Modules\Notifications\Listeners;
 use App\Contracts\Catalog\PriceBook;
 use App\Events\Affiliates\AffiliateActivated;
 use App\Events\Affiliates\AffiliateWithdrawalRequested;
+use App\Events\Billing\CreditNoteIssued;
+use App\Events\Billing\DebitNoteIssued;
 use App\Events\Billing\InvoiceCreated;
 use App\Events\Billing\InvoiceModified;
 use App\Events\Billing\InvoicePaymentReminder;
@@ -103,6 +105,8 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         PaymentFailed::class => 'paymentFailed',
         InvoiceRefunded::class => 'invoiceRefunded',
         InvoiceModified::class => 'invoiceModified',
+        CreditNoteIssued::class => 'taxNoteIssued',
+        DebitNoteIssued::class => 'taxNoteIssued',
         QuoteSent::class => 'quoteSent',
         DomainRegistered::class => 'domainRegistered',
         DomainTransferInitiated::class => 'domainTransferInitiated',
@@ -155,6 +159,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
                 $event instanceof PaymentFailed => $this->paymentFailed($event),
                 $event instanceof InvoiceRefunded => $this->invoiceRefunded($event),
                 $event instanceof InvoiceModified => $this->invoiceModified($event),
+                $event instanceof CreditNoteIssued, $event instanceof DebitNoteIssued => $this->taxNoteIssued($event),
                 $event instanceof QuoteSent => $this->quoteSent($event),
                 $event instanceof DomainRegistered => $this->domainRegistered($event),
                 $event instanceof DomainTransferInitiated => $this->domainTransferInitiated($event),
@@ -368,6 +373,21 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     public function invoiceModified(InvoiceModified $event): void
     {
         $this->clientMail('invoice.modified', $event->clientId, EmailCategory::Invoice, $this->invoiceContext($event->invoiceId), $event, 'invoice', $event->invoiceId);
+    }
+
+    /**
+     * The note itself, with its PDF attached at send time (the message's related record), unless staff chose not to send it.
+     */
+    public function taxNoteIssued(CreditNoteIssued|DebitNoteIssued $event): void
+    {
+        if (! $event->notify) {
+            return;
+        }
+
+        $this->clientMail($event instanceof CreditNoteIssued ? 'credit_note.issued' : 'debit_note.issued', $event->clientId, EmailCategory::Invoice, [
+            ...$this->invoiceContext($event->invoiceId),
+            'tax_note' => $this->context->resolve('tax_note', $event->taxNoteId),
+        ], $event, 'tax_note', $event->taxNoteId);
     }
 
     /**

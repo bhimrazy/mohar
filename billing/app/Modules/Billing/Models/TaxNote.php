@@ -4,6 +4,7 @@ namespace App\Modules\Billing\Models;
 
 use App\Models\User;
 use App\Modules\Billing\Exceptions\ImmutableInvoiceException;
+use App\Modules\Billing\Support\BikramSambatDate;
 use App\Modules\Core\Models\Client;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -54,6 +55,34 @@ class TaxNote extends Model
 {
     /** The only columns that change after numbering (vat-register §9). */
     public const MUTABLE = ['print_count', 'cbms_status', 'cbms_reference', 'updated_at'];
+
+    /** Each reason code in words, as the client reads it on the note, the client area and the email. */
+    private const REASONS = [
+        'invoice_cancelled' => 'Invoice cancelled', 'lines_cancelled' => 'Lines cancelled', 'refunded' => 'Refunded',
+        'refunded_at_provider' => 'Refunded by the payment provider', 'service_not_delivered' => 'Service not delivered',
+        'price_correction' => 'Price correction', 'duplicate_invoice' => 'Duplicate invoice', 'discount_after_sale' => 'Discount after sale',
+        'goodwill' => 'Goodwill', 'late_fee' => 'Late payment fee', 'reverses_credit_note' => 'Reverses a credit note', 'other' => 'Other',
+    ];
+
+    public function reasonLabel(): string
+    {
+        return __(self::REASONS[$this->reason_code] ?? 'Other');
+    }
+
+    /** A stored BS date (Y-m-d) as "28 Poush 2082 BS", or null. */
+    public static function bsLabel(?string $bsDate): ?string
+    {
+        if ($bsDate === null || preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $bsDate, $parts) !== 1) {
+            return null;
+        }
+
+        return (new BikramSambatDate((int) $parts[1], (int) $parts[2], (int) $parts[3]))->format();
+    }
+
+    public function kindLabel(): string
+    {
+        return $this->kind === 'credit' ? __('Credit Note') : __('Debit Note');
+    }
 
     protected function casts(): array
     {
