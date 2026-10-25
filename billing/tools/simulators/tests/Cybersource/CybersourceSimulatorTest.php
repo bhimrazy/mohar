@@ -200,6 +200,15 @@ test('decline, review, error and cancel return their decisions; only a decline o
     }
 });
 
+test('a cancel posts to the form\'s cancel page when it names one; other outcomes still go to the receipt page', function () {
+    $pages = ['override_custom_receipt_page' => 'https://shop.example.test/return', 'override_custom_cancel_page' => 'https://shop.example.test/return?cancelled=1'];
+    csOpen('u-c1', $pages);
+    csOpen('u-c2', $pages);
+
+    expect(csChoose('cancel', 'u-c1')['url'])->toBe($pages['override_custom_cancel_page'])
+        ->and(csChoose('decline', 'u-c2')['url'])->toBe($pages['override_custom_receipt_page']);
+});
+
 test('a review becomes a capture or a decline when Decision Manager decides, and each verdict sends a signed notice', function () {
     $this->actions['notice_url'](['url' => 'https://shop.example.test/billing/webhooks/cybersource'], $this->scenario);
     $form = csOpen('u-r1');

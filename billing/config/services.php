@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    // Card payments through NIC Asia's Cybersource profile: the currencies the bank agreement allows (NPR, or NPR,USD).
+    'cybersource' => [
+        'currencies' => env('CYBERSOURCE_CURRENCIES', 'NPR'),
+    ],
+
 ];

@@ -296,6 +296,12 @@ interoperable QR built to Nepal Rastra Bank's NepalQR framework, settled through
 It is the only Nepal card route with a public specification and a self-serve test environment, and the bank that
 uses it already ships plugins for it, so its onboarding is routine. It fits our contracts with no kernel change.
 
+**Built (V1, 2026-10-25):** module `app/Modules/PaymentsCybersource`, gateway key `cybersource`, verified against the
+simulator only. Choices made in the build: the cancel is posted to our cancel URL (`override_custom_cancel_page`);
+REST has no record of a cancelled session, so a lookup that finds nothing ends the attempt early only after
+Cybersource signed a CANCEL for it; USD is an operator switch (`CYBERSOURCE_CURRENCIES=NPR,USD`), because a
+driver's currency list cannot depend on staff settings.
+
 - **Initiate:** `initiate()` returns a `FormPost` to Cybersource's `/pay` endpoint (test host
   `testsecureacceptance.cybersource.com`, live `secureacceptance.cybersource.com`) with the bank-issued
   `access_key` and `profile_id`, a unique `transaction_uuid`, `signed_date_time` (UTC, ISO 8601),
@@ -676,7 +682,8 @@ written out in §10.6.
     a return whose signature fails, or that signs an unknown field or omits a required one, is never a valid hint.
 17. MUST: Settlement comes only from the REST lookup (REST keys are required; a signed notice never settles), with
     amount, currency and reference checked; DECLINE → failed, CANCEL → cancelled, REVIEW → processing and then staff review.
-18. MUST: No card number, CVV or expiry ever reaches our servers.
+18. MUST: No card number or CVV is ever posted by us; the masked card number and expiry that Cybersource echoes back on
+    the return and notice are never stored or logged.
 19. MUST: Staff can refund in full or in part through the REST API, and the gateway cannot be activated without REST keys (the form says why).
 
 The simulator models the REST transaction search, refund and HTTP Signature calls from public docs, some read only in search summaries. Criteria 17 and 19 must be re-verified against a real Cybersource evaluation account (§15) before go-live.
@@ -859,6 +866,11 @@ the simulator must not treat it as fact. Provider facts are in our own words.
   and their formats; `unsigned_field_names` (not on the pages fetched); REST shared-secret key id and secret versus
   P12/JWT, where they are created (the Payment Configuration, Key Management path is from search results only),
   expiry, and the REST sandbox host. The REST key and authentication pages returned 404.
+- To verify for the built driver (#492): whether `locale=en` is accepted (the documented examples use `en-us`); the
+  full set of field names a real profile signs on the return and notice (the driver refuses names outside its list
+  and logs them, e.g. `payment_token`); how long Transaction Search takes to index a new payment and a refund; the
+  real transaction statuses, including `authorizedAmount` on a partial authorisation and the void and reversal
+  statuses; and the refund response statuses.
 
 **Razorpay**
 
