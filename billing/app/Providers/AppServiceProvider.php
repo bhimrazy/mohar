@@ -44,6 +44,7 @@ use Illuminate\Contracts\Routing\UrlGenerator;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Events\Looping;
 use Illuminate\Queue\Failed\FailedJobProviderInterface;
 use Illuminate\Support\Facades\Date;
@@ -101,6 +102,17 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // A driver that could not be built is retried by the next request or queued job, never in a loop within one.
+        $forgetDriverFailures = function (): void {
+            foreach ([RegistrarDriverRegistry::class, ProvisioningDriverRegistry::class] as $registry) {
+                if ($this->app->resolved($registry)) {
+                    $this->app->make($registry)->forgetTransientFailures();
+                }
+            }
+        };
+        Event::listen(JobProcessing::class, $forgetDriverFailures);
+        $this->app->terminating($forgetDriverFailures);
+
         // Simulator endpoint overrides (ADR 0016) are logged once per boot; production ignores them.
         $this->app->make(Endpoints::class)->report();
 

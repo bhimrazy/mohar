@@ -99,10 +99,18 @@ class ServerSettings
     }
 
     /**
+     * The driver's secret setting keys. For a driver that is registered but unavailable (it failed the host's checks,
+     * so its fields cannot be read) every key of $settings counts as secret: fail closed, as Catalog's DriverSecrets.
+     *
+     * @param  array<string, mixed>  $settings  the settings in hand
      * @return list<string>
      */
-    public function secretKeys(string $driverKey): array
+    public function secretKeys(string $driverKey, array $settings = []): array
     {
+        if ($this->drivers->isRegistered($driverKey) && ! $this->drivers->has($driverKey)) {
+            return array_map('strval', array_keys($settings));
+        }
+
         return array_values(array_map(fn (SettingField $field): string => $field->key, array_filter($this->fields($driverKey), fn (SettingField $field): bool => $field->isSecret())));
     }
 

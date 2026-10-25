@@ -375,9 +375,11 @@ RSA key NCHL ships as a PKCS#12 file).
    health line skip, and report, a gateway driver whose fields cannot be read, and count only certificate settings a
    driver still declares. `has()` agrees with `keys()`, so nothing new is bound to a hidden driver (a product keeps a
    driver it is already bound to); `isRegistered()` answers for every registered key, and a caller that handles a
-   driver's secrets fails closed on a registered but hidden driver (Catalog's `DriverSecrets` treats every setting as
-   secret). A failure of the family's own checks is remembered for 60 seconds; any other failure is checked again on
-   the next call, so a long-running worker does not hide a driver for good. `unavailable()` lists hidden drivers with a
-   reason, and the admin dashboard health card names them. A host whose owner record can be deleted deletes its `integration_credentials` rows in the
-   same transaction; gateways are never deleted, so none does yet.
+   driver's secrets fails closed on a registered but hidden driver (Catalog's `DriverSecrets` and Services'
+   `ServerSettings::secretKeys()` treat every setting as secret). A failure of the family's own checks is remembered
+   for 60 seconds; any other failure (a driver that cannot be built) is remembered until the request or queued job
+   ends, so it is built and reported once per request or job and a long-running worker never hides a driver for good.
+   `unavailable()` lists hidden drivers with a reason, the admin dashboard health card names them, and service screens
+   show such a driver as unavailable rather than as manual setup. A host whose owner record can be deleted deletes its
+   `integration_credentials` rows in the same transaction; gateways are never deleted, so none does yet.
 8. The step-up refusal change is recorded in ADR 0018 Amendment (#490).

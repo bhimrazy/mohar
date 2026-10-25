@@ -42,6 +42,13 @@ class ServiceDrivers
      */
     public function present(Service $service): array
     {
+        $key = $this->keyFor($service);
+
+        // An installed driver that failed the host's checks is named as unavailable, not shown as manual setup.
+        if ($this->drivers->isRegistered($key) && ! $this->drivers->has($key)) {
+            return ['key' => $key, 'name' => __(':driver (unavailable)', ['driver' => $key]), 'requires_server' => $service->server_id !== null, 'capabilities' => []];
+        }
+
         $driver = $this->displayDriverFor($service);
 
         return [
