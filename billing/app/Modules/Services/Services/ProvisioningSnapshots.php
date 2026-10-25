@@ -62,7 +62,7 @@ class ProvisioningSnapshots
             accessHash: $server->access_hash,
             settings: $server->settings ?? [],
             nameservers: $server->nameservers ?? [],
-            secretSettingKeys: $this->serverSettings->secretKeys($server->driver),
+            secretSettingKeys: $this->serverSettings->secretKeys($server->driver, $server->settings ?? []),
         );
     }
 

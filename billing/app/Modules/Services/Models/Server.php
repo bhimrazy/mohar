@@ -90,8 +90,8 @@ class Server extends Model
 
             // Secret driver settings (of the old and the new driver) and the pin, as SaveServer drops them.
             $fields = app(ServerSettings::class);
-            $drop = [ServerSettings::CERTIFICATE_PIN, ...$fields->secretKeys((string) $server->getOriginal('driver')), ...$fields->secretKeys($server->driver)];
             $settings = $server->settings ?? [];
+            $drop = [ServerSettings::CERTIFICATE_PIN, ...$fields->secretKeys((string) $server->getOriginal('driver'), $settings), ...$fields->secretKeys($server->driver, $settings)];
             $kept = array_diff_key($settings, array_flip($drop));
 
             if ($kept !== $settings) {
