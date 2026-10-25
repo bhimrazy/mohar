@@ -1,4 +1,4 @@
-import { Link, router, useForm } from '@inertiajs/react';
+import { Link, router, useForm, usePage } from '@inertiajs/react';
 import { Check, Copy } from 'lucide-react';
 import { useState } from 'react';
 import { Head } from '@/components/app/head';
@@ -116,7 +116,12 @@ export default function GatewayEdit({
         ) as Record<string, CertificateUpload>,
         replacement: '',
     });
-    const errors = form.errors as Record<string, string | undefined>;
+    // A save repeated after the password step-up is a plain visit: its errors arrive as page props, not on the form.
+    const pageErrors = usePage().props.errors as Record<string, string>;
+    const errors = { ...pageErrors, ...form.errors } as Record<
+        string,
+        string | undefined
+    >;
     const deactivating = gateway.is_active && !form.data.is_active;
 
     const submit = (event: React.FormEvent) => {
