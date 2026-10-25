@@ -53,8 +53,13 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
 
     private const DECLINED = ['DECLINED', 'REJECTED', 'FAILED', 'CANCELLED', 'VOIDED', 'REVERSED'];
 
-    /** @var array<string, true> references Cybersource signed a CANCEL for, in this process (see lookup()) */
-    private array $signedCancels = [];
+    /**
+     * References Cybersource signed a CANCEL for, in this process (see lookup()). Static because Billing may resolve
+     * the driver more than once in one request.
+     *
+     * @var array<string, true>
+     */
+    private static array $signedCancels = [];
 
     public function __construct(private CybersourceRest $rest) {}
 
@@ -161,14 +166,14 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
     {
         $fallback = $request->query('ref');
         $fallback = is_string($fallback) && self::isReference($fallback) ? $fallback : null;
-        $fields = $this->verified($gateway, $request->request->all());
+        $fields = $this->verified($gateway, self::posted($request));
 
         if ($fields === null) {
             return new ReturnHint($fallback, raw: ['signature_valid' => false]);
         }
 
         $decision = strtoupper($fields['decision']);
-        $this->rememberCancel($decision, $fields['req_reference_number']);
+        self::rememberCancel($decision, $fields['req_reference_number']);
 
         return new ReturnHint(
             reference: $fields['req_reference_number'],
@@ -185,13 +190,13 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
      */
     public function parseCallback(GatewayConfig $gateway, Request $request): CallbackEvent|CallbackRejection
     {
-        $fields = $this->verified($gateway, $request->request->all());
+        $fields = $this->verified($gateway, self::posted($request));
 
         if ($fields === null) {
             return new CallbackRejection(CallbackRejection::INVALID_SIGNATURE);
         }
 
-        $this->rememberCancel(strtoupper($fields['decision']), $fields['req_reference_number']);
+        self::rememberCancel(strtoupper($fields['decision']), $fields['req_reference_number']);
         // Signed, so Billing's five-minute replay window applies to it.
         $sentAt = preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/', $fields['signed_date_time']) === 1
             ? CarbonImmutable::createFromFormat('Y-m-d\TH:i:s\Z', $fields['signed_date_time'], 'UTC')
@@ -233,7 +238,7 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
         }
 
         if ($details === []) {
-            return new LookupResult(LookupResult::NOT_FOUND, raw: ['found' => 0], sessionEnded: isset($this->signedCancels[$attempt->reference]));
+            return new LookupResult(LookupResult::NOT_FOUND, raw: ['found' => 0], sessionEnded: isset(self::$signedCancels[$attempt->reference]));
         }
 
         return self::classify($details, $attempt->reference);
@@ -399,20 +404,39 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
     }
 
     /**
+     * The posted fields exactly as sent: the raw form body, since the request middleware trims values and turns empty
+     * ones into null, which would break a signature over exact values.
+     *
+     * @return array<array-key, mixed>
+     */
+    private static function posted(Request $request): array
+    {
+        $body = $request->getContent();
+
+        if ($body === '' || strlen($body) > 65_536) {
+            return array_map(fn (mixed $value): mixed => $value ?? '', $request->request->all());
+        }
+
+        parse_str($body, $fields);
+
+        return $fields;
+    }
+
+    /**
      * Remembered so a lookup that finds nothing can say the session is over. Only a signed CANCEL counts; bounded so a
      * long-lived worker does not grow it without limit.
      */
-    private function rememberCancel(string $decision, string $reference): void
+    private static function rememberCancel(string $decision, string $reference): void
     {
         if ($decision !== 'CANCEL') {
             return;
         }
 
-        if (count($this->signedCancels) >= 500) {
-            $this->signedCancels = array_slice($this->signedCancels, 250, preserve_keys: true);
+        if (count(self::$signedCancels) >= 500) {
+            self::$signedCancels = array_slice(self::$signedCancels, 250, preserve_keys: true);
         }
 
-        $this->signedCancels[$reference] = true;
+        self::$signedCancels[$reference] = true;
     }
 
     /**
