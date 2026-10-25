@@ -322,7 +322,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     public function invoiceCreated(InvoiceCreated $event): void
     {
         if ($event->notify) {
-            $this->clientMail('invoice.created', $event->clientId, EmailCategory::Invoice, $this->invoiceContext($event->invoiceId), $event, 'invoice', $event->invoiceId);
+            $this->clientMail('invoice.created', $event->clientId, EmailCategory::Invoice, $this->invoiceContext($event->invoiceId, true), $event, 'invoice', $event->invoiceId);
         }
     }
 
@@ -339,7 +339,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
             default => 'invoice.payment_reminder',
         };
 
-        $this->safely(fn () => $this->clientMail($templateKey, $event->clientId, EmailCategory::Invoice, $this->invoiceContext($event->invoiceId), $event, 'invoice', $event->invoiceId));
+        $this->safely(fn () => $this->clientMail($templateKey, $event->clientId, EmailCategory::Invoice, $this->invoiceContext($event->invoiceId, true), $event, 'invoice', $event->invoiceId));
     }
 
     public function paymentReceived(PaymentReceived $event): void
@@ -350,7 +350,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
 
         $transaction = $this->context->resolve('transaction', $event->transactionId);
         $this->clientMail('invoice.payment_confirmation', $event->clientId, EmailCategory::Invoice, [
-            ...$this->invoiceContext($event->invoiceId),
+            ...$this->invoiceContext($event->invoiceId, true),
             'payment' => [
                 'amount' => app(MoneyFormatter::class)->amount($event->amount, $event->currency),
                 'date' => $transaction['date'] ?? MailDates::companyDate(),
@@ -380,7 +380,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
 
     public function invoiceModified(InvoiceModified $event): void
     {
-        $this->clientMail('invoice.modified', $event->clientId, EmailCategory::Invoice, $this->invoiceContext($event->invoiceId), $event, 'invoice', $event->invoiceId);
+        $this->clientMail('invoice.modified', $event->clientId, EmailCategory::Invoice, $this->invoiceContext($event->invoiceId, true), $event, 'invoice', $event->invoiceId);
     }
 
     /**
@@ -409,7 +409,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
             if ($client !== null) {
                 $this->send('quote.delivered', [$this->recipients->owner($client)], [
                     ...$this->context->client($client->id),
-                    'quote' => $this->context->resolve('quote', $event->quoteId),
+                    'quote' => [...$this->context->resolve('quote', $event->quoteId), 'pdf_attached' => (bool) ($this->context->resolve('quote_mail', $event->quoteId)['pdf_attached'] ?? false)],
                 ], $event, $client->id, 'quote', $event->quoteId);
             }
         });
@@ -800,9 +800,12 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     /**
      * @return array<string, mixed>
      */
-    private function invoiceContext(int $invoiceId): array
+    private function invoiceContext(int $invoiceId, bool $withDocument = false): array
     {
-        return $this->invoiceContextFrom($this->context->invoice($invoiceId));
+        $context = $this->invoiceContextFrom($this->context->invoice($invoiceId));
+
+        // Whether the message carries the invoice PDF (the template attaches it), so its text can say so.
+        return $withDocument && isset($context['invoice']) ? [...$context, 'invoice' => [...$context['invoice'], 'pdf_attached' => (bool) ($this->context->resolve('invoice_mail', $invoiceId)['pdf_attached'] ?? false)]] : $context;
     }
 
     /**

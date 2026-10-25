@@ -11,12 +11,15 @@ use App\Modules\Core\Support\DateFormats;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Traits\Localizable;
 
 /**
  * Server-rendered PDFs on the private "objects" disk, cached by (invoice, version, locale) (§9).
  */
 class InvoicePdf
 {
+    use Localizable;
+
     public function __construct(
         private BillingSettings $settings,
         private SellerDetails $seller,
@@ -37,14 +40,39 @@ class InvoicePdf
      */
     public function ensure(Invoice $invoice, ?string $locale = null): string
     {
+        $locale ??= app()->getLocale();
         $path = $this->path($invoice, $locale);
         $disk = Storage::disk('objects');
 
         if (! $disk->exists($path)) {
-            $disk->put($path, $this->render($invoice));
+            $disk->put($path, $this->withLocale($locale, fn (): string => $this->render($invoice)));
         }
 
         return $path;
+    }
+
+    /**
+     * Path of the quote's PDF in `$locale`, rendering it first when this edit of the quote has none. The path carries
+     * the quote's `updated_at`, so an edit gets a new file; the older ones are removed.
+     */
+    public function ensureQuote(Quote $quote, ?string $locale = null): string
+    {
+        $locale ??= app()->getLocale();
+        $directory = 'billing/quotes/'.$quote->id;
+        $path = sprintf('%s/%d-%s.pdf', $directory, $quote->updated_at?->getTimestamp() ?? 0, $locale);
+        $disk = Storage::disk('objects');
+
+        if (! $disk->exists($path)) {
+            $disk->put($path, $this->withLocale($locale, fn (): string => $this->renderQuote($quote)));
+            $disk->delete(array_values(array_filter($disk->files($directory), fn (string $file): bool => $file !== $path && str_ends_with($file, '-'.$locale.'.pdf'))));
+        }
+
+        return $path;
+    }
+
+    public function quoteFilename(Quote $quote): string
+    {
+        return 'quote-'.trim((string) preg_replace('/[^A-Za-z0-9_-]+/', '-', $quote->displayNumber()), '-').'.pdf';
     }
 
     /**

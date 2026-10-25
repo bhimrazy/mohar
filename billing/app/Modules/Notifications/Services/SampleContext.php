@@ -66,7 +66,7 @@ class SampleContext
                 ],
             ],
             'kyc' => ['document' => 'Citizenship certificate', 'approved' => false, 'verified' => false, 'reason' => 'The photo of the back is blurred, so the issue date cannot be read.', 'url' => url('/client/verification')],
-            'quote' => ['number' => 'Q-2026-0007', 'subject' => 'Website migration', 'total' => '$480.00', 'valid_until' => $due, 'url' => url('/client/quotes/7')],
+            'quote' => ['number' => 'Q-2026-0007', 'subject' => 'Website migration', 'total' => '$480.00', 'valid_until' => $due, 'url' => url('/client/quotes/7'), 'pdf_attached' => true],
             'invoice' => [
                 'id' => 2101, 'number' => 'INV-2026-0101', 'status' => 'Unpaid', 'currency' => 'USD', 'total' => '$28.98',
                 'balance' => '$18.98', 'balance_minor' => 1898, 'amount_paid' => '$10.00', 'amount_paid_minor' => 1000, 'subtotal' => '$28.98', 'discount' => null, 'credit_applied' => null,
@@ -75,7 +75,7 @@ class SampleContext
                     ['description' => 'Starter Hosting — example.com', 'period_start' => $period[0], 'period_end' => $period[1], 'amount' => '$18.99'],
                     ['description' => 'Domain renewal — example.com', 'period_start' => $period[0], 'period_end' => $period[1], 'amount' => '$9.99'],
                 ],
-                'payment_gateway' => 'card', 'url' => url('/client/invoices/2101'), 'pdf_url' => url('/client/invoices/2101/pdf'), 'days_overdue' => 7, 'balance_due' => true,
+                'payment_gateway' => 'card', 'url' => url('/client/invoices/2101'), 'pdf_url' => url('/client/invoices/2101/pdf'), 'days_overdue' => 7, 'balance_due' => true, 'pdf_attached' => true,
             ],
             'payment' => ['amount' => '$10.00', 'date' => $today, 'reference' => 'TXN-58201', 'gateway' => 'card', 'failure_reason' => 'Card declined'],
             'refund' => ['amount' => '$28.98'],

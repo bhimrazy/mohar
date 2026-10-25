@@ -168,7 +168,7 @@ Order within the global daily pipeline: _(Services/Domains renewal generation)_ 
 ## 9. PDFs
 
 - Server-side rendering (HTML template → PDF), cached by `(invoice_id, version, locale)`; regenerated after any change. Contains company details, client snapshot, number (or proforma number), dates, lines with periods, tax breakdown, adjustments, payments table, balance, "PAID"/"REVERSE CHARGE" stamps. **MUST**
-- Attach PDF to invoice emails `billing.pdf.attach_to_emails: true`; paper size `billing.pdf.paper: A4`. **SHOULD**
+- Attach the PDF to invoice, quote and credit/debit note emails `billing.pdf.attach_to_emails: true` (P6b): created, reminder, overdue, receipt and updated invoice emails carry the invoice as it stands when sent (a proforma, or the tax invoice once paid; a resend carries the current one); the quote email carries the quote, cached per edit. A draft has none. The email text says "attached" only when the file will be (setting on, within `notifications.attachment_max_bytes`). Paper size `billing.pdf.paper: A4`. **SHOULD**
 
 ### 9.1 Bikram Sambat dates beside AD dates (#207)
 

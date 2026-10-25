@@ -30,6 +30,9 @@ use Illuminate\Support\Facades\DB;
  */
 class Quotes
 {
+    /** The width of an invoice line's description. */
+    private const DESCRIPTION_MAX = 255;
+
     public function __construct(
         private TaxEngine $tax,
         private DocumentNumbers $numbers,
@@ -190,20 +193,32 @@ class Quotes
     {
         if ($item->quantity > 0 && $item->amount % $item->quantity === 0) {
             $description = (float) $item->discount_percent > 0
-                ? __(':line (:percent% discount)', ['line' => $item->description, 'percent' => self::percent($item)])
-                : $item->description;
+                ? $this->fit(':line (:percent% discount)', $item->description, ['percent' => self::percent($item)])
+                : mb_substr($item->description, 0, self::DESCRIPTION_MAX);
 
-            return new InvoiceLineData(mb_substr($description, 0, 255), intdiv($item->amount, $item->quantity), $item->quantity, $item->taxable, BillableType::Manual);
+            return new InvoiceLineData($description, intdiv($item->amount, $item->quantity), $item->quantity, $item->taxable, BillableType::Manual);
         }
 
-        $description = __(':line (:quantity × :price, :percent% discount)', [
-            'line' => $item->description,
+        $description = $this->fit(':line (:quantity × :price, :percent% discount)', $item->description, [
             'quantity' => $item->quantity,
             'price' => $this->money->format($item->unit_amount, $currency),
             'percent' => self::percent($item),
         ]);
 
-        return new InvoiceLineData(mb_substr($description, 0, 255), $item->amount, 1, $item->taxable, BillableType::Manual);
+        return new InvoiceLineData($description, $item->amount, 1, $item->taxable, BillableType::Manual);
+    }
+
+    /**
+     * The line's text with the note around it. When it is too long for the invoice line, the item's own text is cut
+     * and the note (quantity, price, discount) is kept whole.
+     *
+     * @param  array<string, int|string>  $note
+     */
+    private function fit(string $pattern, string $text, array $note): string
+    {
+        $room = self::DESCRIPTION_MAX - mb_strlen(__($pattern, [...$note, 'line' => '']));
+
+        return __($pattern, [...$note, 'line' => mb_substr($text, 0, max(0, $room))]);
     }
 
     private static function percent(QuoteItem $item): string

@@ -74,7 +74,7 @@ loads only Core + Billing.
 | `Billing\BillingDocuments` (→ `Data\Billing\DocumentFile`)          | Billing                | Notifications (email attachments)                             |
 
 Email documents (#482): the record's owner supplies the document (`BillingDocuments::document($type, $id, $locale)`,
-`$type` a merge-field entity key); Notifications decides per template whether a message carries it (`attaches_document`
+`$type` a merge-field entity key: `tax_note`, `invoice`, `quote`); Notifications decides per template whether a message carries it (`attaches_document`
 in `Resources/templates.php`) and asks at send time with the message's related record and locale.
 
 ### Integration drivers (ADR 0009, 0012)

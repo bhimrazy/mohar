@@ -607,3 +607,12 @@ PR 4 is built in steps. This one is the §5 state machine for **staff refunds** 
 - The note email carries the note's PDF through `App\Contracts\Billing\BillingDocuments` (architecture.md,
   "Email documents"). The send is logged as `billing.tax_note.emailed`, from `EmailSent`, which gains
   `relatedType` and `relatedId`.
+
+## Amendment (#P6b) — 2026-10-25, invoice and quote documents
+
+- `BillingDocuments` gains the types `invoice` and `quote` (constants `INVOICE`, `QUOTE`); no signature changes. The invoice
+  document is the current version (`InvoicePdf::ensure`, now rendered in the message locale), so a receipt or a resend
+  after a payment carries the tax invoice. A draft invoice or quote has no document. A quote's PDF is cached per edit
+  (`billing/quotes/<id>/<updated_at>-<locale>.pdf`, older ones removed).
+- `invoice.pdf_attached` and `quote.pdf_attached` are mail-only merge fields (entities `invoice_mail`, `quote_mail`), like
+  `tax_note.pdf_attached`.

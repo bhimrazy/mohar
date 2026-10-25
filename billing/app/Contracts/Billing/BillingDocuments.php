@@ -16,6 +16,12 @@ interface BillingDocuments
     /** A credit or debit note. */
     public const TAX_NOTE = 'tax_note';
 
+    /** An issued invoice in its current state: a proforma, or the tax invoice once paid. */
+    public const INVOICE = 'invoice';
+
+    /** A quote that has left draft. */
+    public const QUOTE = 'quote';
+
     /**
      * The document in `$locale` (the app locale when null), or null when the type has no document, the record is gone,
      * or Billing's "Attach PDFs to emails" setting is off.

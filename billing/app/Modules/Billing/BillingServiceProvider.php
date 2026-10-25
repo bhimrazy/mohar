@@ -431,7 +431,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             $bool('quotes.auto_invoice_on_accept', 'Invoice quotes automatically on acceptance'),
             $int('quotes.valid_days', 'Default quote validity (days)'),
             $bool('show_bs_dates', 'Show the Bikram Sambat date beside the AD date on invoices', 'Issue and due dates on invoice pages, PDFs and invoice emails also show the BS date, e.g. 12 Jan 2026 (28 Poush 2082 BS). Dates from 15 April 2039 on show the AD date only.'),
-            $bool('pdf.attach_to_emails', 'Attach PDFs to invoice and note emails', 'Credit and debit note emails carry the note as a PDF.'),
+            $bool('pdf.attach_to_emails', 'Attach PDFs to invoice, quote and note emails', 'Invoice, quote, credit note and debit note emails carry the document as a PDF.'),
             new SettingDefinition('billing.pdf.paper', 'PDF paper size', 'select', options: ['A4' => 'A4', 'letter' => 'Letter']),
         ], 'billing.settings.manage');
 
@@ -557,6 +557,14 @@ class BillingServiceProvider extends ModuleServiceProvider
         ];
     }
 
+    /**
+     * @return array{client_id: int|null, pdf_attached: bool}
+     */
+    private function documentMail(string $type, Invoice|Quote $record): array
+    {
+        return ['client_id' => $record->client_id, 'pdf_attached' => app(BillingDocumentAttachments::class)->attaches($type, $record->id, $record->client->language ?: null)];
+    }
+
     private function registerMergeFields(): void
     {
         $registry = $this->app->make(MergeFieldRegistry::class);
@@ -573,8 +581,10 @@ class BillingServiceProvider extends ModuleServiceProvider
         $registry->register('tax_note_mail', function (int $id): array {
             $note = TaxNote::query()->with('client:id,language')->findOrFail($id);
 
-            return ['client_id' => $note->client_id, 'pdf_attached' => app(BillingDocumentAttachments::class)->attaches($note, $note->client->language ?: null)];
+            return ['client_id' => $note->client_id, 'pdf_attached' => app(BillingDocumentAttachments::class)->attaches(BillingDocuments::TAX_NOTE, $note->id, $note->client->language ?: null)];
         });
+        $registry->register('invoice_mail', fn (int $id): array => $this->documentMail(BillingDocuments::INVOICE, Invoice::query()->with('client:id,language')->findOrFail($id)));
+        $registry->register('quote_mail', fn (int $id): array => $this->documentMail(BillingDocuments::QUOTE, Quote::query()->with('client:id,language')->findOrFail($id)));
 
         $registry->register('quote', function (int $id): array {
             $quote = Quote::query()->findOrFail($id);
