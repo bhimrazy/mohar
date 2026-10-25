@@ -55,6 +55,7 @@ use App\Modules\Services\Services\EloquentServiceRegistry;
 use App\Modules\Services\Services\RegistryProvisioningDrivers;
 use App\Modules\Services\Support\AccountList;
 use App\Modules\Services\Support\ClientNameservers;
+use App\Modules\Services\Support\CommandInitiators;
 use App\Modules\Services\Support\ServerSettings;
 use App\Modules\Services\Support\ServicesDashboard;
 use App\Support\Automation\Automation;
@@ -92,6 +93,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
     protected function registerModule(): void
     {
         $this->app->singleton(LogDriver::class);
+        $this->app->scoped(CommandInitiators::class);
         $this->app->bind(ServiceRegistry::class, EloquentServiceRegistry::class);
         $this->app->bind(CatalogUsage::class, EloquentCatalogUsage::class);
         $this->app->bind(ProvisioningDrivers::class, RegistryProvisioningDrivers::class);

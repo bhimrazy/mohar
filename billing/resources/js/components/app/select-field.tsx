@@ -152,7 +152,8 @@ function SearchableSelect({
     const [open, setOpen] = useState(false);
     const [active, setActive] = useState(0);
     const [box, setBox] = useState<{
-        top: number;
+        top?: number;
+        bottom?: number;
         left: number;
         width: number;
         height: number;
@@ -183,17 +184,37 @@ function SearchableSelect({
         const place = () => {
             const rect = input.current?.getBoundingClientRect();
 
-            if (rect) {
-                setBox({
-                    top: rect.bottom + 4,
-                    left: rect.left,
-                    width: rect.width,
-                    height: Math.min(
-                        256,
-                        window.innerHeight - rect.bottom - 12,
-                    ),
-                });
+            if (!rect) {
+                return;
             }
+
+            // Scrolled under a sticky header or out of its scroll container: close rather than draw over it.
+            const centre = document.elementFromPoint(
+                rect.left + rect.width / 2,
+                rect.top + rect.height / 2,
+            );
+
+            if (centre !== input.current) {
+                setOpen(false);
+                setQuery('');
+
+                return;
+            }
+
+            const below = window.innerHeight - rect.bottom - 12;
+            const above = rect.top - 12;
+            // Open upward when the list would not fit below and there is more room above.
+            const up = below < 256 && above > below;
+            const height = Math.min(256, up ? above : below);
+
+            setBox({
+                ...(up
+                    ? { bottom: window.innerHeight - rect.top + 4 }
+                    : { top: rect.bottom + 4 }),
+                left: rect.left,
+                width: rect.width,
+                height,
+            });
         };
 
         place();
@@ -298,9 +319,17 @@ function SearchableSelect({
                 <ul
                     id={`${id}-options`}
                     role="listbox"
-                    aria-label={placeholder ?? 'Options'}
+                    aria-label={
+                        document
+                            .querySelector(`label[for="${id}"]`)
+                            ?.textContent?.replace(/\s*\*$/, '')
+                            .trim() ||
+                        placeholder ||
+                        'Options'
+                    }
                     style={{
                         top: box.top,
+                        bottom: box.bottom,
                         left: box.left,
                         width: box.width,
                         maxHeight: Math.max(box.height, 96),

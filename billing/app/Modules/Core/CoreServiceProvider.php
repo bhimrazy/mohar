@@ -5,15 +5,18 @@ namespace App\Modules\Core;
 use App\Contracts\Auth\AuthMailer;
 use App\Contracts\Auth\ClientLoginInvitations;
 use App\Contracts\Billing\GatewayDirectory;
+use App\Contracts\Billing\InvoiceNumbers;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Billing\TaxIdRules;
 use App\Contracts\Branding\BrandProvider;
 use App\Contracts\Core\CompanyClock;
 use App\Contracts\Currencies\CurrencyDirectory;
+use App\Contracts\Domains\DomainNameRules;
 use App\Contracts\Domains\Registrar\RegistrarRefs;
 use App\Contracts\Notifications\EmailTemplates;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Notifications\SystemMailer;
+use App\Contracts\Orders\OrderNumbers;
 use App\Contracts\Orders\PaymentGuard;
 use App\Contracts\Orders\ShopperSession;
 use App\Contracts\Services\CatalogUsage;
@@ -48,9 +51,12 @@ use App\Modules\Core\Support\LaravelAuthMailer;
 use App\Modules\Core\Support\NullCatalogUsage;
 use App\Modules\Core\Support\NullClientLoginInvitations;
 use App\Modules\Core\Support\NullClientServiceDirectory;
+use App\Modules\Core\Support\NullDomainNameRules;
 use App\Modules\Core\Support\NullEmailTemplates;
 use App\Modules\Core\Support\NullGatewayDirectory;
+use App\Modules\Core\Support\NullInvoiceNumbers;
 use App\Modules\Core\Support\NullInvoiceQueries;
+use App\Modules\Core\Support\NullOrderNumbers;
 use App\Modules\Core\Support\NullPaymentGuard;
 use App\Modules\Core\Support\NullProvisioningDrivers;
 use App\Modules\Core\Support\NullPublicHelpDirectory;
@@ -107,8 +113,10 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->bindIf(ProvisioningDrivers::class, NullProvisioningDrivers::class);
         $this->app->bindIf(ClientServiceDirectory::class, NullClientServiceDirectory::class);
         $this->app->bindIf(PaymentGuard::class, NullPaymentGuard::class);
+        $this->app->bindIf(OrderNumbers::class, NullOrderNumbers::class);
         $this->app->bindIf(GatewayDirectory::class, NullGatewayDirectory::class);
         $this->app->bindIf(InvoiceQueries::class, NullInvoiceQueries::class);
+        $this->app->bindIf(InvoiceNumbers::class, NullInvoiceNumbers::class);
         $this->app->bindIf(BrandProvider::class, DefaultBrandProvider::class);
         $this->app->bindIf(EmailTemplates::class, NullEmailTemplates::class);
         $this->app->bindIf(AuthMailer::class, LaravelAuthMailer::class);
@@ -119,6 +127,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->bindIf(PublicHelpDirectory::class, NullPublicHelpDirectory::class);
         $this->app->bindIf(TicketStaffDirectory::class, NullTicketStaffDirectory::class);
         $this->app->bindIf(RegistrarRefs::class, NullRegistrarRefs::class);
+        $this->app->bindIf(DomainNameRules::class, NullDomainNameRules::class);
     }
 
     protected function schedule(Schedule $schedule): void

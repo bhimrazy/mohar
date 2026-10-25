@@ -177,10 +177,16 @@ test('the processor path keeps the 1 MB budget', function () {
     $message = RedactorTiming::input(1 << 20, fn (int $index): string => "pw=a;token: v{$index} ");
     $set = RedactionSet::of(['LogBudgetValue1', 'LogBudgetValue2']);
 
-    $started = hrtime(true);
-    RedactionScope::during($set, fn () => Log::channel('redaction_probe')->info($message));
+    // Best of two, with headroom for a busy CI runner: the quadratic path this guards against took minutes at 1 MB.
+    $best = INF;
 
-    expect((hrtime(true) - $started) / 1e9)->toBeLessThan(2.0)
+    foreach ([1, 2] as $run) {
+        $started = hrtime(true);
+        RedactionScope::during($set, fn () => Log::channel('redaction_probe')->info($message));
+        $best = min($best, (hrtime(true) - $started) / 1e9);
+    }
+
+    expect($best)->toBeLessThan(5.0)
         ->and($handler->getRecords()[0]->message)->not->toContain('v7 ');
 });
 

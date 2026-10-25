@@ -8,6 +8,7 @@ use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Catalog\PriceBook;
 use App\Contracts\Core\CompanyClock;
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Contracts\Orders\OrderNumbers;
 use App\Contracts\Orders\PaymentGuard;
 use App\Contracts\Orders\ShopperSession;
 use App\Contracts\Services\ServiceRegistry;
@@ -35,6 +36,7 @@ use App\Modules\Orders\Listeners\TrackItemActivation;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\OrderItem;
 use App\Modules\Orders\Services\CartShopperSession;
+use App\Modules\Orders\Services\OrderDirectory;
 use App\Modules\Orders\Services\OrderPaymentGuard;
 use App\Modules\Orders\Support\Demo\DemoBilling;
 use App\Modules\Orders\Support\Demo\DemoServices;
@@ -74,6 +76,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
     {
         $this->app->singleton(FraudScreening::class);
         $this->app->bind(PaymentGuard::class, OrderPaymentGuard::class);
+        $this->app->bind(OrderNumbers::class, OrderDirectory::class);
         $this->app->scoped(ShopperSession::class, CartShopperSession::class);
     }
 
@@ -269,7 +272,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
             new SettingDefinition('orders.auto_provision_only_existing_clients', 'Only auto-provision for clients with an active service', 'boolean'),
             new SettingDefinition('orders.auto_cancel_unpaid_days', 'Cancel pending unpaid orders after N days (0 = never)', 'integer', rules: ['min:0', 'max:365']),
             new SettingDefinition('orders.suppress_invoice_email_on_order', 'Do not email the invoice for new orders', 'boolean'),
-            new SettingDefinition('orders.fraud.driver', 'Fraud check provider', 'select', options: ['none' => 'None', 'rules' => 'Built-in rules']),
+            new SettingDefinition('orders.fraud.driver', 'Fraud check provider', 'select', options: FraudScreening::LABELS),
             new SettingDefinition('orders.fraud.max_pending_orders', 'Maximum pending orders per client', 'integer', rules: ['min:0']),
             new SettingDefinition('orders.fraud.max_orders_per_ip', 'Maximum orders per IP address in 24 hours', 'integer', rules: ['min:0']),
             new SettingDefinition('orders.fraud.banned_email_domains', 'Banned email domains', 'text', 'Comma separated, e.g. mailinator.com'),

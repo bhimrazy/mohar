@@ -3,8 +3,10 @@
 namespace App\Modules\Platform\Services;
 
 use App\Models\User;
+use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Settings;
 use App\Support\Countries;
+use App\Support\Money;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingLocks;
@@ -19,6 +21,9 @@ class SettingsCatalog
 {
     /** Permission for sections registered without their own permission. */
     public const DEFAULT_PERMISSION = 'core.settings.update';
+
+    /** @var array<int, array<int|string, string>> option lists from closures, per form build or save */
+    private array $options = [];
 
     public function __construct(private SettingsRegistry $registry, private Settings $settings, private PermissionRegistry $permissions, private SettingLocks $locks) {}
 
@@ -59,14 +64,22 @@ class SettingsCatalog
     }
 
     /**
-     * @return list<array{key: string, label: string, type: string, help: ?string, options: list<array{value: string, label: string}>, secret: bool, required: bool, value: mixed, is_set: bool, locked_reason: ?string}>
+     * @return list<array{key: string, label: string, type: string, help: ?string, options: list<array{value: string, label: string}>, secret: bool, required: bool, value: mixed, is_set: bool, locked_reason: ?string, currency: ?string}>
      */
     public function fields(string $section): array
     {
         $this->locks->flush();
+        $this->options = [];
+        $currency = null;
 
-        return array_map(function (SettingDefinition $definition): array {
-            $value = $this->settings->get($definition->key);
+        return array_map(function (SettingDefinition $definition) use (&$currency): array {
+            $stored = $this->settings->get($definition->key);
+            $value = $this->current($definition);
+            $options = $this->options($definition);
+
+            if ($definition->type === 'money') {
+                $currency ??= Currency::default()->code;
+            }
 
             return [
                 'key' => $definition->key,
@@ -76,15 +89,40 @@ class SettingsCatalog
                 'locked_reason' => $this->locks->reason($definition->key),
                 'options' => array_map(
                     fn (string|int $value, string $label): array => ['value' => (string) $value, 'label' => $label],
-                    array_keys($definition->options),
-                    array_values($definition->options),
+                    array_keys($options),
+                    array_values($options),
                 ),
                 'secret' => $definition->secret,
                 'required' => $this->isRequired($definition),
-                'value' => $definition->secret ? null : ($definition->type === 'country' && is_string($value) && $value !== '' ? Countries::normalize($value) : $value),
-                'is_set' => $value !== null && $value !== '',
+                'value' => match (true) {
+                    $definition->secret => null,
+                    $definition->type === 'money' => is_int($value) ? number_format($value / 100, 2, '.', '') : '',
+                    $definition->type === 'country' && is_string($value) && $value !== '' => Countries::normalize($value),
+                    default => $value,
+                },
+                'is_set' => $stored !== null && $stored !== '' && $stored !== [],
+                // Money settings are entered in the default currency's units.
+                'currency' => $definition->type === 'money' ? $currency : null,
             ];
         }, $this->section($section)['settings'] ?? []);
+    }
+
+    /**
+     * The stored value in the shape a save produces, so a save compares like with like: a multiselect stored as
+     * "a,b" (config or an older save) reads as ['a', 'b'], keeping only known options in option order, and a text
+     * setting holding a list reads as "a, b" (one item per line for a text area).
+     */
+    public function current(SettingDefinition $definition): mixed
+    {
+        $value = $this->settings->get($definition->key);
+
+        return match ($definition->type) {
+            'multiselect' => $this->cast($definition, is_string($value) ? explode(',', $value) : $value),
+            'money' => is_numeric($value) ? (int) $value : null,
+            // A list default from config ([3, 7]) is edited as "3, 7"; sent as an array, the form showed it blank.
+            'string', 'text' => is_array($value) ? implode($definition->type === 'text' ? "\n" : ', ', array_map(fn (mixed $item): string => is_scalar($item) ? (string) $item : '', $value)) : $value,
+            default => $value,
+        };
     }
 
     /**
@@ -94,13 +132,16 @@ class SettingsCatalog
      */
     public function rules(string $section): array
     {
+        $this->options = [];
         $rules = [];
 
         foreach ($this->section($section)['settings'] ?? [] as $definition) {
             $base = match ($definition->type) {
                 'integer' => ['integer'],
                 'boolean' => ['boolean'],
-                'select' => [Rule::in(array_map('strval', array_keys($definition->options)))],
+                'select' => [Rule::in(array_map('strval', array_keys($this->options($definition))))],
+                'multiselect' => ['array'],
+                'money' => ['numeric', 'decimal:0,2', 'min:0', 'max:10000000'],
                 'country' => ['string', $this->countryRule($definition)],
                 'email' => ['string', 'email', 'max:255'],
                 'text' => ['string', 'max:10000'],
@@ -112,15 +153,34 @@ class SettingsCatalog
             $rules[$definition->key] = $definition->secret
                 ? ['nullable', ...$base, ...$extra]
                 : [$presence, ...$base, ...$extra];
+
+            if ($definition->type === 'multiselect') {
+                $rules[$definition->key.'.*'] = ['string', Rule::in(array_map('strval', array_keys($this->options($definition))))];
+            }
         }
 
         return $rules;
     }
 
+    /**
+     * A definition's choices. A closure's list is read once per form build or save, so definitions sharing one source
+     * (the lookup and suggestion extensions) cost one query.
+     *
+     * @return array<int|string, string>
+     */
+    private function options(SettingDefinition $definition): array
+    {
+        if (! $definition->options instanceof \Closure) {
+            return $definition->options;
+        }
+
+        return $this->options[spl_object_id($definition->options)] ??= $definition->options();
+    }
+
     /** Whether the server refuses a blank for this setting (the form marks the field required). */
     private function isRequired(SettingDefinition $definition): bool
     {
-        return in_array($definition->type, ['integer', 'boolean', 'select'], true) || in_array('required', $definition->rules, true);
+        return in_array($definition->type, ['integer', 'boolean', 'select', 'money'], true) || in_array('required', $definition->rules, true);
     }
 
     /**
@@ -139,12 +199,33 @@ class SettingsCatalog
         };
     }
 
+    /**
+     * The options $items name, in option order. Matching ignores case and a leading dot, so lists typed before these
+     * were checkboxes ("com, NP" for extensions) still read.
+     *
+     * @param  array<mixed>  $items
+     * @return list<string>
+     */
+    private function chosen(SettingDefinition $definition, array $items): array
+    {
+        $key = fn (string $item): string => mb_strtolower(ltrim(trim($item), '.'));
+        $wanted = array_map(fn (mixed $item): string => $key(is_scalar($item) ? (string) $item : ''), $items);
+
+        return array_values(array_filter(
+            array_map('strval', array_keys($this->options($definition))),
+            fn (string $option): bool => in_array($key($option), $wanted, true),
+        ));
+    }
+
     public function cast(SettingDefinition $definition, mixed $value): mixed
     {
         return match ($definition->type) {
             'integer' => (int) $value,
             'boolean' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
             'country' => $value === null || $value === '' ? null : Countries::normalize((string) $value),
+            'multiselect' => $this->chosen($definition, (array) $value),
+            // Major units to minor units, as Money::fromDecimal; the currency plays no part in the conversion.
+            'money' => Money::fromDecimal(is_numeric($value) ? $value : 0, 'XXX')->amount,
             default => $value === null ? null : (string) $value,
         };
     }

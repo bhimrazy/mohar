@@ -25,6 +25,17 @@ class FraudScreening
         'rules' => RulesFraudChecker::class,
     ];
 
+    /** @var array<string, string> the names staff see for each driver key (settings, order page) */
+    public const LABELS = [
+        'none' => 'None',
+        'rules' => 'Built-in rules',
+    ];
+
+    public static function label(?string $driver): ?string
+    {
+        return $driver === null ? null : (self::LABELS[$driver] ?? ucfirst(str_replace('_', ' ', $driver)));
+    }
+
     public function __construct(
         private Container $container,
         private Settings $settings,

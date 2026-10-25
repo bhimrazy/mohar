@@ -25,30 +25,20 @@ class DomainGuard
     }
 
     /**
-     * Country registries that register names only under these second levels (verified 2026-10-20 at
-     * register.com.np/np-ccTLDs, the .np registry run by Mercantile Communications per IANA).
+     * The form every order path stores: trimmed, lower case, no trailing dot, Unicode labels as punycode. A name
+     * that cannot be converted is returned as typed (lower case) so isValidName() refuses it.
      */
-    public const SECOND_LEVELS = [
-        'np' => ['com', 'coop', 'edu', 'gov', 'info', 'mil', 'name', 'net', 'org'],
-    ];
-
-    /**
-     * Why an existing domain cannot exist under its registry's rules (e.g. "asha.np"), or null.
-     */
-    public static function registryLevelError(string $domain): ?string
+    public static function normalise(string $domain): string
     {
-        $labels = explode('.', strtolower(trim($domain, '.')));
-        $top = end($labels);
-        $levels = self::SECOND_LEVELS[$top] ?? null;
+        $domain = strtolower(rtrim(trim($domain), '.'));
 
-        if ($levels === null || (count($labels) >= 3 && in_array($labels[count($labels) - 2], $levels, true))) {
-            return null;
+        if ($domain === '' || ! preg_match('/[^\x00-\x7F]/', $domain) || ! function_exists('idn_to_ascii')) {
+            return $domain;
         }
 
-        return __('Enter your full .:tld name, for example yourname.com.:tld. Names are registered under :levels.', [
-            'tld' => $top,
-            'levels' => implode(', ', array_map(fn (string $level): string => ".{$level}.{$top}", $levels)),
-        ]);
+        $ascii = idn_to_ascii($domain, IDNA_NONTRANSITIONAL_TO_ASCII | IDNA_CHECK_BIDI | IDNA_CHECK_CONTEXTJ, INTL_IDNA_VARIANT_UTS46);
+
+        return $ascii === false ? $domain : strtolower($ascii);
     }
 
     public static function isValidName(string $domain): bool

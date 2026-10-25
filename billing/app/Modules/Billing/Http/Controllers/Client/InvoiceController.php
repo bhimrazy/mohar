@@ -26,6 +26,7 @@ use App\Modules\Billing\Http\Resources\TransactionResource;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Billing\Services\InvoiceParties;
 use App\Modules\Billing\Services\InvoicePdf;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\ClientPaymentOptions;
@@ -82,7 +83,7 @@ class InvoiceController extends Controller
         ]);
     }
 
-    public function show(int $invoice, ClientPaymentOptions $options, PaymentInProgress $inProgress): Response
+    public function show(int $invoice, ClientPaymentOptions $options, PaymentInProgress $inProgress, InvoiceParties $parties): Response
     {
         $this->context->authorize('billing');
         $invoice = $this->find($invoice);
@@ -90,6 +91,7 @@ class InvoiceController extends Controller
 
         return Inertia::render('client/billing/invoices/show', [
             'invoice' => new InvoiceResource($invoice),
+            'parties' => $parties->forInvoice($invoice),
             'items' => InvoiceItemResource::collection($invoice->items),
             'adjustments' => AdjustmentResource::collection($invoice->adjustments),
             // Zero-amount records (an inquiry's to-do #212, the won-dispute marker #232) moved no money: as on the PDF,

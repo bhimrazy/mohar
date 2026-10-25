@@ -13,6 +13,7 @@ use App\Modules\Services\Http\Resources\ModuleCommandResource;
 use App\Modules\Services\Models\ModuleCommand;
 use App\Modules\Services\Models\ModuleQueueItem;
 use App\Modules\Services\Services\ModuleCommandDispatcher;
+use App\Modules\Services\Support\CommandInitiators;
 use App\Modules\Services\Support\CommandOutcome;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -29,7 +30,7 @@ class ModuleLogController extends Controller
 {
     use ConvertsServiceErrors;
 
-    public function index(Request $request, VerifyUnknownOutcomes $verify): Response
+    public function index(Request $request, VerifyUnknownOutcomes $verify, CommandInitiators $initiators): Response
     {
         $this->authorize('services.module_log.view');
 
@@ -37,18 +38,20 @@ class ModuleLogController extends Controller
 
         return Inertia::render('admin/services/module-log/index', [
             'tab' => $tab,
-            'filters' => $request->only(['search', 'result', 'command', 'tab']),
+            'filters' => $request->only(['search', 'result', 'command', 'period', 'tab']),
             'commands' => array_map(fn (ModuleCommandName $command): array => ['value' => $command->value, 'label' => $command->label()], ModuleCommandName::cases()),
             'openCount' => ModuleQueueItem::query()->where('status', QueueStatus::Open->value)->count(),
-            'log' => $tab === 'log' ? ModuleCommandResource::collection(ModuleCommand::query()
+            'log' => $tab === 'log' ? ModuleCommandResource::collection($initiators->primed(ModuleCommand::query()
                 ->with(['service', 'server'])
                 ->when($request->filled('result'), fn (Builder $query) => $query->where('success', $request->string('result')->toString() === 'success'))
                 ->when($request->filled('command'), fn (Builder $query) => $query->where('command', $request->string('command')->toString()))
+                // The servers page's "Failed commands, 24 h" card links here with period=24h.
+                ->when($request->string('period')->toString() === '24h', fn (Builder $query) => $query->where('created_at', '>=', now()->subDay()))
                 ->when($request->filled('search'), fn (Builder $query) => $query->whereHas('service', fn (Builder $services) => $services->search($request->string('search')->toString())))
                 ->orderByDesc('id')
                 // No count(*) over the whole log (#49).
                 ->simplePaginate(25)
-                ->withQueryString()) : null,
+                ->withQueryString())) : null,
             'queue' => $tab === 'queue' ? ModuleQueueItem::query()
                 ->with('service.server')
                 // When the command was last tried (its latest module log row), not when the entry was last touched.

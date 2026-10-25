@@ -4,7 +4,6 @@ namespace App\Modules\Domains\Actions;
 
 use App\Data\Domains\Registrar\ContactSet;
 use App\Modules\Core\Models\Client;
-use App\Modules\Core\Support\SettingList;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainContact;
@@ -34,7 +33,15 @@ class BuildDomainContacts
         ];
 
         $useClient = (bool) $this->settings->get('domains.use_client_contacts', true);
-        $default = array_intersect_key(SettingList::map($this->settings->get('domains.default_contact', [])), array_flip(DomainContact::FIELDS));
+        $default = [];
+
+        foreach (DomainContact::FIELDS as $field) {
+            $value = $this->settings->get('domains.default_contact.'.$field);
+
+            if (is_scalar($value) && trim((string) $value) !== '') {
+                $default[$field] = (string) $value;
+            }
+        }
 
         foreach (DomainContact::ROLES as $role) {
             $details = $role === 'registrant' || $useClient || $default === [] ? $profile : [...array_fill_keys(DomainContact::FIELDS, null), ...$default];

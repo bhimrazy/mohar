@@ -2,6 +2,7 @@
 
 namespace App\Modules\Orders\Http\Controllers\Admin;
 
+use App\Contracts\Billing\InvoiceNumbers;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Catalog\PriceBook;
 use App\Enums\BillingCycle;
@@ -20,12 +21,14 @@ use App\Modules\Orders\Data\CheckoutData;
 use App\Modules\Orders\Enums\CartItemKind;
 use App\Modules\Orders\Enums\FraudDecision;
 use App\Modules\Orders\Enums\OrderStatus;
+use App\Modules\Orders\Fraud\FraudScreening;
 use App\Modules\Orders\Http\Requests\AcceptOrderRequest;
 use App\Modules\Orders\Http\Requests\BulkOrderRequest;
 use App\Modules\Orders\Http\Requests\StaffOrderRequest;
 use App\Modules\Orders\Http\Resources\OrderResource;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Services\CheckoutGateways;
+use App\Modules\Orders\Services\DomainGuard;
 use App\Modules\Orders\Services\InvoiceLinks;
 use App\Modules\Orders\Services\TldAttributeInput;
 use App\Support\Money;
@@ -41,6 +44,7 @@ class OrderController extends Controller
 {
     public function __construct(
         private Invoicer $invoicer,
+        private InvoiceNumbers $numbers,
         private InvoiceLinks $links,
     ) {}
 
@@ -87,17 +91,20 @@ class OrderController extends Controller
         $order->load(['client', 'items', 'fraudChecks' => fn ($query) => $query->orderByDesc('id'), 'placedByStaff:id,name']);
         $invoiceStatus = $order->invoice_id === null ? null : $this->invoicer->status($order->invoice_id);
         $user = $request->user();
+        $invoiceNumber = $order->invoice_id === null ? null : ($this->numbers->numbers([$order->invoice_id])[$order->invoice_id] ?? null);
 
         return Inertia::render('admin/orders/show', [
             'order' => new OrderResource($order),
             'invoice' => $order->invoice_id === null ? null : [
                 'id' => $order->invoice_id,
+                'number' => $invoiceNumber,
                 'status' => $invoiceStatus,
                 'url' => $this->links->admin($order->invoice_id),
             ],
             'fraud_checks' => $order->fraudChecks->map(fn ($check): array => [
                 'id' => $check->id,
                 'provider' => $check->provider,
+                'provider_label' => FraudScreening::label($check->provider),
                 'score' => $check->score,
                 'decision' => $check->decision->value,
                 'reasons' => $check->reasons,
@@ -107,6 +114,7 @@ class OrderController extends Controller
             'default_run_create' => $accept->defaultSelection($order, $invoiceStatus),
             'client_url' => Route::has('admin.clients.show') ? route('admin.clients.show', $order->client_id) : null,
             'placed_by_staff' => $order->placedByStaff?->name,
+            'fraud_provider_label' => FraudScreening::label($order->fraud_provider),
             'can' => [
                 'accept' => ($user?->can('orders.orders.accept') ?? false) && $order->status === OrderStatus::Pending,
                 'cancel' => ($user?->can('orders.orders.cancel') ?? false) && $order->status !== OrderStatus::Cancelled,
@@ -137,15 +145,16 @@ class OrderController extends Controller
     public function store(StaffOrderRequest $request, PlaceOrder $placeOrder, TldAttributeInput $tldAttributes): RedirectResponse
     {
         $client = Client::query()->findOrFail($request->integer('client_id'));
+        $domainName = DomainGuard::normalise($request->string('domain_name')->toString());
         $item = new CartItem(
             key: CartItem::newKey(),
             kind: CartItemKind::Product,
             productId: $request->integer('product_id'),
             cycle: BillingCycle::from($request->string('cycle')->toString()),
             domainMode: $request->input('domain_mode') ?: null,
-            domainName: $request->filled('domain_name') ? $request->string('domain_name')->lower()->toString() : null,
+            domainName: $domainName === '' ? null : $domainName,
             eppCode: $request->input('epp_code') ?: null,
-            tldAttributes: $request->input('domain_mode') === 'register' ? $tldAttributes->clean($request->input('domain_name'), $request->input('tld_attributes'), 'domain_name') : [],
+            tldAttributes: $request->input('domain_mode') === 'register' ? $tldAttributes->clean($domainName === '' ? null : $domainName, $request->input('tld_attributes'), 'domain_name') : [],
         );
 
         $placed = $placeOrder->handle(new CheckoutData(

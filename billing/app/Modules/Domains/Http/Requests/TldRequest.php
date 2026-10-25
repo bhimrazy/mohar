@@ -32,6 +32,22 @@ class TldRequest extends FormRequest
     }
 
     /**
+     * @return array<string, string>
+     */
+    public function attributes(): array
+    {
+        return ['how_to_url' => 'how-to link for clients'];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return ['how_to_url.url' => 'The how-to link must be a full https address, for example https://example.com/guide.'];
+    }
+
+    /**
      * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
@@ -54,6 +70,7 @@ class TldRequest extends FormRequest
             'allow_transfer' => ['required', 'boolean'],
             // Empty on create takes the extension's default (on for .np and its second levels).
             'registered_by_client' => ['nullable', 'boolean'],
+            'how_to_url' => ['nullable', 'url:https', 'max:255'],
             'grace_days' => ['required', 'integer', 'min:0', 'max:365'],
             'grace_fee' => ['required', 'integer', 'min:0'],
             'redemption_days' => ['required', 'integer', 'min:0', 'max:365'],

@@ -10,8 +10,9 @@ import {
     ShieldCheck,
     UserRound,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import CheckoutController from '@/actions/App/Modules/Orders/Http/Controllers/Public/CheckoutController';
+import { CountrySelect } from '@/components/app/country-select';
 import { Field } from '@/components/app/field';
 import { GatewayLogo } from '@/components/billing/gateway-logo';
 import { Money } from '@/components/app/money';
@@ -23,13 +24,6 @@ import type { GroupSaving } from '@/components/orders/order-summary';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
@@ -48,7 +42,6 @@ type Props = {
     tos_url: string | null;
     allow_notes: boolean;
     idempotency_key: string;
-    countries: string[];
     default_country: string | null;
     support_email: string | null;
     login_url: string;
@@ -79,7 +72,6 @@ export default function Checkout({
     tos_url: tosUrl,
     allow_notes: allowNotes,
     idempotency_key: idempotencyKey,
-    countries,
     default_country: defaultCountry,
     support_email: supportEmail,
     login_url: loginUrl,
@@ -112,13 +104,6 @@ export default function Checkout({
                 key === 'idempotency_key' ||
                 key === 'expected_net_total'),
     )?.[1];
-    const countryOptions = useMemo(() => {
-        const names = new Intl.DisplayNames(['en'], { type: 'region' });
-
-        return countries
-            .map((code) => ({ value: code, label: names.of(code) ?? code }))
-            .sort((a, b) => a.label.localeCompare(b.label));
-    }, [countries]);
     const guest = account === null && blockedReason === null;
 
     const submit = (event: React.FormEvent) => {
@@ -270,7 +255,8 @@ export default function Checkout({
                                             error={errors.country}
                                             optional
                                         >
-                                            <Select
+                                            <CountrySelect
+                                                id="country"
                                                 value={form.data.country}
                                                 onValueChange={(value) =>
                                                     form.setData(
@@ -278,30 +264,7 @@ export default function Checkout({
                                                         value,
                                                     )
                                                 }
-                                            >
-                                                <SelectTrigger
-                                                    id="country"
-                                                    className="w-full"
-                                                >
-                                                    <SelectValue placeholder="Choose a country" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {countryOptions.map(
-                                                        (country) => (
-                                                            <SelectItem
-                                                                key={
-                                                                    country.value
-                                                                }
-                                                                value={
-                                                                    country.value
-                                                                }
-                                                            >
-                                                                {country.label}
-                                                            </SelectItem>
-                                                        ),
-                                                    )}
-                                                </SelectContent>
-                                            </Select>
+                                            />
                                         </Field>
                                         <div className="hidden sm:block" />
                                         {text('password', 'Password', {

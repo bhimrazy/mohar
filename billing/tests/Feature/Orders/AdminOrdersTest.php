@@ -412,6 +412,30 @@ describe('staff orders', function () {
         expect(array_values($this->fakes->domains->created)[0]->tldAttributes)->toBe(['purpose' => 'P3']);
     });
 
+    it('applies the .np second-level rule and name check to staff orders like client orders', function (string $domain, ?string $error, string $stored) {
+        actingAsStaff(['orders.orders.view', 'orders.orders.create']);
+
+        $response = $this->post(route('admin.orders.store'), [
+            'client_id' => $this->client->id, 'product_id' => 1, 'cycle' => 'monthly', 'domain_mode' => 'existing',
+            'domain_name' => $domain, 'payment_gateway' => 'bank_transfer', 'skip_fraud' => true,
+        ]);
+
+        if ($error === null) {
+            $response->assertSessionHasNoErrors();
+            expect(Order::query()->sole()->items()->sole()->domain)->toBe($stored);
+        } else {
+            $response->assertSessionHasErrors(['cart' => $error]);
+            expect(Order::query()->count())->toBe(0);
+        }
+    })->with([
+        'no second level' => ['asha.np', 'Enter your full .np name, for example yourname.com.np. Names are registered under .com.np, .coop.np, .edu.np, .gov.np, .info.np, .mil.np, .name.np, .net.np, .org.np.', ''],
+        'the second level itself' => ['com.np', 'Enter your full .np name, for example yourname.com.np. Names are registered under .com.np, .coop.np, .edu.np, .gov.np, .info.np, .mil.np, .name.np, .net.np, .org.np.', ''],
+        'not a domain name' => ['not a domain', 'Enter a valid domain name, for example example.com.', ''],
+        'under .com.np' => ['asha.com.np', null, 'asha.com.np'],
+        'trailing dot and capitals are normalised' => ['ASHA.COM.NP.', null, 'asha.com.np'],
+        'a Unicode name is stored as punycode' => ['नेपाल.com', null, 'xn--l2bey1c2b.com'],
+    ]);
+
     it('forbids staff without the create permission', function () {
         actingAsStaff(['orders.orders.view']);
 

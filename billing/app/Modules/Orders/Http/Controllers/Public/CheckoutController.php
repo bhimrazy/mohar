@@ -16,7 +16,6 @@ use App\Modules\Orders\Services\CartManager;
 use App\Modules\Orders\Services\CheckoutGateways;
 use App\Modules\Orders\Services\CustomerResolver;
 use App\Modules\Orders\Services\InvoiceLinks;
-use App\Support\Countries;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -64,7 +63,6 @@ class CheckoutController extends Controller
             'tos_url' => $this->settings->get('orders.tos_url') ?: null,
             'allow_notes' => (bool) $this->settings->get('orders.allow_checkout_notes', true),
             'idempotency_key' => $this->checkoutKey($request),
-            'countries' => Countries::CODES,
             'default_country' => $this->settings->get('core.default_country'),
             'login_url' => route('login'),
             'register_url' => Route::has('register') ? route('register') : null,

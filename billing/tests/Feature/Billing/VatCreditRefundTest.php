@@ -130,6 +130,22 @@ test('a payment that the provider paid after we released it re-posts the payout 
         ->and(creditRefundNotes())->toBe(0)->and($this->payment->invoice->fresh()->amount_paid)->toBe(11_300);
 });
 
+test('a late provider success for another amount than the credit refund puts the failed row on the review list and books nothing', function () {
+    CreditRefundDriver::$answer = ChargeResult::ERROR;
+    $row = app(RefundAccountCredit::class)->throughGateway($this->client, $this->payment, 5_000, null, $this->staff);
+    app(RefundTransaction::class)->release($row->fresh());
+    $balance = ($this->balance)();
+
+    $event = new CallbackEvent(CallbackEvent::REFUND, null, 're_other', 4_000, 'NPR', 'ch_cr', raw: ['id' => 're_other'], reference: (string) $row->id);
+    $result = app(GatewayCallbackHandler::class)->process('sandbox_card', $event);
+
+    expect($result['message'] ?? $result['result'])->toContain('differs')
+        ->and($row->fresh()->status)->toBe(TransactionStatus::Failed)->and($row->fresh()->gateway_txn_id)->not->toBe('re_other')
+        ->and($row->fresh()->review_amount)->toBe(5_000)->and($row->fresh()->reviewed_at)->toBeNull()
+        ->and(($this->balance)())->toBe($balance)
+        ->and(CreditLedgerEntry::query()->where('reason', CreditReason::CreditRefunded)->count())->toBe(1);
+});
+
 test('the provider callback settles a pending credit refund and never goes down the invoice path', function () {
     CreditRefundDriver::$answer = ChargeResult::ERROR;
     $row = app(RefundAccountCredit::class)->throughGateway($this->client, $this->payment, 5_000, null, $this->staff);

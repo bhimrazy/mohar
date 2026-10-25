@@ -40,6 +40,7 @@ import type { Order, OrderItem } from '@/types/orders';
 type FraudCheck = {
     id: number;
     provider: string;
+    provider_label: string;
     score: string;
     decision: string;
     reasons: string[];
@@ -49,11 +50,17 @@ type FraudCheck = {
 
 type Props = {
     order: Order;
-    invoice: { id: number; status: string | null; url: string | null } | null;
+    invoice: {
+        id: number;
+        number: string | null;
+        status: string | null;
+        url: string | null;
+    } | null;
     fraud_checks: FraudCheck[];
     default_run_create: number[];
     client_url: string | null;
     placed_by_staff: string | null;
+    fraud_provider_label: string | null;
     can: {
         accept: boolean;
         cancel: boolean;
@@ -185,6 +192,7 @@ export default function OrderShow({
     default_run_create: defaultRunCreate,
     client_url: clientUrl,
     placed_by_staff: placedByStaff,
+    fraud_provider_label: fraudProviderLabel,
     can,
 }: Props) {
     const [accepting, setAccepting] = useState(false);
@@ -478,7 +486,11 @@ export default function OrderShow({
                         value={
                             invoice?.status ? statusLabel(invoice.status) : '—'
                         }
-                        hint={invoice ? `#${invoice.id}` : 'No invoice'}
+                        hint={
+                            invoice
+                                ? (invoice.number ?? undefined)
+                                : 'No invoice'
+                        }
                         href={invoice?.url ?? undefined}
                     />
                     <StatCard
@@ -489,8 +501,8 @@ export default function OrderShow({
                                 : 'Not run'
                         }
                         hint={
-                            order.fraud_provider
-                                ? `${order.fraud_provider} · score ${order.fraud_score ?? 0}`
+                            fraudProviderLabel
+                                ? `${fraudProviderLabel} · score ${order.fraud_score ?? 0}`
                                 : undefined
                         }
                     />
@@ -538,8 +550,8 @@ export default function OrderShow({
                                                         status={check.decision}
                                                     />
                                                     <span className="text-muted-foreground">
-                                                        {check.provider} · score{' '}
-                                                        {check.score} ·{' '}
+                                                        {check.provider_label} ·
+                                                        score {check.score} ·{' '}
                                                         {check.duration_ms} ms
                                                     </span>
                                                 </span>
