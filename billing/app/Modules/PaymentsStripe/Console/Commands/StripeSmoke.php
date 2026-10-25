@@ -12,8 +12,11 @@ use App\Modules\PaymentsStripe\Drivers\StripeDriver;
 use App\Modules\PaymentsStripe\Support\StripeAmount;
 use App\Modules\PaymentsStripe\Support\StripeClient;
 use App\Support\Billing\SandboxPolicy;
+use App\Support\Integrations\RedactionScope;
+use App\Support\Integrations\RedactionSet;
 use App\Support\Money;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -45,6 +48,13 @@ class StripeSmoke extends Command
             return self::FAILURE;
         }
 
+        // The return URLs are built from the Billing module's route; without Billing loaded the check cannot run.
+        if (! Route::has('billing.gateways.return')) {
+            $this->error('The billing.gateways.return route is not registered. Run the smoke test where the Billing module is enabled.');
+
+            return self::FAILURE;
+        }
+
         $key = getenv('STRIPE_SMOKE_SECRET_KEY') ?: $this->secret('Stripe test secret key (sk_test_… or rk_test_…)');
         $key = is_string($key) ? trim($key) : '';
 
@@ -60,7 +70,8 @@ class StripeSmoke extends Command
         $gateway = new GatewayConfig(StripeDriver::KEY, 'Stripe (smoke test)', ['sandbox' => '1', 'secret_key' => $key], sandbox: true);
 
         try {
-            $this->runChecks($driver, $client, $gateway, $money);
+            // The key is masked by value in anything logged or reported during the checks (ADR 0023 §5).
+            RedactionScope::during(RedactionSet::of([$key]), fn () => $this->runChecks($driver, $client, $gateway, $money));
         } catch (Throwable $exception) {
             $this->step('unexpected error', false, str_replace($key, '[key]', $exception->getMessage()));
         }

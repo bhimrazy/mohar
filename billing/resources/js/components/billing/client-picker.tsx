@@ -12,6 +12,8 @@ type ClientPickerProps = {
     onChange: (client: ClientOption | null) => void;
     invalid?: boolean;
     placeholder?: string;
+    /** Search endpoint for the term; defaults to the billing client search. */
+    searchUrl?: (query: string) => string;
 };
 
 /**
@@ -23,10 +25,13 @@ export function ClientPicker({
     onChange,
     invalid = false,
     placeholder = 'Search by name, company or email…',
+    searchUrl = (q) => ClientSearchController.url({ query: { q } }),
 }: ClientPickerProps) {
     const [query, setQuery] = useState('');
     const [results, setResults] = useState<ClientOption[]>([]);
     const [open, setOpen] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [active, setActive] = useState(-1);
     const timeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
@@ -38,21 +43,21 @@ export function ClientPicker({
             clearTimeout(timeout.current);
         }
 
+        setLoading(true);
         timeout.current = setTimeout(async () => {
-            const response = await fetch(
-                ClientSearchController.url({ query: { q: query } }),
-                {
-                    credentials: 'same-origin',
-                    headers: {
-                        Accept: 'application/json',
-                        'X-Requested-With': 'XMLHttpRequest',
-                    },
+            const response = await fetch(searchUrl(query), {
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
                 },
-            );
+            });
 
             setResults(
                 response.ok ? ((await response.json()) as ClientOption[]) : [],
             );
+            setActive(-1);
+            setLoading(false);
         }, 250);
 
         return () => {
@@ -61,6 +66,39 @@ export function ClientPicker({
             }
         };
     }, [query, open]);
+
+    const choose = (client: ClientOption) => {
+        onChange(client);
+        setQuery('');
+        setOpen(false);
+    };
+
+    // Keyboard: arrows move through the results, Enter picks, Escape closes (WCAG 2.1.1).
+    const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            setOpen(true);
+            setActive((current) =>
+                results.length === 0
+                    ? -1
+                    : (current +
+                          (event.key === 'ArrowDown' ? 1 : -1) +
+                          results.length) %
+                      results.length,
+            );
+        } else if (event.key === 'Enter' && open) {
+            // With the list open Enter never submits the surrounding form: it picks the active option, or does nothing.
+            event.preventDefault();
+
+            if (results[active]) {
+                choose(results[active]);
+            }
+        } else if (event.key === 'Escape' && open) {
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(false);
+        }
+    };
 
     if (value) {
         return (
@@ -105,10 +143,19 @@ export function ClientPicker({
                 aria-describedby={`${id}-description`}
                 aria-expanded={open}
                 aria-controls={`${id}-results`}
+                aria-activedescendant={
+                    active >= 0 ? `${id}-option-${active}` : undefined
+                }
+                aria-autocomplete="list"
                 role="combobox"
-                onFocus={() => setOpen(true)}
+                // Opens when used, not on focus, so it never covers the fields below as a dialog opens.
+                onClick={() => setOpen(true)}
+                onKeyDown={onKeyDown}
                 onBlur={() => setTimeout(() => setOpen(false), 150)}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => {
+                    setQuery(event.target.value);
+                    setOpen(true);
+                }}
             />
             {open && (
                 <ul
@@ -118,28 +165,36 @@ export function ClientPicker({
                         'absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-md border bg-popover p-1 text-sm shadow-md',
                     )}
                 >
-                    {results.length === 0 ? (
+                    {loading && results.length === 0 ? (
+                        <li
+                            className="px-2 py-1.5 text-muted-foreground"
+                            role="status"
+                        >
+                            Loading clients…
+                        </li>
+                    ) : results.length === 0 ? (
                         <li className="px-2 py-1.5 text-muted-foreground">
                             No clients found
                         </li>
                     ) : (
-                        results.map((client) => (
+                        results.map((client, index) => (
                             <li
                                 key={client.id}
+                                id={`${id}-option-${index}`}
                                 role="option"
-                                aria-selected={false}
+                                aria-selected={index === active}
                             >
                                 <button
                                     type="button"
-                                    className="flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+                                    tabIndex={-1}
+                                    className={cn(
+                                        'flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left hover:bg-accent focus-visible:bg-accent focus-visible:outline-none',
+                                        index === active && 'bg-accent',
+                                    )}
                                     onMouseDown={(event) =>
                                         event.preventDefault()
                                     }
-                                    onClick={() => {
-                                        onChange(client);
-                                        setQuery('');
-                                        setOpen(false);
-                                    }}
+                                    onClick={() => choose(client)}
                                 >
                                     <span>{client.display_name}</span>
                                     <span className="text-xs text-muted-foreground">

@@ -11,12 +11,14 @@ use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Models\ExchangeRateHistory;
 use App\Modules\Platform\Models\ExchangeRateReview;
 use App\Modules\Platform\Models\StaffInvitation;
 use App\Support\Automation\Automation;
 use App\Support\Currencies\Decimal;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 /**
@@ -65,16 +67,16 @@ class PlatformSeeder extends DemoSeeder
 
         if ($demo !== null && $demo->contacts()->doesntExist()) {
             $demo->forceFill(['client_group_id' => $resellers->id])->save();
-            Contact::factory()->for($demo)->create(['first_name' => 'Ada', 'last_name' => 'Accounts', 'email' => 'accounts@demolabs.test', 'email_preferences' => ['general' => false, 'invoice' => true, 'support' => false, 'product' => false, 'domain' => false]]);
-            Contact::factory()->for($demo)->create(['first_name' => 'Tom', 'last_name' => 'Tech', 'email' => 'tech@demolabs.test']);
+            Contact::factory()->for($demo)->create(['first_name' => 'Ada', 'last_name' => 'Accounts', 'email' => 'accounts@himallabs.test', 'email_preferences' => ['general' => false, 'invoice' => true, 'support' => false, 'product' => false, 'domain' => false]]);
+            Contact::factory()->for($demo)->create(['first_name' => 'Tom', 'last_name' => 'Tech', 'email' => 'tech@himallabs.test']);
 
-            $helper = User::query()->firstOrCreate(['email' => 'helper@demolabs.test'], ['name' => 'Helen Helper', 'password' => 'password', 'email_verified_at' => now()]);
+            $helper = User::query()->firstOrCreate(['email' => 'helper@himallabs.test'], ['name' => 'Helen Helper', 'password' => 'password', 'email_verified_at' => now()]);
             $demo->users()->syncWithoutDetaching([$helper->id => ['is_owner' => false, 'permissions' => json_encode(['billing', 'support'])]]);
 
             $admin = User::query()->where('email', 'admin@example.com')->first();
             $activity->log('Client created', $demo, $demo->id, event: 'client.created', actor: $admin);
-            $activity->log('Contact accounts@demolabs.test added', $demo, $demo->id, event: 'contact.created', actor: $admin);
-            $activity->log('Login helper@demolabs.test added to the account', $helper, $demo->id, ['permissions' => ['billing', 'support']], 'client.user_added', $admin);
+            $activity->log('Contact accounts@himallabs.test added', $demo, $demo->id, event: 'contact.created', actor: $admin);
+            $activity->log('Login helper@himallabs.test added to the account', $helper, $demo->id, ['permissions' => ['billing', 'support']], 'client.user_added', $admin);
             $activity->log('Client group Resellers updated', $resellers, properties: ['discount_percent' => '10.00'], event: 'client_group.updated', actor: $admin);
         }
     }
@@ -121,6 +123,14 @@ class PlatformSeeder extends DemoSeeder
                 ]);
                 $run->forceFill(['created_at' => $ranAt, 'updated_at' => $ranAt->addMinute()])->save();
             }
+
+            $lastTick = $ranAt->copy()->addMinute();
+        }
+
+        // The history implies a scheduler ran until its last run: record that tick, so health reads "stopped since"
+        // rather than "never ran" until `php artisan schedule:work` (or cron) writes a live one.
+        if (isset($lastTick)) {
+            Cache::forever(AutomationStatus::HEARTBEAT_KEY, $lastTick->toIso8601String());
         }
 
         mt_srand();
@@ -137,7 +147,7 @@ class PlatformSeeder extends DemoSeeder
             return;
         }
 
-        $sources = ['INR' => 'ecb', 'NPR' => 'nrb'];
+        $sources = ['INR' => 'ecb', 'NPR' => 'nrb', 'USD' => 'nrb'];
 
         Currency::query()->where('is_default', false)->orderBy('code')->get()->each(function (Currency $currency) use ($sources): void {
             $source = $sources[$currency->code] ?? 'manual';
@@ -157,14 +167,15 @@ class PlatformSeeder extends DemoSeeder
             $currency->forceFill(['rate_source' => $source, 'is_auto_rate' => $source !== 'manual', 'rate_checked_at' => now(), 'rate_updated_at' => now()])->save();
         });
 
-        // One held change so the safety review can be demonstrated: NPR jumped 11% overnight.
-        $npr = Currency::query()->where('code', 'NPR')->first();
+        // One held change so the safety review can be demonstrated: the rupee-dollar rate jumped 11% overnight (the
+        // Nepal demo's default is NPR, so the held rate is USD's; another default keeps NPR's).
+        $npr = Currency::query()->where('code', Currency::default()->code === 'NPR' ? 'USD' : 'NPR')->first();
 
         if ($npr !== null && ! $npr->is_default) {
             $proposed = Decimal::round(Decimal::multiply((string) $npr->exchange_rate, '1.11'), Currency::RATE_SCALE);
 
             ExchangeRateReview::query()->create([
-                'currency' => 'NPR',
+                'currency' => $npr->code,
                 'current_rate' => $npr->exchange_rate,
                 'proposed_rate' => $proposed,
                 'change_percent' => Decimal::round(Decimal::percentChange((string) $npr->exchange_rate, $proposed), 4),

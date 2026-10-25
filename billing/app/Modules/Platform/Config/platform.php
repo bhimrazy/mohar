@@ -4,14 +4,17 @@ return [
     /** Activity-log entries without a client are pruned after this many days (spec §8). */
     'activity_log_retention_days' => 365,
 
+    /** Automation runs are deleted after this many days, keeping each task's latest run (#49). */
+    'automation_log_retention_days' => 365,
+
+    /** Failed queue jobs and finished job batches are deleted after this many days (#49). */
+    'failed_jobs_retention_days' => 30,
+
     /** Days a staff invitation link stays valid (spec §2: 7 days). */
     'invitation_expiry_days' => 7,
 
     /** Maximum length of a login-as-client session in minutes (spec §10: 60). */
     'impersonation_minutes' => 60,
-
-    /** Seconds a password confirmation unlocks sensitive actions (step-up authentication). */
-    'password_confirmation_seconds' => 900,
 
     /** Minutes the signed "enter impersonation" link is valid for. */
     'impersonation_link_minutes' => 2,

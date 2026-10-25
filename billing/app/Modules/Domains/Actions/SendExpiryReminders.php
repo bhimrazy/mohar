@@ -4,13 +4,13 @@ namespace App\Modules\Domains\Actions;
 
 use App\Events\Domains\DomainExpiring;
 use App\Events\Domains\DomainExpiryDigest;
+use App\Modules\Core\Support\SettingList;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainReminder;
 use App\Modules\Domains\Services\DomainEvents;
-use App\Modules\Domains\Support\SettingList;
-use Carbon\CarbonImmutable;
+use App\Support\CalendarDate;
 
 /**
  * ICANN-style expiry reminders (spec §9). For each offset (days before expiry; negative = after) the
@@ -30,7 +30,7 @@ class SendExpiryReminders
     /**
      * @return int number of reminders recorded
      */
-    public function handle(CarbonImmutable $today): int
+    public function handle(CalendarDate $today): int
     {
         $offsets = array_slice(array_map('intval', SettingList::of($this->settings->get('domains.reminder_offsets', [30, 7, -3]))), 0, 5);
         rsort($offsets);
@@ -52,8 +52,8 @@ class SendExpiryReminders
             $domains = Domain::query()
                 ->with('client:id,email')
                 ->withStatus([DomainStatus::Active, DomainStatus::Grace, DomainStatus::Redemption])
-                ->whereDate('expiry_date', '<=', $latest)
-                ->whereDate('expiry_date', '>=', $earliest)
+                ->whereDate('expiry_date', '<=', $latest->toString())
+                ->whereDate('expiry_date', '>=', $earliest->toString())
                 ->whereDoesntHave('invoices', fn ($query) => $query->where('status', 'paid')->whereColumn('domain_invoices.period_start', 'domains.next_due_date'))
                 ->when(! $remindAutoRenewOff, fn ($query) => $query->where('auto_renew', true))
                 ->when(! $remindFree, fn ($query) => $query->where('recurring_amount', '>', 0))
@@ -71,7 +71,7 @@ class SendExpiryReminders
                 }
 
                 $sent++;
-                $daysLeft = (int) $today->diffInDays($domain->expiry_date, false);
+                $daysLeft = $today->daysUntil(CalendarDate::parse($domain->expiry_date->toDateString()));
                 DomainEvents::dispatch(new DomainExpiring($domain->id, $domain->client_id, $daysLeft));
                 $digests[$domain->client_id][] = [
                     'domain_id' => $domain->id,
@@ -83,7 +83,7 @@ class SendExpiryReminders
         }
 
         foreach ($digests as $clientId => $domains) {
-            DomainEvents::dispatch(new DomainExpiryDigest($clientId, $domains, $today->toDateString()));
+            DomainEvents::dispatch(new DomainExpiryDigest($clientId, $domains, $today->toString()));
         }
 
         return $sent;

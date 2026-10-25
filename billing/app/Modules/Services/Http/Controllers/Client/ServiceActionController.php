@@ -2,8 +2,10 @@
 
 namespace App\Modules\Services\Http\Controllers\Client;
 
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Services\Provisioning\ChangesPassword;
 use App\Http\Controllers\Controller;
+use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Services\Actions\OrderServiceChange;
 use App\Modules\Services\Actions\RequestCancellation;
@@ -18,8 +20,12 @@ use App\Modules\Services\Services\ModuleCommandDispatcher;
 use App\Modules\Services\Services\ServicePresenter;
 use App\Modules\Services\Support\CommandOutcome;
 use App\Modules\Services\Support\ServiceSettings;
-use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Contracts\Encryption\StringEncrypter;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
@@ -32,7 +38,7 @@ class ServiceActionController extends Controller
 
     public function __construct(private ClientContext $context) {}
 
-    public function cancel(CancellationRequestForm $request, int $service, RequestCancellation $cancellation, ServiceSettings $settings): RedirectResponse
+    public function cancel(CancellationRequestForm $request, int $service, RequestCancellation $cancellation, ServiceSettings $settings, CompanyClock $clock): RedirectResponse
     {
         $model = $this->owned($service);
 
@@ -40,16 +46,16 @@ class ServiceActionController extends Controller
             throw ValidationException::withMessages(['reason' => __('Please contact support to cancel this service.')]);
         }
 
-        $this->attempt(fn () => $cancellation->handle($model, $request->type(), $request->string('reason')->toString(), $request->user(), false, CarbonImmutable::today()), 'reason');
+        $this->attempt(fn () => $cancellation->handle($model, $request->type(), $request->string('reason')->toString(), $request->user(), false, $clock->todayDate()), 'reason');
         Inertia::flash('toast', ['type' => 'success', 'message' => __('We received your cancellation request for :label.', ['label' => $model->label()])]);
 
         return to_route('client.services.show', $model->id);
     }
 
-    public function change(ServiceChangeRequest $request, int $service, OrderServiceChange $order): RedirectResponse
+    public function change(ServiceChangeRequest $request, int $service, OrderServiceChange $order, CompanyClock $clock): RedirectResponse
     {
         $model = $this->owned($service);
-        $today = CarbonImmutable::today();
+        $today = $clock->todayDate();
 
         $change = $this->attempt(fn () => $order->handle($model, $request->integer('product_id'), $request->cycle(), $today), 'product_id');
 
@@ -77,6 +83,58 @@ class ServiceActionController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => $outcome->succeededNow() ? __('Password changed.') : __('Your password change is being processed.')]);
 
         return to_route('client.services.show', $model->id);
+    }
+
+    /** Password reveals allowed per login in REVEAL_WINDOW_SECONDS, across all services (#44). */
+    public const REVEALS_PER_WINDOW = 5;
+
+    public const REVEAL_WINDOW_SECONDS = 600;
+
+    /**
+     * Show the stored hosting password (#44): welcome emails no longer carry it. Behind a recent password confirmation
+     * (route) and a per-login limit, written to the activity log without the value, and sent as JSON that is never
+     * cached, so it is in no page prop or history entry.
+     *
+     * The limit is counted here rather than by route throttling, so only requests past step-up use it up: the 423
+     * that opens the confirm dialog does not. Every request past step-up counts, a 404 or 422 included.
+     */
+    public function revealPassword(Request $request, int $service, ActivityLogger $activity, ServicePresenter $presenter, StringEncrypter $encrypter): JsonResponse
+    {
+        $key = 'services-password-reveal:'.$request->user()?->id;
+
+        // hit() increments atomically and returns the new count, so parallel requests cannot all pass a separate read.
+        if (RateLimiter::hit($key, self::REVEAL_WINDOW_SECONDS) > self::REVEALS_PER_WINDOW) {
+            return response()->json(['message' => __('The password was shown too many times. Try again later.')], 429)
+                ->header('Retry-After', (string) RateLimiter::availableIn($key))
+                ->header('Cache-Control', 'no-store, private');
+        }
+
+        $model = $this->owned($service);
+
+        if (! $presenter->revealsPassword($model)) {
+            return response()->json(['message' => __('No password is stored for this service.')], 422)->header('Cache-Control', 'no-store, private');
+        }
+
+        // Decrypted explicitly (as the `encrypted` cast does) before the audit row, so a value that cannot be read is
+        // never logged as revealed.
+        try {
+            $password = $encrypter->decryptString((string) $model->getRawOriginal('password'));
+        } catch (DecryptException $exception) {
+            report($exception);
+
+            // Point to the fix on this page when the panel lets the client set a password.
+            $message = $presenter->driver($model) instanceof ChangesPassword
+                ? __('The stored password could not be read. Set a new one with Change password on this page.')
+                : __('The stored password could not be read. Contact support and we will set a new one.');
+
+            return response()->json(['message' => $message], 422)->header('Cache-Control', 'no-store, private');
+        }
+
+        $activity->log('Service password revealed in the client area', $model, $model->client_id);
+
+        return response()->json(['password' => $password])
+            ->header('Cache-Control', 'no-store, private')
+            ->header('Pragma', 'no-cache');
     }
 
     private function owned(int $serviceId): Service

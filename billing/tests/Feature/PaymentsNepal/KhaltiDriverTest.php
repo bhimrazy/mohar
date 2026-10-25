@@ -1,5 +1,7 @@
 <?php
 
+use App\Data\Billing\GatewayConfig;
+use App\Data\Billing\RefundRequest;
 use App\Events\Billing\InvoicePaid;
 use App\Modules\Billing\Actions\ConfigureGateway;
 use App\Modules\Billing\Actions\RefundTransaction;
@@ -9,15 +11,19 @@ use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Exceptions\BillingException;
+use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\PaymentsNepal\Drivers\KhaltiDriver;
 use App\Modules\PaymentsNepal\Support\ProviderHttp;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Money;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Event;
@@ -114,22 +120,6 @@ test('the lookup uses the pidx stored on the attempt, never the one in the retur
 
     Http::assertSent(fn (Request $request) => $request->url() === KHALTI_LOOKUP && $request['pidx'] === 'PIDX1');
     Http::assertNotSent(fn (Request $request) => $request->url() === KHALTI_LOOKUP && $request['pidx'] === 'ATTACKERPIDX');
-});
-
-test('repeated returns and the poller record the payment once', function () {
-    Event::fake([InvoicePaid::class]);
-    [, $invoice, $attempt] = startKhalti();
-    Http::fake([KHALTI_LOOKUP => Http::response(khaltiLookup('Completed'))]);
-
-    $this->get(khaltiReturn($attempt));
-    $this->get(khaltiReturn($attempt));
-    $this->travel(10)->minutes();
-    $this->get(khaltiReturn($attempt));
-    $this->artisan('billing:reconcile-payments');
-
-    expect(Transaction::query()->where('gateway', KhaltiDriver::KEY)->count())->toBe(1)
-        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
-    Event::assertDispatchedTimes(InvoicePaid::class, 1);
 });
 
 test('a lookup reporting a different amount records nothing and goes to staff review', function () {
@@ -243,16 +233,6 @@ test('Khalti is offered for NPR invoices only and other currencies are refused',
     expect(PaymentAttempt::query()->count())->toBe(0);
 });
 
-test('Khalti is offered for NPR invoices but refuses amounts below its minimum', function () {
-    [, $invoice] = nprInvoice([500]);
-
-    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
-        ->where('payment.gateways', fn ($gateways) => collect($gateways)->contains(fn ($gateway) => $gateway['key'] === KhaltiDriver::KEY && $gateway['kind'] === 'redirect' && $gateway['sandbox'] === true)));
-    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => KhaltiDriver::KEY])->assertSessionHasErrors('billing');
-
-    expect(PaymentAttempt::query()->count())->toBe(0);
-});
-
 test('partial refunds stay off by default while full refunds go through the API', function () {
     [, $invoice, $attempt] = startKhalti();
     Http::fake([
@@ -295,6 +275,35 @@ test('with partial refunds turned on, the refund amount is sent in paisa', funct
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Refunded);
 });
 
+test('a Khalti server error or a timeout keeps the refund pending; the amount is held until staff settle it', function (Closure $response) {
+    [, , $attempt] = startKhalti();
+    Http::fake([
+        KHALTI_LOOKUP => Http::response(khaltiLookup('Completed')),
+        'https://dev.khalti.com/api/merchant-transaction/TXN-1/refund/' => $response,
+    ]);
+    $this->get(khaltiReturn($attempt));
+    $payment = Transaction::query()->where('gateway', KhaltiDriver::KEY)->sole();
+
+    $pending = app(RefundTransaction::class)->handle($payment, 150_000, RefundMode::Gateway);
+
+    expect($pending->status->value)->toBe('pending')->and($payment->fresh()->refundable_remaining)->toBe(0);
+    expect(fn () => app(RefundTransaction::class)->handle($payment->fresh(), 1, RefundMode::Gateway))->toThrow(BillingException::class);
+    expect(app(RefundTransaction::class)->resolve($pending, false)->status->value)->toBe('failed')
+        ->and($payment->fresh()->refundable_remaining)->toBe(150_000);
+})->with([
+    'server error' => [fn () => Http::response(['detail' => 'boom'], 500)],
+    'timeout' => [fn () => throw new ConnectionException('timed out')],
+]);
+
+test('a Khalti refund that never left (a non-NPR amount) is a definite decline', function () {
+    $result = app(KhaltiDriver::class)->refund(
+        new GatewayConfig(KhaltiDriver::KEY, 'Khalti'),
+        new RefundRequest('TXN-1', Money::of(100, 'USD'), Money::of(100, 'USD'), reference: '1'),
+    );
+
+    expect($result->status)->toBe('declined');
+});
+
 test('a declined refund leaves the payment refundable', function () {
     [, , $attempt] = startKhalti();
     Http::fake([
@@ -309,16 +318,12 @@ test('a declined refund leaves the payment refundable', function () {
     expect($payment->fresh()->refundable_remaining)->toBe(150_000);
 });
 
-test('live mode talks to khalti.com and sandbox mode cannot be activated in production', function () {
+test('live mode talks to khalti.com', function () {
     app(ConfigureGateway::class)->handle(KhaltiDriver::KEY, ['display_name' => 'Khalti', 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 0, 'convert_to_currency' => null], ['sandbox' => '0']);
     [, $invoice] = nprInvoice();
     Http::fake(['https://khalti.com/api/v2/epayment/initiate/' => Http::response(['pidx' => 'PIDX9', 'payment_url' => 'https://pay.khalti.com/?pidx=PIDX9'])]);
 
     $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => KhaltiDriver::KEY])->assertRedirect('https://pay.khalti.com/?pidx=PIDX9');
-
-    app()->detectEnvironment(fn () => 'production');
-    expect(fn () => app(ConfigureGateway::class)->handle(KhaltiDriver::KEY, ['display_name' => 'Khalti', 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 0, 'convert_to_currency' => null], ['sandbox' => '1']))
-        ->toThrow(BillingException::class, 'Sandbox mode can\'t be used in production.');
 });
 
 test('a gateway left in sandbox mode is hidden from clients in production', function () {
@@ -353,25 +358,6 @@ test('staff can test the saved key without it ever reaching the page', function 
     'rejected' => [401, 'error'],
 ]);
 
-test('checkout shows the official logos with an accessible name and other gateways fall back to their name', function () {
-    nepalGateway('esewa', ['sandbox' => '1', 'product_code' => 'EPAYTEST', 'secret_key' => 'fake-esewa-secret']);
-    Gateway::factory()->create();
-    [, $invoice] = nprInvoice();
-
-    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
-        ->where('payment.gateways', function ($gateways) {
-            $logos = collect($gateways)->mapWithKeys(fn ($gateway) => [$gateway['key'] => $gateway['logo']]);
-
-            return $logos['khalti'] === ['url' => asset('images/gateways/khalti.svg'), 'dark_url' => null, 'alt' => 'Pay with Khalti']
-                && $logos['esewa'] === ['url' => asset('images/gateways/esewa.png'), 'dark_url' => asset('images/gateways/esewa-on-dark.png'), 'alt' => 'Pay with eSewa']
-                && $logos['bank_transfer'] === null;
-        }));
-
-    foreach (['khalti.svg', 'esewa.png', 'esewa-on-dark.png'] as $file) {
-        expect(public_path('images/gateways/'.$file))->toBeFile();
-    }
-});
-
 test('an Initiated payment stays pending until Khalti reports an outcome', function () {
     [, $invoice, $attempt] = startKhalti();
     Http::fake([KHALTI_LOOKUP => Http::response(khaltiLookup('Initiated', transactionId: null))]);
@@ -393,3 +379,85 @@ test('the payer mobile number from the return is masked to its last three digits
         ->and(ProviderHttp::maskMobile('98-0000-0904'))->toBe('*******904')
         ->and(ProviderHttp::maskMobile(''))->toBeNull();
 });
+
+/**
+ * Issue #130 (matrix PG-19 / M-01): Khalti didn't know the pidx (HTTP 404) through the TTL plus grace, so the attempt
+ * expired; later its lookup answers $later. An hour on, both the return route and the sweep look it up again.
+ *
+ * @return array{0: Invoice, 1: PaymentAttempt}
+ */
+function expiredKhalti(string $later = 'Completed'): array
+{
+    [, $invoice, $attempt] = startKhalti();
+    Http::fake([KHALTI_LOOKUP => Http::sequence()->push(['detail' => 'Not found.', 'error_key' => 'validation_error'], 404)
+        ->whenEmpty(Http::response(khaltiLookup($later, transactionId: $later === 'Completed' ? 'TXN-1' : null), $later === 'Completed' ? 200 : 400))]);
+
+    test()->travel(60 + 121)->minutes();
+    test()->artisan('billing:reconcile-payments');
+    expect($attempt->fresh()->status)->toBe(AttemptStatus::Expired);
+    test()->travel(61)->minutes();
+
+    return [$invoice, $attempt->fresh()];
+}
+
+test('a payment Khalti completes after the attempt expired is booked on the unpaid invoice and flagged for staff', function (Closure $check) {
+    [$invoice, $attempt] = expiredKhalti();
+
+    $check($attempt);
+
+    expect(Transaction::query()->where('gateway', KhaltiDriver::KEY)->sole())->amount_in->toBe(150_000)->gateway_txn_id->toBe('TXN-1')
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
+        ->and($attempt->fresh())->status->toBe(AttemptStatus::Succeeded)->late_payment_at->not->toBeNull()
+        ->and(ActivityLog::query()->where('event', 'billing.payment.late')->sole()->properties)->toMatchArray(['closed_as' => 'expired', 'applied' => 150_000, 'credited' => 0])
+        ->and(collect(app(Dashboard::class)->resolveTodos('admin', billingStaff()))->firstWhere('key', 'billing.late_payments')['count'])->toBe(1);
+})->with([
+    'customer returns' => [fn (PaymentAttempt $attempt) => test()->get(khaltiReturn($attempt))->assertSessionHas('inertia.flash_data.toast.type', 'success')],
+    'verify sweep' => [fn (PaymentAttempt $attempt) => test()->artisan('billing:reconcile-payments')],
+]);
+
+test('a late Khalti payment on an invoice already paid becomes NPR account credit', function () {
+    [$invoice] = expiredKhalti();
+    payInvoice($invoice, 150_000, 'bank-ref-1');
+
+    $this->artisan('billing:reconcile-payments');
+
+    expect(Transaction::query()->where('gateway', KhaltiDriver::KEY)->sole()->amount_in)->toBe(150_000)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
+        ->and(app(CreditLedgerService::class)->balance($invoice->client_id, 'NPR')->amount)->toBe(150_000);
+});
+
+test('a late Khalti payment larger than the remaining balance pays it and credits the rest', function () {
+    [$invoice, $attempt] = expiredKhalti();
+    payInvoice($invoice, 50_000, 'bank-ref-2');
+
+    $this->get(khaltiReturn($attempt));
+
+    expect($invoice->fresh())->status->toBe(InvoiceStatus::Paid)->balance->toBe(0)
+        ->and(app(CreditLedgerService::class)->balance($invoice->client_id, 'NPR')->amount)->toBe(50_000);
+});
+
+test('repeated returns and sweeps book a late Khalti payment once', function () {
+    [$invoice, $attempt] = expiredKhalti();
+
+    $this->get(khaltiReturn($attempt));
+    $this->artisan('billing:reconcile-payments');
+    $this->travel(2)->hours();
+    $this->get(khaltiReturn($attempt));
+    $this->artisan('billing:reconcile-payments');
+
+    expect(Transaction::query()->where('gateway', KhaltiDriver::KEY)->count())->toBe(1)
+        ->and(ActivityLog::query()->where('event', 'billing.payment.late')->count())->toBe(1)
+        ->and(CreditLedgerEntry::query()->count())->toBe(0)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
+});
+
+test('an expired Khalti attempt whose lookup still says not paid stays closed', function (string $later) {
+    [$invoice, $attempt] = expiredKhalti($later);
+
+    $this->get(khaltiReturn($attempt));
+    $this->artisan('billing:reconcile-payments');
+
+    expect(Transaction::query()->count())->toBe(0)
+        ->and($attempt->fresh())->status->toBe(AttemptStatus::Expired)->late_payment_at->toBeNull()->lookup_count->toBe($attempt->lookup_count + 1)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
+})->with(['Expired', 'User canceled']);

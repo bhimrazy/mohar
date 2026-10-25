@@ -3,6 +3,9 @@
 namespace App\Modules\Platform\Support;
 
 use App\Models\User;
+use App\Modules\Core\Install\CacheLockStore;
+use App\Modules\Core\Install\CheckStatus;
+use App\Modules\Core\Install\PhpSecurityRelease;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\AutomationRun;
 use App\Modules\Core\Support\AutomationStatus;
@@ -63,6 +66,51 @@ class PlatformDashboard
         $dashboard->health('admin', 'platform.automation', fn (): array => $this->automationHealth(), 'core.automation.view', 11);
         $dashboard->health('admin', 'platform.queue', fn (): array => $this->queueHealth(), 'core.automation.view', 12);
         $this->registerIntegrationEndpoints($dashboard);
+        $this->registerPhpRuntime($dashboard);
+        $this->registerCacheLockStore($dashboard);
+    }
+
+    /**
+     * The cache lock store (CacheLockStore), a health check in production only while locks cannot exclude other
+     * processes: red for a per-process store, amber for a single-host one.
+     */
+    public function registerCacheLockStore(Dashboard $dashboard): void
+    {
+        $result = (new CacheLockStore)->assess();
+
+        if ($result['status'] === CheckStatus::Ok || ! app()->isProduction()) {
+            return;
+        }
+
+        $dashboard->health('admin', 'platform.cache_lock_store', fn (): array => [
+            'label' => 'Cache lock store',
+            'detail' => $result['detail'],
+            'value' => $result['status'] === CheckStatus::Failed ? 'Fix the task lock store' : 'One server only',
+            'tone' => $result['status'] === CheckStatus::Failed ? 'danger' : 'warning',
+            'icon' => 'ShieldAlert',
+        ], 'core.settings.view', 14);
+    }
+
+    /**
+     * A PHP build with a known critical vulnerability (PhpSecurityRelease), a red health check in production only:
+     * operators rarely re-run `app:install`, and development machines and CI do not serve public requests.
+     */
+    public function registerPhpRuntime(Dashboard $dashboard): void
+    {
+        $php = app(PhpSecurityRelease::class);
+        $problem = $php->problem();
+
+        if ($problem === null || ! app()->isProduction()) {
+            return;
+        }
+
+        $dashboard->health('admin', 'platform.php_runtime', fn (): array => [
+            'label' => 'PHP runtime',
+            'detail' => $problem,
+            'value' => 'Upgrade to '.$php->requiredUpgrade(),
+            'tone' => 'danger',
+            'icon' => 'ShieldAlert',
+        ], 'core.settings.view', 9);
     }
 
     /**

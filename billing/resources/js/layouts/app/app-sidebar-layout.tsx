@@ -1,5 +1,7 @@
 import { AppContent } from '@/components/app-content';
 import { ImpersonationBanner } from '@/components/app/impersonation-banner';
+import { KycBanner } from '@/components/kyc/kyc-banner';
+import { StoreHeaderTools } from '@/components/orders/store-header-tools';
 import { PasswordConfirmationGate } from '@/components/app/password-confirmation-gate';
 import { AppShell } from '@/components/app-shell';
 import { AppSidebar } from '@/components/app-sidebar';
@@ -15,7 +17,11 @@ export default function AppSidebarLayout({
             <AppSidebar />
             <AppContent variant="sidebar" className="min-w-0 overflow-x-clip">
                 <ImpersonationBanner />
-                <AppSidebarHeader breadcrumbs={breadcrumbs} />
+                <KycBanner />
+                <AppSidebarHeader
+                    breadcrumbs={breadcrumbs}
+                    actions={<StoreHeaderTools />}
+                />
                 {children}
             </AppContent>
             <PasswordConfirmationGate />

@@ -34,7 +34,7 @@ test('a simulator starts on free ports, prints what the app needs, and simulate:
 });
 
 test('an unknown simulator is named with the installed ones', function () {
-    $this->artisan('simulate:start', ['provider' => 'stripe'])->assertFailed();
+    $this->artisan('simulate:start', ['provider' => 'nosuchprovider'])->assertFailed();
 })->throws(InvalidArgumentException::class, 'installed:');
 
 test('every simulate command refuses to run outside local and testing', function (string $environment) {

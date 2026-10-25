@@ -21,7 +21,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
-import { expiryHint } from '@/types/domains';
+import { MANAGED_AT_REGISTRY, domainStatus, expiryHint } from '@/types/domains';
 import type { Domain, DomainContacts } from '@/types/domains';
 
 type Props = {
@@ -119,7 +119,7 @@ export default function MyDomain({
                         label: 'My domains',
                     }}
                     title={domain.name_unicode}
-                    status={domain.status}
+                    status={domainStatus(domain)}
                     meta={
                         domain.expiry_date ? (
                             <span>
@@ -188,39 +188,76 @@ export default function MyDomain({
                     </Alert>
                 )}
 
-                <div className="grid gap-4 sm:grid-cols-3">
+                <div
+                    className={
+                        domain.registered_by_client
+                            ? 'grid grid-cols-1 gap-4 sm:grid-cols-2'
+                            : 'grid grid-cols-1 gap-4 sm:grid-cols-3'
+                    }
+                >
                     <StatCard
                         label="Expires"
                         icon={CalendarClock}
                         value={
                             <DateTime
                                 value={domain.expiry_date}
-                                fallback="Not yet"
+                                fallback={
+                                    domain.registered_by_client
+                                        ? MANAGED_AT_REGISTRY
+                                        : 'Not yet'
+                                }
                             />
                         }
                         hint={expiryHint(domain.days_until_expiry) ?? undefined}
                     />
-                    <StatCard
-                        label="Renewal"
-                        icon={RefreshCcw}
-                        value={
-                            <Money
-                                amount={domain.recurring_amount}
-                                currency={domain.currency}
+                    {domain.registered_by_client ? (
+                        <StatCard
+                            label="Renewal"
+                            icon={RefreshCcw}
+                            value="At the registry"
+                            hint={
+                                domain.how_to_url ? (
+                                    <>
+                                        You renew it with the registry.{' '}
+                                        <a
+                                            href={domain.how_to_url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="underline"
+                                        >
+                                            Registry guide
+                                        </a>
+                                    </>
+                                ) : (
+                                    'You renew it with the registry.'
+                                )
+                            }
+                        />
+                    ) : (
+                        <>
+                            <StatCard
+                                label="Renewal"
+                                icon={RefreshCcw}
+                                value={
+                                    <Money
+                                        amount={domain.recurring_amount}
+                                        currency={domain.currency}
+                                    />
+                                }
+                                hint={`every ${domain.period_years === 1 ? 'year' : `${domain.period_years} years`}`}
                             />
-                        }
-                        hint={`every ${domain.period_years === 1 ? 'year' : `${domain.period_years} years`}`}
-                    />
-                    <StatCard
-                        label="Auto-renew"
-                        icon={ShieldCheck}
-                        value={domain.auto_renew ? 'On' : 'Off'}
-                        hint={
-                            domain.auto_renew
-                                ? 'Renewal invoice before expiry'
-                                : 'Renew manually before expiry'
-                        }
-                    />
+                            <StatCard
+                                label="Auto-renew"
+                                icon={ShieldCheck}
+                                value={domain.auto_renew ? 'On' : 'Off'}
+                                hint={
+                                    domain.auto_renew
+                                        ? 'Renewal invoice before expiry'
+                                        : 'Renew manually before expiry'
+                                }
+                            />
+                        </>
+                    )}
                 </div>
 
                 {canResubmitTransfer && <ResubmitTransfer domain={domain} />}
@@ -242,32 +279,38 @@ export default function MyDomain({
                     </div>
 
                     <div className="flex min-w-0 flex-col gap-4">
-                        <SectionCard title="Settings">
-                            <div className="grid gap-3">
-                                <SettingSwitch
-                                    id="auto-renew"
-                                    title="Auto-renew"
-                                    description="We send a renewal invoice before the domain expires and renew it once paid."
-                                    checked={domain.auto_renew}
-                                    action={DomainController.autoRenew(
-                                        domain.id,
+                        {(!domain.registered_by_client || supports('lock')) && (
+                            <SectionCard title="Settings">
+                                <div className="grid gap-3">
+                                    {!domain.registered_by_client && (
+                                        <SettingSwitch
+                                            id="auto-renew"
+                                            title="Auto-renew"
+                                            description="We send a renewal invoice before the domain expires and renew it once paid."
+                                            checked={domain.auto_renew}
+                                            action={DomainController.autoRenew(
+                                                domain.id,
+                                            )}
+                                            disabled={!canManage}
+                                        />
                                     )}
-                                    disabled={!canManage}
-                                />
-                                {supports('lock') && (
-                                    <SettingSwitch
-                                        id="registrar-lock"
-                                        title="Transfer lock"
-                                        description="Keep this on unless you are moving the domain to another provider."
-                                        checked={domain.registrar_lock === true}
-                                        action={DomainController.lock(
-                                            domain.id,
-                                        )}
-                                        disabled={!canManage}
-                                    />
-                                )}
-                            </div>
-                        </SectionCard>
+                                    {supports('lock') && (
+                                        <SettingSwitch
+                                            id="registrar-lock"
+                                            title="Transfer lock"
+                                            description="Keep this on unless you are moving the domain to another provider."
+                                            checked={
+                                                domain.registrar_lock === true
+                                            }
+                                            action={DomainController.lock(
+                                                domain.id,
+                                            )}
+                                            disabled={!canManage}
+                                        />
+                                    )}
+                                </div>
+                            </SectionCard>
+                        )}
 
                         {supports('epp') && (
                             <SectionCard

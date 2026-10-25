@@ -1,7 +1,11 @@
 <?php
 
+use App\Http\Errors\BrandedErrorPage;
+use App\Http\Middleware\ClearHistoryOnSignOut;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\RequireFeature;
+use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Core\Http\Middleware\EnsureStaff;
 use App\Modules\Core\Http\Middleware\ResolveClientContext;
 use App\Modules\Core\Http\Middleware\SecurityHeaders;
@@ -10,6 +14,8 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -24,14 +30,19 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->trustHosts();
 
         // Proxies come from config('trustedproxy.proxies') (TRUSTED_PROXIES), read per request so a cached config
-        // works; passing `at:` here would read the environment before .env is loaded. Only the headers Caddy and
-        // Traefik send are honoured, and only from those addresses.
+        // works; passing `at:` here would read the environment before .env is loaded. Only the three headers the edge
+        // proxy itself sets are honoured, and only from those addresses. X-Forwarded-Port is not: Caddy passes a
+        // client's own copy through unchanged, and the port follows from the trusted scheme (443 for https).
         $middleware->trustProxies(headers: Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_HOST
-            | Request::HEADER_X_FORWARDED_PORT | Request::HEADER_X_FORWARDED_PROTO);
+            | Request::HEADER_X_FORWARDED_PROTO);
 
         $middleware->alias([
             'staff' => EnsureStaff::class,
             'client.area' => ResolveClientContext::class,
+            // Step-up for sensitive mutations; here, not in a module, so it resolves with any module set (#81).
+            'password.recent' => RequireRecentPasswordConfirmation::class,
+            // 404 unless a config/features.php flag is on; put it first on a route so nothing else runs.
+            'feature' => RequireFeature::class,
         ]);
 
         // Global (not only "web") so 404s, auth redirects and error pages carry the headers too.
@@ -39,6 +50,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->web(append: [
             HandleAppearance::class,
+            ClearHistoryOnSignOut::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
         ]);
@@ -47,4 +59,25 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+
+        // "Re-send the verification email" with the mail server down: a warning to act on, not an error page. The
+        // handler has already reported the failure. Other routes keep the error page.
+        $exceptions->render(function (TransportExceptionInterface $e, Request $request) {
+            if (! $request->routeIs('verification.send')) {
+                return null;
+            }
+
+            $message = __('We couldn\'t send the email right now. Try again in a few minutes.');
+
+            if ($request->expectsJson() && ! $request->header('X-Inertia')) {
+                return response()->json(['message' => $message], 503);
+            }
+
+            Inertia::flash('toast', ['type' => 'warning', 'message' => $message]);
+
+            return back();
+        });
+
+        // A branded page for the errors a person in a browser can reach (App\Http\Errors\BrandedErrorPage).
+        $exceptions->respond(new BrandedErrorPage);
     })->create();

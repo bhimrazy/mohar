@@ -40,6 +40,8 @@ function statusText(result: LookupResult): string {
             return 'Reserved by the registry';
         case 'unsupported':
             return "We don't offer this extension";
+        case 'self_registered':
+            return 'Registered by you at the registry';
         default:
             return 'Availability unknown — try again shortly';
     }
@@ -98,6 +100,21 @@ function ResultRow({
                     <p className="text-sm text-muted-foreground">
                         {statusText(result)}
                     </p>
+                    {result.level_hint && (
+                        <p className="mt-1 max-w-prose text-sm">
+                            {result.level_hint}
+                        </p>
+                    )}
+                    {result.self_registered && !result.level_hint && (
+                        <p className="mt-1 max-w-prose text-sm">
+                            {result.tld} domains are registered by you at the
+                            registry
+                            {result.tld?.endsWith('.np')
+                                ? ', free for Nepali citizens and organisations'
+                                : ''}
+                            . When it's approved, point it to our nameservers.
+                        </p>
+                    )}
                 </div>
             </div>
             <div className="flex items-center gap-4 sm:justify-end">
@@ -141,6 +158,28 @@ function ResultRow({
                             />
                         </p>
                     )}
+                {result.self_registered && (
+                    <div className="flex flex-wrap gap-2">
+                        {result.registration_url && (
+                            <Button asChild variant="outline" size="sm">
+                                <a
+                                    href={result.registration_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                >
+                                    How to register
+                                </a>
+                            </Button>
+                        )}
+                        {result.existing_url && (
+                            <Button asChild size="sm">
+                                <a href={result.existing_url}>
+                                    I already have it
+                                </a>
+                            </Button>
+                        )}
+                    </div>
+                )}
                 {result.order_url && (available || result.transferable) && (
                     <Button
                         asChild

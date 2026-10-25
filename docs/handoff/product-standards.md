@@ -25,6 +25,17 @@ every item.
 - Every action that can fail shows its reason where the user acted; actions that can't succeed are disabled with
   the reason. (2026-10-18)
 
+## Forms and ordering
+
+- Details a registry or provider requires say in plain words who qualifies and what each choice means; when
+  eligibility depends on the customer's country or business, warn before payment, not after the registry refuses.
+  (2026-10-23)
+- Validation errors name the field by its label and never show field keys such as `tld_attributes.id`.
+  (2026-10-23)
+- What a customer enters at order time is shown back in the cart and at checkout before payment, with
+  identity numbers masked. (2026-10-23)
+- A country is chosen by name from a list, never typed as a code; the ISO code is what is stored. (2026-10-23)
+
 ## Settings
 
 - Every setting changes behaviour; a setting nothing reads is a bug. (2026-10-18)
@@ -54,6 +65,8 @@ every item.
   mail that carried one cannot be resent (the action says to send a new link). (2026-10-18)
 - Account-recovery endpoints give the same response for known and unknown accounts and are rate
   limited. (2026-10-18)
+- Approve and decline actions on uploaded documents stay disabled until staff have opened the documents, and only
+  roles with the review permission (Owner and Admin by default) see them enabled. (2026-10-21)
 
 - Compact amounts use K / L (lakh) / Cr (crore) for INR and NPR and K / M / B otherwise, never the browser's
   locale abbreviations. A currency symbol never wraps away from its number. (2026-10-18)
@@ -71,6 +84,8 @@ every item.
 
 ## Brand and visuals
 
+- Error pages (403, 404, 419, 429, 500) show the host's brand and a way back, in light and dark mode; never the
+  framework's default page. (2026-10-23)
 - Customer-facing surfaces (emails, PDFs, the public site, the client area and its login) never show the product's
   own name, mark or tagline unless the host chose them: they use the host's brand settings, with an empty tagline
   and no product mark by default. The product identity (Mohar name, seal, "Web hosting billing, sealed and
@@ -105,6 +120,18 @@ every item.
   plain language without system jargon, polite and calm reminders, and a way to get help. (2026-10-18)
 - Third-party integrations show their official logo (from the provider's official brand or merchant
   resources), not a plain text badge. (2026-10-18)
+
+## Background jobs and reports
+
+- A background job that stops partway keeps the operator's remaining work, offers one action to continue it, and its
+  report stays reachable after the next run. (2026-10-20, #133 product review)
+- Reports never hide failures: failed and skipped items are listed first or behind their own filter, never only in
+  the activity log. (2026-10-20)
+- Stored messages are full sentences that still read correctly later; relative times ("just now") are rendered at
+  view time, never stored. (2026-10-20)
+- A destructive (red) tone marks only what failed, never successful lines. (2026-10-20)
+- Every date, including dates inside sentences, uses the app's date format. (2026-10-20)
+- Demo and sample data match the market the product leads with: host, clients, currency, time zone, date format and domain names are Nepali, and no seeded invoice bills a `.np` domain, and no showcase invoice features a refund until credit notes exist. (proposed 2026-10-22, owner to confirm)
 
 ## Simulators and test doubles
 

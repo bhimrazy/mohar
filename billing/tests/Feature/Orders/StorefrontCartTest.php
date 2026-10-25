@@ -9,6 +9,8 @@ use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\OrderItem;
 use App\Modules\Orders\Models\Promotion;
 use App\Modules\Orders\Services\CartManager;
+use App\Modules\Orders\Services\TldAttributeInput;
+use Illuminate\Container\Container;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Orders\OrdersFakes;
 
@@ -31,7 +33,7 @@ describe('store pages', function () {
     });
 
     it('renders the configure page with every available cycle', function () {
-        $this->get(route('store.products.show', 1))
+        $this->get(route('store.products.show', ['hosting', 'product-1']))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->component('public/store/configure')
@@ -41,7 +43,7 @@ describe('store pages', function () {
     });
 
     it('returns 404 for an unknown product', function () {
-        $this->get(route('store.products.show', 99))->assertNotFound();
+        $this->get(route('store.products.show', ['hosting', 'product-99']))->assertNotFound();
     });
 
     it('previews the configured price from the server', function () {
@@ -121,6 +123,29 @@ describe('cart', function () {
 
         $this->post(route('store.cart.products.store', 2), ['cycle' => 'monthly', 'domain_mode' => 'existing', 'domain_name' => 'taken.com'])
             ->assertSessionHasErrors(['domain_name' => 'taken.com is already used by another service.']);
+    });
+
+    it('accepts an existing .np name only under the registry\'s second levels, as a hosting domain with no domain order', function () {
+        $this->fakes->catalog->addProduct(2, 'Business Hosting', requiresDomain: true);
+
+        foreach (['asha.np', 'asha.xyz.np'] as $name) {
+            $this->post(route('store.cart.products.store', 2), ['cycle' => 'monthly', 'domain_mode' => 'existing', 'domain_name' => $name])
+                ->assertSessionHasErrors(['domain_name' => 'Enter your full .np name, for example yourname.com.np. Names are registered under .com.np, .coop.np, .edu.np, .gov.np, .info.np, .mil.np, .name.np, .net.np, .org.np.']);
+        }
+
+        $this->post(route('store.cart.products.store', 2), ['cycle' => 'monthly', 'domain_mode' => 'existing', 'domain_name' => 'asha.com.np'])
+            ->assertSessionHasNoErrors();
+
+        $items = Cart::query()->sole()->cartItems();
+        expect($items)->toHaveCount(1)
+            ->and($items[0]->domain())->toBe('asha.com.np')
+            ->and($items[0]->domainAction())->toBeNull();
+    });
+
+    it('carries a domain the visitor owns from the search into "Use a domain I own"', function () {
+        $this->get(route('store.index', ['domain' => 'asha.com.np']))->assertInertia(fn (Assert $page) => $page->where('existingDomain', 'asha.com.np'));
+        $this->get(route('store.products.show', ['hosting', 'product-1', 'domain' => 'asha.com.np']))->assertInertia(fn (Assert $page) => $page->where('existing_domain', 'asha.com.np'));
+        $this->get(route('store.products.show', ['hosting', 'product-1', 'domain' => 'asha.np']))->assertInertia(fn (Assert $page) => $page->where('existing_domain', null));
     });
 
     it('requires an EPP code for domain transfers', function () {
@@ -328,4 +353,12 @@ describe('rate limits', function () {
 
         expect(Cart::query()->sole()->promotion_code)->toBeNull();
     });
+});
+
+it('asks for no extension details, and resolves nothing from Domains, when Domains is not installed', function () {
+    $input = new TldAttributeInput(new Container);
+
+    expect($input->props())->toBe([])
+        ->and($input->clean('acme.us', ['purpose' => 'P1']))->toBe([])
+        ->and($input->describe('acme.us', ['purpose' => 'P1']))->toBe([]);
 });

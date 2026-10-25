@@ -3,19 +3,55 @@
 How to install the billing app on a new server, from an empty database to a signed-in administrator, and how to
 upgrade it later. For a development machine with demo data, use [local-setup.md](local-setup.md) instead.
 
+This page installs the app on the host itself (PHP, a web server, systemd or Supervisor). To run everything in
+containers on one Docker host, behind Caddy, follow [production.md](production.md) instead; on a cPanel shared
+account, [cpanel.md](cpanel.md) (cron mode).
+
 The install is a CLI step, `php artisan app:install`. A web installer is not part of v1.
 
 ## What you need
 
-| Component      | Version / notes                                                                                                           |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| PHP            | 8.4 with `pdo_pgsql`, `pgsql`, `mbstring`, `openssl`, `curl`, `dom`, `zlib`; php-fpm behind nginx (or another web server) |
-| Composer       | 2.10.x                                                                                                                    |
-| Node / npm     | the version in `billing/.nvmrc` (24.21.0), only to build the front-end assets                                             |
-| PostgreSQL     | 18 (CI runs on `postgres:18.6-alpine`). SQLite is for development only                                                    |
-| Object storage | any S3-compatible bucket for the `objects` disk (RustFS, AWS S3, MinIO)                                                   |
-| Mail           | an SMTP account or a supported mail API. Security notices, invoices and password resets depend on it                      |
-| Processes      | cron for the scheduler, and systemd or Supervisor to keep the queue workers running                                       |
+| Component      | Version / notes                                                                                                                                                                                                                                                                                           |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Server         | at least 2 vCPU and 4 GB of memory for the app, workers, PostgreSQL and the web server together. Sized from runs of the Docker stack at 50,000 clients ([sizing.md](sizing.md)); a php-fpm install has not been measured                                                                                  |
+| PHP            | 8.4.27 or newer (8.5.12 or newer on 8.5; see [PHP security floor](#php-security-floor)) with `pdo_pgsql`, `pgsql`, `intl`, `gd`, `bcmath`, `pcntl`, `zip`, `mbstring`, `openssl`, `curl`, `dom`, `zlib` and OPcache (the image's list, `deploy/Dockerfile`); php-fpm behind nginx (or another web server) |
+| Composer       | 2.10.x                                                                                                                                                                                                                                                                                                    |
+| Node / npm     | the version in `billing/.nvmrc` (24.21.0), only to build the front-end assets                                                                                                                                                                                                                             |
+| PostgreSQL     | 18 (CI runs on `postgres:18.6-alpine`). SQLite is for development only                                                                                                                                                                                                                                    |
+| Object storage | any S3-compatible bucket for the `objects` disk (RustFS, AWS S3, MinIO)                                                                                                                                                                                                                                   |
+| Mail           | an SMTP account or a supported mail API. Security notices, invoices and password resets depend on it                                                                                                                                                                                                      |
+| Processes      | cron for the scheduler, and systemd or Supervisor to keep the queue workers running                                                                                                                                                                                                                       |
+
+## PHP security floor
+
+PHP 8.4.26 and older, and 8.5.11 and older, are open to **CVE-2026-109618** and **CVE-2026-109619** ("PHP2Shell",
+CVSS 4.0 9.2): unauthenticated remote code execution through every web SAPI (php-fpm, Apache `mod_php`, LiteSpeed,
+FrankenPHP). There is no workaround besides upgrading
+([php.net, 2026-10-21](https://www.php.net/archive/2026.php)). Run **PHP 8.4.27 or newer** (8.5.12 or newer on 8.5).
+
+Check the version each PHP binary on the host reports. The web server's PHP and the CLI can be different packages,
+so check both (the php-fpm binary name depends on the distribution, e.g. `php-fpm8.4` on Debian and Ubuntu):
+
+```bash
+php -v                                     # CLI: cron, queue workers, artisan
+php-fpm8.4 -v                              # the PHP that serves web requests
+```
+
+`php artisan app:install` reports the same check ("PHP"): a warning on an existing installation, and it stops a first
+install in production. The admin dashboard's System health card shows "PHP runtime" in red while the PHP that serves
+the dashboard is vulnerable.
+
+After upgrading the PHP packages, restart **every** long-running PHP process, or it keeps running the old binary:
+
+```bash
+sudo systemctl restart php8.4-fpm          # or your web server's PHP service (unit names vary by distribution)
+php artisan queue:restart                  # each worker exits after its current job; systemd or Supervisor starts it again
+```
+
+Restart anything else that runs PHP for a long time as well (a `schedule:work` process, a custom daemon). The
+`schedule:run` cron entry starts a new process every minute and needs nothing. Then check `php -v` again and open
+the dashboard. In the Docker stack, pull or rebuild the image instead ([production.md](production.md)); the image
+ships PHP 8.4.27 from FrankenPHP 1.13.2 and refuses to build with an older PHP.
 
 ## 1. Infrastructure
 
@@ -27,7 +63,7 @@ data in the `postgres-data` and `rustfs-data` volumes. Set strong values for `DB
 volume is created. The compose file also creates an empty `billing_test` database for the test suite, which
 production does not use. The file is written for local infrastructure: it also turns on the RustFS web console
 (`RUSTFS_CONSOLE_ENABLE`, port 9001 on `127.0.0.1`). In production set that to `'false'` or keep the port off any
-public interface. There is no application image yet, so the app itself runs on the host (step 2).
+public interface. With this option the app itself runs on the host (step 2); the all-container stack is in [production.md](production.md).
 
 **Bare metal or managed services.** Create a PostgreSQL database and a user that owns it, and a private bucket
 with an access key limited to that bucket. Put the connection details in `.env` (step 3).
@@ -83,14 +119,31 @@ than `APP_URL`'s host and its subdomains are rejected. A wrong value sends peopl
 value produces insecure links. When the domain changes, update `APP_URL` and run `php artisan optimize` again. The
 install pre-flight warns in production when `APP_URL` is not an `https://` address or points at localhost.
 
+`AUTH_STEP_UP_SECONDS` is optional and defaults to 900, and an empty value counts as unset. It sets how long a
+password confirmation unlocks sensitive changes (ADR 0018 §4). It must be a whole number from 60 to 3600. Any other
+value fails when the configuration loads, and `deploy/entrypoint.sh` runs `php artisan optimize` under `set -eu` in
+every service, so the web, worker and scheduler containers exit at start and restart in a loop until the value is
+fixed. The error names the value received. Fix the value in the environment and restart; `php artisan config:clear`
+also fails while the bad value is set, unless a cached configuration file already exists.
+
+`CACHE_STORE` must be a store that every web and queue process shares, because cache locks (a provisioning create
+that waits for verification, per-attempt payment locks) only exclude each other through one lock store. Use `database`
+or `redis` (`memcached` and `dynamodb` also work). `file` is safe only when everything runs on one host and one
+`storage/` directory, and `array` and `null` keep locks inside a single process. The pre-flight stops a first
+production install on `array` or `null`, and otherwise warns; in production the admin dashboard's System health card
+shows the same finding.
+
 Then generate the application key **once**:
 
 ```bash
 php artisan key:generate
 ```
 
-Back up `.env`. `APP_KEY` encrypts stored secrets (gateway, registrar and server credentials, secret settings); if
-it is lost they cannot be decrypted. When you rotate it, keep the old one in `APP_PREVIOUS_KEYS`.
+Store a copy of `APP_KEY` in a password manager or secrets store. It encrypts stored secrets (gateway, registrar and
+server credentials, secret settings); if it is lost they cannot be decrypted. Keep `.env` at mode 600, owned by the
+PHP user, and out of file backups. The key can also come from the environment or from a file named by
+`APP_KEY_FILE`; rotation (with `APP_PREVIOUS_KEYS` and `php artisan security:reencrypt`) is in
+[key-rotation.md](key-rotation.md).
 
 ## 4. Database, storage and the install command
 
@@ -103,15 +156,30 @@ php artisan app:install
 `app:install` runs in three stages and prints what it did:
 
 1. **Pre-flight checks.** A missing or invalid `APP_KEY`, an unreachable database or pending migrations stop the
-   install before anything is written, and the message says which command fixes it. A `sync` or `null` queue, no
+   install before anything is written, and the message says which command fixes it. On a first install so does a queue connection whose
+   `retry_after` is not above the longest job timeout (200 s for the provider pool and for the Services cap plus its
+   lock slack, 3,600 s on the `automation` connection): a queue hands a running job to a second worker once
+   `retry_after` has passed, so the message names the connection, the timeout and the setting to raise
+   (`DB_QUEUE_RETRY_AFTER`, `REDIS_QUEUE_RETRY_AFTER`, `BEANSTALKD_QUEUE_RETRY_AFTER`). On an installation that already has currencies (the re-run after an upgrade) it only warns, so a deploy is not blocked. On SQS the check warns, because
+   the visibility timeout is set on the queue. A `sync` or `null` queue, no
    scheduler heartbeat yet, an object disk that rejects a test file, and in production `APP_DEBUG=true` or a `log`
    or `array` mailer are reported as warnings; the install goes on.
 2. **Reference data** from every installed module, each in its own transaction:
 
-    | Installer         | Creates                                                                                                                                                                                                    |
-    | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-    | `core_currencies` | USD (the default), INR and NPR with their symbols, formats and starting rates, on the first install only (while no currency exists). Later runs never re-create a deleted currency or change an edited one |
-    | `core_roles`      | the system roles Full Administrator, Billing, Support and Sales, found by a stable key and reset to their built-in permissions (names staff chose are kept)                                                |
+    | Installer              | Creates                                                                                                                                                                                                        |
+    | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+    | `core_regional`        | the company's country (Nepal, `NP`), time zone (`Asia/Kathmandu`) and date format (`1 Jan 2026`), stored on the first install only                                                                             |
+    | `core_currencies`      | NPR (the default), USD and INR with their symbols, formats and starting rates, on the first install only (while no currency exists). Later runs never re-create a deleted currency or change an edited one     |
+    | `core_roles`           | the system roles Full Administrator, Billing, Support and Sales, found by a stable key and reset to their built-in permissions (names staff chose are kept)                                                    |
+    | `billing_regional_tax` | on the same first install: the seller's tax country, and for Nepal a VAT rule of 13%, invoice numbers `INV-00001` and nothing else. Tax stays off until staff turn on "Enable tax" in Settings → Billing → Tax |
+
+    **Regional defaults.** Nepal is the default market. In a terminal the install asks for the country, the default
+    currency (NPR, USD or INR) and the time zone, with Nepal's values pre-selected. Without a terminal, pass
+    `--country=NP --currency=NPR --timezone=Asia/Kathmandu` (all three optional). Any other country gets its own
+    tax country and no VAT rule. Every value stays editable: country, time zone and date format in Admin → Settings →
+    Company, currencies in Setup → Currencies, tax in Settings → Billing → Tax. Dates are Gregorian; the Bikram Sambat
+    calendar is not supported. The choices apply only while no currency exists. On an existing installation they are
+    ignored, with a note, and nothing is changed.
 
     Settings, the daily automation time, theme presets and staff permissions need no rows: they are built-in defaults
     in code and configuration until staff change them. Support departments are not created, because each needs a
@@ -126,13 +194,22 @@ php artisan app:install
       production rules in every environment.
     - `php artisan app:install --admin-email=you@example.com [--admin-name="Your Name"]` asks nothing and prints a
       generated one-time password once. It is not stored in plain text or logged; sign-in with it forces a new
-      password. Run it in a terminal you trust, not in a CI job whose log others can read.
+      password, and it stops working 24 hours after it was printed. Run it in a terminal you trust, not in a CI job
+      whose log others can read.
+    - `php artisan app:admin-password you@example.com` gives an existing full administrator a new one-time password
+      on the same terms: the way back in when the first one expired or was lost. It also ends the old password's remember-me
+      cookies and, with `SESSION_DRIVER=database`, its signed-in sessions, and mails the administrator. Other staff use "Forgot password" or
+      Admin → Staff.
     - Two-factor setup is required at the first sign-in to the admin area (`security.staff_2fa_required`, on by
       default).
     - If a full administrator already exists, it creates none. Pass `--additional-admin` to add one. It never promotes
       an existing account: use Admin → Staff for that.
 
-The command exits non-zero when a check fails or no administrator could be created, so scripts can stop on it.
+One install runs at a time: after the pre-flight it takes a 15-minute lock in the shared cache store, and a second
+run started meanwhile stops with "Another app:install is running". A run that was killed before it finished (a lost
+SSH session, an out-of-memory container) leaves the lock until it expires: wait, or, when you are sure no install is
+running, `php artisan app:install --release-lock --force` (it asks you to confirm). The command exits non-zero when a check fails, another
+install holds the lock or no administrator could be created, so scripts can stop on it.
 
 ## 5. Web server
 
@@ -159,20 +236,60 @@ Cron, as the user that runs PHP:
 The scheduler writes a heartbeat every minute and runs the daily automation pipeline at `core.automation_time`
 (03:00 server time by default). The admin dashboard flags automation that has not run for 26 hours.
 
-Queue workers, kept running by systemd or Supervisor (the queue names follow ADR 0014):
+Queue workers, kept running by systemd or Supervisor. `app:install` prints the same four commands; the queue names
+are in `App\Support\Queues` (ADR 0014):
 
 ```bash
 php artisan queue:work --queue=payments,provisioning,registrar --tries=3 --timeout=200
 php artisan queue:work --queue=notifications,webhooks --tries=3
-php artisan queue:work --queue=default --tries=3
+php artisan queue:work --queue=default,imports --tries=3 --timeout=150 --memory=256
+php artisan queue:work automation --queue=automation --tries=1 --timeout=3600
 ```
 
-The pools follow [ADR 0014](../adr/0014-observability-and-queue-topology.md), which is still proposed. The first pool
+The pools follow [ADR 0014](../adr/0014-observability-and-queue-topology.md) (queue topology accepted). The first pool
 calls gateways, control panels and registrars. Module jobs time out after `services.module.job_timeout_seconds` (60 s),
 or after the driver's declared command timeout up to `services.module.max_job_timeout_seconds` (180 s); the pool's
 `--timeout` (200 s) must be at least that cap, and the cap plus the 20 s lock slack must stay below the queue
 connection's `retry_after` (240 s by default, `DB_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_RETRY_AFTER`), or a slow job is started twice. On SQS, set
 the visibility timeout of each queue the same way. `--tries=3` is only the fallback for jobs that do not set their own `$tries`.
+The third pool also works the `imports` queue (client imports) after `default`, so a large import delays `default` work
+by at most one import job. Import jobs stop after 120 s; the pool's `--timeout` (150 s) covers that and stays below
+`retry_after`, and `--memory=256` lets a worker finish an import job (up to 192 MB) without restarting after it. On
+SQS, give the `imports` queue a visibility timeout of at least 150 s.
+
+The fourth worker runs **Run now** from Admin → Automation. A run can last longer than the pools' `retry_after` (a
+billing day for 50,000 clients took 546 s in load testing), and a worker hands a reserved job to a second worker once
+`retry_after` has passed, even while the first is still running it. So these jobs use their own `automation`
+connection: the same backend as `QUEUE_CONNECTION` (`database`, `redis`, `beanstalkd` or `sqs`; `database` for any
+other driver), the `automation` queue, and a `retry_after` of 3,900 s, above the job's 3,600 s timeout. The values
+are set in `App\Support\Queues`, not in `.env`. On SQS, create an `automation` queue with a visibility timeout of
+at least 3,900 s.
+
+- Start it with the connection argument, `queue:work automation`. `queue:work --queue=automation` alone reads the
+  same jobs through the default connection and its 240 s `retry_after`, which hands a long run to a second worker.
+  When such a worker takes a job first, the job fails without running, and the failed job names the right command.
+  Never add `automation` to another worker's `--queue` list.
+- One automation worker is enough: while one run waits or runs, another **Run now** is not queued, and the page
+  says so. The scheduled daily run does not use the queue; it runs in the scheduler process. **Run now** during the
+  scheduled run is refused with "An automation run is in progress"; a request queued just before it starts is
+  skipped and recorded in the activity log ("Automation run skipped").
+- Without this worker, **Run now** requests wait in the queue until a worker starts.
+- Give the worker a stop timeout above 3,600 s (systemd `TimeoutStopSec`, Supervisor `stopwaitsecs`, Compose
+  `stop_grace_period`), so a deploy waits for a run in progress instead of killing it.
+
+A worker stopped mid-run (killed, out of memory, or a stop timeout that ran out) ends the run part-way and cannot
+release its locks:
+
+- **Run now** is refused until about 65 minutes (3,900 s) after the interrupted run was requested: "An automation
+  run is in progress" for the first hour, then "already queued or running". When the worker is back, the interrupted job is recorded as a failed job once its `retry_after` has
+  passed; it does not run again.
+- A scheduled daily run that starts within an hour of the interrupted run's start finds the run lock (3,600 s)
+  still held and does not run that day; the dashboard flags it after 26 hours. Press **Run now** once the locks are
+  free.
+- To run sooner, first check that no worker is running an automation job (the automation worker's log shows no
+  `RunAutomationJob` in progress) and that the scheduled run is not running, then run
+  `php artisan automation:release-locks` and press **Run now**. Tasks that already succeeded that day are skipped.
+  Releasing the locks while a run is in progress would let a second run start alongside it.
 
 A minimal systemd unit for one pool:
 
@@ -223,15 +340,18 @@ Three things, kept apart, and a restore you have actually tried.
    versioning or replication to a second bucket, or sync it to another provider on a schedule (for example
    `rclone sync`). A database restore without the bucket leaves links to files that no longer exist.
 
-3. **`APP_KEY` (and `.env`).** Store the key in a password manager or secrets store, **separately from the database
-   dumps**. Without it, every encrypted value in a dump (gateway, registrar and server credentials, secret
-   settings) is unrecoverable. And a dump stored together with the key gives whoever reads it all of those
-   credentials.
+3. **`APP_KEY`.** Store the key in a password manager or secrets store, **separately from the database dumps**,
+   and never back up `.env` or `bootstrap/cache/config.php` (exclude them from file and host backups). Without the
+   key, every encrypted value in a dump (gateway, registrar and server credentials, secret settings) is
+   unrecoverable. A dump stored together with the key gives whoever reads it all of those credentials. After a
+   rotation, keep the old key as long as dumps taken under it ([key-rotation.md](key-rotation.md#backups-and-old-keys)).
 
 **Restore test.** At least once before go-live, and then every quarter, restore the latest dump into a scratch
 database (`createdb billing_restore && pg_restore --no-owner --dbname=billing_restore <file>`). Point a copy of the
 app at it with the same `APP_KEY` and run `php artisan app:install --no-interaction`: the pre-flight must pass and
-every reference row must report as unchanged. Then sign in and open an invoice PDF to check the bucket.
+the Created column must be 0 everywhere. Updated rows are expected when staff changed a system role's permissions
+(they are reset, with `role.updated` entries in the restored copy). Then sign in and open an invoice PDF to check
+the bucket.
 
 ## Upgrading
 
@@ -249,12 +369,17 @@ php artisan queue:restart                  # workers pick up the new code after 
 php artisan up
 ```
 
+Upgrading PHP itself (for a security release) is not a release deploy: follow [PHP security floor](#php-security-floor),
+which restarts php-fpm and the workers.
+
 Re-running `app:install` is safe: on an unchanged database it changes nothing and reports every row as unchanged.
 It adds reference data a new release introduces and resets the permissions of the four system roles, so a permission
 added in the release reaches them. The system roles are found by a stable key, so a name staff gave one is kept, and a
 custom role is never changed, even one named like a system role. Each reset is in the activity log
 (`role.updated`). Permission changes staff made to a system role are lost: copy it into a custom role if you need
-different permissions. Currencies are never re-created or changed after the first install.
+different permissions. Currencies and the regional defaults (country, time zone, date format, tax country, VAT rule) are written on the first
+install only: an upgrade never changes them, including settings that were never stored and still follow the built-in
+defaults.
 
 Email templates follow the shipped wording where staff never edited them: `app:install` replaces their text with
 the new default and records each change in the activity log (`notifications.template_default_updated`). Edited

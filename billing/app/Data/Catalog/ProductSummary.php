@@ -16,6 +16,7 @@ final readonly class ProductSummary
      * @param  int|null  $termDays  fixed-term length in days (null = open-ended)
      * @param  bool  $freeDomainRecurring  true = the free domain stays free on renewals; false = first registration only
      * @param  list<string>|null  $allowedGateways  gateway keys allowed for this product (null = all enabled gateways)
+     * @param  string|null  $groupSlug  slug of the product's group (storefront URLs)
      */
     public function __construct(
         public int $id,
@@ -45,5 +46,6 @@ final readonly class ProductSummary
         public ?int $termDays = null,
         public ?string $slug = null,
         public ?array $allowedGateways = null,
+        public ?string $groupSlug = null,
     ) {}
 }

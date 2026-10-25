@@ -103,3 +103,11 @@ No aliases are needed. ADR 0009's moves rely on this.
 - One more generated file to keep in sync. The snapshot command keeps that mechanical.
 - Merge-field resolvers and webhook resources become separate. That is extra code, but a template edit can no longer
   break an integration.
+
+## Amendment (#482) — 2026-10-25, defaulted parameters on serialised events
+
+- A trailing defaulted constructor parameter is a compatible addition for queued and stored copies of an event too.
+  `IdentifiesOccurrence::__unserialize` gives every promoted constructor parameter missing from the payload its
+  default, as a new event would get it; without that, a copy serialised before the parameter existed would leave the
+  typed property uninitialised. First used by `CreditNoteIssued::$notify` and `DebitNoteIssued::$notify`; it also
+  covers `InvoiceCreated::$notify`.

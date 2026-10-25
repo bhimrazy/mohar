@@ -32,6 +32,7 @@ Route::adminArea(fn () => Route::prefix('domains')->name('domains.')->group(func
     Route::put('{domain}/lock', [DomainActionController::class, 'lock'])->whereNumber('domain')->name('lock');
     Route::put('{domain}/contacts', [DomainActionController::class, 'contacts'])->whereNumber('domain')->name('contacts');
     Route::post('{domain}/epp', [DomainActionController::class, 'epp'])->whereNumber('domain')->name('epp');
+    Route::post('{domain}/link-order', [DomainActionController::class, 'linkOrder'])->whereNumber('domain')->middleware(['password.recent', 'throttle:10,1'])->name('link-order');
     Route::post('{domain}/move', [DomainActionController::class, 'move'])->whereNumber('domain')->name('move');
     Route::post('{domain}/renewal-invoice', [DomainActionController::class, 'renewalInvoice'])->whereNumber('domain')->name('renewal-invoice');
     Route::post('{domain}/commands/{command}', [DomainActionController::class, 'command'])
@@ -47,7 +48,7 @@ Route::clientArea(fn () => Route::prefix('domains')->name('domains.')->group(fun
     Route::put('{domain}/contacts', [ClientDomainController::class, 'contacts'])->whereNumber('domain')->name('contacts');
     Route::post('{domain}/epp', [ClientDomainController::class, 'epp'])->whereNumber('domain')->middleware('throttle:10,1')->name('epp');
     Route::put('{domain}/transfer', [ClientDomainController::class, 'resubmitTransfer'])->whereNumber('domain')->name('transfer');
-    Route::post('{domain}/renew', [ClientDomainController::class, 'renew'])->whereNumber('domain')->name('renew');
+    Route::post('{domain}/renew', [ClientDomainController::class, 'renew'])->whereNumber('domain')->middleware('throttle:10,1')->name('renew');
 }));
 
 Route::prefix('domains')->name('domains.')->middleware('throttle:domain-lookup')->group(function (): void {

@@ -1,6 +1,6 @@
 # ADR 0018 — Sign-in methods and step-up
 
-- Status: Proposed · 2026-10-19 · Owner: Principal architect
+- Status: Accepted · 2026-10-22 (proposed 2026-10-19) · Owner: Principal architect
 - Related: ADR 0001 (modular monolith), ADR 0009 and 0012 (kernel extension contracts, registries), ADR 0011 (events
   after commit), `docs/security/standards.md` §2 (step-up), `billing/docs/product/social-sign-in.md`, PR #102
   (architect check), issue #81, PR #89 (structural tests for secrets and step-up).
@@ -67,6 +67,9 @@ No sign-in method counts as a second factor or as a password confirmation.
 
 - `RequireRecentPasswordConfirmation` moves from Platform to `App\Http\Middleware`. The alias is registered in
   `bootstrap/app.php`, and Billing's `ConfirmPasswordForAction` copy is deleted (#81).
+- The window is `auth.step_up_seconds`, read from `AUTH_STEP_UP_SECONDS` (default 900 when unset or empty; a whole
+  number from 60 to 3600, and any other value fails when the configuration loads). It does not change
+  `password_timeout`.
 - It is the only step-up mechanism. It reads `auth.password_confirmed_at`, which only Fortify's `confirm-password`
   sets. No module adds another form of step-up, such as an emailed link, a provider re-authentication or a module
   timestamp.
@@ -137,3 +140,70 @@ A login always keeps at least one way to sign in:
   needs a registry entry and a counter decorator, not a kernel edit.
 - Risk: `CompleteSignIn` depends on Fortify's private session keys. The pinned test and the 7-day upgrade cooldown
   (ADR 0007) contain that risk.
+
+## Addendum (2026-10-21, client importer #184): email verification on an email change
+
+- **Client logins.** The `User` saving hook clears `email_verified_at` when a client login (`is_staff` false) is saved
+  with a new email, unless the same save sets it. A model hook is the one place every writer passes through, since
+  there is no single change-email action. Query-builder `update()` bypasses it, so `users.email` is never written
+  that way.
+- **Staff logins.** The hook leaves them alone, and Platform's `UpdateStaff` owns the rule for the staff page. A change
+  made by another admin clears verification and sends the verification mail. A staff member's own change keeps it.
+  Both addresses get the change notice either way. Admin routes require `verified`, so clearing a self-change with no
+  mail would send the only full admin to the verify prompt. Settings → Profile (`ProfileController`) still clears
+  verification on any self-change, staff included.
+- **What verification says.** For a client login it also bounds the last email change, because a change clears it.
+  `LoginImporter::linkable()` relies on that: it links a non-staff login whose email was verified at least 30 days
+  ago.
+- **`users.email_changed_at` is deferred.** While the hook clears verification on every client email change, "verified
+  30 days ago" already implies "unchanged for 30 days", and no consumer needs the two facts apart. The column is added,
+  set in the same hook, with the first consumer that does: linking a social identity by verified email (§1), or a
+  rule for staff. `clients.email_changed_at` stays the column for the client record.
+
+## Addendum (2026-10-23, #388): changing the sign-in email needs step-up
+
+- A login's own email change (Settings → Profile) needs `password.recent`, like the staff edit (`UpdateStaff`), which
+  already had it. Whoever controls the email controls password resets, so the change is account recovery and a session
+  alone must not be able to make it. A name-only save needs no step-up.
+- A login without a password cannot pass step-up (§4), so it cannot change its email until it sets a password. No
+  emailed confirmation link is used instead: that would be a second step-up mechanism, which §4 rules out.
+- After every change the old address gets a notice with the new address partly masked (`auth.email_changed`, or
+  `staff.email_changed` for staff), and the new address must be verified again. This holds for a self-change on both
+  paths (Settings → Profile and Admin → Staff → Edit) and for a staff member editing someone else: the new mailbox
+  receives resets and has not been proven. A staff member who changes their own email is sent to verify before
+  returning to the admin area.
+- If the old-address notice is refused or suppressed by the template system, no other path sends it; the person
+  sees a warning and the activity log records the outcome.
+- `SensitiveRouteStepUpTest` lists the routes known to write `users.email` and checks each refuses without step-up.
+  A new route that changes a login's email is added there.
+
+## Amendment (#459) — 2026-10-24, one-time password expiry and the step-up download key
+
+- **Expiry is a property of the password.** A one-time password (from `app:install --admin-email` or
+  `app:admin-password`) carries `users.password_expires_at`, 24 hours after it was issued. Only the password method
+  enforces it, so `SignInGate` does not; passkey sign-in is unaffected. `User::passwordExpired()` is the one check.
+- **Where it is refused** (`App\Actions\Fortify\RefuseExpiredPassword`, always after the password itself checked out,
+  so the message tells nothing to someone without it):
+    - at password sign-in, before the two-factor challenge (`RememberValidatedLogin`) and on Fortify's fallback step
+      (`SignInValidatedUser`), because the challenge signs in without the pipeline's later steps;
+    - when a challenge started before the expiry is completed after it (a `ValidTwoFactorAuthenticationCodeProvided`
+      listener clears `login.id` and returns to the login page). A recovery code used there is spent: Fortify
+      replaces it before the event, and the person held both the password and the code;
+    - at every password confirmation, even in a session that confirmed before the expiry: `password.recent` (§4,
+      `recentlyConfirmed()`) and Laravel's `password.confirm` (3-hour window; `RequirePasswordUnlessExpired` is bound
+      in place of `RequirePassword`) both treat such a login as unconfirmed, and `confirm-password` refuses the
+      expired password. That covers the security page, two-factor changes and passkey registration.
+      `ExpiredPasswordConfirmationScanTest` calls every route behind either middleware;
+    - as the current password (change-password and delete-account forms).
+    - Such a login recovers with "Forgot password" or `app:admin-password`.
+    - Each refusal writes `auth.password_expired` (the step only, no secret).
+- **Any password change clears it**, with the forced change, in the `User` saving hook, unless the same save sets a
+  new expiry: that save writes a one-time password, so the issuer needs one save.
+- **A reissue ends the old credential's access**: `app:admin-password` rotates the remember token and deletes the
+  login's stored sessions (`LoginSessions`, database session driver), and mails the administrator
+  (`staff.password_reissued`).
+- **Accepted:** a remember-me cookie or session from before the expiry still signs in after it. It can do nothing
+  that needs a confirmation or the current password, and `must_change_password` keeps it out of the admin area.
+- **The step-up download key holds a URL.** `RequireRecentPasswordConfirmation::DOWNLOAD_KEY` stores the file URL that
+  sent the person to the confirm page, not a flag. The page calls itself a download only while that URL equals
+  `url.intended`, and a dialog (JSON) confirm drops `url.intended` only when it is that download.

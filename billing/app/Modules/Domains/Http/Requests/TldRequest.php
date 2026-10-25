@@ -2,9 +2,9 @@
 
 namespace App\Modules\Domains\Http\Requests;
 
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Support\DomainName;
+use App\Support\Domains\RegistrarDriverRegistry;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -32,6 +32,22 @@ class TldRequest extends FormRequest
     }
 
     /**
+     * @return array<string, string>
+     */
+    public function attributes(): array
+    {
+        return ['how_to_url' => 'how-to link for clients'];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return ['how_to_url.url' => 'The how-to link must be a full https address, for example https://example.com/guide.'];
+    }
+
+    /**
      * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
@@ -45,13 +61,16 @@ class TldRequest extends FormRequest
                         $fail('Enter an extension such as .com or .co.uk.');
                     }
                 }],
-            'registrar_key' => ['nullable', 'string', Rule::in(app(RegistrarManager::class)->keys())],
+            'registrar_key' => ['nullable', 'string', Rule::in(app(RegistrarDriverRegistry::class)->keys())],
             'auto_register' => ['required', 'boolean'],
             'epp_required' => ['required', 'boolean'],
             'min_years' => ['required', 'integer', 'min:1', 'max:10'],
             'max_years' => ['required', 'integer', 'min:1', 'max:10', 'gte:min_years'],
             'allow_register' => ['required', 'boolean'],
             'allow_transfer' => ['required', 'boolean'],
+            // Empty on create takes the extension's default (on for .np and its second levels).
+            'registered_by_client' => ['nullable', 'boolean'],
+            'how_to_url' => ['nullable', 'url:https', 'max:255'],
             'grace_days' => ['required', 'integer', 'min:0', 'max:365'],
             'grace_fee' => ['required', 'integer', 'min:0'],
             'redemption_days' => ['required', 'integer', 'min:0', 'max:365'],

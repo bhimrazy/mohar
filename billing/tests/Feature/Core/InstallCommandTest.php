@@ -5,18 +5,22 @@ use App\Data\Install\ReferenceDataResult;
 use App\Events\Core\RoleUpdated;
 use App\Events\Core\StaffCreated;
 use App\Models\User;
+use App\Modules\Billing\Database\Seeders\BillingHistorySeeder;
 use App\Modules\Core\Database\Seeders\CoreSeeder;
 use App\Modules\Core\Install\AdministratorRefused;
 use App\Modules\Core\Install\FirstAdministrator;
 use App\Modules\Core\Install\ReferenceDataInstaller;
+use App\Modules\Core\Install\RegionalDefaults;
 use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\Settings;
 use App\Support\Install\ReferenceDataRegistry;
+use App\Support\Queues;
 use App\Support\Security\PasswordPolicy;
 use Database\Seeders\DatabaseSeeder;
+use Illuminate\Database\Seeder;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Process\Pool;
 use Illuminate\Support\Facades\Artisan;
@@ -94,10 +98,10 @@ test('an install on an empty database creates the reference data and one full ad
         ->and($match)->toHaveCount(2)
         ->and(Hash::check($match[1], $admin->password))->toBeTrue();
 
-    expect(Currency::query()->orderBy('code')->pluck('is_default', 'code')->all())->toBe(['INR' => false, 'NPR' => false, 'USD' => true])
+    expect(Currency::query()->orderBy('code')->pluck('is_default', 'code')->all())->toBe(['INR' => false, 'NPR' => true, 'USD' => false])
         ->and(Role::query()->where('is_system', true)->orderBy('key')->pluck('name', 'key')->all())->toBe(['billing' => 'Billing', 'full_administrator' => 'Full Administrator', 'sales' => 'Sales', 'support' => 'Support'])
         ->and(Role::query()->count())->toBe(4)
-        ->and(tablesWithRows())->toBe(['activity_log', 'currencies', 'email_template_translations', 'email_templates', 'migrations', 'roles', 'users']);
+        ->and(tablesWithRows())->toBe(['activity_log', 'currencies', 'email_template_translations', 'email_templates', 'migrations', 'roles', 'settings', 'tax_rules', 'users']);
 
     $log = ActivityLog::query()->sole();
     expect($log->event)->toBe('staff.created')
@@ -105,6 +109,19 @@ test('an install on an empty database creates the reference data and one full ad
         ->and(json_encode($log->properties))->not->toContain($match[1]);
 
     Event::assertDispatched(StaffCreated::class, fn (StaffCreated $event) => $event->userId === $admin->id);
+});
+
+test('the next steps print the worker pools that install.md documents, the automation worker included', function () {
+    [$status, $output] = runInstall(['--admin-email' => 'owner@example.test']);
+    $guide = (string) file_get_contents(base_path('docs/devops/install.md'));
+
+    expect($status)->toBe(0)
+        ->and(Queues::workerCommands())->toContain('php artisan queue:work automation --queue=automation --tries=1 --timeout='.Queues::AUTOMATION_TIMEOUT_SECONDS);
+
+    foreach (Queues::workerCommands() as $command) {
+        expect($output)->toContain($command)
+            ->and($guide)->toContain($command);
+    }
 });
 
 test('a second run changes nothing and reports every row unchanged', function () {
@@ -172,6 +189,9 @@ test('the interactive install creates the administrator with the chosen password
     Http::fake(['api.pwnedpasswords.com/range/*' => Http::response("0000000000000000000000000000000000A:3\n")]);
 
     $this->artisan('app:install')
+        ->expectsQuestion('Country (two-letter code)', 'NP')
+        ->expectsQuestion('Default currency', 'NPR')
+        ->expectsQuestion('Company time zone', 'Asia/Kathmandu')
         ->expectsQuestion('Administrator name', 'Ada Admin')
         ->expectsQuestion('Administrator email', 'Ada@Example.test')
         ->expectsQuestion('Password', STRONG_PASSWORD)
@@ -189,6 +209,9 @@ test('the interactive install applies the production password rules in every env
     expect(app()->isProduction())->toBeFalse();
 
     $this->artisan('app:install')
+        ->expectsQuestion('Country (two-letter code)', 'NP')
+        ->expectsQuestion('Default currency', 'NPR')
+        ->expectsQuestion('Company time zone', 'Asia/Kathmandu')
         ->expectsQuestion('Administrator name', 'Ada Admin')
         ->expectsQuestion('Administrator email', 'ada@example.test')
         ->expectsQuestion('Password', $password)
@@ -207,6 +230,9 @@ test('the interactive install rejects a password found in a known breach', funct
     Http::fake(['api.pwnedpasswords.com/range/'.substr($hash, 0, 5) => Http::response(substr($hash, 5).":42\n")]);
 
     $this->artisan('app:install')
+        ->expectsQuestion('Country (two-letter code)', 'NP')
+        ->expectsQuestion('Default currency', 'NPR')
+        ->expectsQuestion('Company time zone', 'Asia/Kathmandu')
         ->expectsQuestion('Administrator name', 'Ada Admin')
         ->expectsQuestion('Administrator email', 'ada@example.test')
         ->expectsQuestion('Password', STRONG_PASSWORD)
@@ -220,6 +246,9 @@ test('the interactive install rejects a confirmation that does not match', funct
     Http::fake(['api.pwnedpasswords.com/range/*' => Http::response('')]);
 
     $this->artisan('app:install')
+        ->expectsQuestion('Country (two-letter code)', 'NP')
+        ->expectsQuestion('Default currency', 'NPR')
+        ->expectsQuestion('Company time zone', 'Asia/Kathmandu')
         ->expectsQuestion('Administrator name', 'Ada Admin')
         ->expectsQuestion('Administrator email', 'ada@example.test')
         ->expectsQuestion('Password', STRONG_PASSWORD)
@@ -298,6 +327,7 @@ test('in production db:seed installs the reference data and no demo data', funct
 });
 
 test('the demo seed installs exactly the reference data an install creates, through the same registry', function () {
+    app(RegionalDefaults::class)->choose('NP', 'NPR', 'Asia/Kathmandu');
     app(ReferenceDataInstaller::class)->install();
     $installed = referenceSnapshot();
     Role::query()->delete();
@@ -325,6 +355,12 @@ test('the demo seed installs exactly the reference data an install creates, thro
         }
     };
     app(ReferenceDataRegistry::class)->register('test_probe', fn () => $probe);
+    // The 730-day demo history writes only billing documents, never currencies or roles, and BillingSeederTest covers
+    // it; skipping it here took this test from 20 s (64 s on PostgreSQL) to under a second.
+    app()->instance(BillingHistorySeeder::class, new class extends Seeder
+    {
+        public function run(): void {}
+    });
 
     $this->seed(DatabaseSeeder::class);
 
@@ -343,6 +379,7 @@ test('currencies are created on the first install only, so an existing list is l
 });
 
 test('a currency staff deleted is not re-created by a later run, and an edited one keeps its rate', function () {
+    app(RegionalDefaults::class)->keepBuiltInDefaults();
     app(ReferenceDataInstaller::class)->install();
     Currency::query()->where('code', 'INR')->delete();
     Currency::query()->where('code', 'NPR')->update(['exchange_rate' => 140.25]);
@@ -360,12 +397,12 @@ test('a system role edited away from its definition gets its permissions back, w
 
     $results = app(ReferenceDataInstaller::class)->install();
 
-    expect($support->refresh()->permissions)->toBe(['core.clients.view', 'domains.domains.view', 'services.services.view', 'support.*'])
+    expect($support->refresh()->permissions)->toBe(['core.clients.view', 'domains.domains.view', 'kyc.documents.view', 'services.services.view', 'support.*'])
         ->and($results['core_roles']['result'])->toEqual(new ReferenceDataResult(updated: 1, unchanged: 3));
 
     $log = ActivityLog::query()->where('event', 'role.updated')->sole();
     expect($log->subject_id)->toBe($support->id)
-        ->and($log->properties)->toBe(['role' => 'Support', 'added' => ['core.clients.view', 'domains.domains.view', 'services.services.view'], 'removed' => ['billing.refunds.manage']]);
+        ->and($log->properties)->toBe(['role' => 'Support', 'added' => ['core.clients.view', 'domains.domains.view', 'kyc.documents.view', 'services.services.view'], 'removed' => ['billing.refunds.manage']]);
 
     Event::assertDispatched(RoleUpdated::class, fn (RoleUpdated $event) => $event->roleId === $support->id);
 });
@@ -439,10 +476,34 @@ test('two installs started at the same time create exactly one full administrato
         // Committed reference data first (the test's own transaction is invisible to other processes).
         Process::path(base_path())->env($env)->run($install());
 
-        $results = Process::pool(fn (Pool $pool) => [
+        // Barrier (#60): a SHARE lock on users lets both runs read but holds every insert. Release comes only once
+        // both are waiting on a lock, so without the role row lock both would have counted no administrator first.
+        $barrier = DB::connection('install_race');
+        $barrier->beginTransaction();
+        $barrier->statement('lock table users in share mode');
+        $pool = Process::pool(fn (Pool $pool) => [
             $pool->as('a')->path(base_path())->env($env)->command($install('--admin-email=a@race.test')),
             $pool->as('b')->path(base_path())->env($env)->command($install('--admin-email=b@race.test')),
-        ])->start()->wait();
+        ])->start();
+        // Statistics views keep one snapshot per transaction unless it is cleared.
+        $waiting = function () use ($barrier): int {
+            $barrier->select('select pg_stat_clear_snapshot()');
+
+            return (int) $barrier->scalar("select count(*) from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'");
+        };
+
+        // One observation decides: a second query could see a transient lock wait come or go and disagree with the
+        // one that ended the wait. The limit allows two PHP boots on a loaded machine (a parallel suite run).
+        $blocked = $waiting();
+
+        for ($tries = 0; $blocked < 2 && $tries < 600 && $pool->running()->isNotEmpty(); $tries++) {
+            usleep(100_000);
+            $blocked = $waiting();
+        }
+
+        $barrier->commit();
+        $results = $pool->wait();
+        $this->assertGreaterThanOrEqual(2, $blocked, $results['a']->output().$results['a']->errorOutput().$results['b']->output().$results['b']->errorOutput());
 
         $exitCodes = [$results['a']->exitCode(), $results['b']->exitCode()];
         sort($exitCodes);
@@ -452,7 +513,7 @@ test('two installs started at the same time create exactly one full administrato
             ->and($race->table('users')->where('is_staff', true)->count())->toBe(1);
     } finally {
         // Everything the committed installs wrote, so later tests in this process start from an empty database.
-        foreach (['activity_log', 'users', 'roles', 'currencies', 'email_template_translations', 'email_templates'] as $table) {
+        foreach (['activity_log', 'users', 'roles', 'currencies', 'email_template_translations', 'email_templates', 'settings', 'tax_rules'] as $table) {
             $race->table($table)->delete();
         }
 
@@ -475,6 +536,9 @@ test('a chosen password is accepted when the breach API cannot be reached', func
     Exceptions::fake();
 
     $this->artisan('app:install')
+        ->expectsQuestion('Country (two-letter code)', 'NP')
+        ->expectsQuestion('Default currency', 'NPR')
+        ->expectsQuestion('Company time zone', 'Asia/Kathmandu')
         ->expectsQuestion('Administrator name', 'Ada Admin')
         ->expectsQuestion('Administrator email', 'ada@example.test')
         ->expectsQuestion('Password', STRONG_PASSWORD)
@@ -486,6 +550,7 @@ test('a chosen password is accepted when the breach API cannot be reached', func
 });
 
 test('in production the pre-flight warns when staff two-factor authentication is not required', function () {
+    config(['cache.default' => 'database']);
     app(Settings::class)->set('security.staff_2fa_required', false);
     app()->detectEnvironment(fn (): string => 'production');
 
@@ -514,4 +579,11 @@ test('in production the pre-flight warns when APP_URL is not the public https ad
     'http' => ['http://billing.example.test', true],
     'localhost' => ['https://localhost', true],
     'public https' => ['https://billing.example.test', false],
+    // #60: other local and unspecified hosts, and the scheme in capitals.
+    'unspecified IPv4' => ['https://0.0.0.0', true],
+    'IPv6 loopback' => ['https://[::1]', true],
+    'other loopback' => ['https://127.0.0.2', true],
+    'mDNS .local' => ['https://billing.local', true],
+    'localhost subdomain' => ['https://billing.localhost', true],
+    'upper-case scheme' => ['HTTPS://billing.example.test', false],
 ]);

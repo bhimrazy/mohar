@@ -45,7 +45,7 @@ class RecordingSandboxDriver extends SandboxCardDriver
     {
         self::$refunds[] = $request;
 
-        return self::$fail ? new ChargeResult(ChargeResult::ERROR, declineReason: 'provider_down', raw: ['error' => 'down']) : parent::refund($gateway, $request);
+        return self::$fail ? new ChargeResult(ChargeResult::DECLINED, declineReason: 'provider_down', raw: ['error' => 'down']) : parent::refund($gateway, $request);
     }
 }
 
@@ -157,13 +157,14 @@ test('unknown callback types are ignored, not booked as chargebacks', function (
         ->and($payment->fresh()->refundable_remaining)->toBe(1_000);
 });
 
-test('a refund of money that went to credit is acknowledged for staff review', function () {
+test('a refund of money that went to credit takes that credit back', function () {
     $invoice = issueInvoice(billingClient(), [1_000]);
     app(Invoicer::class)->cancel($invoice->id);
     payInvoice($invoice, 1_000, 'ch_closed', 'sandbox_card');
 
     sandboxWebhook(['type' => 'charge.refunded', 'txn_id' => 're_closed', 'parent_txn_id' => 'ch_closed', 'amount' => 1_000, 'currency' => 'USD'])
-        ->assertOk()->assertJson(['result' => 'refund needs staff review']);
+        ->assertOk()->assertJson(['result' => 'refund recorded; credit taken back']);
+    expect(app(CreditLedger::class)->balance($invoice->client_id, 'USD')->amount)->toBe(0);
 });
 
 test('refunds of combined payments go to the real batch charge', function () {
@@ -183,7 +184,7 @@ test('refunds of combined payments go to the real batch charge', function () {
     expect($a->fresh()->status)->toBe(InvoiceStatus::Collections);
 });
 
-test('a failed gateway refund keeps its log and restores the refundable amount', function () {
+test('a declined gateway refund keeps its log and restores the refundable amount', function () {
     RecordingSandboxDriver::$fail = true;
     $payment = payInvoice(issueInvoice(billingClient(), [1_000]), 1_000, 'ch_fail', 'sandbox_card');
 
@@ -191,7 +192,7 @@ test('a failed gateway refund keeps its log and restores the refundable amount',
 
     expect($payment->fresh()->refundable_remaining)->toBe(1_000)
         ->and(Transaction::query()->where('type', 'refund')->value('status'))->toBe(TransactionStatus::Failed)
-        ->and(GatewayLog::query()->where('result', 'refund error')->exists())->toBeTrue();
+        ->and(GatewayLog::query()->where('result', 'refund declined')->exists())->toBeTrue();
 });
 
 test('widening stored gateway rates to twelve decimals keeps every existing value', function () {

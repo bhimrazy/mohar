@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Core\CompanyClock;
 use App\Data\Billing\InvoiceDraft;
 use App\Data\Billing\InvoiceLineData;
 use App\Enums\BillableType;
@@ -35,6 +36,7 @@ class Quotes
         private IssueInvoice $issue,
         private BillingSettings $settings,
         private MoneyFormatter $money,
+        private CompanyClock $clock,
     ) {}
 
     /**
@@ -42,18 +44,24 @@ class Quotes
      */
     public function save(array $data, ?Quote $quote = null): Quote
     {
-        if ($quote !== null && ! in_array($quote->stage, [QuoteStage::Draft, QuoteStage::Delivered, QuoteStage::OnHold], true)) {
-            throw new BillingException(__('Accepted, declined or expired quotes can\'t be edited.'));
-        }
+        $this->assertEditable($quote);
 
         return DB::transaction(function () use ($data, $quote): Quote {
-            $client = Client::query()->findOrFail($data['client_id']);
+            // Lock order quote, then client, as convert() and accept() take it (ADR 0021). The stage is checked again
+            // under the quote lock, so an edit cannot overwrite a quote accepted or converted in the meantime.
+            if ($quote !== null) {
+                $quote = Quote::query()->lockForUpdate()->findOrFail($quote->id);
+                $this->assertEditable($quote);
+            }
+
+            // A share lock on the client, so its currency cannot change before this quote is saved in it (#218).
+            $client = Client::query()->sharedLock()->findOrFail($data['client_id']);
             $quote ??= new Quote(['stage' => QuoteStage::Draft]);
             $quote->fill([
                 'client_id' => $client->id,
                 'subject' => $data['subject'],
                 'currency' => $client->currency,
-                'valid_until' => isset($data['valid_until']) ? CarbonImmutable::parse($data['valid_until']) : CarbonImmutable::today()->addDays($this->settings->int('quotes.valid_days', 30)),
+                'valid_until' => isset($data['valid_until']) ? CarbonImmutable::parse($data['valid_until']) : $this->clock->today()->addDays($this->settings->int('quotes.valid_days', 30)),
                 'proposal_text' => $data['proposal_text'] ?? null,
                 'customer_notes' => $data['customer_notes'] ?? null,
                 'admin_notes' => $data['admin_notes'] ?? null,
@@ -80,6 +88,13 @@ class Quotes
         });
     }
 
+    private function assertEditable(?Quote $quote): void
+    {
+        if ($quote !== null && ! in_array($quote->stage, [QuoteStage::Draft, QuoteStage::Delivered, QuoteStage::OnHold], true)) {
+            throw new BillingException(__('Accepted, declined or expired quotes can\'t be edited.'));
+        }
+    }
+
     /**
      * qty × unit × (1 − discount%), rounded per line.
      */
@@ -95,7 +110,7 @@ class Quotes
         }
 
         DB::transaction(function () use ($quote): void {
-            $quote->number ??= $this->numbers->next(DocumentNumbers::QUOTE);
+            $quote->number ??= $this->numbers->next(DocumentNumbers::QUOTE, $this->clock->calendarDate());
             $quote->stage = QuoteStage::Delivered;
             $quote->delivered_at = now();
             $quote->save();
@@ -111,7 +126,7 @@ class Quotes
         return DB::transaction(function () use ($quote): Quote {
             $quote = Quote::query()->lockForUpdate()->findOrFail($quote->id);
 
-            if (! $quote->stage->isOpen() || ($quote->valid_until !== null && $quote->valid_until->lt(CarbonImmutable::today()))) {
+            if (! $quote->stage->isOpen() || ($quote->valid_until !== null && $quote->valid_until->toDateString() < $this->clock->today()->toDateString())) {
                 throw new BillingException(__('This quote can no longer be accepted.'));
             }
 

@@ -8,6 +8,7 @@ use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Services\Models\ServerAccountImport;
 use App\Modules\Services\Services\ProvisioningSnapshots;
 use App\Modules\Services\Support\AccountImportMatcher;
+use App\Modules\Services\Support\AccountList;
 use App\Support\Integrations\Redactor;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -44,6 +45,7 @@ class FetchServerAccounts implements ShouldQueue
         $import = ServerAccountImport::query()->with(['server', 'requester'])->find($this->importId);
 
         if ($this->rematch && $import?->status === ServerAccountImport::MATCHING) {
+            app(AccountList::class)->adopt($import);
             $matcher->rematch($import);
 
             return;
@@ -88,6 +90,11 @@ class FetchServerAccounts implements ShouldQueue
         }
 
         $count = $matcher->store($import, $accounts, AccountImportMatcher::connectionUser($driver, $connection));
+
+        if ($count === null) {
+            return; // superseded by a later fetch while it ran
+        }
+
         $activity->log("Accounts on server {$server->name} fetched for import", $server, properties: ['accounts' => $count], actor: $import->requester);
     }
 

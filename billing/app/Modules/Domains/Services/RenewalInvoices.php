@@ -8,8 +8,10 @@ use App\Data\Billing\InvoiceLineData;
 use App\Data\Billing\InvoiceResult;
 use App\Enums\BillableType;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainInvoice;
+use App\Support\Billing\InvoiceNotCancellable;
 use Illuminate\Support\Collection;
 use RuntimeException;
 
@@ -23,6 +25,11 @@ class RenewalInvoices
     public const OPEN_STATUSES = ['draft', 'unpaid'];
 
     public const RENEWAL_KINDS = ['renewal', 'grace', 'redemption'];
+
+    private ?Currency $defaultCurrency = null;
+
+    /** @var array<string, Currency|null> */
+    private array $currencies = [];
 
     public function available(): bool
     {
@@ -76,7 +83,13 @@ class RenewalInvoices
         $cancelled = 0;
 
         foreach ($this->open($domain) as $invoice) {
-            $this->invoicer()->cancel($invoice->invoice_id);
+            try {
+                $this->invoicer()->cancel($invoice->invoice_id, __('Cancelled by :module', ['module' => 'Domains']));
+            } catch (InvoiceNotCancellable) {
+                // Still payable: the renewal invoice stays open here too.
+                continue;
+            }
+
             $invoice->update(['status' => 'cancelled']);
             $cancelled++;
         }
@@ -85,19 +98,31 @@ class RenewalInvoices
     }
 
     /**
-     * Issue the renewal invoice for the domain's current cycle (period starting next_due_date),
-     * optionally with a grace/redemption fee line converted from the default currency.
+     * The invoice kind for the domain's status and its late fee in the default currency (grace and redemption only).
      *
-     * A zero-total invoice is paid immediately by Billing, so InvoicePaid may reach HandleInvoicePaid before
-     * this method records the invoice; the tracking row is therefore created idempotently and a row the
-     * listener already marked paid is never downgraded.
+     * @return array{0: 'renewal'|'grace'|'redemption', 1: int}
+     */
+    public function charge(Domain $domain): array
+    {
+        return match ($domain->status) {
+            DomainStatus::Grace => ['grace', $domain->tldModel->grace_fee],
+            DomainStatus::Redemption => ['redemption', $domain->tldModel->redemption_fee],
+            default => ['renewal', 0],
+        };
+    }
+
+    /**
+     * The lines of a renewal invoice for the domain's current cycle (period starting next_due_date), before tax:
+     * the term at the given amount, plus the grace/redemption fee converted from the default currency. Renew now's
+     * confirmation sums these, so it states what issue() bills.
      *
      * @param  'renewal'|'grace'|'redemption'  $kind
      * @param  int  $feeInDefaultCurrency  minor units in the system default currency
      * @param  int|null  $years  term to bill (default: the domain's renewal period)
      * @param  int|null  $amount  renewal amount for the term (default: the locked recurring amount)
+     * @return list<InvoiceLineData>
      */
-    public function issue(Domain $domain, string $kind = 'renewal', int $feeInDefaultCurrency = 0, ?int $years = null, ?int $amount = null): InvoiceResult
+    public function lines(Domain $domain, string $kind = 'renewal', int $feeInDefaultCurrency = 0, ?int $years = null, ?int $amount = null): array
     {
         $years ??= $domain->period_years;
         $periodStart = $domain->next_due_date;
@@ -122,6 +147,24 @@ class RenewalInvoices
             );
         }
 
+        return $lines;
+    }
+
+    /**
+     * Issue the renewal invoice for the domain's current cycle with lines().
+     *
+     * A zero-total invoice is paid immediately by Billing, so InvoicePaid may reach HandleInvoicePaid before
+     * this method records the invoice; the tracking row is therefore created idempotently and a row the
+     * listener already marked paid is never downgraded.
+     *
+     * @param  'renewal'|'grace'|'redemption'  $kind
+     */
+    public function issue(Domain $domain, string $kind = 'renewal', int $feeInDefaultCurrency = 0, ?int $years = null, ?int $amount = null): InvoiceResult
+    {
+        $years ??= $domain->period_years;
+        $periodStart = $domain->next_due_date;
+        $lines = $this->lines($domain, $kind, $feeInDefaultCurrency, $years, $amount);
+
         $result = $this->invoicer()->issue(new InvoiceDraft(
             clientId: $domain->client_id,
             currency: $domain->currency,
@@ -143,18 +186,26 @@ class RenewalInvoices
     }
 
     /**
-     * Convert an amount in the default currency with the current exchange rate (fees are stored once).
+     * Convert an amount in the default currency with the current exchange rate and the currency's rounding rule (fees are stored once).
      */
     public function convertFromDefault(int $amount, string $currency): int
     {
-        $default = Currency::default();
+        // One query for the default and target currencies, memoised per instance: the dashboard converts a fee for each
+        // grace or redemption row.
+        if ($this->defaultCurrency === null || ! array_key_exists($currency, $this->currencies)) {
+            $found = Currency::query()->where('is_default', true)->orWhere('code', $currency)->get();
+            $this->defaultCurrency ??= $found->firstWhere('is_default', true) ?? Currency::default();
+            $this->currencies[$currency] = $found->firstWhere('code', $currency);
+        }
+
+        $default = $this->defaultCurrency;
 
         if ($default->code === $currency) {
             return $amount;
         }
 
-        $target = Currency::query()->where('code', $currency)->first();
+        $target = $this->currencies[$currency];
 
-        return $target === null ? $amount : $target->fromDefault($amount);
+        return $target === null ? $amount : $target->priceFromDefault($amount, $default);
     }
 }

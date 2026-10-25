@@ -18,9 +18,9 @@ return [
 
     /** Hours of inactivity before tickets in an auto-close status are closed (0 = off). */
     'auto_close_hours' => 72,
-    /** Comma-separated statuses that auto-close / count as "awaiting reply". */
-    'auto_close_statuses' => 'answered',
-    'awaiting_reply_statuses' => 'open,customer_reply',
+    /** Statuses that auto-close / count as "awaiting reply" (a comma-separated string is still read). */
+    'auto_close_statuses' => ['answered'],
+    'awaiting_reply_statuses' => ['open', 'customer_reply'],
 
     'reply_ratings_enabled' => true,
     'show_clients_only_to_guests' => false,
@@ -32,7 +32,7 @@ return [
     'inbound_max_per_sender' => 10,
     'allow_unverified_email_replies' => false,
     'prevent_email_reopen' => false,
-    'default_department_id' => null,
+    'default_department_id' => 0,
     'reply_marker' => '--- Reply above this line ---',
     'auto_add_cc' => false,
     'inbound_raw_retention_days' => 30,

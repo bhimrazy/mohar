@@ -3,12 +3,20 @@
 @section('title', $title.' '.$invoice->displayNumber())
 
 @section('content')
+@if ($copy ?? null)
+    <div class="right" style="margin-bottom: 8px"><span class="stamp info">{{ $copy }}</span></div>
+@endif
 <table class="header">
     <tr>
         <td>
             <h1>{{ $title }}</h1>
             <div style="font-size: 13px; font-weight: bold">{{ $invoice->displayNumber() }}</div>
-            <div class="muted">{{ __('Issued') }} {{ $date($invoice->issue_date) }} · {{ __('Due') }} {{ $date($invoice->due_date) }}</div>
+            @if ($bsDates)
+                <div class="muted">{{ __('Issued') }} {{ $invoiceDate($invoice->issue_date) }}</div>
+                <div class="muted">{{ __('Due') }} {{ $invoiceDate($invoice->due_date) }}</div>
+            @else
+                <div class="muted">{{ __('Issued') }} {{ $date($invoice->issue_date) }} · {{ __('Due') }} {{ $date($invoice->due_date) }}</div>
+            @endif
             @if ($invoice->status->value === 'paid')
                 <div style="margin-top: 8px"><span class="stamp">{{ __('Paid') }}</span></div>
             @elseif (in_array($invoice->status->value, ['cancelled', 'refunded', 'collections'], true))
@@ -16,21 +24,19 @@
             @endif
         </td>
         <td class="right">
-            <strong>{{ $seller['legal_name'] ?? '' }}</strong><br>
-            @if (! empty($seller['address']))
-                {!! nl2br(e($seller['address'])) !!}<br>
-            @endif
-            @if (! empty($seller['email']))
-                <span class="muted">{{ $seller['email'] }}</span><br>
-            @endif
-            @if (! empty($seller['gstin']))
-                GSTIN: {{ $seller['gstin'] }}<br>
-            @endif
-            @if (! empty($seller['pan']))
-                PAN: {{ $seller['pan'] }}<br>
-            @endif
-            @if (! empty($seller['vat_number']))
-                {{ ($seller['country'] ?? null) === 'NP' ? 'PAN/VAT No.' : 'VAT No.' }}: {{ $seller['vat_number'] }}
+            @if ($seller)
+                <strong>{{ $seller['name'] }}</strong><br>
+                @if ($seller['address'])
+                    {!! nl2br(e($seller['address'])) !!}<br>
+                @endif
+                @if ($seller['email'] || $seller['phone'])
+                    <span class="muted">{{ implode(' · ', array_filter([$seller['email'], $seller['phone']])) }}</span><br>
+                @endif
+                @foreach ($seller['tax_ids'] as $taxId)
+                    {{ $taxId['label'] }}: {{ $taxId['value'] }}@if (! $loop->last)<br>@endif
+                @endforeach
+            @else
+                <span class="muted">{{ __('Seller details were not recorded on this invoice.') }}</span>
             @endif
         </td>
     </tr>
@@ -40,19 +46,16 @@
     <tr>
         <td class="party">
             <div class="label">{{ __('Bill to') }}</div>
-            <strong>{{ ($buyer['company'] ?? null) ?: ($buyer['name'] ?? '') }}</strong><br>
-            @if (! empty($buyer['company']))
-                {{ $buyer['name'] ?? '' }}<br>
-            @endif
-            @foreach (['address_1', 'address_2'] as $line)
-                @if (! empty($buyer[$line]))
-                    {{ $buyer[$line] }}<br>
+            @if ($buyer)
+                <strong>{{ $buyer['name'] }}</strong>
+                @foreach (array_filter([$buyer['contact'], ...$buyer['address'], $buyer['email']]) as $line)
+                    <br>{{ $line }}
+                @endforeach
+                @if ($buyer['tax_id'])
+                    <br>{{ $buyer['tax_id']['label'] }}: {{ $buyer['tax_id']['value'] }}
                 @endif
-            @endforeach
-            {{ trim(($buyer['city'] ?? '').' '.($buyer['state'] ?? '').' '.($buyer['postcode'] ?? '')) }}<br>
-            {{ $buyer['country'] ?? '' }}
-            @if (! empty($buyer['tax_id']))
-                <br>{{ $buyerTaxLabel }}: {{ $buyer['tax_id'] }}
+            @else
+                <span class="muted">{{ __('No billing details were recorded on this invoice.') }}</span>
             @endif
         </td>
         <td class="party right">

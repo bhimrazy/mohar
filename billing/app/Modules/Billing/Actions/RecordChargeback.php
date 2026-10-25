@@ -67,7 +67,9 @@ class RecordChargeback
 
             $invoice = $payment->invoice_id !== null ? Invoice::query()->lockForUpdate()->find($payment->invoice_id) : null;
 
-            if ($invoice === null) {
+            // Nothing left on the invoice to reverse (the payment went to account credit, or was refunded already): the
+            // invoice keeps its status and nothing is reversed for it; the caller takes back the credit (#172).
+            if ($invoice === null || $amount === 0) {
                 return $chargeback;
             }
 

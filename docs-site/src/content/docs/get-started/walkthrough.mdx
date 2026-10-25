@@ -1,0 +1,303 @@
+---
+title: Walkthrough
+description: A guided tour on a local copy with demo data, from a new product to a paid order, a hosting account and a support ticket.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+import Screenshot from '~/components/Screenshot.astro';
+import { product } from '~/product.mjs';
+
+This tour follows one sale from start to finish. You set up a product as staff, order it as a client, pay with a test
+card, watch the hosting account get created, and answer a support ticket. It takes about 30 minutes.
+
+## Before you start
+
+You need a local copy with the demo data. Follow [Run it on your computer](../run-locally/), which ends with
+`php artisan migrate:fresh --seed`. Keep the queue workers and the scheduler running: they send the emails, create
+the hosting account and run the automation. `composer dev` starts them all for you; with Docker, start the
+`queue:work` and `schedule:work` commands from that page.
+
+The demo data is a made-up Nepali host, **Example Hosting**, with about 20 clients, a year of invoices, tickets,
+domains and three demo servers. It creates two accounts, both with the password `password`:
+
+| Account | Email | Use it for |
+| ------- | ----- | ---------- |
+| Staff administrator | `admin@example.com` | the admin area at `/admin` |
+| Client | `demo@example.com` | Sujata Shrestha of Himal Labs Pvt. Ltd., a client in Lalitpur who pays in NPR |
+
+<Aside type="caution">
+	These accounts and their password are for a local copy only. The demo data never loads in production.
+</Aside>
+
+Use two browser windows: a normal one for staff, and a private one for the client, so you can stay signed in as both.
+
+The addresses below start at `http://localhost:8000` (or `:8080` with Docker). Numbers such as invoice and order
+numbers, dates and dashboard totals differ on your copy.
+
+## 1. Sign in as staff
+
+<Steps>
+
+1. Open `/login` and sign in as `admin@example.com`.
+
+2. You land on the dashboard at `/admin`. Look at three things:
+    - the four totals at the top: **Monthly recurring revenue**, **Income this month**, **Outstanding** and
+      **Overdue**, with a currency switch (**NPR**, **INR**, **USD**, **All (est.)**);
+    - **Needs attention**: overdue invoices, orders awaiting review, tickets awaiting a reply, failed module actions;
+    - **System health**: the scheduler, queue, provisioning and payment gateways.
+
+    The menu on the left is grouped by job: **Clients**, **Orders**, **Billing**, **Services**, **Domains**,
+    **Support**, and **Setup** for everything you configure.
+
+</Steps>
+
+This shows the admin area opens on what needs doing today, not on a list of menus.
+
+## 2. Company and brand
+
+<Steps>
+
+1. Go to **Setup → Settings**. The **Company** section opens first.
+
+2. You see **Company name** (Example Hosting), **Billing email address**, **Default country** (Nepal),
+   **Company time zone** (Asia/Kathmandu), **Date format** and **Daily automation time**. The time zone decides what
+   "today" means for due dates and when the daily run starts.
+
+3. Go to **Setup → Appearance**. Under **Defaults**, each area has its own theme: **Admin panel**, **Client area**
+   and **Storefront & sign-in**. Under **Brand**, the company name comes from the Company settings, and you can add a
+   tagline.
+
+</Steps>
+
+Your company name is the brand everywhere: sidebar, sign-in pages, emails and invoices. Details:
+[Company and brand](../../setup/company-and-brand/).
+
+## 3. Currencies and tax
+
+<Steps>
+
+1. Go to **Setup → Currencies**. NPR is the default currency; INR and USD convert from it at the listed rates.
+
+2. Above the list, **Rate changes waiting for approval** shows a fetched USD rate that moved more than the allowed
+   daily change. It is not used until you select **Approve new rate**; **Keep current rate** discards it.
+
+3. Go to **Setup → Tax rules**. The rule **VAT**, 13%, applies to clients in Nepal. The demo also has India's CGST,
+   SGST and IGST and a US sales tax. The **Tax settings** box above shows tax is enabled and prices are entered
+   before tax.
+
+</Steps>
+
+A large exchange-rate jump never changes your prices without a person approving it. Details:
+[Currencies](../../setup/currencies/) and [Tax](../../setup/tax/).
+
+## 4. Create a product with prices
+
+<Steps>
+
+1. Go to **Setup → Products** and select **New product**.
+
+2. Choose **Group** Shared Hosting and **Type** Shared hosting. Enter the **Name** `Basic Hosting` and the
+   **Tagline** `2 websites, 20 GB SSD`. Leave the rest as it is and select **Create product**.
+
+3. The product opens on its **Pricing** tab. Turn on **Monthly** in the **NPR** column and enter `500`, then turn on
+   **Annually** and enter `5000`. Select **Save prices**.
+
+    You see "Prices for Basic Hosting saved. Existing services keep their current price."
+
+4. Open the **Provisioning** tab. Set **Provisioning driver** to **Log (demo)** and select **Save provisioning**.
+
+    The demo driver records each call instead of contacting a server, so the account is "created" without a real
+    cPanel server. On a live install you choose **cPanel & WHM** here.
+
+</Steps>
+
+Each currency and billing cycle has its own price, and a price change never touches services already sold. Details:
+[Products](../../setup/products/).
+
+## 5. Browse the store as a visitor
+
+<Steps>
+
+1. In the private window, open `/`. This is your public home page: a domain search with prices, featured plans,
+   help links and your contact details in the footer. You edit it under **Setup → Website**.
+
+2. Select **Shared Hosting** in the header, or open `/store`. **Basic Hosting** is listed next to the demo plans,
+   with **Rs 500.00/mo** and **Rs 5,000.00/yr** (**Save 17%**).
+
+    <Screenshot name="walkthrough-store" alt="The public store: a domain search, then the Shared Hosting plans with monthly, annual and two-year prices in NPR." />
+
+3. Select **Configure and order** under Basic Hosting. Choose **Annually** under **Billing cycle**. The **Domain**
+   choice is optional for this plan; leave it. Select **Add to cart**.
+
+4. The cart shows **Subtotal** Rs 5,000.00, **VAT (13%)** Rs 650.00 and **Due today** Rs 5,650.00, then what it renews
+   at.
+
+</Steps>
+
+Prices are shown in NPR before VAT, and VAT is added at checkout, as Nepali buyers expect.
+
+## 6. Order as a client
+
+<Steps>
+
+1. Select **Checkout**. Under **Your account**, choose **I have an account**, then **Log in to continue**.
+
+2. Sign in as `demo@example.com`. You come back to checkout with your cart kept.
+
+3. The plan now costs Rs 4,500.00, and the total is Rs 5,085.00 with VAT. Himal Labs is in the **Resellers** client
+   group, which has a 10% discount (**Clients → Client groups** in the admin area).
+
+4. Under **Payment method**, choose **Card**. Tick **I accept the terms of service** and select **Place order**.
+
+</Steps>
+
+New clients use **New customer** on the same page instead and create their account while they check out.
+
+## 7. The invoice
+
+Placing the order takes you to the new invoice in the client area.
+
+- It is **Unpaid**, with the issue and due dates in AD and, in brackets, in Bikram Sambat (BS).
+- The line shows Basic Hosting with the period it covers, then **Subtotal**, **VAT (13%)** and **Total**.
+- **Download PDF** gives the same invoice as a file.
+
+In the staff window, go to **Orders**. The new order is at the top: **Pending**, gateway **Card**, with the total.
+
+Until it is paid, the invoice is a proforma. It becomes a tax invoice when it is paid. Details:
+[Invoices and payments](../../daily/invoices/).
+
+## 8. Pay with the sandbox card
+
+<Steps>
+
+1. On the invoice, under **Pay this invoice**, keep **Card** selected. It carries a **Sandbox** badge: no money moves.
+
+2. Enter the card number `4242 4242 4242 4242`, the month `12` and any future year. Select **Pay**.
+
+    <Screenshot name="walkthrough-pay-invoice" alt="The client's unpaid invoice with Card, Bank transfer, eSewa and Khalti as payment methods, the sandbox card number filled in, and the summary with 13% VAT." />
+
+3. The invoice turns **Paid**, and a **Payments** table shows the card payment.
+
+</Steps>
+
+Other test numbers show what happens when a payment goes wrong: `4000 0000 0000 0002` is declined,
+`4000 0000 0000 0077` stays pending, and `4000 0000 0000 0119` returns an error.
+
+eSewa and Khalti are listed too, in their sandbox modes. They send the client to the provider's test site, so they
+need internet access; this tour uses the card. To set them up for real, see [eSewa](../../setup/esewa/) and
+[Khalti](../../setup/khalti/).
+
+## 9. The service is set up
+
+The product is set to create the account when the first payment arrives, so paying starts it.
+
+<Steps>
+
+1. In the client window, go to **My services**. **Basic Hosting** is **Active** and renews in a year. Open it to see
+   the username, the server and the nameservers to use.
+
+2. In the staff window, go to **Services → Services** and open **Basic Hosting**. It is **Active**, with the server
+   **Web 1** and, under **Access**, "Provisioned with the Log (demo) driver".
+
+    <Screenshot name="walkthrough-service" alt="The service page in the admin area: Basic Hosting, active, with its recurring price, next due date, overview and server." />
+
+3. Go to **Services → Module log**. The top row is a **Create** action for Basic Hosting that **Succeeded**. Select
+   **Request / response** to see what was sent, with secrets masked.
+
+4. Go to **Orders** and open the order. It is still **Pending**, because orders wait for staff review. Select
+   **Accept order**, then **Accept order** again in the dialog. The order becomes **Active**.
+
+5. Go to **Setup → Email log**. The client got a receipt ("Payment confirmation") and a welcome email ("Welcome:
+   shared hosting").
+
+</Steps>
+
+Payment, account creation and the welcome email happen without staff. On a live install the cPanel/WHM driver creates
+the real account. Details: [Connect a cPanel/WHM server](../../setup/cpanel-server/).
+
+## 10. A support ticket, both ways
+
+<Steps>
+
+1. In the client window, go to **Support → Tickets** and select **Open a ticket**.
+
+2. Choose **Technical Support**. Enter a **Subject** such as `How do I point my domain to Basic Hosting?`, choose
+   **Basic Hosting** under **Related service**, write a short message and select **Send request**.
+
+    The ticket opens with your message and an **Automatic reply** from the department.
+
+3. In the staff window, go to **Support → Tickets**. The new ticket is listed as **Open** and **Unassigned**. Open it.
+
+4. On the **Reply** tab, write an answer and select **Send reply**. The status changes to **Answered**. The
+   **Internal note** tab is for notes that only staff see.
+
+5. Back in the client window, reload the ticket. The answer is there, signed by the support team, with **Was this
+   reply helpful?** under it.
+
+    <Screenshot name="walkthrough-ticket" alt="The client's view of the ticket: the client's question, the automatic reply and the staff answer with a helpfulness rating." />
+
+</Steps>
+
+Each step sends an email: the client gets "Ticket received" and the reply, staff get "New ticket". You can see them
+in **Setup → Email log**. Details:
+[Support tickets](../../daily/support/).
+
+## 11. Dashboard, reports and the VAT register
+
+<Steps>
+
+1. Go to **Dashboard**. Your payment now appears under **Recent payments**, and the totals include it. Lower down,
+   **Income** compares the last 12 months with the year before, **Income by currency** splits this month by currency,
+   and **Tax collected this month** shows the VAT.
+
+2. Go to **Billing → VAT register**. Choose a period by **BS month**, **BS fiscal year** or **AD date range**. The
+   header shows your PAN, company name, fiscal year and tax period, and the list shows the demo's tax invoices and
+   credit notes with their taxable value and VAT. **Export CSV** downloads the register; it is a sensitive action, so
+   it asks for your password first (once every 15 minutes).
+
+3. Go to **Setup → Nepal VAT**. Nepal VAT mode is on in the demo, from the start of its invoice history. While it
+   is on, a paid invoice becomes a numbered tax invoice, and corrections are made with credit and debit notes.
+
+</Steps>
+
+The register is laid out by Nepali tax period, from the amounts stored when each invoice was numbered.
+
+## 12. Automation and logs
+
+<Steps>
+
+1. Go to **Setup → Automation**. **System health** shows the scheduler running while `composer dev` (or
+   `schedule:work`) is up; if it is not, it warns that the scheduler has stopped and shows the cron line a server
+   needs. The charts show the demo's history: runs per day, items processed today and time per stage.
+
+2. Select **Run today's pipeline**, then **Run pipeline** in the dialog. You see "Automation run queued. Results
+   appear in the run log." Tasks that already succeeded today are skipped.
+
+3. Look at the other logs:
+    - **Activity log** (under General): who did what, including your new product and its prices;
+    - **Setup → Email log**: every email, with secrets masked;
+    - **Setup → Gateway log**: the sandbox card's request and response for your payment;
+    - **Services → Module log**: every provisioning call.
+
+</Steps>
+
+Renewals, reminders, late fees, suspensions and housekeeping run once a day in a fixed order, and every step leaves a
+record. Details: [Automation and the daily run](../../daily/automation/).
+
+## Next steps
+
+You have seen one sale from product to support. To run it for real:
+
+1. Check the [requirements](../requirements/) and [install with Docker Compose](../install-docker/) or
+   [on a server](../install-server/).
+2. [Sign in for the first time](../first-sign-in/) and turn on two-factor authentication.
+3. Work through the set-up guides: [company and brand](../../setup/company-and-brand/),
+   [currencies](../../setup/currencies/), [tax](../../setup/tax/), [products](../../setup/products/),
+   [payment gateways](../../setup/payment-gateways/) and [a cPanel/WHM server](../../setup/cpanel-server/).
+4. Read the day-to-day guides: [invoices and payments](../../daily/invoices/),
+   [automation](../../daily/automation/) and [support tickets](../../daily/support/).
+5. Before you take real orders, go through the [security checklist](../../operate/security/) and set up
+   [backups](../../operate/backups/).
+
+To start the tour again from fresh demo data, run `php artisan migrate:fresh --seed` again. It deletes everything in
+the local database. The [overview](../../overview/) lists what {product.name} covers and what is not built yet.

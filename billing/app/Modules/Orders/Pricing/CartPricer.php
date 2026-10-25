@@ -4,6 +4,8 @@ namespace App\Modules\Orders\Pricing;
 
 use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Catalog\PriceBook;
+use App\Contracts\Core\CompanyClock;
+use App\Contracts\Domains\DomainNameRules;
 use App\Contracts\Domains\DomainPricing;
 use App\Data\Catalog\ProductSelection;
 use App\Data\Catalog\ProductSummary;
@@ -13,10 +15,10 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Orders\Data\CartItem;
 use App\Modules\Orders\Enums\CartItemKind;
 use App\Modules\Orders\Models\Promotion;
-use App\Modules\Orders\Services\CompanyClock;
 use App\Modules\Orders\Services\CurrencyConverter;
 use App\Modules\Orders\Services\CustomFieldRules;
 use App\Modules\Orders\Services\DomainGuard;
+use App\Modules\Orders\Services\TldAttributeInput;
 
 /**
  * Re-quotes cart items through PriceBook/DomainPricing (the cart never trusts stored prices), applies
@@ -35,7 +37,9 @@ class CartPricer
         private CompanyClock $clock,
         private Settings $settings,
         private DomainGuard $domainGuard,
+        private DomainNameRules $nameRules,
         private CustomFieldRules $customFieldRules,
+        private TldAttributeInput $tldAttributes,
     ) {}
 
     /**
@@ -47,9 +51,11 @@ class CartPricer
         $cart = new PricedCart(strtoupper($currency));
 
         foreach ($items as $item) {
-            $cart->items[] = $item->kind === CartItemKind::Product
+            $priced = $item->kind === CartItemKind::Product
                 ? $this->priceProduct($item, $cart->currency, $priceOverrides[$item->key] ?? null, $client?->id)
                 : $this->priceDomainItem($item, $cart->currency, $client?->id);
+            $priced->details = $this->tldAttributes->describe($item->domain(), $item->tldAttributes);
+            $cart->items[] = $priced;
         }
 
         $this->applyPromotion($cart, $promotionCode, $client);
@@ -79,6 +85,13 @@ class CartPricer
 
         if ($product->requiresDomain && $item->domain() === null) {
             $priced->errors[] = __('Choose a domain for :product.', ['product' => $product->name]);
+        }
+
+        // Every order passes through here, staff orders included, so the registry's naming rule cannot be skipped.
+        if ($item->domain() !== null && ! DomainGuard::isValidName($item->domain())) {
+            $priced->errors[] = __('Enter a valid domain name, for example example.com.');
+        } elseif ($item->domain() !== null && ($levelError = $this->nameRules->registryLevelError($item->domain())) !== null) {
+            $priced->errors[] = $levelError;
         }
 
         if ($item->domain() !== null && $this->settings->get('orders.block_duplicate_domains', true) && $this->domainGuard->isAttachedToService($item->domain())) {
@@ -182,6 +195,13 @@ class CartPricer
 
         $tld = strtolower($parts[1]);
         $price = $this->domainPricing->price($tld, $action === 'transfer' ? 'transfer' : 'register', $years, $currency, $clientId);
+
+        if ($price === null && $this->domainPricing->terms($tld, $action === 'transfer' ? 'transfer' : 'register', $currency, $clientId) === []) {
+            // Not sold here at all, e.g. .np, which clients register at the registry themselves.
+            $priced->errors[] = __(':tld domains are not sold here. If you already own one, choose "Use a domain I own".', ['tld' => $tld]);
+
+            return;
+        }
 
         if ($price === null) {
             $priced->errors[] = __(':tld domains cannot be ordered for :years year(s) in :currency.', ['tld' => $tld, 'years' => $years, 'currency' => $currency]);

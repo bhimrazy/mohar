@@ -8,6 +8,7 @@ use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Orders\Enums\OrderItemStatus;
 use App\Modules\Orders\Enums\OrderStatus;
 use App\Modules\Orders\Models\Order;
+use App\Support\Billing\InvoiceNotCancellable;
 use DomainException;
 
 /**
@@ -31,7 +32,13 @@ class MarkOrderFraud
         $this->flag($order);
 
         if ($cancelInvoice && $order->invoice_id !== null) {
-            $this->invoicer->cancel($order->invoice_id);
+            try {
+                // A fraud flag is not news for the client: the note is filed, not emailed.
+                $this->invoicer->cancel($order->invoice_id, __('Cancelled by :module', ['module' => 'Orders']), notify: false);
+            } catch (InvoiceNotCancellable $exception) {
+                // The order is flagged all the same; its invoice stays payable and is on Billing's staff list.
+                $this->activity->log("Order {$order->number}: its invoice could not be cancelled", $order, $order->client_id, ['reason' => $exception->getMessage()]);
+            }
         }
 
         $this->activity->log("Order {$order->number} marked as fraud", $order, $order->client_id);

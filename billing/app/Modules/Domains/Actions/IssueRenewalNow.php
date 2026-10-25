@@ -11,11 +11,14 @@ use App\Modules\Domains\Exceptions\DomainActionNotAllowed;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainPricingService;
 use App\Modules\Domains\Services\RenewalInvoices;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Validation\ValidationException;
 
 /**
  * "Renew now" (spec §8): issue the renewal invoice for the current cycle immediately instead of waiting
  * for the automated lead time. Clients pick a term at the current renew price; staff bill the locked
- * renewal amount and period. Never issues a second invoice for the same period.
+ * renewal amount and period. Never issues a second invoice for the same period: a per-domain lock serialises
+ * double clicks and the period check is repeated on a fresh read under it.
  */
 class IssueRenewalNow
 {
@@ -33,10 +36,32 @@ class IssueRenewalNow
      */
     public function handle(Domain $domain, string $actor, ?int $years = null): InvoiceResult
     {
+        if ($domain->isRegisteredByClient()) {
+            throw ValidationException::withMessages(['domain' => __('A name registered at the registry by the client is renewed there, so no renewal invoice is created.')]);
+        }
+
         if (! $this->invoices->available()) {
             throw new DomainActionNotAllowed('Renewal invoices cannot be created right now. Please try again later.');
         }
 
+        // A cache lock, held outside any transaction: the Invoicer opens its own.
+        $lock = Cache::lock('domains:renew-now:'.$domain->id, 30);
+
+        if (! $lock->get()) {
+            throw new DomainActionNotAllowed('A renewal invoice for this domain is being created. Check your invoices in a moment.');
+        }
+
+        try {
+            $domain->refresh();
+
+            return $this->issue($domain, $actor, $years);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function issue(Domain $domain, string $actor, ?int $years): InvoiceResult
+    {
         if (! in_array($domain->status, [DomainStatus::Active, DomainStatus::Grace, DomainStatus::Redemption], true)) {
             throw new DomainActionNotAllowed("A {$domain->status->label()} domain cannot be renewed here.");
         }
@@ -47,16 +72,7 @@ class IssueRenewalNow
 
         [$years, $amount] = $actor === 'client' ? $this->clientTerm($domain, $years) : [$domain->period_years, $domain->recurring_amount];
 
-        $kind = match ($domain->status) {
-            DomainStatus::Grace => 'grace',
-            DomainStatus::Redemption => 'redemption',
-            default => 'renewal',
-        };
-        $fee = match ($kind) {
-            'grace' => $domain->tldModel->grace_fee,
-            'redemption' => $domain->tldModel->redemption_fee,
-            default => 0,
-        };
+        [$kind, $fee] = $this->invoices->charge($domain);
 
         $result = $this->invoices->issue($domain, $kind, $fee, $years, $amount);
         $this->activity->log("Renewal invoice {$result->number} created by {$actor} for {$years} year(s)", $domain, $domain->client_id, ['invoice_id' => $result->invoiceId]);

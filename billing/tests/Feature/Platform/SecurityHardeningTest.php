@@ -75,7 +75,7 @@ test('security settings need a recent password and notify every full administrat
     Event::fake([SettingsUpdated::class]);
     $otherAdmin = User::factory()->staff(['*'])->create();
     actingAsStaff(['core.settings.view', 'core.settings.security']);
-    $payload = ['security' => ['staff_2fa_required' => true, 'login_max_attempts' => 5, 'login_lockout_minutes' => 15, 'login_ip_allowlist' => ''], 'platform' => ['impersonation_minutes' => 15, 'invitation_expiry_days' => 3, 'activity_log_retention_days' => 365]];
+    $payload = ['security' => ['staff_2fa_required' => true, 'login_max_attempts' => 5, 'login_lockout_minutes' => 15, 'login_ip_allowlist' => ''], 'platform' => ['impersonation_minutes' => 15, 'invitation_expiry_days' => 3, 'activity_log_retention_days' => 365, 'automation_log_retention_days' => 365, 'failed_jobs_retention_days' => 30]];
 
     $this->get(route('admin.platform.settings.edit', ['section' => 'security']))->assertRedirect(route('password.confirm'));
     $this->put(route('admin.platform.settings.update', ['section' => 'security']), $payload)->assertSessionHasErrors('password_confirmation');

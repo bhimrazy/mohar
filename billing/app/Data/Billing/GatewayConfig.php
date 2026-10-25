@@ -9,13 +9,15 @@ final readonly class GatewayConfig
 {
     /**
      * @param  array<string, mixed>  $settings  driver settings (secrets included; never log or expose them)
+     * @param  list<string>  $secretSettingKeys  settings typed Secret or SecretText; the host masks their values
      */
     public function __construct(
         public string $key,
         public string $displayName,
-        public array $settings = [],
+        #[\SensitiveParameter] public array $settings = [],
         public bool $sandbox = false,
         public ?string $convertToCurrency = null,
+        public array $secretSettingKeys = [],
     ) {}
 
     public function setting(string $key, mixed $default = null): mixed
@@ -24,10 +26,20 @@ final readonly class GatewayConfig
     }
 
     /**
-     * @return list<string> configured secret values, for redaction checks
+     * The configured secret values, which the host redacts from logs, errors and stored payloads.
+     *
+     * @return list<string>
      */
-    public function secretValues(): array
+    public function secrets(): array
     {
-        return array_values(array_filter(array_map(fn (mixed $value): string => is_scalar($value) ? (string) $value : '', $this->settings), fn (string $value): bool => strlen($value) >= 8));
+        $values = [];
+
+        foreach ($this->secretSettingKeys as $key) {
+            if (is_scalar($this->settings[$key] ?? null) && (string) $this->settings[$key] !== '') {
+                $values[] = (string) $this->settings[$key];
+            }
+        }
+
+        return $values;
     }
 }

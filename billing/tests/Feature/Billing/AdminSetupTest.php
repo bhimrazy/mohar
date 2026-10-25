@@ -13,7 +13,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/helpers.php';
 
-/** Sensitive staff actions require a recent password confirmation (ConfirmPasswordForAction). */
+/** Sensitive staff actions require a recent password confirmation (password.recent, App\Http\Middleware\RequireRecentPasswordConfirmation). */
 beforeEach(fn () => $this->withSession(['auth.password_confirmed_at' => time()]));
 
 test('a failed gateway save never flashes a secret setting into the session', function () {
@@ -32,7 +32,7 @@ test('gateways can be configured without exposing stored secrets', function () {
 
     $this->put(route('admin.billing.gateways.update', 'sandbox_card'), [
         'display_name' => 'Card', 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 1,
-        'settings' => ['webhook_secret' => 'whsec_1', 'fee_percent' => '2.9'],
+        'settings' => ['webhook_secret' => 'whsec_test_1', 'fee_percent' => '2.9'],
     ])->assertRedirect(route('admin.billing.gateways.index'));
 
     $this->put(route('admin.billing.gateways.update', 'sandbox_card'), [
@@ -42,7 +42,7 @@ test('gateways can be configured without exposing stored secrets', function () {
 
     $gateway = Gateway::query()->where('key', 'sandbox_card')->firstOrFail();
     expect($gateway->display_name)->toBe('Credit card')
-        ->and($gateway->setting('webhook_secret'))->toBe('whsec_1')
+        ->and($gateway->setting('webhook_secret'))->toBe('whsec_test_1')
         ->and($gateway->setting('fee_percent'))->toBe('3');
 
     $this->get(route('admin.billing.gateways.edit', 'sandbox_card'))
@@ -73,6 +73,18 @@ test('gateway configuration requires its permission', function () {
 
     $this->get(route('admin.billing.gateways.index'))->assertForbidden();
     $this->put(route('admin.billing.gateways.update', 'bank_transfer'), ['display_name' => 'X'])->assertForbidden();
+});
+
+test('a tax rule country must be a known country and is stored as its ISO code', function () {
+    actingAsStaff(['billing.tax.manage']);
+    $rule = ['name' => 'VAT', 'level' => 1, 'rate' => '13'];
+
+    $this->post(route('admin.billing.tax-rules.store'), $rule + ['country' => 'Nepal'])
+        ->assertSessionHasErrors(['country' => 'Country must be chosen from the list.']);
+    $this->post(route('admin.billing.tax-rules.store'), $rule + ['country' => ' np '])->assertSessionHasNoErrors();
+    $this->post(route('admin.billing.tax-rules.store'), $rule + ['country' => ''])->assertSessionHasNoErrors();
+
+    expect(TaxRule::query()->orderBy('id')->pluck('country')->all())->toBe(['NP', null]);
 });
 
 test('tax rules are created, validated, updated and deleted', function () {

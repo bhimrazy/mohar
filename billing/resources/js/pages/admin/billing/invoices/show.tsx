@@ -22,13 +22,21 @@ import { SectionCard } from '@/components/app/section-card';
 import { StatCard } from '@/components/app/stat-card';
 import { StatusBadge } from '@/components/app/status-badge';
 import { FormDialog } from '@/components/billing/form-dialog';
+import { InvoiceDate } from '@/components/billing/invoice-date';
+import {
+    documentTitle,
+    InvoicePartiesHeader,
+} from '@/components/billing/invoice-parties';
 import { InvoiceTotals } from '@/components/billing/invoice-totals';
 import { LineItems } from '@/components/billing/line-items';
 import { PaymentInProgressCard } from '@/components/billing/payment-in-progress';
+import { TaxNotesPanel } from '@/components/billing/tax-notes';
+import type { Creditable, TaxNote } from '@/components/billing/tax-notes';
 import { SelectField } from '@/components/billing/select-field';
 import type {
     GatewayOption,
     Invoice,
+    InvoiceParties,
     PayMethod,
     Transaction,
 } from '@/components/billing/types';
@@ -68,17 +76,35 @@ import {
 } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/InvoiceController';
 import { check as checkAttempt } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/PaymentAttemptController';
 import { refund } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/TransactionController';
+import {
+    PendingRefundBanner,
+    TransactionStatusBadge,
+    releasedClass,
+} from '@/components/billing/pending-refund';
 import { show as showClient } from '@/actions/App/Modules/Core/Http/Controllers/Admin/ClientController';
 import { labelWithCurrency } from '@/lib/money';
 
 type Props = {
     invoice: Invoice;
+    parties: InvoiceParties;
     transactions: Transaction[];
     credit_available: number;
     payment_in_progress: PaymentInProgressData | null;
     gateways: GatewayOption[];
     pay_methods: PayMethod[];
-    can: { manage: boolean; payments: boolean; refunds: boolean };
+    tax_notes: TaxNote[] | null;
+    notes_enabled: boolean;
+    /** A numbered tax invoice while Nepal VAT mode is in effect: cancelling issues a credit note, reopening is not allowed. */
+    fiscal_cancel: boolean;
+    creditable: Creditable | null;
+    note_blocked: { credit: string | null; debit: string | null } | null;
+    credit_label: string | null;
+    can: {
+        manage: boolean;
+        payments: boolean;
+        refunds: boolean;
+        notes: boolean;
+    };
 };
 
 const PAYABLE = ['unpaid', 'payment_pending', 'collections'];
@@ -235,6 +261,26 @@ function RefundDialog({
                                 service due dates, affiliate commission)
                             </Label>
                         </div>
+                        <Field
+                            className="content-start"
+                            htmlFor="refund-reason"
+                            label="Reason"
+                            optional
+                            hint="Printed on the credit note when the invoice is a numbered tax invoice (Nepal VAT mode), where it is required."
+                            error={form.errors.description}
+                        >
+                            <Textarea
+                                id="refund-reason"
+                                maxLength={255}
+                                value={form.data.description}
+                                onChange={(event) =>
+                                    form.setData(
+                                        'description',
+                                        event.target.value,
+                                    )
+                                }
+                            />
+                        </Field>
                     </div>
                 );
             }}
@@ -244,11 +290,18 @@ function RefundDialog({
 
 export default function InvoiceShow({
     invoice,
+    parties,
     transactions,
     credit_available,
     payment_in_progress,
     gateways,
     pay_methods,
+    tax_notes,
+    notes_enabled,
+    fiscal_cancel,
+    creditable,
+    note_blocked,
+    credit_label,
     can,
 }: Props) {
     const [dialog, setDialog] = useState<
@@ -256,6 +309,8 @@ export default function InvoiceShow({
         | 'payment'
         | 'details'
         | 'cancel'
+        | 'cancelLines'
+        | 'cancelLinesPlain'
         | 'markPaid'
         | 'capture'
         | 'credit'
@@ -265,7 +320,6 @@ export default function InvoiceShow({
     const isDraft = invoice.status === 'draft';
     const isPayable = PAYABLE.includes(invoice.status) && invoice.balance > 0;
     const items = invoice.items ?? [];
-    const snapshot = invoice.client_snapshot ?? {};
     const close = (open: boolean) => !open && setDialog(null);
     const gatewayName = (key: string | null) =>
         gateways.find((gateway) => gateway.value === key)?.label ??
@@ -276,8 +330,11 @@ export default function InvoiceShow({
             key: 'date',
             header: 'Date',
             primary: true,
+            // Date and time may wrap so the amount stays in view in the narrow main column.
             cell: (txn) => (
-                <DateTime value={txn.occurred_at} format="datetime" />
+                <span className="whitespace-normal">
+                    <DateTime value={txn.occurred_at} format="datetime" />
+                </span>
             ),
         },
         { key: 'type', header: 'Type', cell: (txn) => humanize(txn.type) },
@@ -303,17 +360,25 @@ export default function InvoiceShow({
             header: 'Reference',
             hideOnMobile: true,
             cell: (txn) => (
-                <span className="font-mono text-xs">
+                <span
+                    className="inline-block max-w-24 truncate align-bottom font-mono text-xs"
+                    title={txn.gateway_txn_id ?? undefined}
+                >
                     {txn.gateway_txn_id ?? '—'}
                 </span>
             ),
+        },
+        {
+            key: 'status',
+            header: 'Status',
+            cell: (txn) => <TransactionStatusBadge txn={txn} />,
         },
         {
             key: 'amount',
             header: 'Amount',
             align: 'right',
             cell: (txn) => (
-                <div>
+                <div className={releasedClass(txn)}>
                     <Money
                         amount={
                             txn.amount_out > 0 ? -txn.amount_out : txn.amount_in
@@ -338,10 +403,36 @@ export default function InvoiceShow({
             header: <span className="sr-only">Actions</span>,
             align: 'right',
             hideOnMobile: true,
-            cell: (txn) =>
-                can.refunds && txn.refundable ? (
+            cell: (txn) => {
+                if (!can.refunds) {
+                    return null;
+                }
+
+                // A refund waiting for the provider holds the payment's amount: say why Refund isn't available.
+                if (
+                    transactions.some(
+                        (other) =>
+                            other.parent_transaction_id === txn.id &&
+                            other.type === 'refund' &&
+                            other.status === 'pending',
+                    )
+                ) {
+                    return (
+                        <span className="inline-flex flex-col items-end gap-1">
+                            <Button variant="ghost" size="sm" disabled>
+                                Refund
+                            </Button>
+                            <span className="text-xs text-muted-foreground">
+                                A refund is waiting for the provider.
+                            </span>
+                        </span>
+                    );
+                }
+
+                return txn.refundable ? (
                     <RefundDialog transaction={txn} gateways={gateways} />
-                ) : null,
+                ) : null;
+            },
         },
     ];
 
@@ -351,7 +442,7 @@ export default function InvoiceShow({
             <Page>
                 <PageHeader
                     back={{ href: index(), label: 'Invoices' }}
-                    title={invoice.number}
+                    title={documentTitle(invoice, parties)}
                     status={invoice.display_status}
                     badges={
                         invoice.kind === 'add_funds' ? (
@@ -359,6 +450,12 @@ export default function InvoiceShow({
                                 status="add_funds"
                                 tone="info"
                                 label="Add funds"
+                            />
+                        ) : credit_label ? (
+                            <StatusBadge
+                                status="credited"
+                                tone="info"
+                                label={credit_label}
                             />
                         ) : undefined
                     }
@@ -377,7 +474,10 @@ export default function InvoiceShow({
                                     <span aria-hidden="true">·</span>
                                     <span>
                                         Due{' '}
-                                        <DateTime value={invoice.due_date} />
+                                        <InvoiceDate
+                                            value={invoice.due_date}
+                                            bs={invoice.due_date_bs}
+                                        />
                                     </span>
                                 </>
                             )}
@@ -436,7 +536,16 @@ export default function InvoiceShow({
                                         </DropdownMenuItem>
                                     )}
                                     {can.manage &&
-                                        invoice.status === 'cancelled' && (
+                                        invoice.status === 'cancelled' &&
+                                        fiscal_cancel && (
+                                            <DropdownMenuItem disabled>
+                                                Reopen invoice (not allowed on a
+                                                numbered tax invoice)
+                                            </DropdownMenuItem>
+                                        )}
+                                    {can.manage &&
+                                        invoice.status === 'cancelled' &&
+                                        !fiscal_cancel && (
                                             <DropdownMenuItem
                                                 onSelect={() =>
                                                     router.post(
@@ -549,6 +658,11 @@ export default function InvoiceShow({
                                 value={invoice.paid_at ?? invoice.due_date}
                             />
                         }
+                        hint={
+                            !invoice.paid_at && invoice.due_date_bs
+                                ? invoice.due_date_bs
+                                : undefined
+                        }
                     />
                 </div>
 
@@ -582,6 +696,25 @@ export default function InvoiceShow({
                                 }
                             />
                         )}
+                        <SectionCard flush>
+                            <InvoicePartiesHeader
+                                invoice={invoice}
+                                parties={parties}
+                                aside={
+                                    invoice.payment_gateway
+                                        ? [
+                                              {
+                                                  label: 'Payment method',
+                                                  value: gatewayName(
+                                                      invoice.payment_gateway,
+                                                  ),
+                                              },
+                                          ]
+                                        : []
+                                }
+                            />
+                        </SectionCard>
+
                         <SectionCard
                             title="Line items"
                             flush
@@ -589,30 +722,30 @@ export default function InvoiceShow({
                                 can.manage &&
                                 isPayable &&
                                 selectedLines.length > 0 ? (
-                                    <ConfirmDialog
-                                        trigger={
-                                            <Button variant="outline" size="sm">
-                                                Cancel {selectedLines.length}{' '}
-                                                {selectedLines.length === 1
-                                                    ? 'line'
-                                                    : 'lines'}
-                                            </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        disabled={
+                                            fiscal_cancel &&
+                                            !!note_blocked?.credit
                                         }
-                                        title="Cancel the selected lines?"
-                                        description="A credit note for the selected lines is added to this invoice. The lines stay visible, struck through."
-                                        confirmLabel="Cancel lines"
-                                        onConfirm={() =>
-                                            router.post(
-                                                cancelLines.url(invoice.id),
-                                                { items: selectedLines },
-                                                {
-                                                    preserveScroll: true,
-                                                    onSuccess: () =>
-                                                        setSelectedLines([]),
-                                                },
-                                            )
+                                        title={
+                                            fiscal_cancel
+                                                ? (note_blocked?.credit ??
+                                                  undefined)
+                                                : undefined
                                         }
-                                    />
+                                        onClick={() =>
+                                            fiscal_cancel
+                                                ? setDialog('cancelLines')
+                                                : setDialog('cancelLinesPlain')
+                                        }
+                                    >
+                                        Cancel {selectedLines.length}{' '}
+                                        {selectedLines.length === 1
+                                            ? 'line'
+                                            : 'lines'}
+                                    </Button>
                                 ) : undefined
                             }
                         >
@@ -654,6 +787,22 @@ export default function InvoiceShow({
                                 }
                             />
                         </SectionCard>
+
+                        <PendingRefundBanner
+                            transactions={transactions}
+                            gateways={gateways}
+                            canAct={can.refunds}
+                        />
+
+                        <TaxNotesPanel
+                            invoiceId={invoice.id}
+                            currency={invoice.currency}
+                            notes={tax_notes}
+                            creditable={creditable}
+                            enabled={notes_enabled}
+                            canIssue={can.notes}
+                            blocked={note_blocked}
+                        />
 
                         <SectionCard title="Transactions" flush>
                             <DataTable
@@ -703,58 +852,6 @@ export default function InvoiceShow({
                                         : 'Client is tax exempt.'}
                                 </p>
                             )}
-                        </SectionCard>
-
-                        <SectionCard title="Bill to">
-                            <DescriptionList
-                                columns={1}
-                                items={[
-                                    {
-                                        label: 'Name',
-                                        value: snapshot.company
-                                            ? `${snapshot.company} (${snapshot.name ?? ''})`
-                                            : snapshot.name,
-                                    },
-                                    {
-                                        label: 'Address',
-                                        value: [
-                                            snapshot.address_1,
-                                            snapshot.address_2,
-                                            [snapshot.postcode, snapshot.city]
-                                                .filter(Boolean)
-                                                .join(' '),
-                                            snapshot.state,
-                                            snapshot.country,
-                                        ]
-                                            .filter(Boolean)
-                                            .join(', '),
-                                    },
-                                    { label: 'Tax ID', value: snapshot.tax_id },
-                                    {
-                                        label: 'Gateway',
-                                        value: gatewayName(
-                                            invoice.payment_gateway,
-                                        ),
-                                    },
-                                    {
-                                        label: 'Issued',
-                                        value: invoice.issue_date && (
-                                            <DateTime
-                                                value={invoice.issue_date}
-                                            />
-                                        ),
-                                    },
-                                    ...(invoice.proforma_number &&
-                                    invoice.legal_number
-                                        ? [
-                                              {
-                                                  label: 'Proforma number',
-                                                  value: invoice.proforma_number,
-                                              },
-                                          ]
-                                        : []),
-                                ]}
-                            />
                         </SectionCard>
 
                         {can.payments &&
@@ -1164,7 +1261,7 @@ export default function InvoiceShow({
             )}
 
             <ConfirmDialog
-                open={dialog === 'cancel'}
+                open={dialog === 'cancel' && !(fiscal_cancel && !isDraft)}
                 onOpenChange={close}
                 title={
                     isDraft
@@ -1178,6 +1275,86 @@ export default function InvoiceShow({
                 }
                 confirmLabel={isDraft ? 'Delete draft' : 'Cancel invoice'}
                 action={isDraft ? destroy(invoice.id) : cancel(invoice.id)}
+            />
+
+            <FormDialog
+                open={dialog === 'cancel' && fiscal_cancel && !isDraft}
+                onOpenChange={close}
+                title={`Cancel invoice ${invoice.number}?`}
+                description="A credit note for the open balance is issued and the client can no longer pay the invoice. The reason is printed on the credit note and the client sees it."
+                submitLabel="Cancel invoice"
+                destructive
+                action={cancel(invoice.id)}
+                initial={{ note: '' }}
+            >
+                {(form) => (
+                    <Field
+                        className="content-start"
+                        htmlFor="cancel-note"
+                        label="Reason"
+                        error={form.errors.note}
+                    >
+                        <Textarea
+                            id="cancel-note"
+                            required
+                            maxLength={500}
+                            value={form.data.note}
+                            onChange={(event) =>
+                                form.setData('note', event.target.value)
+                            }
+                        />
+                    </Field>
+                )}
+            </FormDialog>
+
+            <FormDialog
+                open={dialog === 'cancelLines'}
+                onOpenChange={close}
+                title="Cancel the selected lines?"
+                description="A credit note for the selected lines is issued. The lines stay visible, struck through. The reason is printed on the credit note and the client sees it."
+                submitLabel="Cancel lines"
+                destructive
+                action={cancelLines(invoice.id)}
+                initial={{ note: '' }}
+                transform={(data) => ({ ...data, items: selectedLines })}
+                onSuccess={() => setSelectedLines([])}
+            >
+                {(form) => (
+                    <Field
+                        className="content-start"
+                        htmlFor="cancel-lines-note"
+                        label="Reason"
+                        error={form.errors.note}
+                    >
+                        <Textarea
+                            id="cancel-lines-note"
+                            required
+                            maxLength={500}
+                            value={form.data.note}
+                            onChange={(event) =>
+                                form.setData('note', event.target.value)
+                            }
+                        />
+                    </Field>
+                )}
+            </FormDialog>
+
+            <ConfirmDialog
+                open={dialog === 'cancelLinesPlain'}
+                onOpenChange={close}
+                title="Cancel the selected lines?"
+                description="A credit note for the selected lines is added to this invoice. The lines stay visible, struck through."
+                confirmLabel="Cancel lines"
+                onConfirm={() =>
+                    router.post(
+                        cancelLines.url(invoice.id),
+                        { items: selectedLines },
+                        {
+                            preserveScroll: true,
+                            onSuccess: () => setSelectedLines([]),
+                        },
+                    )
+                }
             />
 
             <ConfirmDialog

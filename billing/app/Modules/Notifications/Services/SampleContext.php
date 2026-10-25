@@ -5,7 +5,7 @@ namespace App\Modules\Notifications\Services;
 use App\Data\Notifications\SensitiveValue;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Enums\TemplateType;
-use App\Modules\Notifications\Support\MailClock;
+use App\Modules\Notifications\Support\MailDates;
 use App\Modules\Notifications\Support\SecretTemplatePolicy;
 use App\Modules\Notifications\Support\SupportAddresses;
 use Carbon\CarbonImmutable;
@@ -24,7 +24,11 @@ class SampleContext
      */
     public function build(bool $forStaff = false, ?string $templateKey = null): array
     {
-        $today = MailClock::today();
+        $today = MailDates::companyDate();
+        // Sample dates run from the company's today, like the real ones.
+        $nextYear = CarbonImmutable::parse($today)->addYear()->toDateString();
+        $inThirtyDays = CarbonImmutable::parse($today)->addDays(30)->toDateString();
+        $inTwoWeeks = CarbonImmutable::parse($today)->addDays(14)->toDateString();
         $inviteDays = min(30, max(1, (int) app(Settings::class)->get('platform.invitation_expiry_days', 7)));
         // Overdue notices preview an invoice that is overdue, everything else one due in two weeks.
         $due = CarbonImmutable::parse($today)->addDays(str_starts_with((string) $templateKey, 'invoice.overdue') ? -7 : 14)->toDateString();
@@ -45,10 +49,11 @@ class SampleContext
             // Previews and test sends never generate a real token: these links are visibly fake and do nothing.
             'auth' => [
                 'reset_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/reset-password/SAMPLE-LINK-NOT-VALID'),
+                'set_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/settings/password/set/SAMPLE-LINK-NOT-VALID'),
                 'verify_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/email/verify/SAMPLE-LINK-NOT-VALID'),
                 'invite_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/invitation/SAMPLE-LINK-NOT-VALID'),
                 // Account links last an hour; invitations the configured number of days (the invitation templates).
-                'expires_at' => MailClock::dateTime(str_contains((string) $templateKey, 'invitation') ? now()->addDays($inviteDays) : now()->addHour()),
+                'expires_at' => MailDates::dateTime(str_contains((string) $templateKey, 'invitation') ? now()->addDays($inviteDays) : now()->addHour()),
                 'expires_in' => trans_choice(':count day|:count days', $inviteDays, ['count' => $inviteDays]),
                 'ip' => '203.0.113.24',
             ],
@@ -60,11 +65,12 @@ class SampleContext
                     ['description' => 'Domain registration — example.com', 'amount' => 999, 'cycle' => null],
                 ],
             ],
+            'kyc' => ['document' => 'Citizenship certificate', 'approved' => false, 'verified' => false, 'reason' => 'The photo of the back is blurred, so the issue date cannot be read.', 'url' => url('/client/verification')],
             'quote' => ['number' => 'Q-2026-0007', 'subject' => 'Website migration', 'total' => '$480.00', 'valid_until' => $due, 'url' => url('/client/quotes/7')],
             'invoice' => [
                 'id' => 2101, 'number' => 'INV-2026-0101', 'status' => 'Unpaid', 'currency' => 'USD', 'total' => '$28.98',
                 'balance' => '$18.98', 'balance_minor' => 1898, 'amount_paid' => '$10.00', 'amount_paid_minor' => 1000, 'subtotal' => '$28.98', 'discount' => null, 'credit_applied' => null,
-                'taxes' => [], 'issue_date' => $today, 'due_date' => $due,
+                'taxes' => [], 'issue_date' => $today, 'due_date' => $due, 'issue_date_bs' => null, 'due_date_bs' => null,
                 'items' => [
                     ['description' => 'Starter Hosting — example.com', 'period_start' => $period[0], 'period_end' => $period[1], 'amount' => '$18.99'],
                     ['description' => 'Domain renewal — example.com', 'period_start' => $period[0], 'period_end' => $period[1], 'amount' => '$9.99'],
@@ -82,14 +88,14 @@ class SampleContext
             ],
             'cancellation' => ['type' => 'end_of_billing_period', 'reason' => 'Moving to a larger plan'],
             'domain' => [
-                'id' => 77, 'domain' => 'example.com', 'registration_date' => $today, 'expiry_date' => now()->addYear()->toDateString(),
-                'next_due_date' => now()->addYear()->toDateString(), 'days_until_expiry' => 365, 'period_years' => 1,
+                'id' => 77, 'domain' => 'example.com', 'status_label' => 'Active', 'registered_by_client' => false, 'expiry_label' => null, 'registration_date' => $today, 'expiry_date' => $nextYear,
+                'next_due_date' => $nextYear, 'days_until_expiry' => 365, 'period_years' => 1,
                 'nameservers' => ['ns1.example.net', 'ns2.example.net'], 'renew_url' => url('/client/domains/77'),
                 'transfer_failure_reason' => 'Invalid authorisation code',
             ],
             'domains' => [
-                ['name' => 'example.com', 'expiry_date' => now()->addDays(30)->toDateString(), 'days_until_expiry' => 30, 'renew_url' => url('/client/domains/77')],
-                ['name' => 'example.org', 'expiry_date' => now()->addDays(14)->toDateString(), 'days_until_expiry' => 14, 'renew_url' => url('/client/domains/78')],
+                ['name' => 'example.com', 'expiry_date' => $inThirtyDays, 'days_until_expiry' => 30, 'renew_url' => url('/client/domains/77')],
+                ['name' => 'example.org', 'expiry_date' => $inTwoWeeks, 'days_until_expiry' => 14, 'renew_url' => url('/client/domains/78')],
             ],
             'ticket' => [
                 'number' => '482913', 'subject' => 'Email not working', 'department' => 'Technical Support', 'priority' => 'Medium',
@@ -104,7 +110,7 @@ class SampleContext
                 'excerpt' => 'Thanks for the details — the mailbox quota was full.',
             ],
             'affiliate' => ['referral_url' => url('/?ref=ANN42'), 'code' => 'ANN42', 'balance_available' => '$45.00', 'balance_pending' => '$12.00', 'withdrawal_amount' => '$45.00'],
-            'failure' => ['action' => 'create', 'error' => 'Connection to the control panel timed out'],
+            'failure' => ['action' => 'create', 'action_label' => 'creating the account', 'error' => 'Connection to the control panel timed out', 'log_url' => url('/admin/services/module-log')],
             'sync' => ['change_count' => 2, 'error_count' => 1, 'lines' => ['example.com: expiry date updated', 'example.org: registrar timeout']],
             'automation' => ['run_at' => $today, 'status' => 'completed'],
             'security' => ['email' => 'sam@example.test', 'failures' => 10],
@@ -112,8 +118,14 @@ class SampleContext
             'notice' => [
                 'account' => 'Example Studio', 'email' => 'sam@example.test', 'actor' => 'Sam Rivera', 'section' => 'Security',
                 'changes' => 'Require two-step sign-in', 'old_email' => 'sam@example.test', 'new_email' => 'sam.rivera@example.test',
+                'run_by' => 'console: deploy@billing-1', 'expires_in' => '24 hours',
             ],
-            'credit_note' => ['amount' => '$10.00'],
+            'tax_note' => [
+                // A Nepal VAT note (13%): notes exist only in Nepal VAT mode.
+                'number' => 'CN-00012', 'kind' => 'credit', 'kind_label' => 'Credit Note', 'invoice_number' => 'INV-00042', 'amount' => 'Rs 1,130.00',
+                'tax' => 'Rs 130.00', 'issue_date' => $today, 'issue_date_bs' => '3 Kartik 2083 BS', 'reason' => 'Price correction', 'reason_text' => 'Plan price corrected.',
+                'pdf_url' => url('/client/invoices/notes/12/pdf'), 'pdf_attached' => true,
+            ],
             'template' => ['key' => 'invoice.created', 'name' => 'Invoice created', 'error' => 'Line 3: "{% if %}" is never closed.', 'admin_url' => url('/admin/notifications/templates/1/edit')],
         ];
     }
@@ -128,7 +140,7 @@ class SampleContext
         $groups = match ($type) {
             TemplateType::General => ['client', 'user', 'auth', 'order', 'quote', 'affiliate', 'notice'],
             TemplateType::Product => ['client', 'service', 'cancellation'],
-            TemplateType::Invoice => ['client', 'invoice', 'payment', 'refund', 'credit_note'],
+            TemplateType::Invoice => ['client', 'invoice', 'payment', 'refund', 'tax_note'],
             TemplateType::Domain => ['client', 'domain', 'domains'],
             TemplateType::Support => ['ticket', 'reply'],
             TemplateType::Admin => ['staff', 'client', 'order', 'service', 'domain', 'ticket', 'reply', 'invoice', 'failure', 'sync', 'automation', 'security', 'webhook', 'template', 'auth', 'cancellation', 'affiliate', 'notice'],

@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Attributes\UseFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use LogicException;
 
 /**
  * @property int $id
@@ -63,6 +64,15 @@ class Currency extends Model
 
     protected static function booted(): void
     {
+        // Clients, invoices, quotes, transactions, prices and rate history store the code, so renaming it would orphan
+        // them. Add a new currency instead. This guards model saves only: query-builder writes
+        // (Currency::query()->update(), DB::table('currencies')) bypass it, and no code path writes the code that way.
+        static::updating(function (self $currency): void {
+            if ($currency->isDirty('code')) {
+                throw new LogicException("Currency code {$currency->getOriginal('code')} cannot be changed.");
+            }
+        });
+
         // Flush now and again after commit, so a request that cached pre-commit values is corrected.
         $flush = function (): void {
             CachedCurrencyDirectory::flush();
@@ -94,7 +104,7 @@ class Currency extends Model
     public static function default(): self
     {
         return static::query()->where('is_default', true)->first()
-            ?? static::query()->firstOrCreate(['code' => 'USD'], ['name' => 'US Dollar', 'prefix' => '$', 'is_default' => true]);
+            ?? static::query()->firstOrCreate(['code' => 'USD'], ['name' => 'US Dollar', 'prefix' => '$', 'is_default' => true])->refresh();
     }
 
     /**
@@ -142,13 +152,72 @@ class Currency extends Model
      */
     public function convertTo(int $amount, self $target): int
     {
-        $shift = $target->decimals - $this->decimals;
+        return ($this->converterTo($target))($amount);
+    }
 
-        // Exact decimal maths (no overflow, no floats), rounded half up once.
-        return (int) Decimal::divide(
-            Decimal::multiply(Decimal::multiply((string) $amount, (string) $target->exchange_rate), '1'.str_repeat('0', max(0, $shift))),
-            Decimal::multiply((string) $this->exchange_rate, '1'.str_repeat('0', max(0, -$shift))),
-            0,
-        );
+    /**
+     * convertTo() with the rate arithmetic done once: for converting many amounts (a daily series) between the same
+     * two currencies. Each call returns exactly what the decimal-string arithmetic returns
+     * (rounded half up, away from zero): the factors that do not depend on the amount are multiplied out first, and
+     * the division is done on integers when factor and divisor are within PHP_INT_MAX / 4 and the amount is small
+     * enough that 2 x amount x factor + divisor stays within PHP_INT_MAX. Otherwise, and for rates that are not plain
+     * decimals, it uses the decimal-string path, so it never throws where that path would not.
+     *
+     * @return \Closure(int): int
+     */
+    public function converterTo(self $target): \Closure
+    {
+        $shift = $target->decimals - $this->decimals;
+        $numerator = Decimal::multiply((string) $target->exchange_rate, '1'.str_repeat('0', max(0, $shift)));
+        $denominator = Decimal::multiply((string) $this->exchange_rate, '1'.str_repeat('0', max(0, -$shift)));
+        $exact = fn (int $amount): int => (int) Decimal::divide(Decimal::multiply((string) $amount, $numerator), $denominator, 0);
+
+        // amount × (n / 10^a) ÷ (d / 10^b) = amount × (n × 10^b) ÷ (d × 10^a), with n, d, a, b whole numbers.
+        $n = self::wholeAndScale($numerator);
+        $d = self::wholeAndScale($denominator);
+
+        if ($n === null || $d === null || $d[0] === 0 || $n[1] + $d[1] > 15) {
+            return $exact;
+        }
+
+        $factor = $n[0] * 10 ** $d[1];
+        $divisor = $d[0] * 10 ** $n[1];
+
+        // A product that left the integer range became a float. Capping both at PHP_INT_MAX / 4 keeps 2 x factor in range.
+        if (! is_int($factor) || ! is_int($divisor) || $factor <= 0 || $divisor <= 0 || $factor > intdiv(PHP_INT_MAX, 4) || $divisor > intdiv(PHP_INT_MAX, 4)) {
+            return $exact;
+        }
+
+        $limit = intdiv(PHP_INT_MAX - $divisor, 2 * $factor);
+
+        return function (int $amount) use ($exact, $factor, $divisor, $limit): int {
+            $magnitude = abs($amount);
+
+            if ($magnitude > $limit) {
+                return $exact($amount);
+            }
+
+            $rounded = intdiv(2 * $magnitude * $factor + $divisor, 2 * $divisor);
+
+            return $amount < 0 ? -$rounded : $rounded;
+        };
+    }
+
+    /**
+     * A non-negative decimal string as [digits as an integer, number of decimals], or null when it has too many
+     * digits for an integer or is not a plain decimal.
+     *
+     * @return array{0: int, 1: int}|null
+     */
+    private static function wholeAndScale(string $value): ?array
+    {
+        if (preg_match('/^\+?(\d+)(?:\.(\d+))?$/', $value, $m) !== 1) {
+            return null;
+        }
+
+        $fraction = rtrim($m[2] ?? '', '0');
+        $digits = ltrim($m[1].$fraction, '0');
+
+        return strlen($digits) > 15 ? null : [(int) ($digits === '' ? '0' : $digits), strlen($fraction)];
     }
 }

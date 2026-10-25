@@ -17,38 +17,79 @@ use RuntimeException;
  */
 final class Processes
 {
-    private const READY_SECONDS = 10;
+    private const READY_SECONDS = 20;
+
+    /** Starts tried when a port was taken between choosing it and binding it (by any process on the machine). */
+    private const START_ATTEMPTS = 3;
 
     /** A scenario directory without a readable scenario.json is a leftover only after this long (it may be starting). */
     private const LEFTOVER_SECONDS = 60;
 
     /**
+     * Start a scenario. A process that cannot bind its port ("Address already in use": the port was free when chosen,
+     * then something else took it) is retried with a new scenario on fresh ports, up to START_ATTEMPTS in all; any
+     * other start failure is raised at once.
+     *
      * @param  class-string<Simulator>  $simulator
      * @param  bool  $detached  true for `simulate:start`: the scenario outlives this process until stopped
+     * @param  (\Closure(int): (array{api: int, backend: int, control: int}|null))|null  $ports  for tests: the ports of attempt n
+     *                                                                                           (from 1); null picks free ones
      */
-    public static function start(string $simulator, bool $detached = false): Scenario
+    public static function start(string $simulator, bool $detached = false, ?\Closure $ports = null): Scenario
     {
-        $scenario = Scenario::create($simulator, $detached ? null : posix_getpid());
+        for ($attempt = 1; ; $attempt++) {
+            $scenario = Scenario::create($simulator, $detached ? null : posix_getpid(), $ports === null ? null : $ports($attempt));
+
+            try {
+                self::launch($scenario);
+
+                return $scenario;
+            } catch (RuntimeException $exception) {
+                $taken = self::portTaken($scenario);
+
+                if ($taken && $attempt < self::START_ATTEMPTS) {
+                    self::stop($scenario);
+
+                    continue;
+                }
+
+                // The processes stop; the directory and its logs stay, so the error's "see the logs in" leads somewhere.
+                self::stop($scenario, keep: true);
+
+                throw $taken ? new RuntimeException('A port was taken on all '.self::START_ATTEMPTS.' attempts. '.$exception->getMessage(), 0, $exception) : $exception;
+            }
+        }
+    }
+
+    private static function launch(Scenario $scenario): void
+    {
         $bin = dirname(__DIR__, 2).'/bin';
         $environment = [
             'SIM_AUTOLOAD' => self::autoloader(),
             'SIM_SCENARIO_DIR' => $scenario->directory,
         ];
 
-        try {
-            $scenario->withPids([
-                self::spawn([PHP_BINARY, '-S', '127.0.0.1:'.$scenario->backendPort(), $bin.'/router.php'], [...$environment, 'SIM_ROLE' => 'api', 'PHP_CLI_SERVER_WORKERS' => '4'], $scenario->directory.'/api.log'),
-                self::spawn([PHP_BINARY, '-S', '127.0.0.1:'.$scenario->controlPort(), $bin.'/router.php'], [...$environment, 'SIM_ROLE' => 'control'], $scenario->directory.'/control.log'),
-                self::spawn([PHP_BINARY, $bin.'/tls-front.php'], $environment, $scenario->directory.'/front.log'),
-            ]);
-            self::waitUntilReady($scenario);
-        } catch (RuntimeException $exception) {
-            self::stop($scenario);
+        $scenario->withPids([
+            self::spawn([PHP_BINARY, '-S', '127.0.0.1:'.$scenario->backendPort(), $bin.'/router.php'], [...$environment, 'SIM_ROLE' => 'api', 'PHP_CLI_SERVER_WORKERS' => '4'], $scenario->directory.'/api.log'),
+            self::spawn([PHP_BINARY, '-S', '127.0.0.1:'.$scenario->controlPort(), $bin.'/router.php'], [...$environment, 'SIM_ROLE' => 'control'], $scenario->directory.'/control.log'),
+            self::spawn([PHP_BINARY, $bin.'/tls-front.php'], $environment, $scenario->directory.'/front.log'),
+        ]);
+        self::waitUntilReady($scenario);
+    }
 
-            throw $exception;
+    /**
+     * Whether a process failed to bind its port: `php -S` logs "Failed to listen on … (reason: Address already in use)",
+     * the TLS front "cannot listen on …: Address already in use".
+     */
+    private static function portTaken(Scenario $scenario): bool
+    {
+        foreach (['front.log', 'api.log', 'control.log'] as $log) {
+            if (str_contains((string) @file_get_contents($scenario->directory.'/'.$log), 'Address already in use')) {
+                return true;
+            }
         }
 
-        return $scenario;
+        return false;
     }
 
     /**
@@ -154,19 +195,46 @@ final class Processes
         $context = stream_context_create(['ssl' => ['cafile' => $scenario->ca()->bundlePath(), 'peer_name' => 'localhost'], 'http' => ['header' => 'X-Sim-Token: '.$scenario->token(), 'ignore_errors' => true, 'timeout' => 2]]);
 
         while (microtime(true) < $deadline) {
+            // Each process on its own port: the TLS front verified against this scenario's CA, the control plane naming this
+            // scenario, and the backend's own "started" line (php -S prints it once it has bound; a request would be logged).
             $front = @stream_socket_client('ssl://127.0.0.1:'.$scenario->apiPort(), $errorCode, $errorMessage, 1, STREAM_CLIENT_CONNECT, $context);
             $control = @file_get_contents($scenario->controlUrl().'/__sim/health', false, $context);
+            $backend = str_contains((string) @file_get_contents($scenario->directory.'/api.log'), 'Development Server (http://127.0.0.1:'.$scenario->backendPort().') started');
 
-            if ($front !== false && is_string($control) && str_contains($control, '"ok":true')) {
+            if ($front !== false && $backend && is_string($control) && str_contains($control, '"scenario":'.json_encode($scenario->id()))) {
                 fclose($front);
 
                 return;
             }
 
+            // A process that already exited will not become ready: fail now, with what it logged. Liveness only: while a
+            // process is still being exec'd, /proc may not show its environment yet.
+            if (array_filter($scenario->pids(), fn (int $pid): bool => ! posix_kill($pid, 0)) !== []) {
+                throw new RuntimeException("Simulator {$scenario->id()} did not become ready: a process exited at start (".self::logTail($scenario)."); see the logs in {$scenario->directory}.");
+            }
+
             usleep(100_000);
         }
 
-        throw new RuntimeException("Simulator {$scenario->id()} did not become ready; see the logs in {$scenario->directory}.");
+        throw new RuntimeException("Simulator {$scenario->id()} did not become ready in ".self::READY_SECONDS." s; see the logs in {$scenario->directory}.");
+    }
+
+    /**
+     * The last lines the scenario's processes logged, on one line, for an error message.
+     */
+    private static function logTail(Scenario $scenario): string
+    {
+        $lines = [];
+
+        foreach (['front.log', 'api.log', 'control.log'] as $log) {
+            $tail = array_slice(array_filter(array_map('trim', @file($scenario->directory.'/'.$log) ?: [])), -2);
+
+            if ($tail !== []) {
+                $lines[] = $log.': '.implode(' | ', $tail);
+            }
+        }
+
+        return mb_strimwidth($lines === [] ? 'nothing logged' : implode('; ', $lines), 0, 400, '...');
     }
 
     private static function autoloader(): string
@@ -182,7 +250,10 @@ final class Processes
 
     private static function remove(string $directory): void
     {
-        if (! is_dir($directory) || ! str_starts_with(realpath($directory) ?: $directory, Scenario::root().'/')) {
+        // Both sides resolved: on macOS the temp directory is itself a symlink (/var -> /private/var).
+        $root = realpath(Scenario::root()) ?: Scenario::root();
+
+        if (! is_dir($directory) || ! str_starts_with(realpath($directory) ?: $directory, $root.'/')) {
             return;
         }
 

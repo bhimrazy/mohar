@@ -1,5 +1,6 @@
-import { Form } from '@inertiajs/react';
+import { Form, setLayoutProps } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
+import { SetPasswordButton } from '@/components/app/set-password-button';
 import InputError from '@/components/input-error';
 import PasswordInput from '@/components/password-input';
 import { Button } from '@/components/ui/button';
@@ -12,7 +13,36 @@ import {
 } from '@/actions/Laravel/Passkeys/Http/Controllers/PasskeyConfirmationController';
 import PasskeyVerify from '@/components/passkey-verify';
 
-export default function ConfirmPassword() {
+export default function ConfirmPassword({
+    download = false,
+    hasPassword = true,
+}: {
+    download?: boolean;
+    hasPassword?: boolean;
+}) {
+    if (!hasPassword) {
+        setLayoutProps({
+            title: 'Set a password to continue',
+            description:
+                "This action needs a password, and your account doesn't have one yet. We can email you a link to set one; then come back.",
+        });
+
+        return (
+            <>
+                <Head title="Set a password" />
+
+                <SetPasswordButton className="w-full" />
+            </>
+        );
+    }
+
+    if (download) {
+        setLayoutProps({
+            description:
+                "Enter your password to download this file; you won't be asked again for 15 minutes. The download starts as soon as you confirm.",
+        });
+    }
+
     return (
         <>
             <Head title="Confirm password" />

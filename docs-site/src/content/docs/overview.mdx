@@ -1,0 +1,67 @@
+---
+title: Overview
+description: What the software is, who it is for, its main areas, and what is ready today.
+---
+
+import { product } from '~/product.mjs';
+
+{product.name} is billing and automation software for web hosting companies. Clients find your plans on your public
+site, order them, pay the invoice, and get a hosting account that the software sets up on your server. Your staff
+answer tickets, follow up on unpaid invoices and watch the daily automation from one admin area.
+
+## Who it is for
+
+It is built for hosting companies in Nepal first, and works for others too:
+
+- prices and invoices in Nepalese rupees (NPR), with other currencies such as INR and USD beside them;
+- Nepal VAT at 13%, with a VAT register by Nepali tax period;
+- dates and the daily run in Nepal time, with the Bikram Sambat date beside the AD date on invoices;
+- eSewa and Khalti next to card payments and bank transfer;
+- `.np` domains registered by your clients themselves, with your nameservers shown to them.
+
+You install it on a server you control.
+
+## Main areas
+
+| Area | What it does |
+| ---- | ------------ |
+| Storefront and orders | Your public home page, store, cart and checkout. Orders can be reviewed, accepted or flagged as fraud. See the [walkthrough](../get-started/walkthrough/). |
+| Catalog | Products, product groups, prices per billing cycle and currency, configurable options, addons and promotions. See [Products](../setup/products/). |
+| Billing and invoices | Invoices, quotes, account credit, late fees and reminders. An invoice becomes a tax invoice when it is paid. See [Invoices and payments](../daily/invoices/). |
+| Payments | Card (Stripe), eSewa, Khalti and bank transfer, plus a sandbox card for testing. See [Payment gateways](../setup/payment-gateways/). |
+| Services and provisioning | Creates, suspends and removes hosting accounts. The cPanel/WHM driver talks to your server. See [Connect a cPanel/WHM server](../setup/cpanel-server/). |
+| Domains | Registration, transfer and renewal through a registrar, with TLD pricing. Clients register `.np` themselves. |
+| Support tickets | Departments, tickets from the client area, guests and email, canned replies, a knowledge base, announcements and network status. See [Support tickets](../daily/support/). |
+| Clients and identity checks | Client accounts, contacts, client groups with discounts, and optional identity verification (KYC). Import clients from a spreadsheet or a WHMCS clients export, or [from a cPanel server](../setup/import-cpanel-accounts/). |
+| Notifications | Email templates for every event, an email log, staff alerts and outgoing webhooks. |
+| Dashboard, reports and VAT register | The dashboard shows income, unpaid and overdue totals and what needs attention. The VAT register lists tax invoices and credit notes by Nepali tax period, with CSV and PDF export. |
+| Automation | One daily run in a fixed order: renewals, late fees, reminders, suspensions and more. See [Automation](../daily/automation/). |
+| Settings and brand | Company details, your name and logo, themes for the admin area, client area and public site. See [Company and brand](../setup/company-and-brand/). |
+| Security | Staff roles and permissions, two-factor sign-in and passkeys, an activity log, and passwords needed again for sensitive actions. See [Security](../operate/security/). |
+
+## What is ready
+
+The software is under active development and has not had a first release. This table shows the state of the main
+pieces today.
+
+| Ready to try | Behind a switch | Not built yet |
+| ------------ | --------------- | ------------- |
+| Storefront, cart, checkout and orders | | A general reports section (only the dashboard and the VAT register exist) |
+| Catalog, prices in several currencies, promotions | Identity verification (KYC), off until you turn it on | connectIPS, Fonepay and IME Pay |
+| Invoices, quotes, credit, late fees, reminders | The Namecheap registrar, built but not turned on | Affiliates |
+| Sandbox card, Stripe, eSewa, Khalti, bank transfer | | Sign-in with Google, GitHub or Microsoft |
+| Services, the cPanel/WHM driver and cPanel account import | | Importing invoices and services from WHMCS |
+| Domains with ResellerClub | | Electronic billing with the tax office (CBMS) |
+| Support, knowledge base, announcements, network status | | Fiscal-year invoice numbering in Bikram Sambat |
+| Email templates, email log, webhooks | | Docs in Nepali |
+| Dashboard, Nepal VAT mode and the VAT register, daily automation, activity log | | |
+
+Payment gateways, the cPanel/WHM driver and the registrars have been tested against local copies of those services
+and provider sandboxes, not yet with live merchant accounts or a production cPanel server. Test with your own sandbox
+accounts before you take real payments.
+
+## Next
+
+- Try it: follow the [walkthrough](../get-started/walkthrough/) on a local copy with demo data.
+- Install it: check the [requirements](../get-started/requirements/), then
+  [install with Docker Compose](../get-started/install-docker/).

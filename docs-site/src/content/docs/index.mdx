@@ -1,0 +1,32 @@
+---
+title: Introduction
+description: What the software does and where to start.
+---
+
+import Screenshot from '~/components/Screenshot.astro';
+import { product } from '~/product.mjs';
+
+{product.name} is billing and automation software for web hosting companies. It keeps your clients, products,
+orders, invoices and support tickets in one place. It takes payments through the gateways you turn on, and it creates,
+suspends and removes hosting accounts on your cPanel/WHM servers as orders are paid and invoices fall overdue.
+
+You install it on a server you control. These guides are for the person who installs it and runs it day to day.
+
+<Screenshot name="dashboard" alt="The admin dashboard: income, outstanding and overdue totals, and a list of items that need attention." />
+
+## Where to start
+
+1. Read the [overview](overview/): what it covers, who it is for, and what is ready today.
+2. Follow the [walkthrough](get-started/walkthrough/) on a local copy with demo data: one sale from a new product to a
+   paid order, a hosting account and a support ticket.
+3. Install it: check the [requirements](get-started/requirements/), then install
+   [with Docker Compose](get-started/install-docker/) or [on a server without Docker](get-started/install-server/),
+   and [sign in for the first time](get-started/first-sign-in/).
+4. Work through the set-up guides in order: [company and brand](setup/company-and-brand/),
+   [currencies](setup/currencies/), [tax](setup/tax/), [products](setup/products/),
+   [payment gateways](setup/payment-gateways/), [a cPanel/WHM server](setup/cpanel-server/) and
+   [importing its accounts](setup/import-cpanel-accounts/).
+5. Learn the daily work: [invoices and payments](daily/invoices/), [automation](daily/automation/) and
+   [support tickets](daily/support/).
+6. Run your install: [upgrades](operate/upgrade/), [backups](operate/backups/), [security](operate/security/) and
+   [troubleshooting](operate/troubleshooting/).

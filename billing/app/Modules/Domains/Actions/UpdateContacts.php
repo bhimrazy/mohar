@@ -2,11 +2,13 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Contracts\Core\CompanyClock;
+use App\Contracts\Domains\Registrar\ManagesContacts;
+use App\Data\Domains\Registrar\ContactSet;
+use App\Data\Domains\Registrar\RegistrarConfig;
+use App\Data\Domains\Registrar\RegistrarResult;
 use App\Events\Domains\DomainContactsUpdated;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Domains\Drivers\Registrars\Data\ContactSet;
-use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
-use App\Modules\Domains\Drivers\Registrars\Registrar;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainContact;
 use App\Modules\Domains\Services\DomainEvents;
@@ -15,11 +17,11 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Update registrar contacts, then the local cache. Driver flags such as contact_change_pending /
- * transfer_lock_until are kept in registrar_meta for the UI (spec §4.7).
+ * transfer_lock_until (from the driver's transfer_lock_days) are kept in registrar_meta for the UI (spec §4.7).
  */
 class UpdateContacts
 {
-    public function __construct(private RegistrarGateway $gateway, private ActivityLogger $activity) {}
+    public function __construct(private RegistrarGateway $gateway, private ActivityLogger $activity, private CompanyClock $clock) {}
 
     /**
      * @param  array<string, array<string, string|null>>  $contacts  role => fields
@@ -31,8 +33,13 @@ class UpdateContacts
         $meta = [];
 
         if ($domain->registrar_key !== null) {
-            $result = $this->gateway->forDomain($domain, 'contacts', fn (Registrar $registrar): RegistrarResult => $registrar->setContacts($domain, $set), ['contacts' => $set->toArray()]);
-            $meta = array_intersect_key($result->meta, array_flip(['contact_change_pending', 'transfer_lock_until']));
+            $result = $this->gateway->forDomain($domain, 'contacts', ManagesContacts::class, fn (ManagesContacts $registrar, RegistrarConfig $config): RegistrarResult => $registrar->setContacts($config, $domain->toRef(), $set), ['contacts' => $set->toArray()]);
+            $meta = array_intersect_key($result->meta, array_flip(['contact_change_pending']));
+
+            // The driver says how long the lock lasts; the date is the company's (ADR 0013).
+            if (is_int($result->meta['transfer_lock_days'] ?? null)) {
+                $meta['transfer_lock_until'] = $this->clock->calendarDate()->addDays($result->meta['transfer_lock_days'])->toString();
+            }
         } else {
             $this->activity->log("Staff task: update contacts of {$domain->name} at the registrar", $domain, $domain->client_id);
         }

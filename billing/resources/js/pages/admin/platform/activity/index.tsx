@@ -11,10 +11,10 @@ import { EmptyState } from '@/components/app/empty-state';
 import { FilterBar, FilterSelect } from '@/components/app/filter-bar';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
-import { Pagination } from '@/components/app/pagination';
+import { SimplePagination } from '@/components/app/pagination';
 import { useQueryParams } from '@/components/app/use-query-params';
 import { Input } from '@/components/ui/input';
-import type { LaravelPaginated } from '@/types';
+import type { LaravelSimplePaginated } from '@/types';
 
 type Entry = {
     id: number;
@@ -30,7 +30,7 @@ type Entry = {
 };
 
 type Props = {
-    entries: LaravelPaginated<Entry>;
+    entries: LaravelSimplePaginated<Entry>;
     filters: Record<string, string | number | undefined>;
     events: string[];
     staff: { id: number; name: string }[];
@@ -238,7 +238,7 @@ export default function ActivityIndex({
                         />
                     }
                     footer={
-                        <Pagination
+                        <SimplePagination
                             paginator={entries}
                             itemLabel="entries"
                             only={ONLY}

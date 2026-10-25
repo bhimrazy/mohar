@@ -1,0 +1,241 @@
+#!/usr/bin/env bash
+# Blue-green deploys of deploy/compose.prod.yaml on one Docker host (billing/docs/devops/production.md).
+#
+#   deploy/bin/deploy [--image IMAGE]   build the checkout (or use IMAGE), check and run the migrations, start the
+#                                       idle colour, switch Caddy to it once it is healthy, drain the old workers
+#   deploy/bin/deploy rollback          switch back to the previous colour (its web container is still running)
+#   deploy/bin/deploy status            the live and previous colour, their images and containers
+#   deploy/bin/deploy retire            stop the previous colour's web container once no rollback is needed
+#
+# Traffic never moves to a colour that is not healthy, and a failed switch is reverted. Old workers get SIGTERM
+# and finish their current job before they exit (their stop grace covers the longest job), so no job runs twice;
+# exactly one scheduler and one automation worker run at any time. Moving those two waits, after traffic has
+# switched, for an automation run in progress (daily or Run now) to finish: up to an hour. Migrations must be
+# expand-only (docs/architecture.md): the old colour keeps serving against the new schema until the switch, and
+# after it for a rollback.
+#
+# Settings: DEPLOY_ENV_FILE (deploy/.env), DEPLOY_PROJECT (mohar), DEPLOY_STATE_DIR (deploy/state: the live
+# colour and images, and the upstream file Caddy imports). DEPLOY_SKIP_MIGRATION_CHECK=1 skips the migration
+# check when you have reviewed a finding. DEPLOY_COMPOSE_OVERRIDE names an extra compose file merged over
+# compose.prod.yaml, e.g. deploy/compose.secrets.example.yaml copied and filled in to read APP_KEY from Docker
+# secrets (billing/docs/devops/key-rotation.md).
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$root"
+
+env_file="${DEPLOY_ENV_FILE:-deploy/.env}"
+project="${DEPLOY_PROJECT:-mohar}"
+# An absolute path without the GNU-only path-resolving option, which macOS lacks (local runs on Docker Desktop).
+mkdir -p -- "${DEPLOY_STATE_DIR:-deploy/state}"
+DEPLOY_STATE_DIR="$(cd -- "${DEPLOY_STATE_DIR:-deploy/state}" && pwd -P)"
+export DEPLOY_STATE_DIR
+state="$DEPLOY_STATE_DIR/deploy.env"
+upstream="$DEPLOY_STATE_DIR/live/upstream.caddy"
+# Caddy's config directory is bind-mounted (compose.prod.yaml), so a reload reads the checkout's current Caddyfile.
+caddy_config=/etc/caddy/conf/Caddyfile
+compose=(docker compose -p "$project" -f deploy/compose.prod.yaml ${DEPLOY_COMPOSE_OVERRIDE:+-f "$DEPLOY_COMPOSE_OVERRIDE"} --env-file "$env_file")
+
+say() { printf '== %s\n' "$*"; }
+die() { printf 'deploy: %s\n' "$*" >&2; exit 1; }
+other() { [ "$1" = blue ] && echo green || echo blue; }
+workers() { echo "worker-critical-$1 worker-notifications-$1 worker-default-$1"; }
+
+[ -f "$env_file" ] || die "$env_file not found (copy deploy/.env.production.example and fill it in)"
+domain="$(sed -n 's/^APP_DOMAIN=//p' "$env_file" | tail -1 | tr -d '"'"'")"
+[ -n "$domain" ] || die "APP_DOMAIN is not set in $env_file"
+
+LIVE="" PREVIOUS="" IMAGE_BLUE="" IMAGE_GREEN=""
+# shellcheck disable=SC1090
+[ -f "$state" ] && . "$state"
+export APP_IMAGE_BLUE="${IMAGE_BLUE:-mohar-app:local}" APP_IMAGE_GREEN="${IMAGE_GREEN:-mohar-app:local}"
+
+save_state() {
+    mkdir -p "$DEPLOY_STATE_DIR"
+    # %q quotes each value for the shell that sources this file on the next run.
+    printf 'LIVE=%q\nPREVIOUS=%q\nIMAGE_BLUE=%q\nIMAGE_GREEN=%q\n' "$LIVE" "$PREVIOUS" "$IMAGE_BLUE" "$IMAGE_GREEN" > "$state.tmp"
+    mv "$state.tmp" "$state"
+}
+
+write_upstream() {
+    mkdir -p "$(dirname "$upstream")"
+    cat > "$upstream.tmp" <<CADDY
+# Written by deploy/bin/deploy: the live colour is $1. Do not edit by hand.
+reverse_proxy app-$1:8080 {
+	health_uri /up
+	health_interval 10s
+	health_headers {
+		Host {\$APP_DOMAIN}
+	}
+	# A restarting container is retried for a few seconds instead of answering 502 at once.
+	lb_try_duration 5s
+}
+log_append upstream {rp.upstream.host}
+CADDY
+    mv "$upstream.tmp" "$upstream"
+}
+
+caddy_running() { [ -n "$("${compose[@]}" ps --status running -q caddy 2>/dev/null)" ]; }
+
+# Point Caddy at a colour: write the upstream, reload gracefully (in-flight requests finish), and confirm the
+# running configuration names the new upstream. On failure the previous upstream is restored.
+switch_to() {
+    local colour="$1" previous="$upstream.previous"
+    rm -f "$previous"
+    [ -f "$upstream" ] && cp "$upstream" "$previous"
+    write_upstream "$colour"
+    if caddy_running; then
+        if ! "${compose[@]}" exec -T caddy caddy reload --config "$caddy_config" --adapter caddyfile; then
+            restore_upstream "$previous"
+            die "Caddy did not accept the new upstream; traffic stays where it was"
+        fi
+    else
+        "${compose[@]}" up -d --no-deps caddy
+    fi
+    for _ in $(seq 20); do
+        if "${compose[@]}" exec -T caddy wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null | grep -q "app-$colour:8080"; then
+            rm -f "$previous"
+            return 0
+        fi
+        sleep 1
+    done
+    restore_upstream "$previous"
+    die "Caddy's running configuration does not name app-$colour after the switch; the previous upstream is restored"
+}
+
+# Put the previous upstream file back and reload Caddy with it (best effort: the caller reports the failure).
+restore_upstream() {
+    local previous="$1"
+    [ -f "$previous" ] || return 0
+    mv "$previous" "$upstream"
+    "${compose[@]}" exec -T caddy caddy reload --config "$caddy_config" --adapter caddyfile || true
+}
+
+# The colour answers /up on the edge network, as Caddy will reach it.
+probe() {
+    local colour="$1"
+    caddy_running || return 0
+    for _ in $(seq 15); do
+        "${compose[@]}" exec -T caddy wget -q -O /dev/null --header "Host: $domain" "http://app-$colour:8080/up" && return 0
+        sleep 2
+    done
+    return 1
+}
+
+# Move the workers to a colour, after traffic has switched. The three pools may run in both colours for a moment (a
+# job is only ever reserved by one worker), so the new pools start first. The scheduler and the automation worker run
+# once: the old ones are stopped first, which waits (up to their 3,660 s stop grace) for an automation run in
+# progress to finish, then the new ones start. If those do not become healthy, the old ones are started again, so one
+# of each always runs. Last, the old pools drain: each finishes its current job, then exits.
+move_workers() {
+    local to="$1" from="$2"
+    # shellcheck disable=SC2046
+    "${compose[@]}" --profile "$to" up -d --wait --wait-timeout 120 --no-deps $(workers "$to") \
+        || die "the $to worker pools did not become healthy; traffic is on $to, and the ${from:-old} workers and scheduler still run"
+    if [ -n "$from" ]; then
+        say "stopping the $from scheduler and automation worker (waits for an automation run in progress, up to an hour)"
+        "${compose[@]}" --profile "$from" stop "scheduler-$from" "worker-automation-$from"
+    fi
+    if ! "${compose[@]}" --profile "$to" up -d --wait --wait-timeout 120 --no-deps "worker-automation-$to" "scheduler-$to"; then
+        # If the new ones cannot be stopped, starting the old ones would run two schedulers: stop here instead.
+        "${compose[@]}" --profile "$to" stop "worker-automation-$to" "scheduler-$to" \
+            || die "the $to scheduler or automation worker did not become healthy and could not be stopped; neither colour's scheduler was started again. Stop them by hand, then run 'deploy/bin/deploy rollback'"
+        if [ -n "$from" ]; then
+            "${compose[@]}" --profile "$from" up -d --no-deps "scheduler-$from" "worker-automation-$from" || true
+            die "the $to scheduler or automation worker did not become healthy: the $from ones run again. Traffic is on $to; 'deploy/bin/deploy rollback' returns it to $from"
+        fi
+        die "the $to scheduler or automation worker did not become healthy; traffic is on $to"
+    fi
+    if [ -n "$from" ]; then
+        say "draining $from workers (each finishes its current job)"
+        # shellcheck disable=SC2046
+        "${compose[@]}" --profile "$from" stop $(workers "$from")
+    fi
+}
+
+cmd_deploy() {
+    local image="" next live="$LIVE"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --image) image="${2:?--image needs a value}"; shift 2 ;;
+            *) die "unknown option $1" ;;
+        esac
+    done
+    next="$( [ "$live" = blue ] && echo green || echo blue )"
+
+    if [ -z "$image" ]; then
+        image="mohar-app:$(git rev-parse --short=12 HEAD)$(git diff --quiet HEAD -- billing deploy || echo -dirty)"
+        say "building $image"
+        APP_IMAGE="$image" "${compose[@]}" build migrate
+    fi
+    export APP_IMAGE="$image"
+
+    say "database and object storage"
+    "${compose[@]}" up -d --wait --wait-timeout 120 postgres rustfs
+
+    if [ "${DEPLOY_SKIP_MIGRATION_CHECK:-0}" != 1 ]; then
+        say "checking pending migrations (expand only)"
+        "${compose[@]}" run --rm -T -e APP_OPTIMIZE=0 migrate php artisan deploy:check-migrations --pending \
+            || die "a pending migration is not expand-only; fix it, or set DEPLOY_SKIP_MIGRATION_CHECK=1 after review"
+    fi
+
+    say "migrations, bucket and reference data (${image})"
+    "${compose[@]}" run --rm -T migrate
+
+    say "starting app-$next"
+    if [ "$next" = blue ]; then IMAGE_BLUE="$image"; export APP_IMAGE_BLUE="$image"; else IMAGE_GREEN="$image"; export APP_IMAGE_GREEN="$image"; fi
+    if ! "${compose[@]}" --profile "$next" up -d --wait --wait-timeout 120 --no-deps "app-$next" || ! probe "$next"; then
+        "${compose[@]}" --profile "$next" logs --tail 40 "app-$next" >&2 || true
+        "${compose[@]}" --profile "$next" stop "app-$next" || true
+        die "app-$next did not become healthy; traffic stays on ${live:-nothing}"
+    fi
+
+    say "switching traffic to $next"
+    switch_to "$next"
+    # From here on Caddy serves the new colour: record it before anything else can fail, so `rollback` and `status`
+    # name the colour that is really live.
+    PREVIOUS="$live" LIVE="$next"
+    save_state
+    move_workers "$next" "$PREVIOUS"
+
+    # The old colour may have numbered invoices or written value rows before the switch (ADR 0024 §2); the scheduler
+    # repeats this every five minutes, so a failure here only delays it.
+    say "filling fiscal snapshots"
+    "${compose[@]}" run --rm -T -e APP_OPTIMIZE=0 migrate php artisan billing:fiscal-snapshot \
+        || say "warning: billing:fiscal-snapshot failed; the scheduler runs it again"
+
+    say "live: $next ($image)${PREVIOUS:+; app-$PREVIOUS keeps running for 'deploy/bin/deploy rollback' (stop it with 'retire')}"
+}
+
+cmd_rollback() {
+    local to="$PREVIOUS" from="$LIVE"
+    [ -n "$to" ] || die "there is no previous colour to roll back to"
+    say "rolling back from $from to $to"
+    "${compose[@]}" --profile "$to" up -d --wait --wait-timeout 120 --no-deps "app-$to"
+    probe "$to" || die "app-$to is not healthy; traffic stays on $from"
+    switch_to "$to"
+    LIVE="$to" PREVIOUS="$from"
+    save_state
+    move_workers "$to" "$from"
+    say "live: $to; $from is ready for a roll-forward (deploy/bin/deploy rollback again)"
+}
+
+cmd_retire() {
+    [ -n "$PREVIOUS" ] || die "there is no previous colour"
+    "${compose[@]}" --profile "$PREVIOUS" stop "app-$PREVIOUS"
+    say "app-$PREVIOUS stopped; a rollback starts it again"
+}
+
+cmd_status() {
+    printf 'live: %s (%s)\nprevious: %s\n' "${LIVE:-none}" "$( [ "$LIVE" = green ] && echo "$IMAGE_GREEN" || echo "$IMAGE_BLUE" )" "${PREVIOUS:-none}"
+    "${compose[@]}" --profile blue --profile green ps
+}
+
+case "${1:-deploy}" in
+    deploy) shift || true; cmd_deploy "$@" ;;
+    --image) cmd_deploy "$@" ;;
+    rollback) cmd_rollback ;;
+    retire) cmd_retire ;;
+    status) cmd_status ;;
+    *) die "usage: deploy/bin/deploy [deploy] [--image IMAGE] | rollback | status | retire" ;;
+esac

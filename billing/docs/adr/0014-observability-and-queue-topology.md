@@ -97,12 +97,32 @@ public function timing(string $metric, int $milliseconds, array $attributes = []
     | `PAYMENTS`      | `payments`      |
     | `NOTIFICATIONS` | `notifications` |
     | `WEBHOOKS`      | `webhooks`      |
+    | `AUTOMATION`    | `automation`    |
+    | `IMPORTS`       | `imports`       |
 
     Jobs use the constants, and no other queue names are allowed.
 
+- **`automation` (amended 2026-10-20, #82, #122)** is both a queue and a connection of that name. The connection uses
+  the default connection's backend with `retry_after` = `Queues::AUTOMATION_TIMEOUT_SECONDS` + 300 s (3,900 s), so
+  the automation "Run now" job (timeout 3,600 s) is never handed to a second worker mid-run. The `automation` queue
+  is consumed only through the `automation` connection (`queue:work automation --queue=automation`). It is never
+  added to another worker's `--queue` list: on `database` and `redis` that worker reads the same jobs with the
+  default connection's 240 s `retry_after`, which reintroduces #82. `RunAutomationJob` fails fast, without running,
+  when a worker on another connection takes it.
+
+- **`imports` (amended 2026-10-20, client-import spec C2)** carries client-import jobs (staging, checking, applying).
+  The `default` pool works it after `default` (`--queue=default,imports --timeout=150 --memory=256`), so an import of
+  50,000 rows delays `default` work by at most one import job (`Queues::IMPORT_JOB_TIMEOUT_SECONDS`, 120 s). The
+  `default` queue carries order provisioning and, until they move to `registrar`, the domain registration jobs: their
+  worst-case wait behind imports is one import job. Each import job caps itself at 120 s, below the default connection's 240 s `retry_after`,
+  so the queue needs no connection of its own; a job that could run longer must be split into chunks instead. The
+  spec proposed a separate `retry_after`; the CTO accepted the default connection instead (2026-10-20, #160): the
+  120 s job timeout, the pool's `--timeout=150` and the 160 s stop grace keep each import job below 240 s.
 - Domains jobs move to `registrar`, so a registrar outage cannot starve other `default` work.
 - Core alone registers one `DevCommands` worker over all queues in priority order:
-  `payments,provisioning,registrar,notifications,webhooks,default`. Modules no longer register workers.
+  `payments,provisioning,registrar,notifications,webhooks,default`. Modules no longer register workers. The one
+  exception (amended 2026-10-20, #122): Platform registers the `automation` dev worker next to `RunAutomationJob`,
+  because that queue needs its own connection and must not join the Core worker's list.
 - `docs/devops/production.md` (to be written) describes the production worker set:
     - one worker pool for `payments,provisioning,registrar`, with job timeouts above the drivers' HTTP timeouts;
     - **invariant (amended 2026-10-18, ADR 0009 PR B):** each connection's `retry_after` exceeds the longest job
@@ -110,9 +130,18 @@ public function timing(string $metric, int $milliseconds, array $attributes = []
       `retry_after` defaults to 240 s); a pool's `--timeout` is at least that cap; on SQS, set the visibility timeout
       per queue. A dedicated provisioning connection is revisited only if a job needs more than 300 s;
     - one pool for `notifications,webhooks`;
-    - one pool for `default`.
+    - one pool for `default`;
+    - one worker on the `automation` connection, with a stop timeout above 3,600 s.
 - Every job that calls a provider is `ShouldBeUnique` or protected by a lock, sets `$tries` and `$backoff`, uses
   `ShouldBeEncrypted` if its payload holds personal data, and is idempotent (ADR 0011).
+
+### Lock store (amended 2026-10-22, #64)
+
+Cache locks (`Cache::lock`) guard provisioning, payment attempts and other flows that have no database constraint to
+fall back on. They hold only when every web and queue process shares one lock store, so `CACHE_STORE` must be
+`database`, `redis` or another network store. `file` is single-host only. `array` and `null` give no cross-process
+exclusion. `app:install` fails on those two for a first production install and warns otherwise; the admin health card
+reports it in production.
 
 ### Performance budgets
 

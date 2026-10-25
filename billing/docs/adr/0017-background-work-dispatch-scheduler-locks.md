@@ -40,7 +40,8 @@ assumptions about that topology without writing them down:
       other remote host.
     - Sweeps dispatch one job per item. The job is `ShouldBeUnique`, keyed by the item, and runs on the family's
       queue (`provisioning`, `payments`, `registrar`).
-    - Every scheduled entry has `->onOneServer()` and `->withoutOverlapping()`.
+    - Every scheduled entry has `->onOneServer()` and `->withoutOverlapping()`, except the once-a-minute heartbeat
+      (`core.heartbeat`), which has only `->onOneServer()`: it is a single cache write, so an overlap is harmless.
     - Daily work is an `Automation` task. Sub-daily polling is a schedule entry. Nothing is both.
 3. **Every job's timeout is below its queue's `retry_after`.**
     - Each job sets `$timeout` and `$tries` explicitly.
@@ -48,10 +49,15 @@ assumptions about that topology without writing them down:
       under `app/Modules/*/Jobs`.
     - Work that may take longer than a pool allows, such as the automation "Run now" button, gets its own queue
       with its own `retry_after`. Alternatively, it is run by the scheduler process from a "requested" flag.
+    - **Chosen in #122 (2026-10-20): its own connection.** "Run now" runs on the `automation` connection and queue
+      (`App\Support\Queues`, ADR 0014), with `retry_after` 3,900 s above the job's 3,600 s timeout. The
+      "requested" flag option is not used.
 4. **One shared lock store is a deployment requirement.**
     - The `app:install` pre-flight and the health check fail when `cache.default` resolves to `array` or `null`.
     - The `file` driver is accepted only for a single-host, single-container install, and the pre-flight warns.
     - Locks are taken through `Cache::lock` on the default store, never on a named local store.
+    - **Amended by ADR 0021 (2026-10-21):** this rule covers locks that span work outside one database transaction.
+      Row locks taken inside a transaction (`lockForUpdate()`) follow ADR 0021, including its lock order.
 5. **Queue names are constants** (`App\Support\Queues`, ADR 0014). The worker hints in `InstallCommand`,
    `install.md` and `deploy/` are generated from, or tested against, those constants.
 

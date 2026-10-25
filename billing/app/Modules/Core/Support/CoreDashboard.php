@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Support\Dashboard\Dashboard;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Route;
 
 /**
  * Core's admin dashboard widgets (clients). Registered from CoreServiceProvider::bootModule().
@@ -17,6 +18,13 @@ class CoreDashboard
         $dashboard->card('admin', 'core.clients', fn (?User $user): array => $this->activeClients(), 'core.clients.view', 10);
         $dashboard->card('admin', 'core.clients.new', fn (?User $user): array => $this->newClients(), 'core.clients.view', 11);
         $dashboard->widget('admin', 'core.clients.newest', 'list', fn (?User $user): array => $this->newestClients(), 'core.clients.view', 55, 'md');
+        $dashboard->todo('admin', 'core.timezone.invalid', fn (): array => [
+            'label' => 'Company time zone is not valid: dates use UTC',
+            'count' => app(CoreCompanyClock::class)->isFallback() ? 1 : 0,
+            'href' => Route::has('admin.platform.settings.edit') ? route('admin.platform.settings.edit', 'company') : route('admin.dashboard'),
+            'tone' => 'danger',
+            'icon' => 'Clock',
+        ], 'core.settings.update', 5);
         $dashboard->widget('admin', 'core.clients.signups', 'chart', fn (?User $user): array => $this->signups(), 'core.clients.view', 35, 'md', deferred: true);
     }
 
@@ -83,13 +91,14 @@ class CoreDashboard
     }
 
     /**
-     * New clients per week for the last 12 weeks, in the company's calendar (bucketed in PHP over one column).
+     * New clients per week for the last 12 weeks, in the company's calendar (counted per local day in SQL, then
+     * bucketed into weeks).
      *
      * @return array<string, mixed>
      */
     private function signups(): array
     {
-        $calendar = app(BusinessCalendar::class);
+        $calendar = app(CoreCompanyClock::class);
         $start = $calendar->today()->startOfWeek()->subWeeks(11);
         $weeks = [];
 
@@ -97,13 +106,18 @@ class CoreDashboard
             $weeks[$start->addWeeks($week)->toDateString()] = 0;
         }
 
-        Client::query()->where('created_at', '>=', $calendar->startOfDayUtc($start))->pluck('created_at')->each(function (mixed $createdAt) use (&$weeks, $calendar): void {
-            $key = CarbonImmutable::parse((string) $calendar->localDate($createdAt))->startOfWeek()->toDateString();
+        Client::query()->toBase()
+            ->where('created_at', '>=', $calendar->dayBounds($start)[0])
+            ->selectRaw($calendar->sqlLocalDate('created_at').' as day, count(*) as total', [$calendar->sqlZoneArgument()])
+            ->groupByRaw('1')
+            ->get()
+            ->each(function (object $row) use (&$weeks): void {
+                $key = CarbonImmutable::parse(substr((string) $row->day, 0, 10))->startOfWeek()->toDateString();
 
-            if (array_key_exists($key, $weeks)) {
-                $weeks[$key]++;
-            }
-        });
+                if (array_key_exists($key, $weeks)) {
+                    $weeks[$key] += (int) $row->total;
+                }
+            });
 
         return [
             'title' => 'New clients',

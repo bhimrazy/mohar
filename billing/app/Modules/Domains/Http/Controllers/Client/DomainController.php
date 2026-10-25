@@ -12,7 +12,6 @@ use App\Modules\Domains\Actions\SetAutoRenew;
 use App\Modules\Domains\Actions\SetRegistrarLock;
 use App\Modules\Domains\Actions\UpdateContacts;
 use App\Modules\Domains\Actions\UpdateNameservers;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Exceptions\DomainActionNotAllowed;
 use App\Modules\Domains\Http\Requests\ContactsRequest;
@@ -24,6 +23,7 @@ use App\Modules\Domains\Http\Resources\DomainResource;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainContact;
 use App\Modules\Domains\Services\DomainPricingService;
+use App\Support\Domains\RegistrarDriverRegistry;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -43,6 +43,7 @@ class DomainController extends Controller
 
         $domains = Domain::query()
             ->where('client_id', $this->context->id())
+            ->with('tldModel:id,registered_by_client,how_to_url')
             ->search($request->string('search')->toString())
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')->toString()))
             ->orderByRaw('case when expiry_date is null then 1 else 0 end')
@@ -58,9 +59,9 @@ class DomainController extends Controller
         ]);
     }
 
-    public function show(int $domain, RegistrarManager $registrars, DomainPricingService $pricing): Response
+    public function show(int $domain, RegistrarDriverRegistry $registrars, DomainPricingService $pricing): Response
     {
-        $model = $this->domain($domain)->load('contacts');
+        $model = $this->domain($domain)->load(['contacts', 'tldModel:id,registered_by_client,how_to_url']);
         $client = $this->context->client();
         $contacts = [];
 
@@ -72,11 +73,15 @@ class DomainController extends Controller
         return Inertia::render('client/domains/show', [
             'domain' => new DomainResource($model),
             'contacts' => $contacts,
-            'capabilities' => $model->registrar_key === null ? ['nameservers', 'contacts'] : $registrars->capabilitiesOf($model->registrar_key),
+            'capabilities' => match (true) {
+                $model->registrar_key === null => ['nameservers', 'contacts'],
+                $registrars->has($model->registrar_key) => $registrars->capabilitiesOf($model->registrar_key),
+                default => [],
+            },
             'canManage' => $model->status->allowsClientActions(),
             'canResubmitTransfer' => $model->type === 'transfer' && $model->status === DomainStatus::Pending && $model->provision_invoice_id !== null,
             'renewalTerms' => $pricing->renewalTerms($model, $model->currency, $client->client_group_id),
-            'canRenewNow' => $model->status->allowsClientActions() && (bool) app(Settings::class)->get('domains.enable_renewal_orders', true)
+            'canRenewNow' => $model->status->allowsClientActions() && ! $model->isRegisteredByClient() && (bool) app(Settings::class)->get('domains.enable_renewal_orders', true)
                 && ! ($model->isFree() && $model->linked_service_status === 'active'),
         ]);
     }
@@ -92,7 +97,15 @@ class DomainController extends Controller
     {
         $autoRenew->handle($this->manageable($domain), $request->boolean('enabled'));
 
-        return $this->done($request->boolean('enabled') ? __('Auto-renew is on.') : __('Auto-renew is off. Renew the domain before it expires to keep it.'), $domain);
+        Inertia::flash('toast', ['type' => 'success', 'message' => $request->boolean('enabled') ? __('Auto-renew is on.') : __('Auto-renew is off. Renew the domain before it expires to keep it.')]);
+
+        // Toggled from the dashboard or the domain page: return there, but only within this site's origin (scheme, host
+        // and port, followed by a path), never to a URL a parser could read as another host.
+        $fallback = route('client.domains.show', $domain);
+        $previous = url()->previous($fallback);
+        $origin = rtrim(url('/'), '/');
+
+        return redirect()->to(str_starts_with($previous, $origin.'/') && ! str_contains($previous, '\\') ? $previous : $fallback);
     }
 
     public function lock(ToggleRequest $request, int $domain, SetRegistrarLock $lock): RedirectResponse
@@ -139,7 +152,7 @@ class DomainController extends Controller
     {
         $this->context->authorize('domains');
 
-        return Domain::query()->where('client_id', $this->context->id())->findOrFail($id);
+        return Domain::query()->where('client_id', $this->context->id())->with('tldModel:id,registered_by_client,how_to_url')->findOrFail($id);
     }
 
     private function manageable(int $id): Domain

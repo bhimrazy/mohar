@@ -1,3 +1,8 @@
+import type {
+    ListWidgetAction,
+    ListWidgetLink,
+    ListWidgetToggle,
+} from '@/components/app/list-widget';
 import type { StatTrend } from '@/components/app/stat-card';
 import type { StatusTone } from '@/components/app/status-badge';
 import type {
@@ -14,7 +19,13 @@ export type MoneyValue = { amount: number; currency: string };
 /** Per-currency overrides merged over the base payload by the reporting-currency switch. */
 export type Variants<T> = Record<string, Partial<T>>;
 
-type WidgetBase = { key: string; size: 'sm' | 'md' | 'lg'; order?: number };
+type WidgetBase = {
+    key: string;
+    size: 'sm' | 'md' | 'lg';
+    order?: number;
+    /** When cached figures were computed: ISO 8601 in the company's time zone. */
+    asOf?: string;
+};
 
 export type StatWidget = WidgetBase & {
     type: 'stat';
@@ -46,6 +57,13 @@ export type DashboardListItem = {
     status?: string | null;
     /** A name to show as initials in front of the row. */
     avatar?: string;
+    /** ISO date shown after the subtitle, prefixed with `dateLabel`. */
+    date?: string | null;
+    dateLabel?: string;
+    /** A button at the end of the row: a link ("Pay"), or a POST behind a confirm ("Renew now"). */
+    action?: ListWidgetAction | null;
+    /** An on/off switch at the end of the row that saves immediately ("Auto-renew"). */
+    toggle?: ListWidgetToggle | null;
 };
 
 export type ListWidgetData = WidgetBase & {
@@ -54,11 +72,24 @@ export type ListWidgetData = WidgetBase & {
     items: DashboardListItem[];
     href?: string;
     empty?: string;
+    /** The next step offered in the empty state ("Register a domain"). */
+    emptyAction?: { label: string; href: string } | null;
+    /** Link buttons in the list's header ("New ticket"); `icon` is a nav icon name. */
+    actions?: ListWidgetLink[];
     /** Lists sharing a group render as tabs of one card titled `groupTitle`. */
     group?: string;
     groupTitle?: string;
     /** Shorter title for the tab. */
     tabTitle?: string;
+};
+
+/** A banner, e.g. the client's invoice to pay. Rendered by the client dashboard only. */
+export type NoticeWidgetData = WidgetBase & {
+    type: 'notice';
+    title: string;
+    body?: string;
+    tone: 'warning' | 'danger' | 'info';
+    actions: { label: string; href: string; primary?: boolean }[];
 };
 
 export type ChartSummary = {
@@ -120,7 +151,8 @@ export type DashboardWidget =
     | StatWidget
     | ListWidgetData
     | ChartWidget
-    | BreakdownWidget;
+    | BreakdownWidget
+    | NoticeWidgetData;
 
 export type HealthCheck = {
     key: string;

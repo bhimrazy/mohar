@@ -75,6 +75,7 @@ it('validates the group slug', function (string $slug, string $error) {
         ->assertSessionHasErrors(['slug' => $error]);
 })->with([
     'no letter' => ['123', 'The slug must contain at least one letter.'],
+    'reserved store word' => ['cart', 'This slug is reserved for the store (cart, checkout, domains, currency, orders, products). Enter a different slug.'],
     'duplicate' => ['taken', 'This slug is already used. Change the name or enter a different slug.'],
 ]);
 

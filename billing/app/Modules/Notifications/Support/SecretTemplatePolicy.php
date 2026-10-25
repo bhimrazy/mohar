@@ -8,6 +8,7 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Rendering\TemplateEngine;
 use App\Modules\Notifications\Rendering\TemplateSyntaxError;
 use App\Modules\Notifications\Services\SampleContext;
+use App\Support\Integrations\RedactionSet;
 use Dom\Comment;
 use Dom\Element;
 use Dom\HTMLDocument;
@@ -44,8 +45,10 @@ final class SecretTemplatePolicy
     public const ACTION_LINKS = [
         'auth.password_reset' => 'auth.reset_url',
         'staff.password_reset' => 'auth.reset_url',
+        'auth.password_set' => 'auth.set_url',
         'auth.email_verification' => 'auth.verify_url',
         'auth.user_invitation' => 'auth.invite_url',
+        'client.migration_invitation' => 'auth.invite_url',
         'staff.invitation' => 'auth.invite_url',
     ];
 
@@ -68,6 +71,7 @@ final class SecretTemplatePolicy
         'ticket.opened_by_staff' => 'ticket.url',
         'ticket.reply' => 'ticket.url',
         'ticket.auto_closed' => 'ticket.url',
+        'ticket.link_replaced' => 'ticket.url',
     ];
 
     /**
@@ -353,22 +357,11 @@ final class SecretTemplatePolicy
 
     /**
      * The one normaliser for finding a secret, shared by masking, counting and the final check on every path (HTML
-     * and text): HTML entities and percent-encoding decoded until nothing changes (so partial and double encodings
-     * are caught), then lower case.
+     * and text). It is the kernel's (RedactionSet::normalise()), so mail and logs decode the same way.
      */
     public static function normalise(string $text): string
     {
-        for ($pass = 0; $pass < 6; $pass++) {
-            $decoded = rawurldecode(html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-
-            if ($decoded === $text) {
-                break;
-            }
-
-            $text = $decoded;
-        }
-
-        return mb_strtolower($text);
+        return RedactionSet::normalise($text);
     }
 
     /**

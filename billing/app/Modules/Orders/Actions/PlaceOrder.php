@@ -4,6 +4,7 @@ namespace App\Modules\Orders\Actions;
 
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Catalog\PriceBook;
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Domains\DomainRegistry;
 use App\Contracts\Services\ServiceRegistry;
 use App\Data\Billing\InvoiceDraft;
@@ -39,7 +40,6 @@ use App\Modules\Orders\Pricing\PricedItem;
 use App\Modules\Orders\Pricing\PricedLine;
 use App\Modules\Orders\Pricing\PromotionEligibility;
 use App\Modules\Orders\Services\CheckoutGateways;
-use App\Modules\Orders\Services\CompanyClock;
 use App\Modules\Orders\Services\OrderNumberGenerator;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Registered;
@@ -242,6 +242,19 @@ class PlaceOrder
             }
 
             [$user, $client] = $this->registerClient->handle($data->registration, $data->currency);
+        } else {
+            // Lock the client before any row that references it is inserted, the order IssueInvoice uses (#192). The
+            // order's foreign key takes a key-share lock on the client; two checkouts of one client that apply credit
+            // would each hold one while waiting for the other's credit lock on the client, and deadlock.
+            $locked = Client::query()->whereKey($client->id)->lockForUpdate()->firstOrFail();
+
+            // The payment methods, the fraud total and a staff price override were worked out in the currency of the
+            // client as read before this lock. A currency changed since (#218) refuses the order rather than mixing.
+            if ($locked->currency !== $client->currency) {
+                throw ValidationException::withMessages(['cart' => __('The account currency changed while this order was placed. Reload the page and try again.')]);
+            }
+
+            $client = $locked;
         }
 
         $cart = $this->pricer->price($data->items, $client->currency, $data->promotionCode, $client, $data->priceOverrides);
@@ -393,7 +406,7 @@ class PlaceOrder
                 $this->orderItem($order, OrderItemType::Addon, $addonId, $line, ['addon_id' => $line->addonId, 'parent_id' => $serviceItem?->id]);
                 $ids[$line->key] = $addonId;
             } elseif ($line->kind === 'domain' && $line->domain !== null) {
-                $domainId = $this->domains->createPending(new DomainDraft(
+                $domainId = $this->createDomain(new DomainDraft(
                     clientId: $client->id,
                     domain: $line->domain,
                     action: $line->domainAction === 'transfer' ? 'transfer' : 'register',
@@ -405,6 +418,7 @@ class PlaceOrder
                     eppCode: $item->item->eppCode,
                     nameservers: $item->item->nameservers,
                     idProtection: $item->item->idProtection,
+                    tldAttributes: $item->item->tldAttributes,
                 ));
 
                 $this->orderItem($order, OrderItemType::Domain, $domainId, $line, ['parent_id' => $serviceItem?->id]);
@@ -413,6 +427,26 @@ class PlaceOrder
         }
 
         return $ids;
+    }
+
+    /**
+     * Creates the pending domain. Extension details that no longer fit the registrar's fields (they changed after
+     * the item was added) are shown on the checkout page, naming the domain, since the cart cannot edit them.
+     */
+    private function createDomain(DomainDraft $draft): int
+    {
+        try {
+            return $this->domains->createPending($draft);
+        } catch (ValidationException $exception) {
+            $errors = $exception->errors();
+            $message = collect($errors)->first(fn (array $messages, string $key): bool => str_starts_with($key, 'tld_attributes'));
+
+            if ($message === null) {
+                throw $exception;
+            }
+
+            throw ValidationException::withMessages(['cart' => __(':domain: :problem Remove it from your cart and add it again.', ['domain' => $draft->domain, 'problem' => $message[0]])]);
+        }
     }
 
     /**

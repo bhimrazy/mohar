@@ -2,25 +2,34 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Contracts\Domains\Registrar\ManagesLock;
+use App\Contracts\Domains\Registrar\ReconcilesSubmissions;
+use App\Contracts\Domains\Registrar\RegistrarDriver;
+use App\Contracts\Domains\Registrar\TransfersDomains;
+use App\Data\Domains\Registrar\DomainInfo;
+use App\Data\Domains\Registrar\RegistrarConfig;
+use App\Data\Domains\Registrar\RegistrarResult;
+use App\Data\Domains\Registrar\RegistrationRequest;
+use App\Data\Domains\Registrar\SubmissionLookup;
 use App\Data\Services\ProvisionResult;
+use App\Enums\ReconcileStatus;
 use App\Events\Domains\DomainRegistered;
 use App\Events\Domains\DomainTransferInitiated;
 use App\Events\Domains\RegistrarActionFailed;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
-use App\Modules\Domains\Drivers\Registrars\Data\DomainInfo;
-use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
-use App\Modules\Domains\Drivers\Registrars\Data\RegistrationRequest;
-use App\Modules\Domains\Drivers\Registrars\Registrar;
 use App\Modules\Domains\Enums\DomainStatus;
-use App\Modules\Domains\Exceptions\RegistrarException;
-use App\Modules\Domains\Exceptions\RegistrarTimeout;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Services\DomainDates;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\DomainStateMachine;
 use App\Modules\Domains\Services\RegistrarGateway;
+use App\Modules\Domains\Services\TldAttributeService;
 use App\Modules\Domains\Support\Nameservers;
+use App\Modules\Domains\Support\RemoteIds;
+use App\Support\Domains\RegistrarException;
+use App\Support\Domains\RegistrarTimeout;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -31,10 +40,14 @@ use Throwable;
  *  - The domain is claimed under a row lock (registrar_meta.submission) before anything is sent, so the
  *    payment job, a staff command and Orders' process() can never submit the same domain twice.
  *  - A claim that is still present on entry means an earlier attempt's outcome is unknown (crash, lost
- *    response): it is verified through `info` (registrations) or left to transfer sync, never re-sent.
+ *    response): it is verified with the driver's `findSubmission` (capability `reconcile`), else through `info`
+ *    (registrations), and never re-sent. SyncDomains sweeps claims that no job will come back for (issue #12).
  *  - Timeout / unknown result → `pending_registration` / `pending_transfer` flagged needs_review.
  *  - Explicit registrar error → stays `pending`, RegistrarActionFailed, staff task; the claim is released.
  *  - Retryable errors (known not executed) release the claim and are re-thrown for the queue to retry.
+ *  - A TLD the client registers at the registry (`.np`, registrars.md §9), or a `.np` name its registry cannot
+ *    issue, is never sent, whoever created the domain: it stays `pending` with the reason in `last_error`
+ *    (Needs attention), RegistrarActionFailed and a staff task, as for an explicit registrar error.
  */
 class SubmitToRegistrar
 {
@@ -48,6 +61,7 @@ class SubmitToRegistrar
         private BuildDomainContacts $contacts,
         private ActivityLogger $activity,
         private Settings $settings,
+        private TldAttributeService $tldAttributes,
     ) {}
 
     /**
@@ -60,6 +74,7 @@ class SubmitToRegistrar
         if ($claim !== 'claimed') {
             return match ($claim) {
                 'manual' => $this->manual($domain),
+                'not_submittable' => $this->failed($domain, $domain->type, (string) self::notSubmittable($domain)),
                 'in_flight' => new ProvisionResult(false, 'A submission for this domain is already in progress.'),
                 'unverified' => $this->reconcile($domain, $staffId),
                 default => new ProvisionResult(false, "The domain is {$domain->status->label()}, not pending; nothing was submitted."),
@@ -68,22 +83,21 @@ class SubmitToRegistrar
 
         $capability = $domain->type === 'transfer' ? 'transfer' : 'register';
         $request = new RegistrationRequest(
-            domain: $domain,
+            domain: $domain->toRef(),
             years: $domain->type === 'transfer' ? 1 : $domain->period_years,
             nameservers: Nameservers::normalise($domain->nameservers ?? []),
             contacts: $this->contacts->contactSet($domain),
             idProtection: $domain->id_protection,
             eppCode: $domain->epp_code,
+            tldAttributes: $domain->type === 'transfer' ? [] : self::tldAttributes($domain),
         );
 
+        $secrets = [...$request->secrets(), ...$this->tldAttributes->maskable($domain->tld, $request->tldAttributes)];
+
         try {
-            $result = $this->gateway->forDomain(
-                $domain,
-                $capability,
-                fn (Registrar $registrar): RegistrarResult => $capability === 'transfer' ? $registrar->transfer($request) : $registrar->register($request),
-                $request->toArray(),
-                $staffId,
-            );
+            $result = $capability === 'transfer'
+                ? $this->gateway->forDomain($domain, 'transfer', TransfersDomains::class, fn (TransfersDomains $registrar, RegistrarConfig $config): RegistrarResult => $registrar->transfer($config, $request), $request->toArray(), $staffId, $secrets)
+                : $this->gateway->forDomain($domain, 'register', RegistrarDriver::class, fn (RegistrarDriver $registrar, RegistrarConfig $config): RegistrarResult => $this->tldAttributes->guard($domain->tld, $request->tldAttributes, fn (): RegistrarResult => $registrar->register($config, $request)), $request->toArray(), $staffId, $secrets);
         } catch (RegistrarTimeout $timeout) {
             return $this->unknownOutcome($domain, $timeout->getMessage());
         } catch (RegistrarException $exception) {
@@ -97,6 +111,18 @@ class SubmitToRegistrar
         }
 
         return $this->succeeded($domain, $result, $staffId);
+    }
+
+    /**
+     * The extension details stored with the order (personal data: handed to the driver, never logged).
+     *
+     * @return array<string, string>
+     */
+    private static function tldAttributes(Domain $domain): array
+    {
+        $stored = $domain->additional_fields['tld_attributes'] ?? [];
+
+        return is_array($stored) ? array_map(strval(...), array_filter($stored, is_scalar(...))) : [];
     }
 
     /**
@@ -120,9 +146,28 @@ class SubmitToRegistrar
     }
 
     /**
-     * Lock the row and claim it for submission.
+     * Why this domain is never sent to a registrar, or null when it may be. Matches the DomainRegistry and cart
+     * rules: its TLD is registered by the client at the registry, or it is a `.np` name outside the registry's
+     * second levels (`asha.np`), which no registrar can register.
+     */
+    private static function notSubmittable(Domain $domain): ?string
+    {
+        if ($domain->tldModel->registered_by_client) {
+            return __(':tld domains are registered by the client at the registry, so :domain was not sent to a registrar. Cancel it, or set its status once the client has registered it.', ['tld' => $domain->tldModel->extension, 'domain' => $domain->name]);
+        }
+
+        if (Tld::registryLevelHint($domain->name) !== null) {
+            return __(':domain cannot be registered: the .np registry issues names only under .com.np, .org.np and its other second levels. It was not sent to a registrar; cancel it.', ['domain' => $domain->name]);
+        }
+
+        return null;
+    }
+
+    /**
+     * Lock the row and claim it for submission. An open claim is resolved first (something may have been sent);
+     * only then is a new submission refused for a domain that is never sent to a registrar.
      *
-     * @return 'claimed'|'manual'|'in_flight'|'unverified'|'not_pending'
+     * @return 'claimed'|'manual'|'not_submittable'|'in_flight'|'unverified'|'not_pending'
      */
     private function claim(Domain $domain): string
     {
@@ -135,6 +180,8 @@ class SubmitToRegistrar
             } elseif (self::hasOpenClaim($locked)) {
                 $claimedAt = CarbonImmutable::parse((string) $locked->registrar_meta['submission']);
                 $result = $claimedAt->gt(now()->subMinutes(self::IN_FLIGHT_MINUTES)) ? 'in_flight' : 'unverified';
+            } elseif (self::notSubmittable($locked) !== null) {
+                $result = 'not_submittable';
             } else {
                 $locked->registrar_key ??= $locked->tldModel->registrar_key;
 
@@ -169,16 +216,28 @@ class SubmitToRegistrar
     }
 
     /**
-     * An earlier attempt left its claim: verify with the registrar instead of submitting again.
+     * An earlier attempt left its claim: verify with the registrar instead of submitting again (registrars.md C2).
      */
     private function reconcile(Domain $domain, ?int $staffId): ProvisionResult
     {
-        if ($domain->type === 'register' && $this->gateway->supports($domain, 'info')) {
+        if ($this->gateway->supports($domain, 'reconcile')) {
+            $lookup = $this->lookup($domain, $staffId);
+
+            return match ($lookup->status) {
+                ReconcileStatus::Executed => $this->succeeded($domain, new RegistrarResult('completed', $lookup->expiryDate, 'Found at the registrar; not re-submitted.', remote: $lookup->remote), $staffId),
+                ReconcileStatus::InProgress => $this->succeeded($domain, new RegistrarResult('pending', message: 'The registrar is still processing the earlier submission; not re-submitted.', remote: $lookup->remote), $staffId),
+                ReconcileStatus::NotExecuted => $this->unknownOutcome($domain, 'The registrar has no record of the earlier submission. To submit it again, set the status to Pending, then register it.', $lookup->remote),
+                ReconcileStatus::Conflict => $this->unknownOutcome($domain, $lookup->message ?? 'The name is registered, but not in our registrar account. Decide with the client before doing anything else.', $lookup->remote),
+                ReconcileStatus::Unknown => $this->unknownOutcome($domain, $lookup->message ?? 'The registrar could not confirm the earlier submission; verify it there before retrying.', $lookup->remote),
+            };
+        }
+
+        if ($domain->type === 'register') {
             try {
-                $info = $this->gateway->forDomain($domain, 'info', fn (Registrar $registrar): DomainInfo => $registrar->info($domain), staffId: $staffId);
+                $info = $this->gateway->forDomain($domain, 'info', RegistrarDriver::class, fn (RegistrarDriver $registrar, RegistrarConfig $config): DomainInfo => $registrar->info($config, $domain->toRef()), staffId: $staffId);
 
                 if ($info->status === 'active') {
-                    return $this->succeeded($domain, new RegistrarResult('completed', $info->expiryDate, 'Found at the registrar; not re-submitted.'), $staffId);
+                    return $this->succeeded($domain, new RegistrarResult('completed', $info->expiryDate, 'Found at the registrar; not re-submitted.', remote: $info->remote), $staffId);
                 }
             } catch (Throwable) {
                 // Unverifiable right now: fall through to staff review.
@@ -188,10 +247,29 @@ class SubmitToRegistrar
         return $this->unknownOutcome($domain, 'An earlier submission did not finish; verify at the registrar before retrying.');
     }
 
+    private function lookup(Domain $domain, ?int $staffId): SubmissionLookup
+    {
+        $command = $domain->type === 'transfer' ? 'transfer' : 'register';
+        $submittedAt = CarbonImmutable::parse((string) ($domain->registrar_meta['submission'] ?? now()->toIso8601String()));
+
+        try {
+            return $this->gateway->forDomain(
+                $domain,
+                'reconcile',
+                ReconcilesSubmissions::class,
+                fn (ReconcilesSubmissions $registrar, RegistrarConfig $config): SubmissionLookup => $registrar->findSubmission($config, $domain->toRef(), $command, $submittedAt),
+                ['command' => $command, 'submitted_at' => $submittedAt->toIso8601String()],
+                $staffId,
+            );
+        } catch (Throwable) {
+            return new SubmissionLookup(ReconcileStatus::Unknown);
+        }
+    }
+
     private function succeeded(Domain $domain, RegistrarResult $result, ?int $staffId = null): ProvisionResult
     {
-        $today = CarbonImmutable::today();
-        $meta = $domain->registrar_meta ?? [];
+        $today = $this->dates->companyDate();
+        $meta = RemoteIds::merge($domain->registrar_meta, $result->remote) ?? [];
         unset($meta['submission']);
         $resolved = ['last_error' => null, 'needs_review' => false, 'registrar_meta' => $meta ?: null, 'registrar_key' => $domain->registrar_key];
 
@@ -226,11 +304,17 @@ class SubmitToRegistrar
     /**
      * The registrar may or may not have executed the command: park the domain for sync / staff verification.
      * The claim stays in place so nothing re-submits automatically.
+     *
+     * @param  array<string, string|int>  $remote  ids a lookup found on the way
      */
-    private function unknownOutcome(Domain $domain, string $message): ProvisionResult
+    private function unknownOutcome(Domain $domain, string $message, array $remote = []): ProvisionResult
     {
         $status = $domain->type === 'transfer' ? DomainStatus::PendingTransfer : DomainStatus::PendingRegistration;
-        $this->states->transition($domain, $status, 'Registrar outcome unknown; awaiting verification', ['last_error' => $message, 'needs_review' => true]);
+        $this->states->transition($domain, $status, 'Registrar outcome unknown; awaiting verification', [
+            'last_error' => $message,
+            'needs_review' => true,
+            'registrar_meta' => RemoteIds::merge($domain->registrar_meta, $remote),
+        ]);
         $this->activity->log("Staff task: verify the {$domain->type} of {$domain->name}; the next sync or \"Sync now\" resolves it", $domain, $domain->client_id);
 
         return new ProvisionResult(false, $message);
@@ -243,7 +327,7 @@ class SubmitToRegistrar
         }
 
         try {
-            $this->gateway->forDomain($domain, 'lock', fn (Registrar $registrar): RegistrarResult => $registrar->setLock($domain, true), ['locked' => true], $staffId);
+            $this->gateway->forDomain($domain, 'lock', ManagesLock::class, fn (ManagesLock $registrar, RegistrarConfig $config): RegistrarResult => $registrar->setLock($config, $domain->toRef(), true), ['locked' => true], $staffId);
             $domain->forceFill(['registrar_lock' => true])->save();
         } catch (RegistrarException) {
             // Locking is best effort; the registration itself succeeded.

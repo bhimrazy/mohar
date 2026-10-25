@@ -28,7 +28,7 @@ export type ServiceRow = {
     username: string | null;
     dedicated_ip: string | null;
     assigned_ips: string[];
-    suspension_reason: string | null;
+    suspension_kind: 'overdue' | 'imported' | 'other' | null;
     do_not_renew: boolean;
     termination_date: string | null;
     activated_at: string | null;
@@ -45,6 +45,7 @@ export type ServiceRow = {
     billing_anchor_day?: number | null;
     renewals_invoiced?: number;
     recurring_cycles_limit?: number;
+    suspension_reason?: string | null;
     suspended_at?: string | null;
     suspend_exempt_until?: string | null;
     suspend_days_override?: number | null;
@@ -102,6 +103,8 @@ export type ModuleCommandRow = {
     driver: string;
     command: string;
     initiator: string;
+    /** "System", the staff member's name or "Client"; `initiator` is the stored key. */
+    initiator_label: string;
     attempt: number;
     success: boolean;
     error: string | null;
@@ -122,6 +125,8 @@ export type ServerRow = {
     has_password: boolean;
     has_api_token: boolean;
     has_access_hash: boolean;
+    /** Stored credentials (password, api_token, access_hash) shorter than the minimum. */
+    credentials_short: string[];
     secure: boolean;
     port: number | null;
     max_accounts: number;
@@ -133,10 +138,11 @@ export type ServerRow = {
     currency: string;
     datacenter: string | null;
     status_url: string | null;
-    /** Driver settings: non-secret values, and whether each secret one is stored. */
+    /** Driver settings: non-secret values, whether each secret one is stored, and which stored ones are too short. */
     settings: {
         values: Record<string, string>;
         secrets_set: Record<string, boolean>;
+        secrets_short: string[];
     };
     groups?: { id: number; name: string }[];
 };

@@ -92,10 +92,10 @@ is marked sensitive.
     - `ManagesIdProtection`
     - `SyncsDomains`
     - `ReconcilesSubmissions` (C2: `findSubmission(RegistrarConfig, DomainRef, string $command, CarbonImmutable
-$submittedAt): SubmissionLookup`)
+      $submittedAt): SubmissionLookup`)
     - `TestsRegistrarConnection`
 
-    The `.np` manual driver implements only the core interface.
+    ~~The `.np` manual driver implements only the core interface.~~ There is no `.np` driver (Amendment 2).
 
 - `RegistrarGateway` and `ExecuteModuleCommand` keep the capability check, but it becomes `instanceof`. The string
   lists the admin UI shows (`capabilitiesOf()`) are computed from the interfaces, so the props do not change.
@@ -235,3 +235,99 @@ Each PR gets the principal-architect gate.
 - `UsernamePolicy` (a host default of 8 characters, replaced by the driver's own policy) and
   `DriverMetadata::$commandTimeoutSeconds` (capped at 180 s; see the ADR 0014 invariant) come from the cPanel spec,
   §13 K6 and K9.
+
+## Amendment 2 — 2026-10-22, after the reviews of PR C (#262, #264, #265)
+
+PR C shipped in three parts: C1 the kernel contracts (#262), C2 Domains on them (#264), C3 the `registrar_refs`
+store (#265). The architect accepted these differences from §2–§5 and `registrars.md` §2:
+
+1. **`DomainRef::$periodYears`** (trailing, default 1): the registration term, which a driver needs where the
+   registrar returns no expiry (Namecheap `domains.create`).
+2. **`RegistrarConfig::$secretSettingKeys` and `secrets()`**, named like `ServerConnection::$secretSettingKeys`. Request
+   DTOs that carry a secret say so: `RegistrationRequest::secrets()` returns the transfer code. The host masks
+   `RegistrarConfig::secrets()` plus the request's secrets in everything a call returns or raises (the command log,
+   `last_error`, the activity log, events, flash messages), using `RegistrarResult::withMessage()` and
+   `SubmissionLookup::withMessage()`. The contract dataset still fails a driver that echoes any of them.
+3. **`restore()`**: `RestoresDomains::restore(config, domain, years)` replaces `renew(..., restore: true)`.
+4. **`test_connection` is a capability** (`TestsRegistrarConnection`), not core, as in provisioning. The host runs it
+   through `RegistrarGateway` (command log, masking), also while the account is disabled so staff can test before
+   enabling it, and disables "Test connection", with the reason, for drivers without it.
+5. **`reconcile`** is the capability name of `ReconcilesSubmissions` (C2), matching `ProvisioningDriverRegistry::RECONCILE`.
+6. **No `.np` driver**: since #199 clients register `.np` names at the registry themselves, so §3's `.np` line is void.
+
+Kernel shapes decided now:
+
+- **Contacts.** `ContactSet::ROLES` and `ContactSet::FIELDS` are kernel constants; the host sends exactly those roles
+  and keys, with the formats documented on `ContactSet` (ISO 3166-1 alpha-2 country, phone as typed). Domains'
+  `DomainContact` uses the kernel constants.
+- **TLD attributes** (built with the ResellerClub driver, which needs them first): `RegistrationRequest` gains a
+  trailing `array<string, string> $tldAttributes = []` (keys owned by the driver), and a capability
+  `DeclaresTldAttributes::tldAttributeFields(string $tld): list<SettingField>` tells Domains which fields to render,
+  validate and store per domain. Domains keeps no hand-written list of its own.
+- **Premium** stays deferred. When it is switched on, costs are `App\Support\Money` (currency included) on both
+  `AvailabilityResult` and `RegistrationRequest`, never bare integers.
+- **Result statuses** (`RegistrarResult::$status`, `DomainInfo::$status`, `AvailabilityResult::$status`) stay strings
+  by design: their values are documented on each DTO; `SubmissionLookup` uses the shared `ReconcileStatus`.
+- **`RegistrarRefs`** is bound by Domains only, so a driver that injects it resolves only while Domains is loaded. Its
+  `remember()` is last-writer-wins for now; first-writer-wins with a lock per local record is a follow-up (#267),
+  before the first driver that writes refs.
+
+## Amendment 3 — 2026-10-23, TLD attributes reach Orders (PR #345)
+
+1. **`DomainDraft::$tldAttributes`** (trailing, default `[]`, `#[\SensitiveParameter]`, as `$eppCode` now is): the
+   answers Orders collected, keyed by the field keys the driver declared. Domains validates them again in
+   `createPending` and is the authority. Transfers carry none.
+2. **`App\Contracts\Domains\TldAttributes`**, implemented by Domains and used by Orders: the order-time read of
+   `DeclaresTldAttributes`.
+    - `fieldsByTld(): array<string, list<SettingField>>` covers only the extensions that have fields. It makes no
+      network call and runs a bounded number of queries, memoised per request.
+    - `clean(string $tld, mixed $input): array<string, string>` drops unknown keys and throws `ValidationException`
+      keyed `tld_attributes.<key>`. When the extension's registrar account is disabled it refuses with one error
+      keyed `tld_attributes` instead.
+    - `describe(string $tld, array $answers, bool $mask = true)` returns the answers as a person reads them (labels,
+      option names, free text shortened to its last 3 characters), for the cart, the checkout and staff.
+    - Orders treats an unbound `TldAttributes` as "no fields". It is separate from `DomainRegistry` so that existing
+      implementations stay compatible (ADR 0010), and separate from the driver SPI.
+3. **Fields a driver declares** are never secret and never `optionsSource: remote` (the host filters them out).
+   Booleans are delivered as `'true'` or `'false'`. A driver may also implement `ValidatesTldAttributes` (an
+   extension of `DeclaresTldAttributes`, not a separate capability) for rules between fields, such as the length of
+   an identification number by its type.
+4. **Storage and retention.** Answers are personal data, in the same class as domain contacts. They are stored in
+   plain text in `domains.additional_fields.tld_attributes`, encrypted in the cart (a short-lived value, like the cart's
+   EPP code), never written to the command log, activity log or errors, and kept for the life of the domain record.
+   The host also masks the free-text answers (not select or boolean ones) in whatever a registrar call returns.
+   Staff may view them; edits, when built, are logged by key, never by value. A field that would carry a personal
+   government identifier needs an amendment first: an encrypted, `EncryptedStorage`-registered home, or a ban.
+   Client erasure, when it is built, must clear them with the domain contacts.
+5. **Account state.** It decides whether the fields are shown and whether new orders are taken for the extension, not
+   whether answers that were already collected are kept.
+
+## Amendment 4 — 2026-10-23, linking an existing order (PR #365)
+
+1. **Capability `link_order`** (`RegistrarDriverRegistry::LINK_ORDER`), the interface `LinksExistingOrders` with
+   `lookupOrder(RegistrarConfig, DomainRef, string $orderId): LinkedOrder`. It is read-only and runs only on a staff
+   member's request, for a domain the host holds without a recorded order id. The driver accepts the order only if it is in
+   our account, for exactly the domain's name, still holds it, and belongs to the customer the host uses for the
+   domain's client; it refuses with a plain message otherwise. The host records `remote.order_id` only when the answer
+   carries the order id that was typed, and itself refuses `.np` and other self-registered names. Nothing is ever
+   linked by searching for a name or by an email address. `LinkedOrder` carries `remote`, `status` and `expiryDate`.
+
+## Amendment 5 — 2026-10-23, masking a registrar result (PR #368)
+
+**`RegistrarResult::mapText(Closure $mask, string $withheld, int $maxDepth = 8)`** returns a copy with the message and
+everything in `meta` masked: string values and string keys, arrays walked. Anything it cannot check is replaced by the
+withheld marker: a branch nested deeper than `$maxDepth`, an object or other non-scalar value, and a branch whose key the
+mask changed. `remote` is never masked: its values are the registrar ids that prove ownership and later calls need, and
+a mask would change one. The host uses it to mask a customer's free-text TLD answers (Amendment 3, item 4).
+
+## Amendment (#408) — 2026-10-23, registrar refs are first-writer-wins
+
+1. `RegistrarRefs::remember(RegistrarRef): RegistrarRef` returns the stored ref and never replaces one: for a key
+   (registrar, type, local record, payload hash) the first writer wins, and every concurrent caller receives that
+   ref. A wrong ref cannot be overwritten; correcting one needs a staff-facing path (follow-up).
+2. Lock rule: the store needs no lock (unique key). A driver that must not create duplicate remote objects holds a
+   cross-process lock on the ref key around find, create and remember, with a TTL longer than the registrar call. A
+   returned `remoteId` different from the one passed means the caller's object is an orphan at the registrar.
+3. Core binds a null `RegistrarRefs` for installs without Domains.
+4. A driver is active without a saved account only if it implements the marker `StandaloneRegistrar` or declares no
+   settings (`RegistrarDriverRegistry::needsAccount`). Other drivers are inactive until staff save the account.

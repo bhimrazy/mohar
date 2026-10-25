@@ -11,7 +11,7 @@ use App\Modules\Core\Support\LaravelAuthMailer;
 use App\Modules\Notifications\Data\EmailRequest;
 use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Models\EmailMessage;
-use App\Modules\Notifications\Support\MailClock;
+use App\Modules\Notifications\Support\MailDates;
 use App\Modules\Notifications\Support\SecretTemplatePolicy;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
@@ -45,7 +45,7 @@ class TemplatedAuthMailer implements AuthMailer
         }
 
         $broker = (string) config('auth.defaults.passwords', 'users');
-        $expiresAt = MailClock::dateTime(now()->addMinutes((int) config("auth.passwords.{$broker}.expire", 60)));
+        $expiresAt = MailDates::dateTime(now()->addMinutes((int) config("auth.passwords.{$broker}.expire", 60)));
 
         $sent = $this->send($user, $user->is_staff ? 'staff.password_reset' : 'auth.password_reset', [
             'auth' => ['reset_url' => new SensitiveValue($url, secret: str_contains($url, $token) ? $token : null), 'expires_at' => $expiresAt],
@@ -53,6 +53,26 @@ class TemplatedAuthMailer implements AuthMailer
 
         if (! $this->handled($sent)) {
             $this->fallback->sendPasswordReset($user, $token);
+        }
+    }
+
+    public function sendPasswordSet(User $user, #[\SensitiveParameter] string $token): void
+    {
+        $url = AccountLinks::passwordSet($token);
+
+        if (! $this->linkAllowed($url, $user, 'set password')) {
+            return;
+        }
+
+        $broker = (string) config('fortify.passwords', 'users');
+        $expiresAt = MailDates::dateTime(now()->addMinutes((int) config("auth.passwords.{$broker}.expire", 60)));
+
+        $sent = $this->send($user, 'auth.password_set', [
+            'auth' => ['set_url' => new SensitiveValue($url, secret: $token), 'expires_at' => $expiresAt],
+        ], 'auth-set|'.$user->id.'|'.hash('sha256', $token));
+
+        if (! $this->handled($sent)) {
+            $this->fallback->sendPasswordSet($user, $token);
         }
     }
 

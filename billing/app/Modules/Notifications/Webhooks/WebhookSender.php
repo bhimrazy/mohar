@@ -11,7 +11,9 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Enums\WebhookDeliveryStatus;
 use App\Modules\Notifications\Models\WebhookDelivery;
 use App\Modules\Notifications\Models\WebhookEndpoint;
+use App\Support\Events\WebhookEvents;
 use App\Support\Integrations\OutboundAddressGuard;
+use App\Support\Integrations\Redactor;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -28,13 +30,14 @@ class WebhookSender
         private WebhookUrlGuard $guard,
         private OutboundAddressGuard $outbound,
         private Settings $settings,
+        private Redactor $redactor,
     ) {}
 
     public function attempt(WebhookDelivery $delivery): void
     {
         $endpoint = $delivery->endpoint;
 
-        if (! $endpoint->is_active && $delivery->event_type !== WebhookEventTypes::PING) {
+        if (! $endpoint->is_active && $delivery->event_type !== WebhookEvents::PING) {
             $delivery->update(['status' => WebhookDeliveryStatus::Abandoned, 'error' => 'Endpoint is disabled.', 'next_attempt_at' => null]);
 
             return;
@@ -91,7 +94,7 @@ class WebhookSender
         $delivery->fill([
             'status' => WebhookDeliveryStatus::Succeeded,
             'response_status' => $response->status(),
-            'response_body' => $this->truncate($response->body()),
+            'response_body' => $this->stored($response->body()),
             'error' => null,
             'duration_ms' => $this->elapsed($started),
             'next_attempt_at' => null,
@@ -106,21 +109,21 @@ class WebhookSender
     {
         $maxAttempts = max(1, (int) $this->settings->get('notifications.webhooks_max_attempts', 8));
         $backoff = array_values((array) config('notifications.webhooks_backoff_seconds', [60]));
-        $abandoned = $delivery->attempt >= $maxAttempts || $delivery->event_type === WebhookEventTypes::PING;
+        $abandoned = $delivery->attempt >= $maxAttempts || $delivery->event_type === WebhookEvents::PING;
         $delay = (int) ($backoff[min($delivery->attempt - 1, count($backoff) - 1)] ?? 60);
 
         $delivery->fill([
             'status' => $abandoned ? WebhookDeliveryStatus::Abandoned : WebhookDeliveryStatus::Failed,
             'response_status' => $status,
-            'response_body' => $body === null ? null : $this->truncate($body),
-            'error' => $error === null ? null : Str::limit($error, 250),
+            'response_body' => $body === null ? null : $this->stored($body),
+            'error' => $error === null ? null : Str::limit($this->redactor->maskValues(mb_strcut($error, 0, 2048), []), 250),
             'duration_ms' => $this->elapsed($started),
             'next_attempt_at' => $abandoned ? null : now()->addSeconds($delay),
         ])->save();
 
         WebhookDeliveryFailed::dispatch($delivery->id, $delivery->webhook_endpoint_id, $delivery->event_type, $delivery->attempt, $abandoned);
 
-        if ($delivery->event_type !== WebhookEventTypes::PING) {
+        if ($delivery->event_type !== WebhookEvents::PING) {
             $this->countFailure($delivery->endpoint);
         }
     }
@@ -134,6 +137,15 @@ class WebhookSender
             $endpoint->update(['is_active' => false, 'disabled_reason' => "Disabled after {$endpoint->consecutive_failures} consecutive failed deliveries."]);
             WebhookEndpointDisabled::dispatch($endpoint->id, $endpoint->url, $endpoint->consecutive_failures);
         }
+    }
+
+    /**
+     * A receiver answer as stored: cut to the stored size first, so a hostile receiver's large body costs nothing to
+     * mask, then masked (it can echo credentials), then cut again because a mask can be longer than what it hides.
+     */
+    private function stored(string $body): string
+    {
+        return $this->truncate($this->redactor->maskValues($this->truncate($body), []));
     }
 
     private function truncate(string $body): string

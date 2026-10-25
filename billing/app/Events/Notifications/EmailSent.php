@@ -7,7 +7,8 @@ use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
- * Emitted when the transport accepted an email.
+ * Emitted when the transport accepted an email. $relatedType and $relatedId name the record the message is about (a
+ * merge-field entity key and its id), when it has one.
  */
 final class EmailSent implements DomainEvent
 {
@@ -17,5 +18,7 @@ final class EmailSent implements DomainEvent
         public int $emailMessageId,
         public ?string $templateKey,
         public ?int $clientId,
+        public ?string $relatedType = null,
+        public ?int $relatedId = null,
     ) {}
 }

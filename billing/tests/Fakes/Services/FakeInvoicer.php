@@ -9,6 +9,7 @@ use App\Data\Billing\InvoiceResult;
 use App\Enums\BillableType;
 use App\Events\Billing\InvoiceCancelled;
 use App\Events\Billing\InvoicePaid;
+use App\Support\Billing\InvoiceNotCancellable;
 use Carbon\CarbonImmutable;
 
 /**
@@ -35,8 +36,20 @@ class FakeInvoicer implements Invoicer
         return new InvoiceResult($id, "INV-{$id}", $this->invoices[$id]['status'], $draft->currency, $total, 0, $total);
     }
 
-    public function cancel(int $invoiceId): void
+    /** Billing refuses every cancel (a tax invoice whose credit note it cannot write): the invoice stays unpaid. */
+    public bool $refuseCancel = false;
+
+    /** @var array<int, bool> invoice id => whether its cancel may email the client */
+    public array $cancelNotifies = [];
+
+    public function cancel(int $invoiceId, ?string $reason = null, bool $notify = true): void
     {
+        $this->cancelNotifies[$invoiceId] = $notify;
+
+        if ($this->refuseCancel && isset($this->invoices[$invoiceId]) && $this->invoices[$invoiceId]['status'] === 'unpaid') {
+            throw new InvoiceNotCancellable('Scripted refusal');
+        }
+
         if (! isset($this->invoices[$invoiceId]) || in_array($this->invoices[$invoiceId]['status'], ['paid', 'cancelled'], true)) {
             return;
         }

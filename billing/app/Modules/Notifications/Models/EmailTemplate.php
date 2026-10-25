@@ -95,9 +95,9 @@ class EmailTemplate extends Model
     /** Account-access mail that must always go out: disabling the template has no effect. */
     /** Account access and security mail: always sent, so it can't be switched off (only its wording edited). */
     public const ALWAYS_SENT = [
-        'auth.password_reset', 'auth.email_verification', 'staff.password_reset', 'auth.user_invitation', 'staff.invitation',
-        'auth.login_added', 'auth.access_granted', 'auth.owner_changed', 'auth.two_factor_reset', 'staff.two_factor_reset',
-        'staff.email_changed', 'staff.settings_changed',
+        'auth.password_reset', 'auth.password_set', 'auth.email_verification', 'staff.password_reset', 'auth.user_invitation', 'staff.invitation',
+        'client.migration_invitation', 'auth.login_added', 'auth.access_granted', 'auth.owner_changed', 'auth.two_factor_reset', 'staff.two_factor_reset',
+        'staff.email_changed', 'staff.password_reissued', 'staff.settings_changed', 'auth.email_changed', 'ticket.link_replaced',
     ];
 
     public function isAlwaysSent(): bool
@@ -110,6 +110,6 @@ class EmailTemplate extends Model
      */
     public function hasFixedSubject(): bool
     {
-        return $this->type === TemplateType::Support && $this->audience === TemplateAudience::Client;
+        return $this->type === TemplateType::Support && $this->audience === TemplateAudience::Client && $this->key !== 'ticket.link_replaced';
     }
 }

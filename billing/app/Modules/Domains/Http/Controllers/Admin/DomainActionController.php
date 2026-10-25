@@ -5,6 +5,7 @@ namespace App\Modules\Domains\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Client;
 use App\Modules\Domains\Actions\IssueRenewalNow;
+use App\Modules\Domains\Actions\LinkRegistrarOrder;
 use App\Modules\Domains\Actions\MoveDomainToClient;
 use App\Modules\Domains\Actions\RetrieveEppCode;
 use App\Modules\Domains\Actions\SetRegistrarLock;
@@ -16,6 +17,7 @@ use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Exceptions\DomainActionNotAllowed;
 use App\Modules\Domains\Http\Requests\ContactsRequest;
 use App\Modules\Domains\Http\Requests\ForceStatusRequest;
+use App\Modules\Domains\Http\Requests\LinkOrderRequest;
 use App\Modules\Domains\Http\Requests\MoveDomainRequest;
 use App\Modules\Domains\Http\Requests\NameserversRequest;
 use App\Modules\Domains\Http\Requests\RenewNowRequest;
@@ -25,6 +27,7 @@ use App\Modules\Domains\Jobs\RenewDomain;
 use App\Modules\Domains\Jobs\TransferDomain;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainStateMachine;
+use App\Support\Domains\RegistrarException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -38,7 +41,7 @@ class DomainActionController extends Controller
     {
         $status = DomainStatus::from($request->string('status')->toString());
         $meta = $domain->registrar_meta ?? [];
-        unset($meta['submission'], $meta['renew_sent_for']);
+        unset($meta['submission'], $meta['renew_sent_for'], $meta['renew_sent_at'], $meta['renew_years']);
 
         // Staff have verified the registrar state: forcing a status also closes any unresolved submission.
         $states->transition($domain, $status, $request->string('reason')->toString(), [
@@ -79,6 +82,28 @@ class DomainActionController extends Controller
         return $this->done($result->emailed ? __('The registrar emailed the EPP code to the registrant.') : __('EPP code retrieved.'), $domain);
     }
 
+    /**
+     * Link an order that already exists at the registrar to this domain (step-up password; permissions in the request).
+     */
+    public function linkOrder(LinkOrderRequest $request, Domain $domain, LinkRegistrarOrder $link): RedirectResponse
+    {
+        try {
+            $result = $link->handle($domain, $request->orderId(), $request->user()?->id);
+        } catch (RegistrarException $exception) {
+            return back()->withErrors(['order_id' => $exception->getMessage()]);
+        }
+
+        $order = $request->orderId();
+
+        if ($result['sync']['error'] !== null) {
+            Inertia::flash('toast', ['type' => 'success', 'message' => __('Order :order is linked. The sync that followed failed: :error', ['order' => $order, 'error' => $result['sync']['error']])]);
+
+            return to_route('admin.domains.show', $domain);
+        }
+
+        return $this->done($result['linked'] ? __('Order :order is linked and the domain was synced.', ['order' => $order]) : __('Order :order was already linked; the domain was synced.', ['order' => $order]), $domain);
+    }
+
     public function move(MoveDomainRequest $request, Domain $domain, MoveDomainToClient $move): RedirectResponse
     {
         $client = Client::query()->findOrFail($request->integer('client_id'));
@@ -107,6 +132,10 @@ class DomainActionController extends Controller
         }
 
         if ($command === 'renew') {
+            if ($domain->isRegisteredByClient()) {
+                throw new DomainActionNotAllowed('This name is renewed by the client at the registry, so there is nothing to renew here.');
+            }
+
             if (! in_array($domain->status, [DomainStatus::Active, DomainStatus::Grace, DomainStatus::Redemption, DomainStatus::Expired], true)) {
                 throw new DomainActionNotAllowed("A {$domain->status->label()} domain cannot be renewed.");
             }

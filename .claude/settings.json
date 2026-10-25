@@ -1,0 +1,19 @@
+{
+    "permissions": {
+        "deny": [
+            "Bash(git stash:*)",
+            "Bash(npx -y:*)",
+            "Bash(npx --yes:*)",
+            "Bash(docker stop:*)",
+            "Bash(docker kill:*)",
+            "Bash(docker rm:*)",
+            "Bash(docker volume rm:*)",
+            "Bash(docker compose down:*)",
+            "Bash(docker system prune:*)",
+            "Bash(docker container prune:*)",
+            "Bash(open -a Google Chrome:*)",
+            "Bash(open -a \"Google Chrome\":*)",
+            "mcp__plugin_chrome-devtools-mcp_chrome-devtools"
+        ]
+    }
+}

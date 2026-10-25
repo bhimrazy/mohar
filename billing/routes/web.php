@@ -3,7 +3,7 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-Route::inertia('/', 'welcome')->name('home');
+// The home page ("/", route "home") belongs to the Storefront module.
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', fn (Request $request) => to_route($request->user()->is_staff ? 'admin.dashboard' : 'client.dashboard'))->name('dashboard');

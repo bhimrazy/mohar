@@ -1,17 +1,17 @@
 <?php
 
+use App\Data\Domains\Registrar\RegistrarConfig;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Domains\Drivers\Registrars\LogRegistrar;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Models\TldPrice;
+use App\Support\Domains\RegistrarDriverRegistry;
 use Illuminate\Support\Facades\File;
-use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Domains\DomainFixtures;
 
 beforeEach(function () {
@@ -79,16 +79,16 @@ test('guests may choose a currency', function () {
     $this->getJson(route('domains.lookup', ['q' => 'example.com', 'currency' => 'XXX']))->assertJsonPath('currency', 'USD');
 });
 
-test('the public search page renders results for guests', function () {
-    $this->get(route('domains.search'))
-        ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page->component('public/domains/search')->where('search', null));
+test('the search page sends visitors to the store domain search, the one search page', function () {
+    $this->get(route('domains.search'))->assertRedirect(route('store.domains'));
+    $this->get(route('domains.search', ['q' => 'asha-traders.com']))->assertRedirect(route('store.domains', ['domain' => 'asha-traders.com']));
+});
 
-    $this->get(route('domains.search', ['q' => 'Bücher']))
+test('the lookup normalises international names for the search page', function () {
+    $this->getJson(route('domains.lookup', ['q' => 'Bücher']))
         ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page
-            ->where('search.normalised', 'xn--bcher-kva')
-            ->where('search.results.0.domain_unicode', 'bücher.com'));
+        ->assertJsonPath('normalised', 'xn--bcher-kva')
+        ->assertJsonPath('results.0.domain_unicode', 'bücher.com');
 });
 
 test('lookups are rate limited per IP', function () {
@@ -104,8 +104,6 @@ test('repeated lookups are served from a serialising cache store', function () {
 
     $first = $this->getJson(route('domains.lookup', ['q' => 'cached']))->assertOk()->json();
     $this->getJson(route('domains.lookup', ['q' => 'cached']))->assertOk()->assertExactJson($first);
-    $this->get(route('domains.search', ['q' => 'cached']))->assertOk();
-    $this->get(route('domains.search', ['q' => 'cached']))->assertOk();
 
     expect($first['results'][0]['status'])->toBe('available')
         ->and($first['suggestions'])->not->toBe([]);
@@ -118,13 +116,13 @@ test('successful lookups are not written to the command log; failures are', func
     $this->assertDatabaseCount('registrar_command_log', 0);
 
     RegistrarAccount::query()->create(['key' => 'log', 'settings' => ['simulate' => 'none']]);
-    app(RegistrarManager::class)->extend('log', fn () => new class extends LogRegistrar
+    app(RegistrarDriverRegistry::class)->register('log', fn () => new class extends LogRegistrar
     {
-        public function checkAvailability(string $sld, array $tlds): array
+        public function checkAvailability(RegistrarConfig $config, string $sld, array $tlds): array
         {
             throw new RuntimeException('registry offline');
         }
-    });
+    }, replace: true);
 
     $this->getJson(route('domains.lookup', ['q' => 'loud.com']))->assertOk()->assertJsonPath('results.0.status', 'unknown');
     $this->assertDatabaseHas('registrar_command_log', ['domain_id' => null, 'command' => 'availability', 'success' => false]);

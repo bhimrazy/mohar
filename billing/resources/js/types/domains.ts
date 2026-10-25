@@ -45,6 +45,12 @@ export type Domain = {
     type: 'register' | 'transfer';
     status: DomainStatus;
     registrar_key: string | null;
+    /** The client registered it at the registry (e.g. .np): no registrar, no expiry or renewal tracked here. */
+    registered_by_client: boolean;
+    /** Registry guide for a name the client registers (the TLD's own, else the host-wide default); null otherwise. */
+    how_to_url?: string | null;
+    /** Staff only: the order recorded at the registrar, or null when none is linked. */
+    registrar_order_id?: string | number | null;
     registration_date: string | null;
     expiry_date: string | null;
     next_due_date: string;
@@ -85,7 +91,8 @@ export type LookupResult = {
         | 'reserved'
         | 'invalid'
         | 'unknown'
-        | 'unsupported';
+        | 'unsupported'
+        | 'self_registered';
     in_system?: boolean;
     is_premium?: boolean;
     badge?: string | null;
@@ -96,6 +103,12 @@ export type LookupResult = {
     transferable?: boolean;
     epp_required?: boolean;
     order_url?: string | null;
+    /** The client registers this extension at the registry (e.g. .np); it is not sold here. */
+    self_registered?: boolean;
+    registration_url?: string | null;
+    existing_url?: string | null;
+    /** Why the registry cannot have issued this name (e.g. asha.np); replaces the note and "I already have it". */
+    level_hint?: string | null;
 };
 
 export type DomainSearch = {
@@ -129,3 +142,14 @@ export function expiryHint(daysLeft: number | null): string | null {
 
     return `in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`;
 }
+
+/** What the status badge shows: an active domain the client registered at the registry is not "Active" here. */
+export function domainStatus(
+    domain: Pick<Domain, 'status' | 'registered_by_client'>,
+): string {
+    return domain.registered_by_client && domain.status === 'active'
+        ? 'self-registered'
+        : domain.status;
+}
+
+export const MANAGED_AT_REGISTRY = 'At the registry';

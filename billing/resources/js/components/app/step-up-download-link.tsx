@@ -1,0 +1,95 @@
+import type { AnchorHTMLAttributes, MouseEvent } from 'react';
+import { useState } from 'react';
+
+/**
+ * Fired on `window` (cancelable) when a download needs a recent password. `PasswordConfirmationGate` listens for it
+ * and cancels it; a layout without a gate leaves it uncancelled, and the link then navigates to the file so the
+ * server sends the user to the confirm-password page.
+ */
+export const STEP_UP_DOWNLOAD_EVENT = 'step-up:download';
+
+/** Ask a mounted gate to confirm the password for a download; false when nothing handled the event. */
+export function requestStepUpDownload(
+    target: EventTarget,
+    url: string,
+    noPassword?: boolean,
+): boolean {
+    return !target.dispatchEvent(
+        new CustomEvent(STEP_UP_DOWNLOAD_EVENT, {
+            cancelable: true,
+            detail: { url, noPassword },
+        }),
+    );
+}
+
+/**
+ * A link to a file behind the `password.recent` middleware. A plain click asks the server (a probe that never
+ * reaches the controller) whether the password was confirmed recently: if so the browser downloads the file,
+ * if not the confirm-password dialog opens first and the download starts after it. Without JavaScript, or on a
+ * middle or modified click, the link is a normal GET, which the server sends to the confirm-password page.
+ */
+export function StepUpDownloadLink({
+    href,
+    onClick,
+    ...props
+}: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
+    const [checking, setChecking] = useState(false);
+
+    const open = async (event: MouseEvent<HTMLAnchorElement>) => {
+        onClick?.(event);
+
+        if (
+            event.defaultPrevented ||
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey
+        ) {
+            return;
+        }
+
+        event.preventDefault();
+        setChecking(true);
+
+        try {
+            const response = await fetch(href, {
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-Step-Up-Check': '1',
+                },
+            });
+
+            if (response.status === 423) {
+                const body = await response.json().catch(() => null);
+                const handled = requestStepUpDownload(
+                    window,
+                    href,
+                    body?.code === 'password_not_set',
+                );
+
+                if (handled) {
+                    return;
+                }
+            }
+        } catch {
+            // Offline or blocked: let the browser try the link itself.
+        } finally {
+            setChecking(false);
+        }
+
+        window.location.assign(href);
+    };
+
+    return (
+        <a
+            href={href}
+            onClick={open}
+            aria-busy={checking}
+            className={checking ? 'opacity-60' : undefined}
+            {...props}
+        />
+    );
+}

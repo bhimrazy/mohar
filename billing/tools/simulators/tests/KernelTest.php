@@ -7,6 +7,7 @@ use Mohar\Simulators\Kernel\Recorder;
 use Mohar\Simulators\Kernel\Scenario;
 use Mohar\Simulators\SimulatorRegistry;
 use Mohar\Simulators\Tests\Fixtures\EchoSimulator;
+use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
 uses(TestCase::class);
@@ -99,4 +100,51 @@ test('the registry knows simulators by key and names the installed ones when ask
     expect($registry->get('echo'))->toBe(EchoSimulator::class)
         ->and(fn () => $registry->get('stripe'))->toThrow(InvalidArgumentException::class, 'installed: echo')
         ->and(fn () => $registry->register(stdClass::class))->toThrow(InvalidArgumentException::class);
+});
+
+test('a delivery the app does not accept is retried on the backoff schedule until a 2xx, or until its attempts run out', function () {
+    $outbox = $this->scenario->outbox();
+    $outbox->retryPolicy([0, 0], 3);
+    $accepted = $outbox->enqueue('https://app.example.test/hook', '{"n":1}');
+    $refused = $outbox->enqueue('https://app.example.test/hook', '{"n":2}');
+    $answers = ['{"n":1}' => [409, 200], '{"n":2}' => [500, 500, 500, 500]];
+    $unsigned = [];
+
+    $attempts = $outbox->drain(function (string $url, string $body, array $headers) use (&$answers, &$unsigned): int {
+        $unsigned[] = ! isset($headers['Echo-Signature']);
+
+        return array_shift($answers[$body]);
+    });
+
+    expect($attempts)->toBe([[$accepted, 409], [$refused, 500], [$accepted, 200], [$refused, 500], [$refused, 500]])
+        ->and($outbox->pending())->toBe([])
+        ->and($outbox->exhausted())->toBe([$refused])
+        ->and($unsigned)->each->toBeFalse();
+
+    $outbox->deliver(['id' => $accepted, 'url' => 'https://app.example.test/hook', 'body' => '{"n":1}', 'headers' => []], function (string $url, string $body, array $headers) use (&$unsigned): int {
+        $unsigned[] = ! isset($headers['Echo-Signature']);
+
+        return 403;
+    }, 'unsigned');
+
+    expect(end($unsigned))->toBeTrue();
+});
+
+test('a scenario rewritten while a process starts is never read half-written (#370)', function () {
+    $scenario = Scenario::create(EchoSimulator::class);
+    $reader = new Process([PHP_BINARY, '-r', 'require $argv[1]."/vendor/autoload.php"; for ($i = 0; $i < 2000; $i++) { Mohar\Simulators\Kernel\Scenario::load($argv[2]); } echo "ok";', base_path(), $scenario->directory], timeout: 60);
+
+    try {
+        $reader->start();
+
+        while ($reader->isRunning()) {
+            $scenario->withPids([]);
+        }
+
+        expect($reader->getErrorOutput())->toBe('')
+            ->and($reader->getOutput())->toBe('ok')
+            ->and(glob($scenario->directory.'/scenario.json.*.tmp'))->toBe([]);
+    } finally {
+        Processes::stop($scenario);
+    }
 });

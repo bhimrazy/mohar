@@ -2,7 +2,7 @@
 
 namespace App\Modules\Platform\Http\Requests;
 
-use App\Modules\Platform\Http\Middleware\RequireRecentPasswordConfirmation;
+use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Platform\Services\SettingsCatalog;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -48,7 +48,7 @@ class SettingsRequest extends FormRequest
         $catalog = app(SettingsCatalog::class);
 
         return collect($catalog->section((string) $this->route('section'))['settings'] ?? [])
-            ->mapWithKeys(fn ($definition): array => [$definition->key => mb_strtolower($definition->label)])
+            ->mapWithKeys(fn ($definition): array => [$definition->key => mb_strtolower($definition->label), $definition->key.'.*' => mb_strtolower($definition->label)])
             ->all();
     }
 }

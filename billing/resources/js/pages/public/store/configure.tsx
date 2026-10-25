@@ -1,4 +1,11 @@
-import { Link, useForm, useHttp } from '@inertiajs/react';
+import { Link, setLayoutProps, useForm, useHttp } from '@inertiajs/react';
+import { StoreTitle } from '@/components/orders/storefront-hero';
+import {
+    TldAttributeFields,
+    tldFieldsFor,
+    tldMatch,
+    type TldAttributeFieldMap,
+} from '@/components/orders/tld-attribute-fields';
 import { Head } from '@/components/app/head';
 import { ChevronLeft } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -6,6 +13,7 @@ import type { ReactNode } from 'react';
 import CartController from '@/actions/App/Modules/Orders/Http/Controllers/Public/CartController';
 import StoreController from '@/actions/App/Modules/Orders/Http/Controllers/Public/StoreController';
 import { Field } from '@/components/app/field';
+import { CurrencyUnavailable } from '@/components/orders/currency-unavailable';
 import { Money } from '@/components/app/money';
 import { SectionCard } from '@/components/app/section-card';
 import InputError from '@/components/input-error';
@@ -54,11 +62,17 @@ type Props = {
         id: number;
         name: string;
         group: string | null;
+        group_url: string | null;
         requires_domain: boolean;
         in_stock: boolean;
     };
     currency: string;
     cycles: PriceRow[];
+    /** Other currencies this product can be bought in; only filled when it has no price in `currency`. */
+    sold_in: string[];
+    /** The signed-in client's billing currency; null for guests. */
+    account_currency: string | null;
+    support_url: string | null;
     config_options: ConfigOption[];
     addons: Addon[];
     custom_fields: CustomField[];
@@ -70,7 +84,11 @@ type Props = {
         domain_mode: string | null;
         domain_name: string | null;
         addon_ids: number[];
+        tld_attributes: Record<string, string>;
     } | null;
+    /** A domain the visitor already owns (from the domain search), preselected as "Use a domain I own". */
+    existing_domain: string | null;
+    tld_attribute_fields: TldAttributeFieldMap;
 };
 
 type DomainMode = '' | 'register' | 'transfer' | 'existing';
@@ -83,6 +101,7 @@ type FormData = {
     domain_mode: DomainMode;
     domain_name: string;
     epp_code: string;
+    tld_attributes: Record<string, string>;
 };
 
 type Quote = { item: PricedItem; currency: string; subtotal: number };
@@ -181,11 +200,26 @@ export default function Configure({
     product,
     currency,
     cycles,
+    sold_in: soldIn,
+    account_currency: accountCurrency,
+    support_url: supportUrl,
     config_options: configOptions,
     addons,
     custom_fields: customFields,
     editing,
+    existing_domain: existingDomain,
+    tld_attribute_fields: tldAttributeFields,
 }: Props) {
+    // Client area: Store › group › this product (the public layout ignores breadcrumbs).
+    setLayoutProps({
+        breadcrumbs: [
+            { title: 'Store', href: store.index.url() },
+            ...(product.group && product.group_url
+                ? [{ title: product.group, href: product.group_url }]
+                : []),
+        ],
+    });
+
     const form = useForm<FormData>({
         cycle: editing?.cycle ?? cycles[0]?.cycle ?? 'monthly',
         config_options: initialOptions(configOptions, editing),
@@ -198,10 +232,19 @@ export default function Configure({
         addon_ids: editing?.addon_ids ?? [],
         domain_mode:
             (editing?.domain_mode as DomainMode) ??
-            (product.requires_domain ? 'register' : ''),
-        domain_name: editing?.domain_name ?? '',
+            (existingDomain
+                ? 'existing'
+                : product.requires_domain
+                  ? 'register'
+                  : ''),
+        domain_name: editing?.domain_name ?? existingDomain ?? '',
         epp_code: '',
+        tld_attributes: editing?.tld_attributes ?? {},
     });
+    const tldFields =
+        form.data.domain_mode === 'register'
+            ? tldFieldsFor(tldAttributeFields, form.data.domain_name)
+            : [];
     const errors = form.errors as Record<string, string | undefined>;
 
     const preview = useHttp<PreviewData, Quote>({
@@ -258,6 +301,7 @@ export default function Configure({
             domain_mode: data.domain_mode || null,
             domain_name: data.domain_mode ? data.domain_name : null,
             epp_code: data.domain_mode === 'transfer' ? data.epp_code : null,
+            tld_attributes: tldFields.length > 0 ? data.tld_attributes : null,
         }));
 
         if (editing) {
@@ -282,6 +326,39 @@ export default function Configure({
         );
 
     const monthlyRow = priceFor(cycles, 'monthly');
+
+    // No price in this currency: say so and offer the way out, with no totals or add-on prices that read as orderable.
+    if (cycles.length === 0) {
+        return (
+            <>
+                <Head title={product.name} />
+
+                <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 md:px-6 lg:py-12">
+                    <Link
+                        href={store.index.url()}
+                        className="-ml-1 inline-flex items-center gap-1 self-start rounded-md px-1 text-sm text-muted-foreground hover:text-foreground"
+                    >
+                        <ChevronLeft className="size-4" aria-hidden="true" />
+                        Back to store
+                    </Link>
+                    <div className="space-y-2">
+                        {product.group && (
+                            <p className="text-sm font-medium text-muted-foreground">
+                                {product.group}
+                            </p>
+                        )}
+                        <StoreTitle>{product.name}</StoreTitle>
+                    </div>
+                    <CurrencyUnavailable
+                        title={`${product.name} is not sold in ${currency}`}
+                        soldIn={soldIn}
+                        accountCurrency={accountCurrency}
+                        supportUrl={supportUrl}
+                    />
+                </div>
+            </>
+        );
+    }
 
     return (
         <>
@@ -308,9 +385,7 @@ export default function Configure({
                                 {product.group}
                             </p>
                         )}
-                        <h1 className="text-3xl font-semibold tracking-tight">
-                            {product.name}
-                        </h1>
+                        <StoreTitle>{product.name}</StoreTitle>
                         <p className="text-muted-foreground">
                             {editing
                                 ? 'Change your configuration and update the cart.'
@@ -485,6 +560,28 @@ export default function Configure({
                                             aria-describedby="epp_code-description"
                                         />
                                     </Field>
+                                )}
+                                {tldFields.length > 0 && (
+                                    <TldAttributeFields
+                                        extension={
+                                            tldMatch(
+                                                tldAttributeFields,
+                                                form.data.domain_name,
+                                            ) ?? ''
+                                        }
+                                        onClearError={(name) =>
+                                            form.clearErrors(name as never)
+                                        }
+                                        fields={tldFields}
+                                        values={form.data.tld_attributes}
+                                        onChange={(values) =>
+                                            form.setData(
+                                                'tld_attributes',
+                                                values,
+                                            )
+                                        }
+                                        errors={errors}
+                                    />
                                 )}
                             </div>
                         )}
@@ -863,8 +960,12 @@ export default function Configure({
                                                 ? product.name
                                                 : line.description}
                                         </span>
+                                        {/* The base price; the parts below (options, discount) add up to the total. */}
                                         <Money
-                                            amount={line.recurring}
+                                            amount={
+                                                line.breakdown[0]?.recurring ??
+                                                line.recurring
+                                            }
                                             currency={currency}
                                         />
                                     </div>

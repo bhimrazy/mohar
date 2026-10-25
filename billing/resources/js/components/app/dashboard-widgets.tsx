@@ -40,6 +40,27 @@ const PRIMARY_STATS = 4;
 /** Rows shown per list card. */
 const LIST_ROWS = 6;
 
+/**
+ * "Figures as of 14:05" for widgets served from a cache: the oldest `asOf` on the page, shown as the company's
+ * local time it carries (not the browser's).
+ */
+function FiguresAsOf({ widgets }: { widgets: DashboardWidget[] }) {
+    const asOf = widgets
+        .map((widget) => widget.asOf)
+        .filter((value): value is string => typeof value === 'string')
+        .sort()[0];
+
+    if (!asOf) {
+        return null;
+    }
+
+    return (
+        <p className="order-2 -mt-2 text-xs text-muted-foreground md:order-1 lg:col-span-3">
+            Figures as of <time dateTime={asOf}>{asOf.slice(11, 16)}</time>
+        </p>
+    );
+}
+
 function statValue(widget: StatWidget): string | number {
     if (widget.money) {
         return formatMoney(widget.money.amount, widget.money.currency);
@@ -284,6 +305,7 @@ export function DashboardWidgets({
                     widgets={primary}
                     className="order-2 md:order-1 lg:col-span-3"
                 />
+                <FiguresAsOf widgets={all} />
                 <StatStrip
                     widgets={stats.filter((stat) => !primary.includes(stat))}
                     className="order-4 md:order-2 lg:col-span-3"
@@ -335,6 +357,7 @@ export function DashboardWidgets({
                             key={card.list.key}
                             title={card.list.title}
                             href={card.list.href}
+                            links={card.list.actions}
                             empty={card.list.empty}
                             items={card.list.items
                                 .slice(0, LIST_ROWS)

@@ -5,9 +5,8 @@ namespace App\Modules\Billing\Services;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\Quote;
-use App\Modules\Billing\Services\Tax\IndianStates;
-use App\Modules\Billing\Services\Tax\VatNumber;
 use App\Modules\Billing\Support\BillingSettings;
+use App\Modules\Billing\Support\InvoiceBsDates;
 use App\Modules\Core\Support\DateFormats;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonInterface;
@@ -21,13 +20,16 @@ class InvoicePdf
     public function __construct(
         private BillingSettings $settings,
         private SellerDetails $seller,
+        private InvoiceParties $parties,
         private MoneyFormatter $money,
         private GatewayManager $gateways,
+        private InvoiceBsDates $bsDates,
     ) {}
 
     public function path(Invoice $invoice, ?string $locale = null): string
     {
-        return sprintf('billing/invoices/%d/v%d-%s.pdf', $invoice->id, $invoice->version, $locale ?? app()->getLocale());
+        // A PDF rendered with BS dates is cached apart, so turning the setting on or off never serves the other one.
+        return sprintf('billing/invoices/%d/v%d-%s%s.pdf', $invoice->id, $invoice->version, $locale ?? app()->getLocale(), $this->bsDates->enabled() ? '-bs' : '');
     }
 
     /**
@@ -45,9 +47,12 @@ class InvoicePdf
         return $path;
     }
 
-    public function render(Invoice $invoice): string
+    /**
+     * @param  int|null  $print  the print number of a copy (2 or more, DocumentDownloads); null for the original
+     */
+    public function render(Invoice $invoice, ?int $print = null): string
     {
-        return Pdf::loadView('billing::pdf.invoice', $this->viewData($invoice))
+        return Pdf::loadView('billing::pdf.invoice', $this->viewData($invoice, $print))
             ->setPaper(strtolower($this->settings->string('pdf.paper', 'A4')))->output();
     }
 
@@ -56,61 +61,59 @@ class InvoicePdf
      *
      * @return array<string, mixed>
      */
-    public function viewData(Invoice $invoice): array
+    public function viewData(Invoice $invoice, ?int $print = null): array
     {
         $invoice->loadMissing(['items', 'adjustments', 'transactions']);
-        $seller = $invoice->seller_snapshot ?? $this->seller->snapshot();
-        $buyer = $invoice->client_snapshot ?? [];
-        $buyerCountry = is_string($buyer['country'] ?? null) ? strtoupper($buyer['country']) : null;
+        $seller = $this->parties->sellerSnapshot($invoice);
+        $buyer = $invoice->client_snapshot;
         $sellerCountry = is_string($seller['country'] ?? null) ? strtoupper($seller['country']) : null;
+        $buyerCountry = is_string($buyer['country'] ?? null) ? strtoupper($buyer['country']) : null;
         $taxed = $invoice->tax1_amount + $invoice->tax2_amount > 0;
-        $indianGst = $sellerCountry === 'IN' && $buyerCountry === 'IN';
-        $placeOfSupply = null;
         $dateFormat = DateFormats::current();
-
-        if ($indianGst) {
-            $state = IndianStates::placeOfSupply(is_string($buyer['state'] ?? null) ? $buyer['state'] : null, is_string($buyer['tax_id'] ?? null) ? $buyer['tax_id'] : null);
-            $placeOfSupply = $state !== null ? IndianStates::label($state) : null;
-        }
 
         return [
             'invoice' => $invoice,
-            'seller' => $seller,
-            'buyer' => $buyer,
-            'title' => match (true) {
-                $invoice->number === null && $invoice->proforma_number !== null => __('Proforma Invoice'),
-                $taxed => __('Tax Invoice'),
+            'copy' => $print !== null && $print > 1 ? __('Copy of original — print :n', ['n' => $print]) : null,
+            // The same blocks the invoice pages show (InvoiceParties), so the page and the PDF print one thing.
+            'seller' => $seller !== null ? InvoiceParties::sellerBlock($seller) : null,
+            'buyer' => is_array($buyer) ? InvoiceParties::buyerBlock($buyer) : null,
+            'title' => match (InvoiceParties::documentType($invoice)) {
+                'draft' => __('Draft Invoice'),
+                'proforma' => __('Proforma Invoice'),
+                'tax_invoice' => __('Tax Invoice'),
                 default => __('Invoice'),
             },
-            'buyerTaxLabel' => self::taxIdLabel($buyerCountry),
-            'placeOfSupply' => $placeOfSupply,
-            'showSac' => $sellerCountry === 'IN' && ($indianGst || $taxed) && $invoice->items->contains(fn ($item) => $item->sac_code !== null),
+            'placeOfSupply' => InvoiceParties::placeOfSupply($seller ?? [], is_array($buyer) ? $buyer : []),
+            'showSac' => $sellerCountry === 'IN' && ($buyerCountry === 'IN' || $taxed) && $invoice->items->contains(fn ($item) => $item->sac_code !== null),
             'money' => fn (int $amount): string => $this->money->format($amount, $invoice->currency),
             'date' => fn (?CarbonInterface $date): string => $date?->format($dateFormat) ?? '—',
+            // Issue and due dates: the AD date, and the BS date in brackets when that setting is on.
+            'invoiceDate' => fn (?CarbonInterface $date): string => $date === null ? '—' : $date->format($dateFormat).(($bs = $this->bsDates->label($date)) !== null ? ' ('.$bs.')' : ''),
+            'bsDates' => $this->bsDates->enabled(),
             'gatewayName' => fn (string $key): string => $this->gateways->has($key) ? $this->gateways->gateway($key)->display_name : ucfirst(str_replace('_', ' ', $key)),
         ];
     }
 
-    public static function taxIdLabel(?string $country): string
+    public function renderQuote(Quote $quote): string
     {
-        return match (true) {
-            $country === 'IN' => 'GSTIN',
-            $country === 'NP' => 'PAN/VAT No.',
-            VatNumber::isEuCountry($country) => 'VAT ID',
-            default => 'Tax ID',
-        };
+        return Pdf::loadView('billing::pdf.quote', $this->quoteViewData($quote))->setPaper(strtolower($this->settings->string('pdf.paper', 'A4')))->output();
     }
 
-    public function renderQuote(Quote $quote): string
+    /**
+     * @return array<string, mixed>
+     */
+    public function quoteViewData(Quote $quote): array
     {
         $quote->loadMissing(['items', 'client']);
         $seller = $this->seller->snapshot();
+        $dateFormat = DateFormats::current();
 
-        return Pdf::loadView('billing::pdf.quote', [
+        return [
             'quote' => $quote,
             'company' => ['name' => (string) $seller['legal_name'], 'email' => (string) ($seller['email'] ?? '')],
             'money' => fn (int $amount): string => $this->money->format($amount, $quote->currency),
-        ])->setPaper(strtolower($this->settings->string('pdf.paper', 'A4')))->output();
+            'date' => fn (?CarbonInterface $date): string => $date?->format($dateFormat) ?? '—',
+        ];
     }
 
     public function filename(Invoice $invoice): string

@@ -33,7 +33,10 @@ and get the security reviewer's sign-off.
 - Every route that mutates something behind a sensitive permission uses the `password.recent` middleware
   (`tests/Feature/Security/SensitiveRouteStepUpTest.php` calls every admin route, records the permissions it
   checks, and repeats the call without a recent password; exemptions are listed there with a reason). The
-  password must have been confirmed within `platform.password_confirmation_seconds` (default 900). Pages that edit
+  password must have been confirmed within `auth.step_up_seconds` (default 900, set by `AUTH_STEP_UP_SECONDS`
+  within 60 to 3600; ADR 0018 §4;
+  `App\Http\Middleware\RequireRecentPasswordConfirmation`, aliased in `bootstrap/app.php` so it resolves with
+  any set of modules). Pages that edit
   sensitive data use `password.confirm`. The UI wraps sensitive buttons in `useSensitiveAction()`, which asks for the
   password and retries.
 - Seeded roles list their permissions explicitly. Seeders update existing system roles; they don't only
@@ -102,8 +105,9 @@ Dispatch the matching domain event as well (`TwoFactorReset`, `SettingsUpdated`,
 
 ## Go-live checklist
 
-- [ ] `APP_ENV=production`, `APP_DEBUG=false`, a fresh `APP_KEY` (and `APP_PREVIOUS_KEYS` when rotating, so
-      encrypted settings stay readable).
+- [ ] `APP_ENV=production`, `APP_DEBUG=false`, a fresh `APP_KEY` that is in no repository, image or file backup
+      (`app:install` warns about a published or non-random key). Rotation: `APP_PREVIOUS_KEYS`, then
+      `php artisan security:reencrypt` ([devops/key-rotation.md](../devops/key-rotation.md)).
 - [ ] Installed with `php artisan app:install` (`docs/devops/install.md`), never with demo seeders: no
       `admin@example.com` or other `password` accounts exist.
 - [ ] **Trusted proxies** configured for the load balancer (`$middleware->trustProxies(at: [...])`, see

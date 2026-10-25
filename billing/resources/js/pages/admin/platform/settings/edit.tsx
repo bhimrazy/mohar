@@ -7,24 +7,43 @@ import { Field } from '@/components/app/field';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
+import { CountrySelect } from '@/components/app/country-select';
 import { SelectField } from '@/components/app/select-field';
 import { SwitchField } from '@/components/app/switch-field';
+import { CheckboxGroup } from '@/components/app/checkbox-group';
 import PasswordInput from '@/components/password-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
+import { labelWithCurrency, parseMoneyInput } from '@/lib/money';
 import { cn } from '@/lib/utils';
+
+/** Settings whose option list is long enough to need a search box. */
+const SEARCHABLE = new Set(['system.timezone']);
 
 type SettingField = {
     key: string;
     label: string;
-    type: 'string' | 'text' | 'integer' | 'boolean' | 'select' | 'email';
+    type:
+        | 'string'
+        | 'text'
+        | 'integer'
+        | 'boolean'
+        | 'select'
+        | 'multiselect'
+        | 'email'
+        | 'country'
+        | 'money';
     help: string | null;
     options: { value: string; label: string }[];
     secret: boolean;
+    required: boolean;
     value: unknown;
     is_set: boolean;
+    locked_reason: string | null;
+    /** Default currency code, for money fields. */
+    currency: string | null;
 };
 
 type Props = {
@@ -37,11 +56,15 @@ type Props = {
     };
 };
 
-type Value = string | boolean;
+type Value = string | boolean | string[];
 
 function initial(field: SettingField): Value {
     if (field.type === 'boolean') {
         return Boolean(field.value);
+    }
+
+    if (field.type === 'multiselect') {
+        return Array.isArray(field.value) ? field.value.map(String) : [];
     }
 
     if (field.secret) {
@@ -86,9 +109,24 @@ export default function SettingsEdit({ sections, section }: Props) {
 
     const submit = (event: FormEvent) => {
         event.preventDefault();
+        // "1,000.50" (US or lakh grouping) is sent as "1000.50"; anything else goes as typed for the server to refuse.
+        const data = Object.fromEntries(
+            section.fields.map((field) => {
+                const value = values[field.key];
+                const minor =
+                    field.type === 'money' && typeof value === 'string'
+                        ? parseMoneyInput(value)
+                        : null;
+
+                return [
+                    field.key,
+                    minor === null ? value : (minor / 100).toFixed(2),
+                ];
+            }),
+        );
         router.visit(SettingsController.update.url(section.key), {
             method: 'put',
-            data: nest(values) as Record<string, string>,
+            data: nest(data) as Record<string, string>,
             preserveScroll: true,
             onStart: () => setProcessing(true),
             onFinish: () => setProcessing(false),
@@ -159,8 +197,20 @@ export default function SettingsEdit({ sections, section }: Props) {
                             <div className="grid gap-6">
                                 {section.fields.map((field) => {
                                     const id = `setting-${field.key.replace(/\./g, '-')}`;
-                                    const error = errors[field.key];
+                                    // A multiselect's refusals arrive per item ("key.0").
+                                    const error =
+                                        errors[field.key] ??
+                                        Object.entries(errors).find(([key]) =>
+                                            key.startsWith(`${field.key}.`),
+                                        )?.[1];
                                     const value = values[field.key];
+                                    const locked = field.locked_reason !== null;
+                                    const off = disabled || locked;
+                                    const help = locked
+                                        ? [field.locked_reason, field.help]
+                                              .filter(Boolean)
+                                              .join(' ')
+                                        : field.help;
 
                                     if (field.type === 'boolean') {
                                         return (
@@ -169,14 +219,34 @@ export default function SettingsEdit({ sections, section }: Props) {
                                                 id={id}
                                                 label={field.label}
                                                 description={
-                                                    error ??
-                                                    field.help ??
-                                                    undefined
+                                                    error ?? help ?? undefined
                                                 }
                                                 checked={value === true}
-                                                disabled={disabled}
+                                                disabled={off}
                                                 onCheckedChange={(checked) =>
                                                     set(field.key, checked)
+                                                }
+                                            />
+                                        );
+                                    }
+
+                                    if (field.type === 'multiselect') {
+                                        return (
+                                            <CheckboxGroup
+                                                key={field.key}
+                                                id={id}
+                                                label={field.label}
+                                                hint={help ?? undefined}
+                                                error={error}
+                                                options={field.options}
+                                                value={
+                                                    Array.isArray(value)
+                                                        ? value
+                                                        : []
+                                                }
+                                                disabled={off}
+                                                onValueChange={(next) =>
+                                                    set(field.key, next)
                                                 }
                                             />
                                         );
@@ -186,18 +256,40 @@ export default function SettingsEdit({ sections, section }: Props) {
                                         <Field
                                             key={field.key}
                                             htmlFor={id}
-                                            label={field.label}
+                                            label={
+                                                field.type === 'money' &&
+                                                field.currency
+                                                    ? labelWithCurrency(
+                                                          field.label,
+                                                          field.currency,
+                                                      )
+                                                    : field.label
+                                            }
                                             error={error}
                                             hint={
                                                 field.secret
                                                     ? field.is_set
                                                         ? 'A value is saved. Leave blank to keep it.'
-                                                        : (field.help ??
-                                                          'Not set.')
-                                                    : (field.help ?? undefined)
+                                                        : (help ?? 'Not set.')
+                                                    : (help ?? undefined)
                                             }
                                         >
-                                            {field.type === 'select' ? (
+                                            {field.type === 'country' ? (
+                                                <CountrySelect
+                                                    id={id}
+                                                    value={String(value)}
+                                                    onValueChange={(next) =>
+                                                        set(field.key, next)
+                                                    }
+                                                    emptyLabel={
+                                                        field.required
+                                                            ? undefined
+                                                            : 'Not set'
+                                                    }
+                                                    disabled={disabled}
+                                                    invalid={Boolean(error)}
+                                                />
+                                            ) : field.type === 'select' ? (
                                                 <SelectField
                                                     id={id}
                                                     value={String(value)}
@@ -205,7 +297,10 @@ export default function SettingsEdit({ sections, section }: Props) {
                                                         set(field.key, next)
                                                     }
                                                     options={field.options}
-                                                    disabled={disabled}
+                                                    searchable={SEARCHABLE.has(
+                                                        field.key,
+                                                    )}
+                                                    disabled={off}
                                                     invalid={Boolean(error)}
                                                 />
                                             ) : field.type === 'text' ? (
@@ -219,7 +314,7 @@ export default function SettingsEdit({ sections, section }: Props) {
                                                             event.target.value,
                                                         )
                                                     }
-                                                    disabled={disabled}
+                                                    disabled={off}
                                                     aria-invalid={Boolean(
                                                         error,
                                                     )}
@@ -240,7 +335,7 @@ export default function SettingsEdit({ sections, section }: Props) {
                                                             event.target.value,
                                                         )
                                                     }
-                                                    disabled={disabled}
+                                                    disabled={off}
                                                     aria-invalid={Boolean(
                                                         error,
                                                     )}
@@ -248,6 +343,11 @@ export default function SettingsEdit({ sections, section }: Props) {
                                             ) : (
                                                 <Input
                                                     id={id}
+                                                    inputMode={
+                                                        field.type === 'money'
+                                                            ? 'decimal'
+                                                            : undefined
+                                                    }
                                                     type={
                                                         field.type === 'integer'
                                                             ? 'number'
@@ -263,13 +363,15 @@ export default function SettingsEdit({ sections, section }: Props) {
                                                             event.target.value,
                                                         )
                                                     }
-                                                    disabled={disabled}
+                                                    disabled={off}
                                                     aria-invalid={Boolean(
                                                         error,
                                                     )}
                                                     aria-describedby={`${id}-description`}
                                                     className={
-                                                        field.type === 'integer'
+                                                        field.type ===
+                                                            'integer' ||
+                                                        field.type === 'money'
                                                             ? 'max-w-40'
                                                             : undefined
                                                     }

@@ -6,10 +6,12 @@ use App\Models\User;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\TransactionType;
+use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
-use App\Modules\Core\Support\BusinessCalendar;
+use App\Modules\Billing\Services\NoteRefusals;
+use App\Modules\Core\Support\CoreCompanyClock;
 use App\Modules\Core\Support\CurrencyRollup;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
@@ -30,7 +32,18 @@ use Illuminate\Support\Facades\DB;
  */
 class BillingDashboard
 {
+    /** Seconds the dataset is fresh. */
     public const CACHE_SECONDS = 60;
+
+    /**
+     * Seconds an older dataset is still served while the request that found it recomputes it after sending its
+     * response (Cache::flexible, #441), so the visitor who finds it stale is not the one who waits. A visitor still
+     * waits when there is nothing to serve: the first visit of a company day (the key holds the date) or after more
+     * than this many idle seconds. So does the stale visitor on a server without fastcgi_finish_request (Apache
+     * mod_php, `artisan serve`); FrankenPHP and PHP-FPM send the response first. Widgets carry `asOf`, the time the
+     * dataset was computed, so the page can say how old the figures are.
+     */
+    public const STALE_SECONDS = 600;
 
     /** Transaction types that make up net income (refunds and chargebacks are negative). */
     private const INCOME_TYPES = [TransactionType::Payment, TransactionType::ManualIncome, TransactionType::Refund, TransactionType::Chargeback];
@@ -45,7 +58,13 @@ class BillingDashboard
     /** Weekly points on the KPI sparklines. */
     private const WEEKS = 12;
 
-    public function __construct(private BillingSettings $settings, private BusinessCalendar $calendar) {}
+    public function __construct(private BillingSettings $settings, private CoreCompanyClock $calendar) {}
+
+    /** The company date as a date value (00:00 UTC), like the date columns the widgets compare it with. */
+    private function companyDate(): CarbonImmutable
+    {
+        return $this->calendar->todayDate();
+    }
 
     public function register(Dashboard $dashboard): void
     {
@@ -61,7 +80,7 @@ class BillingDashboard
 
         $dashboard->todo('admin', 'billing.due_today', fn (?User $user): array => [
             'label' => 'Unpaid invoices due today',
-            'count' => Invoice::query()->where('status', InvoiceStatus::Unpaid)->whereDate('due_date', $this->calendar->today()->toDateString())->count(),
+            'count' => Invoice::query()->where('status', InvoiceStatus::Unpaid)->whereDate('due_date', $this->companyDate()->toDateString())->count(),
             'href' => route('admin.billing.invoices.index', ['status' => 'unpaid']),
             'tone' => 'warning',
             'icon' => 'CalendarClock',
@@ -78,10 +97,66 @@ class BillingDashboard
         $dashboard->todo('admin', 'billing.payment_review', fn (?User $user): array => [
             'label' => 'Gateway payments to review',
             'count' => $this->ambiguousAttempts(),
-            'href' => route('admin.billing.payment-attempts.index', ['status' => 'ambiguous']),
+            'href' => route('admin.billing.payment-attempts.index', ['review' => 1]),
             'tone' => 'danger',
             'icon' => 'CreditCard',
         ], 'billing.payments.manage', 13);
+
+        $dashboard->todo('admin', 'billing.late_payments', fn (?User $user): array => [
+            'label' => 'Late payments to check',
+            'count' => PaymentAttempt::toCheck([PaymentAttempt::CHECK_LATE, PaymentAttempt::CHECK_CREDIT])->count(),
+            'href' => route('admin.billing.payment-attempts.index', ['late' => 1]),
+            'tone' => 'warning',
+            'icon' => 'CreditCard',
+            'hint' => 'Paid late, or kept as credit: refund if needed',
+        ], 'billing.payments.manage', 14);
+
+        $dashboard->todo('admin', 'billing.portal_refunds', fn (?User $user): array => [
+            'label' => 'Refunds made at the provider to record',
+            'count' => PaymentAttempt::toCheck([PaymentAttempt::CHECK_PORTAL_REFUND])->count(),
+            'href' => route('admin.billing.payment-attempts.index', ['check' => PaymentAttempt::CHECK_PORTAL_REFUND]),
+            'tone' => 'danger',
+            'icon' => 'CreditCard',
+            'hint' => 'Refunded in the gateway\'s portal: record it on the invoice or with Refund account credit, as the reason says, then mark it checked',
+        ], 'billing.payments.manage', 14);
+
+        $dashboard->todo('admin', 'billing.reversals_review', fn (?User $user): array => [
+            'label' => 'Disputes to review',
+            // Also needs the Transactions page it links to (billing.transactions.view), or the link would be refused.
+            'count' => $user?->hasPermission('billing.transactions.view') ? Transaction::toReview()->count() : 0,
+            'href' => route('admin.billing.transactions.index', ['review' => 1]),
+            'tone' => 'danger',
+            'icon' => 'AlertTriangle',
+            'hint' => 'Inquiries to answer, or not covered by payment or credit',
+        ], 'billing.payments.manage', 15);
+
+        $dashboard->todo('admin', 'billing.refunds_waiting', fn (?User $user): array => [
+            'label' => 'Refunds waiting for the provider',
+            'count' => $user?->hasPermission('billing.transactions.view') ? Transaction::refundsAwaitingProvider()->count() : 0,
+            'href' => route('admin.billing.transactions.index', ['waiting' => 1]),
+            'tone' => 'warning',
+            'icon' => 'Clock',
+            'hint' => 'The amount stays held back until the provider confirms or staff settle it',
+        ], 'billing.refunds.manage', 17);
+
+        $dashboard->todo('admin', 'billing.notes_refused', fn (?User $user): array => [
+            'label' => 'Invoices a credit or debit note could not be issued for',
+            'count' => app(NoteRefusals::class)->open(),
+            // Just the refused invoices, until each is cancelled, paid or fixed; the activity log names each and why.
+            'href' => route('admin.billing.invoices.index', ['refused' => 1]),
+            'tone' => 'warning',
+            'icon' => 'AlertTriangle',
+            'hint' => 'A cancellation or late fee was refused: open the invoice and see its activity',
+        ], 'billing.invoices.manage', 18);
+
+        $dashboard->todo('admin', 'billing.credit_owed', fn (?User $user): array => [
+            'label' => 'Clients owing account credit',
+            'count' => CreditLedgerEntry::owing()->distinct()->count('client_id'),
+            'href' => route('admin.billing.credit.index', ['owing' => 1]),
+            'tone' => 'warning',
+            'icon' => 'Wallet',
+            'hint' => 'Spent credit was taken back',
+        ], 'billing.credit.manage', 16);
 
         $dashboard->health('admin', 'billing.gateways', fn (?User $user): array => $this->gatewayHealth(), 'billing.payments.manage', 40);
     }
@@ -92,7 +167,7 @@ class BillingDashboard
     private function incomeCard(): array
     {
         $data = $this->dataset();
-        $today = $this->calendar->today();
+        $today = $this->companyDate();
         $monthStart = $today->startOfMonth();
         $previousStart = $monthStart->subMonth();
         $previousEnd = $previousStart->day(min($today->day, $previousStart->daysInMonth));
@@ -115,7 +190,7 @@ class BillingDashboard
             $data['income'],
             $this->consolidateDaily($data['income']),
             $view,
-            ['href' => route('admin.billing.transactions.index'), 'icon' => 'TrendingUp', 'primary' => true],
+            ['href' => route('admin.billing.transactions.index'), 'icon' => 'TrendingUp', 'primary' => true, 'asOf' => $data['computed_at'] ?? null],
         );
     }
 
@@ -138,7 +213,7 @@ class BillingDashboard
             $data['receivables'],
             $this->consolidateBooks($data['receivables']),
             $view,
-            ['href' => route('admin.billing.invoices.index', ['status' => 'unpaid']), 'icon' => 'Receipt', 'primary' => true],
+            ['href' => route('admin.billing.invoices.index', ['status' => 'unpaid']), 'icon' => 'Receipt', 'primary' => true, 'asOf' => $data['computed_at'] ?? null],
             self::EMPTY_BOOK,
         );
     }
@@ -151,7 +226,7 @@ class BillingDashboard
         $data = $this->dataset();
 
         $view = function (array $book): array {
-            $oldest = $book['oldest_due'] === null ? null : (int) CarbonImmutable::parse($book['oldest_due'])->diffInDays($this->calendar->today());
+            $oldest = $book['oldest_due'] === null ? null : (int) CarbonImmutable::parse($book['oldest_due'])->diffInDays($this->companyDate());
 
             return [
                 'trend' => Trend::percent($book['overdue'], $book['overdue_month_ago'], upIsGood: false),
@@ -169,7 +244,7 @@ class BillingDashboard
                 $data['receivables'],
                 $this->consolidateBooks($data['receivables']),
                 $view,
-                ['href' => route('admin.billing.invoices.index', ['status' => 'overdue']), 'icon' => 'AlertTriangle', 'tone' => 'danger', 'primary' => true],
+                ['href' => route('admin.billing.invoices.index', ['status' => 'overdue']), 'icon' => 'AlertTriangle', 'tone' => 'danger', 'primary' => true, 'asOf' => $data['computed_at'] ?? null],
                 self::EMPTY_BOOK,
             ),
             'count' => array_sum(array_column($data['receivables'], 'overdue_count')),
@@ -186,7 +261,7 @@ class BillingDashboard
     {
         $data = $this->dataset();
         $rollup = $this->rollup();
-        $today = $this->calendar->today();
+        $today = $this->companyDate();
 
         $view = function (array $daily, string $currency) use ($today): array {
             $months = $this->monthlyComparison($daily, $today, $currency);
@@ -212,6 +287,7 @@ class BillingDashboard
             'xFormat' => 'month',
             'href' => route('admin.billing.transactions.index'),
             'empty' => 'No income recorded yet. Payments you record appear here.',
+            'asOf' => $data['computed_at'] ?? null,
             ...$view($consolidated, $rollup->defaultCode()),
             'variants' => array_combine($codes, array_map(fn (string $code): array => $view($data['income'][$code] ?? [], $code), $codes)) ?: (object) [],
         ];
@@ -226,7 +302,7 @@ class BillingDashboard
     {
         $data = $this->dataset();
         $rollup = $this->rollup();
-        $today = $this->calendar->today();
+        $today = $this->companyDate();
         $amounts = [];
 
         foreach ($data['income'] as $code => $daily) {
@@ -246,6 +322,7 @@ class BillingDashboard
             'description' => 'This month, in each currency as received; shares at today\'s rates',
             'href' => route('admin.billing.transactions.index'),
             'empty' => 'No income this month yet.',
+            'asOf' => $data['computed_at'] ?? null,
             'rows' => array_map(fn (string $code): array => [
                 'key' => $code,
                 'code' => $code,
@@ -335,10 +412,15 @@ class BillingDashboard
         ];
     }
 
+    /**
+     * Unresolved attempts past the alert delay, plus booked payments refunded at the provider for more than the
+     * credit left from them (#130).
+     */
     private function ambiguousAttempts(): int
     {
         return PaymentAttempt::query()->where('status', AttemptStatus::Ambiguous)
-            ->where('updated_at', '<=', now()->subMinutes($this->settings->int('gateways.ambiguous_alert_minutes', 30)))->count();
+            ->where('updated_at', '<=', now()->subMinutes($this->settings->int('gateways.ambiguous_alert_minutes', 30)))->count()
+            + PaymentAttempt::toCheck([PaymentAttempt::CHECK_REFUND])->count();
     }
 
     /**
@@ -388,8 +470,10 @@ class BillingDashboard
         $total = [];
 
         foreach ($daily as $code => $days) {
+            $convert = $rollup->converter((string) $code);
+
             foreach ($days as $day => $amount) {
-                $total[$day] = ($total[$day] ?? 0) + ($rollup->toDefault($amount, $code) ?? 0);
+                $total[$day] = ($total[$day] ?? 0) + ($convert === null ? 0 : $convert($amount));
             }
         }
 
@@ -423,54 +507,6 @@ class BillingDashboard
         }
 
         return $book;
-    }
-
-    /**
-     * Weekly receivable snapshots (12 points ending today) and the value 30 days ago, for outstanding and overdue.
-     * The last point is the exact current figure; earlier points are reconstructed from issue, paid and cancelled
-     * dates. Overdue follows the same rule as today's figure: an invoice still open today counts only while it is
-     * Unpaid (not Payment pending or Collections); one closed since then counts while it was open and past due.
-     *
-     * @param  list<array{issue_date: string, due_date: string|null, paid_at: string|null, cancelled_at: string|null, amount: int, counts_overdue: bool}>  $invoices
-     * @return array{outstanding_weeks: list<int>, outstanding_month_ago: int, overdue_weeks: list<int>, overdue_month_ago: int}
-     */
-    private function snapshots(array $invoices, int $outstanding, int $overdue): array
-    {
-        $today = $this->calendar->today();
-        $at = function (CarbonImmutable $date) use ($invoices): array {
-            $day = $date->toDateString();
-            $sums = [0, 0];
-
-            foreach ($invoices as $invoice) {
-                if ($invoice['issue_date'] > $day || ($invoice['paid_at'] !== null && $invoice['paid_at'] <= $day) || ($invoice['cancelled_at'] !== null && $invoice['cancelled_at'] <= $day)) {
-                    continue;
-                }
-
-                $sums[0] += $invoice['amount'];
-
-                if ($invoice['counts_overdue'] && $invoice['due_date'] !== null && $invoice['due_date'] < $day) {
-                    $sums[1] += $invoice['amount'];
-                }
-            }
-
-            return $sums;
-        };
-        $weeks = [[], []];
-
-        for ($week = self::WEEKS - 1; $week >= 1; $week--) {
-            [$open, $late] = $at($today->subWeeks($week));
-            $weeks[0][] = $open;
-            $weeks[1][] = $late;
-        }
-
-        $monthAgo = $at($today->subDays(30));
-
-        return [
-            'outstanding_weeks' => [...$weeks[0], $outstanding],
-            'outstanding_month_ago' => $monthAgo[0],
-            'overdue_weeks' => [...$weeks[1], $overdue],
-            'overdue_month_ago' => $monthAgo[1],
-        ];
     }
 
     /**
@@ -582,21 +618,23 @@ class BillingDashboard
      * Per-currency figures shared by every Billing widget, cached briefly:
      * - income: net income per day for 24 months (one grouped query on transactions(type, occurred_at));
      * - receivables: open and recently closed invoices for the outstanding/overdue KPIs and their history;
-     * - tax: tax collected on invoices paid this month, per tax name and currency.
+     * - tax: tax collected on invoices paid this month, per tax name and currency;
+     * - computed_at: when it was computed, ISO 8601 in the company's time zone.
      *
-     * @return array{income: array<string, array<string, int>>, receivables: array<string, array<string, mixed>>, tax: list<array{label: string, money: array{amount: int, currency: string}}>}
+     * @return array{income: array<string, array<string, int>>, receivables: array<string, array<string, mixed>>, tax: list<array{label: string, money: array{amount: int, currency: string}}>, computed_at?: string}
      */
     private function dataset(): array
     {
-        $today = $this->calendar->today();
+        $today = $this->companyDate();
 
-        /** @var array{income: array<string, array<string, int>>, receivables: array<string, array<string, mixed>>, tax: list<array{label: string, money: array{amount: int, currency: string}}>} */
+        /** @var array{income: array<string, array<string, int>>, receivables: array<string, array<string, mixed>>, tax: list<array{label: string, money: array{amount: int, currency: string}}>, computed_at?: string} */
         // The dataset is the same for every user (permissions apply per widget); the key follows the local day.
-        return Cache::remember('dashboard.billing.'.$this->calendar->timezone().'.'.$today->toDateString(), self::CACHE_SECONDS, fn (): array => [
-            'income' => $this->incomeByDay($this->calendar->startOfDayUtc($today->startOfMonth()->subMonths(23))),
+        return Cache::flexible('dashboard.billing.'.$this->calendar->timezone().'.'.$today->toDateString(), [self::CACHE_SECONDS, self::STALE_SECONDS], fn (): array => [
+            'income' => $this->incomeByDay($this->calendar->dayBounds($today->startOfMonth()->subMonths(23))[0]),
             'receivables' => $this->receivables($today),
-            'tax' => $this->taxCollected($this->calendar->startOfDayUtc($today->startOfMonth())),
-        ]);
+            'tax' => $this->taxCollected($this->calendar->dayBounds($today->startOfMonth())[0]),
+            'computed_at' => $this->calendar->now()->toIso8601String(),
+        ], ['seconds' => 30]);
     }
 
     /**
@@ -607,17 +645,11 @@ class BillingDashboard
         $income = [];
 
         // Summed per currency and company-local day in SQL: one row per day, never the raw transactions.
-        // Literal SQL per driver with the zone bound as a parameter; GROUP BY position works on all three.
-        $select = match (DB::getDriverName()) {
-            'pgsql' => "currency, date((occurred_at at time zone 'UTC') at time zone ?) as day, sum(amount_in) as amount_in, sum(amount_out) as amount_out",
-            'mysql', 'mariadb' => "currency, date(convert_tz(occurred_at, '+00:00', ?)) as day, sum(amount_in) as amount_in, sum(amount_out) as amount_out",
-            default => 'currency, date(occurred_at, ?) as day, sum(amount_in) as amount_in, sum(amount_out) as amount_out',
-        };
-
+        // GROUP BY position works on all three drivers.
         Transaction::query()
             ->whereIn('type', self::INCOME_TYPES)
             ->where('occurred_at', '>=', $since)
-            ->selectRaw($select, [$this->calendar->sqlZoneArgument()])
+            ->selectRaw('currency, '.$this->calendar->sqlLocalDate('occurred_at').' as day, sum(amount_in) as amount_in, sum(amount_out) as amount_out', [$this->calendar->sqlZoneArgument()])
             ->groupByRaw('1, 2')
             ->toBase()
             ->get()
@@ -630,56 +662,63 @@ class BillingDashboard
     }
 
     /**
-     * Per-currency receivable books: today's totals plus their weekly history. Reads open invoices and those closed
-     * within the window in three queries (status and status + paid_at use indexes; cancelled since the window start is a
-     * filtered scan), and caches only
-     * the computed figures, never the rows.
+     * Per-currency receivable books: today's totals plus weekly snapshots (12 points ending today) and the value 30
+     * days ago, for outstanding and overdue. Earlier points are reconstructed from issue, paid and cancelled days in
+     * the company's calendar. Overdue follows today's rule: an invoice still open today counts only while it is
+     * Unpaid (not Payment pending or Collections); one closed since then counts while it was open and past due.
+     *
+     * Summed in SQL, one row per currency: the open invoices and those closed within the window (three disjoint
+     * status sets, each on an index) feed one grouped query with a conditional sum per snapshot day.
      *
      * @return array<string, array<string, mixed>>
      */
     private function receivables(CarbonImmutable $today): array
     {
-        $since = $this->calendar->startOfDayUtc($today->subWeeks(self::WEEKS)->subDay());
-        $columns = ['id', 'currency', 'status', 'issue_date', 'due_date', 'paid_at', 'cancelled_at', 'total', 'balance'];
-        $base = fn () => Invoice::query()->whereNotNull('issue_date')->toBase();
-        $rows = $base()->whereIn('status', InvoiceStatus::payable())->get($columns)
-            ->concat($base()->whereIn('status', [InvoiceStatus::Paid, InvoiceStatus::Refunded])->where('paid_at', '>=', $since)->get($columns))
-            ->concat($base()->where('status', InvoiceStatus::Cancelled)->where('cancelled_at', '>=', $since)->get($columns))
-            ->unique('id');
-        $payable = array_map(fn (InvoiceStatus $status): string => $status->value, InvoiceStatus::payable());
-        $date = fn (mixed $value): ?string => $value === null ? null : substr((string) $value, 0, 10);
-        $books = [];
-        $invoices = [];
+        $since = $this->calendar->dayBounds($today->subWeeks(self::WEEKS)->subDay())[0];
+        $zone = $this->calendar->sqlZoneArgument();
+        $base = fn () => Invoice::query()->toBase()->whereNotNull('issue_date');
+        // Per invoice: whether it is open today, whether it can count as overdue, the amount it carried while open,
+        // and its local issue, due and closing days.
+        $closed = 'currency, 0 as is_open, 1 as counts_overdue, total as amount, date(issue_date) as issue_day, date(due_date) as due_day, '
+            .$this->calendar->sqlLocalDate('paid_at').' as paid_day, '.$this->calendar->sqlLocalDate('cancelled_at').' as cancelled_day';
+        $invoices = $base()->whereIn('status', InvoiceStatus::payable())
+            ->selectRaw('currency, 1 as is_open, case when status = ? then 1 else 0 end as counts_overdue, balance as amount, date(issue_date) as issue_day, date(due_date) as due_day, null as paid_day, null as cancelled_day', [InvoiceStatus::Unpaid->value])
+            ->unionAll($base()->whereIn('status', [InvoiceStatus::Paid, InvoiceStatus::Refunded])->where('paid_at', '>=', $since)->selectRaw($closed, [$zone, $zone]))
+            ->unionAll($base()->where('status', InvoiceStatus::Cancelled)->where('cancelled_at', '>=', $since)->selectRaw($closed, [$zone, $zone]));
 
-        foreach ($rows as $row) {
-            $code = (string) $row->currency;
-            $isPayable = in_array($row->status, $payable, true);
-            $books[$code] ??= self::EMPTY_BOOK;
-            $dueDate = $date($row->due_date);
+        $todayDay = $today->toDateString();
+        $overdueToday = 'is_open = 1 and counts_overdue = 1 and due_day < ?';
+        $openOn = 'issue_day <= ? and (paid_day is null or paid_day > ?) and (cancelled_day is null or cancelled_day > ?)';
+        $select = ['currency', 'sum(case when is_open = 1 then amount else 0 end) as outstanding', 'sum(is_open) as outstanding_count',
+            "sum(case when {$overdueToday} then amount else 0 end) as overdue", "sum(case when {$overdueToday} then 1 else 0 end) as overdue_count",
+            "min(case when {$overdueToday} then due_day end) as oldest_due"];
+        $bindings = [$todayDay, $todayDay, $todayDay];
 
-            if ($isPayable) {
-                $books[$code]['outstanding'] += (int) $row->balance;
-                $books[$code]['outstanding_count']++;
-
-                if ($row->status === InvoiceStatus::Unpaid->value && $dueDate !== null && $dueDate < $today->toDateString()) {
-                    $books[$code]['overdue'] += (int) $row->balance;
-                    $books[$code]['overdue_count']++;
-                    $books[$code]['oldest_due'] = $books[$code]['oldest_due'] === null || $dueDate < $books[$code]['oldest_due'] ? $dueDate : $books[$code]['oldest_due'];
-                }
-            }
-
-            $invoices[$code][] = [
-                'issue_date' => (string) $date($row->issue_date),
-                'due_date' => $dueDate,
-                'paid_at' => $isPayable ? null : $this->calendar->localDate($row->paid_at),
-                'cancelled_at' => $isPayable ? null : $this->calendar->localDate($row->cancelled_at),
-                'amount' => $isPayable ? (int) $row->balance : (int) $row->total,
-                'counts_overdue' => ! $isPayable || $row->status === InvoiceStatus::Unpaid->value,
-            ];
+        // Points 0–10: weekly snapshots, oldest first; 11: 30 days ago.
+        foreach (range(0, self::WEEKS - 1) as $point) {
+            $day = ($point < self::WEEKS - 1 ? $today->subWeeks(self::WEEKS - 1 - $point) : $today->subDays(30))->toDateString();
+            $select[] = "sum(case when {$openOn} then amount else 0 end) as open_{$point}";
+            $select[] = "sum(case when {$openOn} and counts_overdue = 1 and due_day < ? then amount else 0 end) as late_{$point}";
+            array_push($bindings, $day, $day, $day, $day, $day, $day, $day);
         }
 
-        foreach ($books as $code => $book) {
-            $books[$code] = [...$book, ...$this->snapshots($invoices[$code], $book['outstanding'], $book['overdue'])];
+        $books = [];
+
+        foreach (DB::query()->fromSub($invoices, 'receivables')->selectRaw(implode(', ', $select), $bindings)->groupBy('currency')->orderBy('currency')->get() as $row) {
+            $sums = (array) $row;
+            $weeks = fn (string $prefix): array => array_map(fn (int $point): int => (int) $sums[$prefix.$point], range(0, self::WEEKS - 2));
+
+            $books[(string) $row->currency] = [
+                'outstanding' => (int) $row->outstanding,
+                'outstanding_count' => (int) $row->outstanding_count,
+                'overdue' => (int) $row->overdue,
+                'overdue_count' => (int) $row->overdue_count,
+                'oldest_due' => $row->oldest_due === null ? null : substr((string) $row->oldest_due, 0, 10),
+                'outstanding_weeks' => [...$weeks('open_'), (int) $row->outstanding],
+                'outstanding_month_ago' => (int) $sums['open_'.(self::WEEKS - 1)],
+                'overdue_weeks' => [...$weeks('late_'), (int) $row->overdue],
+                'overdue_month_ago' => (int) $sums['late_'.(self::WEEKS - 1)],
+            ];
         }
 
         return $books;
@@ -691,23 +730,15 @@ class BillingDashboard
     private function taxCollected(CarbonImmutable $since): array
     {
         $totals = [];
+        // Summed per currency and tax name in SQL, one branch per tax slot.
+        $paid = fn () => Invoice::query()->toBase()->where('status', InvoiceStatus::Paid)->where('paid_at', '>=', $since);
+        $first = $paid()->where('tax1_amount', '!=', 0)->selectRaw('currency, tax1_name as name, sum(tax1_amount) as amount')->groupBy('currency', 'tax1_name');
+        $second = $paid()->where('tax2_amount', '!=', 0)->selectRaw('currency, tax2_name as name, sum(tax2_amount) as amount')->groupBy('currency', 'tax2_name');
 
-        Invoice::query()
-            ->where('status', InvoiceStatus::Paid)
-            ->where('paid_at', '>=', $since)
-            ->where(fn ($query) => $query->where('tax1_amount', '!=', 0)->orWhere('tax2_amount', '!=', 0))
-            ->toBase()
-            ->get(['currency', 'tax1_name', 'tax1_amount', 'tax2_name', 'tax2_amount'])
-            ->each(function (object $row) use (&$totals): void {
-                foreach ([1, 2] as $slot) {
-                    $amount = (int) $row->{"tax{$slot}_amount"};
-
-                    if ($amount !== 0) {
-                        $key = $row->currency.'|'.($row->{"tax{$slot}_name"} ?: 'Tax');
-                        $totals[$key] = ($totals[$key] ?? 0) + $amount;
-                    }
-                }
-            });
+        $first->unionAll($second)->get()->each(function (object $row) use (&$totals): void {
+            $key = $row->currency.'|'.($row->name ?: 'Tax');
+            $totals[$key] = ($totals[$key] ?? 0) + (int) $row->amount;
+        });
 
         ksort($totals);
 

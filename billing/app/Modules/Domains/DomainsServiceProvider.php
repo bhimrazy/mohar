@@ -2,11 +2,23 @@
 
 namespace App\Modules\Domains;
 
+use App\Contracts\Billing\TaxCalculator;
+use App\Contracts\Core\CompanyClock;
+use App\Contracts\Domains\DomainNameRules;
 use App\Contracts\Domains\DomainPricing;
 use App\Contracts\Domains\DomainRegistry;
+use App\Contracts\Domains\Registrar\RegistrarRefs;
+use App\Contracts\Domains\TldAttributes;
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Data\Billing\InvoiceLineData;
+use App\Enums\BillableType;
 use App\Events\Billing\InvoiceCancelled;
 use App\Events\Billing\InvoicePaid;
+use App\Events\Core\ClientMerged;
+use App\Events\Domains\DomainExpired;
+use App\Events\Domains\DomainRegistered;
+use App\Events\Domains\DomainRenewed;
+use App\Events\Domains\DomainTransferred;
 use App\Events\Services\ServiceActivated;
 use App\Events\Services\ServiceRenewed;
 use App\Events\Services\ServiceSuspended;
@@ -15,43 +27,72 @@ use App\Events\Services\ServiceUnsuspended;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ChunkedDelete;
+use App\Modules\Core\Support\ClientContext;
+use App\Modules\Core\Support\RetentionRunDate;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Actions\ApplyExpiryLifecycle;
 use App\Modules\Domains\Actions\ConvertTldPrices;
 use App\Modules\Domains\Actions\IssueRenewalInvoices;
 use App\Modules\Domains\Actions\SendExpiryReminders;
 use App\Modules\Domains\Drivers\Registrars\LogRegistrar;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
+use App\Modules\Domains\Drivers\Registrars\Namecheap\NamecheapDriver;
+use App\Modules\Domains\Drivers\Registrars\ResellerClub\ResellerClubDriver;
 use App\Modules\Domains\Enums\DomainStatus;
+use App\Modules\Domains\Jobs\SyncRegistrars;
 use App\Modules\Domains\Listeners\HandleInvoiceCancelled;
 use App\Modules\Domains\Listeners\HandleInvoicePaid;
 use App\Modules\Domains\Listeners\MirrorLinkedServiceState;
+use App\Modules\Domains\Listeners\MoveRegistrarRefsOnClientMerge;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\DomainInvoice;
+use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\RegistrarCommandLog;
+use App\Modules\Domains\Models\RegistrarRefRecord;
+use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Services\DomainPricingService;
 use App\Modules\Domains\Services\DomainRegistryService;
+use App\Modules\Domains\Services\EloquentRegistrarRefs;
 use App\Modules\Domains\Services\RenewalInvoices;
+use App\Modules\Domains\Services\TldAttributeService;
+use App\Modules\Domains\Support\DomainsAdminClientSummary;
+use App\Modules\Domains\Support\RegistryLevels;
 use App\Support\Automation\Automation;
+use App\Support\CalendarDate;
+use App\Support\Clients\ClientCurrencyUsage;
+use App\Support\Clients\ClientMergeRegistry;
+use App\Support\Currencies\MoneyFormatter;
 use App\Support\Currencies\PriceConverters;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Domains\RegistrarDriverRegistry;
+use App\Support\Domains\RegistrarException;
+use App\Support\Events\WebhookEvents;
+use App\Support\Integrations\StoredSecrets;
 use App\Support\Modules\ModuleServiceProvider;
+use App\Support\Money;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Security\EncryptedModel;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
-use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
 
 /**
- * Domains module. Registrar sync is scheduled hourly (`domains:sync`) rather than in the daily automation
- * pipeline because pending transfers and needs_review domains need sub-daily checks; it has no SYNC task.
+ * Domains module. Registrar sync is scheduled hourly (the SyncRegistrars job on the registrar queue, also runnable as
+ * `domains:sync`) rather than in the daily automation pipeline because pending transfers and needs_review domains
+ * need sub-daily checks; it has no SYNC task.
  */
 class DomainsServiceProvider extends ModuleServiceProvider
 {
@@ -62,26 +103,65 @@ class DomainsServiceProvider extends ModuleServiceProvider
 
     protected function registerModule(): void
     {
-        $this->app->singleton(RegistrarManager::class, function (): RegistrarManager {
-            $manager = new RegistrarManager;
-            $manager->extend('log', LogRegistrar::class);
-
-            return $manager;
-        });
-
         $this->app->scoped(DomainPricingService::class);
         $this->app->scoped(DomainPricing::class, fn ($app) => $app->make(DomainPricingService::class));
         $this->app->bind(DomainRegistry::class, DomainRegistryService::class);
+        $this->app->scoped(TldAttributeService::class);
+        $this->app->scoped(TldAttributes::class, fn ($app) => $app->make(TldAttributeService::class));
+        $this->app->bind(RegistrarRefs::class, EloquentRegistrarRefs::class);
+        $this->app->bind(DomainNameRules::class, RegistryLevels::class);
     }
 
     protected function schedule(Schedule $schedule): void
     {
-        $schedule->command('domains:sync')->hourly()->withoutOverlapping()->onOneServer();
+        $schedule->job(new SyncRegistrars)->name('domains:sync')->hourly()->withoutOverlapping()->onOneServer();
     }
 
     protected function bootModule(): void
     {
+        $webhooks = $this->app->make(WebhookEvents::class);
+        $webhooks->register(DomainRegistered::class, 'domain.registered', 'domain', 'domainId');
+        $webhooks->register(DomainRenewed::class, 'domain.renewed', 'domain', 'domainId');
+        $webhooks->register(DomainTransferred::class, 'domain.transferred', 'domain', 'domainId');
+        $webhooks->register(DomainExpired::class, 'domain.expired', 'domain', 'domainId');
+
+        $this->app->make(RegistrarDriverRegistry::class)->register('log', LogRegistrar::class);
+        $this->app->make(RegistrarDriverRegistry::class)->register(ResellerClubDriver::KEY, ResellerClubDriver::class);
+        $this->app->make(RegistrarDriverRegistry::class)->register(NamecheapDriver::KEY, NamecheapDriver::class);
+
+        // Kernel registrar exceptions know nothing about HTTP (ADR 0009 §4): a failed staff or client action goes back
+        // to the form with the (already redacted) message.
+        $this->callAfterResolving(ExceptionHandler::class, function (object $handler): void {
+            if (method_exists($handler, 'renderable')) {
+                $handler->renderable(fn (RegistrarException $exception, Request $request): JsonResponse|RedirectResponse => $request->expectsJson()
+                    ? response()->json(['message' => $exception->getMessage(), 'code' => $exception->errorCode()], 422)
+                    : back()->withErrors(['registrar' => $exception->getMessage()]));
+            }
+        });
+
+        // Encrypted casts, for `security:reencrypt` (ADR 0022).
+        $encrypted = $this->app->make(EncryptedStorage::class);
+        $encrypted->register('domains_registrar_accounts', new EncryptedModel(RegistrarAccount::class));
+        $encrypted->register('domains_domains', new EncryptedModel(Domain::class));
+        $encrypted->register('domains_registrar_refs', new EncryptedModel(RegistrarRefRecord::class));
+
+        // Stored registrar credentials checked against their minimum length (`integrations:short-secrets`).
+        $this->app->make(StoredSecrets::class)->register('registrars', function (): iterable {
+            $registrars = $this->app->make(RegistrarDriverRegistry::class);
+
+            foreach (RegistrarAccount::query()->orderBy('key')->get() as $account) {
+                if ($registrars->has($account->key)) {
+                    yield ['owner' => $registrars->get($account->key)->name(), 'fields' => $registrars->fields($account->key), 'values' => fn (): array => $account->settings ?? []];
+                }
+            }
+        });
+
         $this->registerListeners();
+
+        // A domain's prices are stored in its client's currency (client-import spec §6.4); a deleted one still counts.
+        $this->app->make(ClientCurrencyUsage::class)->register('domains', fn (array $clientIds): array => Domain::withTrashed()
+            ->whereIn('client_id', $clientIds)->distinct()->pluck('client_id')->all());
+
         $this->registerAutomation();
         $this->registerNavigation();
         $this->registerDashboardCards();
@@ -95,6 +175,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
     {
         Event::listen(InvoicePaid::class, HandleInvoicePaid::class);
         Event::listen(InvoiceCancelled::class, HandleInvoiceCancelled::class);
+        Event::listen(ClientMerged::class, MoveRegistrarRefsOnClientMerge::class);
 
         foreach ([ServiceActivated::class, ServiceRenewed::class, ServiceSuspended::class, ServiceUnsuspended::class, ServiceTerminated::class] as $event) {
             Event::listen($event, MirrorLinkedServiceState::class);
@@ -106,21 +187,21 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $automation = $this->app->make(Automation::class);
         $invoicesAvailable = fn (): bool => $this->app->make(RenewalInvoices::class)->available();
 
-        $automation->task('domains.renewals', Automation::RENEWALS, fn (CarbonImmutable $today): int|string => $invoicesAvailable()
+        $automation->task('domains.renewals', Automation::RENEWALS, fn (CalendarDate $today): int|string => $invoicesAvailable()
             ? $this->app->make(IssueRenewalInvoices::class)->handle($today)
             : 'skipped: no invoicer', label: 'Generate domain renewal invoices', description: 'Invoices domains that are coming up for renewal.');
 
-        $automation->task('domains.reminders', Automation::REMINDERS, fn (CarbonImmutable $today): int => $this->app->make(SendExpiryReminders::class)->handle($today), label: 'Send domain expiry reminders', description: 'Emails clients about domains that are about to expire.');
+        $automation->task('domains.reminders', Automation::REMINDERS, fn (CalendarDate $today): int => $this->app->make(SendExpiryReminders::class)->handle($today), label: 'Send domain expiry reminders', description: 'Emails clients about domains that are about to expire.');
 
-        $automation->task('domains.lifecycle', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $this->app->make(ApplyExpiryLifecycle::class)->handle($today), label: 'Move expired domains through grace and redemption', description: 'Moves expired domains into grace, redemption and expired, swapping their renewal invoices.');
+        $automation->task('domains.lifecycle', Automation::CANCELLATIONS, fn (CalendarDate $today): int => $this->app->make(ApplyExpiryLifecycle::class)->handle($today), label: 'Move expired domains through grace and redemption', description: 'Moves expired domains into grace, redemption and expired, swapping their renewal invoices.');
 
         $this->app->make(PriceConverters::class)->register(ConvertTldPrices::class);
         $automation->task('domains.convert-prices', Automation::SYNC, fn (): int|string => $this->app->make(ConvertTldPrices::class)->automatic()
             ? $this->app->make(ConvertTldPrices::class)->apply()
             : 'disabled', label: 'Convert domain prices', description: 'Recalculates TLD prices in other currencies from the default currency at current rates (when automatic conversion is on).');
 
-        $automation->task('domains.command_log_prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => ChunkedDelete::run(RegistrarCommandLog::query()
-            ->where('created_at', '<', $today->subDays((int) $this->app->make(Settings::class)->get('domains.command_log_retention_days', 90)))), label: 'Prune the registrar log', description: 'Deletes registrar command log entries older than the retention period.');
+        $automation->task('domains.command_log_prune', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => ChunkedDelete::run(RegistrarCommandLog::query()
+            ->where('created_at', '<', $this->app->make(CompanyClock::class)->dayBounds(RetentionRunDate::of($today)->addDays(-(int) $this->app->make(Settings::class)->get('domains.command_log_retention_days', 90)))[0])), label: 'Prune the registrar log', description: 'Deletes registrar command log entries older than the retention period.');
     }
 
     private function registerNavigation(): void
@@ -130,7 +211,8 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $navigation->add('admin', new NavItem('TLD pricing', 'admin.domains.tlds.index', 'Tag', 'Domains', 20, 'domains.tlds.view', 'admin.domains.tlds.*'));
         $navigation->add('admin', new NavItem('Registrars', 'admin.domains.registrars.index', 'Server', 'Domains', 30, 'domains.registrars.manage', 'admin.domains.registrars.*'));
         $navigation->add('client', new NavItem('My domains', 'client.domains.index', 'Globe', 'Domains', 10, null, 'client.domains.*'));
-        $navigation->add('client', new NavItem('Register a domain', 'domains.search', 'Search', 'Domains', 20));
+        // After boot, when every module's routes (or the route cache) are loaded: the store's search when Orders is on.
+        $this->app->booted(fn () => $navigation->add('client', new NavItem('Register a domain', Route::has('store.domains') ? 'store.domains' : 'domains.search', 'Search', 'Domains', 20, null, 'store.domains')));
         $navigation->add('admin-client', new NavItem('Domains', 'admin.domains.index', 'Globe', order: 30, permission: 'domains.domains.view'));
     }
 
@@ -160,6 +242,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
     private function registerDashboardCards(): void
     {
         $dashboard = $this->app->make(Dashboard::class);
+        $this->app->make(DomainsAdminClientSummary::class)->register($dashboard);
 
         $dashboard->card('admin', 'domains.expiring', fn (?User $user): array => [
             'label' => 'Domains expiring in 30 days',
@@ -193,21 +276,165 @@ class DomainsServiceProvider extends ModuleServiceProvider
 
         $dashboard->health('admin', 'domains.registrars', fn (?User $user): array => $this->registrarHealth(), 'domains.domains.view', 50);
 
-        $dashboard->todo('client', 'domains.renew', fn (?User $user, Client $client): array => [
-            'label' => 'Domains to renew',
-            'count' => Domain::query()->where('client_id', $client->id)
-                ->where(fn ($query) => $query->expiringWithin(30)->orWhere(fn ($query) => $query->withStatus([DomainStatus::Grace, DomainStatus::Redemption])))
-                ->count(),
-            'href' => route('client.domains.index'),
-            'tone' => 'warning',
-        ], null, 30);
+        $canSee = fn (?User $user, Client $client): bool => app(ClientContext::class)->allows($user, $client, 'domains');
 
-        $dashboard->card('client', 'domains.expiring', fn (?User $user, Client $client): array => [
+        $dashboard->card('client', 'domains.expiring', fn (?User $user, Client $client): ?array => $canSee($user, $client) ? [
             'label' => 'Domains expiring soon',
             'value' => Domain::query()->where('client_id', $client->id)->expiringWithin(30)->count(),
             'href' => route('client.domains.index'),
             'icon' => 'Globe',
-        ], null, 30);
+        ] : null, null, 30);
+
+        $dashboard->widget('client', 'domains.list', 'list', fn (?User $user, Client $client): ?array => $canSee($user, $client) ? [
+            'title' => 'Domains',
+            'items' => $this->clientDashboardDomains($client),
+            'href' => route('client.domains.index'),
+            'empty' => 'You have no domains yet.',
+            'emptyAction' => ['label' => 'Register a domain', 'href' => route(Route::has('store.domains') ? 'store.domains' : 'domains.search')],
+        ] : null, null, 40);
+    }
+
+    /**
+     * The client dashboard's domain rows. Manageable domains get the auto-renew switch; those that can be renewed now
+     * and expire within 30 days (or are in grace or redemption) get Renew now, priced only for those rows, or Pay
+     * invoice when the renewal invoice of the period is already open.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function clientDashboardDomains(Client $client): array
+    {
+        $today = app(CompanyClock::class)->calendarDate();
+        $soon = $today->addDays(30)->toString();
+        $renewalOrders = (bool) app(Settings::class)->get('domains.enable_renewal_orders', true);
+        $invoices = app(RenewalInvoices::class);
+
+        $domains = Domain::query()->where('client_id', $client->id)->withStatus(DomainStatus::nonTerminal())
+            ->with('tldModel:id,registered_by_client,grace_fee,redemption_fee')
+            ->orderByRaw('case when expiry_date is null then 1 else 0 end')->orderBy('expiry_date')->orderBy('id')
+            ->limit(5)
+            ->get(['id', 'client_id', 'tld_id', 'tld', 'name_unicode', 'status', 'expiry_date', 'next_due_date', 'period_years', 'auto_renew', 'currency', 'recurring_amount', 'linked_service_status']);
+
+        $offers = $domains->filter(function (Domain $domain) use ($soon, $renewalOrders): bool {
+            $expiry = $domain->expiry_date?->toDateString();
+
+            // The domain page's canRenewNow rule, narrowed to domains that need it soon.
+            return $this->manageableOnDashboard($domain) && $renewalOrders && ! ($domain->isFree() && $domain->linked_service_status === 'active')
+                && ($domain->status !== DomainStatus::Active || ($expiry !== null && $expiry <= $soon));
+        })->keyBy('id');
+
+        // One query for the open renewal invoices and one price query for every extension, however many rows offer it.
+        $open = $offers->isEmpty() || ! $invoices->available() ? collect() : DomainInvoice::query()
+            ->whereIn('domain_id', $offers->modelKeys())->where('status', 'open')->whereIn('kind', RenewalInvoices::RENEWAL_KINDS)
+            ->orderByDesc('id')->get(['domain_id', 'invoice_id', 'period_start'])
+            ->filter(fn (DomainInvoice $invoice): bool => $invoice->period_start->toDateString() === $domains->find($invoice->domain_id)?->next_due_date->toDateString())
+            ->keyBy('domain_id');
+        app(DomainPricingService::class)->primePrices(array_values(array_filter($offers->pluck('tld_id')->all())));
+        $tax = $offers->count() > $open->count() ? $this->renewalTax($client) : '';
+
+        return array_values($domains->map(function (Domain $domain) use ($client, $today, $soon, $offers, $open, $invoices, $tax): array {
+            $expiry = $domain->expiry_date?->toDateString();
+            $manageable = $this->manageableOnDashboard($domain);
+
+            return [
+                'title' => $domain->name_unicode,
+                // The switch shows the state where there is one; the line keeps room for the date.
+                'subtitle' => $manageable ? null : ($domain->auto_renew ? 'Auto-renew on' : 'Auto-renew off'),
+                'href' => route('client.domains.show', $domain->id),
+                'status' => $domain->status === DomainStatus::Active && $expiry !== null && $expiry <= $soon ? 'expiring' : $domain->status->value,
+                'date' => $expiry,
+                'dateLabel' => match (true) {
+                    $expiry !== null && $expiry < $today->toString() => 'Expired',
+                    $domain->auto_renew => 'Renews',
+                    default => 'Expires',
+                },
+                'toggle' => $manageable ? [
+                    'label' => 'Auto-renew '.$domain->name_unicode,
+                    'text' => 'Auto-renew',
+                    'href' => route('client.domains.auto-renew', $domain->id),
+                    'field' => 'enabled',
+                    'on' => $domain->auto_renew,
+                ] : null,
+                'action' => $offers->has($domain->id) ? $this->renewalAction($domain, $client, $open->get($domain->id), $invoices, $tax) : null,
+            ];
+        })->all());
+    }
+
+    private function manageableOnDashboard(Domain $domain): bool
+    {
+        return $domain->status->allowsClientActions() && ! $domain->isRegisteredByClient();
+    }
+
+    /**
+     * How tax relates to a renewal's price for this client, as a phrase for the Renew now dialog: ", VAT included"
+     * (tax-inclusive prices), " plus VAT" (added on the invoice), or nothing. One calculation for the dashboard: every
+     * row is a domain line for the same client.
+     */
+    private function renewalTax(Client $client): string
+    {
+        if (! app()->bound(TaxCalculator::class)) {
+            return '';
+        }
+
+        $base = 100_000;
+        $totals = app(TaxCalculator::class)->calculateForClient([new InvoiceLineData('Domain renewal', $base, billableType: BillableType::Domain)], $client->id, $client->currency);
+        $names = implode(' and ', array_column(array_filter($totals->taxes, fn (array $tax): bool => $tax['amount'] > 0), 'name'));
+
+        return match (true) {
+            $names === '' => '',
+            $totals->total === $base => ", {$names} included",
+            default => " plus {$names}",
+        };
+    }
+
+    /**
+     * Pay invoice when the period's renewal invoice is open (Renew now would be refused), otherwise Renew now with the
+     * amount IssueRenewalNow bills: the term plus the grace or redemption fee, with how tax applies.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function renewalAction(Domain $domain, Client $client, ?DomainInvoice $open, RenewalInvoices $invoices, string $tax): ?array
+    {
+        if ($open !== null) {
+            return Route::has('client.invoices.show') ? ['label' => 'Pay invoice', 'href' => route('client.invoices.show', $open->invoice_id)] : null;
+        }
+
+        $term = app(DomainPricingService::class)->renewalTerms($domain, $domain->currency, $client->client_group_id)[0] ?? null;
+
+        if ($term === null) {
+            return null;
+        }
+
+        [$kind, $fee] = $invoices->charge($domain);
+        $total = array_sum(array_map(fn ($line): int => $line->unitAmount, $invoices->lines($domain, $kind, $fee, $term['years'], $term['price'])));
+        $years = $term['years'];
+        $period = $years === 1 ? '1 year' : "{$years} years";
+        $amount = app(MoneyFormatter::class)->format(Money::of($total, $domain->currency));
+        $what = match ($kind) {
+            'grace' => "{$period} plus the late renewal fee",
+            'redemption' => "{$period} plus the redemption fee",
+            default => $period,
+        };
+
+        return [
+            'label' => 'Renew now',
+            'href' => route('client.domains.renew', $domain->id),
+            'method' => 'post',
+            'confirm' => [
+                'title' => "Renew {$domain->name_unicode} for {$period}?",
+                'description' => "We create an invoice for {$amount} ({$what}){$tax} and take you to it. The domain renews when the invoice is paid.",
+                'confirmLabel' => 'Create renewal invoice',
+                'data' => ['years' => $years],
+            ],
+        ];
+    }
+
+    /**
+     * @param  'string'|'email'|'country'  $type
+     * @param  list<mixed>  $rules
+     */
+    private function contactSetting(string $field, string $label, string $type = 'string', ?string $help = null, array $rules = ['max:255']): SettingDefinition
+    {
+        return new SettingDefinition('domains.default_contact.'.$field, $label, $type, $help, rules: ['nullable', ...$rules]);
     }
 
     private function registerPermissionsAndSettings(): void
@@ -223,9 +450,25 @@ class DomainsServiceProvider extends ModuleServiceProvider
             'domains.settings.manage' => 'Manage domain settings',
         ], sensitive: ['domains.registrars.manage']);
 
-        $this->app->make(SettingsRegistry::class)->section('domains', 'Domains', [
+        $registry = $this->app->make(SettingsRegistry::class);
+        $activeTlds = fn (): array => Tld::query()->active()->ordered()->get(['extension', 'display_unicode'])
+            ->mapWithKeys(fn (Tld $tld): array => [$tld->extension => $tld->display_unicode ?: $tld->extension])->all();
+        // Registrars that answer availability checks, by name. The saved one stays listed, marked when its driver is
+        // gone, so the rest of the section still saves.
+        $lookupRegistrars = function (): array {
+            $registrars = $this->app->make(RegistrarDriverRegistry::class);
+            $saved = (string) $this->app->make(Settings::class)->get('domains.lookup_registrar', '');
+            $options = collect($registrars->keys())
+                ->filter(fn (string $key): bool => $key === $saved || $registrars->supports($key, 'availability'))
+                ->mapWithKeys(fn (string $key): array => [$key => $registrars->get($key)->name()])->all();
+
+            return $saved === '' || isset($options[$saved]) ? $options : $options + [$saved => Str::headline($saved).' (not available)'];
+        };
+
+        // domains.order_route is a developer setting and is left out of the UI.
+        $registry->section('domains', 'Domains', [
             new SettingDefinition('domains.default_auto_renew', 'Auto-renew new domains by default', 'boolean'),
-            new SettingDefinition('domains.invoice_lead_days', 'Days before the due date to issue renewal invoices', 'integer', 'Empty uses billing.invoice_lead_days.', rules: ['nullable', 'min:0', 'max:365']),
+            new SettingDefinition('domains.invoice_lead_days', 'Days before the due date to issue renewal invoices', 'integer', rules: ['min:0', 'max:365']),
             new SettingDefinition('domains.next_due_offset_days', 'Days before expiry that renewals are due', 'integer', rules: ['min:0', 'max:90']),
             new SettingDefinition('domains.free_renewal_requires_service', 'Free domains renew only with an active linked service', 'boolean'),
             new SettingDefinition('domains.renew_on_payment', 'Renew at the registrar when the renewal invoice is paid', 'boolean'),
@@ -233,8 +476,26 @@ class DomainsServiceProvider extends ModuleServiceProvider
             new SettingDefinition('domains.grace_redemption_enabled', 'Use grace and redemption periods', 'boolean'),
             new SettingDefinition('domains.default_nameservers', 'Default nameservers', 'text', 'One hostname per line (2–5).'),
             new SettingDefinition('domains.use_client_contacts', 'Use the client profile for admin, tech and billing contacts', 'boolean'),
-            new SettingDefinition('domains.default_contact', 'Default contact (JSON)', 'text', 'Used for admin/tech/billing contacts when client contacts are off.'),
             new SettingDefinition('domains.lock_by_default', 'Lock domains after registration or transfer', 'boolean'),
+        ], 'domains.settings.manage');
+
+        // One setting per field, so the contact is a form rather than JSON; registrars validate the details themselves.
+        $contact = $this->contactSetting(...);
+        $registry->section('domains_contact', 'Domain contact', [
+            $contact('first_name', 'First name', help: 'Admin, tech and billing contact of new domains when "Use the client profile" is off. The registrant is always the client.'),
+            $contact('last_name', 'Last name'),
+            $contact('company', 'Company'),
+            $contact('email', 'Email address', 'email'),
+            $contact('phone', 'Phone', help: 'With the country code, e.g. +977.9801234567.', rules: ['max:30']),
+            $contact('address_1', 'Address'),
+            $contact('address_2', 'Address line 2'),
+            $contact('city', 'City'),
+            $contact('state', 'State or province'),
+            $contact('postcode', 'Postcode', rules: ['max:20']),
+            $contact('country', 'Country', 'country', rules: []),
+        ], 'domains.settings.manage');
+
+        $registry->section('domains_sync', 'Domain sync', [
             new SettingDefinition('domains.sync_enabled', 'Sync domains with registrars', 'boolean'),
             new SettingDefinition('domains.sync_notify_only', 'Report sync differences without changing anything', 'boolean'),
             new SettingDefinition('domains.sync_batch_size', 'Domains per sync run', 'integer', rules: ['min:1', 'max:1000']),
@@ -242,18 +503,24 @@ class DomainsServiceProvider extends ModuleServiceProvider
             new SettingDefinition('domains.transfer_sync_interval_hours', 'Hours between transfer status checks', 'integer', rules: ['min:1', 'max:168']),
             new SettingDefinition('domains.transfer_stale_days', 'Notify staff about transfers pending longer than (days)', 'integer', rules: ['min:1', 'max:90']),
             new SettingDefinition('domains.command_log_retention_days', 'Keep registrar command log for (days)', 'integer', rules: ['min:1', 'max:3650']),
+        ], 'domains.settings.manage');
+
+        $registry->section('domains_reminders', 'Domain reminders', [
             new SettingDefinition('domains.reminder_offsets', 'Expiry reminder days (negative = after expiry)', 'string', 'Comma-separated, at most 5, e.g. 30, 7, -3.'),
             new SettingDefinition('domains.remind_when_auto_renew_off', 'Send reminders when auto-renew is off', 'boolean'),
             new SettingDefinition('domains.remind_free_domains', 'Send reminders for free domains', 'boolean'),
-            new SettingDefinition('domains.allow_idn', 'Allow internationalised domain names', 'boolean'),
-            new SettingDefinition('domains.lookup_registrar', 'Registrar used for availability lookups', 'string'),
-            new SettingDefinition('domains.lookup_tlds', 'Extensions checked when no TLD is entered', 'string', 'Comma-separated, e.g. .com, .net'),
-            new SettingDefinition('domains.lookup_cache_seconds', 'Cache lookup results for (seconds)', 'integer', rules: ['min:0', 'max:86400']),
-            new SettingDefinition('domains.suggestion_tlds', 'Extensions used for suggestions', 'string', 'Comma-separated.'),
+        ], 'domains.settings.manage');
+
+        $registry->section('domains_search', 'Domain search', [
+            new SettingDefinition('domains.lookup_registrar', 'Registrar used for availability lookups', 'select', 'Extensions are checked through this registrar\'s availability service.', options: $lookupRegistrars),
+            new SettingDefinition('domains.lookup_tlds', 'Extensions checked when no TLD is entered', 'multiselect', 'Active extensions only.', options: $activeTlds),
+            new SettingDefinition('domains.suggestion_tlds', 'Extensions used for suggestions', 'multiselect', options: $activeTlds),
             new SettingDefinition('domains.suggestion_limit', 'Maximum suggestions', 'integer', rules: ['min:0', 'max:50']),
+            new SettingDefinition('domains.lookup_cache_seconds', 'Cache lookup results for (seconds)', 'integer', rules: ['min:0', 'max:86400']),
             new SettingDefinition('domains.lookup_rate_limit', 'Lookups per minute per IP', 'integer', rules: ['min:1', 'max:600']),
+            new SettingDefinition('domains.allow_idn', 'Allow internationalised domain names', 'boolean'),
             new SettingDefinition('domains.premium_enabled', 'Sell premium names (at the standard price until premium pricing exists)', 'boolean'),
-            new SettingDefinition('domains.order_route', 'Cart route used by "Add to cart" on the domain search', 'string'),
+            new SettingDefinition('domains.self_registration_url', '"How to register" link for domains clients register at the registry', 'string', 'Shown in domain search for extensions marked "registered by the client", such as .np.', rules: ['nullable', 'url:https', 'max:255']),
         ], 'domains.settings.manage');
 
         // Converting prices rewrites them from exchange rates, so it sits with the sensitive rate permission.
@@ -264,6 +531,15 @@ class DomainsServiceProvider extends ModuleServiceProvider
 
     private function registerSearchAndMergeFields(): void
     {
+        $this->app->make(ClientMergeRegistry::class)->participant('domains.domains', fn (int $sourceId): array => [
+            'label' => 'Domains',
+            'count' => Domain::withTrashed()->where('client_id', $sourceId)->count(),
+        ]);
+        $this->app->make(ClientMergeRegistry::class)->participant('domains.registrar_refs', fn (int $sourceId): array => [
+            'label' => 'Registrar customer and contact references',
+            'count' => RegistrarRefRecord::query()->where('local_type', MoveRegistrarRefsOnClientMerge::LOCAL_TYPE)->where('local_id', $sourceId)->count(),
+        ]);
+
         $this->app->make(GlobalSearch::class)->provider('Domains', fn (string $term): array => array_values(Domain::query()
             ->with('client:id,first_name,last_name,company_name')
             ->search($term)
@@ -279,7 +555,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
             ->all()), 'domains.domains.view');
 
         $this->app->make(MergeFieldRegistry::class)->register('domain', function (int $id): array {
-            $domain = Domain::query()->withTrashed()->findOrFail($id);
+            $domain = Domain::query()->withTrashed()->with('tldModel:id,registered_by_client,how_to_url')->findOrFail($id);
 
             return [
                 'domain_id' => $domain->id,
@@ -287,10 +563,14 @@ class DomainsServiceProvider extends ModuleServiceProvider
                 'domain' => $domain->name_unicode,
                 'domain_ascii' => $domain->name,
                 'status' => $domain->status->value,
+                // What to call the status: a name the client registered at the registry is not "Active" here.
+                'status_label' => $domain->isRegisteredByClient() && $domain->status === DomainStatus::Active ? __('Self-registered') : $domain->status->label(),
+                'registered_by_client' => $domain->isRegisteredByClient(),
                 'registration_date' => $domain->registration_date?->toDateString(),
                 'expiry_date' => $domain->expiry_date?->toDateString(),
+                'expiry_label' => $domain->expiry_date === null && $domain->isRegisteredByClient() ? __('At the registry') : null,
                 'next_due_date' => $domain->next_due_date->toDateString(),
-                'days_until_expiry' => $domain->expiry_date === null ? null : (int) CarbonImmutable::today()->diffInDays($domain->expiry_date, false),
+                'days_until_expiry' => $domain->expiry_date === null ? null : app(CompanyClock::class)->calendarDate()->daysUntil(CalendarDate::parse($domain->expiry_date->toDateString())),
                 'recurring_amount' => $domain->recurring_amount,
                 'currency' => $domain->currency,
                 'period_years' => $domain->period_years,

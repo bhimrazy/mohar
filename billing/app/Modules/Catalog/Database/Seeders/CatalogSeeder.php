@@ -30,6 +30,8 @@ class CatalogSeeder extends DemoSeeder
     /** @var list<Currency> */
     private array $currencies = [];
 
+    private ?Currency $usd = null;
+
     /** Cycle => [months, discount factor]. */
     private const CYCLES = [
         'monthly' => [1, 1.0],
@@ -58,7 +60,7 @@ class CatalogSeeder extends DemoSeeder
             'tagline' => '1 website, 10 GB SSD',
             'provisioning_driver' => 'log',
             'driver_config' => ['package' => 'starter', 'disk_quota' => '10240'],
-            'welcome_email_key' => 'hosting.welcome',
+            'welcome_email_key' => 'service.welcome.shared_hosting',
             'requires_domain' => true,
         ]);
         $pro = $this->product($hosting, 'Pro', 'pro', 799, ['monthly', 'annually', 'biennially'], [
@@ -66,7 +68,7 @@ class CatalogSeeder extends DemoSeeder
             'is_featured' => true,
             'provisioning_driver' => 'log',
             'driver_config' => ['package' => 'pro', 'disk_quota' => '51200'],
-            'welcome_email_key' => 'hosting.welcome',
+            'welcome_email_key' => 'service.welcome.shared_hosting',
             'requires_domain' => true,
             'free_domain' => FreeDomain::Once,
             'free_domain_cycles' => ['annually', 'biennially'],
@@ -76,7 +78,7 @@ class CatalogSeeder extends DemoSeeder
             'tagline' => 'Unlimited websites, 200 GB NVMe, daily backups',
             'provisioning_driver' => 'log',
             'driver_config' => ['package' => 'business', 'disk_quota' => '204800'],
-            'welcome_email_key' => 'hosting.welcome',
+            'welcome_email_key' => 'service.welcome.shared_hosting',
             'requires_domain' => true,
             'prorata_enabled' => true,
             'prorata_day' => 1,
@@ -88,7 +90,7 @@ class CatalogSeeder extends DemoSeeder
             'tagline' => '1 vCPU · 2 GB RAM · 40 GB NVMe',
             'provisioning_driver' => 'log',
             'driver_config' => ['template' => 'debian-12', 'storage' => 'nvme'],
-            'welcome_email_key' => 'vps.welcome',
+            'welcome_email_key' => 'service.welcome.server',
             'auto_setup' => AutoSetup::OnOrder,
         ], setupFee: 500);
         $vpsMedium = $this->product($vps, 'VPS M', 'vps-m', 2400, ['monthly', 'quarterly', 'annually'], [
@@ -96,7 +98,7 @@ class CatalogSeeder extends DemoSeeder
             'tagline' => '2 vCPU · 4 GB RAM · 80 GB NVMe',
             'provisioning_driver' => 'log',
             'driver_config' => ['template' => 'debian-12', 'storage' => 'nvme'],
-            'welcome_email_key' => 'vps.welcome',
+            'welcome_email_key' => 'service.welcome.server',
             'stock_enabled' => true,
             'stock_quantity' => 25,
         ], setupFee: 500);
@@ -210,14 +212,14 @@ class CatalogSeeder extends DemoSeeder
         foreach ($this->currencies as $currency) {
             foreach ($cycles as $cycle) {
                 [$months, $discount] = $cycle === 'onetime' ? [1, 1.0] : self::CYCLES[$cycle];
-                $amount = $currency->fromDefault((int) round($usdMonthly * $months * $discount));
+                $amount = $this->fromUsd((int) round($usdMonthly * $months * $discount), $currency);
 
                 $priceable->prices()->create([
                     'currency' => $currency->code,
                     'cycle' => BillingCycle::from($cycle),
                     'enabled' => true,
                     'amount' => $charm ? $this->pricePoint($amount) : $amount,
-                    'setup_fee' => $currency->fromDefault($setupFee),
+                    'setup_fee' => $this->fromUsd($setupFee, $currency),
                 ]);
             }
         }
@@ -226,6 +228,16 @@ class CatalogSeeder extends DemoSeeder
     /**
      * 3.83 → 3.99; 331.17 → 339.00 (whole units ending in 9 from 100 upwards).
      */
+    /**
+     * The base prices are US dollars; the install's default currency may be another one (NPR on the Nepal demo).
+     */
+    private function fromUsd(int $amount, Currency $currency): int
+    {
+        $usd = $this->usd ??= Currency::query()->where('code', 'USD')->first();
+
+        return $usd === null || $usd->code === $currency->code ? $amount : $currency->priceFromDefault($amount, $usd);
+    }
+
     private function pricePoint(int $amount): int
     {
         if ($amount < 100) {

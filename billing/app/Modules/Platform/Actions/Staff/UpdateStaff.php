@@ -6,22 +6,26 @@ use App\Events\Core\StaffDisabled;
 use App\Models\User;
 use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\LoginEmailChange;
+use App\Modules\Core\Support\LoginEmailChanged;
+use App\Modules\Core\Support\LoginSessions;
 use App\Modules\Platform\Services\PermissionGuard;
 use App\Modules\Platform\Support\AccountMail;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class UpdateStaff
 {
-    public function __construct(private PermissionGuard $guard, private ActivityLogger $activity, private AccountMail $mail) {}
+    public function __construct(private PermissionGuard $guard, private ActivityLogger $activity, private AccountMail $mail, private LoginEmailChange $emails) {}
 
     /**
      * @param  array{name: string, email: string, role_id: int, is_active: bool}  $data
+     * @return LoginEmailChanged which mails about an email change were delivered (both true when it did not change);
+     *                           the change is saved either way
      *
      * @throws ValidationException
      */
-    public function handle(User $actor, User $staff, array $data): User
+    public function handle(User $actor, User $staff, array $data): LoginEmailChanged
     {
         $role = Role::query()->findOrFail($data['role_id']);
         $roleChanged = $staff->role_id !== $role->id;
@@ -56,26 +60,26 @@ class UpdateStaff
             $staff->forceFill(['remember_token' => Str::random(60)]);
         }
 
-        if ($emailChanged && ! $staff->is($actor)) {
-            // An admin-initiated change must be re-verified by the owner of the new address.
+        if ($emailChanged) {
+            // The new mailbox now receives password resets and has not been proven yet, whoever made the change.
             $staff->forceFill(['email_verified_at' => null]);
         }
 
         $staff->save();
 
+        $result = new LoginEmailChanged(verificationSent: true, oldAddressTold: true);
+
         if ($emailChanged) {
             // Both addresses hear about it: the old one so a takeover is noticed, the new one for the record.
-            $this->mail->notice('staff.email_changed', [$oldEmail, $newEmail], ['actor' => $actor->name, 'old_email' => $oldEmail, 'new_email' => $newEmail], 'staff:'.$staff->id, __('Your staff sign-in email was changed'), [
+            $noticed = $this->mail->notice('staff.email_changed', [$oldEmail, $newEmail], ['actor' => $actor->name, 'old_email' => $oldEmail, 'new_email' => $newEmail], 'staff:'.$staff->id, __('Your staff sign-in email was changed'), [
                 __(':actor changed the sign-in email of your staff account from :old to :new.', ['actor' => $actor->name, 'old' => $oldEmail, 'new' => $newEmail]),
             ]);
 
-            if (! $staff->is($actor)) {
-                $staff->sendEmailVerificationNotification();
-            }
+            $result = new LoginEmailChanged($this->emails->sendVerification($staff), $noticed);
         }
 
         if ($deactivating) {
-            $this->revokeSessions($staff);
+            LoginSessions::revoke($staff);
         }
 
         $after = ['name' => $staff->name, 'email' => $staff->email, 'role' => $role->name, 'is_active' => $staff->is_active];
@@ -100,16 +104,6 @@ class UpdateStaff
             StaffDisabled::dispatch($staff->id);
         }
 
-        return $staff;
-    }
-
-    /**
-     * End every session of the user (database driver); the EnsureActiveUser middleware covers other drivers.
-     */
-    private function revokeSessions(User $staff): void
-    {
-        if (config('session.driver') === 'database') {
-            DB::connection(config('session.connection'))->table((string) config('session.table', 'sessions'))->where('user_id', $staff->id)->delete();
-        }
+        return $result;
     }
 }

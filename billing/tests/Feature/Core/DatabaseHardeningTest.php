@@ -9,6 +9,7 @@ use App\Modules\Support\Database\Seeders\SupportSeeder;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 test('only one currency can be the default', function () {
@@ -48,6 +49,19 @@ test('chunked delete keeps a row that stopped matching after its id was selected
         ->and(DB::table('automation_runs')->pluck('status')->all())->toBe(['success']);
 });
 
+test('chunked delete stops at its limit, leaves the rest for the next call and logs the count', function () {
+    DB::table('automation_runs')->insert(collect(range(1, 12))->map(fn (int $day) => ['run_date' => sprintf('2026-10-%02d', $day), 'task' => 'audit.limit', 'status' => 'success', 'created_at' => now(), 'updated_at' => now()])->all());
+    Log::spy();
+
+    $first = ChunkedDelete::run(DB::table('automation_runs')->where('task', 'audit.limit'), batch: 5, limit: 7);
+
+    expect($first)->toBe(7)
+        ->and(DB::table('automation_runs')->where('task', 'audit.limit')->count())->toBe(5)
+        ->and(ChunkedDelete::run(DB::table('automation_runs')->where('task', 'audit.limit'), batch: 5, limit: 7))->toBe(5);
+    Log::shouldHaveReceived('info')->with('Retention: rows deleted.', ['table' => 'automation_runs', 'deleted' => 7, 'limit_reached' => true])->once();
+    Log::shouldHaveReceived('info')->with('Retention: rows deleted.', ['table' => 'automation_runs', 'deleted' => 5, 'limit_reached' => false])->once();
+});
+
 test('online indexes are created once and dropped by their default name', function () {
     // Tests run inside a transaction; migrations run outside one and build CONCURRENTLY.
     OnlineIndex::create('automation_runs', ['status', 'id'], allowLocking: true);
@@ -69,6 +83,26 @@ test('an existing index of the same name is reused only with the same table, col
     'other columns' => ['automation_runs', ['task'], false],
     'other table' => ['settings', ['key'], false],
     'unique' => ['automation_runs', ['status'], true],
+]);
+
+test('an existing partial index is reused when the predicate differs only in case, spacing and quoting', function () {
+    OnlineIndex::create('automation_runs', ['run_date', 'id'], 'automation_runs_probe_index', where: "status in ('pending', 'failed') and duration_ms > 0", allowLocking: true);
+
+    OnlineIndex::create('automation_runs', ['run_date', 'id'], 'automation_runs_probe_index', where: "( \"status\" IN ('pending','failed')  AND DURATION_MS>0 )", allowLocking: true);
+
+    expect(Schema::hasIndex('automation_runs', 'automation_runs_probe_index'))->toBeTrue();
+});
+
+test('an existing index of the same name is never reused with another predicate', function (?string $existing, ?string $expected) {
+    OnlineIndex::create('automation_runs', ['run_date', 'id'], 'automation_runs_probe_index', where: $existing, allowLocking: true);
+
+    expect(fn () => OnlineIndex::create('automation_runs', ['run_date', 'id'], 'automation_runs_probe_index', where: $expected, allowLocking: true))
+        ->toThrow(LogicException::class, 'already exists with a different predicate');
+})->with([
+    'not partial, expected partial' => [null, "status = 'failed'"],
+    'partial, expected not partial' => ["status = 'failed'", null],
+    'other condition' => ["status = 'failed'", "status = 'pending'"],
+    'literal differs in case' => ["status = 'failed'", "status = 'Failed'"],
 ]);
 
 test('dropping an index by name refuses an index of another table', function () {

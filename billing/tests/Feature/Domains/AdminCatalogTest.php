@@ -1,12 +1,14 @@
 <?php
 
+use App\Contracts\Domains\Registrar\RegistrarDriver;
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Domains\Database\Seeders\DomainsSeeder;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Models\RegistrarAccount;
+use App\Modules\Domains\Models\RegistrarCommandLog;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Models\TldPrice;
+use App\Support\Domains\RegistrarDriverRegistry;
 use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Domains\DomainFixtures;
@@ -54,6 +56,16 @@ test('staff create a TLD with a normalised extension', function () {
     $tld = Tld::query()->sole();
     expect($tld->extension)->toBe('.co.uk')->and($tld->redemption_fee)->toBe(8000);
     $this->get(route('admin.domains.tlds.edit', $tld))->assertInertia(fn (Assert $page) => $page->component('admin/domains/tlds/form')->where('tld.id', $tld->id));
+});
+
+test('a TLD how-to link is stored when https and refused otherwise', function () {
+    actingAsStaff(['domains.tlds.*']);
+
+    $this->post(route('admin.domains.tlds.store'), tldPayload(['how_to_url' => 'http://example.com/guide']))->assertSessionHasErrors('how_to_url');
+    $this->post(route('admin.domains.tlds.store'), tldPayload(['how_to_url' => 'javascript:alert(1)']))->assertSessionHasErrors('how_to_url');
+    $this->post(route('admin.domains.tlds.store'), tldPayload(['how_to_url' => 'https://example.com/guide']))->assertRedirect();
+
+    expect(Tld::query()->sole()->how_to_url)->toBe('https://example.com/guide');
 });
 
 test('TLD validation rejects duplicates and bad terms', function () {
@@ -119,12 +131,23 @@ test('registrar settings are saved encrypted and blank secrets are kept', functi
 test('the connection test reports the driver result', function () {
     actingAsStaff(['domains.registrars.manage']);
     confirmPassword();
-    RegistrarAccount::query()->create(['key' => 'log', 'settings' => ['api_key' => 'invalid']]);
+    RegistrarAccount::query()->create(['key' => 'log', 'settings' => ['api_key' => 'invalid-key']]);
 
     $this->post(route('admin.domains.registrars.test', 'log'))
         ->assertRedirect()
         ->assertSessionHas('inertia.flash_data.toast.type', 'error');
     $this->post(route('admin.domains.registrars.test', 'missing'))->assertNotFound();
+});
+
+test('staff can test a disabled registrar before enabling it, and the test is logged', function () {
+    actingAsStaff(['domains.registrars.manage']);
+    confirmPassword();
+    RegistrarAccount::query()->create(['key' => 'log', 'is_active' => false, 'settings' => ['api_key' => 'sk-new-key']]);
+
+    $this->post(route('admin.domains.registrars.test', 'log'))
+        ->assertSessionHas('inertia.flash_data.toast.type', 'success');
+
+    expect(RegistrarCommandLog::query()->where('command', 'test_connection')->sole()->success)->toBeTrue();
 });
 
 test('security review L4: registrar credentials need the exact permission and a recent password, and never reach old input', function () {
@@ -177,7 +200,7 @@ test('the seeder prices every TLD in every configured currency', function () {
 test('registrar names come from driver metadata without loading accounts', function () {
     DB::enableQueryLog();
 
-    $names = app(RegistrarManager::class)->names();
+    $names = array_map(fn (RegistrarDriver $driver): string => $driver->name(), app(RegistrarDriverRegistry::class)->all());
 
     expect($names)->toMatchArray(['log' => 'Log (demo)'])
         ->and(collect(DB::getQueryLog())->pluck('query')->filter(fn (string $sql) => str_contains($sql, 'registrar_accounts')))->toBeEmpty();

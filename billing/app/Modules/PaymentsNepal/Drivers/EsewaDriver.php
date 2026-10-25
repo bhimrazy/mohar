@@ -35,6 +35,13 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
 {
     public const KEY = 'esewa';
 
+    /**
+     * How long eSewa keeps a booked session payable after the form post: `bookingExpiryTime` was 50 minutes after
+     * the post in every UAT capture of 2026-10-21. An attempt must not expire before it, or the customer could pay
+     * another way while eSewa can still take the money; attemptTtl() never goes below this plus a 5-minute margin.
+     */
+    public const BOOKING_MINUTES = 50;
+
     /** Fields we sign on the request, in eSewa's mandatory order. */
     public const REQUEST_SIGNED_FIELDS = 'total_amount,transaction_uuid,product_code';
 
@@ -93,9 +100,9 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
 
     public function attemptTtl(GatewayConfig $gateway): CarbonInterval
     {
-        $minutes = config('payments_nepal.esewa.attempt_ttl_minutes', 15);
+        $minutes = config('payments_nepal.esewa.attempt_ttl_minutes', 60);
 
-        return CarbonInterval::minutes(is_numeric($minutes) ? (int) $minutes : 15);
+        return CarbonInterval::minutes(max(self::BOOKING_MINUTES + 5, is_numeric($minutes) ? (int) $minutes : 60));
     }
 
     /**
@@ -124,12 +131,13 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
         ];
         $fields['signature'] = self::signature($fields, self::REQUEST_SIGNED_FIELDS, $secret);
 
-        return new FormPost(ProviderHttp::endpoint($gateway, 'esewa.form'), $fields);
+        return new FormPost(ProviderHttp::endpoint($gateway, 'esewa.form')->baseUrl, $fields);
     }
 
     /**
-     * Success: ?data=<base64 JSON>. Failure (also used for PENDING): our failure_url with ?ref=. Either way only a
-     * hint; the return route always settles through lookup().
+     * Success: ?data=<base64 JSON>. Failure (also used for PENDING, and where eSewa sends the customer after a
+     * confirmed cancel): our failure_url with ?ref= and cancelled=1, unchanged. Either way only a hint; the return
+     * route always settles through lookup().
      */
     public function parseReturn(GatewayConfig $gateway, Request $request): ReturnHint
     {
@@ -151,6 +159,7 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
             claimedStatus: is_string($payload['status'] ?? null) ? mb_substr($payload['status'], 0, 40) : null,
             signatureValid: $valid,
             raw: [...$raw, 'signature_valid' => $valid],
+            signedPaid: $valid && ($payload['status'] ?? null) === 'COMPLETE',
         );
     }
 
@@ -162,7 +171,8 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
     {
         try {
             [$productCode] = $this->credentials($gateway);
-            $response = $this->http->lookup($attempt->interactive)->get(ProviderHttp::endpoint($gateway, 'esewa.status'), [
+            $endpoint = ProviderHttp::endpoint($gateway, 'esewa.status');
+            $response = $this->http->lookup($attempt->interactive)->withOptions($endpoint->options)->get($endpoint->baseUrl, [
                 'product_code' => $productCode,
                 'total_amount' => NprAmount::toRupees($attempt->amount->amount),
                 'transaction_uuid' => $attempt->reference,
@@ -206,8 +216,11 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
             'PENDING' => LookupResult::PENDING,
             // "Payment is at halt state": never auto-failed; Billing keeps polling and alerts staff.
             'AMBIGUOUS' => LookupResult::AMBIGUOUS,
-            // Session expired, or never booked: Billing expires it after the attempt TTL plus grace.
+            // Cancelled on eSewa's page (UAT answers this, not CANCELED), never booked, or booked for another amount.
+            // Never a payment: flagged sessionEnded, so Billing ends a pending attempt on the cancel return, or once the
+            // form had time to post, and keeps looking for a late payment.
             'NOT_FOUND' => LookupResult::NOT_FOUND,
+            // Documented by eSewa but not seen in UAT.
             'CANCELED', 'CANCELLED' => LookupResult::CANCELLED,
             'FULL_REFUND' => LookupResult::REFUNDED,
             'PARTIAL_REFUND' => LookupResult::PARTIALLY_REFUNDED,
@@ -220,6 +233,7 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
             amount: $amount,
             currency: 'NPR',
             raw: $raw,
+            sessionEnded: $mapped === LookupResult::NOT_FOUND,
         );
     }
 
@@ -233,7 +247,7 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
         try {
             $mode = ProviderHttp::mode($gateway);
             [$productCode, $secret] = $this->credentials($gateway);
-            $action = ProviderHttp::endpoint($gateway, 'esewa.form');
+            $form = ProviderHttp::endpoint($gateway, 'esewa.form');
         } catch (ProviderException $exception) {
             return new ConnectionCheck(false, $exception->getMessage());
         }
@@ -247,16 +261,21 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
         $fields['signature'] = self::signature($fields, self::REQUEST_SIGNED_FIELDS, $secret);
 
         try {
-            $response = $this->http->request()->asForm()->withoutRedirecting()->post($action, $fields);
+            $response = $this->http->request()->withOptions($form->options)->asForm()->withoutRedirecting()->post($form->baseUrl, $fields);
         } catch (ConnectionException) {
             return new ConnectionCheck(false, __('Couldn\'t reach eSewa (:mode). Check the server\'s outbound connection.', ['mode' => $mode]));
         }
 
-        $location = (string) $response->header('Location');
+        // eSewa's login page: on its domain, or on the form endpoint's host (ADR 0016 §3).
+        $location = strtolower((string) parse_url((string) $response->header('Location'), PHP_URL_HOST));
+        $body = $response->json();
 
+        // ES104 is eSewa's signature refusal; other 400s (e.g. {"error_message":"Duplicate transaction UUID.","code":0})
+        // say nothing about the credentials.
         return match (true) {
-            $response->redirect() && str_contains((string) parse_url($location, PHP_URL_HOST), 'esewa.com.np') => new ConnectionCheck(true, __('eSewa accepted the product code and secret key (:mode mode).', ['mode' => $mode])),
-            $response->status() === 400 => new ConnectionCheck(false, __('eSewa rejected the product code or secret key (:mode mode): :reason', ['mode' => $mode, 'reason' => ProviderHttp::summary($response->json()) ?: 'HTTP 400'])),
+            $response->redirect() && ($location === parse_url($form->baseUrl, PHP_URL_HOST) || $location === 'esewa.com.np' || str_ends_with($location, '.esewa.com.np')) => new ConnectionCheck(true, __('eSewa accepted the product code and secret key (:mode mode).', ['mode' => $mode])),
+            $response->status() === 400 && is_array($body) && ($body['code'] ?? null) === 'ES104' => new ConnectionCheck(false, __('eSewa rejected the product code or secret key (:mode mode): :reason', ['mode' => $mode, 'reason' => ProviderHttp::summary($body)])),
+            $response->status() === 400 => new ConnectionCheck(false, __('eSewa refused the test booking (:mode mode): :reason', ['mode' => $mode, 'reason' => ProviderHttp::summary($body) ?: 'HTTP 400'])),
             default => new ConnectionCheck(false, __('eSewa answered with HTTP :status. Try again later.', ['status' => $response->status()])),
         };
     }

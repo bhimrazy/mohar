@@ -18,6 +18,7 @@ type TldRow = {
     display_unicode: string | null;
     registrar_key: string | null;
     epp_required: boolean;
+    registered_by_client: boolean;
     grace_days: number;
     redemption_days: number;
     is_spotlight: boolean;
@@ -62,7 +63,14 @@ export default function TldsIndex({
                     {tld.is_spotlight && (
                         <Badge variant="secondary">Spotlight</Badge>
                     )}
-                    {tld.badge && <Badge variant="outline">{tld.badge}</Badge>}
+                    {tld.registered_by_client && (
+                        <Badge variant="outline">Client registers</Badge>
+                    )}
+                    {tld.badge && (
+                        <Badge variant="outline" className="capitalize">
+                            {tld.badge}
+                        </Badge>
+                    )}
                 </span>
             ),
         },

@@ -2,16 +2,17 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Enums\FieldType;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Models\RegistrarAccount;
+use App\Support\Domains\RegistrarDriverRegistry;
 
 /**
- * Configure a registrar driver account. Blank password fields keep the stored secret.
+ * Configure a registrar driver account. Blank secret fields keep the stored secret; numbers are stored as integers.
  */
 class SaveRegistrarAccount
 {
-    public function __construct(private RegistrarManager $registrars, private ActivityLogger $activity) {}
+    public function __construct(private RegistrarDriverRegistry $registrars, private ActivityLogger $activity) {}
 
     /**
      * @param  array<string, mixed>  $settings
@@ -22,14 +23,18 @@ class SaveRegistrarAccount
         $stored = $account->settings ?? [];
         $clean = [];
 
-        foreach ($this->registrars->driver($key)->settingsSchema() as $field) {
-            $value = $settings[$field['key']] ?? null;
+        foreach ($this->registrars->fields($key) as $field) {
+            $value = $settings[$field->key] ?? null;
 
-            if ($field['type'] === 'password' && ($value === null || $value === '')) {
-                $value = $stored[$field['key']] ?? null;
+            if ($field->isSecret() && ($value === null || $value === '')) {
+                $value = $stored[$field->key] ?? null;
             }
 
-            $clean[$field['key']] = $field['type'] === 'boolean' ? (bool) $value : $value;
+            $clean[$field->key] = match (true) {
+                $field->type === FieldType::Boolean => (bool) $value,
+                $field->type === FieldType::Number => $value === null || $value === '' ? null : (int) $value,
+                default => $value,
+            };
         }
 
         $account->fill(['is_active' => $isActive, 'test_mode' => $testMode, 'settings' => $clean])->save();

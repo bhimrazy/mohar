@@ -5,6 +5,8 @@ namespace App\Modules\Notifications\Listeners;
 use App\Contracts\Catalog\PriceBook;
 use App\Events\Affiliates\AffiliateActivated;
 use App\Events\Affiliates\AffiliateWithdrawalRequested;
+use App\Events\Billing\CreditNoteIssued;
+use App\Events\Billing\DebitNoteIssued;
 use App\Events\Billing\InvoiceCreated;
 use App\Events\Billing\InvoiceModified;
 use App\Events\Billing\InvoicePaymentReminder;
@@ -25,6 +27,7 @@ use App\Events\Domains\DomainTransferInitiated;
 use App\Events\Domains\DomainTransferred;
 use App\Events\Domains\FreeDomainRenewalBlocked;
 use App\Events\Domains\RegistrarActionFailed;
+use App\Events\Kyc\DocumentDecided;
 use App\Events\Notifications\WebhookEndpointDisabled;
 use App\Events\Orders\OrderMarkedFraud;
 use App\Events\Orders\OrderPlaced;
@@ -36,6 +39,7 @@ use App\Events\Services\ServiceTerminated;
 use App\Events\Services\ServiceUnsuspended;
 use App\Events\Services\ServiceUpgraded;
 use App\Events\Support\InboundEmailBounced;
+use App\Events\Support\TicketAccessLinkReplaced;
 use App\Events\Support\TicketAssigned;
 use App\Events\Support\TicketClosed;
 use App\Events\Support\TicketDepartmentChanged;
@@ -55,12 +59,14 @@ use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Services\MergeContext;
 use App\Modules\Notifications\Services\NotificationMailer;
 use App\Modules\Notifications\Services\RecipientResolver;
+use App\Modules\Notifications\Services\TicketStaffRecipients;
 use App\Modules\Notifications\Support\EventKey;
-use App\Modules\Notifications\Support\MailClock;
+use App\Modules\Notifications\Support\MailDates;
 use App\Modules\Notifications\Webhooks\WebhookUrlGuard;
 use App\Support\Currencies\MoneyFormatter;
 use Closure;
 use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
+use Illuminate\Support\Facades\Route;
 use Throwable;
 
 /**
@@ -99,6 +105,8 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         PaymentFailed::class => 'paymentFailed',
         InvoiceRefunded::class => 'invoiceRefunded',
         InvoiceModified::class => 'invoiceModified',
+        CreditNoteIssued::class => 'taxNoteIssued',
+        DebitNoteIssued::class => 'taxNoteIssued',
         QuoteSent::class => 'quoteSent',
         DomainRegistered::class => 'domainRegistered',
         DomainTransferInitiated::class => 'domainTransferInitiated',
@@ -115,6 +123,8 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         TicketNoteAdded::class => 'ticketNoteAdded',
         TicketDepartmentChanged::class => 'ticketDepartmentChanged',
         TicketClosed::class => 'ticketClosed',
+        TicketAccessLinkReplaced::class => 'ticketLinkReplaced',
+        DocumentDecided::class => 'kycDocumentDecided',
         InboundEmailBounced::class => 'inboundBounced',
         AffiliateActivated::class => 'affiliateActivated',
         AffiliateWithdrawalRequested::class => 'affiliateWithdrawalRequested',
@@ -149,6 +159,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
                 $event instanceof PaymentFailed => $this->paymentFailed($event),
                 $event instanceof InvoiceRefunded => $this->invoiceRefunded($event),
                 $event instanceof InvoiceModified => $this->invoiceModified($event),
+                $event instanceof CreditNoteIssued, $event instanceof DebitNoteIssued => $this->taxNoteIssued($event),
                 $event instanceof QuoteSent => $this->quoteSent($event),
                 $event instanceof DomainRegistered => $this->domainRegistered($event),
                 $event instanceof DomainTransferInitiated => $this->domainTransferInitiated($event),
@@ -165,6 +176,8 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
                 $event instanceof TicketNoteAdded => $this->ticketNoteAdded($event),
                 $event instanceof TicketDepartmentChanged => $this->ticketDepartmentChanged($event),
                 $event instanceof TicketClosed => $this->ticketClosed($event),
+                $event instanceof TicketAccessLinkReplaced => $this->ticketLinkReplaced($event),
+                $event instanceof DocumentDecided => $this->kycDocumentDecided($event),
                 $event instanceof InboundEmailBounced => $this->inboundBounced($event),
                 $event instanceof AffiliateActivated => $this->affiliateActivated($event),
                 $event instanceof AffiliateWithdrawalRequested => $this->affiliateWithdrawalRequested($event),
@@ -223,13 +236,39 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         });
     }
 
+    /**
+     * An unknown outcome (#147) gets its own notice: the account may exist, and a server check that confirms it
+     * applies the command without any further mail.
+     */
     public function provisioningFailed(ProvisioningFailed $event): void
     {
-        $this->staffMail('staff.provisioning_failed', StaffCategory::System, [
+        $this->staffMail($event->outcomeUnknown ? 'staff.provisioning_unknown' : 'staff.provisioning_failed', StaffCategory::System, [
             ...$this->context->client($event->clientId),
             ...$this->context->service($event->serviceId),
-            'failure' => ['action' => $event->action, 'error' => $event->error],
+            'failure' => [
+                'action' => $event->action,
+                'action_label' => self::provisioningActionLabel($event->action),
+                'error' => $event->error,
+                // Named route, not a Services class: Notifications works without Services loaded.
+                'log_url' => Route::has('admin.services.module-log.index') ? route('admin.services.module-log.index') : null,
+            ],
         ], $event, $event->clientId, 'service', $event->serviceId);
+    }
+
+    /**
+     * The provisioning command in words for staff mail ("creating the account"); unknown commands read as their key.
+     */
+    private static function provisioningActionLabel(string $action): string
+    {
+        return match ($action) {
+            'create' => __('creating the account'),
+            'suspend' => __('suspending the account'),
+            'unsuspend' => __('unsuspending the account'),
+            'terminate' => __('terminating the account'),
+            'change_package' => __('changing the package'),
+            'change_password' => __('changing the password'),
+            default => str_replace('_', ' ', $action),
+        };
     }
 
     public function serviceSuspended(ServiceSuspended $event): void
@@ -306,7 +345,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
             ...$this->invoiceContext($event->invoiceId),
             'payment' => [
                 'amount' => app(MoneyFormatter::class)->amount($event->amount, $event->currency),
-                'date' => $transaction['date'] ?? now()->toDateString(),
+                'date' => $transaction['date'] ?? MailDates::companyDate(),
                 'reference' => $transaction['reference'] ?? null,
                 'gateway' => $event->gateway,
             ],
@@ -334,6 +373,21 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     public function invoiceModified(InvoiceModified $event): void
     {
         $this->clientMail('invoice.modified', $event->clientId, EmailCategory::Invoice, $this->invoiceContext($event->invoiceId), $event, 'invoice', $event->invoiceId);
+    }
+
+    /**
+     * The note itself, with its PDF attached at send time (the message's related record), unless staff chose not to send it.
+     */
+    public function taxNoteIssued(CreditNoteIssued|DebitNoteIssued $event): void
+    {
+        if (! $event->notify) {
+            return;
+        }
+
+        $this->clientMail($event instanceof CreditNoteIssued ? 'credit_note.issued' : 'debit_note.issued', $event->clientId, EmailCategory::Invoice, [
+            ...$this->invoiceContext($event->invoiceId),
+            'tax_note' => [...$this->context->resolve('tax_note', $event->taxNoteId), 'pdf_attached' => (bool) ($this->context->resolve('tax_note_mail', $event->taxNoteId)['pdf_attached'] ?? false)],
+        ], $event, 'tax_note', $event->taxNoteId);
     }
 
     /**
@@ -462,7 +516,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
                 $this->send('ticket.autoresponse', $this->ticketRecipients($context, $event->clientId), $context, $event, $event->clientId, 'ticket', $event->ticketId);
             }
 
-            $this->staffMail('staff.ticket_new', StaffCategory::Support, $context, $event, $event->clientId, 'ticket', $event->ticketId, 'support.tickets.view');
+            $this->send('staff.ticket_new', $this->ticketStaff()->forNewTicket($event->ticketId), $context, $event, $event->clientId, 'ticket', $event->ticketId);
         });
     }
 
@@ -481,7 +535,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
                 return;
             }
 
-            $this->staffMail('staff.ticket_client_reply', StaffCategory::Support, $context, $event, $event->clientId, 'ticket', $event->ticketId, 'support.tickets.view');
+            $this->send('staff.ticket_client_reply', $this->ticketStaff()->forCustomerReply($event->ticketId), $context, $event, $event->clientId, 'ticket', $event->ticketId);
         });
     }
 
@@ -505,7 +559,21 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
 
     public function ticketDepartmentChanged(TicketDepartmentChanged $event): void
     {
-        $this->staffMail('staff.ticket_department_changed', StaffCategory::Support, $this->context->ticket($event->ticketId), $event, null, 'ticket', $event->ticketId, 'support.tickets.view');
+        $this->safely(fn () => $this->send('staff.ticket_department_changed', $this->ticketStaff()->forDepartmentMove($event->ticketId), $this->context->ticket($event->ticketId), $event, null, 'ticket', $event->ticketId));
+    }
+
+    /**
+     * Every staff decision on an identity document reaches the client, with the reason when declined (KYC spec §7), while
+     * identity verification is on.
+     */
+    public function kycDocumentDecided(DocumentDecided $event): void
+    {
+        // While identity verification is off its client page answers 404, so the email's only link would be dead.
+        if (! (bool) $this->settings->get('kyc.enabled', false)) {
+            return;
+        }
+
+        $this->clientMail('kyc.document_decided', $event->clientId, EmailCategory::General, ['kyc' => $this->context->resolve('kyc_document', $event->documentId)], $event, 'kyc_document', $event->documentId);
     }
 
     public function ticketClosed(TicketClosed $event): void
@@ -520,6 +588,19 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
             $client = $event->clientId !== null ? Client::query()->find($event->clientId) : null;
 
             $this->send('ticket.auto_closed', $this->recipients->addresses([$requester], $client, (string) data_get($context, 'ticket.requester_name', '')), $context, $event, $event->clientId, 'ticket', $event->ticketId);
+        });
+    }
+
+    /**
+     * The new link goes to the ticket's requester address only (no CC, no account owner): it opens the ticket.
+     */
+    public function ticketLinkReplaced(TicketAccessLinkReplaced $event): void
+    {
+        $this->safely(function () use ($event): void {
+            $context = $this->context->ticket($event->ticketId);
+            $requester = (string) data_get($context, 'ticket.requester_email', '');
+
+            $this->send('ticket.link_replaced', $this->recipients->addresses([$requester], null, (string) data_get($context, 'ticket.requester_name', '')), $context, $event, $event->clientId, 'ticket', $event->ticketId);
         });
     }
 
@@ -612,6 +693,11 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         ));
     }
 
+    private function ticketStaff(): TicketStaffRecipients
+    {
+        return app(TicketStaffRecipients::class);
+    }
+
     private function domainMail(string $templateKey, int $domainId, int $clientId, object $event): void
     {
         $this->clientMail($templateKey, $clientId, EmailCategory::Domain, $this->context->domain($domainId), $event, 'domain', $domainId);
@@ -692,7 +778,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         $dueDate = data_get($context, 'invoice.due_date');
 
         if (is_string($dueDate) && $dueDate !== '') {
-            data_set($context, 'invoice.days_overdue', max(0, -(int) MailClock::daysFromToday($dueDate)));
+            data_set($context, 'invoice.days_overdue', max(0, -(int) MailDates::daysFromToday($dueDate)));
         }
 
         return $context;

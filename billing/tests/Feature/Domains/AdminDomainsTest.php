@@ -73,7 +73,7 @@ test('the detail page shows dates, capabilities and the command log', function (
             ->component('admin/domains/show')
             ->where('domain.id', $domain->id)
             ->where('domain.expiry_date', $domain->expiry_date->toDateString())
-            ->where('capabilities', ['sync', 'nameservers'])
+            ->where('capabilities', ['register', 'renew', 'info', 'nameservers', 'sync'])
             ->has('contacts.registrant')
             ->has('commandLog')
             ->where('can.commands', true)

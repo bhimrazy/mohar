@@ -2,18 +2,19 @@
 
 namespace App\Modules\Domains\Http\Controllers\Admin;
 
+use App\Contracts\Domains\Registrar\RegistrarDriver;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Domains\Actions\SaveTldPrices;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Http\Requests\TldPricesRequest;
 use App\Modules\Domains\Http\Requests\TldRequest;
 use App\Modules\Domains\Http\Resources\TldResource;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Models\TldPrice;
 use App\Modules\Domains\Support\DomainName;
+use App\Support\Domains\RegistrarDriverRegistry;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -42,12 +43,12 @@ class TldController extends Controller
                 ...(new TldResource($tld))->resolve(),
                 'price' => $prices->get($tld->id)?->only(['register', 'transfer', 'renew']),
             ])->values(),
-            'registrarNames' => app(RegistrarManager::class)->names(),
+            'registrarNames' => array_map(fn (RegistrarDriver $driver): string => $driver->name(), app(RegistrarDriverRegistry::class)->all()),
             'canManage' => request()->user()?->hasPermission('domains.tlds.manage') ?? false,
         ]);
     }
 
-    public function create(RegistrarManager $registrars): Response
+    public function create(RegistrarDriverRegistry $registrars): Response
     {
         $this->authorize('domains.tlds.manage');
 
@@ -56,14 +57,14 @@ class TldController extends Controller
 
     public function store(TldRequest $request): RedirectResponse
     {
-        $tld = Tld::query()->create([...$request->validated(), 'display_unicode' => DomainName::toUnicode(ltrim($request->string('extension')->toString(), '.'))]);
+        $tld = Tld::query()->create([...$this->attributes($request), 'display_unicode' => DomainName::toUnicode(ltrim($request->string('extension')->toString(), '.'))]);
         $this->activity->log("TLD {$tld->extension} created", $tld);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('TLD :tld created. Add its prices next.', ['tld' => $tld->extension])]);
 
         return to_route('admin.domains.tlds.edit', $tld);
     }
 
-    public function edit(Tld $tld, RegistrarManager $registrars): Response
+    public function edit(Tld $tld, RegistrarDriverRegistry $registrars): Response
     {
         $this->authorize('domains.tlds.view');
 
@@ -77,7 +78,7 @@ class TldController extends Controller
 
     public function update(TldRequest $request, Tld $tld): RedirectResponse
     {
-        $tld->update([...$request->validated(), 'display_unicode' => DomainName::toUnicode(ltrim($request->string('extension')->toString(), '.'))]);
+        $tld->update([...$this->attributes($request), 'display_unicode' => DomainName::toUnicode(ltrim($request->string('extension')->toString(), '.'))]);
         $this->activity->log("TLD {$tld->extension} updated", $tld, null, ['changed' => array_keys($tld->getChanges())]);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('TLD :tld updated.', ['tld' => $tld->extension])]);
 
@@ -96,16 +97,26 @@ class TldController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function formOptions(RegistrarManager $registrars): array
+    private function formOptions(RegistrarDriverRegistry $registrars): array
     {
         return [
             'registrars' => $registrars->keys(),
-            'registrarNames' => $registrars->names(),
+            'registrarNames' => array_map(fn (RegistrarDriver $driver): string => $driver->name(), $registrars->all()),
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->pluck('code'),
             'defaultCurrency' => Currency::default()->code,
             'groups' => ClientGroup::query()->orderBy('name')->orderBy('id')->get(['id', 'name']),
             'badges' => Tld::BADGES,
             'canManage' => request()->user()?->hasPermission('domains.tlds.manage') ?? false,
         ];
+    }
+
+    /**
+     * Validated TLD attributes; an empty "registered by the client" keeps the extension's default (or the stored value).
+     *
+     * @return array<string, mixed>
+     */
+    private function attributes(TldRequest $request): array
+    {
+        return array_filter($request->validated(), fn (mixed $value, string $key): bool => $key !== 'registered_by_client' || $value !== null, ARRAY_FILTER_USE_BOTH);
     }
 }

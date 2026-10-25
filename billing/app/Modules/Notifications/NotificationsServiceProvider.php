@@ -6,6 +6,7 @@ use App\Contracts\Auth\AuthMailer;
 use App\Contracts\Notifications\EmailTemplates;
 use App\Contracts\Notifications\SystemMailer;
 use App\Models\User;
+use App\Modules\Core\Support\RetentionRunDate;
 use App\Modules\Notifications\Actions\PruneNotificationLogs;
 use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Install\DefaultTemplates;
@@ -21,19 +22,20 @@ use App\Modules\Notifications\Services\TemplateDirectory;
 use App\Modules\Notifications\Services\TemplatedSystemMailer;
 use App\Modules\Notifications\Support\SecretTemplatePolicy;
 use App\Modules\Notifications\Webhooks\HostResolver;
-use App\Modules\Notifications\Webhooks\WebhookEventTypes;
 use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Events\WebhookEvents;
 use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Security\EncryptedModel;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
-use Illuminate\Foundation\DevCommands;
 use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Support\Facades\Event;
 
@@ -64,8 +66,9 @@ class NotificationsServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
-        // Email and webhook jobs run on their own queues; the dev runner (composer dev) must consume them too.
-        DevCommands::artisan('queue:listen --queue=notifications,webhooks --timeout=0', 'mail-queue');
+        // Encrypted casts, for `security:reencrypt` (ADR 0022).
+        $encrypted = $this->app->make(EncryptedStorage::class);
+        $encrypted->register('notifications_webhook_endpoints', new EncryptedModel(WebhookEndpoint::class));
 
         // Framework and module notifications (password reset fallback, security notices, invitations) get the
         // company sender name and the support Reply-To too; templated mail sets its own per category.
@@ -75,9 +78,12 @@ class NotificationsServiceProvider extends ModuleServiceProvider
             Event::listen($event, [SendEventEmails::class, 'handle']);
         }
 
-        foreach (array_keys(WebhookEventTypes::MAP) as $event) {
-            Event::listen($event, [PublishEventWebhooks::class, 'handle']);
-        }
+        // After every provider has booted, so events registered by sibling modules and packages are included.
+        $this->app->booted(function (): void {
+            foreach ($this->app->make(WebhookEvents::class)->events() as $event) {
+                Event::listen($event, [PublishEventWebhooks::class, 'handle']);
+            }
+        });
 
         $this->registerNavigation();
         $this->registerDashboard();
@@ -86,16 +92,16 @@ class NotificationsServiceProvider extends ModuleServiceProvider
 
         $this->app->make(ReferenceDataRegistry::class)->register(DefaultTemplates::KEY, DefaultTemplates::class, order: 100);
 
-        $this->app->make(Automation::class)->task('notifications.prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneNotificationLogs::class)->handle($today));
+        $this->app->make(Automation::class)->task('notifications.prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneNotificationLogs::class)->handle(RetentionRunDate::ofCarbon($today)));
     }
 
     private function registerNavigation(): void
     {
         $navigation = $this->app->make(Navigation::class);
         $navigation->add('admin', new NavItem('Email templates', 'admin.notifications.templates.index', 'Mail', 'Setup', 40, 'notifications.templates.view', 'admin.notifications.templates.*'));
-        $navigation->add('admin', new NavItem('Email log', 'admin.notifications.emails.index', 'Inbox', 'Setup', 41, 'notifications.log.view', 'admin.notifications.emails.*'));
-        $navigation->add('admin', new NavItem('Staff email alerts', 'admin.notifications.subscriptions.edit', 'UserCog', 'Setup', 42, 'notifications.subscriptions.manage', 'admin.notifications.subscriptions.*'));
-        $navigation->add('admin', new NavItem('Webhooks', 'admin.notifications.webhooks.index', 'Webhook', 'Setup', 43, 'notifications.webhooks.manage', 'admin.notifications.webhooks.*'));
+        $navigation->add('admin', new NavItem('Email log', 'admin.notifications.emails.index', 'Inbox', 'Setup', 91, 'notifications.log.view', 'admin.notifications.emails.*'));
+        $navigation->add('admin', new NavItem('Staff email alerts', 'admin.notifications.subscriptions.edit', 'UserCog', 'Setup', 41, 'notifications.subscriptions.manage', 'admin.notifications.subscriptions.*'));
+        $navigation->add('admin', new NavItem('Webhooks', 'admin.notifications.webhooks.index', 'Webhook', 'Setup', 42, 'notifications.webhooks.manage', 'admin.notifications.webhooks.*'));
         $navigation->add('admin-client', new NavItem('Emails', 'admin.notifications.emails.index', 'Mail', order: 80, permission: 'notifications.log.view'));
 
         $navigation->add('client', new NavItem('Email preferences', 'client.notifications.preferences.edit', 'Mail', 'Setup', 91, null, 'client.notifications.preferences.*'));

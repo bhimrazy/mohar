@@ -4,7 +4,7 @@ namespace App\Modules\Orders\Http\Requests;
 
 use App\Models\User;
 use App\Modules\Core\Support\Settings;
-use App\Modules\Orders\Support\Countries;
+use App\Support\Countries;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;

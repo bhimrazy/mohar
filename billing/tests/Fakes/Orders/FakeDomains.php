@@ -24,10 +24,16 @@ class FakeDomains implements DomainPricing, DomainRegistry
     /** @var array<int, string> */
     public array $cancelled = [];
 
+    /** @var \Throwable|null thrown by createPending() when set */
+    public ?\Throwable $createFails = null;
+
     private int $nextId = 500;
 
     /** @var list<?int> client ids passed to price() */
     public array $pricedFor = [];
+
+    /** @var list<?int> client ids passed to terms() */
+    public array $termsFor = [];
 
     public function price(string $tld, string $action, int $years, string $currency, ?int $clientId = null): ?int
     {
@@ -37,9 +43,22 @@ class FakeDomains implements DomainPricing, DomainRegistry
         return $price === null ? null : $price * $years;
     }
 
-    public function terms(string $tld, string $action, string $currency): array
+    public function terms(string $tld, string $action, string $currency, ?int $clientId = null): array
     {
+        $this->termsFor[] = $clientId;
+
         return ($this->tlds[$tld][$action] ?? null) === null ? [] : [1, 2, 3, 5, 10];
+    }
+
+    public function catalog(string $currency, ?int $clientId = null): array
+    {
+        $rows = [];
+
+        foreach ($this->tlds as $tld => $prices) {
+            $rows[] = ['tld' => $tld, 'featured' => true, 'badge' => null, ...$prices];
+        }
+
+        return $rows;
     }
 
     public function split(string $domain): ?array
@@ -55,6 +74,10 @@ class FakeDomains implements DomainPricing, DomainRegistry
 
     public function createPending(DomainDraft $draft): int
     {
+        if ($this->createFails !== null) {
+            throw $this->createFails;
+        }
+
         $id = $this->nextId++;
         $this->created[$id] = $draft;
 

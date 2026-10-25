@@ -3,10 +3,13 @@
 namespace App\Modules\Billing\Http\Controllers\Admin;
 
 use App\Contracts\Billing\GatewayDriver;
+use App\Contracts\Billing\LooksUpRefunds;
+use App\Contracts\Core\CompanyClock;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\SaveDraftInvoice;
 use App\Modules\Billing\Actions\UpdateInvoiceDetails;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
+use App\Modules\Billing\Enums\InvoiceKind;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\ImmutableInvoiceException;
 use App\Modules\Billing\Http\Requests\Admin\SaveDraftInvoiceRequest;
@@ -16,10 +19,13 @@ use App\Modules\Billing\Http\Resources\TransactionResource;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Billing\Services\InvoiceParties;
+use App\Modules\Billing\Services\NepalVatMode;
+use App\Modules\Billing\Services\NoteRefusals;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\PaymentInProgress;
+use App\Modules\Billing\Support\TaxNotePanel;
 use App\Modules\Core\Models\Client;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -36,11 +42,13 @@ class InvoiceController extends Controller
 
         $filters = $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in([...array_column(InvoiceStatus::cases(), 'value'), 'overdue'])],
+            'status' => ['nullable', Rule::in([...array_column(InvoiceStatus::cases(), 'value'), 'overdue', 'outstanding'])],
             'client' => ['nullable', 'integer'],
             'gateway' => ['nullable', 'string', 'max:50'],
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date'],
+            // Only the invoices a cancel or a late fee was refused on (Needs attention), while they are still payable.
+            'refused' => ['nullable', 'boolean'],
         ]);
 
         $invoices = Invoice::query()
@@ -51,6 +59,7 @@ class InvoiceController extends Controller
             ->when($filters['gateway'] ?? null, fn ($query, $gateway) => $query->where('payment_gateway', $gateway))
             ->when($filters['from'] ?? null, fn ($query, $from) => $query->whereDate('issue_date', '>=', $from))
             ->when($filters['to'] ?? null, fn ($query, $to) => $query->whereDate('issue_date', '<=', $to))
+            ->when($filters['refused'] ?? null, fn ($query) => $query->whereIn('id', app(NoteRefusals::class)->invoiceIds()))
             ->latest('id')
             ->paginate(25)
             ->withQueryString();
@@ -67,7 +76,7 @@ class InvoiceController extends Controller
         ]);
     }
 
-    public function create(Request $request, BillingSettings $settings): Response
+    public function create(Request $request, BillingSettings $settings, CompanyClock $clock): Response
     {
         $this->authorize('billing.invoices.manage');
 
@@ -76,7 +85,7 @@ class InvoiceController extends Controller
             'client' => $this->clientOption($request->integer('client') ?: null),
             'defaults' => [
                 'client_id' => $request->integer('client') ?: null,
-                'due_date' => CarbonImmutable::today()->addDays($settings->int('invoice_days_before_due', 14))->toDateString(),
+                'due_date' => $clock->today()->addDays($settings->int('invoice_days_before_due', 14))->toDateString(),
             ],
             ...$this->formOptions(),
         ]);
@@ -90,7 +99,7 @@ class InvoiceController extends Controller
         return to_route('admin.billing.invoices.show', $invoice);
     }
 
-    public function show(Request $request, Invoice $invoice, CreditLedgerService $credit, PaymentInProgress $inProgress): Response
+    public function show(Request $request, Invoice $invoice, CreditLedgerService $credit, PaymentInProgress $inProgress, TaxNotePanel $notes, InvoiceParties $parties): Response
     {
         $this->authorize('billing.invoices.view');
 
@@ -99,16 +108,21 @@ class InvoiceController extends Controller
 
         return Inertia::render('admin/billing/invoices/show', [
             'invoice' => new InvoiceResource($invoice),
+            'parties' => $parties->forInvoice($invoice),
             'transactions' => TransactionResource::collection($invoice->transactions()->get()),
             'credit_available' => $credit->balance($invoice->client_id, $invoice->currency)->amount,
             'payment_in_progress' => $invoice->status->isPayable() ? $inProgress->forInvoice($invoice, staff: true) : null,
             'gateways' => $this->gatewayOptions(),
             'pay_methods' => PayMethodResource::collection(PayMethod::query()->where('client_id', $invoice->client_id)->usable()->orderByDesc('is_default')->orderBy('id')->get()
                 ->filter(fn (PayMethod $method): bool => $method->isUsable() && $this->gateways->supports($method->gateway, GatewayDriver::CAPTURE))->values()),
+            ...$notes->props($invoice, $user),
+            // Cancelling a numbered tax invoice issues a credit note and reopening is refused, from the mode's start day on.
+            'fiscal_cancel' => $invoice->numbered_at !== null && $invoice->kind !== InvoiceKind::AddFunds && app(NepalVatMode::class)->inEffect(now()),
             'can' => [
                 'manage' => $user?->hasPermission('billing.invoices.manage') ?? false,
                 'payments' => $user?->hasPermission('billing.payments.manage') ?? false,
                 'refunds' => $user?->hasPermission('billing.refunds.manage') ?? false,
+                'notes' => $user?->hasPermission('billing.tax_notes.issue') ?? false,
             ],
         ]);
     }
@@ -183,11 +197,12 @@ class InvoiceController extends Controller
         return [
             ...array_map(fn (InvoiceStatus $status): array => ['value' => $status->value, 'label' => $status->label()], InvoiceStatus::cases()),
             ['value' => 'overdue', 'label' => 'Overdue'],
+            ['value' => 'outstanding', 'label' => 'Outstanding'],
         ];
     }
 
     /**
-     * @return list<array{value: string, label: string, capture: bool, refund: bool}>
+     * @return list<array{value: string, label: string, capture: bool, refund: bool, partial_refund: bool, refund_lookup: bool, sandbox: bool}>
      */
     private function gatewayOptions(): array
     {
@@ -200,6 +215,7 @@ class InvoiceController extends Controller
                 'capture' => $driver->supports(GatewayDriver::CAPTURE),
                 'refund' => $driver->supports(GatewayDriver::REFUND),
                 'partial_refund' => $driver->supports(GatewayDriver::PARTIAL_REFUND),
+                'refund_lookup' => $driver instanceof LooksUpRefunds,
                 'sandbox' => $this->gateways->isSandbox($model),
             ];
         }, $this->gateways->drivers()));

@@ -1,0 +1,38 @@
+# Load-test copy of deploy/frankenphp/Caddyfile with one addition: num_threads from the profile (PHP_THREADS).
+# In production FrankenPHP starts 2 PHP threads per CPU it sees; inside a CPU-capped container on a bigger runner it
+# would see the runner's CPUs instead, so the load test sets the count a VPS of the profile's size gets by default.
+# Keep everything else identical to deploy/frankenphp/Caddyfile.
+# App server inside the image: FrankenPHP in classic mode (one PHP request per request, no worker script).
+# Plain HTTP on :8080 (SERVER_NAME); TLS, certificates and the public ports belong to the edge proxy.
+{
+	skip_install_trust
+	auto_https off
+	# No admin API in the app container; the edge proxy is the one that reloads.
+	admin off
+	# Finish in-flight requests on SIGTERM, within Docker's default 10 s stop timeout.
+	grace_period 8s
+	frankenphp {
+		num_threads {$PHP_THREADS}
+	}
+	log default {
+		output stderr
+		format json
+	}
+}
+
+{$SERVER_NAME::8080} {
+	root /app/public
+	encode zstd br gzip
+
+	# Vite output is content-hashed, so browsers may keep it forever.
+	@build path /build/assets/*
+	header @build Cache-Control "public, max-age=31536000, immutable"
+	header -Server
+
+	# Ticket attachments: up to 5 files of 10 MB in one request (Support settings defaults).
+	request_body {
+		max_size 64MB
+	}
+
+	php_server
+}

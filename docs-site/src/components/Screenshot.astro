@@ -1,0 +1,40 @@
+---
+/**
+ * A screenshot of the app, with an optional dark-mode variant and click-to-zoom.
+ *   <Screenshot name="gateways" alt="The payment gateways list" />
+ * loads src/assets/screenshots/gateways-light.png and, when it exists, gateways-dark.png.
+ */
+import type { ImageMetadata } from 'astro';
+import { Image } from 'astro:assets';
+import { Zoom } from 'starlight-image-zoom/components';
+
+interface Props {
+    name: string;
+    alt: string;
+    caption?: string;
+}
+
+const { name, alt, caption } = Astro.props;
+const images = import.meta.glob<{ default: ImageMetadata }>('../assets/screenshots/*.png', { eager: true });
+const find = (variant: 'light' | 'dark') => images[`../assets/screenshots/${name}-${variant}.png`]?.default;
+const light = find('light');
+const dark = find('dark');
+
+if (!light) {
+    throw new Error(`Screenshot "${name}" has no ${name}-light.png in src/assets/screenshots.`);
+}
+---
+
+<figure class="screenshot">
+    <div class:list={['shot-light', { 'has-dark': dark }]}>
+        <Zoom label={alt}><Image src={light} alt={alt} /></Zoom>
+    </div>
+    {
+        dark && (
+            <div class="shot-dark">
+                <Zoom label={alt}><Image src={dark} alt={alt} /></Zoom>
+            </div>
+        )
+    }
+    {caption && <figcaption>{caption}</figcaption>}
+</figure>

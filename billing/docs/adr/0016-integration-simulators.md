@@ -101,7 +101,7 @@ then every recording is `source: docs`.
     - With no override, the endpoint is the default and its options are `[]`: behaviour is byte-for-byte the current
       behaviour.
     - With an override (https only, no credentials, query or fragment), the options add `verify => <scenario CA
-bundle>`, so TLS and hostname checks stay on. The destination is also resolved and pinned through
+      bundle>`, so TLS and hostname checks stay on. The destination is also resolved and pinned through
       `OutboundAddressGuard`, so loopback is reachable only when `OUTBOUND_ALLOW_LOOPBACK` allows it.
 - **Fail closed.** Overrides are honoured only when the app runs as `local` or `testing` (S0 review on #77). In every
   other environment, including `production`, `staging`, an empty or an unknown name, `Endpoints` ignores every
@@ -237,6 +237,99 @@ conformance tests. That is a data file, not running code, but it still goes thro
     - `Request::fields()` keeps dotted names (`api.version`) and nests brackets (`card[number]`).
     - `StateStore::transaction()`, nestable.
     - The API kernel logs a committed call before a `commit_then_hang` delay.
+
+### S3 as delivered
+
+- **After the #113 review**, including the 2026-10-20 live-sandbox parity run:
+    - the outbox completes a delivery only on a 2xx and retries anything else on a compressed backoff, up to a maximum number of attempts; `drain()` is included, so a dispute that arrives before its payment books on the retry, with no manual replay (#124);
+    - an `unsigned` delivery variant;
+    - a validation failure saves no idempotent result;
+    - a disputed charge refuses a refund (`charge_disputed`);
+    - sessions expire on their own past `expires_at`;
+    - a double Pay charges once.
+    - Forged delivery variants leave the genuine delivery's attempts, schedule and completion untouched (#113 re-review).
+    - Drift against real Stripe: a recording script (`StripeRecording`, `simulate:record stripe`) replayed as the same sequence against the simulator, normalised, and compared on the paths the driver reads. Recording is deferred by CTO decision until the owner provides a long-lived restricted test key as a GitHub or Codespaces secret; the live check is skipped until then.
+
+- **#100 re-check lows**, carried into S3:
+    - keys are anonymised (a data-like key is renamed) and scanned like values;
+    - numeric strings are kept only under known-safe keys;
+    - WHM's free-text reason is scrubbed of emails, URLs, addresses and host names;
+    - each recording notes its login, and the drift replay uses it instead of assuming root.
+
+- **The simulator.** `stripe` (`tools/simulators/src/Providers/Stripe`) provides:
+    - stateful Checkout Sessions with a hosted page (pay, decline, back), PaymentIntents, Charges, balance transactions, Refunds and Disputes;
+    - `expand[]`, idempotency keys and the API version check;
+    - every change as an event, signed for the app's webhook endpoint.
+- **Driver change** (#90, the only product change):
+    - `StripeClient` takes its base URL and request options from `Endpoints::for('stripe.api')`;
+    - the checkout URL check compares host and port with `Endpoints::for('stripe.checkout')`;
+    - without an override the options are `[]` and the hosts are unchanged, and the 68 existing Stripe tests pass untouched;
+    - with one, the guard resolves and pins the connection and TLS is verified against the scenario CA.
+    - With no override, calls do not go through the outbound guard: `api.stripe.com` is a fixed host, and pinning it would bypass an install's HTTP proxy (ADR 0015). Guarantee 5 keeps the default byte for byte.
+- **Conformance.** `tests/Stripe/StripeConformanceTest.php` checks every path and type in `tests/Fixtures/Stripe`; the fixtures are trimmed, so extra fields are allowed. It also covers the error envelopes, idempotency and the version check.
+- **End to end.** `tests/Stripe/StripeDriverAgainstSimulatorTest.php` drives the real driver through the app's routes, with no `Http::fake`:
+    - a payment on the hosted page, settled by webhooks delivered out of order, then replays and the late browser return, booked once with Stripe's fee;
+    - forged and stale signatures, refused before any retrieve;
+    - a staff refund, sent once, whose webhook is a duplicate;
+    - a dispute, recorded as a chargeback once, putting the invoice in collections;
+    - a declined card and then an abandoned checkout: the session is expired at Stripe by the driver, the attempt is expired, and the invoice stays unpaid.
+
+### S4 as delivered
+
+- **The scenario.** `tests/Simulators/HostingLifecycleTest.php` is HTTP-level, with every module real and only the providers simulated:
+    1. `migrate`, then `app:install` (no demo data). The administrator replaces the one-time password through the password route and confirms it for the `password.recent` routes.
+    2. The WHM server is trusted through Test connection and "Trust this certificate" on the staff routes.
+    3. A product on `root_basic`, and Stripe in test mode against its simulator.
+    4. A customer registers, verifies the address (asserted), orders and pays on the hosted page.
+    5. The invoice is Paid, the service is Active and the WHM account exists. The customer has the verification, welcome, order, invoice, payment and hosting welcome emails.
+    6. Overdue (the due dates are backdated in the throwaway database, as §4 allows): suspension in WHM and its email, the renewal paid on Stripe, then unsuspension and its email.
+    7. An immediate cancellation, after which the account is gone from WHM. The service ends Cancelled, with the cancellation-request email; no email confirms the removal (#146).
+    8. Staff refund 10.00 through the admin refund route (`password.recent`), which the driver sends to Stripe once. Then a dispute on the renewal is raised from the control plane: a chargeback, and the invoice in Collections.
+    - **Fixtures, not staff routes:** the server row, the product and the Stripe gateway row are created directly (factories and `stripeGateway()`). Everything else above goes through the app's routes.
+    - Single sign-on waits for cPanel PR 2.
+- **§4 fault cases and the #124 retry path, and where each is proved:**
+
+| Case                                                                              | Proved by                                                                                                                                                                                                                                                                                       |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createacct` commits then times out; the verify sweep adopts with proof           | `tests/Simulators/HostingLifecycleTest.php` (second test, end to end); `tools/simulators/tests/Whm/CpanelDriverAgainstWhmTest.php`                                                                                                                                                              |
+| A foreign account with the same name is never adopted                             | `CpanelDriverAgainstWhmTest` "after a 5xx the sweep never adopts someone else's account…" (driver against the simulator); not in the e2e scenario                                                                                                                                               |
+| A duplicate webhook is settled once                                               | `HostingLifecycleTest` (every replay answers `duplicate`); `tools/simulators/tests/Stripe/StripeDriverAgainstSimulatorTest.php`                                                                                                                                                                 |
+| A forged (wrong secret) and a stale webhook are refused                           | `HostingLifecycleTest` (wrong secret); `StripeDriverAgainstSimulatorTest` "a forged or stale webhook is refused…"; `StripeLiveParityProbesTest` (unsigned, 403)                                                                                                                                 |
+| An out-of-order refund before the payment                                         | Handler level only: `tests/Feature/Billing/WebhookTest.php` "a refund webhook before its payment is rejected for retry, then recorded once". **Not covered against the simulator yet** (#145)                                                                                                   |
+| A dispute before its payment is answered 409, and booked on Stripe's retry (#124) | `StripeDriverAgainstSimulatorTest` "#124"; `tools/simulators/tests/Stripe/StripeReReviewProbesTest.php` (the outbox's `drain()` against the real app); `tests/Feature/PaymentsStripe/StripeWebhookTest.php`. The e2e scenario's dispute arrives after its payment, so its harness never retries |
+| A rotated WHM certificate is refused                                              | `CpanelDriverAgainstWhmTest` "a rotated certificate is refused before anything is sent…"                                                                                                                                                                                                        |
+| A refused loopback with `OUTBOUND_ALLOW_LOOPBACK=false` (§5 guarantee 2)          | Unit level: `tests/Feature/Integrations/EndpointsTest.php` "an override to loopback is refused unless the install policy allows loopback"; not end to end                                                                                                                                       |
+| A tampered eSewa return (NPR variant)                                             | `HostingLifecycleTest` NPR eSewa run (a forged return pays nothing); `tools/simulators/tests/Esewa/EsewaDriverAgainstSimulatorTest.php` (wrong-secret, tampered and unsigned returns, and a form changed in the browser, ES104) (S5)                                                            |
+
+- **The runner.** `php artisan simulate:e2e`:
+    - creates `billing_e2e_<random>` on PostgreSQL (or a temporary SQLite file);
+    - runs the scenario in a Pest subprocess with phpunit.xml's environment, so the host's `.env` (a database queue, say) does not leak in, within a time budget (at least 60 s, 360 s by default);
+    - drops the database unless `--keep`, which keeps the last test's state (`--filter` chooses it).
+    - A detached guard drops the database and stops the scenario if the runner is interrupted (Ctrl-C, SIGTERM). Where pcntl is loaded, a signal trap also cleans up at once. `scripts/pg.sh --prune` drops idle `billing_e2e_*` databases as a backstop.
+    - The harness refuses every database except `billing_e2e_*` or SQLite in memory. It judges the connection Laravel really opens (`getDatabaseName()`, and `current_database()` on PostgreSQL), whatever `DB_URL` says.
+    - Deviation from §4, accepted by the CTO on 2026-10-20: one runner, the in-process Pest scenario on a throwaway database. The second topology, `artisan serve` and `queue:work`, is deferred until the E2E job is stable or a deployment workstream needs the worker topology proven. Queued jobs run on the sync queue, so provisioning still goes through `RunModuleCommand` and the module lock.
+- **CI.** The `E2E simulators (hosting lifecycle)` job is opt-in:
+    - it runs on `workflow_dispatch`, on pushes to `main`, and on PRs labelled `e2e`, never on ordinary PR events;
+    - it has its own PostgreSQL service and `timeout-minutes: 10`, about 2 billable minutes a run;
+    - it is not a required check.
+    - The main job never runs `tests/Simulators`, which is in no testsuite.
+
+### S5 as delivered
+
+- **The simulators.** `khalti` (`tools/simulators/src/Providers/Khalti`) and `esewa` (`tools/simulators/src/Providers/Esewa`), stateful, with a hosted page each and control actions for every outcome the drivers must handle: success, user cancel, pending then completed, pending then expired, amount mismatch, forged or badly signed returns, duplicate returns, and refunded or partially refunded payments. A lookup timeout uses the framework's `commit_then_hang`. Their behaviour is in `tools/simulators/README.md`.
+- **Driver change** (the only product change): `ProviderHttp::endpoint()` returns `Endpoints::for()` for `khalti.api`, `khalti.refund`, `esewa.form` and `esewa.status`, and every request carries its options.
+    - Khalti's `payment_url` check also accepts exactly the host and port of `khalti.pay` (khalti.com unless overridden).
+    - eSewa's Test connection also accepts a redirect to the form endpoint's host.
+    - Without an override both are the hosts they were, and the existing PaymentsNepal tests pass unchanged.
+- **Tests.** `tools/simulators/tests/Khalti/KhaltiDriverAgainstSimulatorTest.php` and `tools/simulators/tests/Esewa/EsewaDriverAgainstSimulatorTest.php` run the unchanged drivers through the app's routes, in NPR with paisa (1,130.55). A duplicate return books one payment and no credit. An amount mismatch goes to staff review for Khalti. For eSewa, the status check matches on the amount, so a payment settled for another amount answers `NOT_FOUND` for ours: the attempt is abandoned after 5 minutes with nothing booked and no review, even after a signed `COMPLETE` return (#323 asks whether that should go to review). The eSewa status answers are checked against the UAT captures in `tests/Fixtures/Esewa`.
+- **End to end.** `tests/Simulators/HostingLifecycleTest.php` runs the NPR lifecycle (order, pay, provision, overdue suspension, renewal paid, unsuspension, cancellation) through eSewa and through Khalti, beside the Stripe lifecycle. The eSewa run starts with a forged return, and the Khalti run ends with a staff refund that the driver sends once. The harness starts all four simulators and trusts the three payment CAs through one bundle; scenario CAs are now named per scenario, so such a bundle can tell them apart.
+- **Sources and open questions.** eSewa follows the 2026-10-21 UAT captures. Khalti follows docs.khalti.com only; the sandbox capture proposed in #208 has not been made. Where the docs are ambiguous, the simulator chose:
+    - the Khalti session lifetime (1,800 s, from the docs' examples) and its fee (3%; Khalti publishes no API-level rate);
+    - Khalti's error wording (ours) and the shape of a refund answer (`detail` only);
+    - the Khalti refund `amount` unit (paisa; the driver keeps partial refunds off until a sandbox proves it, spec §8.2);
+    - eSewa's answer for an expired booking (`NOT_FOUND`, like a cancelled one), and where a PENDING customer is sent (the failure URL).
+    - The Khalti return parameters are those the docs list; nothing in them is trusted.
+- **Khalti's `ResumesHostedPayment`** (#251) came in a later PR and is tested against this simulator, which keeps `payment_url` stable per pidx and serves the page while the session is `Initiated`.
 
 ## Limits: what simulators cannot prove
 

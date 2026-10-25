@@ -10,6 +10,7 @@ use App\Modules\Catalog\Models\Product;
 use App\Modules\Catalog\Models\ProductGroup;
 use App\Modules\Core\Database\Seeders\CoreSeeder;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Notifications\Services\TemplateCatalog;
 
 beforeEach(function () {
     $this->seed(CoreSeeder::class);
@@ -40,4 +41,24 @@ it('binds demo products only to drivers and gateways that ship with the platform
 
     expect(array_diff($drivers, ['none', 'log']))->toBe([])
         ->and(array_diff($gateways, ['manual', 'bank_transfer', 'sandbox_card']))->toBe([]);
+});
+
+it('points demo products at welcome emails that exist', function () {
+    $keys = Product::query()->whereNotNull('welcome_email_key')->pluck('welcome_email_key')->unique();
+
+    expect($keys)->not->toBeEmpty();
+
+    foreach ($keys as $key) {
+        expect(app(TemplateCatalog::class)->find($key))->not->toBeNull("Missing template {$key}");
+    }
+});
+
+it('rounds seeded setup fees and option prices in NPR like converted base prices', function () {
+    $unrounded = Price::query()->where('currency', 'NPR')->where('setup_fee', '>', 0)->get()
+        ->filter(fn (Price $price): bool => $price->setup_fee % 100 !== 0)->count()
+        + Price::query()->where('currency', 'NPR')->where('priceable_type', 'config_option_value')->get()
+            ->filter(fn (Price $price): bool => $price->amount % 100 !== 0)->count();
+
+    expect(Price::query()->where('currency', 'NPR')->where('setup_fee', '>', 0)->exists())->toBeTrue()
+        ->and($unrounded)->toBe(0);
 });

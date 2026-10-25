@@ -1,11 +1,16 @@
 // Renders the brand SVGs (public/brand) to 2x transparent PNGs for email (Gmail and Outlook do not render SVG).
 // Usage: node make-logos.mjs   (writes ../assets/logo-{light,dark,on-accent}.png and mark-*.png)
-import { chromium } from '/workspaces/whmcs/.worktrees/_review/pw/node_modules/playwright/index.mjs';
+import { createRequire } from 'node:module';
+import { execSync } from 'node:child_process';
+// Playwright is installed globally at a pinned version (billing/docs/devops/local-setup.md).
+const { chromium } = createRequire(import.meta.url)(
+    `${execSync('npm root -g').toString().trim()}/playwright`,
+);
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
-const brand = '/workspaces/whmcs/billing/public/brand';
+const brand = new URL('../../../../public/brand', import.meta.url).pathname;
 const out = path.join(here, '..', 'assets');
 const light = fs.readFileSync(`${brand}/logo.svg`, 'utf8');
 const dark = fs.readFileSync(`${brand}/logo-dark.svg`, 'utf8');

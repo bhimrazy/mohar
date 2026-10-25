@@ -185,3 +185,31 @@ test('income days follow the company timezone: a payment at 01:45 in Kathmandu c
         ->and($widgets['billing.income']['hint'])->toBe('Oct 1–18 vs. Sep 1–18')
         ->and(collect($chart['ranges']['30d']['series'][0]['points'])->last())->toBe(['x' => '2026-10-18', 'y' => 7_000]);
 });
+
+test('outstanding and overdue history replays issue, payment and cancellation days in the company timezone', function () {
+    app(Settings::class)->set('system.timezone', 'Asia/Kathmandu'); // UTC+5:45
+    $this->travelTo('2026-10-18 06:00:00');                          // 11:45 local
+    $invoice = fn (string $status, int $total, int $balance, string $issued, string $due, array $extra = []) => Invoice::factory()->create([
+        'client_id' => $this->usd->id, 'status' => $status, 'total' => $total, 'balance' => $balance, 'issue_date' => $issued, 'due_date' => $due, ...$extra,
+    ]);
+    $invoice('unpaid', 5_000, 3_000, '2026-08-01', '2026-08-15');                                     // part-paid: its balance is at risk
+    $invoice('paid', 2_000, 0, '2026-08-03', '2026-08-17', ['paid_at' => '2026-09-20 20:00:00']);     // paid 09-21 01:45 local
+    $invoice('refunded', 1_600, 0, '2026-07-20', '2026-07-30', ['paid_at' => '2026-08-30 03:00:00']);
+    $invoice('cancelled', 4_000, 4_000, '2026-09-01', '2026-09-10', ['cancelled_at' => '2026-10-01 10:00:00']);
+    $invoice('payment_pending', 800, 800, '2026-09-15', '2026-09-20');                               // owed, never overdue
+    $invoice('collections', 700, 700, '2026-06-01', '2026-06-15');                                   // owed, never overdue
+    $invoice('paid', 9_000, 0, '2026-01-01', '2026-01-10', ['paid_at' => '2026-02-01 10:00:00']);     // closed before the window
+    $invoice('draft', 6_000, 6_000, '2026-08-01', '2026-08-15', ['issue_date' => null, 'number' => null]);
+
+    $widgets = billingWidgets();
+
+    // Points: 08-02, 08-09, … 10-11 (weekly), then today; a month ago is 09-18.
+    expect($widgets['billing.unpaid']['sparkline'])->toBe([5_300, 7_300, 7_300, 7_300, 5_700, 9_700, 9_700, 10_500, 8_500, 4_500, 4_500, 4_500])
+        ->and($widgets['billing.unpaid']['money'])->toBe(['amount' => 4_500, 'currency' => 'USD'])
+        ->and($widgets['billing.unpaid']['hint'])->toBe('3 unpaid invoices')
+        ->and($widgets['billing.unpaid']['trend'])->toMatchArray(['value' => '57.1%', 'direction' => 'down'])
+        ->and($widgets['billing.overdue']['sparkline'])->toBe([1_600, 1_600, 4_600, 6_600, 5_000, 5_000, 9_000, 9_000, 7_000, 3_000, 3_000, 3_000])
+        ->and($widgets['billing.overdue']['money'])->toBe(['amount' => 3_000, 'currency' => 'USD'])
+        ->and($widgets['billing.overdue']['hint'])->toBe('1 invoice, oldest 64 days')
+        ->and($widgets['billing.overdue']['trend'])->toMatchArray(['value' => '66.7%', 'direction' => 'down']);
+});

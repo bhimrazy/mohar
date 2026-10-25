@@ -1,0 +1,79 @@
+<?php
+
+namespace App\Modules\Billing\Data;
+
+/**
+ * What staff or automation ask the note issuer for. A credit note is allocated to lines, either named (`lines`: invoice
+ * item id => gross to credit) or by one gross amount spread over the lines. A debit note is one gross amount with no
+ * line; a reversal is a debit note that repeats one credit note's lines (`reverses`). `reasonText` is shown to the client.
+ *
+ * `settlement` is where the part of a credit note above the open balance goes: nowhere (`balance`, refused when there
+ * is such a part), account credit (`credit`) or a refund of the payment that is being made (`refund`, set only by the refund
+ * reservation, which then takes the amount off `amount_paid`). `source` names who issued an automatic note (the activity entry).
+ * `notify` sends the note to the client by email (CreditNoteIssued::$notify).
+ */
+final readonly class NoteRequest
+{
+    public const SETTLEMENTS = ['balance', 'credit', 'refund'];
+
+    /**
+     * @param  array<int, int>|null  $lines
+     */
+    private function __construct(
+        public string $kind,
+        public int $invoiceId,
+        public string $reasonCode,
+        public string $reasonText,
+        public ?array $lines,
+        public ?int $amount,
+        public bool $taxable,
+        public bool $automatic,
+        public ?int $userId,
+        public string $settlement = 'balance',
+        public ?int $reverses = null,
+        public ?string $source = null,
+        public bool $cancel = false,
+        public bool $notify = true,
+    ) {}
+
+    /** The same request; `$notify` false keeps the note email from the client (staff untick "Send to client"). */
+    public function notifying(bool $notify): self
+    {
+        return new self($this->kind, $this->invoiceId, $this->reasonCode, $this->reasonText, $this->lines, $this->amount, $this->taxable,
+            $this->automatic, $this->userId, $this->settlement, $this->reverses, $this->source, $this->cancel, $notify);
+    }
+
+    /**
+     * @param  array<int, int>  $lines  invoice item id => gross
+     */
+    public static function creditLines(int $invoiceId, array $lines, string $reasonCode, string $reasonText, bool $automatic = false, ?int $userId = null, string $settlement = 'balance', ?string $source = null): self
+    {
+        return new self('credit', $invoiceId, $reasonCode, $reasonText, $lines, null, true, $automatic, $userId, $settlement, source: $source);
+    }
+
+    public static function creditAmount(int $invoiceId, int $gross, string $reasonCode, string $reasonText, bool $automatic = false, ?int $userId = null, string $settlement = 'balance', ?string $source = null): self
+    {
+        return new self('credit', $invoiceId, $reasonCode, $reasonText, null, $gross, true, $automatic, $userId, $settlement, source: $source);
+    }
+
+    /**
+     * The credit note that cancels an invoice: its open balance, allocated over everything the invoice still holds, not only
+     * its lines: a discount line goes with the lines it discounts, and a late fee (a debit note, or an old-style row) is credited
+     * as the line it is.
+     */
+    public static function cancellation(int $invoiceId, int $gross, string $reasonText, bool $automatic = false, ?int $userId = null): self
+    {
+        return new self('credit', $invoiceId, 'invoice_cancelled', $reasonText, null, $gross, true, $automatic, $userId, cancel: true);
+    }
+
+    public static function debit(int $invoiceId, int $gross, bool $taxable, string $reasonCode, string $reasonText, bool $automatic = false, ?int $userId = null, ?string $source = null): self
+    {
+        return new self('debit', $invoiceId, $reasonCode, $reasonText, null, $gross, $taxable, $automatic, $userId, source: $source);
+    }
+
+    /** A debit note that reverses credit note `$creditNoteId` of the invoice, line for line. */
+    public static function reversal(int $invoiceId, int $creditNoteId, string $reasonText, ?int $userId = null): self
+    {
+        return new self('debit', $invoiceId, 'reverses_credit_note', $reasonText, null, null, true, false, $userId, reverses: $creditNoteId);
+    }
+}

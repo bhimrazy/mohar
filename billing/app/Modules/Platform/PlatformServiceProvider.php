@@ -2,19 +2,22 @@
 
 namespace App\Modules\Platform;
 
+use App\Contracts\Auth\ClientLoginInvitations;
+use App\Contracts\Core\CompanyClock;
 use App\Events\Core\ExchangeRatesUpdated;
 use App\Models\User;
 use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Support\ChunkedDelete;
 use App\Modules\Core\Support\Like;
+use App\Modules\Core\Support\RetentionRunDate;
 use App\Modules\Core\Support\Settings;
+use App\Modules\Platform\Actions\Housekeeping\PruneSystemTables;
 use App\Modules\Platform\Drivers\ExchangeRates\EcbRateSource;
 use App\Modules\Platform\Drivers\ExchangeRates\NrbRateSource;
 use App\Modules\Platform\Http\Middleware\EnforceLoginLockout;
 use App\Modules\Platform\Http\Middleware\EnforceStaffSecurity;
 use App\Modules\Platform\Http\Middleware\EnsureActiveUser;
 use App\Modules\Platform\Http\Middleware\HandleImpersonation;
-use App\Modules\Platform\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Platform\Jobs\ConvertPricesAfterRateChange;
 use App\Modules\Platform\Listeners\RecordAuthenticationActivity;
 use App\Modules\Platform\Models\ExchangeRateReview;
@@ -23,9 +26,12 @@ use App\Modules\Platform\Services\ExchangeRateStatus;
 use App\Modules\Platform\Services\Impersonation;
 use App\Modules\Platform\Services\PermissionGuard;
 use App\Modules\Platform\Services\SettingsCatalog;
+use App\Modules\Platform\Support\AccountMail;
 use App\Modules\Platform\Support\ExchangeRateTask;
+use App\Modules\Platform\Support\PlatformClientLoginInvitations;
 use App\Modules\Platform\Support\PlatformDashboard;
 use App\Support\Automation\Automation;
+use App\Support\CalendarDate;
 use App\Support\Clients\ClientMergeRegistry;
 use App\Support\Currencies\ExchangeRateSources;
 use App\Support\Dashboard\Dashboard;
@@ -33,6 +39,7 @@ use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Queues;
 use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
@@ -42,7 +49,7 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Http\Kernel;
-use Illuminate\Routing\Router;
+use Illuminate\Foundation\DevCommands;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 
@@ -58,12 +65,12 @@ class PlatformServiceProvider extends ModuleServiceProvider
         $this->app->singleton(PermissionGuard::class);
         $this->app->singleton(SettingsCatalog::class);
         $this->app->scoped(Impersonation::class);
+        $this->app->scoped(AccountMail::class);
+        $this->app->bind(ClientLoginInvitations::class, PlatformClientLoginInvitations::class);
     }
 
     protected function bootModule(): void
     {
-        $this->app->make(Router::class)->aliasMiddleware('password.recent', RequireRecentPasswordConfirmation::class);
-
         $kernel = $this->app->make(Kernel::class);
         $kernel->appendMiddlewareToGroup('web', EnsureActiveUser::class);
         $kernel->appendMiddlewareToGroup('web', EnforceLoginLockout::class);
@@ -73,6 +80,11 @@ class PlatformServiceProvider extends ModuleServiceProvider
         Event::listen(Login::class, [RecordAuthenticationActivity::class, 'login']);
         Event::listen(Failed::class, [RecordAuthenticationActivity::class, 'failed']);
         Event::listen(Logout::class, [RecordAuthenticationActivity::class, 'logout']);
+
+        // "Run now" jobs run on their own connection (App\Support\Queues); the dev runner must consume it too.
+        DevCommands::artisan('queue:listen '.Queues::AUTOMATION.' --queue='.Queues::AUTOMATION.' --tries=1 --timeout=0', 'automation-queue');
+        // Without it a local copy reports the scheduler as stopped and the daily run never starts.
+        DevCommands::artisan('schedule:work', 'scheduler');
 
         $this->registerNavigation();
         $this->registerPermissions();
@@ -131,6 +143,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
         if ($time !== null) {
             $schedule->command('platform:update-exchange-rates')
                 ->dailyAt($time)
+                ->timezone((string) rescue(fn (): string => $this->app->make(CompanyClock::class)->timezone(), 'UTC', report: false))
                 ->name(ExchangeRateTask::KEY)
                 ->withoutOverlapping()
                 ->onOneServer();
@@ -143,24 +156,34 @@ class PlatformServiceProvider extends ModuleServiceProvider
     private function registerAutomation(): void
     {
         $automation = $this->app->make(Automation::class);
+        // Retention cutoffs compare timestamps, so they start at the company midnight; a future run date counts from today.
+        $cutoff = fn (CalendarDate $today, int $days): CarbonImmutable => $this->app->make(CompanyClock::class)->dayBounds(RetentionRunDate::of($today)->addDays(-$days))[0];
 
-        $automation->task('platform.prune_invitations', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): string => trans_choice(
+        $automation->task('platform.prune_invitations', Automation::HOUSEKEEPING, fn (CalendarDate $today): string => trans_choice(
             '{0} no invitations pruned|{1} 1 invitation pruned|[2,*] :count invitations pruned',
             StaffInvitation::query()
                 ->where(fn ($query) => $query
-                    ->where(fn ($query) => $query->whereNull('accepted_at')->where('expires_at', '<', $today->subDays(30)))
-                    ->orWhere(fn ($query) => $query->whereNotNull('accepted_at')->where('accepted_at', '<', $today->subDays(90))))
+                    ->where(fn ($query) => $query->whereNull('accepted_at')->where('expires_at', '<', $cutoff($today, 30)))
+                    ->orWhere(fn ($query) => $query->whereNotNull('accepted_at')->where('accepted_at', '<', $cutoff($today, 90))))
                 ->delete(),
         ), label: 'Delete old staff invitations', description: 'Removes expired and used staff invitations.');
 
-        $automation->task('platform.prune_activity_log', Automation::HOUSEKEEPING, function (CarbonImmutable $today): string {
+        $automation->task('platform.prune_activity_log', Automation::HOUSEKEEPING, function (CalendarDate $today) use ($cutoff): string {
             $days = max(30, (int) $this->app->make(Settings::class)->get('platform.activity_log_retention_days', 365));
 
             // Entries tied to a client are kept until the client is deleted (spec §8).
-            $count = ChunkedDelete::run(DB::table('activity_log')->whereNull('client_id')->where('created_at', '<', $today->subDays($days)));
+            $count = ChunkedDelete::run(DB::table('activity_log')->whereNull('client_id')->where('created_at', '<', $cutoff($today, $days)));
 
             return trans_choice('{0} no entries pruned|{1} 1 entry pruned|[2,*] :count entries pruned', $count);
         }, label: 'Prune the activity log', description: 'Deletes activity log entries older than the retention period (client entries are kept).');
+
+        $system = fn (): PruneSystemTables => $this->app->make(PruneSystemTables::class);
+        $automation->task('platform.prune_automation_log', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => $system()->automationLog(RetentionRunDate::of($today)),
+            label: 'Prune the automation log', description: 'Deletes automation runs older than the retention period; each task keeps its latest run.');
+        $automation->task('platform.prune_queue_tables', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => $system()->queueTables(RetentionRunDate::of($today)),
+            label: 'Delete old failed jobs', description: 'Deletes failed background jobs, and finished job batches, older than the retention period.');
+        $automation->task('platform.prune_cache', Automation::HOUSEKEEPING, fn (): int => $system()->expiredCache(),
+            label: 'Delete expired cache entries', description: 'Removes expired entries and locks from the database cache.');
     }
 
     /**
@@ -184,10 +207,10 @@ class PlatformServiceProvider extends ModuleServiceProvider
         $navigation = $this->app->make(Navigation::class);
         $navigation->add('admin', new NavItem('Activity log', 'admin.platform.activity.index', 'Activity', 'General', 50, 'core.activity_log.view', 'admin.platform.activity.*'));
         $navigation->add('admin', new NavItem('Staff', 'admin.platform.staff.index', 'UserCog', 'Setup', 10, 'core.staff.view', 'admin.platform.staff.*'));
-        $navigation->add('admin', new NavItem('Roles', 'admin.platform.roles.index', 'Shield', 'Setup', 20, 'core.roles.manage', 'admin.platform.roles.*'));
+        $navigation->add('admin', new NavItem('Roles', 'admin.platform.roles.index', 'Shield', 'Setup', 11, 'core.roles.manage', 'admin.platform.roles.*'));
         $navigation->add('admin', new NavItem('Currencies', 'admin.platform.currencies.index', 'Coins', 'Setup', 30, 'core.currencies.manage', 'admin.platform.currencies.*'));
         $navigation->add('admin', new NavItem('Client groups', 'admin.platform.client-groups.index', 'Tag', 'Clients', 20, 'core.client_groups.manage', 'admin.platform.client-groups.*'));
-        $navigation->add('admin', new NavItem('Settings', 'admin.platform.settings.edit', 'Settings', 'Setup', 80, 'core.settings.view', 'admin.platform.settings.*'));
+        $navigation->add('admin', new NavItem('Settings', 'admin.platform.settings.edit', 'Settings', 'Setup', 5, 'core.settings.view', 'admin.platform.settings.*'));
         $navigation->add('admin', new NavItem('Automation', 'admin.platform.automation.index', 'Timer', 'Setup', 90, 'core.automation.view', 'admin.platform.automation.*'));
     }
 
@@ -230,7 +253,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
             new SettingDefinition('platform.rates_stale_after_days', 'Warn when automatic rates are older than (days)', 'integer', rules: ['min:1', 'max:60']),
             new SettingDefinition('platform.rates_manual_stale_after_days', 'Warn when manual rates are older than (days)', 'integer', 'Manual rates that nobody has changed for this long are flagged for review.', rules: ['min:1', 'max:365']),
             new SettingDefinition('platform.nrb_rate_type', 'Nepal Rastra Bank rate to use', 'select', 'NRB publishes a buying and a selling rate for each currency.', options: NrbRateSource::RATE_TYPES),
-            new SettingDefinition('platform.rates_update_time', 'Rate update time', help: 'Time of day (24-hour HH:MM, server time '.config('app.timezone').') to fetch rates, e.g. 17:00 after ECB publishes. Leave empty to fetch with the daily automation run.', rules: ['nullable', 'date_format:H:i']),
+            new SettingDefinition('platform.rates_update_time', 'Rate update time', help: 'Time of day (24-hour HH:MM, company time) to fetch rates, e.g. 17:00 after ECB publishes. Leave empty to fetch with the daily automation run.', rules: ['nullable', 'date_format:H:i']),
         ], 'core.currencies.rates');
 
         $this->app->make(SettingsRegistry::class)->section('security', 'Security', [
@@ -242,6 +265,8 @@ class PlatformServiceProvider extends ModuleServiceProvider
             new SettingDefinition('platform.invitation_expiry_days', 'Invitation links work for (days)', 'integer', 'Staff and client-login invitations. A new invitation replaces the old link.', rules: ['min:1', 'max:30']),
             // Shortening retention prunes staff and security events, so it is a security setting.
             new SettingDefinition('platform.activity_log_retention_days', 'Activity log retention (days)', 'integer', 'Entries not tied to a client are pruned after this many days.', rules: ['min:30', 'max:3650']),
+            new SettingDefinition('platform.automation_log_retention_days', 'Automation log retention (days)', 'integer', 'Daily automation runs are deleted after this many days; each task keeps its latest run (90 to 3,650).', rules: ['min:90', 'max:3650']),
+            new SettingDefinition('platform.failed_jobs_retention_days', 'Failed background jobs retention (days)', 'integer', 'Failed jobs can no longer be retried once deleted (7 to 365).', rules: ['min:7', 'max:365']),
         ], 'core.settings.security');
     }
 

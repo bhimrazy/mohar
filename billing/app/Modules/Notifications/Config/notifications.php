@@ -30,6 +30,8 @@ return [
 
     // §7 transport retries: 3 attempts, then failed
     'mail_max_attempts' => 3,
+    // A document larger than this is not attached (most providers refuse mail over 10 MB); the mail links to it instead.
+    'attachment_max_bytes' => 5 * 1024 * 1024,
     'mail_backoff_seconds' => [60, 300, 1800],
 
     // §8 outbound webhooks

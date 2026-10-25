@@ -2,37 +2,52 @@
 
 namespace App\Modules\Support;
 
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Contracts\Support\PublicHelpDirectory;
+use App\Contracts\Support\TicketStaffDirectory;
 use App\Data\Notifications\SensitiveValue;
+use App\Events\Support\TicketClosed;
+use App\Events\Support\TicketOpened;
+use App\Events\Support\TicketReplied;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\RequestMemo;
+use App\Modules\Core\Support\RetentionRunDate;
 use App\Modules\Support\Actions\AutoCloseTickets;
 use App\Modules\Support\Actions\PruneAttachments;
 use App\Modules\Support\Actions\PurgeInboundRaw;
 use App\Modules\Support\Enums\IncidentStatus;
 use App\Modules\Support\Enums\TicketStatus;
+use App\Modules\Support\Models\Department;
 use App\Modules\Support\Models\KbArticle;
 use App\Modules\Support\Models\NetworkIncident;
 use App\Modules\Support\Models\Ticket;
 use App\Modules\Support\Models\TicketMessage;
+use App\Modules\Support\Services\SupportAdminClientSummary;
+use App\Modules\Support\Services\SupportPublicHelp;
 use App\Modules\Support\Services\SupportSettings;
+use App\Modules\Support\Services\SupportTicketStaff;
 use App\Modules\Support\Services\TicketAccess;
 use App\Support\Automation\Automation;
+use App\Support\CalendarDate;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Events\WebhookEvents;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Seo\SitemapRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
-use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 
 class SupportServiceProvider extends ModuleServiceProvider
@@ -46,6 +61,8 @@ class SupportServiceProvider extends ModuleServiceProvider
     {
         $this->app->singleton(SupportSettings::class);
         $this->app->scoped(TicketAccess::class);
+        $this->app->bind(PublicHelpDirectory::class, SupportPublicHelp::class);
+        $this->app->bind(TicketStaffDirectory::class, SupportTicketStaff::class);
     }
 
     protected function schedule(Schedule $schedule): void
@@ -55,6 +72,16 @@ class SupportServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $webhooks = $this->app->make(WebhookEvents::class);
+        $webhooks->register(TicketOpened::class, 'ticket.opened', 'ticket', 'ticketId');
+        $webhooks->register(TicketReplied::class, 'ticket.replied', 'ticket', 'ticketId');
+        $webhooks->register(TicketClosed::class, 'ticket.closed', 'ticket', 'ticketId');
+
+        $this->app->make(SitemapRegistry::class)->register('support', fn (): iterable => [
+            ['loc' => route('support.kb.index'), 'lastmod' => null],
+            ['loc' => route('support.announcements.index'), 'lastmod' => null],
+            ...$this->app->make(SupportPublicHelp::class)->sitemapEntries(),
+        ]);
         $this->registerRateLimits();
         $this->registerNavigation();
         $this->registerDashboard();
@@ -104,6 +131,7 @@ class SupportServiceProvider extends ModuleServiceProvider
     private function registerDashboard(): void
     {
         $dashboard = $this->app->make(Dashboard::class);
+        $this->app->make(SupportAdminClientSummary::class)->register($dashboard);
         $scoped = fn (?User $user) => $user !== null
             ? app(TicketAccess::class)->scope(Ticket::query()->notMerged(), $user)
             : Ticket::query()->whereRaw('1 = 0');
@@ -169,12 +197,50 @@ class SupportServiceProvider extends ModuleServiceProvider
             'icon' => 'Activity',
         ], 'support.network.manage', 22);
 
-        $dashboard->card('client', 'support.open', fn (?User $user, Client $client): array => [
+        $dashboard->card('client', 'support.open', fn (?User $user, Client $client): ?array => app(ClientContext::class)->allows($user, $client, 'support') ? [
             'label' => 'Open tickets',
             'value' => Ticket::query()->notMerged()->where('client_id', $client->id)->where('status', '!=', TicketStatus::Closed->value)->count(),
             'href' => route('client.support.tickets.index'),
             'icon' => 'LifeBuoy',
-        ], order: 60);
+        ] : null, order: 60);
+
+        $dashboard->widget('client', 'support.tickets', 'list', function (?User $user, Client $client): ?array {
+            if (! app(ClientContext::class)->allows($user, $client, 'support')) {
+                return null;
+            }
+
+            // Tickets staff answered (awaiting the client) first, then the latest activity.
+            $items = Ticket::query()->notMerged()->where('client_id', $client->id)->where('status', '!=', TicketStatus::Closed->value)
+                ->orderByRaw('case when status = ? then 0 else 1 end', [TicketStatus::Answered->value])
+                ->orderByDesc('last_reply_at')->orderByDesc('id')
+                ->limit(3)
+                ->get(['id', 'number', 'subject', 'status', 'last_reply_at'])
+                ->map(fn (Ticket $ticket): array => [
+                    'title' => $ticket->subject,
+                    'subtitle' => '#'.$ticket->number,
+                    'href' => route('client.support.tickets.show', $ticket->number),
+                    // The client's view of who is waiting: staff answered → them; they replied → us.
+                    'status' => match ($ticket->status) {
+                        TicketStatus::Answered => 'awaiting-you',
+                        TicketStatus::CustomerReply => 'waiting-for-us',
+                        default => $ticket->status->value,
+                    },
+                    'meta' => $ticket->last_reply_at?->toIso8601String(),
+                ])->values()->all();
+
+            return [
+                'title' => 'Support',
+                'items' => $items,
+                'href' => route('client.support.tickets.index'),
+                'empty' => 'No open tickets. We are here if you need help.',
+                'emptyAction' => ['label' => 'Open a ticket', 'href' => route('client.support.tickets.create')],
+                // The empty state already offers "Open a ticket"; the header links are for clients with tickets.
+                'actions' => $items === [] ? [] : [
+                    ['label' => 'New ticket', 'href' => route('client.support.tickets.create'), 'icon' => 'Plus'],
+                    ...(Route::has('support.kb.index') ? [['label' => 'Help articles', 'href' => route('support.kb.index'), 'icon' => 'BookOpen']] : []),
+                ],
+            ];
+        }, order: 30);
     }
 
     /**
@@ -212,11 +278,13 @@ class SupportServiceProvider extends ModuleServiceProvider
 
     private function registerSettings(): void
     {
+        $statuses = fn (): array => collect(TicketStatus::active())->mapWithKeys(fn (TicketStatus $status): array => [$status->value => $status->label()])->all();
+
         $this->app->make(SettingsRegistry::class)->section('support', 'Support', [
             new SettingDefinition('support.ticket_number_format', 'Ticket number format', help: 'Tokens: %A A–Z, %a a–z, %n 0–9, %y %m %d date, %i id. Max 20 characters.', rules: ['max:20']),
             new SettingDefinition('support.auto_close_hours', 'Auto-close idle tickets after (hours)', 'integer', '0 turns auto-close off.', rules: ['min:0']),
-            new SettingDefinition('support.auto_close_statuses', 'Statuses that auto-close', help: 'Comma-separated, e.g. answered.'),
-            new SettingDefinition('support.awaiting_reply_statuses', 'Statuses awaiting a staff reply', help: 'Comma-separated, e.g. open,customer_reply.'),
+            new SettingDefinition('support.auto_close_statuses', 'Statuses that auto-close', 'multiselect', 'Idle tickets in these statuses are closed after the hours above.', options: $statuses),
+            new SettingDefinition('support.awaiting_reply_statuses', 'Statuses awaiting a staff reply', 'multiselect', 'Tickets in these statuses count as waiting for staff.', options: $statuses),
             new SettingDefinition('support.attachment_extensions', 'Client attachment types', help: 'Comma-separated extensions.'),
             new SettingDefinition('support.staff_attachment_extensions', 'Staff attachment types', help: 'Comma-separated extensions.'),
             new SettingDefinition('support.attachment_max_mb', 'Max attachment size (MB)', 'integer', rules: ['min:1', 'max:100']),
@@ -228,7 +296,8 @@ class SupportServiceProvider extends ModuleServiceProvider
             new SettingDefinition('support.inbound_max_per_sender', 'Max inbound emails per sender per 15 minutes', 'integer', rules: ['min:1']),
             new SettingDefinition('support.allow_unverified_email_replies', 'Accept email replies from unknown senders', 'boolean'),
             new SettingDefinition('support.prevent_email_reopen', 'Email replies cannot reopen closed tickets', 'boolean'),
-            new SettingDefinition('support.default_department_id', 'Default department for unknown addresses (id)', 'integer'),
+            new SettingDefinition('support.default_department_id', 'Default department for unknown addresses', 'select', 'Email sent to an address no department uses opens a ticket here.',
+                options: fn (): array => ['0' => 'None'] + Department::query()->ordered()->pluck('name', 'id')->mapWithKeys(fn (string $name, int $id): array => [(string) $id => $name])->all()),
             new SettingDefinition('support.reply_marker', 'Reply marker line'),
             new SettingDefinition('support.auto_add_cc', 'Add Cc addresses of inbound emails to the ticket', 'boolean'),
         ], 'support.settings.manage');
@@ -325,8 +394,8 @@ class SupportServiceProvider extends ModuleServiceProvider
     private function registerAutomation(): void
     {
         $automation = $this->app->make(Automation::class);
-        $automation->task('support.auto_close', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(AutoCloseTickets::class)->handle($today->isToday() ? null : $today->endOfDay()), label: 'Close idle tickets', description: 'Closes tickets that have waited on the customer longer than the auto-close period.');
-        $automation->task('support.purge_inbound_raw', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PurgeInboundRaw::class)->handle($today), label: 'Purge raw inbound emails', description: 'Deletes stored raw inbound email payloads older than the retention period.');
-        $automation->task('support.prune_attachments', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneAttachments::class)->handle($today), label: 'Delete old ticket attachments', description: 'Deletes attachment files from tickets closed longer than the configured months (details stay).');
+        $automation->task('support.auto_close', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(AutoCloseTickets::class)->handle($today->equals(app(CompanyClock::class)->calendarDate()) ? null : app(CompanyClock::class)->dayBounds($today)[1]), label: 'Close idle tickets', description: 'Closes tickets that have waited on the customer longer than the auto-close period.');
+        $automation->task('support.purge_inbound_raw', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(PurgeInboundRaw::class)->handle(app(CompanyClock::class)->dayBounds(RetentionRunDate::of($today))[0]), label: 'Purge raw inbound emails', description: 'Deletes stored raw inbound email payloads older than the retention period.');
+        $automation->task('support.prune_attachments', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(PruneAttachments::class)->handle(app(CompanyClock::class)->dayBounds(RetentionRunDate::of($today))[0]), label: 'Delete old ticket attachments', description: 'Deletes attachment files from tickets closed longer than the configured months (details stay).');
     }
 }

@@ -1,6 +1,9 @@
 <?php
 
 use App\Contracts\Billing\GatewayDirectory;
+use App\Contracts\Billing\GatewayDriver;
+use App\Contracts\Billing\GatewayRegistry;
+use App\Contracts\Billing\HostedPaymentDriver;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Orders\PaymentGuard;
@@ -42,17 +45,29 @@ test('every billing permission used by the module is registered', function () {
 });
 
 test('every billing config default has a setting definition', function () {
-    $keys = collect(app(SettingsRegistry::class)->sections()['billing']['settings'])->map(fn (SettingDefinition $definition) => $definition->key);
+    // Billing's own section, and the gateway log retention in its security-tier section.
+    $sections = app(SettingsRegistry::class)->sections();
+    $keys = collect([...$sections['billing']['settings'], ...$sections['billing_retention']['settings']])->map(fn (SettingDefinition $definition) => $definition->key);
     $defaults = collect(Arr::dot(config('billing')))->keys()
         ->map(fn (string $key) => 'billing.'.preg_replace('/\.\d+$/', '', $key))->unique();
 
     expect($defaults->diff($keys)->values()->all())->toBe([]);
 });
 
+test('every registered gateway declares REDIRECT exactly when it is a hosted payment driver', function () {
+    $drivers = app(GatewayRegistry::class)->drivers();
+
+    // Billing's own drivers and the extension modules' (PaymentsStripe, PaymentsNepal), hosted and offline.
+    expect(array_keys($drivers))->toContain('bank_transfer', 'manual', 'sandbox_card', 'stripe', 'khalti', 'esewa');
+    foreach ($drivers as $key => $driver) {
+        expect($driver->supports(GatewayDriver::REDIRECT))->toBe($driver instanceof HostedPaymentDriver, "{$key} declares REDIRECT without being a hosted payment driver, or the other way round");
+    }
+});
+
 test('billing automation tasks are registered in pipeline order', function () {
     $tasks = array_keys(array_filter(app(Automation::class)->ordered(), fn ($task, $key) => str_starts_with($key, 'billing.'), ARRAY_FILTER_USE_BOTH));
 
-    expect($tasks)->toBe(['billing.late_fees', 'billing.auto_capture', 'billing.reminders', 'billing.auto_cancel', 'billing.payment_reconciliation', 'billing.housekeeping']);
+    expect($tasks)->toBe(['billing.late_fees', 'billing.auto_capture', 'billing.reminders', 'billing.auto_cancel', 'billing.payment_reconciliation', 'billing.gateway_refund_check', 'billing.housekeeping', 'billing.gateway_log_prune']);
 });
 
 test('navigation shows billing items according to permissions', function () {

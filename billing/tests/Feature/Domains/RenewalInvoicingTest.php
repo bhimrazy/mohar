@@ -12,6 +12,7 @@ use App\Modules\Domains\Actions\SetAutoRenew;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainInvoice;
+use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Event;
 use Tests\Fakes\Domains\DomainFixtures;
@@ -34,7 +35,7 @@ test('the renewal invoice is issued once when the lead time is reached', functio
     $this->travelTo(CarbonImmutable::parse('2027-01-01'));
     $this->artisan('automation:run')->assertSuccessful();
     $this->artisan('automation:run', ['--force' => true])->assertSuccessful();
-    app(IssueRenewalInvoices::class)->handle(CarbonImmutable::parse('2027-01-02'));
+    app(IssueRenewalInvoices::class)->handle(CalendarDate::parse('2027-01-02'));
 
     expect($this->invoicer->issued())->toHaveCount(1);
     $draft = $this->invoicer->issued()[0]['draft'];
@@ -50,7 +51,7 @@ test('the renewal invoice is issued once when the lead time is reached', functio
 test('domains with auto-renew off are not invoiced', function () {
     Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id, 'auto_renew' => false]);
 
-    expect(app(IssueRenewalInvoices::class)->handle(CarbonImmutable::parse('2027-01-10')))->toBe(0)
+    expect(app(IssueRenewalInvoices::class)->handle(CalendarDate::parse('2027-01-10')))->toBe(0)
         ->and($this->invoicer->issued())->toBe([]);
 });
 
@@ -58,15 +59,15 @@ test('only active domains are invoiced', function () {
     Domain::factory()->expiring('2027-01-31')->status(DomainStatus::PendingTransfer)->create(['tld_id' => $this->com->id]);
     Domain::factory()->expiring('2027-01-31')->status(DomainStatus::Cancelled)->create(['tld_id' => $this->com->id]);
 
-    expect(app(IssueRenewalInvoices::class)->handle(CarbonImmutable::parse('2027-01-10')))->toBe(0);
+    expect(app(IssueRenewalInvoices::class)->handle(CalendarDate::parse('2027-01-10')))->toBe(0);
 });
 
 test('a free domain whose linked service is not active on the same due date is not renewed', function (array $service) {
     Event::fake([FreeDomainRenewalBlocked::class]);
     $domain = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id, 'recurring_amount' => 0, 'linked_service_id' => 77, ...$service]);
 
-    app(IssueRenewalInvoices::class)->handle(CarbonImmutable::parse('2027-01-05'));
-    app(IssueRenewalInvoices::class)->handle(CarbonImmutable::parse('2027-01-06'));
+    app(IssueRenewalInvoices::class)->handle(CalendarDate::parse('2027-01-05'));
+    app(IssueRenewalInvoices::class)->handle(CalendarDate::parse('2027-01-06'));
 
     expect($this->invoicer->issued())->toBe([]);
     Event::assertDispatchedTimes(FreeDomainRenewalBlocked::class, 1);
@@ -81,7 +82,7 @@ test('a free domain renews with its active linked service and its zero-total inv
     $paid = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id, 'registrar_key' => 'fake']);
     event(new ServiceActivated(77, $free->client_id, '2027-01-31'));
 
-    expect(app(IssueRenewalInvoices::class)->handle(CarbonImmutable::parse('2027-01-05')))->toBe(2);
+    expect(app(IssueRenewalInvoices::class)->handle(CalendarDate::parse('2027-01-05')))->toBe(2);
 
     $zeroInvoice = collect($this->invoicer->invoices)->search(fn ($invoice) => $invoice['draft']->lines[0]->billableId === $free->id);
     expect($this->invoicer->status($zeroInvoice))->toBe('paid')
@@ -89,12 +90,12 @@ test('a free domain renews with its active linked service and its zero-total inv
         ->and($paid->fresh()->expiry_date->toDateString())->toBe('2027-01-31')
         ->and(DomainInvoice::query()->where('domain_id', $free->id)->sole()->status)->toBe('paid');
 
-    expect(app(IssueRenewalInvoices::class)->handle(CarbonImmutable::parse('2027-01-06')))->toBe(0);
+    expect(app(IssueRenewalInvoices::class)->handle(CalendarDate::parse('2027-01-06')))->toBe(0);
 });
 
 test('turning auto-renew off cancels the unpaid renewal invoice', function () {
     $domain = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id]);
-    app(IssueRenewalInvoices::class)->handle(CarbonImmutable::parse('2027-01-05'));
+    app(IssueRenewalInvoices::class)->handle(CalendarDate::parse('2027-01-05'));
     $invoiceId = array_key_first($this->invoicer->invoices);
 
     app(SetAutoRenew::class)->handle($domain, false);
@@ -104,11 +105,23 @@ test('turning auto-renew off cancels the unpaid renewal invoice', function () {
     $this->assertDatabaseHas('domain_invoices', ['invoice_id' => $invoiceId, 'status' => 'cancelled']);
 });
 
+test('a renewal invoice Billing refuses to cancel stays open and is not marked cancelled', function () {
+    $domain = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id]);
+    app(IssueRenewalInvoices::class)->handle(CalendarDate::parse('2027-01-05'));
+    $invoiceId = array_key_first($this->invoicer->invoices);
+    $this->invoicer->refuseCancel = true;
+
+    app(SetAutoRenew::class)->handle($domain, false);
+
+    expect($this->invoicer->status($invoiceId))->toBe('unpaid');
+    $this->assertDatabaseMissing('domain_invoices', ['invoice_id' => $invoiceId, 'status' => 'cancelled']);
+});
+
 test('expiry runs grace, redemption and expiry in order and re-runs change nothing', function () {
     Event::fake([DomainExpired::class]);
     $this->com->update(['grace_days' => 30, 'redemption_days' => 30]);
     $domain = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id]);
-    app(IssueRenewalInvoices::class)->handle(CarbonImmutable::parse('2027-01-05'));
+    app(IssueRenewalInvoices::class)->handle(CalendarDate::parse('2027-01-05'));
     $invoiceId = array_key_first($this->invoicer->invoices);
 
     $this->artisan('automation:run', ['--date' => '2027-02-01', '--only' => 'domains.lifecycle']);
@@ -132,10 +145,10 @@ test('entering grace with a fee replaces the renewal invoice with renewal plus f
     Currency::factory()->euro()->create();
     $this->com->update(['grace_days' => 30, 'grace_fee' => 1000]);
     $domain = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id, 'currency' => 'EUR', 'recurring_amount' => 1300]);
-    app(IssueRenewalInvoices::class)->handle(CarbonImmutable::parse('2027-01-05'));
+    app(IssueRenewalInvoices::class)->handle(CalendarDate::parse('2027-01-05'));
     $original = array_key_first($this->invoicer->invoices);
 
-    app(ApplyExpiryLifecycle::class)->handle(CarbonImmutable::parse('2027-02-01'));
+    app(ApplyExpiryLifecycle::class)->handle(CalendarDate::parse('2027-02-01'));
 
     $replacement = $this->invoicer->invoices[array_key_last($this->invoicer->invoices)];
     expect($this->invoicer->status($original))->toBe('cancelled')
@@ -147,13 +160,13 @@ test('entering grace with a fee replaces the renewal invoice with renewal plus f
 
 test('without grace or redemption the unpaid renewal is cancelled the day after expiry', function () {
     $domain = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id]);
-    app(IssueRenewalInvoices::class)->handle(CarbonImmutable::parse('2027-01-05'));
+    app(IssueRenewalInvoices::class)->handle(CalendarDate::parse('2027-01-05'));
     $invoiceId = array_key_first($this->invoicer->invoices);
 
-    app(ApplyExpiryLifecycle::class)->handle(CarbonImmutable::parse('2027-01-31'));
+    app(ApplyExpiryLifecycle::class)->handle(CalendarDate::parse('2027-01-31'));
     expect($domain->fresh()->status)->toBe(DomainStatus::Active);
 
-    app(ApplyExpiryLifecycle::class)->handle(CarbonImmutable::parse('2027-02-01'));
+    app(ApplyExpiryLifecycle::class)->handle(CalendarDate::parse('2027-02-01'));
     expect($domain->fresh()->status)->toBe(DomainStatus::Expired)
         ->and($this->invoicer->status($invoiceId))->toBe('cancelled');
 });
@@ -163,7 +176,7 @@ test('the global switch disables grace and redemption', function () {
     $this->com->update(['grace_days' => 30, 'redemption_days' => 30]);
     $domain = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id]);
 
-    app(ApplyExpiryLifecycle::class)->handle(CarbonImmutable::parse('2027-02-01'));
+    app(ApplyExpiryLifecycle::class)->handle(CalendarDate::parse('2027-02-01'));
 
     expect($domain->fresh()->status)->toBe(DomainStatus::Expired);
 });
@@ -177,6 +190,6 @@ test('every due domain is invoiced even beyond one chunk', function () {
         Domain::factory()->expiring($start->subDays($index)->toDateString())->create(['tld_id' => $this->com->id, 'client_id' => $client->id]);
     }
 
-    expect(app(IssueRenewalInvoices::class)->handle(CarbonImmutable::parse('2027-01-05')))->toBe(205)
+    expect(app(IssueRenewalInvoices::class)->handle(CalendarDate::parse('2027-01-05')))->toBe(205)
         ->and($this->invoicer->issued())->toHaveCount(205);
 });

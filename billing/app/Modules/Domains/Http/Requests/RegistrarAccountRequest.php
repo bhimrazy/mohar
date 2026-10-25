@@ -2,10 +2,13 @@
 
 namespace App\Modules\Domains\Http\Requests;
 
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
+use App\Enums\FieldType;
+use App\Support\Domains\RegistrarDriverRegistry;
 use App\Support\Integrations\KeepsSecretsOutOfOldInput;
+use App\Support\Integrations\SecretMinimumLength;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 /**
  * Registrar credentials: a failed validation never flashes a password-type setting (or an undeclared one) into the
@@ -25,12 +28,23 @@ class RegistrarAccountRequest extends FormRequest
      */
     public function rules(): array
     {
-        return [
+        $rules = [
             'is_active' => ['required', 'boolean'],
             'test_mode' => ['required', 'boolean'],
             'settings' => ['nullable', 'array'],
             'settings.*' => ['nullable', 'max:1000'],
         ];
+
+        foreach (app(RegistrarDriverRegistry::class)->fields((string) $this->route('registrar')) as $field) {
+            $rules["settings.{$field->key}"] = match ($field->type) {
+                FieldType::Number => ['nullable', 'integer', 'min:0', 'max:1000000'],
+                FieldType::Select => ['nullable', Rule::in(array_map('strval', array_keys($field->options)))],
+                FieldType::Boolean => ['nullable', 'boolean'],
+                default => ['nullable', 'string', 'max:1000', new SecretMinimumLength($field)],
+            };
+        }
+
+        return $rules;
     }
 
     /**
@@ -40,11 +54,8 @@ class RegistrarAccountRequest extends FormRequest
      */
     protected function secretInputPaths(): array
     {
-        $registrars = app(RegistrarManager::class);
-        $key = (string) $this->route('registrar');
-        $public = $registrars->has($key)
-            ? array_column(array_filter($registrars->driver($key)->settingsSchema(), fn (array $field): bool => $field['type'] !== 'password'), 'key')
-            : [];
+        $fields = app(RegistrarDriverRegistry::class)->fields((string) $this->route('registrar'));
+        $public = array_values(array_map(fn ($field): string => $field->key, array_filter($fields, fn ($field): bool => ! $field->isSecret())));
         $submitted = array_map('strval', array_keys((array) $this->input('settings', [])));
 
         return array_values(array_map(fn (string $setting): string => "settings.{$setting}", array_diff($submitted, $public)));

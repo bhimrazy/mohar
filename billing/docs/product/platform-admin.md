@@ -151,7 +151,7 @@ the settings catalog, activity log, admin global search, login-as-client (impers
   `platform.rates_manual_stale_after_days` (default 30), are flagged as stale on the page and in "Needs attention". A failed
   fetch fails the automation task with the reason, keeps the old rates and is audit-logged.
 - **Audit and history:** every rate change writes `exchange_rate_history (currency, rate, source, effective_at,
-user_id)` and an activity entry (`currency.rate_changed`, old → new, source, who; system for automation). Held,
+  user_id)` and an activity entry (`currency.rate_changed`, old → new, source, who; system for automation). Held,
   approved and rejected changes, source/rule edits and failed fetches are logged too. The currency edit page charts
   the rate in force for each of the last 90 days.
 - `ExchangeRatesUpdated(currencies, source)` is dispatched after changes (spec §14).
@@ -210,6 +210,14 @@ Typed registry (`SettingDefinition: key, type, default, rules, is_secret, owner_
 - Writes for: staff/user login success & failure, logout, impersonation start/end, settings change, role/permission change, staff create/disable, client create/update (diff)/close/merge/delete, financial actions (payments, refunds, credits, invoice cancel), provisioning & registrar commands, EPP retrieval, data export, 2FA changes. **MUST**
 - Entry: actor (type + id), impersonator_id, client_id, subject, event key, human description, properties (diff, redacted), IP, user agent. **MUST**
 - Retention: entries without client pruned after `system.activity_log_retention_days`; client entries kept until the client is deleted. Read-only (no edit/delete UI). **MUST**
+- The list pages of the activity log, gateway log and module log page with previous and next only (`simplePaginate`), so
+  no `count(*)` runs over the log (#49).
+- Housekeeping of the application's own tables (#49), each at most 100,000 rows a run (`ChunkedDelete::LIMIT`):
+  automation runs after `platform.automation_log_retention_days` (365, at least 90; each task keeps its latest run;
+  `automation:run --date` refuses older dates, ADR 0013 Amendment (#460)),
+  failed queue jobs and finished or cancelled job batches after `platform.failed_jobs_retention_days` (30, at least 7;
+  unfinished batches are kept), and expired rows of the database cache and its locks. The settings are in Settings →
+  Security.
 - Admin view: filter by date, actor, client, event, IP, text; client profile "log" tab. **MUST**
 
 ## 9. Global admin search

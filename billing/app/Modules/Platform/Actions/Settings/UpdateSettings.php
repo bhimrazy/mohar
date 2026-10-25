@@ -4,18 +4,21 @@ namespace App\Modules\Platform\Actions\Settings;
 
 use App\Events\Core\SettingsUpdated;
 use App\Models\User;
+use App\Modules\Core\Models\Setting;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Services\SettingsCatalog;
 use App\Modules\Platform\Support\AccountMail;
+use App\Support\Settings\SettingLocks;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class UpdateSettings
 {
     public const MASK = '••••••';
 
-    public function __construct(private SettingsCatalog $catalog, private Settings $settings, private ActivityLogger $activity, private AccountMail $mail) {}
+    public function __construct(private SettingsCatalog $catalog, private Settings $settings, private ActivityLogger $activity, private AccountMail $mail, private SettingLocks $locks) {}
 
     /**
      * Security-policy changes are announced to every active full administrator.
@@ -61,9 +64,10 @@ class UpdateSettings
             }
 
             $value = $this->catalog->cast($definition, $raw);
-            $current = $this->settings->get($definition->key);
+            $current = $this->catalog->current($definition);
 
-            if ($value === $current) {
+            // A blank config default ('') and a cleared field (null), or 0 and "0", are the same setting.
+            if ($value === $current || ($value === null && $current === '') || (is_numeric($value) && is_numeric($current) && (string) $value === (string) $current)) {
                 continue;
             }
 
@@ -75,6 +79,7 @@ class UpdateSettings
 
         if ($changes !== []) {
             DB::transaction(function () use ($changes, $definitions, $diff): void {
+                $this->refuseLocked(array_keys($changes));
                 $this->settings->setMany($changes);
                 $this->activity->log("{$definitions['title']} settings updated", properties: ['diff' => $diff], event: 'settings.updated');
             });
@@ -87,5 +92,36 @@ class UpdateSettings
         }
 
         return array_keys($changes);
+    }
+
+    /**
+     * Refuse a changed value of a locked key. Runs inside the save's transaction, holding a shared lock on each guard
+     * row, so a module that switches a lock on (FOR UPDATE on the same row) and this save cannot interleave.
+     *
+     * @param  list<string>  $keys
+     *
+     * @throws ValidationException
+     */
+    private function refuseLocked(array $keys): void
+    {
+        $guards = $this->locks->guards($keys);
+
+        if ($guards !== []) {
+            Setting::query()->whereIn('key', $guards)->sharedLock()->get();
+        }
+
+        // The lock state may have changed while this save waited for the guard row.
+        $this->locks->flush();
+        $errors = [];
+
+        foreach ($keys as $key) {
+            if (($reason = $this->locks->reason($key)) !== null) {
+                $errors[$key] = $reason;
+            }
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
     }
 }

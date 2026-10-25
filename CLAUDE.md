@@ -2,6 +2,8 @@
 
 Mohar is a hosting billing and automation platform in the same category as WHMCS, built clean-room in
 Laravel. The application lives in `billing/`; everything else in this repository is tooling and process.
+Main market: Nepal first (NPR, VAT 13%, Nepal time, eSewa and Khalti, `.np` registered by clients themselves);
+India and global later.
 
 ## Boundary (non-negotiable)
 
@@ -11,21 +13,22 @@ Laravel. The application lives in `billing/`; everything else in this repository
   work underneath, and to stay compatible where that helps (API importer, familiar concepts).
 - Our implementation stays our own: never decode or decompile the encrypted WHMCS source, never bypass
   licensing, and never copy WHMCS code or documentation text into this repo. Write code, schemas and
-  wording ourselves.
+  wording ourselves. The REA toolkit (`rea/`, git-ignored, installed per user) is never pointed at WHMCS files.
 - The product name is configurable (`APP_NAME`, Admin → Settings → Appearance → Brand). Never hard-code
   "Mohar" or "Laravel" in UI, mail or PDFs; read it from `BrandProvider`.
 
 ## Start here
 
 1. `docs/handoff/state.md` — what is merged, in flight and next. Read it before doing anything.
-2. `docs/handoff/operating-model.md` — how the work is run: roles, workstream lifecycle, gates, limits.
+2. `docs/handoff/operating-model.md` — how the work is run: roles, lifecycle, review policy, budget, limits.
+   Reviewers also follow `docs/handoff/review-rules.md`.
 3. `docs/handoff/requirements.md` — the owner's standing requirements and decisions.
    `docs/handoff/product-standards.md` — checks every user-facing change must pass (owner corrections).
 4. `billing/docs/architecture.md`, `billing/docs/adr/`, `billing/docs/product/<module>.md` — binding
    engineering conventions and module specs.
 
-To resume after a restart or on a new device, run the `resume-session` skill. To start, review or merge
-a module, follow the `run-workstream` skill. Reusable subagents are in `.claude/agents/`.
+Skills: `resume-session` after a restart or on a new device; `run-workstream` to start, review or merge a module;
+`review-round` for the periodic CEO, CTO, security and architecture reviews. Subagent roles are in `.claude/agents/`.
 
 ## Rules for every session
 
@@ -34,11 +37,21 @@ a module, follow the `run-workstream` skill. Reusable subagents are in `.claude/
 - Work on feature branches in worktrees under `.worktrees/<slug>` (`scripts/new-worktree.sh <slug>`);
   PRs go into `develop`. Shared-kernel changes (`app/Contracts`, `app/Data`, `app/Events`, `app/Support`)
   are made centrally by the CTO session, not inside a module branch, unless the PR body calls them out.
+- `$MOHAR_ROOT` is the main checkout: `/workspaces/whmcs` on a codespace; on other machines it is set in the
+  git-ignored `.claude/settings.local.json` (`env`).
+- Subagents never run commands in the main checkout (`$MOHAR_ROOT/billing`) and never touch port 8000,
+  the owner's preview. Chain every `cd` with `&&`. Stop servers by port PID, never `pkill -f`.
 - Run CPU-heavy commands through `scripts/heavy.sh` (full test suite, phpstan, builds, `npm ci`,
-  browsers). The codespace has 4 vCPUs and is shared by several agents.
+  browsers). The machine is shared by several agents (operating model, "Machine limits").
 - Hard-pinned dependencies with a 7-day release cooldown (ADR 0007). Do not add packages without approval,
   and never run `npx <package>` for a tool that is not in the lockfile: it executes unvetted code. Format
   with `npx vp check --fix`, not standalone prettier.
-- Conventional Commits. Push branches to GitHub (`bhimrazy/whmcs`, private). Open and merge PRs with `gh`.
-- Keep `docs/handoff/state.md`, `billing/docs/progress.md` and `billing/changelog.md` current: update
-  them when a PR merges, a workstream starts or stops, or the owner makes a decision.
+- Conventional Commits. Push branches to GitHub (`bhimrazy/mohar`; the owner switches it between public and
+  private, see the operating model). Open and merge PRs with `gh`.
+- Keep `docs/handoff/state.md` and `billing/docs/progress.md` current: update them when a PR merges, a workstream
+  starts or stops, or the owner makes a decision.
+- Changelog entries go in a fragment, `billing/changelog.d/<branch-slug>.md` (a kernel API change also adds
+  `billing/docs/architecture/kernel-changelog.d/<branch-slug>.md`); never edit `billing/changelog.md` or
+  `kernel-changelog.md` directly, CI fails it (ADR 0027; formats in each folder's `README.md`). New ADR amendments are
+  keyed by PR: `## Amendment (#<pr>) — <date>, <title>`.
+- Reports state what actually ran and what was not verified; no claimed results without output.

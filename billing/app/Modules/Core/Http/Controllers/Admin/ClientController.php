@@ -6,6 +6,8 @@ use App\Events\Core\ClientRegistered;
 use App\Events\Core\ClientUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Modules\Core\Enums\ClientOrigin;
+use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Http\Requests\ClientRequest;
 use App\Modules\Core\Http\Resources\ClientResource;
 use App\Modules\Core\Models\ActivityLog;
@@ -16,7 +18,9 @@ use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\ClientContext;
+use App\Modules\Core\Support\ClientCurrencyLock;
 use App\Modules\Core\Support\Settings;
+use App\Support\Dashboard\Dashboard;
 use App\Support\Navigation\Navigation;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -56,7 +60,7 @@ class ClientController extends Controller
 
     public function store(ClientRequest $request): RedirectResponse
     {
-        $client = Client::query()->create($request->validated());
+        $client = Client::query()->forceCreate([...$request->validated(), 'origin' => ClientOrigin::Staff, 'email_source' => EmailSource::Staff]);
         $this->activity->log('Client created', $client, $client->id, event: 'client.created');
         ClientRegistered::dispatch($client->id, null);
 
@@ -65,7 +69,7 @@ class ClientController extends Controller
         return to_route('admin.clients.show', $client);
     }
 
-    public function show(Request $request, Client $client, Navigation $navigation): Response|RedirectResponse
+    public function show(Request $request, Client $client, Navigation $navigation, Dashboard $dashboard): Response|RedirectResponse
     {
         $this->authorize('core.clients.view');
 
@@ -95,7 +99,14 @@ class ClientController extends Controller
                         'expires_at' => $invitation->expires_at->toIso8601String(),
                     ],
                 ]),
+            // Modules contribute stat cards and lists to the "admin-client" dashboard area (money, counts, latest rows).
+            'summary' => $dashboard->resolveWidgets('admin-client', $user, null, $client),
             'links' => $navigation->clientLinks($client->id, $user),
+            // Columns an import kept as they were (client-import spec §6.13), with when the client was imported.
+            'imported' => $client->imported_at === null ? null : [
+                'at' => $client->imported_at->toIso8601String(),
+                'fields' => array_map(fn (array $field): array => ['label' => $field['label'], 'value' => $field['value'], 'source' => $field['source']], $client->imported_fields ?? []),
+            ],
             // Audit entries (with IPs and impersonator names) only for staff allowed to read the activity log.
             'activity' => $can('core.activity_log.view')
                 ? ActivityLog::query()->where('client_id', $client->id)->with(['user:id,name', 'impersonator:id,name'])->latest('id')->limit(15)->get()
@@ -123,13 +134,15 @@ class ClientController extends Controller
         ]);
     }
 
-    public function edit(Client $client): Response
+    public function edit(Client $client, ClientCurrencyLock $currencyLock): Response
     {
         $this->authorize('core.clients.update');
         abort_if($client->merged_into_client_id !== null, 404);
 
         return Inertia::render('admin/clients/form', [
             'client' => new ClientResource($client),
+            // Why the currency can't change, so the form disables it up front; the save checks again under the lock.
+            'currencyLock' => $currencyLock->reason($client),
             ...$this->formOptions(),
         ]);
     }
@@ -138,8 +151,8 @@ class ClientController extends Controller
     {
         abort_if($client->merged_into_client_id !== null, 404);
 
-        $original = $client->only(array_keys($request->validated()));
-        $client->update($request->validated());
+        // Locked, so a client-area save cannot interleave; staff vouch for an address they enter (account import).
+        [$client, $original] = Client::updateDetails($client->id, $request->validated(), EmailSource::Staff);
         $changes = array_keys($client->getChanges());
         $diff = collect($changes)
             ->reject(fn (string $key): bool => $key === 'updated_at')

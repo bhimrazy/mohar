@@ -13,7 +13,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/helpers.php';
 
-/** Sensitive staff actions require a recent password confirmation (ConfirmPasswordForAction). */
+/** Sensitive staff actions require a recent password confirmation (password.recent, App\Http\Middleware\RequireRecentPasswordConfirmation). */
 beforeEach(fn () => $this->withSession(['auth.password_confirmed_at' => time()]));
 
 test('guests, customers and staff without permission cannot see invoices', function () {
@@ -120,7 +120,7 @@ test('the invoice page exposes lines, transactions, credit and permissions', fun
             ->has('transactions', 1)
             ->where('transactions.0.gateway_txn_id', 'TX-1')
             ->where('credit_available', 0)
-            ->where('can', ['manage' => false, 'payments' => true, 'refunds' => false]));
+            ->where('can', ['manage' => false, 'payments' => true, 'refunds' => false, 'notes' => false]));
 });
 
 test('staff record payments with decimal amounts', function () {

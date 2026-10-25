@@ -6,36 +6,108 @@ use App\Contracts\Branding\BrandProvider;
 use App\Models\User;
 use App\Modules\Core\Install\AdministratorRefused;
 use App\Modules\Core\Install\CheckStatus;
+use App\Modules\Core\Install\DefaultCurrencies;
 use App\Modules\Core\Install\EnvironmentCheck;
 use App\Modules\Core\Install\EnvironmentChecks;
 use App\Modules\Core\Install\FirstAdministrator;
 use App\Modules\Core\Install\ReferenceDataInstaller;
+use App\Modules\Core\Install\RegionalDefaults;
+use App\Modules\Core\Models\Currency;
+use App\Support\Queues;
 use App\Support\Security\PasswordPolicy;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Validator;
 use Symfony\Component\Console\Output\OutputInterface;
 
 use function Laravel\Prompts\password;
+use function Laravel\Prompts\select;
 use function Laravel\Prompts\text;
 
 /**
  * The production install path (docs/devops/install.md): pre-flight checks, reference data from every module's
  * InstallsReferenceData, and the first full administrator. Safe to re-run: reference data is idempotent and a second
- * administrator is created only with --additional-admin. It never creates demo data.
+ * administrator is created only with --additional-admin. One run at a time (LOCK). It never creates demo data.
  */
 #[Signature('app:install
     {--admin-name= : Name of the full administrator to create}
     {--admin-email= : Create the full administrator without prompts, with a generated one-time password printed once}
-    {--additional-admin : Create a full administrator even though one already exists}')]
+    {--additional-admin : Create a full administrator even though one already exists}
+    {--country= : Two-letter country code for a first install (default NP, Nepal)}
+    {--currency= : Default currency for a first install: NPR, USD or INR (default NPR)}
+    {--timezone= : Company time zone for a first install (default Asia/Kathmandu)}
+    {--release-lock : Only release the install lock a stopped run left behind, then exit (needs --force and a terminal)}
+    {--force : With --release-lock: release it after you confirm no install is running}')]
 #[Description('Check the environment, install reference data and create the first full administrator')]
 class InstallCommand extends Command
 {
-    public function handle(EnvironmentChecks $environment, ReferenceDataInstaller $installer, FirstAdministrator $administrators): int
+    /** Cache lock held for the whole install after the pre-flight, so two runs never write the same rows at once. */
+    public const LOCK = 'app:install';
+
+    /** Long enough for the prompts of an interactive install; released as soon as the run ends. */
+    private const LOCK_SECONDS = 900;
+
+    public function handle(EnvironmentChecks $environment, ReferenceDataInstaller $installer, FirstAdministrator $administrators, RegionalDefaults $regional): int
     {
+        if ($this->option('release-lock')) {
+            return $this->releaseLock();
+        }
+
         if (! $this->preflight($environment->run())) {
+            return self::FAILURE;
+        }
+
+        $lock = Cache::lock(self::LOCK, self::LOCK_SECONDS);
+
+        if (! $lock->get()) {
+            $this->components->error('Another app:install is running, or one stopped in the last '.intdiv(self::LOCK_SECONDS, 60).' minutes without finishing (a killed process, a lost SSH session). Wait for it, or, when you are sure none is running, release the lock with `php artisan app:install --release-lock --force` and run it again.');
+
+            return self::FAILURE;
+        }
+
+        try {
+            return $this->install($installer, $administrators, $regional);
+        } catch (UniqueConstraintViolationException) {
+            // The lock only serialises runs that share the cache store; a run on another store can still collide.
+            $this->components->error('Another install wrote the same rows at the same time, so this one stopped. Run `php artisan app:install` again: it keeps what exists and adds only what is missing.');
+
+            return self::FAILURE;
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * The lock cannot tell whether its holder is alive, so releasing it is the operator's call: --force, then a
+     * confirmation in a terminal that names what goes wrong if a run is still going.
+     */
+    private function releaseLock(): int
+    {
+        if (! $this->option('force') || ! $this->input->isInteractive()) {
+            $this->components->error('Releasing the install lock needs --force and a terminal to confirm: `php artisan app:install --release-lock --force`.');
+
+            return self::FAILURE;
+        }
+
+        if (! $this->confirm('Release the app:install lock? Do this only when no install is running on any server: releasing the lock of a run that is still going lets a second one write the same rows at the same time.')) {
+            $this->components->info('The install lock was left in place.');
+
+            return self::FAILURE;
+        }
+
+        Cache::lock(self::LOCK)->forceRelease();
+        $this->components->info('Install lock released. Run `php artisan app:install` again.');
+
+        return self::SUCCESS;
+    }
+
+    private function install(ReferenceDataInstaller $installer, FirstAdministrator $administrators, RegionalDefaults $regional): int
+    {
+        if (! $this->regional($regional)) {
             return self::FAILURE;
         }
 
@@ -53,6 +125,56 @@ class InstallCommand extends Command
         }
 
         return $status;
+    }
+
+    /**
+     * The country, currency and time zone of a first install: Nepal's by default, changed by options or, in a
+     * terminal, by prompts. An existing installation (it already has currencies) keeps what it uses.
+     */
+    private function regional(RegionalDefaults $regional): bool
+    {
+        $given = [$this->option('country'), $this->option('currency'), $this->option('timezone')];
+
+        if (Currency::query()->exists()) {
+            if (array_filter($given) !== []) {
+                $this->components->warn('This installation already has currencies, so --country, --currency and --timezone were ignored. Change them in Admin → Settings → Company and Setup → Currencies.');
+            }
+
+            return true;
+        }
+
+        $country = trim((string) $this->option('country'));
+        $currency = trim((string) $this->option('currency'));
+        $timezone = trim((string) $this->option('timezone'));
+
+        if ($this->input->isInteractive() && array_filter($given) === []) {
+            $this->components->info('Regional defaults (change any of them later in Admin).');
+            $country = text('Country (two-letter code)', default: RegionalDefaults::COUNTRY, required: true, validate: fn (string $value): ?string => RegionalDefaults::isCountry(trim($value)) ? null : 'Use a two-letter ISO country code, such as NP.');
+            $currency = select('Default currency', array_keys(DefaultCurrencies::CURRENCIES), default: RegionalDefaults::CURRENCY);
+            $timezone = text('Company time zone', default: RegionalDefaults::TIMEZONE, required: true, validate: fn (string $value): ?string => RegionalDefaults::isTimezone(trim($value)) ? null : 'Use a time zone name such as Asia/Kathmandu.');
+        }
+
+        $country = $country === '' ? RegionalDefaults::COUNTRY : $country;
+        $currency = $currency === '' ? RegionalDefaults::CURRENCY : strtoupper((string) $currency);
+        $timezone = $timezone === '' ? RegionalDefaults::TIMEZONE : $timezone;
+
+        $error = match (true) {
+            ! RegionalDefaults::isCountry($country) => "--country must be a two-letter ISO country code, such as NP; got \"{$country}\".",
+            ! array_key_exists($currency, DefaultCurrencies::CURRENCIES) => '--currency must be one of '.implode(', ', array_keys(DefaultCurrencies::CURRENCIES)).". Add other currencies in Setup → Currencies after the install; got \"{$currency}\".",
+            ! RegionalDefaults::isTimezone($timezone) => "--timezone must be a time zone name such as Asia/Kathmandu; got \"{$timezone}\".",
+            default => null,
+        };
+
+        if ($error !== null) {
+            $this->components->error($error);
+
+            return false;
+        }
+
+        $regional->choose($country, $currency, $timezone);
+        $this->line('  <fg=gray>Country '.strtoupper((string) $country).', default currency '.$currency.', time zone '.$timezone.'.</>');
+
+        return true;
     }
 
     /**
@@ -186,7 +308,7 @@ class InstallCommand extends Command
             return self::FAILURE;
         }
 
-        $this->components->info("Full administrator {$email} created with a one-time password. It is shown once and must be changed at first sign-in, followed by two-factor setup:");
+        $this->components->info("Full administrator {$email} created with a one-time password. It is shown once, works for ".FirstAdministrator::ONE_TIME_PASSWORD_HOURS.' hours and must be changed at first sign-in, followed by two-factor setup:');
         // Raw: a generated password can contain "<info>", "</>" or "\<", which the console formatter would rewrite.
         $this->output->writeln('  '.$password, OutputInterface::OUTPUT_RAW);
         $this->newLine();
@@ -214,9 +336,9 @@ class InstallCommand extends Command
         $this->line('  1. Scheduler: add this cron entry for the web server user:');
         $this->line('       * * * * * cd '.base_path().' && php artisan schedule:run >> /dev/null 2>&1');
         $this->line('  2. Queue workers: keep these running under systemd or Supervisor:');
-        $this->line('       php artisan queue:work --queue=payments,provisioning,registrar --tries=3 --timeout=85');
-        $this->line('       php artisan queue:work --queue=notifications,webhooks --tries=3');
-        $this->line('       php artisan queue:work --queue=default --tries=3');
+        foreach (Queues::workerCommands() as $command) {
+            $this->line('       '.$command);
+        }
         $this->line('  3. Mail: set MAIL_MAILER, MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD and MAIL_FROM_ADDRESS in .env.');
         $this->line('  4. Object storage: run `php artisan objects:ensure-bucket` once the OBJECTS_* settings point at your bucket.');
         $this->line("  5. Sign in at {$url}/login and set up two-factor authentication.");

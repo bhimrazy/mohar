@@ -2,8 +2,6 @@ import { Link, router, useForm, usePage } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import {
     CalendarClock,
-    Eye,
-    EyeOff,
     HardDrive,
     MoreHorizontal,
     Package,
@@ -29,7 +27,7 @@ import { StatusBadge } from '@/components/app/status-badge';
 import { ChangeOptionsPicker } from '@/components/services/change-options';
 import { FormDialog } from '@/components/services/form-dialog';
 import { ModuleLogTable } from '@/components/services/module-log-table';
-import { useCredentialsReveal } from '@/components/services/use-credentials-reveal';
+import { PasswordReveal } from '@/components/services/password-reveal';
 import { UsageMeter } from '@/components/services/usage-meter';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -72,6 +70,8 @@ import type {
 type InvoiceLink = {
     id: number;
     invoice_id: number;
+    invoice_number: string | null;
+    invoice_url: string | null;
     kind: string;
     period_start: string | null;
     period_end: string | null;
@@ -110,6 +110,8 @@ type Props = {
     statusTargets: SelectOption[];
     changeOptions?: ChangeOptions;
     creditOnDowngrade: boolean;
+    paymentGatewayLabel: string | null;
+    order: { number: string | null; url: string | null } | null;
     can: {
         manage: boolean;
         provision: boolean;
@@ -169,14 +171,12 @@ export default function ServiceShow({
     statusTargets,
     changeOptions,
     creditOnDowngrade,
+    paymentGatewayLabel,
+    order,
     can,
 }: Props) {
     const { errors } = usePage().props as { errors: Record<string, string> };
     const [dialog, setDialog] = useState<DialogName>(null);
-    const credentials = useCredentialsReveal(
-        ServiceController.credentials(service.id).url,
-    );
-    const [stepUpPassword, setStepUpPassword] = useState('');
     const commandForm = useForm({ command: '', reason: '', password: '' });
     const statusForm = useForm({ status: '', note: '' });
     const cancelForm = useForm({ type: 'end_of_period', reason: '' });
@@ -225,18 +225,6 @@ export default function ServiceShow({
             onSuccess: () => setDialog(null),
         });
 
-    const revealCredentials = () => {
-        if (credentials.password !== null) {
-            credentials.hide();
-
-            return;
-        }
-
-        void credentials.reveal();
-    };
-    const shown = credentials.password !== null;
-    const visiblePassword = credentials.password;
-
     const name = service.domain ?? service.label;
 
     return (
@@ -254,8 +242,6 @@ export default function ServiceShow({
                     }
                     meta={
                         <>
-                            <span>#{service.id}</span>
-                            <span aria-hidden="true">·</span>
                             <span>{service.product_name}</span>
                             {service.client && (
                                 <>
@@ -505,12 +491,12 @@ export default function ServiceShow({
                                     },
                                     {
                                         label: 'Payment method',
-                                        value: service.payment_gateway,
+                                        value: paymentGatewayLabel,
                                     },
                                     {
                                         label: 'Suspension reason',
                                         value: suspensionReasonLabel(
-                                            service.suspension_reason,
+                                            service.suspension_reason ?? null,
                                         ),
                                     },
                                     {
@@ -551,9 +537,17 @@ export default function ServiceShow({
                                     },
                                     {
                                         label: 'Order',
-                                        value: service.order_id
-                                            ? `#${service.order_id}`
-                                            : null,
+                                        value:
+                                            order?.number && order.url ? (
+                                                <Link
+                                                    href={order.url}
+                                                    className="hover:underline"
+                                                >
+                                                    {order.number}
+                                                </Link>
+                                            ) : (
+                                                (order?.number ?? null)
+                                            ),
                                     },
                                     {
                                         label: 'Admin notes',
@@ -567,21 +561,6 @@ export default function ServiceShow({
                         <SectionCard
                             title="Access"
                             description={`Provisioned with the ${driver.name} driver.`}
-                            actions={
-                                can.credentials && (
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={revealCredentials}
-                                        disabled={credentials.processing}
-                                    >
-                                        {shown ? <EyeOff /> : <Eye />}
-                                        {shown
-                                            ? 'Hide password'
-                                            : 'Reveal password'}
-                                    </Button>
-                                )
-                            }
                         >
                             <DescriptionList
                                 columns={3}
@@ -596,14 +575,21 @@ export default function ServiceShow({
                                     },
                                     {
                                         label: 'Password',
-                                        value: (
-                                            <span className="font-mono">
-                                                {visiblePassword ??
-                                                    (service.username
-                                                        ? '••••••••••••'
-                                                        : null)}
-                                            </span>
-                                        ),
+                                        value:
+                                            can.credentials &&
+                                            service.username ? (
+                                                <PasswordReveal
+                                                    url={
+                                                        ServiceController.credentials(
+                                                            service.id,
+                                                        ).url
+                                                    }
+                                                />
+                                            ) : service.username ? (
+                                                <span className="font-mono">
+                                                    ••••••••••••
+                                                </span>
+                                            ) : null,
                                     },
                                     {
                                         label: 'Dedicated IP',
@@ -694,7 +680,18 @@ export default function ServiceShow({
                                         key: 'invoice',
                                         header: 'Invoice',
                                         primary: true,
-                                        cell: (link) => `#${link.invoice_id}`,
+                                        cell: (link) =>
+                                            link.invoice_url ? (
+                                                <Link
+                                                    href={link.invoice_url}
+                                                    className="hover:underline"
+                                                >
+                                                    {link.invoice_number ??
+                                                        'Invoice'}
+                                                </Link>
+                                            ) : (
+                                                (link.invoice_number ?? '—')
+                                            ),
                                     },
                                     {
                                         key: 'period',
@@ -774,6 +771,7 @@ export default function ServiceShow({
                                             service.id,
                                         )}
                                         currentProduct={service.product_name}
+                                        currentCycle={service.cycle}
                                         creditOnDowngrade={creditOnDowngrade}
                                         staff
                                     />
@@ -1243,38 +1241,6 @@ export default function ServiceShow({
                         errors.action
                     }
                 />
-            </FormDialog>
-
-            <FormDialog
-                open={credentials.needsConfirmation}
-                onOpenChange={(open) =>
-                    !open && credentials.cancelConfirmation()
-                }
-                title="Confirm your password"
-                description="Revealing a service password needs a recent password confirmation. The reveal is recorded in the activity log."
-                submitLabel="Confirm and reveal"
-                processing={credentials.processing}
-                onSubmit={() => {
-                    void credentials
-                        .confirm(stepUpPassword)
-                        .then(() => setStepUpPassword(''));
-                }}
-            >
-                <Field
-                    htmlFor="step-up-password"
-                    label="Your password"
-                    error={credentials.error ?? undefined}
-                >
-                    <Input
-                        id="step-up-password"
-                        type="password"
-                        autoComplete="current-password"
-                        value={stepUpPassword}
-                        onChange={(event) =>
-                            setStepUpPassword(event.target.value)
-                        }
-                    />
-                </Field>
             </FormDialog>
         </>
     );

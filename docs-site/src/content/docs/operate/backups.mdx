@@ -1,0 +1,128 @@
+---
+title: Backups and restore
+description: What to back up, how often, and how to test a restore.
+---
+
+import { Aside, Steps, TabItem, Tabs } from '@astrojs/starlight/components';
+
+Back up three things and keep them apart from each other:
+
+1. **The database**: at least daily, and before every upgrade.
+2. **Object storage**: invoice PDFs, ticket attachments, exports and brand files live only there.
+3. **The application key** (`APP_KEY`, in your `.env` file): store it in a password manager or secrets store.
+
+<Aside caution>
+	Keep a copy of the key for every backup you keep, and keep it away from the database dumps. Without the key, the
+	gateway, registrar and server credentials in a dump and the identity images in the object storage cannot be
+	decrypted, so a restore is half a restore. With both together, whoever reads them has all of those credentials.
+	If you rotated the key, keep the earlier keys as long as you keep dumps from before the rotation.
+</Aside>
+
+Copy backups off the server, to another provider or region. Run the database backup before the daily automation time
+(03:00 server time by default), so it does not overlap the billing run.
+
+<Aside>
+	Cron treats `%` as the end of a command. In a crontab line, write it as `\%`, as the example below does, or put the
+	commands in a script and call the script from cron.
+</Aside>
+
+<Tabs syncKey="install">
+<TabItem label="Docker Compose">
+
+**Database**, nightly and before every upgrade. Add this line with `crontab -e`, as a user in the `docker` group.
+`umask 077` keeps the dump readable by its owner only.
+
+```text
+30 2 * * * umask 077 && docker compose -f /srv/billing/deploy/compose.prod.yaml exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' > /backups/billing-$(date +\%F).dump
+```
+
+**Objects:** point the `OBJECTS_` settings at a managed bucket with versioning or replication turned on, or copy the
+object storage volume. The copy stops object storage for a few seconds, so no file is caught half-written; uploads and
+PDF downloads fail meanwhile, so run it outside the automation window.
+
+```bash
+compose=(docker compose -f /srv/billing/deploy/compose.prod.yaml)
+"${compose[@]}" stop rustfs
+"${compose[@]}" run --rm --no-deps --user 0:0 -v /backups:/backup --entrypoint sh rustfs \
+  -c 'umask 077 && tar czf /backup/objects-$(date +%F).tgz -C /data .'
+"${compose[@]}" start rustfs
+```
+
+The copy runs as root so it can write to a root-owned `/backups`, and the archive is readable by root only.
+
+**Restore** into an empty stack (a new host, or after removing the volumes), with the same `APP_KEY` as the backup.
+To remove a stack you want to restore over, name both colours, or its app containers keep running:
+`docker compose -f deploy/compose.prod.yaml --profile blue --profile green down -v`, then remove the state directory
+(`rm -rf "${DEPLOY_STATE_DIR:-deploy/state}"`). **`down -v` destroys the database, the object storage and the web server's
+certificates for good**: check your backups first.
+
+<Steps>
+
+1. Start the database and object storage, and load the dump.
+
+    ```bash
+    docker compose -f deploy/compose.prod.yaml up -d --wait postgres rustfs
+    docker compose -f deploy/compose.prod.yaml exec -T postgres \
+      sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error' < /backups/billing-2026-10-19.dump
+    ```
+
+2. Stop object storage, put the objects back, start it again, and deploy. The deploy finds nothing to change in
+   the restored database, starts the app and the web server, then the workers and the scheduler.
+
+    ```bash
+    docker compose -f deploy/compose.prod.yaml stop rustfs
+    docker compose -f deploy/compose.prod.yaml run --rm --no-deps --user 0:0 -v /backups:/backup --entrypoint tar rustfs \
+      xzf /backup/objects-2026-10-19.tgz -C /data
+    docker compose -f deploy/compose.prod.yaml start rustfs
+    deploy/bin/deploy
+    ```
+
+</Steps>
+
+</TabItem>
+<TabItem label="Without Docker">
+
+**Backup script** (give `pg_dump` its password through `~/.pgpass`, mode 600):
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+pg_dump --format=custom --no-owner --file=/var/backups/billing/billing-$(date +%F).dump \
+  "postgresql://billing@127.0.0.1:5432/billing"
+find /var/backups/billing -name 'billing-*.dump' -mtime +30 -delete
+```
+
+**Objects:** turn on bucket versioning or replication, or copy the bucket to another provider on a schedule (for
+example with `rclone sync`).
+
+**Restore** with the same `APP_KEY` as the backup:
+
+<Steps>
+
+1. Create an empty database owned by the app's database user and load the dump.
+
+    ```bash
+    pg_restore --no-owner --dbname=billing <file>
+    ```
+
+2. Restore the bucket from its versions, replica or copy.
+
+3. Check the result with the installer. Every reference row should report as unchanged.
+
+    ```bash
+    php artisan app:install --no-interaction
+    ```
+
+</Steps>
+
+</TabItem>
+</Tabs>
+
+## Test a restore
+
+Before you go live, and then every quarter, restore the latest backup onto a separate server or into a scratch
+database (for example `createdb billing_restore`, then `pg_restore --no-owner --dbname=billing_restore <file>`), point
+a copy of the app at it with the same `APP_KEY`, sign in and open an invoice PDF. If you use KYC, also open an
+identity document: only the right key decrypts it and nothing regenerates it. That checks the database, the objects and
+the key together. A full restore of the Docker stack took 42 seconds on a small demo database (production.md, "Restore
+drill"); yours grows with your data.

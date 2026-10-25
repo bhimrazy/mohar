@@ -2,9 +2,9 @@
 
 namespace App\Modules\Services\Http\Resources;
 
+use App\Contracts\Core\CompanyClock;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Service;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -20,7 +20,7 @@ class ServiceResource extends JsonResource
     {
         $staff = (bool) $request->user()?->is_staff;
         $overdue = $this->next_due_date !== null
-            && $this->next_due_date->lt(CarbonImmutable::today())
+            && $this->next_due_date->lt(app(CompanyClock::class)->todayDate())
             && in_array($this->status, [ServiceStatus::Active, ServiceStatus::Suspended], true);
 
         return [
@@ -42,7 +42,8 @@ class ServiceResource extends JsonResource
             'username' => $this->username,
             'dedicated_ip' => $this->dedicated_ip,
             'assigned_ips' => $this->assigned_ips ?? [],
-            'suspension_reason' => $this->suspension_reason,
+            // The client sees the kind, never the reason: it can hold staff text or the server's own.
+            'suspension_kind' => $this->suspensionKind(),
             'do_not_renew' => $this->do_not_renew,
             'termination_date' => $this->termination_date?->toDateString(),
             'activated_at' => $this->activated_at?->toIso8601String(),
@@ -59,6 +60,7 @@ class ServiceResource extends JsonResource
                 'billing_anchor_day' => $this->billing_anchor_day,
                 'renewals_invoiced' => $this->renewals_invoiced,
                 'recurring_cycles_limit' => $this->recurring_cycles_limit,
+                'suspension_reason' => $this->suspension_reason,
                 'suspended_at' => $this->suspended_at?->toIso8601String(),
                 'suspend_exempt_until' => $this->suspend_exempt_until?->toDateString(),
                 'suspend_days_override' => $this->suspend_days_override,

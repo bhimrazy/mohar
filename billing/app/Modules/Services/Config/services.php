@@ -70,5 +70,10 @@ return [
         'retention_days' => 30,
     ],
 
+    /** Daily disk and bandwidth snapshots older than this are deleted (90 to 3,650 days); each service keeps its latest. */
+    'usage' => [
+        'retention_days' => 395,
+    ],
+
     'random_usernames' => false,
 ];

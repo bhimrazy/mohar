@@ -7,22 +7,46 @@ use App\Contracts\Billing\GatewayRegistry;
 use App\Contracts\Billing\HostedPaymentDriver;
 use App\Contracts\Integrations\ProvidesLogo;
 use App\Data\Billing\GatewayConfig;
+use App\Data\Integrations\SettingField;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
 use App\Support\Billing\SandboxPolicy;
+use App\Support\Integrations\RedactionScope;
+use App\Support\Integrations\RedactionSet;
+use Closure;
 use Illuminate\Database\Eloquent\Collection;
+use LogicException;
 
 /**
  * Registry of gateway drivers (Billing's own and those registered by extension modules) and their configuration.
  */
 class GatewayManager implements GatewayRegistry
 {
+    /**
+     * Keys no driver may take: `import` marks imported opening-balance entries in credit_ledger.gateway (every entry
+     * before #263, and beside the idempotency key until #284), so a driver's provider references must never share it.
+     */
+    public const RESERVED_KEYS = ['import'];
+
+    /** The gateways.key and credit_ledger.gateway columns hold 50 characters. */
+    private const KEY_PATTERN = '/^[a-z0-9_]{1,50}$/';
+
     /** @var array<string, GatewayDriver> */
     private array $drivers = [];
 
     public function register(GatewayDriver $driver): void
     {
-        $this->drivers[$driver->key()] = $driver;
+        $key = $driver->key();
+
+        if (preg_match(self::KEY_PATTERN, $key) !== 1) {
+            throw new LogicException("The gateway key [{$key}] must be 1 to 50 lowercase letters, digits or underscores.");
+        }
+
+        if (in_array($key, self::RESERVED_KEYS, true)) {
+            throw new LogicException("The gateway key [{$key}] is reserved; give the driver another key.");
+        }
+
+        $this->drivers[$key] = $driver;
     }
 
     public function drivers(): array
@@ -63,6 +87,22 @@ class GatewayManager implements GatewayRegistry
     }
 
     /**
+     * Runs a driver call for $config's gateway with its configured secrets (GatewayConfig::secrets()) in the redaction
+     * scope (ADR 0023 §5): log lines written during the call, and an exception that leaves it when it is reported or
+     * stored as a failed job, are masked by those values too. Every Billing call to a gateway driver method that reaches the
+     * provider goes through it; tests/Arch/LogRedactionTest.php fails one that does not.
+     *
+     * @template T
+     *
+     * @param  Closure(): T  $call
+     * @return T
+     */
+    public function during(GatewayConfig $config, Closure $call): mixed
+    {
+        return RedactionScope::during(RedactionSet::of($config->secrets()), $call);
+    }
+
+    /**
      * The DTO drivers receive.
      */
     public function config(string|Gateway $gateway): GatewayConfig
@@ -76,7 +116,18 @@ class GatewayManager implements GatewayRegistry
             settings: $settings,
             sandbox: filter_var($settings['sandbox'] ?? false, FILTER_VALIDATE_BOOLEAN),
             convertToCurrency: $gateway->convert_to_currency,
+            secretSettingKeys: $this->secretSettingKeys($gateway->key),
         );
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function secretSettingKeys(string $key): array
+    {
+        $fields = $this->has($key) ? array_map(SettingField::fromArray(...), $this->driver($key)->settingsFields()) : [];
+
+        return array_values(array_map(fn (SettingField $field): string => $field->key, array_filter($fields, fn (SettingField $field): bool => $field->isSecret())));
     }
 
     /**

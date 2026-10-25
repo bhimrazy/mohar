@@ -1,0 +1,29 @@
+<?php
+
+use App\Modules\Kyc\Http\Controllers\Admin\OrphanFileController;
+use App\Modules\Kyc\Http\Controllers\Admin\ReviewController;
+use App\Modules\Kyc\Http\Controllers\Client\VerificationController;
+use App\Modules\Kyc\Http\Middleware\EnsureKycEnabled;
+use Illuminate\Support\Facades\Route;
+
+Route::clientArea(function (): void {
+    Route::prefix('verification')->name('kyc.')->middleware(EnsureKycEnabled::class)->group(function (): void {
+        Route::get('/', [VerificationController::class, 'show'])->name('show');
+        Route::put('phone', [VerificationController::class, 'phone'])->middleware('throttle:10,1')->name('phone');
+        Route::post('documents', [VerificationController::class, 'document'])->middleware(['throttle:10,1', 'throttle:kyc-upload'])->name('documents.store');
+    });
+});
+
+Route::adminArea(function (): void {
+    Route::prefix('kyc')->name('kyc.')->group(function (): void {
+        Route::get('/', [ReviewController::class, 'index'])->name('index');
+        Route::get('orphan-files', [OrphanFileController::class, 'index'])->name('orphans.index');
+        Route::delete('orphan-files', [OrphanFileController::class, 'destroy'])->middleware('password.recent')->name('orphans.destroy');
+        Route::get('clients/{client}', [ReviewController::class, 'show'])->whereNumber('client')->name('show');
+        Route::post('clients/{client}/unlock', [ReviewController::class, 'unlock'])->whereNumber('client')->middleware('password.recent')->name('unlock');
+        Route::post('clients/{client}/lock', [ReviewController::class, 'lock'])->whereNumber('client')->name('lock');
+        Route::get('documents/{document}/{side}', [ReviewController::class, 'image'])->whereNumber('document')->whereIn('side', ['front', 'back'])
+            ->middleware('signed')->name('image');
+        Route::post('documents/{document}/decision', [ReviewController::class, 'decide'])->whereNumber('document')->middleware('password.recent')->name('decide');
+    });
+});

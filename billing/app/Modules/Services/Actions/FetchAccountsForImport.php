@@ -8,13 +8,14 @@ use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Services\Jobs\FetchServerAccounts;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerAccountImport;
+use App\Modules\Services\Support\AccountList;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
  * Start reading a server's accounts for Import accounts, on the queue. One fetch per server at a time (under the server
- * row lock); a new fetch discards the previous list. Audited, because the list holds client emails.
+ * row lock); the previous list stays until the new one arrives, then is replaced. Audited, because the list holds client emails.
  */
 class FetchAccountsForImport
 {
@@ -36,16 +37,22 @@ class FetchAccountsForImport
         $import = DB::transaction(function () use ($server, $staff): ServerAccountImport {
             Server::query()->whereKey($server->id)->lockForUpdate()->first();
 
-            if (self::latest($server)?->isRunning()) {
+            $previous = self::latest($server);
+
+            if ($previous?->isRunning()) {
                 throw ValidationException::withMessages(['import' => __('The accounts on :server are being read already. This page updates when the list is ready.', ['server' => $server->name])]);
             }
 
-            ServerAccountImport::query()->where('server_id', $server->id)->delete();
+            // The last good list (and its import report) stays until the new list arrives (FetchServerAccounts), so a
+            // failed fetch hides nothing; earlier failures and fetches that never finished are cleared.
+            ServerAccountImport::query()->where('server_id', $server->id)->whereIn('status', [ServerAccountImport::FAILED, ServerAccountImport::FETCHING])->delete();
 
             return ServerAccountImport::query()->create([
                 'server_id' => $server->id,
                 'requested_by' => $staff?->id,
                 'status' => ServerAccountImport::FETCHING,
+                // Staff choices carry over to the new list for the accounts still on the server (AccountImportMatcher::store()).
+                'selections' => $previous?->selections,
                 'expires_at' => now()->addHours(ServerAccountImport::HOURS),
             ]);
         });
@@ -84,22 +91,46 @@ class FetchAccountsForImport
     }
 
     /**
-     * The server's list that has not expired, if any, without the account list unless $withAccounts. An expired list is deleted here, so client emails never outlive
-     * it by more than a read (housekeeping deletes the rest daily).
+     * The server's current list that has not expired, if any: the newest one that did not fail, or the failed one when
+     * there is no other. Its accounts are read through AccountList, never with it. An expired list is deleted here
+     * (unless its import is still running), so client emails never outlive it by more than a read (housekeeping
+     * deletes the rest daily).
      */
-    public static function latest(Server $server, bool $withAccounts = false): ?ServerAccountImport
+    public static function latest(Server $server): ?ServerAccountImport
     {
-        ServerAccountImport::query()->where('server_id', $server->id)->where('expires_at', '<=', now())->delete();
+        ServerAccountImport::pruneExpired(serverId: $server->id);
 
-        // The encrypted account list can be megabytes: it is read only when asked for.
-        $columns = array_values(array_diff((new ServerAccountImport)->getFillable(), $withAccounts ? [] : ['accounts']));
+        $columns = (new ServerAccountImport)->getFillable();
 
-        return ServerAccountImport::query()
+        // A Match again whose job never ran: the list it left is still the last good one, so it becomes usable again.
+        ServerAccountImport::query()->where('server_id', $server->id)->where('status', ServerAccountImport::MATCHING)
+            ->where('updated_at', '<=', now()->subMinutes(ServerAccountImport::STALE_MINUTES))
+            ->update(['status' => ServerAccountImport::READY]);
+
+        $query = fn () => ServerAccountImport::query()
             ->select(['id', 'created_at', 'updated_at', ...$columns])
             ->with('requester:id,name')
             ->where('server_id', $server->id)
-            ->where('expires_at', '>', now())
-            ->latest('id')
-            ->first();
+            // An import still running outlives its list's expiry (ServerAccountImport::pruneExpired()).
+            ->where(fn ($query) => $query->where('expires_at', '>', now())->orWhere('status', ServerAccountImport::IMPORTING))
+            ->latest('id');
+
+        // A failed fetch does not replace the last good list: that list stays current, the failure is shown beside it.
+        $import = $query()->where('status', '!=', ServerAccountImport::FAILED)->first() ?? $query()->first();
+
+        if ($import !== null) {
+            app(AccountList::class)->adopt($import);
+        }
+
+        return $import;
+    }
+
+    /**
+     * A fetch that failed after the given list was read (shown beside it), if any.
+     */
+    public static function failureAfter(Server $server, ServerAccountImport $import): ?ServerAccountImport
+    {
+        return ServerAccountImport::query()->select(['id', 'error', 'created_at', 'requested_by'])->with('requester:id,name')
+            ->where('server_id', $server->id)->where('status', ServerAccountImport::FAILED)->where('id', '>', $import->id)->latest('id')->first();
     }
 }

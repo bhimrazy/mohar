@@ -3,6 +3,7 @@
 namespace App\Modules\Billing\Services;
 
 use App\Contracts\Billing\GatewayDirectory;
+use App\Contracts\Billing\InvoiceNumbers;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Models\CreditLedgerEntry;
@@ -15,7 +16,7 @@ use App\Modules\Billing\Support\ClientPaymentOptions;
 /**
  * Read-only billing facts for other modules (checkout gateway list, invoice payment history).
  */
-class BillingDirectory implements GatewayDirectory, InvoiceQueries
+class BillingDirectory implements GatewayDirectory, InvoiceNumbers, InvoiceQueries
 {
     public function __construct(
         private GatewayManager $gateways,
@@ -36,6 +37,16 @@ class BillingDirectory implements GatewayDirectory, InvoiceQueries
             || Invoice::query()->whereKey($invoiceId)->where('credit_applied', '>', 0)->exists();
     }
 
+    public function numbers(array $invoiceIds): array
+    {
+        if ($invoiceIds === []) {
+            return [];
+        }
+
+        return Invoice::query()->whereKey(array_values(array_unique($invoiceIds)))->get(['id', 'number', 'proforma_number'])
+            ->mapWithKeys(fn (Invoice $invoice): array => [$invoice->id => $invoice->displayNumber()])->all();
+    }
+
     public function hasDocumentsInCurrency(string $currency): bool
     {
         $currency = strtoupper($currency);
@@ -44,5 +55,31 @@ class BillingDirectory implements GatewayDirectory, InvoiceQueries
             || Quote::query()->where('currency', $currency)->exists()
             || Transaction::query()->where('currency', $currency)->exists()
             || CreditLedgerEntry::query()->where('currency', $currency)->exists();
+    }
+
+    /**
+     * The clients among $clientIds with any invoice, quote, transaction or credit entry (the Billing source of
+     * ClientCurrencyUsage). Four indexed lookups, each only for the clients not found yet.
+     *
+     * @param  list<int>  $clientIds
+     * @return list<int>
+     */
+    public function clientsWithDocuments(array $clientIds): array
+    {
+        if ($clientIds === []) {
+            return [];
+        }
+
+        $found = [];
+
+        foreach ([Invoice::class, Quote::class, Transaction::class, CreditLedgerEntry::class] as $model) {
+            $pending = array_values(array_diff($clientIds, $found));
+
+            if ($pending !== []) {
+                array_push($found, ...$model::query()->whereIn('client_id', $pending)->distinct()->pluck('client_id')->map(fn (mixed $id): int => (int) $id)->all());
+            }
+        }
+
+        return array_values(array_unique($found));
     }
 }

@@ -29,7 +29,9 @@ import { DescriptionList } from '@/components/app/description-list';
 import { EmptyState } from '@/components/app/empty-state';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
+import type { DashboardWidget } from '@/components/app/dashboard/types';
 import { SectionCard } from '@/components/app/section-card';
+import { ClientSummary } from '@/components/clients/client-summary';
 import { ContactDialog } from '@/components/clients/contact-dialog';
 import { LoginDialog } from '@/components/clients/login-dialog';
 import { MergeDialog } from '@/components/clients/merge-dialog';
@@ -44,6 +46,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { countryName } from '@/lib/country';
 import { navIcon } from '@/lib/nav-icons';
 import type { ClientRecord } from '@/types';
 
@@ -66,7 +69,12 @@ type Props = {
     client: ClientRecord;
     contacts: ClientContact[];
     users: ClientLogin[];
+    summary: DashboardWidget[];
     links: { title: string; href: string; icon: string }[];
+    imported: {
+        at: string;
+        fields: { label: string; value: string; source: string }[];
+    } | null;
     /** Null unless the staff member may read the activity log. */
     activity:
         | {
@@ -96,7 +104,7 @@ function address(client: ClientRecord): string {
         client.address_1,
         client.address_2,
         [client.city, client.state, client.postcode].filter(Boolean).join(' '),
-        client.country,
+        countryName(client.country),
     ]
         .filter(Boolean)
         .join(', ');
@@ -106,7 +114,9 @@ export default function ClientShow({
     client,
     contacts,
     users,
+    summary,
     links,
+    imported,
     activity,
     areas,
     emailTypes,
@@ -484,6 +494,8 @@ export default function ClientShow({
                     }
                 />
 
+                <ClientSummary widgets={summary} />
+
                 <div className="grid gap-4 lg:grid-cols-3">
                     <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
                         <SectionCard title="Profile">
@@ -523,6 +535,39 @@ export default function ClientShow({
                                 ]}
                             />
                         </SectionCard>
+                        {imported && (
+                            <SectionCard
+                                title="Imported fields"
+                                description={
+                                    <>
+                                        Imported{' '}
+                                        <DateTime value={imported.at} />.
+                                        Columns of the file kept as they were.
+                                    </>
+                                }
+                            >
+                                {imported.fields.length > 0 ? (
+                                    <DescriptionList
+                                        items={imported.fields.map((field) => ({
+                                            label: field.label,
+                                            value: (
+                                                <span className="flex flex-col break-words">
+                                                    <span>{field.value}</span>
+                                                    <span className="text-xs text-muted-foreground">
+                                                        From {field.source}
+                                                    </span>
+                                                </span>
+                                            ),
+                                        }))}
+                                    />
+                                ) : (
+                                    <p className="text-sm text-muted-foreground">
+                                        The import kept no extra columns for
+                                        this client.
+                                    </p>
+                                )}
+                            </SectionCard>
+                        )}
                         <SectionCard title="Account" className="lg:hidden">
                             <DescriptionList
                                 columns={1}

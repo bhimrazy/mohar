@@ -1,0 +1,30 @@
+---
+title: Khalti
+description: Take payments in Nepalese rupees with Khalti.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+Clients are sent to Khalti's payment page, then come back to the invoice. The app looks the payment up at Khalti
+before it marks the invoice paid. Khalti charges in Nepalese rupees (NPR).
+
+You need a Khalti merchant account.
+
+<Steps>
+
+1. In the Khalti merchant dashboard (`admin.khalti.com`), open **Keys** and copy the live secret key. On a staging
+   copy (not production) you can use the key from the test dashboard (`test-admin.khalti.com`) with sandbox mode on.
+
+2. Go to **Setup → Gateways → Khalti**, turn **Sandbox mode** off and paste the **Secret key**.
+
+3. If your invoices are in another currency, set **Charge in currency** to Nepalese rupee.
+
+4. Select **Save gateway**, then **Test connection**. No money moves.
+
+5. Turn on **Active** and save.
+
+</Steps>
+
+Full refunds go through Khalti from the transaction on the invoice (**Refund payment**). Partial refunds are off by
+default. A payment the client made from a bank account through Khalti cannot be refunded from here: refund it in the
+Khalti merchant portal, then use **Refund payment** with **Record only**.

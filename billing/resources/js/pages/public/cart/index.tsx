@@ -1,4 +1,5 @@
 import { Form, Link } from '@inertiajs/react';
+import { StoreTitle } from '@/components/orders/storefront-hero';
 import { Head } from '@/components/app/head';
 import {
     AlertTriangle,
@@ -12,9 +13,11 @@ import {
 import CartController from '@/actions/App/Modules/Orders/Http/Controllers/Public/CartController';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { EmptyState } from '@/components/app/empty-state';
+import { ItemDetails } from '@/components/orders/item-details';
 import { Money } from '@/components/app/money';
 import InputError from '@/components/input-error';
 import { OrderSummary } from '@/components/orders/order-summary';
+import type { GroupSaving } from '@/components/orders/order-summary';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
@@ -25,6 +28,7 @@ import type { PricedCart, PricedItem } from '@/types/orders';
 
 type Props = {
     cart: PricedCart;
+    group_saving: GroupSaving;
 };
 
 function itemSubtitle(item: PricedItem): string {
@@ -66,9 +70,11 @@ function CartItemCard({
                 />
             </div>
 
-            <ul className="mt-3 grid gap-1 text-sm">
+            <ItemDetails details={item.details} />
+
+            <ul className="mt-3 grid grid-cols-1 gap-1 text-sm">
                 {item.lines.map((line) => (
-                    <li key={line.key} className="grid gap-0.5">
+                    <li key={line.key} className="grid grid-cols-1 gap-0.5">
                         {line.kind === 'product' &&
                             line.breakdown.length > 1 &&
                             line.breakdown.map((part, index) => (
@@ -79,7 +85,7 @@ function CartItemCard({
                                         index > 0 && 'pl-3',
                                     )}
                                 >
-                                    <span className="min-w-0 truncate">
+                                    <span className="min-w-0 [overflow-wrap:anywhere]">
                                         {index === 0 ? 'Base plan' : part.label}
                                     </span>
                                     <Money
@@ -90,7 +96,7 @@ function CartItemCard({
                                 </div>
                             ))}
                         <div className="flex justify-between gap-4 text-muted-foreground">
-                            <span className="min-w-0 truncate">
+                            <span className="min-w-0 [overflow-wrap:anywhere]">
                                 {line.kind === 'product'
                                     ? line.breakdown.length > 1
                                         ? 'Plan total'
@@ -152,13 +158,9 @@ function CartItemCard({
             )}
 
             <div className="mt-4 flex flex-wrap gap-2">
-                {item.kind === 'product' && item.product_id !== null && (
+                {item.kind === 'product' && item.product_url !== null && (
                     <Button asChild variant="outline" size="sm">
-                        <Link
-                            href={store.products.show.url(item.product_id, {
-                                query: { item: item.key },
-                            })}
-                        >
+                        <Link href={item.product_url}>
                             <Pencil aria-hidden="true" /> Edit
                         </Link>
                     </Button>
@@ -263,7 +265,7 @@ function PromotionForm({ cart }: { cart: PricedCart }) {
     );
 }
 
-export default function CartPage({ cart }: Props) {
+export default function CartPage({ cart, group_saving: groupSaving }: Props) {
     const empty = cart.items.length === 0;
 
     return (
@@ -271,9 +273,7 @@ export default function CartPage({ cart }: Props) {
             <Head title="Your cart" />
 
             <div className="mx-auto w-full max-w-6xl px-4 py-8 md:px-6 lg:py-12">
-                <h1 className="text-3xl font-semibold tracking-tight">
-                    Your cart
-                </h1>
+                <StoreTitle>Your cart</StoreTitle>
                 <p className="mt-1 text-muted-foreground">
                     {empty
                         ? 'Nothing here yet.'
@@ -303,7 +303,7 @@ export default function CartPage({ cart }: Props) {
                         className="mt-8"
                     />
                 ) : (
-                    <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_22rem]">
+                    <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
                         <div className="flex min-w-0 flex-col gap-4">
                             <ul className="divide-y overflow-hidden rounded-xl border bg-card shadow-xs">
                                 {cart.items.map((item) => (
@@ -328,12 +328,13 @@ export default function CartPage({ cart }: Props) {
                             </div>
                         </div>
 
-                        <aside className="flex flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
+                        <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
                             <div className="rounded-xl border bg-card p-5 shadow-xs">
                                 <PromotionForm cart={cart} />
                             </div>
                             <OrderSummary
                                 cart={cart}
+                                groupSaving={groupSaving}
                                 footer={
                                     <>
                                         {cart.has_errors ? (

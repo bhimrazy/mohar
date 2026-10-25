@@ -1,4 +1,4 @@
-import { useForm } from '@inertiajs/react';
+import { useForm, usePage } from '@inertiajs/react';
 import type { FormEvent } from 'react';
 import DomainActionController from '@/actions/App/Modules/Domains/Http/Controllers/Admin/DomainActionController';
 import DomainController from '@/actions/App/Modules/Domains/Http/Controllers/Admin/DomainController';
@@ -116,7 +116,12 @@ export function DetailsForm({
         ['id_protection', 'ID protection'],
         ['dns_management', 'DNS management'],
         ['email_forwarding', 'Email forwarding'],
-    ] as const;
+    ].filter(
+        ([key]) => !(domain.registered_by_client && key === 'auto_renew'),
+    ) as [
+        'auto_renew' | 'id_protection' | 'dns_management' | 'email_forwarding',
+        string,
+    ][];
 
     return (
         <form onSubmit={submit}>
@@ -140,8 +145,10 @@ export function DetailsForm({
                 <div className="grid items-start gap-4 sm:grid-cols-2">
                     {dateField('registration_date', 'Registered', true)}
                     {dateField('expiry_date', 'Expiry date', true)}
-                    {dateField('next_due_date', 'Next due date')}
-                    {dateField('next_invoice_date', 'Next invoice date')}
+                    {!domain.registered_by_client &&
+                        dateField('next_due_date', 'Next due date')}
+                    {!domain.registered_by_client &&
+                        dateField('next_invoice_date', 'Next invoice date')}
                     <Field
                         htmlFor="period_years"
                         label="Renewal period (years)"
@@ -213,29 +220,31 @@ export function DetailsForm({
                             aria-describedby="first_payment_amount-description"
                         />
                     </Field>
-                    <Field
-                        htmlFor="recurring_amount"
-                        label={labelWithCurrency(
-                            'Renewal amount',
-                            domain.currency,
-                        )}
-                        error={errors.recurring_amount}
-                        hint="Locked at purchase; price list changes don't affect it."
-                    >
-                        <Input
-                            id="recurring_amount"
-                            inputMode="decimal"
-                            value={form.data.recurring_amount}
-                            disabled={form.data.recalculate_recurring}
-                            onChange={(event) =>
-                                form.setData(
-                                    'recurring_amount',
-                                    event.target.value,
-                                )
-                            }
-                            aria-describedby="recurring_amount-description"
-                        />
-                    </Field>
+                    {!domain.registered_by_client && (
+                        <Field
+                            htmlFor="recurring_amount"
+                            label={labelWithCurrency(
+                                'Renewal amount',
+                                domain.currency,
+                            )}
+                            error={errors.recurring_amount}
+                            hint="Locked at purchase; price list changes don't affect it."
+                        >
+                            <Input
+                                id="recurring_amount"
+                                inputMode="decimal"
+                                value={form.data.recurring_amount}
+                                disabled={form.data.recalculate_recurring}
+                                onChange={(event) =>
+                                    form.setData(
+                                        'recurring_amount',
+                                        event.target.value,
+                                    )
+                                }
+                                aria-describedby="recurring_amount-description"
+                            />
+                        </Field>
+                    )}
                     <Field
                         htmlFor="linked_service_id"
                         label="Linked service ID"
@@ -256,18 +265,20 @@ export function DetailsForm({
                             aria-describedby="linked_service_id-description"
                         />
                     </Field>
-                    <label className="flex items-center gap-2 self-end pb-2 text-sm">
-                        <Checkbox
-                            checked={form.data.recalculate_recurring}
-                            onCheckedChange={(checked) =>
-                                form.setData(
-                                    'recalculate_recurring',
-                                    checked === true,
-                                )
-                            }
-                        />
-                        Recalculate renewal amount from current prices
-                    </label>
+                    {!domain.registered_by_client && (
+                        <label className="flex items-center gap-2 self-end pb-2 text-sm">
+                            <Checkbox
+                                checked={form.data.recalculate_recurring}
+                                onCheckedChange={(checked) =>
+                                    form.setData(
+                                        'recalculate_recurring',
+                                        checked === true,
+                                    )
+                                }
+                            />
+                            Recalculate renewal amount from current prices
+                        </label>
+                    )}
                     <div className="grid gap-2 sm:col-span-2 sm:grid-cols-2">
                         {flags.map(([key, label]) => (
                             <label
@@ -450,6 +461,104 @@ export function MoveDialog({
                         >
                             {form.processing && <Spinner />}
                             Move domain
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+/**
+ * Link an order that already exists at the registrar to a domain imported or created by staff. The server checks it
+ * with the registrar and refuses with a reason shown under the field; the password is asked for first (step-up).
+ */
+export function LinkOrderDialog({
+    domain,
+    registrarName,
+    open,
+    onOpenChange,
+}: {
+    domain: Domain;
+    registrarName: string;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+}) {
+    const form = useForm({ order_id: '' });
+    // After a password step-up the request is repeated outside this form, so its refusal arrives as a page error.
+    const pageErrors = usePage().props.errors as
+        | Record<string, string | undefined>
+        | undefined;
+
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        form.submit(DomainActionController.linkOrder(domain.id), {
+            preserveScroll: true,
+            onSuccess: () => {
+                form.reset();
+                onOpenChange(false);
+            },
+        });
+    };
+
+    return (
+        <Dialog
+            open={open}
+            onOpenChange={(next) => {
+                if (!next) {
+                    form.reset();
+                    form.clearErrors();
+                }
+
+                onOpenChange(next);
+            }}
+        >
+            <DialogContent>
+                <form onSubmit={submit} className="grid gap-4">
+                    <DialogHeader>
+                        <DialogTitle>
+                            Link a {registrarName} order to{' '}
+                            {domain.name_unicode}
+                        </DialogTitle>
+                        <DialogDescription>
+                            Use this for a domain that was imported or added by
+                            hand. {registrarName} is asked for the order, and it
+                            is linked only if it is for exactly this name and
+                            belongs to your account. The domain is then synced
+                            with it.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <Field
+                        htmlFor="link-order-id"
+                        label="Order id"
+                        hint={`Shown on the order in the ${registrarName} panel.`}
+                        error={form.errors.order_id ?? pageErrors?.order_id}
+                    >
+                        <Input
+                            id="link-order-id"
+                            inputMode="numeric"
+                            autoComplete="off"
+                            value={form.data.order_id}
+                            onChange={(event) =>
+                                form.setData('order_id', event.target.value)
+                            }
+                            aria-invalid={!!form.errors.order_id}
+                        />
+                    </Field>
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => onOpenChange(false)}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="submit"
+                            disabled={form.processing || !form.data.order_id}
+                        >
+                            {form.processing && <Spinner />}
+                            Link order
                         </Button>
                     </DialogFooter>
                 </form>

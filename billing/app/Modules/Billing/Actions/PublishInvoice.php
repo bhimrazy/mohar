@@ -2,19 +2,24 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Core\CompanyClock;
 use App\Enums\BillableType;
 use App\Events\Billing\InvoiceCreated;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Services\DocumentNumbers;
+use App\Modules\Billing\Services\FiscalSnapshotWriter;
 use App\Modules\Billing\Services\InvoiceCalculator;
 use App\Modules\Billing\Services\InvoiceSettlement;
 use App\Modules\Billing\Services\SellerDetails;
 use App\Modules\Billing\Support\AfterCommit;
 use App\Modules\Billing\Support\BillingSettings;
+use App\Modules\Core\Models\Client;
+use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use LogicException;
 
 /**
  * draft → unpaid: recompute tax with current rules, assign the next number (or proforma number), set issue
@@ -28,11 +33,27 @@ class PublishInvoice
         private InvoiceSettlement $settlement,
         private BillingSettings $settings,
         private SellerDetails $seller,
+        private CompanyClock $clock,
+        private FiscalSnapshotWriter $fiscal,
     ) {}
 
-    public function handle(Invoice $invoice, ?CarbonImmutable $issueDate = null, bool $notify = true): Invoice
+    /**
+     * @param  Client|null  $client  the invoice's client, read in the caller's transaction. Used only when $invoice was
+     *                               created in this request (IssueInvoice creates and publishes in one transaction);
+     *                               for any other invoice the client is read again, so a copy read earlier can never
+     *                               set the tax. A client that is not the invoice's, or is modified, throws.
+     *
+     * @throws LogicException when $client is not the invoice's unmodified client
+     */
+    public function handle(Invoice $invoice, ?CarbonImmutable $issueDate = null, bool $notify = true, ?Client $client = null): Invoice
     {
-        return DB::transaction(function () use ($invoice, $issueDate, $notify): Invoice {
+        if ($client !== null && ($client->id !== $invoice->client_id || $client->isDirty())) {
+            throw new LogicException("The client passed to publish invoice {$invoice->id} is not its unmodified client.");
+        }
+
+        $client = $invoice->wasRecentlyCreated ? $client : null;
+
+        return DB::transaction(function () use ($invoice, $issueDate, $notify, $client): Invoice {
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
 
             if ($invoice->status !== InvoiceStatus::Draft) {
@@ -43,20 +64,22 @@ class PublishInvoice
                 throw new BillingException(__('Add at least one line before publishing.'));
             }
 
-            $this->calculator->recalculate($invoice);
+            $this->calculator->recalculate($invoice, $client);
 
             if ($invoice->total < 0) {
                 throw new BillingException(__('An invoice total can\'t be negative. Issue account credit or a credit note instead.'));
             }
 
-            $today = CarbonImmutable::today();
+            $today = $this->clock->today();
             $invoice->issue_date = $issueDate ?? $today;
             $invoice->due_date ??= $today->addDays($this->settings->int('invoice_days_before_due', 14));
 
             if ($this->settings->bool('sequential_paid_numbering')) {
-                $invoice->proforma_number = $this->numbers->next(DocumentNumbers::PROFORMA, $invoice->issue_date);
+                $invoice->proforma_number = $this->numbers->next(DocumentNumbers::PROFORMA, CalendarDate::fromDateValue($invoice->issue_date));
             } else {
-                $invoice->number = $this->numbers->next(DocumentNumbers::INVOICE, $invoice->issue_date);
+                // The snapshot is read before the install-wide sequence row is locked (ADR 0024 §4: the sequence goes last).
+                $this->fiscal->stamp($invoice, $this->clock->now()->utc(), published: true);
+                $invoice->number = $this->numbers->next(DocumentNumbers::INVOICE, CalendarDate::fromDateValue($invoice->issue_date));
             }
 
             $invoice->seller_snapshot = $this->seller->snapshot();

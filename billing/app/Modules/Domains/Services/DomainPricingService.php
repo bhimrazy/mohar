@@ -2,6 +2,7 @@
 
 namespace App\Modules\Domains\Services;
 
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Domains\DomainPricing;
 use App\Modules\Core\Models\Client;
 use App\Modules\Domains\Models\Domain;
@@ -60,12 +61,23 @@ class DomainPricingService implements DomainPricing
     }
 
     /**
+     * Contract entry point: the client's group tier applies when $clientId is given.
+     *
+     * @param  'register'|'transfer'|'renew'  $action
+     * @return list<int>
+     */
+    public function terms(string $tld, string $action, string $currency, ?int $clientId = null): array
+    {
+        return $this->termsForGroup($tld, $action, $currency, $this->groupOf($clientId));
+    }
+
+    /**
      * Terms (years) offered for an action in a currency; transfers are sold for the lowest term only.
      *
      * @param  'register'|'transfer'|'renew'  $action
      * @return list<int>
      */
-    public function terms(string $tld, string $action, string $currency, ?int $clientGroupId = null): array
+    public function termsForGroup(string $tld, string $action, string $currency, ?int $clientGroupId = null): array
     {
         $model = $this->tld($tld);
 
@@ -85,6 +97,61 @@ class DomainPricingService implements DomainPricing
     }
 
     /**
+     * Load the prices of these TLDs in one query, so pricing several domains costs no query per TLD.
+     *
+     * @param  list<int>  $tldIds
+     */
+    public function primePrices(array $tldIds): void
+    {
+        $missing = array_values(array_diff(array_unique($tldIds), array_keys($this->prices)));
+
+        if ($missing === []) {
+            return;
+        }
+
+        $prices = TldPrice::query()->whereIn('tld_id', $missing)->where('enabled', true)->get()->groupBy('tld_id');
+
+        foreach ($missing as $id) {
+            $this->prices[$id] = $prices->get($id) ?? collect();
+        }
+    }
+
+    public function catalog(string $currency, ?int $clientId = null): array
+    {
+        $group = $this->groupOf($clientId);
+        $rows = [];
+        $tlds = Tld::query()->active()->ordered()->get();
+        $prices = TldPrice::query()->whereIn('tld_id', $tlds->modelKeys())->where('enabled', true)->get()->groupBy('tld_id');
+
+        // Two queries for the whole list: prime the per-request memo that price lookups read.
+        $this->tlds ??= $tlds->keyBy('extension')->all();
+
+        foreach ($tlds as $tld) {
+            $this->prices[$tld->id] ??= $prices->get($tld->id) ?? collect();
+        }
+
+        foreach ($tlds as $tld) {
+            $register = $this->priceForGroup($tld->extension, 'register', 1, $currency, $group);
+            $transfer = $this->priceForGroup($tld->extension, 'transfer', 1, $currency, $group);
+
+            if ($register === null && $transfer === null) {
+                continue;
+            }
+
+            $rows[] = [
+                'tld' => $tld->extension,
+                'featured' => $tld->is_spotlight,
+                'badge' => $tld->badge,
+                'register' => $register,
+                'renew' => $this->priceForGroup($tld->extension, 'renew', 1, $currency, $group),
+                'transfer' => $transfer,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
      * Renewal terms a client may order for an existing domain at current prices (spec §4.1):
      * expiry + N years must stay within today + 10 years − 1 day, and the renew window must be open.
      *
@@ -92,7 +159,7 @@ class DomainPricingService implements DomainPricing
      */
     public function renewalTerms(Domain $domain, string $currency, ?int $clientGroupId = null, ?CarbonImmutable $today = null): array
     {
-        $today ??= CarbonImmutable::today();
+        $today ??= app(CompanyClock::class)->todayDate();
         $expiry = $domain->expiry_date;
         $model = $this->tld($domain->tld);
 
@@ -107,7 +174,7 @@ class DomainPricingService implements DomainPricing
         $horizon = $today->addYearsNoOverflow(self::MAX_HORIZON_YEARS)->subDay();
         $terms = [];
 
-        foreach ($this->terms($domain->tld, 'renew', $currency, $clientGroupId) as $years) {
+        foreach ($this->termsForGroup($domain->tld, 'renew', $currency, $clientGroupId) as $years) {
             $price = $this->amount($model, 'renew', $years, $currency, $clientGroupId);
 
             if ($price !== null && $expiry->addYearsNoOverflow($years)->lte($horizon)) {
@@ -175,9 +242,10 @@ class DomainPricingService implements DomainPricing
 
     private function offers(Tld $tld, string $action): bool
     {
+        // A TLD the client registers at the registry is never registered or transferred here (only renewed records).
         return match ($action) {
-            'register' => $tld->allow_register,
-            'transfer' => $tld->allow_transfer,
+            'register' => $tld->allow_register && ! $tld->registered_by_client,
+            'transfer' => $tld->allow_transfer && ! $tld->registered_by_client,
             'renew' => true,
             default => false,
         };

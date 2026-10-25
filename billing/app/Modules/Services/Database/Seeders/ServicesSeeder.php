@@ -2,9 +2,11 @@
 
 namespace App\Modules\Services\Database\Seeders;
 
+use App\Contracts\Core\CompanyClock;
 use App\Enums\BillingCycle;
 use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Models\Currency;
 use App\Modules\Services\Actions\ExecuteModuleCommand;
 use App\Modules\Services\Drivers\Provisioning\LogDriver;
 use App\Modules\Services\Enums\CancellationStatus;
@@ -22,7 +24,7 @@ use Carbon\CarbonImmutable;
 /**
  * Demo data: a server group with two "log" driver servers and services in every status.
  *
- * Product ids 1–4 are fixed demo numbers (no Catalog dependency); product names are stored as the
+ * Product ids 1–4 and names match the demo catalogue (CatalogSeeder) without depending on it; names are stored as the
  * service's product_name snapshot. Lifecycle changes run through the real module command
  * executor so the module log and failed-actions queue have realistic entries.
  */
@@ -30,10 +32,10 @@ class ServicesSeeder extends DemoSeeder
 {
     /** @var array<int, array{name: string, amount: int}> */
     private const PRODUCTS = [
-        1 => ['name' => 'Starter Hosting', 'amount' => 499],
-        2 => ['name' => 'Business Hosting', 'amount' => 1299],
-        3 => ['name' => 'Reseller Pro', 'amount' => 2999],
-        4 => ['name' => 'VPS Small', 'amount' => 1900],
+        1 => ['name' => 'Starter', 'amount' => 499],
+        2 => ['name' => 'Pro', 'amount' => 899],
+        3 => ['name' => 'Business', 'amount' => 1299],
+        4 => ['name' => 'VPS S', 'amount' => 1900],
     ];
 
     public function run(): void
@@ -42,11 +44,12 @@ class ServicesSeeder extends DemoSeeder
             return;
         }
 
-        $today = CarbonImmutable::today();
-        $group = ServerGroup::query()->create(['name' => 'Shared hosting US', 'fill_type' => FillType::LeastFull]);
+        $clock = app(CompanyClock::class);
+        $today = $clock->todayDate();
+        $group = ServerGroup::query()->create(['name' => 'Shared hosting', 'fill_type' => FillType::LeastFull]);
         $servers = collect([
-            ['name' => 'Web 1', 'hostname' => 'web1.demo-host.net', 'ip_address' => '203.0.113.10', 'max_accounts' => 200, 'is_default' => true, 'datacenter' => 'Ashburn'],
-            ['name' => 'Web 2', 'hostname' => 'web2.demo-host.net', 'ip_address' => '203.0.113.11', 'max_accounts' => 200, 'is_default' => false, 'datacenter' => 'Ashburn'],
+            ['name' => 'Web 1', 'hostname' => 'web1.demo-host.net', 'ip_address' => '203.0.113.10', 'max_accounts' => 200, 'is_default' => true, 'datacenter' => 'Kathmandu'],
+            ['name' => 'Web 2', 'hostname' => 'web2.demo-host.net', 'ip_address' => '203.0.113.11', 'max_accounts' => 200, 'is_default' => false, 'datacenter' => 'Kathmandu'],
         ])->map(fn (array $attributes): Server => Server::query()->create([
             ...$attributes,
             'driver' => 'log',
@@ -61,7 +64,7 @@ class ServicesSeeder extends DemoSeeder
         $servers->each(fn (Server $server, int $index) => $group->servers()->attach($server, ['sort_order' => $index]));
         Server::query()->create([
             'name' => 'VPS cluster', 'hostname' => 'vps.demo-host.net', 'ip_address' => '203.0.113.50', 'driver' => 'log',
-            'username' => 'api', 'api_token' => 'demo-token', 'max_accounts' => 0, 'is_active' => true, 'monthly_cost' => 25000, 'currency' => 'USD', 'datacenter' => 'Frankfurt',
+            'username' => 'api', 'api_token' => 'demo-token', 'max_accounts' => 0, 'is_active' => true, 'monthly_cost' => 25000, 'currency' => 'USD', 'datacenter' => 'Singapore',
         ]);
 
         $demo = Client::query()->where('email', 'demo@example.com')->first();
@@ -78,22 +81,22 @@ class ServicesSeeder extends DemoSeeder
             $this->paidThrough($service, $today->addDays(($index * 5) % 28 + 2));
         }
 
-        $this->seedUsage($today);
+        $this->seedUsage($clock->dayBounds($today)[0]);
     }
 
     private function seedDemoClient(Client $demo, CarbonImmutable $today): void
     {
-        $active = $this->pending($demo, 2, BillingCycle::Monthly, 'demolabs.io', $today->subMonths(5)->subDays(9));
+        $active = $this->pending($demo, 3, BillingCycle::Monthly, 'himallabs.io', $today->subMonths(5)->subDays(9));
         $this->execute($active, ModuleCommandName::Create);
         $this->paidThrough($active, $today->addDays(12));
         ServiceAddon::query()->create([
             'service_id' => $active->id, 'addon_id' => 1, 'name' => 'Daily backups', 'status' => ServiceStatus::Active,
-            'cycle' => BillingCycle::Monthly, 'currency' => 'USD', 'recurring_amount' => 300,
+            'cycle' => BillingCycle::Monthly, 'currency' => $demo->currency, 'recurring_amount' => $this->localAmount($demo, 300),
             'registration_date' => $active->registration_date, 'billing_anchor_day' => $active->billing_anchor_day,
             'next_due_date' => $active->next_due_date, 'next_invoice_date' => $active->next_invoice_date, 'activated_at' => $active->activated_at,
         ]);
 
-        $annual = $this->pending($demo, 3, BillingCycle::Annually, 'demolabs-reseller.com', $today->subMonths(7));
+        $annual = $this->pending($demo, 2, BillingCycle::Annually, 'himallabs-shop.com', $today->subMonths(7));
         $this->execute($annual, ModuleCommandName::Create);
         $this->paidThrough($annual, $today->subMonths(7)->addYear());
 
@@ -102,7 +105,7 @@ class ServicesSeeder extends DemoSeeder
         $this->paidThrough($overdue, $today->subDays(12));
         $this->execute($overdue, ModuleCommandName::Suspend, ['reason' => 'overdue']);
 
-        $this->pending($demo, 4, BillingCycle::Monthly, 'vps.demolabs.io', $today);
+        $this->pending($demo, 4, BillingCycle::Monthly, 'vps.himallabs.io', $today);
 
         $gone = $this->pending($demo, 1, BillingCycle::Monthly, 'legacy-site.org', $today->subYear());
         $this->execute($gone, ModuleCommandName::Create);
@@ -124,7 +127,7 @@ class ServicesSeeder extends DemoSeeder
 
     private function pending(Client $client, int $product, BillingCycle $cycle, string $domain, CarbonImmutable $registered): Service
     {
-        $amount = self::PRODUCTS[$product]['amount'] * ($cycle === BillingCycle::Annually ? 10 : 1);
+        $amount = $this->localAmount($client, self::PRODUCTS[$product]['amount'] * ($cycle === BillingCycle::Annually ? 10 : 1));
 
         $servers = Server::query()->where('hostname', 'like', 'web%')->orderBy('id')->pluck('id');
 
@@ -147,6 +150,20 @@ class ServicesSeeder extends DemoSeeder
         ]);
     }
 
+    /**
+     * A USD list price in the client's currency (the catalog's exchange rate), so an NPR client is not billed 4.99 rupees.
+     */
+    private function localAmount(Client $client, int $usd): int
+    {
+        if ($client->currency === 'USD') {
+            return $usd;
+        }
+
+        $currencies = Currency::query()->whereIn('code', ['USD', $client->currency])->get()->keyBy('code');
+
+        return isset($currencies['USD'], $currencies[$client->currency]) ? $currencies['USD']->convertTo($usd, $currencies[$client->currency]) : $usd;
+    }
+
     private function paidThrough(Service $service, CarbonImmutable $date): void
     {
         $service->refresh()->update(['next_due_date' => $date, 'next_invoice_date' => $date, 'billing_anchor_day' => $date->day]);
@@ -161,16 +178,17 @@ class ServicesSeeder extends DemoSeeder
         $service->refresh();
     }
 
-    private function seedUsage(CarbonImmutable $today): void
+    /** @param  CarbonImmutable  $dayStart  the first instant of the company day */
+    private function seedUsage(CarbonImmutable $dayStart): void
     {
-        Service::query()->whereIn('status', [ServiceStatus::Active->value, ServiceStatus::Suspended->value])->orderBy('id')->each(function (Service $service) use ($today): void {
+        Service::query()->whereIn('status', [ServiceStatus::Active->value, ServiceStatus::Suspended->value])->orderBy('id')->each(function (Service $service) use ($dayStart): void {
             UsageSnapshot::query()->create([
                 'service_id' => $service->id,
                 'disk_used_mb' => 300 + ($service->id * 413) % 7000,
                 'disk_limit_mb' => 10240,
                 'bw_used_mb' => 2000 + ($service->id * 1777) % 60000,
                 'bw_limit_mb' => 102400,
-                'captured_at' => $today->setTime(4, 0),
+                'captured_at' => $dayStart->addHours(4),
             ]);
         });
     }

@@ -27,7 +27,8 @@ class GatewayLogController extends Controller
                 ->when($filters['direction'] ?? null, fn ($query, $direction) => $query->where('direction', $direction))
                 ->when($filters['invoice'] ?? null, fn ($query, $invoice) => $query->where('invoice_id', $invoice))
                 ->orderByDesc('id')
-                ->paginate(50)
+                // No count(*) over the whole log (#49).
+                ->simplePaginate(50)
                 ->withQueryString()
                 ->through(fn (GatewayLog $entry): array => [
                     'id' => $entry->id,

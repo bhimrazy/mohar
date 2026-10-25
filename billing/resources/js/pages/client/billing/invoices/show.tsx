@@ -1,7 +1,8 @@
-import { Link, useForm } from '@inertiajs/react';
+import { Link, useForm, usePage } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import { Download } from 'lucide-react';
 import { useState } from 'react';
+import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { DataTable } from '@/components/app/data-table';
 import type { DataTableColumn } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
@@ -10,6 +11,15 @@ import { Money } from '@/components/app/money';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
+import {
+    ClientTaxNotesTable,
+    type ClientTaxNote,
+} from '@/components/billing/client-tax-notes';
+import { InvoiceDate } from '@/components/billing/invoice-date';
+import {
+    documentTitle,
+    InvoicePartiesHeader,
+} from '@/components/billing/invoice-parties';
 import { InvoiceTotals } from '@/components/billing/invoice-totals';
 import { LineItems } from '@/components/billing/line-items';
 import { PayPanel } from '@/components/billing/pay-panel';
@@ -18,6 +28,7 @@ import type {
     Adjustment,
     Invoice,
     InvoiceItem,
+    InvoiceParties,
     PaymentInProgressData,
     PaymentOptions,
     Transaction,
@@ -33,18 +44,22 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import {
     applyCredit,
+    closeAttempt,
     index,
     pay,
     pdf,
+    resumeAttempt,
 } from '@/actions/App/Modules/Billing/Http/Controllers/Client/InvoiceController';
 
 type Props = {
     invoice: Invoice;
+    parties: InvoiceParties;
     items: InvoiceItem[];
     adjustments: Adjustment[];
     transactions: Transaction[];
     payment: PaymentOptions | null;
     payment_in_progress: PaymentInProgressData | null;
+    notes: ClientTaxNote[];
 };
 
 function ApplyCreditForm({
@@ -107,13 +122,16 @@ function ApplyCreditForm({
 
 export default function ClientInvoiceShow({
     invoice,
+    parties,
     items,
     adjustments,
     transactions,
     payment,
     payment_in_progress,
+    notes,
 }: Props) {
     const [payAnotherWay, setPayAnotherWay] = useState(false);
+    const { errors } = usePage<{ errors: Record<string, string> }>().props;
     // A started payment that can still complete at the provider hides the pay panel (no accidental second
     // payment); once its session has ended the customer may choose to pay another way.
     const showPayPanel =
@@ -134,7 +152,7 @@ export default function ClientInvoiceShow({
         {
             key: 'method',
             header: 'Method',
-            cell: (txn) => humanize(txn.gateway),
+            cell: (txn) => txn.gateway_label ?? humanize(txn.gateway),
         },
         {
             key: 'amount',
@@ -150,21 +168,25 @@ export default function ClientInvoiceShow({
             ),
         },
     ];
+    const title = documentTitle(invoice, parties);
 
     return (
         <>
-            <Head title={`Invoice ${invoice.number}`} />
+            <Head title={title} />
             <Page>
                 <PageHeader
                     back={{ href: index(), label: 'Invoices' }}
-                    title={`Invoice ${invoice.number}`}
+                    title={title}
                     status={invoice.display_status}
                     meta={
                         <>
                             {invoice.issue_date && (
                                 <span>
                                     Issued{' '}
-                                    <DateTime value={invoice.issue_date} />
+                                    <InvoiceDate
+                                        value={invoice.issue_date}
+                                        bs={invoice.issue_date_bs}
+                                    />
                                 </span>
                             )}
                             {invoice.due_date && (
@@ -172,7 +194,10 @@ export default function ClientInvoiceShow({
                                     <span aria-hidden="true">·</span>
                                     <span>
                                         Due{' '}
-                                        <DateTime value={invoice.due_date} />
+                                        <InvoiceDate
+                                            value={invoice.due_date}
+                                            bs={invoice.due_date_bs}
+                                        />
                                     </span>
                                 </>
                             )}
@@ -194,30 +219,73 @@ export default function ClientInvoiceShow({
                             <PaymentInProgressCard
                                 attempt={payment_in_progress}
                                 actions={
-                                    <>
-                                        <Button asChild variant="outline">
-                                            <Link
-                                                href={
-                                                    payment_in_progress.check_url
-                                                }
-                                                preserveScroll
-                                            >
-                                                Check status
-                                            </Link>
-                                        </Button>
-                                        {payment &&
-                                            payment_in_progress.can_pay_another_way &&
-                                            !payAnotherWay && (
-                                                <Button
-                                                    variant="ghost"
-                                                    onClick={() =>
-                                                        setPayAnotherWay(true)
-                                                    }
-                                                >
-                                                    Pay a different way
+                                    <div className="grid w-full gap-2">
+                                        <div className="flex flex-wrap gap-2">
+                                            {payment_in_progress.can_resume && (
+                                                <Button asChild>
+                                                    <Link
+                                                        href={resumeAttempt.url(
+                                                            [
+                                                                invoice.id,
+                                                                payment_in_progress.reference,
+                                                            ],
+                                                        )}
+                                                    >
+                                                        Continue payment
+                                                    </Link>
                                                 </Button>
                                             )}
-                                    </>
+                                            <Button asChild variant="outline">
+                                                <Link
+                                                    href={
+                                                        payment_in_progress.check_url
+                                                    }
+                                                    preserveScroll
+                                                >
+                                                    Check status
+                                                </Link>
+                                            </Button>
+                                            {payment &&
+                                                payment_in_progress.can_close && (
+                                                    <ConfirmDialog
+                                                        trigger={
+                                                            <Button variant="ghost">
+                                                                Use another
+                                                                method
+                                                            </Button>
+                                                        }
+                                                        title="Stop this payment?"
+                                                        description="We'll close the payment page first, so the payment can't be made there any more. If it was already paid, we record the payment instead."
+                                                        confirmLabel="Use another method"
+                                                        destructive={false}
+                                                        action={closeAttempt([
+                                                            invoice.id,
+                                                            payment_in_progress.reference,
+                                                        ])}
+                                                        onSuccess={() =>
+                                                            setPayAnotherWay(
+                                                                true,
+                                                            )
+                                                        }
+                                                    />
+                                                )}
+                                            {payment &&
+                                                payment_in_progress.can_pay_another_way &&
+                                                !payAnotherWay && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        onClick={() =>
+                                                            setPayAnotherWay(
+                                                                true,
+                                                            )
+                                                        }
+                                                    >
+                                                        Pay a different way
+                                                    </Button>
+                                                )}
+                                        </div>
+                                        <InputError message={errors.billing} />
+                                    </div>
                                 }
                             />
                         )}
@@ -250,12 +318,26 @@ export default function ClientInvoiceShow({
                                 </p>
                             </SectionCard>
                         )}
-                        <SectionCard title="Items" flush>
-                            <LineItems
-                                items={items}
-                                currency={invoice.currency}
+                        <SectionCard flush>
+                            <InvoicePartiesHeader
+                                invoice={invoice}
+                                parties={parties}
                             />
+                            <div className="border-t">
+                                <LineItems
+                                    items={items}
+                                    currency={invoice.currency}
+                                />
+                            </div>
                         </SectionCard>
+                        {notes.length > 0 && (
+                            <SectionCard title="Credit and debit notes" flush>
+                                <ClientTaxNotesTable
+                                    notes={notes}
+                                    showInvoice={false}
+                                />
+                            </SectionCard>
+                        )}
                         {payments.length > 0 && (
                             <SectionCard title="Payments" flush>
                                 <DataTable

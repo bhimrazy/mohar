@@ -1,4 +1,5 @@
-import { Link, useForm } from '@inertiajs/react';
+import { Link, useForm, usePage } from '@inertiajs/react';
+import { StoreTitle } from '@/components/orders/storefront-hero';
 import { Head } from '@/components/app/head';
 import {
     AlertTriangle,
@@ -9,32 +10,31 @@ import {
     ShieldCheck,
     UserRound,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import CheckoutController from '@/actions/App/Modules/Orders/Http/Controllers/Public/CheckoutController';
+import { CountrySelect } from '@/components/app/country-select';
 import { Field } from '@/components/app/field';
+import { GatewayLogo } from '@/components/billing/gateway-logo';
 import { Money } from '@/components/app/money';
 import { SectionCard } from '@/components/app/section-card';
 import InputError from '@/components/input-error';
+import { ItemDetails } from '@/components/orders/item-details';
 import { OrderSummary } from '@/components/orders/order-summary';
+import type { GroupSaving } from '@/components/orders/order-summary';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import store from '@/routes/store';
 import type { SelectOption } from '@/types/app';
 import type { PricedCart } from '@/types/orders';
+import type { PaymentMark } from '@/types/storefront';
 
 type Props = {
     cart: PricedCart;
+    group_saving: GroupSaving;
     gateways: SelectOption[];
     account: { name: string; email: string; currency: string } | null;
     blocked_reason: string | null;
@@ -42,7 +42,6 @@ type Props = {
     tos_url: string | null;
     allow_notes: boolean;
     idempotency_key: string;
-    countries: string[];
     default_country: string | null;
     support_email: string | null;
     login_url: string;
@@ -65,6 +64,7 @@ type CheckoutForm = {
 
 export default function Checkout({
     cart,
+    group_saving: groupSaving,
     gateways,
     account,
     blocked_reason: blockedReason,
@@ -72,11 +72,14 @@ export default function Checkout({
     tos_url: tosUrl,
     allow_notes: allowNotes,
     idempotency_key: idempotencyKey,
-    countries,
     default_country: defaultCountry,
     support_email: supportEmail,
     login_url: loginUrl,
 }: Props) {
+    // Official logos come from the public layout's accepted-payment marks, matched by gateway key.
+    const { site } = usePage<{ site?: { payments?: PaymentMark[] } }>().props;
+    const logoFor = (key: string) =>
+        site?.payments?.find((mark) => mark.key === key)?.logo ?? null;
     const [mode, setMode] = useState<'register' | 'login'>('register');
     const form = useForm<CheckoutForm>({
         payment_gateway: gateways[0]?.value ?? '',
@@ -101,13 +104,6 @@ export default function Checkout({
                 key === 'idempotency_key' ||
                 key === 'expected_net_total'),
     )?.[1];
-    const countryOptions = useMemo(() => {
-        const names = new Intl.DisplayNames(['en'], { type: 'region' });
-
-        return countries
-            .map((code) => ({ value: code, label: names.of(code) ?? code }))
-            .sort((a, b) => a.label.localeCompare(b.label));
-    }, [countries]);
     const guest = account === null && blockedReason === null;
 
     const submit = (event: React.FormEvent) => {
@@ -146,13 +142,11 @@ export default function Checkout({
 
             <form
                 onSubmit={submit}
-                className="mx-auto grid w-full max-w-6xl gap-8 px-4 py-8 md:px-6 lg:grid-cols-[1fr_22rem] lg:py-12"
+                className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-8 px-4 py-8 md:px-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:py-12"
             >
                 <div className="flex min-w-0 flex-col gap-6">
                     <header>
-                        <h1 className="text-3xl font-semibold tracking-tight">
-                            Checkout
-                        </h1>
+                        <StoreTitle>Checkout</StoreTitle>
                         <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
                             <Lock className="size-3.5" aria-hidden="true" />{' '}
                             Your order is placed securely. You can pay right
@@ -191,10 +185,10 @@ export default function Checkout({
                                     />
                                 </span>
                                 <div className="min-w-0">
-                                    <p className="truncate font-medium">
+                                    <p className="font-medium [overflow-wrap:anywhere]">
                                         {account.name}
                                     </p>
-                                    <p className="truncate text-sm text-muted-foreground">
+                                    <p className="text-sm [overflow-wrap:anywhere] text-muted-foreground">
                                         {account.email} · billed in{' '}
                                         {account.currency}
                                     </p>
@@ -261,7 +255,8 @@ export default function Checkout({
                                             error={errors.country}
                                             optional
                                         >
-                                            <Select
+                                            <CountrySelect
+                                                id="country"
                                                 value={form.data.country}
                                                 onValueChange={(value) =>
                                                     form.setData(
@@ -269,30 +264,7 @@ export default function Checkout({
                                                         value,
                                                     )
                                                 }
-                                            >
-                                                <SelectTrigger
-                                                    id="country"
-                                                    className="w-full"
-                                                >
-                                                    <SelectValue placeholder="Choose a country" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {countryOptions.map(
-                                                        (country) => (
-                                                            <SelectItem
-                                                                key={
-                                                                    country.value
-                                                                }
-                                                                value={
-                                                                    country.value
-                                                                }
-                                                            >
-                                                                {country.label}
-                                                            </SelectItem>
-                                                        ),
-                                                    )}
-                                                </SelectContent>
-                                            </Select>
+                                            />
                                         </Field>
                                         <div className="hidden sm:block" />
                                         {text('password', 'Password', {
@@ -366,7 +338,11 @@ export default function Checkout({
                                             }
                                             className="size-4 accent-primary"
                                         />
-                                        {gateway.label}
+                                        <GatewayLogo
+                                            name={gateway.label}
+                                            logo={logoFor(gateway.value)}
+                                            className="h-7 max-w-24"
+                                        />
                                     </label>
                                 ))}
                             </div>
@@ -402,30 +378,33 @@ export default function Checkout({
                     )}
                 </div>
 
-                <aside className="flex flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
+                <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
                     <section
                         aria-label="Items"
                         className="rounded-xl border bg-card p-5 shadow-xs"
                     >
-                        <ul className="grid gap-2 text-sm">
+                        <ul className="grid grid-cols-1 gap-2 text-sm">
                             {cart.items.map((item) => (
-                                <li
-                                    key={item.key}
-                                    className="flex justify-between gap-4"
-                                >
-                                    <span className="min-w-0 truncate">
-                                        {item.title}
-                                        {(item.domain ?? item.subtitle) && (
-                                            <span className="text-muted-foreground">
-                                                {' '}
-                                                · {item.domain ?? item.subtitle}
+                                <li key={item.key}>
+                                    <div className="flex justify-between gap-4">
+                                        <span className="min-w-0">
+                                            <span className="block">
+                                                {item.title}
                                             </span>
-                                        )}
-                                    </span>
-                                    <Money
-                                        amount={item.due_today}
-                                        currency={cart.currency}
-                                    />
+                                            {(item.domain ?? item.subtitle) && (
+                                                <span className="block [overflow-wrap:anywhere] text-muted-foreground">
+                                                    {item.domain ??
+                                                        item.subtitle}
+                                                </span>
+                                            )}
+                                        </span>
+                                        <Money
+                                            amount={item.due_today}
+                                            currency={cart.currency}
+                                            className="shrink-0"
+                                        />
+                                    </div>
+                                    <ItemDetails details={item.details} />
                                 </li>
                             ))}
                         </ul>
@@ -439,6 +418,7 @@ export default function Checkout({
 
                     <OrderSummary
                         cart={cart}
+                        groupSaving={groupSaving}
                         footer={
                             <div className="grid gap-4">
                                 {requireTos && (

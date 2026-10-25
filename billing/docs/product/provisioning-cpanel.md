@@ -325,18 +325,49 @@ This is the onboarding path for hosts who bring accounts that already exist on W
    job, and the result is kept for 24 hours as an import session.
 2. Classify each remote account:
     - **Linked:** a service here already has the username. Differences (domain, plan, suspended, IP) are shown, and staff
-      may accept the domain, IP or status from the server per row. Products are never changed here.
+      may accept the domain, IP or status from the server per row (each change has its own button and is bound to a digest of
+      the two values shown, re-checked under the service's lock; a status change goes through the usual state machine and
+      needs `services.services.manage` beside the import permission). Nothing is sent to the server, and products, clients
+      and prices are never changed here.
     - **Proposed:** exactly one client has the contact email (case-insensitive), and exactly one `cpanel` product uses the
-      account's `plan` on this server or its group.
-    - **Unmatched:** staff pick a client and product, Skip, or Ignore (remembered per server and username).
+      account's `plan` on this server or its group, and the client's address is trusted:
+        - someone vouches for it: `clients.email_source` is `staff` or `import`, or a login on that client (owner or
+          not) has verified that exact address; and
+        - it has not changed in the last 30 days (`clients.email_changed_at`), whoever changed it.
+
+        Otherwise the match is shown with a flag ("Email set by the client and not verified", or the change date) but
+        not proposed, "Select all proposed" leaves it out, and the review imports it only when staff choose that client
+        themselves. Every path that sets a client's email records who did: admin create and edit write `staff`, an
+        importer writes `import`, and sign-up, checkout and the client-area account form write `client` (the default for
+        a path that forgets). Every path that creates a client also records `clients.origin` (`signup`, `checkout`,
+        `staff`, `import`, `api`): social sign-in must write `signup`, and the WHMCS client importer `import`.
+
+    - **Unmatched:** staff pick a client and product, Skip, or Ignore. Skip is leaving the account unticked. Ignore moves
+      it to the Ignored tab, out of every count of work to do and out of "Select all proposed", and it cannot be ticked;
+      the choice is kept per server and username (`server_import_ignores`) so later fetches list it as ignored, and
+      "Bring back" undoes it. An account a service holds is never ignored.
     - **Reseller-owned** (root connection, `owner` ≠ `root`): listed separately, unselected by default.
     - **Missing on server:** local pending, active or suspended services with no remote account. Flagged only.
 3. Preview: staff set cycle and next due date per row or in bulk. The recurring amount comes from `PriceBook` in the
-   client's currency, with totals shown.
+   client's currency, with totals shown. The choice dialog lists only the cycles the chosen product has a price for in the
+   client's currency (all of them until both are known); the bulk dialog lists the cycles at least one reviewed row can use.
 4. Apply, one transaction per row: the service is created `active`, or `suspended` with the reason
    "staff:imported (suspended on server: …)", with `registration_date` from `unix_startdate`, `driver_data`, and no
    password (the client sets one). **No** invoice, welcome mail or module command. `ServiceImported` (K8) is emitted.
-   A unique active `(server_id, username)` prevents a double import. A per-row report follows.
+   A unique active `(server_id, username)` prevents a double import. A per-row report follows: one line per account
+   (unique per import and username, so a chunk that runs twice reports nothing twice), with a `not_reached` mark on the
+   lines a stopped import wrote for accounts it never reached.
+
+**Storage.** The fetched list is one row per account (`server_account_import_accounts`): username, lower-case domain,
+category, matched client id and a keyed hash of the contact email are plain columns, and the whole account row is an
+encrypted `payload`. The page filters, searches (username, domain, or the exact contact email) and pages on the plain
+columns and decrypts only the 50 rows it shows; an import chunk decrypts only its own accounts. A list stays 24 hours
+from its fetch; an import that starts extends it to 24 hours from now, and one that finishes does the same, so the
+report outlives the run. A list whose import is still running is never pruned, and the daily prune deletes at most 100
+lists or about 50,000 accounts a run (the oldest list always goes). Linking imported accounts, ignoring and restoring
+change only the plain columns (the page reads those first), and Match again reads and rewrites the list a chunk at a time,
+writing only the accounts whose answer changed. A stored list that cannot be decrypted is dropped once, reported once, and
+shown as a failed fetch with the message to fetch again.
 
 **Better:** WHMCS's sync creates a new client for every unmatched email, using a placeholder address when there is none.
 It also marks local services terminated when they are missing on the server. Mohar never creates a client or ends a

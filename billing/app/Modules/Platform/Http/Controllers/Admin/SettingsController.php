@@ -3,10 +3,11 @@
 namespace App\Modules\Platform\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Platform\Actions\Settings\UpdateSettings;
-use App\Modules\Platform\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Platform\Http\Requests\SettingsRequest;
 use App\Modules\Platform\Services\SettingsCatalog;
+use App\Modules\Platform\Support\AccountMail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -47,13 +48,13 @@ class SettingsController extends Controller
         ]);
     }
 
-    public function update(SettingsRequest $request, string $section, UpdateSettings $update): RedirectResponse
+    public function update(SettingsRequest $request, string $section, UpdateSettings $update, AccountMail $mail): RedirectResponse
     {
         $changed = $update->handle($section, $request->validated());
 
         Inertia::flash('toast', $changed === []
             ? ['type' => 'info', 'message' => __('No changes to save.')]
-            : ['type' => 'success', 'message' => trans_choice('{1} 1 setting saved.|[2,*] :count settings saved.', count($changed))]);
+            : $mail->toast(['type' => 'success', 'message' => trans_choice('{1} 1 setting saved.|[2,*] :count settings saved.', count($changed))]));
 
         return to_route('admin.platform.settings.edit', ['section' => $section]);
     }

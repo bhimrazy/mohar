@@ -2,20 +2,26 @@
 
 namespace App\Modules\Domains\Http\Controllers\Admin;
 
+use App\Data\Integrations\SettingField;
+use App\Enums\FieldType;
 use App\Http\Controllers\Controller;
 use App\Modules\Domains\Actions\SaveRegistrarAccount;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Http\Requests\RegistrarAccountRequest;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\Tld;
+use App\Modules\Domains\Services\RegistrarGateway;
+use App\Support\Domains\CapabilityNotSupported;
+use App\Support\Domains\RegistrarDriverRegistry;
+use App\Support\Domains\RegistrarException;
+use App\Support\Integrations\StoredSecrets;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class RegistrarController extends Controller
 {
-    public function index(RegistrarManager $registrars): Response
+    public function index(RegistrarDriverRegistry $registrars): Response
     {
         $this->authorize('domains.registrars.manage');
 
@@ -25,23 +31,24 @@ class RegistrarController extends Controller
 
         return Inertia::render('admin/domains/registrars/index', [
             'registrars' => array_map(function (string $key) use ($registrars, $accounts, $domainCounts, $tldCounts): array {
-                $driver = $registrars->driver($key);
+                $driver = $registrars->get($key);
                 $account = $accounts->get($key);
                 $settings = $account->settings ?? [];
-                $schema = $driver->settingsSchema();
+                $schema = $registrars->fields($key);
 
                 return [
                     'key' => $key,
                     'name' => $driver->name(),
-                    'capabilities' => $driver->capabilities(),
+                    'capabilities' => $registrars->capabilitiesOf($key),
                     'configured' => $account !== null,
-                    'is_active' => $account->is_active ?? true,
+                    'is_active' => $account === null ? ! $registrars->needsAccount($key) : $account->is_active,
                     'test_mode' => $account->test_mode ?? false,
-                    'schema' => $schema,
-                    'settings' => collect($schema)->mapWithKeys(fn (array $field): array => [
-                        $field['key'] => $field['type'] === 'password' ? '' : ($settings[$field['key']] ?? null),
+                    'schema' => array_map(fn (SettingField $field): array => $field->toArray(), $schema),
+                    'settings' => collect($schema)->mapWithKeys(fn (SettingField $field): array => [
+                        $field->key => $field->isSecret() ? '' : ($settings[$field->key] ?? $field->default ?? ($field->type === FieldType::Boolean ? false : null)),
                     ])->all(),
-                    'secrets_set' => collect($schema)->where('type', 'password')->mapWithKeys(fn (array $field): array => [$field['key'] => filled($settings[$field['key']] ?? null)])->all(),
+                    'secrets_set' => collect($schema)->filter(fn (SettingField $field): bool => $field->isSecret())->mapWithKeys(fn (SettingField $field): array => [$field->key => filled($settings[$field->key] ?? null)])->all(),
+                    'secrets_short' => StoredSecrets::tooShort($schema, $settings),
                     'domains_count' => (int) ($domainCounts[$key] ?? 0),
                     'tlds_count' => (int) ($tldCounts[$key] ?? 0),
                 ];
@@ -49,22 +56,29 @@ class RegistrarController extends Controller
         ]);
     }
 
-    public function update(RegistrarAccountRequest $request, string $registrar, RegistrarManager $registrars, SaveRegistrarAccount $save): RedirectResponse
+    public function update(RegistrarAccountRequest $request, string $registrar, RegistrarDriverRegistry $registrars, SaveRegistrarAccount $save): RedirectResponse
     {
         abort_unless($registrars->has($registrar), 404);
         $save->handle($registrar, $request->boolean('is_active'), $request->boolean('test_mode'), (array) $request->validated('settings', []));
-        Inertia::flash('toast', ['type' => 'success', 'message' => __(':name settings saved.', ['name' => $registrars->driver($registrar)->name()])]);
+        Inertia::flash('toast', ['type' => 'success', 'message' => __(':name settings saved.', ['name' => $registrars->get($registrar)->name()])]);
 
         return to_route('admin.domains.registrars.index');
     }
 
-    public function test(string $registrar, RegistrarManager $registrars): RedirectResponse
+    public function test(string $registrar, RegistrarDriverRegistry $registrars, RegistrarGateway $gateway): RedirectResponse
     {
         $this->authorize('domains.registrars.manage');
         abort_unless($registrars->has($registrar), 404);
 
-        $result = $registrars->driver($registrar)->testConnection();
-        Inertia::flash('toast', ['type' => $result['ok'] ? 'success' : 'error', 'message' => $result['message']]);
+        // Through the gateway, so it is logged and whatever the driver says is masked; it runs on a disabled account too.
+        try {
+            $result = $gateway->testConnection($registrar);
+            Inertia::flash('toast', ['type' => $result->ok ? 'success' : 'error', 'message' => $result->message]);
+        } catch (CapabilityNotSupported) {
+            Inertia::flash('toast', ['type' => 'error', 'message' => __('The :name registrar has no connection test.', ['name' => $registrars->get($registrar)->name()])]);
+        } catch (RegistrarException $error) {
+            Inertia::flash('toast', ['type' => 'error', 'message' => $error->getMessage()]);
+        }
 
         return to_route('admin.domains.registrars.index');
     }

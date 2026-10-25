@@ -40,8 +40,9 @@ final class Scenario
     /**
      * @param  class-string<Simulator>  $simulator
      * @param  int|null  $owner  the process whose end stops the scenario (a test run); null for a detached one
+     * @param  array{api: int, backend: int, control: int}|null  $ports  null picks three free ones
      */
-    public static function create(string $simulator, ?int $owner = null): self
+    public static function create(string $simulator, ?int $owner = null, ?array $ports = null): self
     {
         self::ensureRoot();
         $id = (new $simulator)->key().'-'.bin2hex(random_bytes(4));
@@ -51,13 +52,14 @@ final class Scenario
             throw new RuntimeException("Could not create {$directory}.");
         }
 
+        $ports ??= array_combine(['api', 'backend', 'control'], self::freePorts(3));
         $scenario = new self($directory, [
             'id' => $id,
             'simulator' => $simulator,
             'token' => bin2hex(random_bytes(24)),
-            'api_port' => self::freePort(),
-            'backend_port' => self::freePort(),
-            'control_port' => self::freePort(),
+            'api_port' => $ports['api'],
+            'backend_port' => $ports['backend'],
+            'control_port' => $ports['control'],
             'pids' => [],
             'owner' => $owner,
         ]);
@@ -180,23 +182,105 @@ final class Scenario
     }
 
     /**
-     * An ephemeral port on 127.0.0.1, never a forbidden one.
+     * Distinct free ports on 127.0.0.1, never a forbidden one, each probed by binding it. They are held until all are
+     * chosen, so they differ.
+     *
+     * They come from below the kernel's ephemeral range (`ip_local_port_range`), and in a parallel test run from a
+     * slice of that window per worker. Ports the kernel hands out for `:0` binds sit in the ephemeral range, where
+     * every outgoing connection on the machine (the other workers' HTTP clients and readiness probes) takes its
+     * source port, so a port that was free when chosen could be gone before the simulator bound it. Another process
+     * can still take one; Processes::start() retries that.
+     *
+     * @return list<int>
      */
-    public static function freePort(): int
+    public static function freePorts(int $count): array
     {
-        do {
-            $socket = stream_socket_server('tcp://127.0.0.1:0', $errorCode, $errorMessage);
+        [$low, $high] = self::portWindow();
 
-            if ($socket === false) {
-                throw new RuntimeException("No free port: {$errorMessage}");
+        if ($high - $low < 100) {
+            return self::kernelPorts($count); // no room below the ephemeral range: the kernel picks
+        }
+
+        $sockets = [];
+        $ports = [];
+
+        try {
+            for ($tries = 0; count($ports) < $count; $tries++) {
+                if ($tries > 200 * $count) {
+                    throw new RuntimeException("No free port between {$low} and {$high}.");
+                }
+
+                $port = random_int($low, $high);
+                $socket = in_array($port, [...self::FORBIDDEN_PORTS, ...$ports], true)
+                    ? false
+                    : @stream_socket_server("tcp://127.0.0.1:{$port}");
+
+                if ($socket !== false) {
+                    $sockets[] = $socket;
+                    $ports[] = $port;
+                }
             }
+        } finally {
+            array_map(fclose(...), $sockets);
+        }
 
-            $name = (string) stream_socket_get_name($socket, false);
-            fclose($socket);
-            $port = (int) substr($name, strrpos($name, ':') + 1);
-        } while (in_array($port, self::FORBIDDEN_PORTS, true));
+        return $ports;
+    }
 
-        return $port;
+    /**
+     * The ports scenarios pick from: from 20000 up to the ephemeral range, and in a parallel run the worker's own
+     * slice of 1,000 (TEST_TOKEN 1, 2, ...; more workers than slices share by wrapping).
+     *
+     * @return array{int, int} first and last port; the last is below the first when nothing fits
+     */
+    private static function portWindow(): array
+    {
+        $range = preg_split('/\s+/', trim((string) @file_get_contents('/proc/sys/net/ipv4/ip_local_port_range')));
+        $floor = 20000;
+        $ceiling = (isset($range[0]) && ctype_digit($range[0]) ? (int) $range[0] : 32768) - 1;
+        $slices = intdiv($ceiling - $floor + 1, 1000);
+        $worker = getenv('TEST_TOKEN');
+
+        if ($slices < 1 || ! is_string($worker) || ! ctype_digit($worker)) {
+            return [$floor, $ceiling];
+        }
+
+        $low = $floor + (((int) $worker - 1 + $slices) % $slices) * 1000;
+
+        return [$low, min($low + 999, $ceiling)];
+    }
+
+    /**
+     * Ports the kernel assigns for `:0` binds (ephemeral range): the fallback where the window above does not exist.
+     *
+     * @return list<int>
+     */
+    private static function kernelPorts(int $count): array
+    {
+        $sockets = [];
+        $ports = [];
+
+        try {
+            while (count($ports) < $count) {
+                $socket = stream_socket_server('tcp://127.0.0.1:0', $errorCode, $errorMessage);
+
+                if ($socket === false) {
+                    throw new RuntimeException("No free port: {$errorMessage}");
+                }
+
+                $sockets[] = $socket;
+                $name = (string) stream_socket_get_name($socket, false);
+                $port = (int) substr($name, strrpos($name, ':') + 1);
+
+                if (! in_array($port, self::FORBIDDEN_PORTS, true)) {
+                    $ports[] = $port;
+                }
+            }
+        } finally {
+            array_map(fclose(...), $sockets);
+        }
+
+        return $ports;
     }
 
     /**
@@ -216,8 +300,17 @@ final class Scenario
         }
     }
 
+    /**
+     * Written to a temporary file and renamed into place, so a process starting at the same moment never reads a
+     * half-written scenario (rename is atomic on one file system).
+     */
     private function save(): void
     {
-        file_put_contents($this->directory.'/scenario.json', json_encode($this->config, JSON_PRETTY_PRINT));
+        $temporary = $this->directory.'/scenario.json.'.getmypid().'.tmp';
+        if (file_put_contents($temporary, json_encode($this->config, JSON_PRETTY_PRINT)) === false || ! rename($temporary, $this->directory.'/scenario.json')) {
+            @unlink($temporary);
+
+            throw new RuntimeException("Could not save the scenario in {$this->directory}.");
+        }
     }
 }

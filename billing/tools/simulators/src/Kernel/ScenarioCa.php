@@ -28,7 +28,8 @@ final class ScenarioCa
     {
         $config = $this->config();
         $caKey = $this->newKey();
-        $caCsr = openssl_csr_new(['commonName' => 'Local simulator CA'], $caKey, ['config' => $config, 'digest_alg' => 'sha256']);
+        // Named per scenario: a bundle that trusts several scenarios' CAs (the E2E harness) must tell them apart by issuer.
+        $caCsr = openssl_csr_new(['commonName' => 'Local simulator CA '.basename($this->directory)], $caKey, ['config' => $config, 'digest_alg' => 'sha256']);
 
         if ($caCsr === false || $caCsr === true) {
             throw new RuntimeException('Could not create the scenario CA request.');

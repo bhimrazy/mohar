@@ -8,11 +8,15 @@ use App\Data\Billing\RedirectInstruction;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\ApplyCredit;
 use App\Modules\Billing\Actions\CaptureInvoice;
+use App\Modules\Billing\Actions\CloseHostedPayment;
 use App\Modules\Billing\Actions\ManagePayMethods;
+use App\Modules\Billing\Actions\ResumeHostedPayment;
 use App\Modules\Billing\Actions\StartHostedPayment;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
+use App\Modules\Billing\Enums\TransactionType;
+use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Http\Requests\Client\AmountRequest;
 use App\Modules\Billing\Http\Requests\Client\PayInvoiceRequest;
 use App\Modules\Billing\Http\Resources\AdjustmentResource;
@@ -21,8 +25,10 @@ use App\Modules\Billing\Http\Resources\InvoiceResource;
 use App\Modules\Billing\Http\Resources\TransactionResource;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
+use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Billing\Services\CreditLedgerService;
-use App\Modules\Billing\Services\InvoicePdf;
+use App\Modules\Billing\Services\DocumentDownloads;
+use App\Modules\Billing\Services\InvoiceParties;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\ClientPaymentOptions;
 use App\Modules\Billing\Support\PaymentInProgress;
@@ -32,11 +38,9 @@ use App\Support\Billing\SandboxPolicy;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Client-area invoices. Every query is scoped to the current client account (never trust ids alone).
@@ -75,10 +79,11 @@ class InvoiceController extends Controller
                 'credit' => $credit->balance($client->id, $client->currency)->amount,
             ],
             'mass_pay' => $settings->bool('mass_pay_enabled'),
+            'has_notes' => TaxNote::query()->where('client_id', $client->id)->exists(),
         ]);
     }
 
-    public function show(int $invoice, ClientPaymentOptions $options, PaymentInProgress $inProgress): Response
+    public function show(int $invoice, ClientPaymentOptions $options, PaymentInProgress $inProgress, InvoiceParties $parties): Response
     {
         $this->context->authorize('billing');
         $invoice = $this->find($invoice);
@@ -86,20 +91,24 @@ class InvoiceController extends Controller
 
         return Inertia::render('client/billing/invoices/show', [
             'invoice' => new InvoiceResource($invoice),
+            'parties' => $parties->forInvoice($invoice),
             'items' => InvoiceItemResource::collection($invoice->items),
             'adjustments' => AdjustmentResource::collection($invoice->adjustments),
-            'transactions' => TransactionResource::collection($invoice->transactions()->get()),
+            // Zero-amount records (an inquiry's to-do #212, the won-dispute marker #232) moved no money: as on the PDF,
+            // the client sees only rows that did.
+            'transactions' => TransactionResource::collection($invoice->transactions()->where('type', '!=', TransactionType::DisputeInquiry)
+                ->where(fn ($query) => $query->where('amount_in', '>', 0)->orWhere('amount_out', '>', 0))->get()),
             'payment' => $invoice->status === InvoiceStatus::Unpaid && $invoice->balance > 0 ? $options->forInvoice($invoice) : null,
             'payment_in_progress' => $invoice->status->isPayable() ? $inProgress->forInvoice($invoice) : null,
+            'notes' => TaxNoteController::rows(TaxNote::query()->where('client_id', $invoice->client_id)->where('invoice_id', $invoice->id)->orderBy('id')->get()),
         ]);
     }
 
-    public function pdf(int $invoice, InvoicePdf $pdf): StreamedResponse
+    public function pdf(int $invoice, DocumentDownloads $downloads): SymfonyResponse
     {
         $this->context->authorize('billing');
-        $invoice = $this->find($invoice);
 
-        return Storage::disk('objects')->download($pdf->ensure($invoice), $pdf->filename($invoice), ['Content-Type' => 'application/pdf']);
+        return $downloads->invoice($this->find($invoice));
     }
 
     public function pay(PayInvoiceRequest $request, int $invoice, CaptureInvoice $capture, ManagePayMethods $payMethods, ClientPaymentOptions $options, StartHostedPayment $start, PaymentInProgress $inProgress): RedirectResponse|SymfonyResponse
@@ -139,6 +148,74 @@ class InvoiceController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Credit applied to invoice :number.', ['number' => $invoice->displayNumber()])]);
 
         return back();
+    }
+
+    /**
+     * "Continue payment": back to the provider page of this client's still-open attempt (#123, #251). When the provider
+     * no longer offers it, the attempt is settled from one lookup so the invoice shows where it stands.
+     */
+    public function resumeAttempt(int $invoice, string $reference, ResumeHostedPayment $resume): SymfonyResponse
+    {
+        $this->context->authorize('billing');
+        $outcome = $resume->handle($this->ownAttempt($this->find($invoice), $reference));
+
+        if ($outcome->url !== null) {
+            return Inertia::location($outcome->url);
+        }
+
+        if ($outcome->error !== null) {
+            throw new BillingException($outcome->error);
+        }
+
+        Inertia::flash('toast', $this->attemptToast($outcome->status));
+
+        return to_route('client.invoices.show', $invoice);
+    }
+
+    /**
+     * "Use another method": close this client's open attempt at the provider, then free the invoice only if the
+     * lookup confirms the attempt can no longer be paid (#123).
+     */
+    public function closeAttempt(int $invoice, string $reference, CloseHostedPayment $close): RedirectResponse
+    {
+        $this->context->authorize('billing');
+        $attempt = $this->ownAttempt($this->find($invoice), $reference);
+        $status = $close->handle($attempt);
+
+        // The gateway's display label is a method name ("Card"), not a place, so the messages don't name it (#121).
+        if ($status->isOpen()) {
+            throw new BillingException(match (true) {
+                $status === AttemptStatus::Ambiguous => __('This payment hasn\'t been confirmed yet, so it can\'t be closed. If you were charged, you don\'t need to pay again.'),
+                $attempt->refresh()->expires_at === null => __('This payment is still being processed, so it can\'t be closed. This invoice updates once it finishes.'),
+                default => __('The payment page is still open, so the payment could still be made there. Finish it there, or try again in a few minutes.'),
+            });
+        }
+
+        Inertia::flash('toast', $this->attemptToast($status));
+
+        return to_route('client.invoices.show', $attempt->invoice_id);
+    }
+
+    /**
+     * @return array{type: string, message: string}
+     */
+    private function attemptToast(AttemptStatus $status): array
+    {
+        return $status === AttemptStatus::Succeeded
+            ? ['type' => 'success', 'message' => __('Payment received. Thank you.')]
+            : ['type' => 'info', 'message' => __('That payment is closed. Choose another way to pay.')];
+    }
+
+    /**
+     * An attempt of this client's invoice, by its reference (404 for anyone else's).
+     */
+    private function ownAttempt(Invoice $invoice, string $reference): PaymentAttempt
+    {
+        return PaymentAttempt::query()
+            ->where('client_id', $this->context->id())
+            ->where('invoice_id', $invoice->id)
+            ->where('reference', $reference)
+            ->firstOrFail();
     }
 
     /**

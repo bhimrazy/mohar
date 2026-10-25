@@ -1,4 +1,4 @@
-import { Link } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import { ArrowLeftRight, Plus, X } from 'lucide-react';
 import { DataTable } from '@/components/app/data-table';
@@ -11,10 +11,13 @@ import { Money } from '@/components/app/money';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { Pagination } from '@/components/app/pagination';
-import { StatusBadge } from '@/components/app/status-badge';
 import { useQueryParams } from '@/components/app/use-query-params';
 import { ClientPickerField } from '@/components/billing/client-picker';
 import { FormDialog } from '@/components/billing/form-dialog';
+import {
+    TransactionStatusBadge,
+    releasedClass,
+} from '@/components/billing/pending-refund';
 import { SelectField } from '@/components/billing/select-field';
 import type {
     ClientOption,
@@ -27,6 +30,7 @@ import { Input } from '@/components/ui/input';
 import { show as showInvoice } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/InvoiceController';
 import {
     index,
+    reviewed,
     store,
 } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/TransactionController';
 import type { ResourcePaginated, SelectOption } from '@/types/app';
@@ -37,7 +41,7 @@ type Props = {
     types: SelectOption[];
     gateways: GatewayOption[];
     client: (ClientOption & { currency: string }) | null;
-    can: { manage: boolean; refunds: boolean };
+    can: { manage: boolean; refunds: boolean; review: boolean };
 };
 
 export default function TransactionsIndex({
@@ -50,6 +54,7 @@ export default function TransactionsIndex({
 }: Props) {
     const { apply } = useQueryParams();
     const hasFilters = Object.keys(filters).length > 0;
+    const reviewing = Boolean(filters.review);
 
     const columns: DataTableColumn<Transaction>[] = [
         {
@@ -82,14 +87,21 @@ export default function TransactionsIndex({
                     <span className="text-muted-foreground">—</span>
                 ),
         },
-        {
-            key: 'gateway',
-            header: 'Gateway',
-            hideOnMobile: true,
-            cell: (txn) =>
-                gateways.find((gateway) => gateway.value === txn.gateway)
-                    ?.label ?? humanize(txn.gateway),
-        },
+        // The review list is about provider reversals: the reference names the dispute or refund, so the gateway
+        // column makes room for the "Mark reviewed" action.
+        ...(reviewing
+            ? []
+            : [
+                  {
+                      key: 'gateway',
+                      header: 'Gateway',
+                      hideOnMobile: true,
+                      cell: (txn: Transaction) =>
+                          gateways.find(
+                              (gateway) => gateway.value === txn.gateway,
+                          )?.label ?? humanize(txn.gateway),
+                  } satisfies DataTableColumn<Transaction>,
+              ]),
         {
             key: 'reference',
             header: 'Reference',
@@ -103,29 +115,62 @@ export default function TransactionsIndex({
         {
             key: 'status',
             header: 'Status',
-            hideOnMobile: true,
-            cell: (txn) => (
-                <StatusBadge
-                    status={
-                        txn.status === 'succeeded' ? 'completed' : txn.status
-                    }
-                    label={humanize(txn.status)}
-                />
-            ),
+            cell: (txn) => <TransactionStatusBadge txn={txn} />,
         },
         {
             key: 'amount',
             header: 'Amount',
             align: 'right',
             cell: (txn) => (
-                <Money
-                    amount={
-                        txn.amount_out > 0 ? -txn.amount_out : txn.amount_in
-                    }
-                    currency={txn.currency}
-                    tone="ledger"
-                    signed
-                />
+                <span
+                    className={`inline-flex flex-col items-start gap-1.5 md:items-end ${releasedClass(txn) ?? ''}`}
+                >
+                    <Money
+                        amount={
+                            txn.amount_out > 0 ? -txn.amount_out : txn.amount_in
+                        }
+                        currency={txn.currency}
+                        tone="ledger"
+                        signed
+                    />
+                    {txn.to_review != null && !reviewing && (
+                        <span className="text-xs whitespace-nowrap text-destructive">
+                            To review
+                        </span>
+                    )}
+                    {txn.to_review != null && reviewing && (
+                        <>
+                            {txn.type === 'dispute_inquiry' ? (
+                                <span className="text-xs whitespace-nowrap text-destructive">
+                                    Inquiry: answer it at the provider
+                                </span>
+                            ) : (
+                                <span className="text-xs whitespace-nowrap text-destructive">
+                                    Not covered{' '}
+                                    <Money
+                                        amount={txn.to_review}
+                                        currency={txn.currency}
+                                    />
+                                </span>
+                            )}
+                            {can.review && (
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                        router.post(
+                                            reviewed.url(txn.id),
+                                            {},
+                                            { preserveScroll: true },
+                                        )
+                                    }
+                                >
+                                    Mark reviewed
+                                </Button>
+                            )}
+                        </>
+                    )}
+                </span>
             ),
         },
     ];
@@ -361,6 +406,20 @@ export default function TransactionsIndex({
                     }
                 />
 
+                {filters.review && (
+                    <div className="flex items-center gap-2 text-sm">
+                        <span className="font-medium">Disputes to review</span>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => apply({ review: null })}
+                            aria-label="Show all transactions"
+                        >
+                            <X />
+                        </Button>
+                    </div>
+                )}
+
                 {client && (
                     <div className="flex items-center gap-2 text-sm">
                         <span className="text-muted-foreground">Client:</span>
@@ -380,7 +439,7 @@ export default function TransactionsIndex({
 
                 <FilterBar
                     searchPlaceholder="Search reference or description…"
-                    filterKeys={['type', 'gateway']}
+                    filterKeys={['type', 'gateway', 'waiting']}
                     filters={
                         <>
                             <FilterSelect
@@ -392,6 +451,16 @@ export default function TransactionsIndex({
                                 name="gateway"
                                 label="Gateways"
                                 options={gateways}
+                            />
+                            <FilterSelect
+                                name="waiting"
+                                label="Status"
+                                options={[
+                                    {
+                                        value: '1',
+                                        label: 'Waiting for provider',
+                                    },
+                                ]}
                             />
                         </>
                     }

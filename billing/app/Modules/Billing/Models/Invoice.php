@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Models;
 
+use App\Contracts\Core\CompanyClock;
 use App\Data\Billing\InvoiceLineData;
 use App\Modules\Billing\Database\Factories\InvoiceFactory;
 use App\Modules\Billing\Enums\InvoiceKind;
@@ -60,7 +61,26 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property array<string, string>|null $reminder_log
  * @property CarbonImmutable|null $late_fee_applied_at
  * @property CarbonImmutable|null $overdue_notified_at
+ * @property CarbonImmutable|null $numbered_at the instant the legal number was assigned; frozen with it
+ * @property int|null $fiscal_taxable tax-invoice value at numbering: taxable, exempt, taxes, total (ADR 0024 §2)
+ * @property int|null $fiscal_exempt
+ * @property int|null $fiscal_tax1
+ * @property int|null $fiscal_tax2
+ * @property int|null $fiscal_total
+ * @property string|null $report_currency
+ * @property string|null $report_rate decimal string, 12 places
+ * @property string|null $supply_class taxable|exempt|export
+ * @property string|null $bs_issue_date
+ * @property string|null $bs_period
+ * @property string|null $bs_fiscal_year
+ * @property int|null $tax1_rule_id the tax rule that won each level when the invoice was calculated (kept at rate 0)
+ * @property int|null $tax2_rule_id
+ * @property bool|null $fiscal_tax1_is_vat whether that level is Nepal VAT; null = not classified (VAT mode off, or numbered before it)
+ * @property bool|null $fiscal_tax2_is_vat
+ * @property int $credited_total value credited after numbering; written only by InvoiceSettlement::adjust
+ * @property int $debited_total
  * @property int $version
+ * @property int $print_count PDF downloads of the tax invoice while Nepal VAT mode is on (DocumentDownloads)
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  * @property-read Client $client
@@ -72,7 +92,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable([
     'client_id', 'number', 'proforma_number', 'status', 'kind', 'source', 'currency', 'issue_date', 'due_date',
     'paid_at', 'cancelled_at', 'subtotal', 'discount_total', 'tax1_name', 'tax1_rate', 'tax1_amount', 'tax2_name',
-    'tax2_rate', 'tax2_amount', 'tax_compound', 'tax_inclusive', 'tax_exempt_reason', 'total', 'amount_paid',
+    'tax2_rate', 'tax2_amount', 'tax_compound', 'tax_inclusive', 'tax_exempt_reason', 'tax1_rule_id', 'tax2_rule_id', 'total', 'amount_paid',
     'credit_applied', 'adjustments_total', 'balance', 'payment_gateway', 'client_snapshot', 'seller_snapshot', 'notes', 'admin_notes',
 ])]
 class Invoice extends Model
@@ -80,13 +100,25 @@ class Invoice extends Model
     /** @use HasFactory<InvoiceFactory> */
     use HasFactory;
 
+    /** Statuses whose balance is still owed (with balance > 0); see scopeOutstanding(). */
+    public const OUTSTANDING_STATUSES = [InvoiceStatus::Unpaid->value, InvoiceStatus::Collections->value, InvoiceStatus::PaymentPending->value];
+
     /** Columns frozen once an invoice has been issued (§2: issued invoices are immutable). */
     private const FROZEN = ['client_id', 'currency', 'subtotal', 'discount_total', 'tax1_name', 'tax1_rate', 'tax1_amount',
         'tax2_name', 'tax2_rate', 'tax2_amount', 'tax_compound', 'tax_inclusive', 'total'];
 
+    /**
+     * Frozen with the number (ADR 0024 §1): once `numbered_at` is set none of these changes. The one change allowed is
+     * the transition that assigns the number (`numbered_at` still empty). `credited_total` and `debited_total` are
+     * caches that InvoiceSettlement::adjust keeps, so they are not listed.
+     */
+    private const FROZEN_WITH_NUMBER = ['number', 'numbered_at', 'issue_date', 'client_snapshot', 'seller_snapshot',
+        'fiscal_taxable', 'fiscal_exempt', 'fiscal_tax1', 'fiscal_tax2', 'fiscal_total', 'report_currency', 'report_rate',
+        'supply_class', 'bs_issue_date', 'bs_period', 'bs_fiscal_year', 'fiscal_tax1_is_vat', 'fiscal_tax2_is_vat'];
+
     /** Bookkeeping columns that do not change the rendered document (no PDF version bump). */
     private const UNVERSIONED = ['version', 'updated_at', 'last_capture_attempt_at', 'capture_attempts',
-        'first_capture_failure_on', 'reminder_log', 'overdue_notified_at', 'admin_notes'];
+        'first_capture_failure_on', 'reminder_log', 'overdue_notified_at', 'admin_notes', 'print_count'];
 
     protected $attributes = [
         'status' => 'draft',
@@ -108,6 +140,8 @@ class Invoice extends Model
             'tax1_rate' => 'decimal:3',
             'tax2_rate' => 'decimal:3',
             'tax_compound' => 'boolean',
+            'fiscal_tax1_is_vat' => 'boolean',
+            'fiscal_tax2_is_vat' => 'boolean',
             'tax_inclusive' => 'boolean',
             'client_snapshot' => 'array',
             'seller_snapshot' => 'array',
@@ -115,6 +149,15 @@ class Invoice extends Model
             'last_capture_attempt_at' => 'datetime',
             'first_capture_failure_on' => 'date',
             'late_fee_applied_at' => 'datetime',
+            'numbered_at' => 'datetime',
+            'fiscal_taxable' => 'integer',
+            'fiscal_exempt' => 'integer',
+            'fiscal_tax1' => 'integer',
+            'fiscal_tax2' => 'integer',
+            'fiscal_total' => 'integer',
+            'report_rate' => 'decimal:12',
+            'credited_total' => 'integer',
+            'debited_total' => 'integer',
             'overdue_notified_at' => 'datetime',
             'subtotal' => 'integer',
             'discount_total' => 'integer',
@@ -127,6 +170,7 @@ class Invoice extends Model
             'balance' => 'integer',
             'capture_attempts' => 'integer',
             'version' => 'integer',
+            'print_count' => 'integer',
         ];
     }
 
@@ -139,8 +183,18 @@ class Invoice extends Model
                 throw ImmutableInvoiceException::make();
             }
 
+            if ($invoice->getOriginal('numbered_at') !== null && $invoice->isDirty(self::FROZEN_WITH_NUMBER)) {
+                throw ImmutableInvoiceException::numbered();
+            }
+
             if (array_diff(array_keys($invoice->getDirty()), self::UNVERSIONED) !== []) {
                 $invoice->version = $invoice->version + 1;
+            }
+        });
+
+        static::deleting(function (Invoice $invoice): void {
+            if ($invoice->numbered_at !== null || $invoice->number !== null) {
+                throw ImmutableInvoiceException::numbered();
             }
         });
     }
@@ -190,14 +244,14 @@ class Invoice extends Model
      */
     public function isOverdue(?CarbonImmutable $today = null): bool
     {
-        $today ??= CarbonImmutable::today();
+        $today ??= app(CompanyClock::class)->todayDate();
 
         return $this->status === InvoiceStatus::Unpaid && $this->due_date !== null && $this->due_date->lt($today->startOfDay());
     }
 
     public function daysOverdue(?CarbonImmutable $today = null): int
     {
-        $today ??= CarbonImmutable::today();
+        $today ??= app(CompanyClock::class)->todayDate();
 
         return $this->isOverdue($today) && $this->due_date !== null ? (int) $this->due_date->diffInDays($today->startOfDay()) : 0;
     }
@@ -246,17 +300,33 @@ class Invoice extends Model
      */
     public function scopeOverdue(Builder $query, ?CarbonImmutable $today = null): void
     {
-        $query->where('status', InvoiceStatus::Unpaid)->whereDate('due_date', '<', ($today ?? CarbonImmutable::today())->toDateString());
+        $query->where('status', InvoiceStatus::Unpaid)->whereDate('due_date', '<', ($today ?? app(CompanyClock::class)->todayDate())->toDateString());
     }
 
     /**
-     * Filter by display status, including the derived "overdue".
+     * Still owed: unpaid, in collections or awaiting a payment confirmation, with a balance left.
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeOutstanding(Builder $query): void
+    {
+        $query->whereIn('status', self::OUTSTANDING_STATUSES)->where('balance', '>', 0);
+    }
+
+    /**
+     * Filter by display status, including the derived "overdue" and "outstanding".
      *
      * @param  Builder<self>  $query
      */
     public function scopeDisplayStatus(Builder $query, ?string $status): void
     {
         if ($status === null || $status === '') {
+            return;
+        }
+
+        if ($status === 'outstanding') {
+            $query->outstanding();
+
             return;
         }
 

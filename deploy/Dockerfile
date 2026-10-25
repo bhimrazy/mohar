@@ -1,15 +1,17 @@
 # One image for web, queue workers, scheduler and migrations (billing/docs/devops/deployment-options.md).
 #   docker build -f deploy/Dockerfile --target prod -t billing:local .     (from the repository root)
 # The context is the repository root, narrowed by deploy/Dockerfile.dockerignore to billing/ and the runtime
-# files under deploy/. Targets: prod (default, last stage) and dev.
+# files under deploy/. Targets: prod (default, last stage), dev and release (the tree for non-Docker hosts).
 #
 # Every base image is <name>:<tag>@sha256:<digest> and at least 7 days old (ADR 0007); the dependency check
 # (`composer deps:check`) scans the FROM and COPY --from lines of this file.
 
 # ------------------------------------------------------------------ php: FrankenPHP with the app's extensions
-# FrankenPHP 1.13.0 (Caddy 2.11.7, PHP 8.4.26 ZTS) on Debian trixie, multi-arch index pushed 2026-10-09.
+# FrankenPHP 1.13.2 (Caddy 2.11.7, PHP 8.4.27 ZTS) on Debian trixie, multi-arch index pushed 2026-10-21.
+# Adopted inside the 7-day cooldown as a security exception (dependency-policy.md): PHP 8.4.27 fixes
+# CVE-2026-109618 and CVE-2026-109619 (unauthenticated RCE in every web SAPI); 8.4.26 and older are vulnerable.
 # Builder for every other stage; it keeps the compiler toolchain of the official PHP images (about 840 MB).
-FROM dunglas/frankenphp:1.13.0-php8.4-trixie@sha256:e9a56d27e7f0c30bb1ad122dfee024a014081c4501782be65424b57016f3104a AS php
+FROM dunglas/frankenphp:1.13.2-php8.4-trixie@sha256:0de5a32944f72c13b45d183e8e6c53546b8172cec21cc8599e24b12e0661506d AS php
 
 # Core PHP extensions only (no PECL downloads); install-php-extensions ships with the image and removes its
 # build dependencies afterwards. OPcache is already built in. Port 8080 needs no capability, and a file
@@ -130,6 +132,38 @@ ENV SERVER_NAME=:8080
 ENTRYPOINT []
 CMD ["frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile", "--adapter", "caddyfile"]
 
+# ------------------------------------------------------------------ smoke-seed: the app with dev dependencies
+# Used only by deploy/bin/smoke to run the demo seeders (they need Faker and the model factories, which the prod image
+# never contains). Never deployed or published.
+FROM php AS smoke-seed
+
+COPY --from=composer:2.10.3@sha256:af98f42dfff7c68ba8d53c2164fd9fde1087b7d449514baa38c418b1f6bc4bac /usr/bin/composer /usr/bin/composer
+
+ENV COMPOSER_NO_INTERACTION=1 COMPOSER_NO_AUDIT=1
+
+# The dev dependency mohar/simulators is a path repository (symlinked), so it must exist before the install.
+COPY billing/tools/simulators tools/simulators
+COPY billing/composer.json billing/composer.lock ./
+RUN --mount=type=cache,target=/root/.cache/composer \
+    composer install --no-scripts --no-autoloader --prefer-dist --no-progress
+
+COPY billing/ .
+RUN composer dump-autoload --optimize
+
+# ------------------------------------------------------------------ release-tree: vendor without front-end sources and dev configs
+FROM vendor AS release-tree
+# Front-end sources and dev tooling configs: the build is already in public/build, and Node never runs on these hosts.
+RUN rm -rf resources/js scripts package.json package-lock.json .npmrc .nvmrc vite.config.ts tsconfig.json components.json \
+    phpunit.xml phpstan.neon pint.json .editorconfig .gitattributes
+
+# ------------------------------------------------------------------ release: the app tree for hosts without Docker
+# The source with production vendor/ and the built public/build, nothing else: the release tarball for the
+# non-Docker install (install.md) and cPanel cron mode (cpanel.md). Export it with
+#   docker build -f deploy/Dockerfile --target release --output type=tar,dest=release.tar .
+FROM scratch AS release
+COPY --from=release-tree /app /billing
+COPY --from=assets /app/public/build /billing/public/build
+
 # ------------------------------------------------------------------ prod: the runtime image
 FROM runtime AS prod
 
@@ -147,10 +181,15 @@ COPY --from=assets /app/public/build /app/public/build
 RUN mkdir -p storage/app/private storage/app/public storage/framework/cache/data storage/framework/sessions \
         storage/logs /data/caddy /config/caddy \
     && chown -R app:app storage bootstrap/cache /data /config \
-    # The slimmed runtime must still load every extension the app needs, and OpenSSL must find the CA bundle.
+    # The slimmed runtime must still load every extension the app needs, GD must read and write the identity-image
+    # formats (KYC re-encoding), and OpenSSL must find the CA bundle.
     && php -r 'foreach (["bcmath","ctype","curl","dom","fileinfo","gd","intl","mbstring","openssl","pcntl","pdo_pgsql", \
         "pgsql","sodium","zip","Zend OPcache"] as $e) { if (! extension_loaded($e)) { fwrite(STDERR, "missing $e\n"); exit(1); } } \
-        if (! is_readable((string) ini_get("openssl.cafile"))) { fwrite(STDERR, "no CA bundle\n"); exit(1); }' \
+        if (! is_readable((string) ini_get("openssl.cafile"))) { fwrite(STDERR, "no CA bundle\n"); exit(1); } \
+        foreach (["JPEG Support","PNG Support","WebP Support"] as $c) { if (empty(gd_info()[$c])) { fwrite(STDERR, "gd lacks $c\n"); exit(1); } }' \
+    # Never ship a PHP build with CVE-2026-109618 / CVE-2026-109619 (same floor as the app's system check).
+    && php -r 'if (version_compare(PHP_VERSION, "8.4.27", "<")) { fwrite(STDERR, "PHP ".PHP_VERSION." is vulnerable, need 8.4.27+\n"); exit(1); }' \
+    && php -v \
     && frankenphp version
 
 # Compiled views stay per container (bootstrap/cache is a tmpfs): two versions running side by side during a

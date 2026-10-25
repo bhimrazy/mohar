@@ -54,6 +54,7 @@ amount, taxable (bool), tax_amount (cached), period_start, period_end, sort_orde
 
 - Issued invoices are **immutable** (lines, amounts, tax, number, issue date). Changes are expressed as adjustments; due date, gateway, notes remain editable. **MUST**
 - Numbered credit-note documents with PDF: **SHOULD** (`billing.credit_notes_numbered: true`). Unnumbered ledger entries are the v1 minimum.
+  Superseded for tax invoices by `vat-register.md`: numbered credit and debit notes (`tax_notes`) are the only way to change a tax invoice, and each writes one adjustment row here.
 - Balance formula: `balance = total + Σ debit − Σ credit − amount_paid` (credit includes applied account credit). **MUST**
 
 ### transactions
@@ -64,15 +65,20 @@ amount, taxable (bool), tax_amount (cached), period_start, period_end, sort_orde
 
 ### credit_ledger (backs `CreditLedger`)
 
-`id, client_id, currency, amount (signed), balance_after, reason (overpayment|add_funds|refund_to_credit|applied_to_invoice|manual|downgrade|reversal), invoice_id, transaction_id, description, staff_id, created_at`
+`id, client_id, currency, amount (signed), balance_after, reason (overpayment|add_funds|refund_to_credit|applied_to_invoice|manual|downgrade|reversal), invoice_id, transaction_id, description, staff_id, gateway, external_ref, idempotency_key, created_at`
 
 - Client balance = latest `balance_after` (row-locked append). Negative balance allowed only via reversal. **MUST**
+- Credit applied automatically (renewals, `applyCredit`) is the amount read under the client lock: credit spent concurrently lowers it, and with none left the invoice is issued unpaid (#192). **MUST**
+- Once-only keys: `gateway` + `external_ref` (unique together) name a provider movement only (a refund or dispute id). A posting Mohar makes itself (an import's opening balance, later automation credits) carries `idempotency_key` instead, unique, prefixed with the poster's name (`import:run:<run>:client:<client>`). The poster reads the key under the client lock before posting; the unique index stops a writer that did not. `import` is a reserved gateway key: opening balances also carry it with `external_ref` `run:…` until the contract step (#284). (#263) **MUST**
 
 ### gateways & pay_methods
 
 - `gateways: key (driver), display_name, is_active, show_on_order_form, sort_order, convert_to_currency (nullable), config (encrypted json), timestamps`
 - `pay_methods: id, client_id, gateway, kind (card|bank|wallet), token (encrypted), brand, last4, expiry_month, expiry_year, billing_contact_id, description, is_default, failure_count, disabled_at, timestamps`. **Never** store PAN/CVV. **MUST**
 - `gateway_log: id, gateway, direction (callback|request|response), invoice_id, result, payload (redacted json), created_at`. **MUST**
+  Entries are deleted after `billing.gateways.log_retention_days` (180, at least 90; Settings → Payment log retention,
+  security tier with a recent password) by the housekeeping task
+  `billing.gateway_log_prune`, at most 100,000 a run (#49).
 
 ### quotes / quote_items
 
@@ -99,6 +105,20 @@ amount, taxable (bool), tax_amount (cached), period_start, period_end, sort_orde
 6. **Pay multiple invoices** (mass pay): v1 uses a **payment batch** (`payment_batches: id, client_id, currency, invoice_ids, total, status`) rather than a wrapper invoice — gateway charges batch total, success allocates to invoices in due-date order; any remainder → credit. If an invoice in the batch is paid separately before settlement, its allocation goes to credit. `billing.mass_pay_enabled: true`. **SHOULD**
 7. **Refunds** (per transaction): amount ≤ `refundable_remaining`; mode `gateway` (driver `refund`), `record_only`, or `to_credit` (ledger +). Creates `refund` transaction (amount_out) and a credit adjustment (reason refund) only for **paid** invoices. Full refund of all payments → `refunded`. Partial → stays `paid`. Optional `reverse_effects` flag → emits `PaymentReversed` (Services roll back due dates/suspend, Affiliates reverse commission). **MUST** (gateway/record/credit) / **SHOULD** (reverse_effects)
 8. **Chargebacks/reversals** from gateway webhooks: `chargeback` transaction, invoice → `collections` (`billing.reversal.set_collections: true`), emit `PaymentReversed` (`billing.reversal.rollback_due_dates: true`); for `add_funds` invoices remove the credit (may go negative). Staff notified. **SHOULD**
+    - **Credit the payment placed (#172):** a dispute or a provider refund first takes back the account credit those payments placed, then comes off what the payments can still return (invoice part). Credit first is the reverse of how the money arrived: a payment fills the invoice first and only the surplus goes to credit (#194). The credit taken back is what those payments placed: overpayments, payments of closed invoices, and staff refunds of them to credit, minus earlier gateway take-backs. Never from other credit. It is one ledger line per dispute or refund id (unique `(gateway, external_ref)`), and the balance may go negative; negative balances are the "Clients owing account credit" to-do. This applies to refunds of flagged late payments too (#183); their attempt is also flagged `refund` when the credit could not cover the refund.
+    - **Money out:** the chargeback or refund row books the whole reversed amount (invoice part, credit part and any rest). A refund that only came from credit gets its own `refund` row with the provider's refund id. A dispute with no invoice part (the payment went wholly to credit, or was refunded already) leaves the invoice status alone and emits no `PaymentReversed`.
+    - **Staff review:** a rest neither part covers (e.g. a dispute of a charge the provider had already refunded) is stored as `transactions.review_amount`; open ones are the "Disputes to review" to-do (shown to staff with `billing.payments.manage` and `billing.transactions.view`), cleared with "Mark reviewed" on Billing → Transactions (`billing.payments.manage`, recent password).
+    - **A disputed late or credited payment (#194):** a dispute of a payment flagged "Late payments to check" closes that to-do. The attempt keeps its review note with "disputed at the provider (<id>)" added, the close is logged (`billing.payment.late_closed_by_dispute`), and anything still open is on the dispute's own to-dos.
+    - **A dispute the merchant wins (#191):** the provider's dispute-won event (Stripe `charge.dispute.closed` with status `won`) books one `chargeback_reversal` row per dispute id (the unique `(gateway, gateway_txn_id, type)` index), with everything the chargeback booked out as money in. It puts back what the chargeback undid:
+        - the invoice part goes back on the invoice, up to what the invoice still owes, and the payment can be refunded again by that much. This holds under either `reversal.set_collections` setting (with it off, the chargeback left the invoice Paid with the amount owing). An invoice it brings to zero is paid again (`InvoicePaid`; listeners are idempotent per invoice). An add-funds invoice gets back exactly the deposit credit the chargeback removed. An invoice that still owes more keeps its status;
+        - the credit the dispute took back (its `(gateway, dispute id)` ledger line) is restored by one ledger line `(gateway, "<dispute id>:won")`, which clears a negative balance it caused. A later reversal of the same payments nets it, so it can be taken back again;
+        - a rest nobody could cover is marked reviewed, since that money came back too;
+        - what the invoice can no longer take (paid again or cancelled since the dispute) is never turned into credit: it is the reversal row's `review_amount`, on "Disputes to review".
+        - a booked win dispatches `PaymentReinstated` after commit (#221), one for each `PaymentReversed` its chargeback fired, with the same invoice and amount (one per invoice of a combined charge; none for a dispute that took back only credit), whether or not the invoice is settled again (`InvoicePaid` only when it is); Notifications publishes it as the `payment.reinstated` webhook. A duplicate dispatches nothing.
+          A win that arrives before its dispute is booked is answered 409, so the provider retries, unless the provider shows the money withdrawn and reinstated already (Stripe: both balance transactions on the dispute): then no chargeback will follow and the win is answered 200 with no money moved (#232). Under the payment lock it either reverses a chargeback that committed meanwhile, or writes a zero-amount `chargeback_reversal` row for the dispute id as the durable record of the win; a chargeback for that dispute delivered later checks it under its own payment lock and books nothing ("dispute already won; nothing booked"). The zero row is hidden from the client (invoice page, PDF, credit page), never refundable, and adds no ledger line or income. A dispute closed as lost books the chargeback if none was booked for that dispute id yet (an install not subscribed to `charge.dispute.funds_withdrawn`); otherwise it changes nothing.
+    - **A refunded deposit (#223):** a refund of an `add_funds` payment (provider or staff, any mode) takes back the deposit credit: the amount refunded from the invoice, at most what the deposit still holds on that invoice (its add-funds line less the chargebacks, refunds and wins booked against it). The balance may go negative ("Clients owing account credit").
+    - **A dispute without funds withdrawn (#212):** an inquiry, or any dispute the provider has not withdrawn money for yet, is a zero-amount `dispute_inquiry` transaction per dispute id, open on "Disputes to review" and hidden from the client. It moves no money and its close changes nothing; when the funds are withdrawn the chargeback is booked as above and the inquiry is marked reviewed.
+    - **Lock order:** payment, then invoice, then client (the ledger). Payments, credit, refunds and reversals all lock in this order; a provider reversal locks its payments and their invoices before it takes any credit back. A payment that will post credit (overpayment, deposit paid in full, closed or held invoice) locks the client after the invoice and before its row is inserted; a payment of several invoices in one transaction locks them all first, in id order (#224, ADR 0021). Issuing an invoice that may take credit, and placing an order (Orders `PlaceOrder`), lock the client before inserting any row that references it: without that, the insert's key-share lock on the client deadlocks (PostgreSQL) with another invoice or checkout of the client applying credit (#192). Both are proven by multi-process PostgreSQL tests.
 9. **Currency**: invoice currency = client currency at issue; payments in other currencies rejected unless the gateway has `convert_to_currency`, in which case the charge uses `round(balance × rate)` and the transaction stores both amounts and the rate. **MUST**
 
 ## 5. Tax
@@ -150,6 +170,26 @@ Order within the global daily pipeline: _(Services/Domains renewal generation)_ 
 - Server-side rendering (HTML template → PDF), cached by `(invoice_id, version, locale)`; regenerated after any change. Contains company details, client snapshot, number (or proforma number), dates, lines with periods, tax breakdown, adjustments, payments table, balance, "PAID"/"REVERSE CHARGE" stamps. **MUST**
 - Attach PDF to invoice emails `billing.pdf.attach_to_emails: true`; paper size `billing.pdf.paper: A4`. **SHOULD**
 
+### 9.1 Bikram Sambat dates beside AD dates (#207)
+
+- Invoices use Gregorian (AD) dates. `billing.show_bs_dates` (Admin → Settings → Billing, "Show the Bikram Sambat date
+  beside the AD date on invoices", default off) adds the BS date in brackets after the issue and due dates: "12 Jan 2026
+  (28 Poush 2082 BS)". The AD part follows the date format setting; BS month names are English transliterations
+  (Baisakh … Chaitra). **SHOULD**
+- Shown on the admin and client invoice pages (`issue_date_bs` / `due_date_bs` in the invoice resource, null when
+  off), the invoice PDF, and the key-facts rows (Issued, Due, Was due, Charge date) of the invoice emails and the
+  service suspension email (merge fields `invoice.issue_date_bs`, `invoice.due_date_bs`). Subjects, preheaders and
+  sentences keep the AD date only.
+- Conversion: `App\Modules\Billing\Support\BikramSambat`, a month-length table for 2000–2095 BS (14 Apr 1943 to
+  14 Apr 2039 AD) with its sources in the class comment and `THIRD_PARTY_NOTICES.md`. The table stops at 2095 because
+  both source tables give 2096 only 364 days. The BS label has a fixed format and does not follow the date format setting. Dates outside the table are refused (`OutOfRangeException`);
+  the invoice then shows the AD date alone. Rows after the current panchang are projections and are corrected when
+  Nepal's official calendar for that year is published.
+- A PDF rendered with BS dates is cached under its own path (`…-<locale>-bs.pdf`), so switching the setting never
+  serves the other version.
+- Not in scope: BS fiscal-year invoice numbering (waits for an accountant's answer on IRD/CBMS rules) and Devanagari
+  numerals or month names (the app has no Nepali locale yet).
+
 ## 10. Admin capabilities
 
 Invoice list (filters: status, overdue, client, gateway, date ranges, number), view-only by default; actions: publish draft, add payment,
@@ -168,7 +208,7 @@ quotes accept/decline (SHOULD). **MUST**
 
 `InvoiceCreated` (after commit; includes reason renewal|order|manual|upgrade|add_funds), `InvoicePublished`, `InvoicePaid` (once per invoice
 lifetime transition to paid), `InvoicePartiallyPaid`, `InvoiceCancelled`, `InvoiceRefunded` (full|partial), `InvoiceOverdue` (first day overdue),
-`InvoiceReminderSent` (rule), `LateFeeApplied`, `PaymentReceived`, `PaymentFailed` (capture decline), `PaymentPending`, `PaymentReversed`,
+`InvoiceReminderSent` (rule), `LateFeeApplied`, `PaymentReceived`, `PaymentFailed` (capture decline), `PaymentPending`, `PaymentReversed`, `PaymentReinstated` (won dispute, #221),
 `RefundIssued`, `CreditAdded`, `CreditApplied`, `PayMethodAdded`/`Removed`/`Disabled`, `QuoteDelivered`, `QuoteAccepted`, `QuoteDeclined`.
 
 ## 13. Edge cases & pitfalls
@@ -176,6 +216,8 @@ lifetime transition to paid), `InvoicePartiallyPaid`, `InvoiceCancelled`, `Invoi
 - **Double callbacks / webhook retries** → unique `(gateway, txn_id, type)` + `InvoicePaid` only on status transition.
 - **Return-URL spoofing** → only signed callbacks mark paid.
 - **Callback for cancelled invoice** → still record the payment; if balance ≤ 0 reopen to paid only via staff, else credit to account; alert staff.
+- **Late provider success on a closed attempt** (expired, failed or cancelled) → booked after the same server-side lookup and guards as any success: on the invoice up to its balance, the rest (all of it on a closed or paid invoice) as account credit in the invoice currency. Each case writes an activity entry and raises the staff to-do "Late payments to check" until staff mark it checked (Payment attempts); so does any hosted payment that goes to account credit because the invoice was already paid or cancelled, or the payment was held for review. A closed attempt the provider reports as partly refunded goes to staff review. An attempt whose currency no longer matches its invoice is not booked and goes to staff review. A provider refund of such a payment takes the credit back, up to what is left, in one credit line per provider refund id (`credit_ledger.gateway` and `external_ref`, unique); the rest goes to "Gateway payments to review". Idempotent per provider transaction id. Closed attempts are swept hourly (an attempt last looked up at least 50 minutes before the run started, so every run, #222) for `billing.gateways.late_lookup_hours` (48, at most 168), at most `late_lookups_per_run` (100) per run, with a 5-minute deadline and a per-gateway stop after an error answer; a session the provider reports as expired, failed or cancelled is not swept again. (#130)
+- **Refund made in a provider portal after payment** (gateways without refund webhooks: Khalti, eSewa) → found by the daily automation task `billing.gateway_refund_check`, which looks up paid attempts of the last `billing.gateways.refund_check_days` (7, 0 = off, at most 30) again, at most `refund_checks_per_run` (300) a day. A refund the payment's own refund rows do not account for raises the to-do "Refunds made at the provider to record"; nothing is booked automatically. Details: `payments-nepal.md` §3.5. (#27)
 - **Partial refund then reversal** → refundable_remaining prevents over-refund; reversals reference the parent transaction.
 - **Currency mismatch** between gateway account and invoice → reject or convert explicitly; store the rate.
 - **Rounding drift** inclusive tax across many lines → assign remainder to net, keep gross equal to catalog price.

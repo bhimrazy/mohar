@@ -8,6 +8,8 @@ use Illuminate\Contracts\Routing\UrlRoutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Routing\Route as RoutingRoute;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -30,11 +32,20 @@ use PHPUnit\Framework\AssertionFailedError;
 /** Non-GET admin routes that check a sensitive permission but may run without step-up, and why. */
 const STEP_UP_EXEMPT = [
     'admin.billing.gateways.test' => 'Test connection sends no stored data anywhere it was not saved for, and changes nothing.',
-    'admin.billing.payment-attempts.check' => 'Asks the gateway for the status of an attempt; changes nothing staff did not already authorise.',
+    'admin.billing.payment-attempts.check' => 'Asks the gateway for the status of an attempt and books only a payment the gateway confirms, also for a closed attempt (a late payment, #130); it moves no money staff did not already receive.',
+    'admin.kyc.lock' => 'Hide documents only ends this staff member\'s own document unlock early and clears the browser history (#240); it takes access away and changes no data.',
 ];
 
 /** Routes the scan cannot reach even with empty bound models, and why (none today; the scan fails on a new one). */
 const STEP_UP_UNRESOLVED = [];
+
+/**
+ * Non-GET admin routes that check no permission at all, and why. Any other route whose administrator call checks
+ * none is reported: it answered before authorising (a validation error, a throttle), so the scan cannot tell (#107).
+ */
+const STEP_UP_NO_PERMISSION = [
+    'admin.appearance.preference' => 'A staff member\'s own theme and density; it changes only their own login.',
+];
 
 /**
  * Records every permission a request checks: Role::allows() asks the registry whether each one is sensitive.
@@ -187,12 +198,33 @@ function stepUpStringParameter(RoutingRoute $route, string $name): ?string
         'kind' => 'mark',
         'template' => 'client.welcome',
         'converter' => 'products',
+        'notice' => 'company_time_settings',
     ][$name] ?? null;
 }
 
-function stepUpRequest(RoutingRoute $route, array $parameters, User $user, bool $confirmed): TestResponse
+/**
+ * Request bodies for routes that validate before they authorise, one per permission the route can check (#107).
+ *
+ * @return array<string, array<string, array<string, mixed>>> route => variant => body
+ */
+function stepUpBodies(): array
+{
+    return [
+        'admin.billing.invoices.bulk' => ['mark_paid' => ['action' => 'mark_paid', 'ids' => [1]], 'cancel' => ['action' => 'cancel', 'ids' => [1]]],
+        'admin.orders.bulk' => ['accept' => ['action' => 'accept', 'ids' => [1]], 'cancel' => ['action' => 'cancel', 'ids' => [1]], 'delete' => ['action' => 'delete', 'ids' => [1]]],
+        'admin.services.services.change' => ['change' => ['product_id' => 1, 'cycle' => 'monthly']],
+        'admin.services.services.cancel' => ['cancel' => ['type' => 'end_of_period', 'reason' => 'Step-up scan']],
+    ];
+}
+
+/**
+ * @param  array<string, mixed>  $body
+ */
+function stepUpRequest(RoutingRoute $route, array $parameters, User $user, bool $confirmed, array $body = []): TestResponse
 {
     $test = test();
+    // Shared throttles (provider calls, mail) would answer 429 before the route authorises (#107).
+    Cache::store(config('cache.limiter'))->flush();
     $test->flushSession();
     $test->actingAs($user);
 
@@ -202,7 +234,7 @@ function stepUpRequest(RoutingRoute $route, array $parameters, User $user, bool 
 
     $method = collect($route->methods())->first(fn (string $method): bool => ! in_array($method, ['GET', 'HEAD', 'OPTIONS'], true));
 
-    return $test->call($method, route($route->getName(), $parameters), [], [], [], ['HTTP_REFERER' => url('/admin')]);
+    return $test->call($method, route($route->getName(), $parameters), $body, [], [], ['HTTP_REFERER' => url('/admin')]);
 }
 
 function refusedForStepUp(TestResponse $response): bool
@@ -221,10 +253,15 @@ function refusedForStepUp(TestResponse $response): bool
 }
 
 /**
- * @return array{sensitive: array<string, list<string>>, missing: list<string>, unresolved: list<string>}
+ * @return array{sensitive: array<string, list<string>>, missing: list<string>, unresolved: list<string>, unchecked: list<string>, without_permission: list<string>}
  */
 function scanSensitiveRoutes(): array
 {
+    // A feature-gated route answers 404 first; switch every flag on so the scan sees it.
+    foreach (array_keys(Arr::dot(config('features'))) as $flag) {
+        config(['features.'.$flag => true]);
+    }
+
     Queue::fake();
     Mail::fake();
     Notification::fake();
@@ -235,7 +272,7 @@ function scanSensitiveRoutes(): array
     $admin = User::factory()->staff(['*'])->create(['email' => 'step-up-scan@example.test']);
     // The loop resets unique fakes, so nothing kept across calls may hold a faked unique value.
     $admin->role->update(['name' => 'Step-up scan administrator']);
-    $result = ['sensitive' => [], 'missing' => [], 'unresolved' => []];
+    $result = ['sensitive' => [], 'missing' => [], 'unresolved' => [], 'unchecked' => [], 'without_permission' => []];
 
     foreach (Route::getRoutes()->getRoutes() as $route) {
         $name = $route->getName();
@@ -244,11 +281,21 @@ function scanSensitiveRoutes(): array
             continue;
         }
 
-        // The settings route checks a different permission per section: try every section.
-        $sections = in_array('section', $route->parameterNames(), true) ? array_keys(app(SettingsRegistry::class)->sections()) : [null];
+        // The settings route checks a different permission per section, a bulk route per action: try each.
+        $variants = [];
 
-        foreach ($sections as $section) {
-            $label = $section === null ? $name : "{$name}[{$section}]";
+        if (in_array('section', $route->parameterNames(), true)) {
+            foreach (array_keys(app(SettingsRegistry::class)->sections()) as $section) {
+                $variants[] = [$section, $section, []];
+            }
+        } else {
+            foreach (stepUpBodies()[$name] ?? ['' => []] as $variant => $body) {
+                $variants[] = [(string) $variant, null, $body];
+            }
+        }
+
+        foreach ($variants as [$variant, $section, $body]) {
+            $label = $variant === '' ? $name : "{$name}[{$variant}]";
             // Every call is rolled back, so factories' unique values may repeat.
             fake()->unique(true);
             DB::beginTransaction();
@@ -267,7 +314,7 @@ function scanSensitiveRoutes(): array
                     DB::beginTransaction();
 
                     try {
-                        $status = stepUpRequest($route, $parameters, $admin, confirmed: true)->status();
+                        $status = stepUpRequest($route, $parameters, $admin, confirmed: true, body: $body)->status();
                     } finally {
                         DB::rollBack();
                     }
@@ -285,6 +332,16 @@ function scanSensitiveRoutes(): array
                     continue;
                 }
 
+                if ($checked === []) {
+                    if (array_key_exists($name, STEP_UP_NO_PERMISSION)) {
+                        $result['without_permission'][] = $name;
+                    } else {
+                        $result['unchecked'][] = "{$label} ({$status})";
+                    }
+
+                    continue;
+                }
+
                 $sensitive = array_values(array_filter($checked, fn (string $permission): bool => $recorder->isSensitive($permission)));
 
                 if ($sensitive === []) {
@@ -294,7 +351,7 @@ function scanSensitiveRoutes(): array
                 $result['sensitive'][$label] = $sensitive;
                 $holder = User::factory()->staff($checked)->create();
 
-                if (! array_key_exists($name, STEP_UP_EXEMPT) && ! refusedForStepUp(stepUpRequest($route, $parameters, $holder, confirmed: false))) {
+                if (! array_key_exists($name, STEP_UP_EXEMPT) && ! refusedForStepUp(stepUpRequest($route, $parameters, $holder, confirmed: false, body: $body))) {
                     $result['missing'][] = $label.' ('.implode(', ', $sensitive).')';
                 }
             } finally {
@@ -311,6 +368,7 @@ test('every admin route that checks a sensitive permission refuses to run withou
 
     expect($scan['missing'])->toBe([])
         ->and($scan['unresolved'])->toBe([])
+        ->and($scan['unchecked'])->toBe([])
         // Vacuity guards: the scan sees routes it must see, and every exemption is still a sensitive route.
         ->and($scan['sensitive'])->toHaveKeys([
             'admin.services.servers.update',
@@ -319,7 +377,13 @@ test('every admin route that checks a sensitive permission refuses to run withou
             'admin.platform.roles.store',
             'admin.domains.registrars.update',
             'admin.platform.settings.update[support_inbound]',
+            // Behind a shared throttle, or validating before authorising (#107).
+            'admin.services.servers.test',
+            'admin.platform.currencies.rates.refresh',
+            'admin.billing.invoices.bulk[mark_paid]',
         ])
+        // A route that is gone, or now checks a permission, leaves its entry stale (#459).
+        ->and(array_values(array_diff(array_keys(STEP_UP_NO_PERMISSION), $scan['without_permission'])))->toBe([])
         ->and(array_diff(array_keys(STEP_UP_EXEMPT), array_map(fn (string $label): string => explode('[', $label)[0], array_keys($scan['sensitive']))))->toBe([]);
 });
 
@@ -336,4 +400,51 @@ test('probe L1: server-group changes need a recent password confirmation', funct
         ->assertSessionHasNoErrors();
 
     expect(ServerGroup::query()->count())->toBe(1);
+});
+
+/**
+ * The routes known to change users.email (#388), with their request body less the email. Found by searching app/ for
+ * writes to a login's email; a new route that changes it is added here. Account creation (registration, invitations, imports) sets an email and changes none.
+ *
+ * @return array<string, Closure(): array{0: User, 1: User, 2: string, 3: array<string, mixed>}> actor, target, url, body
+ */
+function emailChangingRoutes(): array
+{
+    return [
+        'profile.update' => function (): array {
+            $user = User::factory()->create();
+
+            return [$user, $user, route('profile.update'), ['name' => $user->name]];
+        },
+        'admin.platform.staff.update' => function (): array {
+            $admin = User::factory()->staff(['*'])->create();
+            $staff = User::factory()->staff(['core.clients.view'])->create();
+
+            return [$admin, $staff, route('admin.platform.staff.update', $staff), ['name' => $staff->name, 'role_id' => $staff->role_id, 'is_active' => true]];
+        },
+    ];
+}
+
+test('every route that changes a login\'s email refuses without a recent password, over Inertia and JSON', function () {
+    Notification::fake();
+    Mail::fake();
+
+    foreach (emailChangingRoutes() as $name => $make) {
+        [$actor, $target, $url, $body] = $make();
+        // A new address per route, so one route's change never blocks the next as taken.
+        $body['email'] = Str::slug($name).'@example.com.np';
+        $method = collect(Route::getRoutes()->getByName($name)->methods())->first(fn (string $method): bool => ! in_array($method, ['GET', 'HEAD'], true));
+        $original = $target->email;
+        $this->flushSession();
+        $this->actingAs($actor);
+
+        expect(refusedForStepUp($this->call($method, $url, $body, [], [], ['HTTP_REFERER' => url('/')])))->toBeTrue("{$name} (Inertia)")
+            ->and($this->json($method, $url, $body)->status())->toBe(423, "{$name} (JSON)")
+            ->and($target->fresh()->email)->toBe($original, $name);
+
+        // Vacuity guard: with a recent password the same request does change the email.
+        confirmPassword();
+        $this->call($method, $url, $body);
+        expect($target->fresh()->email)->toBe($body['email'], "{$name} (confirmed)");
+    }
 });

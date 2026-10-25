@@ -11,6 +11,7 @@ use App\Modules\Platform\Models\ExchangeRateReview;
 use App\Modules\Platform\Support\ExchangeRateLock;
 use App\Support\Currencies\ExchangeRateSources;
 use App\Support\Dashboard\Dashboard;
+use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Cache;
@@ -263,6 +264,17 @@ test('with a separate update time the daily run skips rates and the scheduled ru
         ->and(rateOf('INR'))->toBe('85.000000000000')
         ->and(AutomationRun::query()->where('task', 'platform.exchange-rates')->sole())
         ->status->toBe('success')->summary->toBe('2 updated, 0 unchanged, 0 held for review');
+});
+
+test('the separate update is recorded under the company date, not the UTC date', function () {
+    app(Settings::class)->set('platform.rates_update_time', '00:30');
+    inCompanyTimezone('Asia/Kathmandu');
+    FakeRateSource::$fetches = 0;
+    $this->travelTo(CarbonImmutable::parse('2026-10-18 18:45:00', 'UTC')); // 00:30 on 19 Oct in Kathmandu
+
+    $this->artisan('platform:update-exchange-rates')->assertSuccessful();
+
+    expect(AutomationRun::query()->where('task', 'platform.exchange-rates')->sole()->run_date->toDateString())->toBe('2026-10-19');
 });
 
 test('the separate update time adds its own schedule entry', function () {

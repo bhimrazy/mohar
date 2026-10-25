@@ -12,7 +12,7 @@
  * Every path used here exists in SampleContext, so previews render without warnings. Support-type client
  * subjects are fixed by EmailComposer and only listed for completeness.
  *
- * @return list<array{key: string, type: string, audience: string, name: string, subject: string, body: string, preheader?: string|null, heading?: string, action_label?: string}>
+ * @return list<array{key: string, type: string, audience: string, name: string, subject: string, body: string, description?: string|null, preheader?: string|null, heading?: string, action_label?: string}>
  */
 
 // Client mail greets the reader by first name after the title (design §3 block 4).
@@ -52,6 +52,13 @@ The link works until {{ auth.expires_at }} and only once. If you didn't ask for 
 
 If this wasn't you, contact {{ support.email }}.
 MD),
+    $secret('auth.password_set', 'client', 'general', 'Set a password link', 'Set a password for your {{ company.name }} account', 'Set a password', 'Set a password', <<<'MD'
+Hello {{ user.first_name }}, you asked to set a password for your {{ company.name }} account. Use the button below; sign in first if you are asked to.
+
+The link works until {{ auth.expires_at }} and only once. If you didn't ask for this, ignore this email and nothing changes.
+
+If this wasn't you, contact {{ support.email }}.
+MD),
     $client('auth.password_changed', 'general', 'Password changed', 'Your {{ company.name }} password was changed', <<<'MD'
 # Your password was changed
 
@@ -72,6 +79,27 @@ Hello {{ user.first_name }}, you've been given access to a {{ company.name }} cl
 This invitation works once, for {{ auth.expires_in }}: until {{ auth.expires_at }}. If it runs out, ask the account owner or our team to send a new one.
 
 If you weren't expecting this, you can ignore this email. If this wasn't you, contact {{ support.email }}.
+MD),
+    $secret('client.migration_invitation', 'client', 'general', 'Invitation after a client import', 'Set your password for the new {{ company.name }} client area', 'Set your password', 'Set your password', <<<'MD'
+Hello {{ user.first_name }}, {{ company.name }} has moved to a new client area, and your account is already in it. Set a password to sign in; your old password does not work here.
+
+This link works once, for {{ auth.expires_in }}: until {{ auth.expires_at }}. If it runs out, contact {{ support.email }} for a new one.
+
+If you weren't expecting this, you can ignore this email. If this wasn't you, contact {{ support.email }}.
+MD),
+    $client('auth.email_changed', 'general', 'Sign-in email changed', 'The sign-in email for your {{ company.name }} account was changed', <<<'MD'
+# Your sign-in email was changed
+
+The sign-in email for your account is now {{ notice.new_email }}. This address no longer receives password resets.
+
+| From | {{ notice.old_email }} |
+|---|---|
+| To | {{ notice.new_email }} |
+| Date | {{ system.today | date }} |
+
+If you didn't make this change, contact us straight away{% if support.email %} at {{ support.email }}{% endif %} so we can secure your account.
+
+[Open the client area]({{ system.client_area_url }})
 MD),
     $client('auth.new_login_alert', 'general', 'New login alert', 'New login to your {{ company.name }} account', <<<'MD'
 # New login to your account
@@ -138,6 +166,19 @@ Your {{ company.name }} account is ready.
 From the client area you can order services, pay invoices, manage domains and contact our team.
 
 [Open the client area]({{ system.client_area_url }})
+MD.$signOff),
+    $client('kyc.document_decided', 'general', 'Identity document decision', '{% if kyc.approved %}Your {{ kyc.document }} is approved{% else %}Your {{ kyc.document }} was declined{% endif %}', <<<'MD'
+# {% if kyc.approved %}{{ kyc.document }} approved{% else %}{{ kyc.document }} declined{% endif %}
+
+{% if kyc.approved %}{% if kyc.verified %}Thank you. Your identity is now verified, and there is nothing more to do.{% else %}Thank you. We checked your {{ kyc.document }} and approved it. The verification page shows what is left.{% endif %}{% else %}We could not accept your {{ kyc.document }}: {{ kyc.reason }} Please upload a new photo when you can. Your account keeps working as usual.{% endif %}
+
+{% if kyc.approved %}[View your verification]({{ kyc.url }}){% else %}[Upload a new photo]({{ kyc.url }}){% endif %}
+
+| Document | {{ kyc.document }} |
+|---|---|
+| Decision | {% if kyc.approved %}Approved{% else %}Declined{% endif %} |
+
+Questions? Reply to this email and our team will help.
 MD.$signOff),
     $client('order.confirmation', 'general', 'Order confirmation', 'Order #{{ order.number }} from {{ company.name }}: {{ order.total | money(order.currency) }} received', <<<'MD'
 # Thanks for your order
@@ -262,7 +303,7 @@ MD.$signOff),
 |---|---|
 {% if service.domain %}| Domain | {{ service.domain }} |
 {% endif %}{% if invoice.number %}| Overdue invoice | {{ invoice.number }} |
-| Was due | {{ invoice.due_date | date }} |
+| Was due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 {% endif %}
 
 Your files and data are kept safe while the service is paused.
@@ -315,8 +356,8 @@ Here's your new invoice. Please pay it by {{ invoice.due_date | date }} to keep 
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Issued | {{ invoice.issue_date | date }} |
-| Due | {{ invoice.due_date | date }} |
+| Issued | {{ invoice.issue_date | date }}{% if invoice.issue_date_bs %} ({{ invoice.issue_date_bs }}){% endif %} |
+| Due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 
 Need a different billing address or a purchase order number on this invoice? Reply and we'll reissue it.
 MD.$signOff),
@@ -329,8 +370,8 @@ We'll charge your saved payment method on {{ invoice.due_date | date }}. There's
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Issued | {{ invoice.issue_date | date }} |
-| Charge date | {{ invoice.due_date | date }} |
+| Issued | {{ invoice.issue_date | date }}{% if invoice.issue_date_bs %} ({{ invoice.issue_date_bs }}){% endif %} |
+| Charge date | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 MD.$signOff),
     $client('invoice.payment_reminder', 'invoice', 'Payment reminder', 'Reminder: invoice {{ invoice.number }} ({{ invoice.balance }}) is due {{ invoice.due_date | date }}', <<<'MD'
 # Payment due soon
@@ -341,8 +382,8 @@ A friendly reminder that invoice {{ invoice.number }} is due on {{ invoice.due_d
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Issued | {{ invoice.issue_date | date }} |
-| Due | {{ invoice.due_date | date }} |
+| Issued | {{ invoice.issue_date | date }}{% if invoice.issue_date_bs %} ({{ invoice.issue_date_bs }}){% endif %} |
+| Due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 
 Already paid? Reply to this email and we'll check.
 MD.$signOff),
@@ -355,8 +396,8 @@ We haven't received payment for invoice {{ invoice.number }}, which was due on {
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Issued | {{ invoice.issue_date | date }} |
-| Was due | {{ invoice.due_date | date }} |
+| Issued | {{ invoice.issue_date | date }}{% if invoice.issue_date_bs %} ({{ invoice.issue_date_bs }}){% endif %} |
+| Was due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 
 Already paid? Bank transfers can take up to two working days to reach us. Reply with your payment reference and we'll check.
 
@@ -371,7 +412,7 @@ Invoice {{ invoice.number }} is now {{ invoice.days_overdue }} days overdue. Ple
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Was due | {{ invoice.due_date | date }} |
+| Was due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 | Days overdue | {{ invoice.days_overdue }} |
 
 Need more time? Reply to this email and we'll work it out with you.
@@ -385,7 +426,7 @@ Invoice {{ invoice.number }} is {{ invoice.days_overdue }} days overdue. If it s
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Was due | {{ invoice.due_date | date }} |
+| Was due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 | Days overdue | {{ invoice.days_overdue }} |
 
 Already paid? Reply to this email and we'll check.
@@ -411,7 +452,7 @@ We couldn't charge your saved payment method for invoice {{ invoice.number }}. P
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Due | {{ invoice.due_date | date }} |
+| Due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 | Reason | {{ payment.failure_reason | default('Declined by the payment provider') }} |
 MD.$signOff),
     $client('invoice.refunded', 'invoice', 'Refund issued', 'Your refund from {{ company.name }}: {{ refund.amount }} for invoice {{ invoice.number }}', <<<'MD'
@@ -435,7 +476,7 @@ We've changed this invoice. {{ invoice.balance }} is now due by {{ invoice.due_d
 | Invoice | {{ invoice.number }} |
 |---|---|
 | New total | {{ invoice.total }} |
-| Due | {{ invoice.due_date | date }} |
+| Due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 MD.$signOff),
     $client('payment_method.expiring', 'invoice', 'Payment method expiring', 'Your {{ company.name }} payment method expires soon', <<<'MD'
 # Your payment method expires soon
@@ -444,10 +485,30 @@ Add a new one so renewals continue without interruption.
 
 [Update payment method]({{ system.client_area_url }})
 MD.$signOff),
-    $client('credit_note.issued', 'invoice', 'Credit note issued', 'Credit note from {{ company.name }}: {{ credit_note.amount }} for invoice {{ invoice.number }}', <<<'MD'
-# Credit note issued
+    $client('credit_note.issued', 'invoice', 'Credit note issued', 'Credit note {{ tax_note.number }} from {{ company.name }}: {{ tax_note.amount }} for invoice {{ invoice.number }}', <<<'MD'
+# Credit note {{ tax_note.number }}
 
-We've issued a credit note for {{ credit_note.amount }} against invoice {{ invoice.number }}. The amount is now credit on your account.
+We've issued a credit note for {{ tax_note.amount }} against invoice {{ invoice.number }}.{% if tax_note.pdf_attached %} The note is attached.{% endif %}
+
+| Credit note | {{ tax_note.number }} |
+|---|---|
+| Invoice | {{ invoice.number }} |
+| Date | {{ tax_note.issue_date | date }}{% if tax_note.issue_date_bs %} ({{ tax_note.issue_date_bs }}){% endif %} |
+| Reason | {{ tax_note.reason_text }} |
+
+[View invoice]({{ invoice.url }})
+MD.$signOff),
+    $client('debit_note.issued', 'invoice', 'Debit note issued', 'Debit note {{ tax_note.number }} from {{ company.name }}: {{ tax_note.amount }} added to invoice {{ invoice.number }}', <<<'MD'
+# Debit note {{ tax_note.number }}
+
+We've issued a debit note for {{ tax_note.amount }} against invoice {{ invoice.number }}.{% if tax_note.pdf_attached %} The note is attached.{% endif %}
+
+| Debit note | {{ tax_note.number }} |
+|---|---|
+| Invoice | {{ invoice.number }} |
+| Date | {{ tax_note.issue_date | date }}{% if tax_note.issue_date_bs %} ({{ tax_note.issue_date_bs }}){% endif %} |
+| Reason | {{ tax_note.reason_text }} |
+| Now due | {{ invoice.balance }} |
 
 [View invoice]({{ invoice.url }})
 MD.$signOff),
@@ -569,6 +630,13 @@ MD, 'View your ticket'),
 
 We closed this ticket because we haven't heard back for a while. Reply to this email if you still need help and it will reopen.
 MD.$signOff, 'View your ticket'),
+    $ticket('ticket.link_replaced', 'Ticket link replaced', '[#{{ ticket.number }}] New link to your ticket', <<<'MD'
+# Your ticket link has changed
+
+We combined related tickets into ticket #{{ ticket.number }}, so we replaced its private link. The link in your earlier emails no longer opens it. Use the button below from now on, and keep it to yourself.
+
+If you did not expect this, reply to this email and tell us.
+MD.$signOff, 'View your ticket'),
     $client('ticket.closed_bounce', 'support', 'Reply to a closed ticket', 'Your email was not added to a ticket', <<<'MD'
 # Your email wasn't added
 
@@ -669,6 +737,20 @@ The {{ failure.action }} action failed for {{ client.full_name }}'s {{ service.p
 
 [Open service]({{ service.admin_url }})
 MD),
+    $staff('staff.provisioning_unknown', 'Provisioning outcome unknown', 'Checking the outcome: {{ failure.action_label }} for {{ service.product_name }}', <<<'MD'
+# Outcome unknown, being checked
+
+The server gave no clear answer while {{ failure.action_label }} for {{ client.full_name }}'s {{ service.product_name }}. It may have completed, so it is not retried.
+
+| Service | {{ service.product_name }} |
+|---|---|
+| Domain | {{ service.domain | default('—') }} |
+| Details | {{ failure.error }} |
+
+Where the server can be checked, it is checked automatically for the next hour, and a confirmed result is applied without another email. Until then the entry stays open in the Module log, where you can check it yourself.
+
+{% if failure.log_url %}[Open the Module log]({{ failure.log_url }}){% else %}[Open service]({{ service.admin_url }}){% endif %}
+MD),
     $staff('staff.registrar_action_failed', 'Registrar action failed', 'Registrar action failed: {{ domain.domain }}', <<<'MD'
 # Registrar action failed
 
@@ -743,6 +825,15 @@ If you didn't expect this, tell another administrator straight away.
 
 [Open admin area]({{ system.admin_url }})
 MD),
+    $staff('staff.password_reissued', 'Staff one-time password issued', 'A new one-time password was issued for your staff account', <<<'MD'
+# A new one-time password was issued
+
+A new one-time password for your staff account was issued on the server ({{ notice.run_by }}). Your previous password and its "remember me" sign-ins no longer work.
+
+Sign in with the new password and choose your own. It expires after {{ notice.expires_in }}.
+
+If you didn't ask for this, tell another administrator straight away.
+MD),
     $staff('staff.email_changed', 'Staff login email changed', 'Your staff login email was changed', <<<'MD'
 # Your login email was changed
 
@@ -807,14 +898,17 @@ MD),
  */
 $preheaders = [
     'auth.password_reset' => 'This link works until {{ auth.expires_at }}. If you didn\'t ask for it, ignore this email and your password stays the same.',
+    'auth.password_set' => 'This link works until {{ auth.expires_at }}. If you didn\'t ask for it, ignore this email.',
     'auth.password_changed' => 'Changed on {{ system.today | date }}. If this wasn\'t you, reset your password now.',
     'auth.email_verification' => 'One click confirms this address, so your invoices and service details reach you.',
     'auth.user_invitation' => 'Accept within {{ auth.expires_in }} to choose your password and see this account\'s invoices, services and tickets.',
+    'auth.email_changed' => 'Changed on {{ system.today | date }}. Not you? Contact us straight away.',
     'auth.new_login_alert' => 'From {{ auth.ip }} on {{ system.today | date }}. Not you? Change your password now.',
     'auth.login_added' => '{{ notice.email }} can now log in to {{ notice.account }}. Not expected? Remove the login.',
     'auth.access_granted' => 'Log in as usual to see {{ notice.account }}.',
     'auth.owner_changed' => '{{ notice.email }} now owns {{ notice.account }}.',
     'auth.two_factor_reset' => 'Set it up again from your security settings.',
+    'kyc.document_decided' => '{% if kyc.approved %}Approved after review.{% else %}What to fix: {{ kyc.reason }}{% endif %}',
     'client.welcome' => 'Your account is ready. Log in to order services, pay invoices and get help.',
     'order.confirmation' => 'Thanks for your order. We\'ll email you as soon as each service is ready.',
     'quote.delivered' => '{{ quote.subject }}. Valid until {{ quote.valid_until | date }}. Accept it online to place the order.',
@@ -841,6 +935,7 @@ $preheaders = [
     'invoice.modified' => '{{ invoice.balance }} is due by {{ invoice.due_date | date }}.',
     'payment_method.expiring' => 'Add a new one before then so renewals keep going through.',
     'credit_note.issued' => 'Issued against invoice {{ invoice.number }}.',
+    'debit_note.issued' => 'Issued against invoice {{ invoice.number }}.',
     'domain.registration_confirmation' => 'It\'s active until {{ domain.expiry_date | date }}. DNS changes can take a few hours to reach everyone.',
     'domain.transfer_initiated' => 'Most transfers finish within 5–7 days. Approving the request at your current registrar speeds it up.',
     'domain.transfer_completed' => 'Transfer complete. It renews on {{ domain.expiry_date | date }}.',
@@ -852,6 +947,7 @@ $preheaders = [
     'ticket.opened_by_staff' => '{{ ticket.department }} opened this ticket for you.',
     'ticket.reply' => '{{ reply.author_name }} from {{ ticket.department }} replied: {{ reply.excerpt }}',
     'ticket.auto_closed' => 'We closed this ticket because we haven\'t heard back. Reply to reopen it.',
+    'ticket.link_replaced' => 'Your private ticket link has changed. Use the new one from now on.',
     'ticket.closed_bounce' => 'That ticket is closed. Open a new ticket and we\'ll pick it up from there.',
     'ticket.unregistered_bounce' => 'This address only takes email from customers with an account.',
     'ticket.replies_only_bounce' => 'This address only accepts replies to existing tickets.',
@@ -859,4 +955,94 @@ $preheaders = [
     'staff.invitation' => 'Accept within {{ auth.expires_in }} to set your password. The invitation works until {{ auth.expires_at }}.',
 ];
 
-return array_map(fn (array $template): array => [...$template, 'preheader' => $preheaders[$template['key']] ?? null], $templates);
+/*
+ * What each template is for, shown in the template list. Staff-facing, one sentence.
+ */
+$descriptions = [
+    'auth.password_reset' => 'Sent to a client who asks to reset a forgotten password.',
+    'auth.password_set' => 'Sent to a client who needs to set a password, for example after signing up with a social login.',
+    'auth.password_changed' => 'Confirms to the client that their password was changed.',
+    'auth.email_verification' => 'Asks a new client to confirm their email address.',
+    'auth.user_invitation' => 'Invites someone to join a client account.',
+    'client.migration_invitation' => 'Invites a client moved from another billing system to set a password and sign in.',
+    'auth.new_login_alert' => 'Warns the client about a sign-in from a new device or place.',
+    'auth.login_added' => 'Tells the account owner that a new login was added to their account.',
+    'auth.access_granted' => 'Tells a person they now have access to a client account.',
+    'auth.owner_changed' => 'Tells the previous and new owner that account ownership moved.',
+    'auth.two_factor_reset' => 'Confirms that two-factor authentication was turned off for a client login.',
+    'client.welcome' => 'Welcomes a new client and links to the client area.',
+    'kyc.document_decided' => 'Tells the client whether their identity document was approved or declined, and why.',
+    'order.confirmation' => 'Confirms an order to the client with its items and total.',
+    'quote.delivered' => 'Sends a quote to the client with a link to accept it.',
+    'affiliate.activated' => 'Tells a client their affiliate account is ready.',
+    'affiliate.withdrawal_processed' => 'Tells an affiliate that their withdrawal was processed.',
+    'affiliate.monthly_summary' => 'Monthly summary of an affiliate\'s referrals and earnings.',
+    'service.welcome.shared_hosting' => 'Sent when a shared hosting account is set up, with login details.',
+    'service.welcome.reseller_hosting' => 'Sent when a reseller hosting account is set up, with login details.',
+    'service.welcome.server' => 'Sent when a server is set up, with access details.',
+    'service.welcome.other' => 'Sent when any other product is activated.',
+    'service.suspended' => 'Tells the client their service was suspended and what to do.',
+    'service.unsuspended' => 'Tells the client their service is active again.',
+    'service.cancellation_requested' => 'Confirms that a cancellation request was received.',
+    'service.upgrade_completed' => 'Confirms a plan upgrade or downgrade is complete.',
+    'service.terminated' => 'Tells the client their service was removed.',
+    'invoice.created' => 'Sent when a new invoice is issued to a client.',
+    'invoice.created_autocharge' => 'Sent when an invoice is issued and will be charged to the saved payment method.',
+    'invoice.payment_reminder' => 'Reminds the client before an invoice is due.',
+    'invoice.overdue_first' => 'First notice after an invoice passes its due date.',
+    'invoice.overdue_second' => 'Second notice for an invoice that is still unpaid.',
+    'invoice.overdue_third' => 'Final notice for an invoice that is still unpaid.',
+    'invoice.payment_confirmation' => 'Receipt sent when a payment is received.',
+    'invoice.payment_failed' => 'Tells the client a payment did not go through and how to retry.',
+    'invoice.refunded' => 'Tells the client a refund was issued.',
+    'invoice.modified' => 'Sent when an issued invoice is changed.',
+    'payment_method.expiring' => 'Warns the client that a saved payment method is about to expire.',
+    'credit_note.issued' => 'Sends the client a credit note issued against their invoice, with its PDF.',
+    'debit_note.issued' => 'Sends the client a debit note issued against their invoice, with its PDF.',
+    'domain.registration_confirmation' => 'Confirms a domain registration.',
+    'domain.transfer_initiated' => 'Confirms that a domain transfer to us has started.',
+    'domain.transfer_completed' => 'Confirms a domain transfer finished.',
+    'domain.transfer_failed' => 'Tells the client a domain transfer did not complete and what to do.',
+    'domain.renewal_confirmation' => 'Confirms a domain renewal.',
+    'domain.renewal_upcoming' => 'Reminds the client that domains are up for renewal.',
+    'domain.expired_notice' => 'Tells the client that domains have expired.',
+    'ticket.autoresponse' => 'Automatic reply confirming a support request was received.',
+    'ticket.opened_by_staff' => 'Tells the client that staff opened a ticket for them.',
+    'ticket.reply' => 'Sends a staff reply to the client.',
+    'ticket.auto_closed' => 'Tells the client a ticket was closed because they did not reply.',
+    'ticket.link_replaced' => 'Sends a guest the new private link of their ticket after tickets were merged into it.',
+    'ticket.closed_bounce' => 'Reply to someone who emailed a ticket that is already closed.',
+    'ticket.unregistered_bounce' => 'Reply to an email from an address that has no client account.',
+    'ticket.replies_only_bounce' => 'Reply to an email sent to a department that only accepts replies.',
+    'staff.order_new' => 'Tells staff a new order was placed.',
+    'staff.order_fraud' => 'Tells staff an order was flagged as possible fraud.',
+    'staff.ticket_new' => 'Tells staff a new ticket was opened.',
+    'staff.ticket_client_reply' => 'Tells staff a client replied to a ticket.',
+    'staff.ticket_assigned' => 'Tells a staff member a ticket was assigned to them.',
+    'staff.ticket_mention' => 'Tells a staff member they were mentioned in a ticket note.',
+    'staff.ticket_department_changed' => 'Tells staff a ticket was moved to their department.',
+    'staff.provisioning_failed' => 'Tells staff that setting up a service failed.',
+    'staff.provisioning_unknown' => 'Tells staff a provisioning action got no clear answer and is being checked on the server.',
+    'staff.registrar_action_failed' => 'Tells staff a registrar action failed.',
+    'staff.domain_sync_report' => 'Report of domain changes found during a registrar sync.',
+    'staff.free_domain_renewal_blocked' => 'Tells staff a free domain renewal was blocked and needs a decision.',
+    'staff.cancellation_request' => 'Tells staff a client asked to cancel a service.',
+    'staff.affiliate_withdrawal_request' => 'Tells staff an affiliate requested a withdrawal.',
+    'staff.automation_summary' => 'Daily summary of what the automation run did and what failed.',
+    'staff.password_reset' => 'Sent to a staff member who asks to reset their password.',
+    'staff.invitation' => 'Invites a new staff member to the admin area.',
+    'staff.two_factor_reset' => 'Tells a staff member their two-factor authentication was reset.',
+    'staff.password_reissued' => 'Tells a full administrator a new one-time password was issued from the command line.',
+    'staff.email_changed' => 'Tells a staff member their login email was changed.',
+    'auth.email_changed' => 'Tells the previous address that a login\'s sign-in email was changed, with the new one partly masked.',
+    'staff.settings_changed' => 'Tells staff that a security setting was changed.',
+    'staff.login_failures' => 'Warns staff about repeated failed sign-ins.',
+    'staff.client_details_changed' => 'Tells staff a client changed their details.',
+    'staff.webhook_endpoint_disabled' => 'Tells staff a webhook endpoint was disabled after repeated failures.',
+    'staff.template_render_failed' => 'Tells staff an email template failed to render, with the error.',
+];
+
+// Templates whose message carries its related record's PDF (App\Contracts\Billing\BillingDocuments), attached at send time.
+$attachesDocument = ['credit_note.issued', 'debit_note.issued'];
+
+return array_map(fn (array $template): array => [...$template, 'preheader' => $preheaders[$template['key']] ?? null, 'description' => $descriptions[$template['key']] ?? null, 'attaches_document' => in_array($template['key'], $attachesDocument, true)], $templates);

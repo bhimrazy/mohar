@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Http\Controllers\Admin;
 
+use App\Contracts\Core\CompanyClock;
 use App\Http\Controllers\Controller;
 use App\Modules\Services\Actions\AddServiceAddon;
 use App\Modules\Services\Actions\OrderServiceChange;
@@ -17,7 +18,6 @@ use App\Modules\Services\Http\Requests\SetStatusRequest;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\ModuleCommandDispatcher;
 use App\Modules\Services\Support\CommandOutcome;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
@@ -56,10 +56,10 @@ class ServiceActionController extends Controller
         return back();
     }
 
-    public function change(ServiceChangeRequest $request, Service $service, OrderServiceChange $order): RedirectResponse
+    public function change(ServiceChangeRequest $request, Service $service, OrderServiceChange $order, CompanyClock $clock): RedirectResponse
     {
         $this->authorize('services.services.manage');
-        $today = CarbonImmutable::today();
+        $today = $clock->todayDate();
 
         $change = $this->attempt(fn () => $order->handle($service, $request->integer('product_id'), $request->cycle(), $today));
 
@@ -70,22 +70,22 @@ class ServiceActionController extends Controller
         return back();
     }
 
-    public function addAddon(AddAddonRequest $request, Service $service, AddServiceAddon $add): RedirectResponse
+    public function addAddon(AddAddonRequest $request, Service $service, AddServiceAddon $add, CompanyClock $clock): RedirectResponse
     {
         /** @var array{name: string, addon_id?: ?int, cycle: string, recurring_amount: int, setup_fee: int, next_due_date?: ?string, status: string, suspend_parent_on_overdue?: bool} $data */
         $data = $request->validated();
-        $addon = $this->attempt(fn () => $add->handle($service, $data, CarbonImmutable::today()));
+        $addon = $this->attempt(fn () => $add->handle($service, $data, $clock->todayDate()));
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Addon :name added.', ['name' => $addon->name])]);
 
         return back();
     }
 
-    public function cancel(CancellationRequestForm $request, Service $service, RequestCancellation $cancellation): RedirectResponse
+    public function cancel(CancellationRequestForm $request, Service $service, RequestCancellation $cancellation, CompanyClock $clock): RedirectResponse
     {
         $this->authorize('services.cancellations.manage');
 
-        $this->attempt(fn () => $cancellation->handle($service, $request->type(), $request->string('reason')->toString(), $request->user(), true, CarbonImmutable::today()));
+        $this->attempt(fn () => $cancellation->handle($service, $request->type(), $request->string('reason')->toString(), $request->user(), true, $clock->todayDate()));
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Cancellation request recorded.')]);
 

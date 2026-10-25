@@ -21,6 +21,7 @@ import {
     show,
 } from '@/actions/App/Modules/Billing/Http/Controllers/Client/InvoiceController';
 import { store as createBatch } from '@/actions/App/Modules/Billing/Http/Controllers/Client/PaymentBatchController';
+import { index as notesIndex } from '@/actions/App/Modules/Billing/Http/Controllers/Client/TaxNoteController';
 import type { ResourcePaginated } from '@/types/app';
 
 type Props = {
@@ -34,6 +35,7 @@ type Props = {
         credit: number;
     };
     mass_pay: boolean;
+    has_notes: boolean;
 };
 
 export default function ClientInvoices({
@@ -41,6 +43,7 @@ export default function ClientInvoices({
     filters,
     summary,
     mass_pay,
+    has_notes,
 }: Props) {
     const { apply } = useQueryParams();
     const tab = filters.status ?? 'all';
@@ -104,18 +107,28 @@ export default function ClientInvoices({
                             : 'You’re all paid up.'
                     }
                     actions={
-                        mass_pay &&
-                        summary.unpaid_count > 1 && (
-                            <Button
-                                onClick={() => router.post(createBatch.url())}
-                            >
-                                Pay all{' '}
-                                <Money
-                                    amount={summary.unpaid_total}
-                                    currency={summary.currency}
-                                />
-                            </Button>
-                        )
+                        <>
+                            {has_notes && (
+                                <Button variant="outline" asChild>
+                                    <Link href={notesIndex()}>
+                                        Credit notes
+                                    </Link>
+                                </Button>
+                            )}
+                            {mass_pay && summary.unpaid_count > 1 && (
+                                <Button
+                                    onClick={() =>
+                                        router.post(createBatch.url())
+                                    }
+                                >
+                                    Pay all
+                                    <Money
+                                        amount={summary.unpaid_total}
+                                        currency={summary.currency}
+                                    />
+                                </Button>
+                            )}
+                        </>
                     }
                 />
 

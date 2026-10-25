@@ -5,14 +5,23 @@ namespace App\Modules\Orders;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Billing\TaxCalculator;
+use App\Contracts\Catalog\PriceBook;
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Contracts\Orders\OrderNumbers;
 use App\Contracts\Orders\PaymentGuard;
+use App\Contracts\Orders\ShopperSession;
 use App\Contracts\Services\ServiceRegistry;
+use App\Events\Affiliates\AffiliateCommissionEarned;
 use App\Events\Billing\InvoicePaid;
 use App\Events\Domains\DomainRegistered;
 use App\Events\Domains\DomainTransferred;
+use App\Events\Orders\OrderCancelled;
+use App\Events\Orders\OrderMarkedFraud;
+use App\Events\Orders\OrderPlaced;
 use App\Events\Services\ServiceActivated;
 use App\Models\User;
+use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Like;
 use App\Modules\Core\Support\RequestMemo;
 use App\Modules\Core\Support\Settings;
@@ -26,20 +35,25 @@ use App\Modules\Orders\Listeners\MergeCartOnLogin;
 use App\Modules\Orders\Listeners\TrackItemActivation;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\OrderItem;
-use App\Modules\Orders\Services\CompanyClock;
+use App\Modules\Orders\Services\CartShopperSession;
+use App\Modules\Orders\Services\OrderDirectory;
 use App\Modules\Orders\Services\OrderPaymentGuard;
 use App\Modules\Orders\Support\Demo\DemoBilling;
 use App\Modules\Orders\Support\Demo\DemoServices;
 use App\Modules\Orders\Support\OrdersDashboard;
 use App\Support\Automation\Automation;
+use App\Support\CalendarDate;
+use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Events\WebhookEvents;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Money;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Seo\SitemapRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
@@ -62,13 +76,25 @@ class OrdersServiceProvider extends ModuleServiceProvider
     {
         $this->app->singleton(FraudScreening::class);
         $this->app->bind(PaymentGuard::class, OrderPaymentGuard::class);
+        $this->app->bind(OrderNumbers::class, OrderDirectory::class);
+        $this->app->scoped(ShopperSession::class, CartShopperSession::class);
     }
 
     protected function bootModule(): void
     {
+        $webhooks = $this->app->make(WebhookEvents::class);
+        $webhooks->register(OrderPlaced::class, 'order.placed', 'order', 'orderId');
+        $webhooks->register(OrderMarkedFraud::class, 'order.fraud', 'order', 'orderId');
+        $webhooks->register(OrderCancelled::class, 'order.cancelled', 'order', 'orderId');
+        $webhooks->register(AffiliateCommissionEarned::class, 'affiliate.commission_earned', 'affiliate', 'affiliateId');
+
         $this->bindDemoContracts();
 
         $this->app->make(HttpKernel::class)->appendMiddlewareToGroup('web', CaptureReferralAndPromo::class);
+
+        // An order's amounts are stored in its client's currency (client-import spec §6.4).
+        $this->app->make(ClientCurrencyUsage::class)->register('orders', fn (array $clientIds): array => Order::query()
+            ->whereIn('client_id', $clientIds)->distinct()->pluck('client_id')->all());
 
         Event::listen(Login::class, MergeCartOnLogin::class);
         Event::listen(ServiceActivated::class, TrackItemActivation::class);
@@ -81,6 +107,29 @@ class OrdersServiceProvider extends ModuleServiceProvider
         $this->registerPermissionsAndSettings();
         $this->registerSearchAndMergeFields();
         $this->registerAutomation();
+
+        $this->app->make(SitemapRegistry::class)->register('orders', function (): array {
+            $urls = [
+                ['loc' => route('store.index'), 'lastmod' => null],
+                ['loc' => route('store.domains'), 'lastmod' => null],
+            ];
+
+            if (! $this->app->bound(PriceBook::class)) {
+                return $urls;
+            }
+
+            $currency = Currency::default()->code;
+
+            foreach ($this->app->make(PriceBook::class)->storefront($currency) as $group) {
+                $urls[] = ['loc' => route('store.groups.show', $group['slug']), 'lastmod' => null];
+
+                foreach ($group['products'] as $product) {
+                    $urls[] = ['loc' => route('store.products.show', ['group' => $group['slug'], 'product' => $product['slug']]), 'lastmod' => null];
+                }
+            }
+
+            return $urls;
+        });
     }
 
     /**
@@ -135,7 +184,8 @@ class OrdersServiceProvider extends ModuleServiceProvider
         $navigation->add('admin-create', new NavItem('New order', 'admin.orders.create', 'ShoppingCart', order: 20, permission: 'orders.orders.create'));
         $navigation->add('admin', new NavItem('Promotions', 'admin.promotions.index', 'Percent', 'Orders', 20, 'orders.promotions.manage', 'admin.promotions.*'));
         $navigation->add('client', new NavItem('Order history', 'client.orders.index', 'Receipt', 'Orders', 10, null, 'client.orders.*'));
-        $navigation->add('client', new NavItem('Store', 'store.index', 'ShoppingCart', 'Orders', 20));
+        // Every store page except the domain search, which "Register a domain" (Domains) marks.
+        $navigation->add('client', new NavItem('Store', 'store.index', 'ShoppingCart', 'Orders', 20, null, 'store.[!d]*'));
         $navigation->add('admin-client', new NavItem('Orders', 'admin.orders.index', 'ShoppingCart', order: 20, permission: 'orders.orders.view'));
 
         $dashboard = $this->app->make(Dashboard::class);
@@ -222,7 +272,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
             new SettingDefinition('orders.auto_provision_only_existing_clients', 'Only auto-provision for clients with an active service', 'boolean'),
             new SettingDefinition('orders.auto_cancel_unpaid_days', 'Cancel pending unpaid orders after N days (0 = never)', 'integer', rules: ['min:0', 'max:365']),
             new SettingDefinition('orders.suppress_invoice_email_on_order', 'Do not email the invoice for new orders', 'boolean'),
-            new SettingDefinition('orders.fraud.driver', 'Fraud check provider', 'select', options: ['none' => 'None', 'rules' => 'Built-in rules']),
+            new SettingDefinition('orders.fraud.driver', 'Fraud check provider', 'select', options: FraudScreening::LABELS),
             new SettingDefinition('orders.fraud.max_pending_orders', 'Maximum pending orders per client', 'integer', rules: ['min:0']),
             new SettingDefinition('orders.fraud.max_orders_per_ip', 'Maximum orders per IP address in 24 hours', 'integer', rules: ['min:0']),
             new SettingDefinition('orders.fraud.banned_email_domains', 'Banned email domains', 'text', 'Comma separated, e.g. mailinator.com'),
@@ -277,6 +327,6 @@ class OrdersServiceProvider extends ModuleServiceProvider
         $automation->task('orders.cancel_stale_pending', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => (int) $this->app->make(Settings::class)->get('orders.auto_cancel_unpaid_days', 0) > 0
             ? $this->app->make(CancelStalePendingOrders::class)->handle($today)
             : 0, label: 'Cancel stale unpaid orders', description: 'Cancels pending orders whose invoice is still unpaid after the configured number of days.');
-        $automation->task('orders.prune_carts', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $this->app->make(PruneExpiredCarts::class)->handle(), label: 'Delete expired carts', description: 'Removes shopping carts past their expiry.');
+        $automation->task('orders.prune_carts', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => $this->app->make(PruneExpiredCarts::class)->handle(), label: 'Delete expired carts', description: 'Removes shopping carts past their expiry.');
     }
 }

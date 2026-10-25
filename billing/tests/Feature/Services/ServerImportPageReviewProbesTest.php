@@ -50,7 +50,7 @@ function reviewLargeImport(Server $server, int $count, int $linked): ServerAccou
             'category' => $i <= $linked ? 'linked' : 'unmatched', 'client_id' => null, 'product_id' => null, 'service_id' => null, 'note' => null, 'differences' => []];
     }
 
-    return ServerAccountImport::query()->create(['server_id' => $server->id, 'status' => 'ready', 'accounts' => $accounts, 'account_count' => $count,
+    return importWithAccounts($accounts, ['server_id' => $server->id, 'status' => 'ready', 'account_count' => $count,
         'linked_count' => $linked, 'unmatched_count' => $count - $linked, 'missing' => [], 'fetched_at' => now(), 'expires_at' => now()->addDay()]);
 }
 

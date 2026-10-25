@@ -1,7 +1,8 @@
-import { Form, Link } from '@inertiajs/react';
+import { Form, Link, setLayoutProps } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import { Check, Globe, Search } from 'lucide-react';
 import { Money } from '@/components/app/money';
+import { CurrencyUnavailable } from '@/components/orders/currency-unavailable';
 import { StorefrontHero } from '@/components/orders/storefront-hero';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,14 @@ import type { PriceRow, StoreGroup, StoreProduct } from '@/types/orders';
 type Props = {
     groups: StoreGroup[];
     currency: string;
+    /** Other currencies with products to buy; only filled when the store is empty in `currency`. */
+    sold_in: string[];
+    account_currency: string | null;
+    support_url: string | null;
+    /** A domain the visitor already owns, carried from the domain search into "Use a domain I own". */
+    existingDomain: string | null;
+    /** Set on a group page (`/store/{group}`), which lists only this group. */
+    group?: { id: number; name: string; slug: string; url: string } | null;
 };
 
 /** Percentage saved against paying monthly for the same period (0 when not cheaper). */
@@ -101,16 +110,19 @@ function ProductCard({
                         key={row.cycle}
                         className="flex items-center justify-between gap-3"
                     >
-                        <span className="flex items-center gap-2 text-muted-foreground">
-                            <Check className="size-3.5" aria-hidden="true" />
+                        <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
+                            <Check
+                                className="size-3.5 shrink-0"
+                                aria-hidden="true"
+                            />
                             {cycleLabel(row.cycle)}
                             {savingFor(product.pricing, row) > 0 && (
-                                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-foreground">
+                                <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[11px] whitespace-nowrap text-foreground">
                                     Save {savingFor(product.pricing, row)}%
                                 </span>
                             )}
                         </span>
-                        <span className="tabular-nums">
+                        <span className="shrink-0 whitespace-nowrap tabular-nums">
                             <Money amount={row.recurring} currency={currency} />
                             <span className="text-muted-foreground">
                                 {cycleSuffix(row.cycle)}
@@ -130,9 +142,7 @@ function ProductCard({
             <div className="mt-auto pt-6">
                 {product.in_stock ? (
                     <Button asChild className="w-full">
-                        <Link href={store.products.show.url(product.id)}>
-                            Configure and order
-                        </Link>
+                        <Link href={product.url}>Configure and order</Link>
                     </Button>
                 ) : (
                     <Button className="w-full" variant="secondary" disabled>
@@ -144,17 +154,36 @@ function ProductCard({
     );
 }
 
-export default function StoreIndex({ groups, currency }: Props) {
+export default function StoreIndex({
+    groups,
+    currency,
+    sold_in: soldIn,
+    account_currency: accountCurrency,
+    support_url: supportUrl,
+    group: currentGroup = null,
+}: Props) {
+    // Client area: a group page sits under Store (the public layout ignores breadcrumbs).
+    setLayoutProps({
+        breadcrumbs: currentGroup
+            ? [{ title: 'Store', href: store.index.url() }]
+            : [],
+    });
+
     const visible = groups.filter((group) => group.products.length > 0);
 
     return (
         <>
-            <Head title="Store" />
+            <Head title={currentGroup?.name ?? 'Store'} />
 
             <StorefrontHero
                 eyebrow="Hosting, servers and domains"
-                title="Everything you need to get online"
-                description="Pick a plan, add a domain and you're live. Clear pricing, no surprises at renewal."
+                title={
+                    currentGroup?.name ?? 'Everything you need to get online'
+                }
+                description={
+                    (currentGroup && visible[0]?.description) ||
+                    "Pick a plan, add a domain and you're live. Clear pricing, no surprises at renewal."
+                }
             >
                 <Form
                     {...store.domains.form()}
@@ -167,7 +196,7 @@ export default function StoreIndex({ groups, currency }: Props) {
                         />
                         <Input
                             name="domain"
-                            placeholder="Find your domain, e.g. mybusiness.com"
+                            placeholder="Find your domain, e.g. ashatraders.com"
                             aria-label="Domain name"
                             className="h-11 bg-background pl-9"
                         />
@@ -198,9 +227,12 @@ export default function StoreIndex({ groups, currency }: Props) {
                 )}
 
                 {visible.length === 0 && (
-                    <p className="text-center text-muted-foreground">
-                        No products are available in {currency} right now.
-                    </p>
+                    <CurrencyUnavailable
+                        title={`Nothing is on sale in ${currency} right now`}
+                        soldIn={soldIn}
+                        accountCurrency={accountCurrency}
+                        supportUrl={supportUrl}
+                    />
                 )}
 
                 {visible.map((group) => (
@@ -210,7 +242,14 @@ export default function StoreIndex({ groups, currency }: Props) {
                         aria-labelledby={`group-${group.id}`}
                         className="scroll-mt-24"
                     >
-                        <div className="mb-6 max-w-2xl space-y-1">
+                        {/* A group page names the group in its title already. */}
+                        <div
+                            className={
+                                currentGroup
+                                    ? 'sr-only'
+                                    : 'mb-6 max-w-2xl space-y-1'
+                            }
+                        >
                             <h2
                                 id={`group-${group.id}`}
                                 className="text-2xl font-semibold tracking-tight"

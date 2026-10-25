@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Services;
 
+use App\Contracts\Core\CompanyClock;
 use App\Enums\BillableType;
 use App\Events\Billing\InvoicePaid;
 use App\Modules\Billing\Enums\AdjustmentKind;
@@ -14,8 +15,10 @@ use App\Modules\Billing\Models\InvoiceAdjustment;
 use App\Modules\Billing\Models\InvoiceItem;
 use App\Modules\Billing\Support\AfterCommit;
 use App\Modules\Billing\Support\BillingSettings;
+use App\Modules\Billing\Support\FiscalSnapshotCalculator;
+use App\Support\CalendarDate;
 use App\Support\Money;
-use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 
 /**
  * Balance bookkeeping shared by every money action: adjustments (credit/debit notes) and the transition to paid.
@@ -27,6 +30,8 @@ class InvoiceSettlement
         private BillingSettings $settings,
         private DocumentNumbers $numbers,
         private CreditLedgerService $credit,
+        private CompanyClock $clock,
+        private FiscalSnapshotWriter $fiscal,
     ) {}
 
     public function adjust(
@@ -39,8 +44,10 @@ class InvoiceSettlement
         ?int $userId = null,
         int $taxableAmount = 0,
         int $taxAmount = 0,
+        ?int $taxNoteId = null,
+        ?CarbonInterface $at = null,
     ): InvoiceAdjustment {
-        $adjustment = $invoice->adjustments()->create([
+        $adjustment = $invoice->adjustments()->make([
             'kind' => $kind,
             'reason' => $reason,
             'amount' => $amount,
@@ -49,9 +56,19 @@ class InvoiceSettlement
             'description' => $description,
             'transaction_id' => $transactionId,
             'created_by' => $userId,
+            'tax_note_id' => $taxNoteId,
         ]);
+        // The caller's one instant dates every row of its transaction; a second now() would not (ADR 0024 §8).
+        $adjustment->forceFill($at !== null ? ['created_at' => $at, 'updated_at' => $at] : [])->save();
 
         $invoice->adjustments_total += $adjustment->signedAmount();
+
+        // The value changes after numbering, summed for the caps (ADR 0024 §3); this is the only writer. Rows written
+        // before numbering are inside the snapshot instead.
+        if ($invoice->numbered_at !== null && in_array($reason->value, FiscalSnapshotCalculator::VALUE_REASONS, true)) {
+            $kind === AdjustmentKind::Credit ? $invoice->credited_total += $amount : $invoice->debited_total += $amount;
+        }
+
         $invoice->recalculateBalance();
         $invoice->save();
 
@@ -59,7 +76,7 @@ class InvoiceSettlement
     }
 
     /**
-     * Move a payable invoice whose balance reached zero to paid: legal number in proforma mode, add-funds credit,
+     * Move a payable invoice whose balance reached zero to paid: legal number and tax snapshot in proforma mode, add-funds credit,
      * and InvoicePaid (after commit) with the line DTOs. Returns whether the transition happened.
      */
     public function settle(Invoice $invoice): bool
@@ -68,18 +85,25 @@ class InvoiceSettlement
             return false;
         }
 
+        $at = $this->clock->now()->utc();
         $invoice->status = InvoiceStatus::Paid;
-        $invoice->paid_at = now();
+        $invoice->paid_at = $at;
 
         if ($invoice->number === null && $this->settings->bool('sequential_paid_numbering')) {
-            $invoice->number = $this->numbers->next(DocumentNumbers::INVOICE);
+            $today = $this->clock->today();
 
             if ($this->settings->bool('set_issue_date_on_payment')) {
-                $invoice->issue_date = CarbonImmutable::today();
+                $invoice->issue_date = $today;
             }
+
+            // The snapshot is written once, in this transaction, with every adjustment written so far (ADR 0024 §2),
+            // and before the sequence row is locked (§4).
+            $this->fiscal->stamp($invoice, $at);
+            $invoice->number = $this->numbers->next(DocumentNumbers::INVOICE, CalendarDate::parse($this->clock->localDate($today)));
         }
 
         $invoice->save();
+        app(NoteRefusals::class)->clear($invoice->id);
 
         if ($invoice->kind === InvoiceKind::AddFunds) {
             $funds = (int) $invoice->items()->where('type', BillableType::AddFunds)->whereNull('cancelled_at')->sum('amount');

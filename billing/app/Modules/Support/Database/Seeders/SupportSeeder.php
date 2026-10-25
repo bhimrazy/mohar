@@ -55,7 +55,7 @@ class SupportSeeder extends DemoSeeder
         $this->incidents();
 
         if ($admin !== null) {
-            StaffSignature::query()->create(['user_id' => $admin->id, 'signature' => "Best regards,\nAdmin · Support team"]);
+            StaffSignature::query()->create(['user_id' => $admin->id, 'signature' => "Best regards,\nAnil Thapa · Support team"]);
             $this->tickets($admin, $departments);
         }
     }
@@ -143,7 +143,7 @@ class SupportSeeder extends DemoSeeder
 
     private function announcements(): void
     {
-        Announcement::query()->create(['title' => 'New datacenter in Frankfurt', 'slug' => 'new-datacenter-frankfurt', 'excerpt' => 'EU customers can now host closer to their visitors.', 'body' => "We're happy to announce our new **Frankfurt** location.\n\nNew orders can pick it at checkout; existing services can be migrated for free.", 'is_published' => true, 'published_at' => now()->subDays(2)]);
+        Announcement::query()->create(['title' => 'New data centre in Singapore', 'slug' => 'new-data-centre-singapore', 'excerpt' => 'Customers across Asia can now host closer to their visitors.', 'body' => "We're happy to announce our new **Singapore** location, alongside Kathmandu.\n\nNew orders can pick it at checkout; existing services can be migrated for free.", 'is_published' => true, 'published_at' => now()->subDays(2)]);
         Announcement::query()->create(['title' => 'PHP 8.4 now available', 'slug' => 'php-84-available', 'excerpt' => 'Switch versions per site from the control panel.', 'body' => 'PHP 8.4 is available on all shared hosting plans. PHP 8.1 reaches end of life on December 31.', 'is_published' => true, 'published_at' => now()->subDays(12)]);
         Announcement::query()->create(['title' => 'Scheduled maintenance window', 'slug' => 'scheduled-maintenance', 'excerpt' => 'Network upgrades next Sunday.', 'body' => 'Brief interruptions of up to 5 minutes are expected between 02:00 and 04:00 UTC.', 'is_published' => true, 'published_at' => now()->addDays(3)]);
         Announcement::query()->create(['title' => 'Holiday support hours (draft)', 'slug' => 'holiday-support-hours', 'body' => 'Draft', 'is_published' => false]);
@@ -205,7 +205,7 @@ class SupportSeeder extends DemoSeeder
                 priority: $priority, serviceId: $serviceId,
             );
 
-            $slow = $open->handle($draft($departments['technical'], 'Website loads very slowly since this morning', "Hi,\n\nSince about 8am our shop at **demo-labs.example** takes 10+ seconds to load. Nothing changed on our side.\n\nCan you check the server?", TicketPriority::High, app(ClientServiceDirectory::class)->forClient($demo->id)[0]['id'] ?? null));
+            $slow = $open->handle($draft($departments['technical'], 'Website loads very slowly since this morning', "Hi,\n\nSince about 8am our shop at **himallabs.com.np** takes 10+ seconds to load. Nothing changed on our side.\n\nCan you check the server?", TicketPriority::High, app(ClientServiceDirectory::class)->forClient($demo->id)[0]['id'] ?? null));
             $this->attachLog($slow);
             $reply->handle($slow, $staff, "Hi {{ requester.first_name }},\n\nThanks for the report. We see elevated I/O on **web03** and a storage disk is being replaced right now — see the [network status](/network-status) page.\n\nI'll update you as soon as it's done.", status: TicketStatus::InProgress);
             app(AddNote::class)->handle($slow, $admin, 'Linked to the web03 disk incident. Follow up once the array has rebuilt.');
@@ -280,6 +280,7 @@ class SupportSeeder extends DemoSeeder
             'first_staff_reply_at' => $staffReplies->first()?->created_at,
             'last_staff_reply_at' => $staffReplies->last()?->created_at,
             'last_client_reply_at' => $clientReplies->last()?->created_at,
+            'first_unanswered_at' => $clientReplies->first(fn (TicketMessage $message): bool => $staffReplies->last() === null || $message->created_at > $staffReplies->last()->created_at)?->created_at,
             'closed_at' => $ticket->closed_at !== null ? $last : null,
         ])->saveQuietly();
 

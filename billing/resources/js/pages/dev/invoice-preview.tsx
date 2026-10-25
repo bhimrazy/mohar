@@ -115,7 +115,7 @@ const INVOICES: Invoice[] = [
         id: 6,
         number: 'INV-2026-1037',
         client: 'Maya Shrestha',
-        email: 'maya@himalayan.coffee',
+        email: 'maya@example.com',
         status: 'paid',
         total: 1596000,
         currency: 'NPR',
@@ -537,7 +537,7 @@ export default function InvoicePreview() {
                         <div className="flex flex-col gap-6 p-(--card-p) sm:flex-row sm:justify-between">
                             <div className="space-y-1">
                                 <div className="font-display text-lg">
-                                    Himalaya Cloud Pvt. Ltd.
+                                    Example Hosting Pvt. Ltd.
                                 </div>
                                 <div className="text-sm text-muted-foreground">
                                     4th Floor, Prestige Tower, Bengaluru 560001

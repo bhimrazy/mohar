@@ -50,7 +50,7 @@ function rcFetch(Server $server, array $rows): array
 
     test()->post(route('admin.services.servers.import.fetch', $server))->assertSessionHasNoErrors();
 
-    return collect(ServerAccountImport::query()->where('server_id', $server->id)->sole()->accounts)->keyBy('username')->all();
+    return collect(ServerAccountImport::query()->where('server_id', $server->id)->sole()->accountRows())->keyBy('username')->all();
 }
 
 test('invalid usernames are dropped, valid ones kept, and emails are trimmed, lowercased and validated', function () {
@@ -84,8 +84,8 @@ test('the suspend reason is capped at 255 characters with control characters rem
 test('reading the latest list deletes an expired one and keeps another server\'s', function () {
     $server = rcServer();
     $other = rcServer(['name' => 'Shared 2']);
-    ServerAccountImport::query()->create(['server_id' => $server->id, 'status' => 'ready', 'accounts' => [['username' => 'alpha']], 'expires_at' => now()->subMinute()]);
-    $kept = ServerAccountImport::query()->create(['server_id' => $other->id, 'status' => 'ready', 'accounts' => [], 'expires_at' => now()->addHour()]);
+    importWithAccounts([['username' => 'alpha']], ['server_id' => $server->id, 'status' => 'ready', 'expires_at' => now()->subMinute()]);
+    $kept = ServerAccountImport::query()->create(['server_id' => $other->id, 'status' => 'ready', 'expires_at' => now()->addHour()]);
 
     expect(FetchAccountsForImport::latest($server))->toBeNull()
         ->and(ServerAccountImport::query()->pluck('id')->all())->toBe([$kept->id]);

@@ -1,97 +1,106 @@
 # Operating model
 
-How the build is run. The main Claude Code session acts as CTO: it plans, writes briefs, launches
-subagents, integrates their branches and merges. Subagents do the module work and the reviews.
+How the build is run. The main Claude Code session acts as CTO: it plans, writes briefs, launches subagents,
+integrates their branches and merges. Subagents do the module work and the reviews. This file states the rules in
+force; the decisions that produced them are in the table at the end and in `history.md`.
 
 ## Roles
 
-Definitions live in `.claude/agents/`. Pass the role's file name as `subagent_type` when launching.
+Definitions live in `.claude/agents/`. Pass the file name as `subagent_type` when launching. Reviewers follow
+`docs/handoff/review-rules.md`.
 
-| Role                 | Agent file            | Model   | Writes code  | Used for                                                               |
-| -------------------- | --------------------- | ------- | ------------ | ---------------------------------------------------------------------- |
-| CTO                  | main session          | —       | kernel only  | plans, briefs, integration, shared kernel, merges, owner updates       |
-| Product manager      | `product-manager`     | inherit | no (docs)    | module specs with acceptance criteria, from public docs                |
-| Principal designer   | `principal-designer`  | opus    | yes (UI)     | design system, themes, brand, UI reviews                               |
-| Module engineer      | `module-engineer`     | inherit | yes          | one module per worktree, end to end, draft PR                          |
-| DevOps engineer      | `devops-engineer`     | inherit | yes          | CI, Docker, Postgres, dependency policy, observability                 |
-| Review board         | `review-board`        | opus    | no           | correctness, contracts, portability, AI-slop on every code PR          |
-| Security reviewer    | `security-reviewer`   | opus    | no           | PRs touching auth, money, uploads, webhooks, external input            |
-| QA + design reviewer | `qa-design-reviewer`  | opus    | no           | acceptance-criteria coverage, exploratory run, UI quality              |
-| Re-reviewer          | `re-reviewer`         | opus    | no           | verifies every round-1 blocking/medium item after fixes                |
-| AI-slop reviewer     | `slop-reviewer`       | opus    | no           | docs/infra PRs and handoff docs (folded into the board for code)       |
-| Product reviewer     | `product-reviewer`    | opus    | small fixes  | the owner's eyes: product standards, directions, WHMCS parity          |
-| Database reviewer    | `database-reviewer`   | opus    | small fixes  | schema, indexes, queries, locking, migrations, PostgreSQL parity       |
-| Principal architect  | `principal-architect` | opus    | ADRs, kernel | boundaries, shared kernel, extension model, cross-cutting design, ADRs |
+| Role                | Agent file                   | Writes code  | Used for                                                                 |
+| ------------------- | ---------------------------- | ------------ | ------------------------------------------------------------------------ |
+| CTO                 | main session                 | kernel only  | plans, briefs, integration, shared kernel, merges, owner updates         |
+| Product manager     | `product-manager`            | no (docs)    | module specs with acceptance criteria, from public docs; area research   |
+| Principal designer  | `principal-designer`         | yes (UI)     | design system, themes, brand, UI directions                              |
+| Module engineer     | `module-engineer`            | yes          | one module, driver or importer per worktree, end to end, draft PR        |
+| DevOps engineer     | `devops-engineer`            | yes          | CI, Docker, deploy, load test, dependency policy, observability          |
+| Review board        | `review-board`               | no           | the one review every code PR gets; "combined" adds security and database |
+| Security reviewer   | `security-reviewer`          | no           | periodic security round; security re-checks; workflow safety             |
+| Database reviewer   | `database-reviewer`          | small fixes  | database audits and performance work                                     |
+| Re-reviewer         | `re-reviewer`                | no           | the re-check after the fix round on money, auth, permission, migrations  |
+| AI-slop reviewer    | `slop-reviewer`              | no           | docs, infrastructure and process PRs (the board covers code)             |
+| Product reviewer    | `product-reviewer`           | small fixes  | the owner's eyes: product standards, directions, WHMCS parity; sweeps    |
+| Principal architect | `principal-architect`        | ADRs, kernel | kernel PRs (brief and diff), ADRs, periodic architecture round           |
+| CEO / CTO advisors  | `ceo-advisor`, `cto-advisor` | no           | the periodic review round                                                |
 
-Reviewers are read-only. All agents run as the same GitHub account, so reviews are posted with
-`gh pr review <n> --comment` (approval is not possible); the verdict line in the comment is the gate.
+Model: chosen at launch with the Agent tool's `model` parameter, not pinned in the definitions, because the owner
+steers which model family has usage headroom. Choose by effort: Haiku for mechanical work (renames, lookups,
+formatting), Sonnet for ordinary work (docs, slop reviews, ordinary features and fixes, research), Opus for design,
+security and money (kernel, auth, architecture, payments, re-checks).
+`module-engineer` is the exception: it is pinned to `sonnet` (the newest Sonnet) in its definition and launched
+without a `model` override, payments and kernel work included (owner, 2026-10-22, after /usage showed it at 37%).
+Opus stays on the reviewers (review-board on money/security PRs, re-reviewer, principal-architect). A stopped agent
+keeps its model on resume, so switching family means a fresh agent with a full brief. All agents share one GitHub
+account, so reviews are posted as comments and the verdict line is the gate.
 
 ## Workstream lifecycle
 
-1. **Spec.** `billing/docs/product/<module>.md` exists with acceptance criteria (MUST/SHOULD).
-2. **Worktree.** `scripts/new-worktree.sh <slug>` → `.worktrees/<slug>/billing` on `feature/<slug>`.
-3. **Build.** Launch `module-engineer` with the brief template in the `run-workstream` skill. The
-   engineer commits in small steps, pushes, and opens a draft PR into `develop` with gates green.
-4. **Round 1 review, in parallel:** `review-board` + `qa-design-reviewer` + `product-reviewer`
-   (every user-facing PR), `database-reviewer` (every PR with migrations, models or
-   non-trivial queries), `principal-architect` (every PR that changes the shared kernel), plus `security-reviewer`
-   when the module handles auth, money, files, webhooks or third-party input.
-5. **Fix.** Resume the same engineer (SendMessage to its agent id) with the review comments.
-   Send all requested changes in one message, and start a review only after the engineer reports a pushed,
-   clean head. Reviewing a head that is still changing wastes the review.
-6. **Re-review.** `re-reviewer` checks each blocking and medium item against the new head.
-7. **Merge (CTO).** Merge `origin/develop` into the branch, resolve conflicts, run all gates locally,
-   mark the PR ready (`gh pr ready <n>`; CI skips drafts), wait for CI, post a sign-off comment, `gh pr merge <n> --merge`. Remove the worktree and branch.
-8. **Before reporting to the owner:** run a `product-reviewer` sweep of `develop` after user-facing
-   merges, act on its owner-blocking findings, and only then send the owner an update. When the owner
-   corrects something, add it to `docs/handoff/product-standards.md` in the same session.
-9. **Record.** Update `docs/handoff/state.md`, `billing/docs/progress.md`, `billing/changelog.md`.
-   Non-blocking review items become GitHub issues.
+1. **Spec.** `billing/docs/product/<module>.md` exists with MUST/SHOULD acceptance criteria. Before a module that
+   encodes local practice (registries, payment enrolment, tax filing, documents), the assumed workflow is put to the
+   owner in one line and the answer waited for.
+2. **Worktree.** `scripts/new-worktree.sh <slug>` → `.worktrees/<slug>/billing` on `feature/<slug>` from a freshly
+   fetched `origin/develop`.
+3. **Build.** Launch `module-engineer` with the brief template in the `run-workstream` skill. The engineer commits in
+   small steps, pushes WIP as `[skip ci]`, verifies locally, and opens a draft PR into `develop` with gates green and
+   a changelog fragment (`billing/changelog.d/<branch-slug>.md`). The architect reviews the brief and any kernel diff before the build, not only the PR.
+4. **Review.** One review per the policy table below, launched only after the engineer reports a pushed, clean head.
+5. **Fix.** Resume the same engineer (SendMessage to its id) with all requested changes in one message. Reviewer
+   probes are adopted as tests in the fix push. At most two fix rounds per PR: if the second re-review finds a
+   defect the fixes introduced, the PR stops and the architect redesigns it (invariant, input space, budget)
+   before more code. A confirmed secret leak is never Low.
+6. **Re-check.** `re-reviewer` for money, auth, permission and migration PRs, always; the CTO verifies from the diff
+   for every other PR, when every adopted probe passes at
+   the head.
+7. **Merge (CTO).** Merge `origin/develop` into the branch, run the gates, mark ready, wait for CI, post the sign-off
+   naming each blocking item and its evidence, `gh pr merge --squash --match-head-commit <sha>`. Use `--merge`
+   instead when another open PR is based on the branch, so the stacked PR keeps its parent's commits (owner,
+   2026-10-24). Remove the worktree and branch.
+8. **Record.** `state.md`, `billing/docs/progress.md`; the PR's changelog fragment is already in. Non-blocking items
+   become issues.
+9. **Before an owner update** after user-facing merges: a `product-reviewer` sweep of `develop`; act on its
+   owner-blocking findings first. Owner corrections go into `product-standards.md` the same session.
 
-Waves: modules with no dependency on each other run in parallel. With the current machine, at most two
-engineers build at once; reviewers are lighter and can overlap.
+## Review policy
 
-## Gates by PR type (from the 2026-10-18 Fable review)
+| PR type                                   | Before merge                                                                                         |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Docs or process only                      | CI fast path; `slop-reviewer` for new handoff or process docs                                        |
+| UI, no migrations or money                | `review-board` (product-standards checklist) + `product-reviewer`; CTO verifies fixes from the diff  |
+| Money, auth, permissions, migrations      | `review-board` combined (code, security, database) → fix round (cap: two) → `re-reviewer`            |
+| Shared kernel or ADR                      | `principal-architect` on the brief, then `principal-architect` + `review-board` on the PR            |
+| Driver (gateway, panel, registrar)        | `review-board` combined + the integration test matrix column + a recorded sandbox run in the PR body |
+| Infrastructure (`deploy/`, workflows, CI) | `review-board` with the DevOps focus (workflow safety while public, `tests/Unit/Deploy` probes)      |
 
-Use the smallest set that fits; more reviewers on a small PR waste time without catching more.
-
-| PR type                            | Reviews before merge                                                                                                                   |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Docs or process only               | CI; `slop-reviewer` only for new handoff docs                                                                                          |
-| UI polish, no migrations or money  | `review-board` (with the product-standards checklist) + CI                                                                             |
-| Feature with migrations            | `review-board` + `database-reviewer` (+ `security-reviewer` for auth, money or external input) → one batched fix round → `re-reviewer` |
-| Shared kernel or ADR               | `principal-architect` + `review-board`                                                                                                 |
-| Driver (gateway, panel, registrar) | `review-board` + `security-reviewer` + contract-test dataset + a recorded real sandbox run in the PR body                              |
-
-- `qa-design-reviewer` is retired; `product-reviewer` (it includes QA) covers user-facing PRs, and sweeps
-  `develop` once per wave.
-- Re-review only when the round had blocking or medium items, or the fix touched locks, gates, money or
-  secrets; otherwise the CTO verifies the diff and CI. Security re-checks stay mandatory after any security
+- No merge path without verification: a PR whose latest verdict is "Changes requested" is not marked ready. The
+  sign-off names each blocking item and the evidence (the re-review for money, auth, permission and migration PRs; a diff read plus the adopted probe green for the rest).
+- Flaky tests are fixed the same day (freeze time, serialise), filed as an issue and re-run until green. A flaky
+  failure is not waved through, and quarantining a test is not a fix.
+- Lows and non-money mediums become issues, not new rounds. Security re-checks stay mandatory after any security
   finding.
-- Reviewer probes become committed regression tests: reviewers push them to `review/pr-<n>-probes` and the
-  engineer adopts them in the fix push, so a re-review is mostly a CI check.
-- CI is the only full-suite runner. Locally, engineers and reviewers run the tests they touched (on SQLite and,
-  for queries or migrations, PostgreSQL); the full suite runs locally only to diagnose a CI failure.
-- Scale engineers by location: at most two building locally; further engineers run as remote agents with CI
-  as the gate. Pilot result (2026-10-19): `isolation: "remote"` was not available here and the storefront home
-  page agent ran in a local worktree under `.claude/worktrees/`; until remote agents work, all builds are local.
-- The architect reviews the brief and the kernel diff **before** the build, not only the finished PR.
-- Specs are written before the build starts, and briefs cite `product-standards.md`.
-- PR size cap is about 3,000 changed lines; split larger work before review. Drivers (gateway, panel,
-  registrar), money and security-sensitive PRs have a hard cap of 1,500 changed lines (tests and fixtures
-  count), with no overrides (CTO review, 2026-10-19).
-- Every review verdict states "PostgreSQL run: yes/no". "No" means the review is incomplete. Draft PRs get the
-  `ci` label so PostgreSQL CI runs before review.
-  The label takes effect on the next push (adding the label from the codespace token does not start a run), and
-  GitHub runs no PR workflow while a PR has merge conflicts with its base: merge `develop` first.
-- Batch handoff and standards doc edits per session instead of one commit per line.
+- Size cap: 2,000 changed lines, adopted probes excluded. An exception is named in the PR body with its reason, and
+  engineers flag the size before building, not after.
+- Reviews only on a pushed, clean head; the final head of a code PR must not carry `[skip ci]`.
+- Code conflicts in money or auth PRs go back to the engineer; the CTO resolves docs and lockfile conflicts (fragments
+  do not conflict), and the resolved head gets CI either way.
+
+## Agent budget
+
+Up to 5 agents at once by default, periodic reviews included (owner approved 2026-10-22: more than 5 is fine when
+needed, which overrides the default of 5 for Mohar); more when there is independent work, bounded by
+machine load (on the 10-core, 24 GB Mac about 7 while the 1-minute load stays near the core count), at least 2 GB of
+memory free and the disk below 85%. Never two agents on the same files: one owner per hot area (KYC images, the
+Redactor, a registrar driver), and no two open PRs change the same pipeline. Order when a slot frees:
+re-checks of PRs awaiting sign-off, then fix rounds, then new builds. No new builds while eight or more PRs await
+review. `state.md` "Open pull requests and running work" lists the running work and the queue.
 
 ## Gates
 
 Run from the worktree's `billing/` directory with `export XDEBUG_MODE=off`:
 
 ```bash
-H=/workspaces/whmcs/scripts/heavy.sh
+H=$MOHAR_ROOT/scripts/heavy.sh
 vendor/bin/pint --dirty --format agent
 $H vendor/bin/phpstan analyse --memory-limit=1G     # Larastan level 7
 php artisan wayfinder:generate --with-form
@@ -99,82 +108,133 @@ npx tsc --noEmit
 npx vp check                                         # Vite+ lint + format
 npm test                                             # Vitest
 $H npm run build
-$H php artisan test --compact                        # full Pest suite, SQLite
+$MOHAR_ROOT/scripts/test.sh --changed                # tests related to the branch's changes, SQLite
+$MOHAR_ROOT/scripts/test.sh --changed --pgsql        # the same on PostgreSQL, for queries and migrations
 ```
 
-PostgreSQL runs in CI on every non-draft PR. To run it locally, use the one shared server with a database per worktree:
-`eval "$(/workspaces/whmcs/scripts/pg.sh <slug>)" && composer test:pgsql` (server `mohar-pg` on 127.0.0.1:55432,
-in-memory data; `scripts/pg.sh --stop` stops it; `scripts/pg.sh --prune <active slugs...>` drops idle test databases of finished work). Don't start private PostgreSQL containers. CI is a single job
-(`billing/docs/devops/ci.md`) that took 3.5–5.5 minutes per run on 2026-10-18; keep it a single job.
+Tests run through `scripts/test.sh`, not hand-picked directories (agents kept missing `tests/Feature/Security` and
+`tests/Feature/Migration`, which catch breakage across PRs). It takes a `scripts/heavy.sh` slot itself and runs
+`pest --parallel` with a worker count picked from the load (`TEST_LOAD_CEILING`, default 8, minus the 1-minute load,
+2–4 for the whole suite; `TEST_PROCESSES` overrides).
+
+- `--changed`: against `origin/develop` (fetch first; a missing base exits 2), plus uncommitted and untracked files:
+  the changed test files; `tests/Feature/<M>`, `tests/Unit/<M>` and every test that names an `App\Modules\<M>\` class
+  for a change in `app/Modules/<M>`; all of `tests/Feature` for a `resources/js` change; and always `tests/Arch`,
+  `tests/Extensions` and, in `tests/Feature`, Security, Migration, TestHarness, Auth, Settings, Reports, Integrations,
+  Review, ReviewProbes and `DashboardTest.php`. A change to `app/Modules/Core` or other shared code (kernel, config,
+  routes, migrations outside modules, `tests/Pest.php`, …) runs the whole suite. It errs towards running more.
+  `--list` prints the selection.
+- No option: the whole suite on SQLite (measured 240 s with 2 workers on the Mac at load 6–10, simulators included). `--pgsql`: on PostgreSQL via
+  `scripts/pg.sh <worktree slug>`, without Unit and Arch, as CI does. Paths and `-- <pest options>` narrow a run.
+- On macOS without `setsid` the simulator tests (`tools/simulators/tests`) run once through `scripts/linux.sh`, in
+  the production base image on SQLite (Docker must be running).
+
+`eval "$($MOHAR_ROOT/scripts/pg.sh <slug>)"` gives a database on the shared server `mohar-pg` (in-memory, recreated
+on demand; `--stop` and `--prune` are for the CTO only); `test.sh --pgsql` calls it. No private PostgreSQL
+containers. CI runs the whole suite on SQLite and PostgreSQL on every ready PR.
+
+## Repository visibility and CI
+
+The owner switches the repository (`bhimrazy/mohar`) between public and private as needed.
+
+- **Public (current, since 2026-10-20 evening):** Actions minutes are free. CI (`.github/workflows/ci.yml`: a checks
+  job, then sharded SQLite and PostgreSQL jobs and the build in parallel, under the one required check; about 5 minutes) runs on every non-draft PR and builds `develop` on every push (#319); the E2E simulator job
+  runs only on pushes to `main`; drafts run only with the `ci`
+  label; the docs fast path runs only `vp check`. Deploy smoke (`deploy-smoke` label), load test (`load-test` label, once
+  #108 merges) and the E2E simulator job (`e2e` label) run only on an explicit CTO decision. Before each switch to public,
+  re-run the secret and workflow check: no secrets in history, no `pull_request_target` with a PR-head checkout,
+  least `permissions:`, label-triggered jobs startable only by maintainers.
+- **Security audits (owner decision 2026-10-21):** `composer audit` and `npm audit` block a PR or push only when it
+  changes a manifest, lockfile, `.npmrc` or workflow file. No nightly audit while `main` is the default branch and a
+  landing page (owner, 2026-10-21): run `composer deps:check` before cutting a release.
+- **Private:** minutes are capped (3,000 a month, reached 90% on 2026-10-20). Merges are then gated locally by
+  `scripts/merge-gate.sh <pr> <head-sha>` (#188, the same steps as CI on the PR merged into `develop`). The gate's
+  summary is posted as a PR comment, the PR merges with `gh pr merge --match-head-commit <gated head>` (no extra
+  commit), and smoke, load and E2E workflows stay off.
+- Mechanics: a PR with merge conflicts gets no workflow run; a `[skip ci]` head also blocks label-triggered runs;
+  adding a label from the codespace token does not start a run until the next push.
+- `main` is a readme-and-licence landing page (all rights reserved) until the first release is cut.
 
 ## Integration rules
 
-- Modules talk only through the shared kernel: contracts in `app/Contracts`, DTOs in `app/Data`, events
-  in `app/Events/<Area>` (ADR 0008). `tests/Arch` enforces this.
-- Registries (navigation, dashboard, permissions, settings, search, automation, themes, client merge)
-  are how a module plugs into the app; a module must work when sibling modules are absent
-  (`MODULES=` filter).
-- PostgreSQL portability rules in `architecture.md` apply to all queries.
-- Security baseline: `billing/docs/security/standards.md` (sensitive-permission tier, step-up with
-  `password.recent`, CSP with nonce, secrets encrypted at rest and never sent to the browser,
-  append-only audit log, client-area scoping through `ClientContext`). Payments settle only through
-  server-side `lookup()`.
+- Modules talk only through the shared kernel: contracts in `app/Contracts`, DTOs in `app/Data`, events in
+  `app/Events/<Area>` (ADR 0008). `tests/Arch` enforces this. Registries (navigation, dashboard, permissions,
+  settings, search, automation, themes, client merge) are how a module plugs in; a module works when siblings are
+  absent (`MODULES=` filter).
+- PostgreSQL portability rules in `architecture.md` apply to all queries. Money in integer minor units (ADR 0002).
+- Security baseline: `billing/docs/security/standards.md`. Payments settle only through server-side `lookup()`.
+- Integration PRs update `billing/docs/testing/integration-test-matrix.md`.
+- Shared-kernel changes are made centrally by the CTO unless the PR body calls them out.
 
-## Machine limits (GitHub Codespace)
+## Machine limits
 
-- 4 vCPU, 15 GB RAM, 32 GB disk. No swap. The 32 GB disk is shared by `/`, `/workspaces` and Docker; about
-  9 GB of it is the base image. `/vscode` (VS Code server) is a separate disk. `/tmp` is a separate large
-  disk (about 100 GB free) that a codespace restart wipes: use it for disposable caches only (the npm
-  cache lives in `/tmp/npm-cache`), never for work.
-- `scripts/heavy.sh` allows 3 heavy commands machine-wide (`HEAVY_SLOTS`), at low CPU/IO priority.
-- `scripts/resource-monitor.sh <log>` logs load, memory, disk and top processes every 30 s. Start it in
-  the background at the start of each session; slow down (fewer agents) when load stays above 4.
-- Disk: each worktree costs about 1 GB (`vendor` + `node_modules`). `scripts/storage-cleanup.sh` (dry run by
-  default, `--apply` to act) removes worktrees whose PR is merged and that are clean and pushed, clears stale
-  Laravel caches, prunes stopped containers and dangling images, and clears the npm cache only when free
-  space is low. Run it in a background loop every 30 minutes during long sessions.
-- Dev servers: give each agent its own port range (8100–8299) and stop servers by port PID
-  (`ss -ltnp | grep :<port>`). Never `pkill -f`; it can match the calling shell.
-- `/tmp` scratch space is wiped when the session restarts. Keep anything reusable in the repo or in
-  `.worktrees/_review/` (local only, not committed).
+The local machine is the owner's Mac (since 2026-10-22: 10 cores, 24 GB, Docker Desktop with 8 CPUs and 3.6 GB). It
+is also the owner's own machine: the agent budget above applies, `/tmp` survives reboots but is still not for work, and
+`storage-cleanup.sh` leaves Docker alone unless `STORAGE_DOCKER=1` (other projects share it). The rules below apply on both.
+
+- Codespace: 4 vCPU, 15 GB RAM, 32 GB disk shared by `/`, `/workspaces` and Docker (about 9 GB is the base image). `/tmp` is a
+  separate disk wiped on restart: disposable caches only (the npm cache lives there), never work.
+- `scripts/heavy.sh` allows three heavy commands machine-wide at low priority. `scripts/resource-monitor.sh <log>`
+  logs load, memory, disk and top processes every 30 s; start it each session.
+- Each worktree costs about 1 GB. `scripts/storage-cleanup.sh --apply` removes worktrees whose PR is merged and that
+  are clean and pushed, clears stale caches, and (on a codespace or with `STORAGE_DOCKER=1`) dangling images; run it every 30 minutes in long sessions.
+- Browser checks use Playwright only (CPU-heavy runs go through `scripts/heavy.sh`), never the owner's Chrome (no Chrome DevTools MCP for agents). Scratch files
+  get a unique name per agent (`$SCRATCH/<agent-slug>/`), so agents never overwrite each other.
+- No `npx` for a tool outside the lockfile (`vp`, `tsc` and `playwright` are in it): it runs unvetted code.
+- Never stop, kill or remove a Docker container you didn't start (`docker kill`, `stop`, `rm`, `compose down`):
+  the shared test database `mohar-pg` and Mailpit serve every agent. Restarting
+  `mohar-pg` is the CTO's call. Its data is on the Docker volume `mohar-pg-data` with a small write-ahead log (#375,
+  #394); each agent drops its own databases when done.
+- Never use `git stash`: the stash stack is shared by every worktree, so one agent can pop another's work. Set work
+  aside with a temporary commit instead.
+- `.claude/settings.json` denies these Docker commands, `git stash` (all forms, including `push -m`), `npx -y`
+  and Chrome, so an agent cannot run them by mistake.
+- Dev servers: each agent gets its own port range (8100–8299); port 8000 is the owner's preview and is never touched
+  by agents. Stop servers by port PID; never `pkill -f`. Chain `cd` with `&&`; never run commands in the main
+  checkout from an agent.
 
 ## Conventions
 
-- Branches: `feature/<slug>` from `develop`; `develop` is integration; `main` is release.
-- Commit messages: Conventional Commits, ending with the attribution trailer the harness specifies.
-- PR bodies: summary, spec coverage, shared-kernel changes, security notes, tests, screenshots.
-- Screenshots: run `npm run images:optimize -- <paths>` (in `billing/`) before committing images; CI fails
-  on any image over 500 KB (`npm run images:check`). Screenshots: headless Playwright against a running instance, saved under
-  `billing/docs/screenshots/<module>/` and linked from progress.md.
-- Tests: Pest feature tests per capability, reasonable not exhaustive. Browser E2E will use the Pest
-  browser plugin (Playwright) for critical flows only.
+- Branches `feature/<slug>` from `develop`; `develop` is integration; `main` is release. Review probes on
+  `review/pr-<n>-probes`, archived as tags after adoption. Snapshot branches `wip/<branch>-snapshot` are deleted once
+  the work lands.
+- Changelog fragments (owner decision 2026-10-23, ADR 0027). A PR never edits `billing/changelog.md` or
+  `billing/docs/architecture/kernel-changelog.md`; it adds `billing/changelog.d/<branch-slug>.md` (sections
+  `### Added`, `### Changed`, `### Fixed`, `### Security`, then bullets) and, for a kernel API change,
+  `billing/docs/architecture/kernel-changelog.d/<branch-slug>.md` (one `### <title> (#<pr>)` entry). Formats: the
+  `README.md` in each folder. The CTO runs `scripts/changelog-assemble.sh` at a release or when the folders grow and
+  commits the result with the trailer `Changelog-Assemble: yes`. CI fails any other direct edit and a malformed
+  fragment, and warns when app or kernel code changes without one. PRs up to #396 keep their direct edits.
+- ADR amendments are keyed by PR, not numbered (ADR 0027): a new one is headed `## Amendment (#<pr>) — <date>, <title>`
+  and cited as "ADR 0009 Amendment (#368)". Existing numbered amendments keep their numbers.
+- Conventional Commits with no attribution trailer or footer (no `Co-Authored-By: Claude`; owner rule, 2026-10-22). PR bodies: summary, spec coverage,
+  shared-kernel changes, security notes, tests, screenshots.
+- Screenshots: headless Playwright, under `billing/docs/screenshots/<module>/`, through `npm run images:optimize`
+  (CI fails on images over 500 KB).
+- Markdown docs use kebab-case names, except `CLAUDE.md`. Docs are factual and plain.
 
-## Periodic reviews (owner request, 2026-10-19)
+## Periodic reviews
 
-Every 12 hours, and after a restart if the last round is older than that, the CTO session runs one review
-round in parallel, read-only, each writing to `docs/reviews/<date>-<kind>.md`:
-
-| Kind         | Agent                 | Model | Scope                                                                              |
-| ------------ | --------------------- | ----- | ---------------------------------------------------------------------------------- |
-| CEO          | `ceo-advisor`         | Fable | progress score, priorities, business risks, first-week experience of a host        |
-| CTO          | `cto-advisor`         | Fable | velocity, recurring defects, gates, CTO decisions, debt                            |
-| Security     | `security-reviewer`   | Opus  | whole `develop`: auth, permissions, money, secrets, outbound calls, webhooks, mail |
-| Architecture | `principal-architect` | Opus  | kernel surface, module boundaries, ADR drift, scalability                          |
-
-Rules: reviewers do not modify product code; the CTO merges the review files (docs-only PR), turns findings
-into issues or workstream briefs, records owner-relevant items in `state.md`, and reports a short summary to
-the owner. Skip a kind when nothing relevant changed since its last review. Heavy test runs go through
-`scripts/heavy.sh`; when the machine is loaded, security runs targeted tests only. The schedule lives in the
-session (CronCreate, every 12 hours) and is recreated by the `resume-session` skill after a restart.
+Every 12 hours, and after a restart if the last round is older, the CTO runs the `review-round` skill in two waves
+(within the 5-agent limit): `ceo-advisor` and `cto-advisor`, then `security-reviewer` (whole `develop`) and
+`principal-architect`, read-only, each writing
+`docs/reviews/<date>-<kind>.md`. The owner's progress number is the rubric sum in `docs/reviews/readme.md`.
 
 ## Session restarts
 
-The codespace reboots without warning (four times on 2026-10-19; the last stop ran overnight, 16:09 to 06:36 UTC). Engineers commit and push work in progress at
-least every 30 minutes; /tmp and the shared PostgreSQL are lost on reboot (`pg.sh` recreates the server).
+The codespace reboots without warning. Engineers commit and push at least every 30 minutes (`wip(<scope>): … [skip
+ci]`). Background agents and shell jobs stop with the Claude Code process; transcripts survive on the same machine.
+The `resume-session` skill audits worktrees, snapshots uncommitted work to `wip/<branch>-snapshot`, restarts the
+preview and monitors, and relaunches interrupted work.
 
-Background agents and shell jobs stop when the Claude Code process exits, but agent transcripts survive
-on the same machine. On restart: audit worktrees (commits ahead, dirty files), push unpushed commits and
-snapshot uncommitted work to `wip/<branch>-snapshot`, merge green PRs whose watchers died, check open PRs and CI,
-then resume each agent with SendMessage to its id, telling it what state its worktree is in. On a new
-device the transcripts are not available: relaunch from the agent definitions and the brief template,
-pointing the agent at the existing branch and PR. The `resume-session` skill covers both.
+## Decisions behind the rules
+
+| Date       | Decision (owner unless noted)                                                                                                                                                                                                                                                                                                                        |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-10-18 | Fable review: smallest review set per PR type; probes as tests; architect before the build                                                                                                                                                                                                                                                           |
+| 2026-10-19 | Periodic review round every 12 hours; WIP pushes `[skip ci]`                                                                                                                                                                                                                                                                                         |
+| 2026-10-20 | Speed: combined review + one re-check; 2,000-line cap; agents to machine limits; `qa-design-reviewer` retired                                                                                                                                                                                                                                        |
+| 2026-10-20 | CI is a budget while private (local merge gate, #188); then public with CI on PRs; `main` minimal, all rights reserved                                                                                                                                                                                                                               |
+| 2026-10-20 | Nepal is the main market; `.np` is registered by clients themselves; confirm local practice before building                                                                                                                                                                                                                                          |
+| 2026-10-21 | Fable for subagents, then Opus/Sonnet by task after Fable's weekly limit; repository renamed `bhimrazy/mohar`; shared `review-rules.md`; `agent-log.md` retired                                                                                                                                                                                      |
+| 2026-10-22 | CTO review adopted: two fix rounds then redesign; 5 agents by default, more for independent work within machine load; model by effort; two-wave review round; one owner per hot area; same-day flaky fixes; `develop` built on push, E2E on `main`; Playwright only; no `npx` outside the lockfile. Changelog fragments proposed, awaiting the owner |

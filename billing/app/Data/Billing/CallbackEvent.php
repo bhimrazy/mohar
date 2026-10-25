@@ -18,6 +18,18 @@ final readonly class CallbackEvent
     public const CHARGEBACK = 'chargeback';
 
     /**
+     * The merchant won a dispute and the provider returned the disputed money. $txnId is the dispute id the CHARGEBACK
+     * carried; Billing reverses what that chargeback booked, once per dispute id.
+     */
+    public const DISPUTE_WON = 'dispute_won';
+
+    /**
+     * A dispute the provider opened without withdrawing money (an inquiry, #212). $txnId is the dispute id; Billing
+     * puts it on the staff to-do and moves no money. A later CHARGEBACK with the same id books the money.
+     */
+    public const DISPUTE_INQUIRY = 'dispute_inquiry';
+
+    /**
      * A hosted payment attempt changed at the provider. $reference names our attempt; Billing settles it through
      * HostedPaymentDriver::lookup() and the attempt's stored amount and rate, never from the event's figures.
      */
@@ -29,6 +41,10 @@ final readonly class CallbackEvent
      *                                        callbacks more than 5 minutes old (replay protection)
      * @param  string|null  $reference  our own reference: the payment attempt (ATTEMPT_UPDATED), or the refund
      *                                  transaction a REFUND was started from (RefundRequest::$reference)
+     * @param  bool  $fundsReinstated  DISPUTE_WON only: the provider's own record shows the disputed money both
+     *                                 withdrawn and reinstated, so the win is final there. A win for which no
+     *                                 chargeback was booked is then acknowledged with nothing to record (#232),
+     *                                 instead of being refused until a chargeback that will never come
      */
     public function __construct(
         public string $type,
@@ -41,6 +57,7 @@ final readonly class CallbackEvent
         public array $raw = [],
         public ?CarbonImmutable $sentAt = null,
         public ?string $reference = null,
+        public bool $fundsReinstated = false,
     ) {}
 
     /**

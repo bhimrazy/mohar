@@ -9,6 +9,42 @@ import { Button } from '@/components/ui/button';
 import { GatewayLogo } from './gateway-logo';
 import type { PaymentInProgressData } from './types';
 
+function staffMessage(attempt: PaymentInProgressData): string {
+    const name = attempt.gateway_name;
+
+    if (attempt.status === 'failed' || attempt.status === 'expired') {
+        return 'The client left this payment unfinished. It is still checked with the provider in case it was paid after all.';
+    }
+
+    return attempt.status === 'ambiguous'
+        ? `Needs review: ${attempt.review_reason ?? 'the provider could not confirm the payment yet'}. It is still checked every few minutes.`
+        : `The client started this payment. It is checked with ${name} every few minutes until it settles.`;
+}
+
+function clientMessage(attempt: PaymentInProgressData): string {
+    const name = attempt.gateway_name;
+
+    if (attempt.status === 'ambiguous') {
+        return `Our team is checking it with ${name}. If you were charged, you don't need to pay again; contact us if this takes long.`;
+    }
+
+    if (attempt.status === 'failed' || attempt.status === 'expired') {
+        return "If you didn't finish this payment, you can pay another way.";
+    }
+
+    if (attempt.can_pay_another_way) {
+        return `The ${name} session has ended. If you didn't finish paying there, you can pay another way.`;
+    }
+
+    if (attempt.can_resume && !attempt.can_close) {
+        return `If you left the ${name} page before paying, continue where you left off. If you already paid, this invoice updates once ${name} confirms it.`;
+    }
+
+    return attempt.can_resume
+        ? `If your payment didn't go through (for example, a declined card), continue it or use another method.`
+        : `If you completed the payment at ${name}, you don't need to do anything: this invoice updates once ${name} confirms it.`;
+}
+
 /**
  * A hosted payment that was started and isn't confirmed yet. It stays on the invoice until it settles, so nobody
  * pays twice by accident. Clients get "Check status" (one quick lookup); staff pass their own actions.
@@ -24,14 +60,17 @@ export function PaymentInProgressCard({
 }) {
     const name = attempt.gateway_name;
     const review = attempt.status === 'ambiguous';
+    const ended = attempt.status === 'failed' || attempt.status === 'expired';
 
     return (
         <SectionCard
-            title="Payment in progress"
+            title={ended ? 'Payment not completed' : 'Payment in progress'}
             description={
-                review
-                    ? `${name} hasn't confirmed this payment yet.`
-                    : `Waiting for ${name} to confirm this payment.`
+                ended
+                    ? 'This payment was cancelled or left unfinished.'
+                    : review
+                      ? `${name} hasn't confirmed this payment yet.`
+                      : `Waiting for ${name} to confirm this payment.`
             }
         >
             <div className="grid gap-4">
@@ -65,15 +104,7 @@ export function PaymentInProgressCard({
                     )}
                 </div>
                 <p className="text-sm text-muted-foreground">
-                    {staff
-                        ? review
-                            ? `Needs review: ${attempt.review_reason ?? 'the provider could not confirm the payment yet'}. It is still checked every few minutes.`
-                            : `The client started this payment. It is checked with ${name} every few minutes until it settles.`
-                        : review
-                          ? `Our team is checking it with ${name}. If you were charged, you don't need to pay again; contact us if this takes long.`
-                          : attempt.can_pay_another_way
-                            ? `The ${name} session has ended. If you didn't finish paying there, you can pay another way.`
-                            : `If you completed the payment at ${name}, you don't need to do anything: this invoice updates once ${name} confirms it.`}
+                    {staff ? staffMessage(attempt) : clientMessage(attempt)}
                 </p>
                 <div className="flex flex-wrap gap-2">
                     {actions ?? (

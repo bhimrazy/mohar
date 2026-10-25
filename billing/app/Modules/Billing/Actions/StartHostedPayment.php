@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Billing\ResumesHostedPayment;
 use App\Contracts\Orders\PaymentGuard;
 use App\Data\Billing\FormPost;
 use App\Data\Billing\PaymentIntent;
@@ -15,6 +16,7 @@ use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Services\GatewayCharger;
 use App\Modules\Billing\Services\GatewayLogger;
 use App\Modules\Billing\Support\PaymentInProgress;
+use App\Support\Integrations\Redactor;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -81,7 +83,7 @@ class StartHostedPayment
         $snapshot = $invoice->client_snapshot ?? [];
 
         try {
-            $instruction = $driver->initiate($config, new PaymentIntent(
+            $instruction = $this->gateways->during($config, fn (): RedirectInstruction|FormPost|QrPayload => $driver->initiate($config, new PaymentIntent(
                 reference: $attempt->reference,
                 amount: $amount,
                 description: __('Invoice :number', ['number' => $invoice->displayNumber()]),
@@ -90,20 +92,22 @@ class StartHostedPayment
                 customerName: is_string($snapshot['name'] ?? null) ? $snapshot['name'] : null,
                 customerEmail: is_string($snapshot['email'] ?? null) ? $snapshot['email'] : null,
                 invoiceId: $invoice->id,
-            ));
+            )));
         } catch (Throwable $exception) {
             // Nothing was handed to the customer, so the attempt can never be paid: close it and say so plainly.
             $attempt->update(['status' => AttemptStatus::Failed, 'review_reason' => 'Provider refused to start the payment']);
-            $this->log->log($gatewayKey, 'response', 'hosted payment start failed', ['reference' => $attempt->reference, 'error' => mb_substr($exception->getMessage(), 0, 500)], $invoice->id);
+            $this->log->log($gatewayKey, 'response', 'hosted payment start failed', ['reference' => $attempt->reference, 'error' => mb_substr(app(Redactor::class)->maskValues($exception->getMessage(), GatewayLogger::secrets($gatewayKey)), 0, 500)], $invoice->id);
             report($exception);
 
             throw new BillingException(__(':gateway couldn\'t start the payment. Try again in a few minutes or use another method.', ['gateway' => $gateway->display_name]));
         }
 
-        // The provider's own session expiry, when it states one, decides how long the invoice stays locked.
+        // The provider's own session expiry, when it states one, decides how long the invoice stays locked. A resumable
+        // provider page is kept (encrypted) for "Continue payment" (#251), only for a driver that can reopen it.
         $attempt->update(array_filter([
             'provider_ref' => $instruction->providerRef,
             'expires_at' => $instruction->expiresAt,
+            'resume_url' => $instruction instanceof RedirectInstruction && $instruction->keepForResume && $driver instanceof ResumesHostedPayment ? $instruction->url : null,
         ], fn (mixed $value): bool => $value !== null));
         $this->log->log($gatewayKey, 'request', 'hosted payment started', ['reference' => $attempt->reference, 'amount' => $amount->amount, 'currency' => $amount->currency], $invoice->id);
 

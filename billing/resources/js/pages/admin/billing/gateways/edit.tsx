@@ -38,6 +38,8 @@ type Props = {
         convert_to_currency: string | null;
         settings: Record<string, string>;
         secrets_set: Record<string, boolean>;
+        /** Keys of stored secrets shorter than their minimum. */
+        secrets_short: string[];
     };
     fields: SettingFieldData[];
     currencies: string[];
@@ -270,6 +272,10 @@ export default function GatewayEdit({
                                             secretStored={
                                                 gateway.secrets_set[field.key]
                                             }
+                                            secretShort={gateway.secrets_short.includes(
+                                                field.key,
+                                            )}
+                                            checkMinLength
                                             error={
                                                 errors[`settings.${field.key}`]
                                             }

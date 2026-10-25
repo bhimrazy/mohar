@@ -2,22 +2,35 @@
 
 namespace App\Modules\Services;
 
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Services\CatalogUsage;
 use App\Contracts\Services\ClientServiceDirectory;
 use App\Contracts\Services\ProvisioningDrivers;
 use App\Contracts\Services\ServiceRegistry;
+use App\Enums\BillingCycle;
 use App\Events\Billing\InvoiceCancelled;
 use App\Events\Billing\InvoicePaid;
 use App\Events\Orders\OrderPlaced;
+use App\Events\Services\ServiceActivated;
+use App\Events\Services\ServiceCancelled;
+use App\Events\Services\ServiceRenewed;
+use App\Events\Services\ServiceSuspended;
+use App\Events\Services\ServiceTerminated;
+use App\Events\Services\ServiceUnsuspended;
+use App\Events\Services\ServiceUpgraded;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\ClientContext;
+use App\Modules\Core\Support\InstallSecrets;
 use App\Modules\Core\Support\RequestMemo;
+use App\Modules\Core\Support\RetentionRunDate;
 use App\Modules\Services\Actions\CompleteLimitedServices;
 use App\Modules\Services\Actions\ExpireUnpaidChanges;
 use App\Modules\Services\Actions\GenerateRenewals;
 use App\Modules\Services\Actions\ProcessCancellations;
 use App\Modules\Services\Actions\PruneModuleLog;
+use App\Modules\Services\Actions\PruneUsageSnapshots;
 use App\Modules\Services\Actions\SuspendOverdueServices;
 use App\Modules\Services\Actions\SyncUsage;
 use App\Modules\Services\Actions\TerminateOverdueServices;
@@ -32,27 +45,44 @@ use App\Modules\Services\Listeners\RecordOrderInvoice;
 use App\Modules\Services\Listeners\SyncCancelledInvoice;
 use App\Modules\Services\Models\CancellationRequest;
 use App\Modules\Services\Models\ModuleQueueItem;
+use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerAccountImport;
+use App\Modules\Services\Models\ServerAccountImportAccount;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\EloquentCatalogUsage;
 use App\Modules\Services\Services\EloquentClientServiceDirectory;
 use App\Modules\Services\Services\EloquentServiceRegistry;
 use App\Modules\Services\Services\RegistryProvisioningDrivers;
+use App\Modules\Services\Support\AccountList;
+use App\Modules\Services\Support\ClientNameservers;
+use App\Modules\Services\Support\CommandInitiators;
+use App\Modules\Services\Support\ServerSettings;
+use App\Modules\Services\Support\ServicesAdminClientSummary;
 use App\Modules\Services\Support\ServicesDashboard;
 use App\Support\Automation\Automation;
+use App\Support\CalendarDate;
+use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Events\WebhookEvents;
+use App\Support\Integrations\StoredSecrets;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Security\EncryptedColumn;
+use App\Support\Security\EncryptedModel;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Services\ProvisioningDriverRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
-use Illuminate\Foundation\DevCommands;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 
 class ServicesServiceProvider extends ModuleServiceProvider
 {
@@ -64,6 +94,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
     protected function registerModule(): void
     {
         $this->app->singleton(LogDriver::class);
+        $this->app->scoped(CommandInitiators::class);
         $this->app->bind(ServiceRegistry::class, EloquentServiceRegistry::class);
         $this->app->bind(CatalogUsage::class, EloquentCatalogUsage::class);
         $this->app->bind(ProvisioningDrivers::class, RegistryProvisioningDrivers::class);
@@ -72,17 +103,53 @@ class ServicesServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $webhooks = $this->app->make(WebhookEvents::class);
+        $webhooks->register(ServiceActivated::class, 'service.activated', 'service', 'serviceId');
+        $webhooks->register(ServiceSuspended::class, 'service.suspended', 'service', 'serviceId');
+        $webhooks->register(ServiceUnsuspended::class, 'service.unsuspended', 'service', 'serviceId');
+        $webhooks->register(ServiceRenewed::class, 'service.renewed', 'service', 'serviceId');
+        $webhooks->register(ServiceUpgraded::class, 'service.upgraded', 'service', 'serviceId');
+        $webhooks->register(ServiceCancelled::class, 'service.cancelled', 'service', 'serviceId');
+        $webhooks->register(ServiceTerminated::class, 'service.terminated', 'service', 'serviceId');
+
+        // Encrypted casts, for `security:reencrypt` (ADR 0022).
+        $encrypted = $this->app->make(EncryptedStorage::class);
+        $encrypted->register('services_servers', new EncryptedModel(Server::class));
+        $encrypted->register('services_services', new EncryptedModel(Service::class));
+        $encrypted->register('services_module_queue', new EncryptedModel(ModuleQueueItem::class));
+        $encrypted->register('services_account_import_accounts', new EncryptedModel(ServerAccountImportAccount::class));
+        // Lists the previous release stored whole, until AccountList::adopt() moves them (a later release drops the column).
+        $encrypted->register('services_account_imports', new EncryptedColumn('server_account_imports', 'accounts'));
+        $this->app->make(InstallSecrets::class)->define(AccountList::EMAIL_HASH_SECRET, fn (array $keys): string => hash_hmac('sha256', AccountList::EMAIL_HASH_SECRET, $keys[0] ?? ''));
+
         $drivers = $this->app->make(ProvisioningDriverRegistry::class);
         $drivers->register('none', NoneDriver::class);
         $drivers->register('log', LogDriver::class);
         $drivers->register(CpanelDriver::KEY, CpanelDriver::class);
 
+        // Stored server credentials and settings checked against their minimum length (`integrations:short-secrets`).
+        $this->app->make(StoredSecrets::class)->register('servers', function (): iterable {
+            $settings = $this->app->make(ServerSettings::class);
+
+            foreach (Server::query()->lazyById() as $server) {
+                $owner = "{$server->name} (#{$server->id})";
+
+                yield ['owner' => $owner, 'fields' => $settings->credentialFields(), 'values' => fn (): array => $settings->credentials($server)];
+                yield ['owner' => $owner, 'fields' => $settings->fields($server->driver), 'values' => fn (): array => $server->settings ?? []];
+            }
+        });
+
+        // A service's prices are stored in its client's currency (client-import spec §6.4); a deleted one still counts.
+        $this->app->make(ClientCurrencyUsage::class)->register('services', fn (array $clientIds): array => Service::withTrashed()
+            ->whereIn('client_id', $clientIds)->distinct()->pluck('client_id')->all());
+
         Event::listen(InvoicePaid::class, ApplyPaidInvoice::class);
         Event::listen(InvoiceCancelled::class, SyncCancelledInvoice::class);
         Event::listen(OrderPlaced::class, RecordOrderInvoice::class);
 
-        // Driver commands run on the "provisioning" queue; the dev runner must consume it too.
-        DevCommands::artisan('queue:listen --queue=provisioning,default --tries=1 --timeout=0', 'queue');
+        // Account import: ticking rows and confirming an import count separately, per staff member.
+        RateLimiter::for('services-import-select', fn (Request $request): Limit => Limit::perMinute(120)->by('import-select:'.$request->user()?->id));
+        RateLimiter::for('services-import-apply', fn (Request $request): Limit => Limit::perMinute(6)->by('import-apply:'.$request->user()?->id));
 
         $this->registerAutomation();
         $this->registerNavigation();
@@ -108,8 +175,9 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $automation->task('services.terminations', Automation::TERMINATIONS, fn (CarbonImmutable $today): int => app(TerminateOverdueServices::class)->handle($today), label: 'Terminate overdue services', description: 'Terminates services that stayed overdue past the termination threshold.');
         $automation->task('services.complete-limited', Automation::TERMINATIONS, fn (CarbonImmutable $today): int => app(CompleteLimitedServices::class)->handle($today), label: 'Complete fixed-term services', description: 'Marks services with a renewal limit as completed after their last paid period.');
         $automation->task('services.usage-sync', Automation::SYNC, fn (CarbonImmutable $today): int => app(SyncUsage::class)->handle($today), label: 'Sync usage from servers', description: 'Records one usage snapshot per service from each server.');
-        $automation->task('services.import-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => ServerAccountImport::query()->where('expires_at', '<=', now())->delete(), label: 'Discard expired account imports', description: 'Deletes account lists fetched for import more than a day ago; they hold client emails.');
-        $automation->task('services.module-log-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneModuleLog::class)->handle($today), label: 'Prune the module log', description: 'Deletes provisioning module log entries older than the retention period.');
+        $automation->task('services.import-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => ServerAccountImport::pruneExpired(), label: 'Discard expired account imports', description: 'Deletes up to 100 account lists (about 50,000 accounts) a run that were fetched for import more than a day ago (or finished an import more than a day ago); they hold client emails. A list still being imported is kept.');
+        $automation->task('services.module-log-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneModuleLog::class)->handle(RetentionRunDate::ofCarbon($today)), label: 'Prune the module log', description: 'Deletes provisioning module log entries older than the retention period.');
+        $automation->task('services.usage_prune', Automation::HOUSEKEEPING, fn (CalendarDate $today): int => app(PruneUsageSnapshots::class)->handle(RetentionRunDate::of($today)), label: 'Prune usage history', description: 'Deletes disk and bandwidth snapshots older than the retention period, keeping each service\'s latest.');
     }
 
     private function registerNavigation(): void
@@ -136,6 +204,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
         ], 'services.services.view', 30);
 
         $this->app->make(ServicesDashboard::class)->register($dashboard);
+        $this->app->make(ServicesAdminClientSummary::class)->register($dashboard);
 
         $dashboard->card('admin', 'services.pending', fn (?User $user): array => [
             'label' => 'Pending provisioning',
@@ -150,6 +219,13 @@ class ServicesServiceProvider extends ModuleServiceProvider
             'href' => route('admin.services.module-log.index', ['tab' => 'queue']),
             'icon' => 'Activity',
         ], 'services.module_log.view', 32, mirrorsTodo: true);
+
+        $dashboard->todo('admin', 'services.nameservers', fn (?User $user): array => [
+            'label' => 'Set your nameservers so clients with their own domain know where to point it.',
+            'count' => $this->app->make(ClientNameservers::class)->configured() ? 0 : 1,
+            'href' => route('admin.services.servers.index'),
+            'tone' => 'warning',
+        ], 'services.servers.view', 35);
 
         $dashboard->todo('admin', 'services.pending', fn (?User $user): array => [
             'label' => 'Services waiting for provisioning',
@@ -176,7 +252,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
         ], 'services.cancellations.manage', 32);
 
         $dashboard->widget('admin', 'services.renewals', 'list', function (?User $user): array {
-            $today = CarbonImmutable::today();
+            $today = app(CompanyClock::class)->todayDate();
 
             return [
                 'title' => 'Renewals due in 7 days',
@@ -205,24 +281,68 @@ class ServicesServiceProvider extends ModuleServiceProvider
             ];
         }, 'services.services.view', 54, 'md');
 
-        $dashboard->card('client', 'services.active', fn (?User $user, Client $client): array => [
+        $canSee = fn (?User $user, Client $client): bool => app(ClientContext::class)->allows($user, $client, 'services');
+
+        $dashboard->card('client', 'services.active', fn (?User $user, Client $client): ?array => $canSee($user, $client) ? [
             'label' => 'Active services',
             'value' => Service::query()->where('client_id', $client->id)->where('status', ServiceStatus::Active->value)->count(),
             'href' => route('client.services.index'),
             'icon' => 'Server',
-        ], order: 10);
+        ] : null, order: 10);
 
-        $dashboard->card('client', 'services.renewing', fn (?User $user, Client $client): array => [
+        $dashboard->card('client', 'services.renewing', fn (?User $user, Client $client): ?array => $canSee($user, $client) ? [
             'label' => 'Renewing in 30 days',
             'value' => Service::query()->where('client_id', $client->id)
                 ->whereIn('status', [ServiceStatus::Active->value, ServiceStatus::Suspended->value])
                 ->where('do_not_renew', false)
                 ->whereNotNull('next_due_date')
-                ->whereDate('next_due_date', '<=', CarbonImmutable::today()->addDays(30))
+                ->whereDate('next_due_date', '<=', app(CompanyClock::class)->todayDate()->addDays(30))
                 ->count(),
             'href' => route('client.services.index'),
             'icon' => 'Receipt',
-        ], order: 11);
+        ] : null, order: 11);
+
+        $dashboard->widget('client', 'services.list', 'list', fn (?User $user, Client $client): ?array => $canSee($user, $client) ? [
+            'title' => 'Your services',
+            // Suspended and pending first (they need the client), then the next renewal.
+            'items' => Service::query()->where('client_id', $client->id)
+                ->whereIn('status', [ServiceStatus::Suspended->value, ServiceStatus::Pending->value, ServiceStatus::Active->value])
+                ->orderByRaw('case status when ? then 0 when ? then 1 else 2 end', [ServiceStatus::Suspended->value, ServiceStatus::Pending->value])
+                ->orderByRaw('next_due_date is null')->orderBy('next_due_date')->orderBy('id')
+                ->limit(4)
+                ->get(['id', 'product_name', 'domain', 'status', 'cycle', 'recurring_amount', 'currency', 'next_due_date', 'do_not_renew'])
+                ->map(fn (Service $service): array => [
+                    'title' => $service->product_name ?? 'Service',
+                    'subtitle' => implode(' · ', array_filter([$service->domain, self::cycleLabel($service->cycle)])),
+                    'href' => route('client.services.show', $service->id),
+                    ...($service->cycle->isRecurring() ? ['money' => ['amount' => $service->recurring_amount, 'currency' => $service->currency]] : []),
+                    'status' => $service->status->value,
+                    // A pending service has not started, so it has no renewal date yet.
+                    'date' => $service->cycle->isRecurring() && $service->status !== ServiceStatus::Pending ? $service->next_due_date?->toDateString() : null,
+                    'dateLabel' => match (true) {
+                        $service->do_not_renew => 'Ends',
+                        (bool) $service->next_due_date?->lt(app(CompanyClock::class)->todayDate()) => 'Was due',
+                        default => 'Renews',
+                    },
+                ])->values()->all(),
+            'href' => route('client.services.index'),
+            'empty' => 'You have no services yet.',
+            'emptyAction' => Route::has('store.index') ? ['label' => 'Browse the store', 'href' => route('store.index')] : null,
+        ] : null, order: 10);
+    }
+
+    private static function cycleLabel(BillingCycle $cycle): string
+    {
+        return match ($cycle) {
+            BillingCycle::Monthly => 'Monthly',
+            BillingCycle::Quarterly => 'Quarterly',
+            BillingCycle::SemiAnnually => 'Every 6 months',
+            BillingCycle::Annually => 'Yearly',
+            BillingCycle::Biennially => 'Every 2 years',
+            BillingCycle::Triennially => 'Every 3 years',
+            BillingCycle::OneTime => 'One-time',
+            BillingCycle::Free => 'Free',
+        };
     }
 
     private function registerPermissions(): void
@@ -269,6 +389,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
             new SettingDefinition('services.module.max_attempts', 'Attempts for retryable module actions', 'integer', rules: ['integer', 'min:1', 'max:10']),
             new SettingDefinition('services.module.lock_wait_seconds', 'Seconds a module action waits for another action on the same service', 'integer', rules: ['integer', 'min:1', 'max:120']),
             new SettingDefinition('services.module_log.retention_days', 'Module log retention (days)', 'integer', rules: ['integer', 'min:1', 'max:3650']),
+            new SettingDefinition('services.usage.retention_days', 'Keep disk and bandwidth usage history for (days)', 'integer', 'Older daily snapshots are deleted by the daily automation; each service keeps its latest one (90 to 3,650).', rules: ['integer', 'min:90', 'max:3650']),
             new SettingDefinition('services.random_usernames', 'Generate random usernames instead of using the domain', 'boolean'),
         ], 'services.settings.manage');
     }

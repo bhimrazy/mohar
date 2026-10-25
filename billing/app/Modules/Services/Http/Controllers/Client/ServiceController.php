@@ -2,16 +2,18 @@
 
 namespace App\Modules\Services\Http\Controllers\Client;
 
+use App\Contracts\Core\CompanyClock;
 use App\Contracts\Services\Provisioning\ChangesPassword;
 use App\Http\Controllers\Controller;
+use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Services\Enums\CancellationType;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Http\Resources\ServiceResource;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\ServicePresenter;
+use App\Modules\Services\Support\ClientNameservers;
 use App\Modules\Services\Support\ServiceSettings;
-use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -40,7 +42,7 @@ class ServiceController extends Controller
         ]);
     }
 
-    public function show(int $service, ServicePresenter $presenter, ServiceSettings $settings): Response
+    public function show(int $service, ServicePresenter $presenter, ServiceSettings $settings, ClientNameservers $nameservers, CompanyClock $clock): Response
     {
         $this->context->authorize('services');
 
@@ -65,12 +67,18 @@ class ServiceController extends Controller
             'usage' => $model->latestUsage?->only(['disk_used_mb', 'disk_limit_mb', 'bw_used_mb', 'bw_limit_mb', 'captured_at']),
             'cancellation' => $model->openCancellationRequest?->only(['id', 'type', 'process_after']),
             'cancellationTypes' => array_map(fn (CancellationType $type): array => ['value' => $type->value, 'label' => $type->label()], CancellationType::cases()),
-            'changeOptions' => Inertia::defer(fn (): array => $presenter->changeOptions($model, CarbonImmutable::today())),
+            'changeOptions' => Inertia::defer(fn (): array => $presenter->changeOptions($model, $clock->todayDate())),
             'creditOnDowngrade' => $settings->creditOnDowngrade(),
+            'nameservers' => $nameservers->forService($model),
             'can' => [
                 'cancel' => $live && $settings->clientCanRequestCancellation() && $model->openCancellationRequest === null,
                 'changePassword' => $live && $driver instanceof ChangesPassword && $model->username !== null,
+                'revealPassword' => $presenter->revealsPassword($model),
             ],
+            // Staff signed in as the client cannot confirm the client's password, so the action is shown disabled.
+            'revealBlockedReason' => session()->has(ActivityLogger::IMPERSONATOR_SESSION_KEY)
+                ? __("Staff signed in as a client can't reveal service passwords. Use the admin service page instead.")
+                : null,
         ]);
     }
 }

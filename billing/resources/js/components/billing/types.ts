@@ -46,6 +46,9 @@ export type Invoice = {
     currency: string;
     issue_date: string | null;
     due_date: string | null;
+    /** "28 Poush 2082 BS" when the BS date setting is on, else null. */
+    issue_date_bs: string | null;
+    due_date_bs: string | null;
     paid_at: string | null;
     subtotal: number;
     discount_total: number;
@@ -67,11 +70,37 @@ export type Invoice = {
     created_at: string | null;
 };
 
+export type TaxId = { label: string; value: string };
+
+/** Who the invoice is from and to, from the snapshots stored on it (`InvoiceParties`). */
+export type InvoiceParties = {
+    document: 'draft' | 'tax_invoice' | 'proforma' | 'invoice';
+    /** Null on a published invoice whose seller details were never stored; it never falls back to today's settings. */
+    seller: {
+        name: string;
+        address: string | null;
+        email: string | null;
+        phone: string | null;
+        tax_ids: TaxId[];
+    } | null;
+    /** A draft has no seller snapshot yet; the block shows today's settings. */
+    seller_from_settings: boolean;
+    buyer: {
+        name: string;
+        contact: string | null;
+        address: string[];
+        email: string | null;
+        tax_id: TaxId | null;
+    } | null;
+    place_of_supply: string | null;
+};
+
 export type Transaction = {
     id: number;
     type: string;
     status: string;
     gateway: string;
+    gateway_label?: string | null;
     gateway_txn_id: string | null;
     amount_in: number;
     amount_out: number;
@@ -82,6 +111,10 @@ export type Transaction = {
     exchange_rate: string | null;
     refundable_remaining: number;
     refundable: boolean;
+    to_review?: number | null;
+    awaiting_confirmation?: boolean;
+    can_resolve?: boolean;
+    stuck_at_lookup?: boolean;
     description: string | null;
     parent_transaction_id: number | null;
     invoice_id: number | null;
@@ -182,11 +215,16 @@ export type PaymentInProgressData = {
     logo: GatewayLogoData | null;
     amount: number;
     currency: string;
-    status: 'pending' | 'ambiguous';
+    /** failed / expired: ended by the customer while the provider could still take it (shown with a warning). */
+    status: 'pending' | 'ambiguous' | 'failed' | 'expired';
     started_at: string | null;
     expires_at: string | null;
     check_url: string;
     can_pay_another_way: boolean;
+    /** Client only: the provider page can be opened again ("Continue payment"). */
+    can_resume: boolean;
+    /** Client only: the attempt can be closed to pay another way ("Use another method"). */
+    can_close: boolean;
     review_reason: string | null;
 };
 
@@ -201,6 +239,7 @@ export type PaymentOptions = {
 export type GatewayOption = {
     value: string;
     partial_refund?: boolean;
+    refund_lookup?: boolean;
     sandbox?: boolean;
     label: string;
     capture?: boolean;

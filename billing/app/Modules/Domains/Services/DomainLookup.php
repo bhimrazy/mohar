@@ -2,15 +2,17 @@
 
 namespace App\Modules\Domains\Services;
 
+use App\Contracts\Domains\Registrar\ChecksAvailability;
+use App\Contracts\Domains\Registrar\SuggestsNames;
+use App\Data\Domains\Registrar\AvailabilityResult;
+use App\Data\Domains\Registrar\RegistrarConfig;
+use App\Modules\Core\Support\SettingList;
 use App\Modules\Core\Support\Settings;
-use App\Modules\Domains\Drivers\Registrars\Data\AvailabilityResult;
-use App\Modules\Domains\Drivers\Registrars\Registrar;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
-use App\Modules\Domains\Exceptions\RegistrarException;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Support\DomainName;
-use App\Modules\Domains\Support\SettingList;
+use App\Support\Domains\RegistrarDriverRegistry;
+use App\Support\Domains\RegistrarException;
 use Closure;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
@@ -25,7 +27,7 @@ class DomainLookup
 
     public function __construct(
         private DomainPricingService $pricing,
-        private RegistrarManager $registrars,
+        private RegistrarDriverRegistry $registrars,
         private RegistrarGateway $gateway,
         private Settings $settings,
     ) {}
@@ -85,13 +87,27 @@ class DomainLookup
      */
     private function availability(string $sld, array $tlds): array
     {
+        // The client registers these at the registry: nothing to ask a registrar, and nothing to sell here.
+        $own = array_values(array_filter($tlds, fn (string $tld): bool => (bool) $this->pricing->tld($tld)?->registered_by_client));
+        $tlds = array_values(array_diff($tlds, $own));
+        $selfRegistered = array_map(fn (string $tld): AvailabilityResult => new AvailabilityResult($sld.$tld, 'self_registered'), $own);
+
+        return [...$this->registrarAvailability($sld, $tlds), ...$selfRegistered];
+    }
+
+    /**
+     * @param  list<string>  $tlds
+     * @return list<AvailabilityResult>
+     */
+    private function registrarAvailability(string $sld, array $tlds): array
+    {
         if ($tlds === []) {
             return [];
         }
 
         $registrar = (string) $this->settings->get('domains.lookup_registrar', 'log');
 
-        if (! $this->registrars->has($registrar) || ! in_array('availability', $this->registrars->capabilitiesOf($registrar), true)) {
+        if (! $this->registrars->supports($registrar, 'availability')) {
             return array_map(fn (string $tld): AvailabilityResult => new AvailabilityResult($sld.$tld, 'unknown'), $tlds);
         }
 
@@ -102,7 +118,8 @@ class DomainLookup
             $results = $this->cachedResults($key, $ttl, fn (): array => $this->gateway->call(
                 $registrar,
                 'availability',
-                fn (Registrar $driver): array => $driver->checkAvailability($sld, $tlds),
+                ChecksAvailability::class,
+                fn (ChecksAvailability $driver, RegistrarConfig $config): array => $driver->checkAvailability($config, $sld, $tlds),
                 request: ['sld' => $sld, 'tlds' => $tlds],
                 logSuccess: false,
             ));
@@ -123,7 +140,8 @@ class DomainLookup
         $registrar = (string) $this->settings->get('domains.lookup_registrar', 'log');
         $tlds = array_values(array_filter(
             array_map(fn ($tld): string => Tld::normaliseExtension((string) $tld), SettingList::of($this->settings->get('domains.suggestion_tlds', []))),
-            fn (string $tld): bool => $this->pricing->tld($tld) !== null,
+            // Self-registered extensions are never suggested: there is nothing to ask the registrar about them.
+            fn (string $tld): bool => ($model = $this->pricing->tld($tld)) !== null && ! $model->registered_by_client,
         ));
 
         if ($limit <= 0 || $tlds === [] || ! $this->registrars->has($registrar)) {
@@ -137,7 +155,8 @@ class DomainLookup
                 $results = $this->cachedResults('domains.suggest.'.$registrar.'.'.$sld.'.'.md5(implode(',', $tlds)), (int) $this->settings->get('domains.lookup_cache_seconds', 300), fn (): array => $this->gateway->call(
                     $registrar,
                     'suggestions',
-                    fn (Registrar $driver): array => $driver->suggest($sld, $tlds, $limit + count($checked)),
+                    SuggestsNames::class,
+                    fn (SuggestsNames $driver, RegistrarConfig $config): array => $driver->suggest($config, $sld, $tlds, $limit + count($checked)),
                     request: ['term' => $sld, 'tlds' => $tlds],
                     logSuccess: false,
                 ));
@@ -211,13 +230,14 @@ class DomainLookup
         $registerTerms = $tld === null ? [] : array_map(fn (int $years): array => [
             'years' => $years,
             'price' => (int) $this->pricing->priceForGroup($extension, 'register', $years, $currency, $clientGroupId),
-        ], $this->pricing->terms($extension, 'register', $currency, $clientGroupId));
+        ], $this->pricing->termsForGroup($extension, 'register', $currency, $clientGroupId));
 
-        $transferTerm = $tld === null ? [] : $this->pricing->terms($extension, 'transfer', $currency, $clientGroupId);
+        $transferTerm = $tld === null ? [] : $this->pricing->termsForGroup($extension, 'transfer', $currency, $clientGroupId);
         $transferPrice = $transferTerm === [] ? null : $this->pricing->priceForGroup($extension, 'transfer', $transferTerm[0], $currency, $clientGroupId);
         $premiumBlocked = $result->isPremium && ! $this->settings->get('domains.premium_enabled', false);
         $available = $result->isAvailable() && ! $premiumBlocked;
         $status = $result->status === 'in_system' ? 'registered' : $result->status;
+        $levelHint = $result->status === 'self_registered' ? Tld::registryLevelHint($result->domain) : null;
 
         return [
             'domain' => $result->domain,
@@ -234,6 +254,11 @@ class DomainLookup
             'transferable' => $status === 'registered' && $result->status !== 'in_system' && $transferPrice !== null,
             'epp_required' => $tld->epp_required ?? true,
             'order_url' => $this->orderUrl($result->domain, $available ? 'register' : 'transfer', $available || $transferPrice !== null),
+            'self_registered' => $result->status === 'self_registered',
+            'registration_url' => $result->status === 'self_registered' ? $tld?->how_to_url ?: ((string) $this->settings->get('domains.self_registration_url', '') ?: null) : null,
+            // A name the registry cannot issue (asha.np) gets the reason instead of "I already have it".
+            'level_hint' => $levelHint,
+            'existing_url' => $result->status === 'self_registered' && $levelHint === null && Route::has('store.index') ? route('store.index', ['domain' => $result->domain]) : null,
         ];
     }
 

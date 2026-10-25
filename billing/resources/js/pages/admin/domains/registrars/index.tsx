@@ -1,6 +1,7 @@
 import { useForm } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import { PlugZap, Server } from 'lucide-react';
+import { useState } from 'react';
 import type { FormEvent } from 'react';
 import RegistrarController from '@/actions/App/Modules/Domains/Http/Controllers/Admin/RegistrarController';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
@@ -23,14 +24,11 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { capabilityLabel } from '@/components/domains/capabilities';
-
-type SchemaField = {
-    key: string;
-    label: string;
-    type: 'string' | 'password' | 'boolean' | 'select';
-    options?: Record<string, string>;
-    help?: string;
-};
+import {
+    secretLengthError,
+    shortSecretHint,
+} from '@/components/app/setting-field';
+import type { SettingFieldData } from '@/components/app/setting-field';
 
 type Registrar = {
     key: string;
@@ -39,9 +37,11 @@ type Registrar = {
     configured: boolean;
     is_active: boolean;
     test_mode: boolean;
-    schema: SchemaField[];
-    settings: Record<string, string | boolean | null>;
+    schema: SettingFieldData[];
+    settings: Record<string, string | number | boolean | null>;
     secrets_set: Record<string, boolean>;
+    /** Keys of stored secrets shorter than their minimum. */
+    secrets_short: string[];
     domains_count: number;
     tlds_count: number;
 };
@@ -53,6 +53,7 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
         settings: registrar.settings,
     });
     const errors = form.errors as Record<string, string | undefined>;
+    const [touched, setTouched] = useState<Record<string, boolean>>({});
 
     const setSetting = (key: string, value: string | boolean) =>
         form.setData('settings', { ...form.data.settings, [key]: value });
@@ -81,19 +82,40 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                 }
                 description={`${registrar.tlds_count} TLDs · ${registrar.domains_count} domains`}
                 actions={
-                    <ConfirmDialog
-                        trigger={
-                            <Button type="button" variant="ghost" size="sm">
+                    registrar.capabilities.includes('test_connection') ? (
+                        <ConfirmDialog
+                            trigger={
+                                <Button type="button" variant="ghost" size="sm">
+                                    <PlugZap />
+                                    Test connection
+                                </Button>
+                            }
+                            title={`Test the connection to ${registrar.name}?`}
+                            description="Uses the saved settings. Save first if you changed anything."
+                            confirmLabel="Test connection"
+                            destructive={false}
+                            action={RegistrarController.test(registrar.key)}
+                        />
+                    ) : (
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                disabled
+                                aria-describedby={`${registrar.key}-no-test`}
+                            >
                                 <PlugZap />
                                 Test connection
                             </Button>
-                        }
-                        title={`Test the connection to ${registrar.name}?`}
-                        description="Uses the saved settings. Save first if you changed anything."
-                        confirmLabel="Test connection"
-                        destructive={false}
-                        action={RegistrarController.test(registrar.key)}
-                    />
+                            <span
+                                id={`${registrar.key}-no-test`}
+                                className="text-xs text-muted-foreground"
+                            >
+                                This registrar has no connection test.
+                            </span>
+                        </span>
+                    )
                 }
                 footer={
                     <Button
@@ -108,8 +130,12 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                 <div className="grid items-start gap-4 sm:grid-cols-2">
                     {registrar.schema.map((field) => {
                         const id = `${registrar.key}-${field.key}`;
-                        const error = errors[`settings.${field.key}`];
                         const value = form.data.settings[field.key];
+                        const error =
+                            errors[`settings.${field.key}`] ??
+                            (touched[field.key] && typeof value === 'string'
+                                ? secretLengthError(field, value)
+                                : undefined);
 
                         return (
                             <Field
@@ -118,10 +144,14 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                                 label={field.label}
                                 error={error}
                                 hint={
-                                    field.type === 'password' &&
+                                    field.secret &&
                                     registrar.secrets_set[field.key]
-                                        ? 'Saved. Leave empty to keep it.'
-                                        : field.help
+                                        ? registrar.secrets_short.includes(
+                                              field.key,
+                                          )
+                                            ? shortSecretHint(field.min_length)
+                                            : 'Saved. Leave empty to keep it.'
+                                        : (field.help ?? undefined)
                                 }
                             >
                                 {field.type === 'select' ? (
@@ -163,9 +193,11 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                                     <Input
                                         id={id}
                                         type={
-                                            field.type === 'password'
+                                            field.secret
                                                 ? 'password'
-                                                : 'text'
+                                                : field.type === 'number'
+                                                  ? 'number'
+                                                  : 'text'
                                         }
                                         autoComplete="off"
                                         value={String(value ?? '')}
@@ -174,6 +206,12 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                                                 field.key,
                                                 event.target.value,
                                             )
+                                        }
+                                        onBlur={() =>
+                                            setTouched((current) => ({
+                                                ...current,
+                                                [field.key]: true,
+                                            }))
                                         }
                                         aria-invalid={!!error}
                                         aria-describedby={`${id}-description`}

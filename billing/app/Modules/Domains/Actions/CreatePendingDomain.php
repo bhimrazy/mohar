@@ -2,17 +2,18 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Contracts\Core\CompanyClock;
 use App\Data\Domains\DomainDraft;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\SettingList;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainPricingService;
+use App\Modules\Domains\Services\TldAttributeService;
 use App\Modules\Domains\Support\DomainName;
 use App\Modules\Domains\Support\Nameservers;
-use App\Modules\Domains\Support\SettingList;
-use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
@@ -28,6 +29,8 @@ class CreatePendingDomain
         private Settings $settings,
         private ActivityLogger $activity,
         private BuildDomainContacts $contacts,
+        private TldAttributeService $tldAttributes,
+        private CompanyClock $clock,
     ) {}
 
     /**
@@ -48,6 +51,11 @@ class CreatePendingDomain
             throw ValidationException::withMessages(['domain' => 'We do not offer this domain extension.']);
         }
 
+        // The client registers these at the registry: never a registration or transfer here, whoever asks.
+        if ($tld->registered_by_client) {
+            throw ValidationException::withMessages(['domain' => __(':tld domains are not sold here. If you already own one, choose "Use a domain I own".', ['tld' => $tld->extension])]);
+        }
+
         if (($draft->action === 'register' && ! $tld->allow_register) || ($draft->action === 'transfer' && ! $tld->allow_transfer)) {
             throw ValidationException::withMessages(['domain' => "{$tld->extension} domains cannot be {$draft->action}ed here."]);
         }
@@ -60,6 +68,9 @@ class CreatePendingDomain
             throw ValidationException::withMessages(['years' => "Choose between {$tld->min_years} and {$tld->max_years} years."]);
         }
 
+        // The registrar's extension details are checked here too, whoever built the draft; transfers send none.
+        $tldAttributes = $draft->action === 'register' ? $this->tldAttributes->clean($tld->extension, $draft->tldAttributes) : [];
+
         $nameservers = Nameservers::normalise($draft->nameservers);
 
         if ($nameservers !== [] && ! Nameservers::isValidSet($nameservers)) {
@@ -68,13 +79,13 @@ class CreatePendingDomain
 
         $nameservers = $nameservers ?: Nameservers::normalise(SettingList::of($this->settings->get('domains.default_nameservers', [])));
 
-        return DB::transaction(function () use ($draft, $name, $parts, $tld, $nameservers): Domain {
+        return DB::transaction(function () use ($draft, $name, $parts, $tld, $nameservers, $tldAttributes): Domain {
             if (Domain::query()->where('active_name', $name)->lockForUpdate()->exists()) {
                 throw ValidationException::withMessages(['domain' => "{$name} is already registered with us."]);
             }
 
             $client = Client::query()->findOrFail($draft->clientId);
-            $today = CarbonImmutable::today();
+            $today = $this->clock->calendarDate()->toString();
 
             $domain = Domain::query()->create([
                 'client_id' => $client->id,
@@ -96,6 +107,7 @@ class CreatePendingDomain
                 'auto_renew' => (bool) $this->settings->get('domains.default_auto_renew', true),
                 'id_protection' => $draft->idProtection,
                 'nameservers' => $nameservers,
+                'additional_fields' => $tldAttributes === [] ? null : ['tld_attributes' => $tldAttributes],
                 'epp_code' => $draft->action === 'transfer' ? trim((string) $draft->eppCode) : null,
             ]);
 

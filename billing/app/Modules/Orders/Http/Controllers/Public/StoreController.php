@@ -3,8 +3,10 @@
 namespace App\Modules\Orders\Http\Controllers\Public;
 
 use App\Contracts\Catalog\PriceBook;
+use App\Contracts\Domains\DomainNameRules;
 use App\Contracts\Domains\DomainPricing;
 use App\Data\Catalog\ProductSelection;
+use App\Data\Catalog\ProductSummary;
 use App\Enums\BillingCycle;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Currency;
@@ -14,37 +16,157 @@ use App\Modules\Orders\Pricing\CartPricer;
 use App\Modules\Orders\Services\CartManager;
 use App\Modules\Orders\Services\CustomerResolver;
 use App\Modules\Orders\Services\DomainGuard;
+use App\Modules\Orders\Services\TldAttributeInput;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class StoreController extends Controller
 {
+    /** First path segments under /store that are not group slugs; Catalog refuses them as a group slug. */
+    public const RESERVED_SLUGS = ['cart', 'checkout', 'domains', 'currency', 'orders', 'products'];
+
     private const SUGGESTED_TLDS = ['.com', '.net', '.org', '.io', '.dev'];
 
     public function __construct(
         private PriceBook $priceBook,
         private CartManager $carts,
+        private DomainNameRules $nameRules,
     ) {}
 
     public function index(Request $request): Response
     {
         $currency = $this->carts->currencyFor($request);
+        $groups = $this->withUrls($request, $this->priceBook->storefront($currency));
 
+        return $this->storeIndex($request, $currency, $groups);
+    }
+
+    public function group(Request $request, string $group): Response
+    {
+        $currency = $this->carts->currencyFor($request);
+        $groups = array_values(array_filter($this->withUrls($request, $this->priceBook->storefront($currency)), fn (array $candidate): bool => $candidate['slug'] === $group));
+
+        if ($groups === []) {
+            $elsewhere = $this->currenciesSelling(fn (string $code): bool => collect($this->priceBook->storefront($code))->contains('slug', $group), $currency);
+            abort_if($elsewhere === [], 404);
+        }
+
+        return $this->storeIndex($request, $currency, $groups, $groups[0] ?? null, $groups === [] ? $group : null);
+    }
+
+    /**
+     * Product URLs on the slug route, keeping a domain the visitor already owns.
+     *
+     * @param  list<array<string, mixed>>  $groups
+     * @return list<array<string, mixed>>
+     */
+    private function withUrls(Request $request, array $groups): array
+    {
+        $query = ($domain = $this->existingDomain($request)) === null ? [] : ['domain' => $domain];
+
+        foreach ($groups as &$group) {
+            foreach ($group['products'] as &$product) {
+                $product['url'] = route('store.products.show', ['group' => $group['slug'], 'product' => $product['slug'], ...$query]);
+            }
+        }
+
+        return $groups;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $groups
+     * @param  array<string, mixed>|null  $current  the group a group page shows
+     */
+    private function storeIndex(Request $request, string $currency, array $groups, ?array $current = null, ?string $slugElsewhere = null): Response
+    {
         return Inertia::render('public/store/index', [
-            'groups' => $this->priceBook->storefront($currency),
+            'groups' => $groups,
+            'group' => $current === null ? null : ['id' => $current['id'], 'name' => $current['name'], 'slug' => $current['slug'], 'url' => route('store.groups.show', $current['slug'])],
             'currency' => $currency,
+            // Products unpriced in the visitor's currency are left out; an empty store says where products are sold.
+            'sold_in' => $groups === [] ? $this->currenciesSelling(fn (string $code): bool => $slugElsewhere === null ? $this->priceBook->storefront($code) !== [] : collect($this->priceBook->storefront($code))->contains('slug', $slugElsewhere), $currency) : [],
+            'existingDomain' => $this->existingDomain($request),
+            'hide_tax_note' => $groups === [],
+            'account_currency' => $request->user() === null ? null : $currency,
+            'support_url' => Route::has('support.tickets.create') ? route('support.tickets.create') : null,
             ...$this->carts->storeProps($request),
         ]);
     }
 
-    public function show(Request $request, int $product, CustomerResolver $customers): Response
+    /**
+     * A domain the visitor already owns, passed on from the domain search ("I already have it", e.g. a .np name
+     * registered at the registry), to preselect "Use a domain I own".
+     */
+    private function existingDomain(Request $request): ?string
     {
-        $currency = $this->carts->currencyFor($request);
+        $domain = strtolower(trim($request->string('domain')->toString()));
+
+        return DomainGuard::isValidName($domain) && $this->nameRules->registryLevelError($domain) === null ? $domain : null;
+    }
+
+    /**
+     * Other currencies where $sells is true, default currency first.
+     *
+     * @param  callable(string): bool  $sells
+     * @return list<string>
+     */
+    private function currenciesSelling(callable $sells, string $current): array
+    {
+        $codes = Currency::query()->where('code', '!=', $current)->orderByDesc('is_default')->orderBy('code')->pluck('code')->map(strval(...))->all();
+
+        return array_values(array_filter($codes, $sells));
+    }
+
+    /**
+     * The numeric URL older links and carts used: permanent redirect to the slug URL, query string kept.
+     */
+    public function legacyProduct(Request $request, int $product, CustomerResolver $customers, TldAttributeInput $tldAttributes): Response|RedirectResponse
+    {
         $summary = $this->priceBook->product($product);
         abort_if($summary === null || ! $summary->active, 404);
+
+        return $summary->slug === null || ! $this->hasSlugRoute($summary->groupSlug)
+            ? $this->configure($request, $summary, $customers, $tldAttributes)
+            : $this->canonical($request, $summary->groupSlug, $summary->slug);
+    }
+
+    /**
+     * Whether the group's slug can carry product URLs. A reserved slug saved before the store took the word is
+     * renamed by Catalog's migration; until then its products are served on the numeric link rather than redirected
+     * to a URL no route matches.
+     */
+    private function hasSlugRoute(?string $groupSlug): bool
+    {
+        return $groupSlug !== null && ! in_array($groupSlug, self::RESERVED_SLUGS, true);
+    }
+
+    public function show(Request $request, string $group, string $product, CustomerResolver $customers, TldAttributeInput $tldAttributes): Response|RedirectResponse
+    {
+        $summary = $this->priceBook->productBySlug($product);
+        abort_if($summary === null || ! $summary->active, 404);
+
+        if ($this->hasSlugRoute($summary->groupSlug) && $summary->groupSlug !== $group) {
+            return $this->canonical($request, $summary->groupSlug, $product);
+        }
+
+        return $this->configure($request, $summary, $customers, $tldAttributes);
+    }
+
+    private function canonical(Request $request, string $group, string $product): RedirectResponse
+    {
+        $url = route('store.products.show', ['group' => $group, 'product' => $product]);
+
+        return redirect()->to($request->getQueryString() === null ? $url : $url.'?'.$request->getQueryString(), 301);
+    }
+
+    private function configure(Request $request, ProductSummary $summary, CustomerResolver $customers, TldAttributeInput $tldAttributes): Response
+    {
+        $currency = $this->carts->currencyFor($request);
+        $product = $summary->id;
 
         $cycles = [];
         $clientId = $customers->clientFor($request->user(), $request->session())?->id;
@@ -64,11 +186,16 @@ class StoreController extends Controller
                 'id' => $summary->id,
                 'name' => $summary->name,
                 'group' => $summary->groupName,
+                'group_url' => $summary->groupSlug === null ? null : route('store.groups.show', $summary->groupSlug),
                 'requires_domain' => $summary->requiresDomain,
                 'in_stock' => $summary->stock === null || $summary->stock > 0,
             ],
             'currency' => $currency,
             'cycles' => $cycles,
+            'hide_tax_note' => $cycles === [],
+            'account_currency' => $request->user() === null ? null : $currency,
+            'support_url' => Route::has('support.tickets.create') ? route('support.tickets.create') : null,
+            'sold_in' => $cycles === [] ? $this->currenciesSelling(fn (string $code): bool => $this->priceBook->availableCycles($product, $code) !== [], $currency) : [],
             'config_options' => $this->priceBook->configOptionsFor($product, $currency),
             'addons' => $this->priceBook->addonsFor($product, $currency),
             'custom_fields' => $this->priceBook->customFieldsFor($product),
@@ -80,8 +207,11 @@ class StoreController extends Controller
                 'domain_mode' => $editing->domainMode,
                 'domain_name' => $editing->domain(),
                 'addon_ids' => $editing->addonIds,
+                'tld_attributes' => $editing->tldAttributes,
             ] : null,
             'signed_in' => $clientId !== null,
+            'existing_domain' => $this->existingDomain($request),
+            'tld_attribute_fields' => $tldAttributes->props(),
             ...$this->carts->storeProps($request),
         ]);
     }
@@ -101,7 +231,7 @@ class StoreController extends Controller
             'domain_name' => ['nullable', 'string', 'max:253'],
         ]);
 
-        $domain = $request->string('domain_name')->trim()->lower()->toString();
+        $domain = DomainGuard::normalise($request->string('domain_name')->toString());
         $item = new CartItem(
             key: 'preview',
             kind: CartItemKind::Product,
@@ -123,7 +253,7 @@ class StoreController extends Controller
         ]);
     }
 
-    public function domains(Request $request, DomainPricing $pricing, CustomerResolver $customers): Response
+    public function domains(Request $request, DomainPricing $pricing, CustomerResolver $customers, TldAttributeInput $tldAttributes): Response
     {
         $currency = $this->carts->currencyFor($request);
         $clientId = $customers->clientFor($request->user(), $request->session())?->id;
@@ -132,7 +262,7 @@ class StoreController extends Controller
 
         if ($search !== '') {
             $sld = $pricing->split($search)[0] ?? explode('.', $search)[0];
-            $candidates = array_values(array_unique([$search, ...array_map(fn (string $tld): string => $sld.$tld, self::SUGGESTED_TLDS)]));
+            $candidates = array_values(array_unique([$search, ...array_map(fn (string $tld): string => $sld.$tld, $this->searchTlds($pricing, $currency, $clientId))]));
 
             foreach ($candidates as $candidate) {
                 if (! DomainGuard::isValidName($candidate) || ($parts = $pricing->split($candidate)) === null) {
@@ -145,8 +275,8 @@ class StoreController extends Controller
                     'register' => $pricing->price($parts[1], 'register', 1, $currency, $clientId),
                     'transfer' => $pricing->price($parts[1], 'transfer', 1, $currency, $clientId),
                     'renew' => $pricing->price($parts[1], 'renew', 1, $currency, $clientId),
-                    'register_terms' => $pricing->terms($parts[1], 'register', $currency),
-                    'transfer_terms' => $pricing->terms($parts[1], 'transfer', $currency),
+                    'register_terms' => $pricing->terms($parts[1], 'register', $currency, $clientId),
+                    'transfer_terms' => $pricing->terms($parts[1], 'transfer', $currency, $clientId),
                 ];
             }
         }
@@ -155,8 +285,23 @@ class StoreController extends Controller
             'search' => $search,
             'results' => $results,
             'currency' => $currency,
+            // Availability comes from the Domains lookup, read by the page once it has loaded.
+            'lookup_url' => Route::has('domains.lookup') ? route('domains.lookup') : null,
+            'tld_attribute_fields' => $tldAttributes->props(),
             ...$this->carts->storeProps($request),
         ]);
+    }
+
+    /**
+     * Extensions priced next to the name searched: the ones the host spotlights, else a common set.
+     *
+     * @return list<string>
+     */
+    private function searchTlds(DomainPricing $pricing, string $currency, ?int $clientId): array
+    {
+        $featured = array_column(array_filter($pricing->catalog($currency, $clientId), fn (array $row): bool => $row['featured']), 'tld');
+
+        return $featured === [] ? self::SUGGESTED_TLDS : array_slice($featured, 0, 8);
     }
 
     public function currency(Request $request): RedirectResponse

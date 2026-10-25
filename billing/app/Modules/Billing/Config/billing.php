@@ -26,6 +26,13 @@ return [
     'proforma_format' => 'PF-{NUMBER}',
     'set_issue_date_on_payment' => true,
     'quote_number_format' => 'Q-{NUMBER}',
+    // Credit and debit notes (ADR 0024): own gap-free sequences with their own format, padding and reset.
+    'credit_note_format' => 'CN-{NUMBER}',
+    'credit_note_padding' => 0,
+    'credit_note_reset' => 'never', // never|yearly|monthly
+    'debit_note_format' => 'DN-{NUMBER}',
+    'debit_note_padding' => 0,
+    'debit_note_reset' => 'never',
     'invoice_days_before_due' => 14,
 
     // Credit & add funds (§4.4, §4.5)
@@ -47,9 +54,21 @@ return [
     // Hosted gateways (payments-nepal.md §3): lookup-driven reconciliation
     'gateways' => [
         'lookup_interval_minutes' => 5,
+        // Pending and unclear attempts looked up per five-minute run at most (1 to 1,000), least recently looked up first.
+        'lookups_per_run' => 200,
         'lookup_grace_minutes' => 120,
+        // Closed attempts are still looked up hourly this long after they started, for late payments (0 = off, max 168),
+        // at most late_lookups_per_run of them per hourly run.
+        'late_lookup_hours' => 48,
+        'late_lookups_per_run' => 100,
+        // Settled payments at providers without webhooks (Khalti, eSewa) are looked up once a day this many days after
+        // they started, for refunds made in the provider's portal (0 = off, max 30), at most refund_checks_per_run a day.
+        'refund_check_days' => 7,
+        'refund_checks_per_run' => 300,
         'http_timeout_seconds' => 15,
         'ambiguous_alert_minutes' => 30,
+        // Gateway log entries (request and response payloads) are deleted after this many days (90 to 3,650).
+        'log_retention_days' => 180,
     ],
 
     // Refunds & reversals (§4.7, §4.8)
@@ -74,14 +93,15 @@ return [
     ],
     'vat' => [
         'enabled' => false,
-        'home_country' => 'DE',
+        'home_country' => null,
         'auto_exempt_on_valid_id' => true,
     ],
 
     // Automation (§7)
     'late_fee' => [
         'type' => 'percent', // percent|fixed
-        'amount' => 0, // percent value, or minor units when fixed; 0 = off
+        'amount' => 0, // percent, when type is percent; 0 = off
+        'fixed_amount' => 0, // minor units, when type is fixed; 0 = off
         'minimum' => 0,
         'days_overdue' => 7,
         'base' => 'balance', // balance|total
@@ -105,6 +125,9 @@ return [
         'auto_invoice_on_accept' => true,
         'valid_days' => 30,
     ],
+
+    // Print the Bikram Sambat date beside the AD issue and due dates on invoice pages, PDFs and emails (#207).
+    'show_bs_dates' => false,
 
     // PDFs (§9)
     'pdf' => [

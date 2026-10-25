@@ -14,6 +14,10 @@ const CAPABILITY_LABELS: Record<string, string> = {
     id_protection: 'ID protection',
     sync: 'Sync',
     transfer_sync: 'Transfer sync',
+    reconcile: 'Reconcile lost submissions',
+    link_order: 'Link an existing order',
+    test_connection: 'Connection test',
+    tld_attributes: 'Extension details',
 };
 
 export function capabilityLabel(capability: string): string {

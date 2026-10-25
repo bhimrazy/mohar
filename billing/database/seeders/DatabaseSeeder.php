@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Modules\Core\Install\ReferenceDataInstaller;
+use App\Modules\Core\Install\RegionalDefaults;
 use App\Providers\ModulesServiceProvider;
 use Illuminate\Database\Seeder;
 
@@ -18,14 +19,20 @@ class DatabaseSeeder extends Seeder
      */
     public function run(ReferenceDataInstaller $installer): void
     {
-        $installer->install();
-
         if (app()->isProduction()) {
+            // Production keeps what it has always done: no regional settings from a seed (`app:install` writes them).
+            app(RegionalDefaults::class)->keepBuiltInDefaults();
+            $installer->install();
+
             // A prompt note, not $this->command: it also prints when the seeder is invoked outside Artisan.
             warning('Production: reference data installed, demo data skipped. Create the first administrator with `php artisan app:install`.');
 
             return;
         }
+
+        // The demo is a Nepal install: NPR, Asia/Kathmandu and the Nepal date format, like `app:install` with its defaults.
+        app(RegionalDefaults::class)->choose(RegionalDefaults::COUNTRY, RegionalDefaults::CURRENCY, RegionalDefaults::TIMEZONE);
+        $installer->install();
 
         foreach (ModulesServiceProvider::enabledModules() as $module) {
             $seeder = "App\\Modules\\{$module}\\Database\\Seeders\\{$module}Seeder";

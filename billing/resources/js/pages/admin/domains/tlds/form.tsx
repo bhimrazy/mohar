@@ -32,6 +32,8 @@ type Tld = {
     max_years: number;
     allow_register: boolean;
     allow_transfer: boolean;
+    registered_by_client: boolean;
+    how_to_url: string | null;
     grace_days: number;
     grace_fee: number;
     redemption_days: number;
@@ -78,6 +80,11 @@ function SettingsForm({
         max_years: String(tld?.max_years ?? 10),
         allow_register: tld?.allow_register ?? true,
         allow_transfer: tld?.allow_transfer ?? true,
+        // New TLDs: empty follows the extension (on for .np and its second levels) until staff choose.
+        registered_by_client: (tld?.registered_by_client ?? null) as
+            | boolean
+            | null,
+        how_to_url: tld?.how_to_url ?? '',
         grace_days: String(tld?.grace_days ?? 0),
         grace_fee: decimal(tld?.grace_fee ?? 0),
         redemption_days: String(tld?.redemption_days ?? 0),
@@ -129,6 +136,7 @@ function SettingsForm({
     const text = (
         key:
             | 'extension'
+            | 'how_to_url'
             | 'min_years'
             | 'max_years'
             | 'grace_days'
@@ -270,6 +278,29 @@ function SettingsForm({
 
             <SectionCard title="Options">
                 <div className="grid gap-2 sm:grid-cols-2">
+                    <label className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm font-medium">
+                        Registered by the client at the registry (not sold here)
+                        <Switch
+                            checked={
+                                form.data.registered_by_client ??
+                                /(^|\.)np$/i.test(form.data.extension.trim())
+                            }
+                            disabled={!canManage}
+                            onCheckedChange={(checked) =>
+                                form.setData('registered_by_client', checked)
+                            }
+                        />
+                    </label>
+                </div>
+                <div className="mt-4 grid items-start gap-4 sm:grid-cols-2">
+                    {text(
+                        'how_to_url',
+                        'How-to link for clients',
+                        'Shown in domain search and on the client domain page for extensions the client registers. Empty uses the default in Domains settings. https only.',
+                        true,
+                    )}
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
                     {toggles.map(([key, label]) => (
                         <label
                             key={key}

@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Http\Resources;
 
+use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Transaction;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -23,6 +24,8 @@ class TransactionResource extends JsonResource
             'type' => $this->type->value,
             'status' => $this->status->value,
             'gateway' => $this->gateway,
+            // The staff-set name ("eSewa"), so the client area never title-cases the key ("Esewa").
+            'gateway_label' => $this->gatewayNames($request)[$this->gateway] ?? null,
             'gateway_txn_id' => $this->gateway_txn_id,
             'amount_in' => $this->amount_in,
             'amount_out' => $this->amount_out,
@@ -33,6 +36,12 @@ class TransactionResource extends JsonResource
             'exchange_rate' => $this->exchange_rate,
             'refundable_remaining' => $this->refundable_remaining,
             'refundable' => $this->isRefundable(),
+            // The part of a chargeback or provider refund staff still have to review (staff only).
+            'to_review' => $this->when($staff, $this->reviewed_at === null ? $this->review_amount : null),
+            // A gateway refund the provider never confirmed: staff check it or resolve it by hand (staff only).
+            'awaiting_confirmation' => $this->when($staff, $this->awaitsProviderConfirmation()),
+            'can_resolve' => $this->when($staff, $this->canBeResolved()),
+            'stuck_at_lookup' => $this->when($staff, $this->stuckAtLookup()),
             'description' => $this->description,
             'parent_transaction_id' => $this->parent_transaction_id,
             'invoice_id' => $this->invoice_id,
@@ -40,5 +49,22 @@ class TransactionResource extends JsonResource
             'client' => $this->whenLoaded('client', fn (): array => ['id' => $this->client->id, 'display_name' => $this->client->display_name]),
             'occurred_at' => $this->occurred_at->toIso8601String(),
         ];
+    }
+
+    /**
+     * Display names of every gateway, read once per request.
+     *
+     * @return array<string, string>
+     */
+    private function gatewayNames(Request $request): array
+    {
+        $names = $request->attributes->get('gateway_names');
+
+        if (! is_array($names)) {
+            $names = Gateway::query()->pluck('display_name', 'key')->all();
+            $request->attributes->set('gateway_names', $names);
+        }
+
+        return $names;
     }
 }

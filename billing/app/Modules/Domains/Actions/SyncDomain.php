@@ -2,29 +2,39 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Contracts\Domains\Registrar\ReconcilesSubmissions;
+use App\Contracts\Domains\Registrar\SyncsDomains;
+use App\Contracts\Domains\Registrar\TransfersDomains;
+use App\Data\Domains\Registrar\RegistrarConfig;
+use App\Data\Domains\Registrar\SubmissionLookup;
+use App\Data\Domains\Registrar\SyncResult;
+use App\Data\Domains\Registrar\TransferSyncResult;
 use App\Enums\BillableType;
+use App\Enums\BillingCycle;
+use App\Enums\ReconcileStatus;
 use App\Events\Domains\DomainRegistered;
 use App\Events\Domains\DomainTransferFailed;
 use App\Events\Domains\DomainTransferred;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Domains\Drivers\Registrars\Data\SyncResult;
-use App\Modules\Domains\Drivers\Registrars\Data\TransferSyncResult;
-use App\Modules\Domains\Drivers\Registrars\Registrar;
 use App\Modules\Domains\Enums\DomainStatus;
-use App\Modules\Domains\Exceptions\CapabilityNotSupported;
-use App\Modules\Domains\Exceptions\RegistrarException;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\DomainInvoice;
 use App\Modules\Domains\Services\DomainDates;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\DomainStateMachine;
 use App\Modules\Domains\Services\RegistrarGateway;
 use App\Modules\Domains\Services\RenewalInvoices;
+use App\Modules\Domains\Support\DomainRegistrarLock;
+use App\Modules\Domains\Support\RemoteIds;
+use App\Support\Domains\CapabilityNotSupported;
+use App\Support\Domains\RegistrarException;
 use Carbon\CarbonImmutable;
 
 /**
  * Reconcile one domain with its registrar (spec §9): transfer sync for pending transfers, status and
  * expiry sync for active / pending registrations. Returns the differences found; in notify-only mode
- * nothing is changed. Expiry never moves backwards by more than a year without staff review, and
+ * nothing is changed. It runs under the domain's registrar lock (the one the register, transfer and renew jobs hold);
+ * when that is taken it does nothing and answers `busy` with a message. Expiry never moves backwards by more than a year without staff review, and
  * next_due_date is only moved when no renewal invoice is open.
  */
 class SyncDomain
@@ -35,12 +45,31 @@ class SyncDomain
         private DomainDates $dates,
         private RenewalInvoices $invoices,
         private ActivityLogger $activity,
+        private ConfirmRenewal $confirm,
     ) {}
+
+    /**
+     * @return array{changes: list<array{domain_id: int, domain: string, field: string, from: string|null, to: string|null, applied: bool}>, error: string|null, busy?: true}
+     */
+    public function handle(Domain $domain, bool $notifyOnly = false, ?int $staffId = null): array
+    {
+        $lock = DomainRegistrarLock::for($domain->id);
+
+        if (! $lock->get()) {
+            return ['changes' => [], 'error' => __('Another registrar action is running for this domain. Try again in a minute.'), 'busy' => true];
+        }
+
+        try {
+            return $this->locked($domain, $notifyOnly, $staffId);
+        } finally {
+            $lock->release();
+        }
+    }
 
     /**
      * @return array{changes: list<array{domain_id: int, domain: string, field: string, from: string|null, to: string|null, applied: bool}>, error: string|null}
      */
-    public function handle(Domain $domain, bool $notifyOnly = false, ?int $staffId = null): array
+    private function locked(Domain $domain, bool $notifyOnly, ?int $staffId): array
     {
         $domain->refresh();
 
@@ -54,6 +83,10 @@ class SyncDomain
             return ['changes' => [], 'error' => null];
         } catch (RegistrarException $exception) {
             $domain->forceFill(['last_synced_at' => now(), 'last_sync_status' => 'error', 'last_error' => $exception->getMessage()])->save();
+            if (! $exception->retryable) {
+                // A transient error (timeout, rate limit) says nothing about the registration; the next sync retries.
+                $this->flagUnconfirmedRegistration($domain, $exception->getMessage());
+            }
 
             return ['changes' => [], 'error' => $exception->getMessage()];
         }
@@ -64,11 +97,63 @@ class SyncDomain
     }
 
     /**
+     * A registration whose answer was lost keeps its claim. The order id may be recorded from the registrar's own
+     * submission lookup, inside that claim's window, and from nowhere else: sync never links an order it merely finds.
+     */
+    private function linkFromSubmission(Domain $domain, ?int $staffId): void
+    {
+        $claimed = $domain->registrar_meta['submission'] ?? null;
+
+        if ($domain->status !== DomainStatus::PendingRegistration || $claimed === null || isset($domain->registrar_meta['remote']['order_id'])
+            || ! $this->gateway->supports($domain, 'reconcile')) {
+            return;
+        }
+
+        $at = CarbonImmutable::parse((string) $claimed);
+
+        try {
+            $lookup = $this->gateway->forDomain(
+                $domain,
+                'reconcile',
+                ReconcilesSubmissions::class,
+                fn (ReconcilesSubmissions $registrar, RegistrarConfig $config): SubmissionLookup => $registrar->findSubmission($config, $domain->toRef(), 'register', $at),
+                ['command' => 'register', 'submitted_at' => $at->toIso8601String()],
+                $staffId,
+            );
+        } catch (RegistrarException) {
+            return;
+        }
+
+        if (in_array($lookup->status, [ReconcileStatus::Executed, ReconcileStatus::InProgress], true)) {
+            $this->rememberRemote($domain, $lookup->remote, false);
+            $domain->refresh();
+        }
+    }
+
+    /**
+     * A registration that is still not confirmed a quarter of an hour after it was submitted, and that sync cannot
+     * settle (the registrar's answer gave no order to follow), is listed in Needs attention instead of waiting silently.
+     */
+    private function flagUnconfirmedRegistration(Domain $domain, string $reason): void
+    {
+        $submitted = $domain->registrar_meta['submitted_at'] ?? null;
+
+        if ($domain->status !== DomainStatus::PendingRegistration || $domain->needs_review || $submitted === null
+            || CarbonImmutable::parse((string) $submitted)->gt(now()->subMinutes(SubmitToRegistrar::IN_FLIGHT_MINUTES))) {
+            return;
+        }
+
+        $domain->forceFill(['needs_review' => true, 'last_error' => $reason])->save();
+        $this->activity->log("Staff task: registration of {$domain->name} not confirmed at the registrar", $domain, $domain->client_id);
+    }
+
+    /**
      * @return list<array{domain_id: int, domain: string, field: string, from: string|null, to: string|null, applied: bool}>
      */
     private function transferSync(Domain $domain, bool $notifyOnly, ?int $staffId): array
     {
-        $result = $this->gateway->forDomain($domain, 'transfer_sync', fn (Registrar $registrar): TransferSyncResult => $registrar->transferSync($domain), staffId: $staffId);
+        $result = $this->gateway->forDomain($domain, 'transfer_sync', TransfersDomains::class, fn (TransfersDomains $registrar, RegistrarConfig $config): TransferSyncResult => $registrar->transferSync($config, $domain->toRef()), staffId: $staffId);
+        $this->rememberRemote($domain, $result->remote, $notifyOnly);
 
         if ($result->completed) {
             $change = $this->change($domain, 'status', $domain->status->value, DomainStatus::Active->value, ! $notifyOnly);
@@ -77,7 +162,7 @@ class SyncDomain
                 $this->dates->applyExpiry($domain, $result->expiryDate ?? $this->dates->extend($domain, 1));
                 $this->states->transition($domain, DomainStatus::Active, 'Transfer completed', [
                     ...$this->resolved($domain),
-                    'registration_date' => $domain->registration_date ?? CarbonImmutable::today(),
+                    'registration_date' => $domain->registration_date ?? $this->dates->companyDate(),
                     'expiry_date' => $domain->expiry_date,
                     'next_due_date' => $domain->next_due_date,
                     'next_invoice_date' => $domain->next_invoice_date,
@@ -111,8 +196,13 @@ class SyncDomain
      */
     private function sync(Domain $domain, bool $notifyOnly, ?int $staffId): array
     {
-        $result = $this->gateway->forDomain($domain, 'sync', fn (Registrar $registrar): SyncResult => $registrar->sync($domain), staffId: $staffId);
+        if (! $notifyOnly) {
+            $this->linkFromSubmission($domain, $staffId);
+        }
+
+        $result = $this->gateway->forDomain($domain, 'sync', SyncsDomains::class, fn (SyncsDomains $registrar, RegistrarConfig $config): SyncResult => $registrar->sync($config, $domain->toRef()), staffId: $staffId);
         $apply = ! $notifyOnly;
+        $this->rememberRemote($domain, $result->remote, $notifyOnly);
 
         if ($result->transferredAway || $result->cancelled) {
             $to = $result->transferredAway ? DomainStatus::TransferredAway : DomainStatus::Cancelled;
@@ -140,7 +230,7 @@ class SyncDomain
                 $this->dates->applyExpiry($domain, $result->expiryDate ?? $this->dates->extend($domain, $domain->period_years));
                 $this->states->transition($domain, DomainStatus::Active, 'Registration confirmed by sync', [
                     ...$this->resolved($domain),
-                    'registration_date' => $domain->registration_date ?? CarbonImmutable::today(),
+                    'registration_date' => $domain->registration_date ?? $this->dates->companyDate(),
                     'expiry_date' => $domain->expiry_date,
                     'next_due_date' => $domain->next_due_date,
                     'next_invoice_date' => $domain->next_invoice_date,
@@ -156,7 +246,19 @@ class SyncDomain
         $remote = $result->expiryDate;
         $local = $domain->expiry_date;
 
-        if ($remote === null || ($local !== null && $remote->isSameDay($local))) {
+        if ($remote === null) {
+            return $changes;
+        }
+
+        if ($apply && ($years = $this->confirmedRenewalYears($domain, $remote)) !== null) {
+            $this->confirm->handle($domain, $years, $remote);
+
+            return $local !== null && $remote->isSameDay($local)
+                ? $changes
+                : [...$changes, $this->change($domain, 'expiry_date', $local?->toDateString(), $remote->toDateString(), true)];
+        }
+
+        if ($local !== null && $remote->isSameDay($local)) {
             return $changes;
         }
 
@@ -181,6 +283,40 @@ class SyncDomain
         }
 
         return $changes;
+    }
+
+    /**
+     * A renewal whose answer was lost keeps its claim and the review flag. When the registrar's expiry has reached
+     * the end of the claimed cycle the renewal is proven; returns its years so it can be confirmed like any other
+     * renewal. Null when there is no claim, the expiry falls short, or the years are unknown (the review stays).
+     */
+    private function confirmedRenewalYears(Domain $domain, CarbonImmutable $remote): ?int
+    {
+        $cycle = $domain->registrar_meta['renew_sent_for'] ?? null;
+
+        if ($cycle === null || $cycle === 'none') {
+            return null;
+        }
+
+        $start = CarbonImmutable::parse((string) $cycle);
+        $years = (int) ($domain->registrar_meta['renew_years'] ?? 0)
+            ?: DomainInvoice::query()->where('domain_id', $domain->id)->whereIn('kind', RenewalInvoices::RENEWAL_KINDS)->whereDate('period_start', $start->toDateString())->orderByDesc('id')->value('years');
+
+        if (! $years || $remote->lt(BillingCycle::Annually->advance($start, (int) $years, $domain->billing_anchor_day))) {
+            return null;
+        }
+
+        return (int) $years;
+    }
+
+    /**
+     * @param  array<string, string|int>  $remote
+     */
+    private function rememberRemote(Domain $domain, array $remote, bool $notifyOnly): void
+    {
+        if ($remote !== [] && ! $notifyOnly) {
+            $domain->forceFill(['registrar_meta' => RemoteIds::merge($domain->registrar_meta, $remote)])->save();
+        }
     }
 
     /**

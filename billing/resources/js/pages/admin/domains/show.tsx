@@ -31,6 +31,7 @@ import { NameserversForm } from '@/components/domains/nameservers-form';
 import {
     DetailsForm,
     ForceStatusDialog,
+    LinkOrderDialog,
     MoveDialog,
 } from '@/components/domains/admin-domain-forms';
 import { SettingSwitch } from '@/components/domains/setting-switch';
@@ -44,7 +45,7 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { formatDate } from '@/lib/date';
-import { expiryHint } from '@/types/domains';
+import { MANAGED_AT_REGISTRY, domainStatus, expiryHint } from '@/types/domains';
 import type { Domain, DomainContacts } from '@/types/domains';
 import { capabilityLabel } from '@/components/domains/capabilities';
 
@@ -62,6 +63,8 @@ type Props = {
     domain: Domain;
     contacts: DomainContacts;
     capabilities: string[];
+    /** What the customer told the registry (read-only), with labels, never codes. */
+    registryDetails: { label: string; value: string }[];
     registrars: string[];
     registrarNames: Record<string, string>;
     statuses: string[];
@@ -142,6 +145,7 @@ export default function DomainShow({
     domain,
     contacts,
     capabilities,
+    registryDetails,
     registrars,
     registrarNames,
     statuses,
@@ -154,13 +158,27 @@ export default function DomainShow({
     billingAvailable,
 }: Props) {
     const [dialog, setDialog] = useState<
-        'status' | 'move' | 'renew' | 'submit' | 'delete' | 'invoice' | null
+        | 'status'
+        | 'move'
+        | 'renew'
+        | 'submit'
+        | 'delete'
+        | 'invoice'
+        | 'link'
+        | null
     >(null);
     const supports = (capability: string) => capabilities.includes(capability);
     const isPending = domain.status === 'pending';
     const isManual = domain.registrar_key === null;
     const isLive = ['active', 'grace', 'redemption'].includes(domain.status);
     const canRenewAtRegistrar = isLive || domain.status === 'expired';
+    const canLinkOrder =
+        can.update &&
+        can.commands &&
+        !isManual &&
+        supports('link_order') &&
+        canRenewAtRegistrar &&
+        !domain.registrar_order_id;
 
     return (
         <>
@@ -169,7 +187,7 @@ export default function DomainShow({
                 <PageHeader
                     back={{ href: DomainController.index(), label: 'Domains' }}
                     title={domain.name_unicode}
-                    status={domain.status}
+                    status={domainStatus(domain)}
                     meta={
                         <>
                             {domain.client && (
@@ -231,6 +249,7 @@ export default function DomainShow({
                                         )}
                                         {can.update &&
                                             isLive &&
+                                            !domain.registered_by_client &&
                                             billingAvailable && (
                                                 <DropdownMenuItem
                                                     onSelect={() =>
@@ -241,6 +260,7 @@ export default function DomainShow({
                                                 </DropdownMenuItem>
                                             )}
                                         {can.commands &&
+                                            !domain.registered_by_client &&
                                             canRenewAtRegistrar && (
                                                 <DropdownMenuItem
                                                     onSelect={() =>
@@ -254,6 +274,15 @@ export default function DomainShow({
                                                         : 's'}
                                                 </DropdownMenuItem>
                                             )}
+                                        {canLinkOrder && (
+                                            <DropdownMenuItem
+                                                onSelect={() =>
+                                                    setDialog('link')
+                                                }
+                                            >
+                                                Link {registrar?.name} order…
+                                            </DropdownMenuItem>
+                                        )}
                                         {can.update && (
                                             <>
                                                 <DropdownMenuItem
@@ -345,29 +374,48 @@ export default function DomainShow({
                     <StatCard
                         label="Expires"
                         icon={CalendarClock}
-                        value={<DateTime value={domain.expiry_date} />}
+                        value={
+                            <DateTime
+                                value={domain.expiry_date}
+                                fallback={
+                                    domain.registered_by_client
+                                        ? MANAGED_AT_REGISTRY
+                                        : undefined
+                                }
+                            />
+                        }
                         hint={expiryHint(domain.days_until_expiry) ?? undefined}
                     />
-                    <StatCard
-                        label="Next due"
-                        icon={CalendarClock}
-                        value={<DateTime value={domain.next_due_date} />}
-                        hint={
-                            domain.next_invoice_date
-                                ? `Invoice on ${formatDate(domain.next_invoice_date)}`
-                                : undefined
-                        }
-                    />
+                    {!domain.registered_by_client && (
+                        <StatCard
+                            label="Next due"
+                            icon={CalendarClock}
+                            value={<DateTime value={domain.next_due_date} />}
+                            hint={
+                                domain.next_invoice_date
+                                    ? `Invoice on ${formatDate(domain.next_invoice_date)}`
+                                    : undefined
+                            }
+                        />
+                    )}
                     <StatCard
                         label="Renewal"
                         icon={Wallet}
                         value={
-                            <Money
-                                amount={domain.recurring_amount}
-                                currency={domain.currency}
-                            />
+                            domain.registered_by_client ? (
+                                MANAGED_AT_REGISTRY
+                            ) : (
+                                <Money
+                                    amount={domain.recurring_amount}
+                                    currency={domain.currency}
+                                />
+                            )
                         }
-                        hint={`${domain.period_years} year${domain.period_years === 1 ? '' : 's'} · auto-renew ${domain.auto_renew ? 'on' : 'off'}`}
+                        hint={
+                            domain.registered_by_client
+                                ? 'Renewed by the client at the registry'
+                                : `${domain.period_years} year${domain.period_years === 1 ? '' : 's'} · auto-renew ${domain.auto_renew ? 'on' : 'off'}`
+                        }
                     />
                     <StatCard
                         label="Last sync"
@@ -416,25 +464,33 @@ export default function DomainShow({
                                                 />
                                             ),
                                         },
-                                        {
-                                            label: 'Next due',
-                                            value: (
-                                                <DateTime
-                                                    value={domain.next_due_date}
-                                                />
-                                            ),
-                                        },
-                                        {
-                                            label: 'Renewal amount',
-                                            value: (
-                                                <Money
-                                                    amount={
-                                                        domain.recurring_amount
-                                                    }
-                                                    currency={domain.currency}
-                                                />
-                                            ),
-                                        },
+                                        ...(domain.registered_by_client
+                                            ? []
+                                            : [
+                                                  {
+                                                      label: 'Next due',
+                                                      value: (
+                                                          <DateTime
+                                                              value={
+                                                                  domain.next_due_date
+                                                              }
+                                                          />
+                                                      ),
+                                                  },
+                                                  {
+                                                      label: 'Renewal amount',
+                                                      value: (
+                                                          <Money
+                                                              amount={
+                                                                  domain.recurring_amount
+                                                              }
+                                                              currency={
+                                                                  domain.currency
+                                                              }
+                                                          />
+                                                      ),
+                                                  },
+                                              ]),
                                     ]}
                                 />
                             </SectionCard>
@@ -546,6 +602,18 @@ export default function DomainShow({
                                                         : 'No'
                                                     : 'Not applicable',
                                         },
+                                        ...(supports('link_order')
+                                            ? [
+                                                  {
+                                                      label: `${registrar?.name ?? 'Registrar'} order`,
+                                                      value: domain.registrar_order_id
+                                                          ? String(
+                                                                domain.registrar_order_id,
+                                                            )
+                                                          : 'Not linked',
+                                                  },
+                                              ]
+                                            : []),
                                         {
                                             label: 'Capabilities',
                                             value: capabilities.length
@@ -556,6 +624,17 @@ export default function DomainShow({
                                         },
                                     ]}
                                 />
+                                {registryDetails.length > 0 && (
+                                    <div className="grid gap-2 border-t pt-3">
+                                        <h3 className="text-sm font-medium">
+                                            Registry details
+                                        </h3>
+                                        <DescriptionList
+                                            columns={1}
+                                            items={registryDetails}
+                                        />
+                                    </div>
+                                )}
                             </div>
                         </SectionCard>
 
@@ -660,6 +739,12 @@ export default function DomainShow({
                         onOpenChange={(open) =>
                             setDialog(open ? 'status' : null)
                         }
+                    />
+                    <LinkOrderDialog
+                        domain={domain}
+                        registrarName={registrar?.name ?? 'registrar'}
+                        open={dialog === 'link'}
+                        onOpenChange={(open) => setDialog(open ? 'link' : null)}
                     />
                     <MoveDialog
                         domain={domain}

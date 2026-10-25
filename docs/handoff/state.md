@@ -1,103 +1,187 @@
 # Current state
 
-Last updated: 2026-10-20 06:55 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
-or stops, or the owner makes a decision. Keep it short: history goes in `history.md`.
+Last updated: 2026-10-25 by the CTO session, on the owner's Mac. Update this file whenever a PR merges, a workstream starts or
+stops, or the owner makes a decision. Keep it short: merges older than the current day move to `billing/docs/progress.md`, and history goes in `history.md` and `docs/reviews/`.
 
 ## Summary
 
-- `develop` contains wave 1 plus Billing follow-ups (#22), Nepal payments Khalti and eSewa (#26), product polish (#38),
-  image optimisation (#40), CI fixes (#46, #56), database hardening (#53), the host-header security fix (#59),
-  Currencies (#43), the production install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications (#28), docs-only CI pushes (#66), kernel PR B2 with encrypted server settings (#65), the test-memory fix (#75), ADR 0016 simulators (#74), the deployment study (#76) the cPanel/WHM driver 1a (#69) and 1b (#73), and email direction A with the product-sweep fixes (#72), Stripe (#58), deployment D1 (#79), invitations and template defaults (#78), the periodic-review security fixes (#89), the WHM simulator and the cPanel driver against it (S2, #100), the cPanel import page (step 3a-2, #101), the storefront marketing spec (#104), the home page design (#105), ADR 0018 sign-in methods (#106) and the simulator command fix (#109).
-- Progress toward "a product a host would switch to": 55/100 by evidence (CEO review, 2026-10-19,
-  `docs/reviews/2026-10-19-ceo.md`): the score moves only when work is merged and proven. Built-but-unproven work
-  (simulators, the image, Stripe) is tracked separately; including it gives about 62.
-- The milestone that moves the number most: a fresh PostgreSQL install via the install command, a real cPanel/WHM
-  account created from an order, paid through Stripe, on a server the owner provides.
+- Progress toward "a product a host would switch to": **62/100** (CEO review 2026-10-22,
+  `docs/reviews/2026-10-22-ceo.md`; rubric in `docs/reviews/readme.md`; the round-3 score on 10-20 was 53). Merges
+  after that review are not scored yet; the next CEO round scores them. CTO engineering score: 63/100
+  (`docs/reviews/2026-10-22-cto.md`).
+- Merged on 2026-10-23 (about 45 PRs, #360 to #434; list: `gh pr list --state merged --search "merged:2026-10-23"`):
+    - Company clock: Services, Notifications, Platform, Domains and the Namecheap dates read the company date (#361,
+      #363, #364, #398, #425); `CalendarDate` for company dates (#410).
+    - VAT: tax-invoice snapshot, fiscal backfill and per-sequence numbering (#369, PR 1a); credit and debit note
+      issuer (#385, PR 1b).
+    - Reports: PDF wrapping and alignment (#360); paged on-screen `ReportViewer` (#401).
+    - Registrars: Namecheap simulator and driver (#373, #376) with its fixes (#411, #425); ResellerClub order link
+      (#365), phone typed as +cc number (#380), `CallingCodes` split (#404, #427), first-writer-wins `RegistrarRefs`
+      (#408), "Self-registered" status (#423); TLD answers masked in result meta (#368).
+    - Redaction (ADR 0023): the ADR (#382), kernel match rules (#395), short stored secrets (#400), masked new
+      password in driver failures (#386).
+    - Auth: step-up for a login without a password (#384); changing the sign-in email needs step-up and notifies the
+      old address (#393).
+    - CI and tooling: changelog fragments (#397); test PostgreSQL WAL cap and Docker volume (#375, #394); storage
+      cleanup on macOS (#392); `pg.sh --help` (#434); load-test follow-ups (#415); release tarball and draft releases
+      (#412).
+    - UI: searchable long selects (#413); product sweep with branded error pages (#416); email template list
+      (#422); client dashboard panels and due-invoice banner (#424).
+    - Kernel: `WebhookEvents` registry (#405). Simulators: atomic scenario write (#371), WHMCS API simulator (#409).
+    - Performance: one bcrypt check per sign-in, cheaper dashboard roll-up (#374). Other fixes: eSewa signed COMPLETE
+      not found goes to staff review (#362); flaky KYC test (#387).
+    - Earlier merges: `billing/docs/progress.md`.
+- Owner decisions in force:
+    - 2026-10-24: PRs squash-merge by default; a merge commit only when another open PR is based on the branch (#446).
+      Merge when nothing blocks and send non-blocking items to planned packages, except money, auth and data deletion.
+      CI split into sharded jobs approved (#448). The owner wants a product walkthrough soon: docs overview and walkthrough first.
+      #464 CTO calls: a refused late fee is skipped and logged once; order cancel/delete rolls back and keeps the refusal
+      record; no staff dismiss for Needs attention; `billing.credit.refund` is a hand grant; `unclassifiedBlock` stays.
+    - 2026-10-23 (`requirements.md`): #406 waits for the FrankenPHP 1.13.2 cooldown on 10-28. Product standards: error
+      pages carry the host's brand, and a country is chosen by name. Cautious release defaults (#412, #415): no
+      `attest-build-provenance`, images from the default branch only, no heartbeat setting, the first release run
+      waits for the owner, the load-test label trigger stays, no paid runner runs.
+    - 2026-10-23: typed Devanagari in report PDFs is a known limitation (no Devanagari font); the CSV keeps it. The
+      shared test PostgreSQL gets 4 GB and a small WAL (#375). Code comments: short, complete, never overstated
+      (global rule).
+    - 2026-10-22, VAT: an invoice is a proforma until paid and becomes a tax invoice on payment; a credit note
+      defaults to account credit; register exports are CSV and PDF (XLSX later); no CBMS integration for now.
+      Single source: ADR 0024.
+    - 2026-10-22, agents: more than 5 at once is fine on Mohar when the work needs it, bounded by machine load (about
+      7 on the Mac); `module-engineer` runs on Sonnet (#333), reviewers stay on Opus.
+    - 2026-10-22: invitations default 100/hour, staff-initiated; missing PAN warns only; optional BS date beside AD
+      (#207); payments and importer verified against simulators only for now (no bank, WHMCS or cPanel accounts);
+      KYC photos resized in the browser (#288). Details: `requirements.md`, Features.
+    - **Nepal is the main market.** Clients register `.np` themselves; Mohar shows the host's nameservers.
+    - The repository is **public** and named **`bhimrazy/mohar`**; `main` is a readme-and-licence page, all rights
+      reserved.
+    - Subagents run on Opus (money, auth, kernel, security, re-checks) or Sonnet (docs, mechanical fixes) by task
+      (10-21; Fable's weekly limit resets 10-25).
+    - Security audits block only dependency changes; no nightly audit while `main` is the default branch (10-21).
+    - KYC (#197, owner decision 2026-10-21): off by default; documents deleted 90 days after the account closes.
+      Staff review rule: viewing needs `kyc.documents.view` (Support role); approving or declining needs
+      `kyc.documents.review`, a sensitive permission held by Full Administrators (`*`) only by default, and every
+      decision needs a recent password. Spec: `billing/docs/product/kyc.md` section 7.
+    - Invoices use AD dates; an optional "BS beside AD" switch later (#207); BS fiscal-year numbering waits for an
+      accountant's answer (10-21).
+- Load test on the GitHub runner (small profile 2 vCPU / 4 GB, 50k clients; `billing/docs/devops/sizing.md`): p95
+  424 ms at 40 users, billing day 285 s, no errors. Tail latency at 40 users (dashboard p95 5.1 s, sign-in p50
+  2.4 s) is the remaining performance finding. Memory: the stack used at most 857 MiB there; 4 GB is the minimum
+  in every doc (#320), the smallest size tested.
+- The milestone that moves the number most: a Nepali host's switch path end to end on `develop`. Import clients and
+  `.np` guidance are merged; next are eSewa and Khalti verified live, and a real cPanel/WHM account.
 
 ## Repository
 
-- GitHub `bhimrazy/whmcs` (private). `develop` = integration, `main` = release (not yet cut).
-- App: `billing/` (Laravel 13.34, PHP 8.4, Inertia 3, React 19, Pest 5). Local setup: `billing/docs/devops/local-setup.md`.
-  Production install and upgrade (`php artisan app:install`): `billing/docs/devops/install.md`.
-  Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`.
+- GitHub `bhimrazy/mohar` (public; the old name `bhimrazy/whmcs` redirects). `develop` = integration, `main` = release
+  landing page (not yet cut).
+- App: `billing/` (Laravel 13.36, PHP 8.4, Inertia 3, React 19, Pest 5, vite-plus 1.3.0). Local setup:
+  `billing/docs/devops/local-setup.md` and the docs-site page "Run locally". Production install:
+  `billing/docs/devops/install.md`.
+- Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`. Process:
+  `docs/handoff/operating-model.md`, `docs/handoff/review-rules.md`.
 
-## Open pull requests
+## Open pull requests and running work
 
-| PR   | Workstream                                       | Status (2026-10-20 06:55 UTC)                                                        |
-| ---- | ------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| #80  | Deployment D2: production compose, smoke test    | Ready, CI green, smoke 11/11 on GitHub. Board and security review running.            |
-| #111 | Deployment D3: blue-green, migration check        | Draft. First blue-green smoke run next; then D4 (image workflow, cPanel cron mode).   |
-| #108 | Load test and sizing guide (stacked on #80)      | Draft. Small profile passed; larger profiles and the guide follow.                    |
-| #91  | CI speed-up                                      | Draft, CI green. Revision in progress (target under 10 minutes, timeout back to 15).  |
-| #94  | Storefront home page, direction A                | Draft, conflicts with develop. Product-review fixes in progress, then product re-check. |
-| #99  | Admin > Website (stacked on #94)                 | Draft. After #94.                                                                     |
-| #95  | cPanel import, step 3b (choose, review, import)  | Draft. 3b-1 (digest-bound, queued apply) in progress, then 3b-2; re-checks after.     |
-| #113 | Simulators S3: Stripe simulator                  | Draft, retargeted to develop after S2 merged. Architect and security review running.  |
-| #112 | Sign-in PR 0: kernel methods and step-up         | Draft, conflicts with develop. Architect and security review running.                |
+Merged 2026-10-24 (details in `billing/docs/progress.md` at the next update): #438, #440, #444–#461, #462 (P1b redaction backstop on every log channel, after two security rounds), #463 (P3b server
+import features), #464 (VAT PR 4c: credit refunds, Nepal VAT mode flag lifted, demo seed has the mode on), #465–#469
+(handoff docs; develop fix for the #459/#461 scan; docs-site Overview and Walkthrough; pre-walkthrough sweep;
+walkthrough VAT step and `schedule:work` in `composer dev`). Issues closed by hand.
 
-Not in a PR yet: simulators S4 end-to-end (`feature/simulators-s4`), cPanel PR 2 (SSO, package select, server health).
-Parked, no owner: `fix/automation-redelivery` (ADR 0017 scheduler WIP) and `feature/payments-stripe-saved-methods`
-(design revision 3). A branch audit (Fable) decides whether to keep them.
+Merged 2026-10-25: #471 (`.np` rule, per-TLD how-to, registrar_refs merge), #472, #473 (invoice From / Bill to), #474 (daily
+re-lookup of Khalti and eSewa payments for portal refunds, P5c), #475 (settings controls), #476, #477, #478 (store, cart and
+checkout inside the client area, one domain search, slug URLs; reserved group slugs renamed by migration
+`2026_10_25_100600`), #479 (`deploy:check-migrations` enforces architecture rules 5 and 6; baseline of 39 old migrations,
+sha256-frozen in `CheckMigrationsRulesTest`), #480 (VAT register `detail`/`ird`/`summary` layouts, PDF export, Billing role
+gets the two register export permissions), #481 (admin client summary), #482 (VAT PR 5: credit/debit note PDF, email with
+PDF via `BillingDocuments::document()`, webhooks, client-area notes, print counting; kernel: `$notify` on note events and
+`Invoicer::cancel`, `EmailSent` related ids). Issues closed by hand: #27, #32, #37, #157, #307, #317, #389.
 
-## Design and research in progress
+No agents running. Open PRs: #128 only (draft, owner questions).
 
-| Workstream                | Branch                         | State                                                                                                                                                                                                                                                                                                            |
-| ------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Home page directions      | `design/home-page`             | Owner prefers A (Storefront), 2026-10-18. Designer revises A once against the marketing spec; then build.                                                                                                                                                                                                        |
-| Storefront marketing spec | `feature/storefront-marketing` | Product manager: competitor and conversion research, `docs/product/storefront-marketing.md`. Designer revises against it.                                                                                                                                                                                        |
-| Deployment                | `feature/deploy-options`       | Fable advisor studying runtimes (nginx+FPM, FrankenPHP, Octane), proxies (Traefik, Caddy), hosts (VPS, PaaS, Kamal/Coolify, cPanel shared) and the deploy-files layout; then the DevOps engineer builds dev/prod Dockerfiles, compose files and a manually dispatched image-build workflow; then a Fable review. |
+| PR   | Workstream                                    | Status and next step (2026-10-25)                                                                 |
+| ---- | --------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| #128 | Gateway expansion spec                        | Draft. Owner questions in the PR.                                                                 |
 
-## Running now (2026-10-20 06:55 UTC)
+Walkthrough: `docs-site` Overview and Get started → Walkthrough (12 steps, run against a seeded app). Before a demo
+start Mailpit (`docker compose up -d` in `billing/`) and `composer dev` (now includes the scheduler).
 
-- The session stopped overnight (2026-10-19 16:09 to 2026-10-20 06:36 UTC). On resume: pushed two worktrees'
-  unpushed commits, snapshotted the import engineer's staged work to `wip/import-apply-v2-snapshot`, merged #100 and
-  #101, retargeted #113, and resumed the seven interrupted agents.
-- Builds: storefront #94/#99 fixes, import 3b #95, simulators S4, deployment D3 #111, CI speed-up #91.
-- Reviews: #80 (board, security), #112 (architect + security), #113 (architect + security); a Fable branch audit
-  of the 83 GitHub branches (52 already merged into develop).
-- Periodic review round 2: CEO and CTO (Fable) running; security and architecture skipped because every PR merged
-  since round 1 had its own security and architecture or board review. Schedule recreated at 02:17 and 14:17.
+Deferred, not yet in the issue plan (add to packages when they are next planned):
+- #464 re-review: no test for B2's amount-differs branch; flagging a late success overwrites the staff note in
+  `description`.
+- #468 sweep, not fixed: no Reports section beyond the registers; NPR-default exchange rates read "Rs 1 = $0.006582"
+  (standard wants "$1 = Rs 151.94") and INR comes from the ECB; ticket-status and taxed-item settings are typed keys
+  (needs a multi-select setting type, P7a); client invoice has no seller/bill-to block with PAN; `domains.invoice_lead_days`
+  falls back to a missing billing setting (always 14); customer pages default to the product favicon; new-ticket
+  "Send request" disabled with no reason; guest cart drops after sign-in with no discount line; Change plan preselects
+  the current plan with a refund preview; a paid order stays Pending until Accept order.
+- #462 security re-check, low: a single quoted inner value over 64 KB masks the rest of the line (over-masks only).
 
-## Next (in order, from the Fable review and the parity roadmap)
+After each merge close the issue by hand (`develop` ignores closing keywords). Signed-off PRs must be marked ready:
+CI skips drafts without the `ci` label. Review follow-ups go into the open PR's fix round or a planned package, not
+new issues; a PR merges when nothing blocks, except money, auth and data deletion, which keep the strict loop (owner,
+2026-10-24). Wave plan and deferred items: `docs/handoff/issue-plan.md`.
 
-1. cPanel PR 1a (#69), then 1b, 2 (SSO, package select, server health), 3 (import); cPanel/WHM driver in progress on `feature/provisioning-cpanel` (stacked on #65, recorded fixtures until the owner provides a WHM server) (each with PostgreSQL CI green).
-2. CI runs on drafts carrying a `ci` label; every review verdict states "PostgreSQL run: yes/no".
-3. Done: #47 install path merged in #57. Still open: `billing/docs/devops/production.md` and `.env.production.example`; a CI smoke job installs on fresh
-   PostgreSQL without demo data.
-4. ADR 0009 (kernel extension contracts), only PRs A and B, minimal, built together with the first real consumer.
-5. cPanel/WHM driver: short spec, then build against ADR 0009 PR B; test against a real WHM server from the owner,
-   or recorded fixtures until one is available.
-6. Stripe gateway on the existing gateway contracts (no kernel change), in parallel.
-7. ADR 0013 steps 1–2 (company clock: `core.timezone`, automation in company time), with a Kathmandu test.
-8. Then: registrars (ADR 0009 PR C, `.np` manual, ResellerClub), Razorpay/PayPal, WHMCS importer.
+- Data-changing steps to warn the owner about before any real install: migrations `2026_10_23_500700` (#423),
+  `2026_10_24_400750` (#453, deletes duplicate report lines), `2026_10_24_000110` (#459, re-keys or demotes keyless
+  system roles); `billing:fiscal-vat-split`; #460's retention tasks delete old rows on the first daily run;
+  `support:recompute-unanswered --since=<deploy start>` after a blue-green deploy (#450).
+- Data-changing since: migration `2026_10_25_100600` (#478) renames groups whose slug the store now reserves (to `<slug>-plans`,
+  logged); `app:install` resets the Billing system role to add the two register export permissions (#480).
+- Next: VAT PR 6 and 8 if planned, P6b (extend `BillingDocuments`, do not add `InvoiceDocuments`), #483 admin Credit notes list
+  with resend, P2c remainder, P13 (issue plan).
+- Deferred from this wave (add to packages): #480 accept only csv/pdf in the export route, throw on unknown layout, drop dead
+  `can.export`, Nepali IRD header labels (kernel change), release note that Billing-role staff can export buyer PANs; #478
+  `/domains/search` drops `?currency=` on redirect, reserved-slug test from registered routes, Change plan wording for staff,
+  discount label percentage; #481 screenshots show old labels, unchanged Quick links card; #482 shared default objects in
+  `IdentifiesOccurrence`, a render failure fails all three mail attempts, no `kernel:api-snapshot` check yet (ADR 0010);
+  #474 recorded-credit refund should name the payment; #471 target's ResellerClub customer wins on merge.
+- Owner decisions open from this wave: Nepali labels in the IRD CSV header (kernel change), accountant on whether the emailed
+  note PDF counts as a print, keeping both emails on a staff refund (kept for now).
+- Namecheap is merged but not enabled. Before enabling it: a sandbox check of the not-in-account error numbers (2016166, 2019166), the `.us`,
+  `.ca` and `.eu` extension details and the transfer texts (simulator README "verify" list).
 
-Social sign-in: next free engineer (owner, 2026-10-19). Deferred: Affiliates, client dashboard and profile (#31, #32). None
-is a switch blocker in the parity studies.
+## Open owner questions
 
-## Decisions pending from the owner
-
-- Test accounts: not available (owner, 2026-10-18). Integrations are verified against local simulators; real smoke runs wait for real accounts.
-- Repository settings: branch protection and required checks on `develop` and `main`.
-- Business: licence and price model, support model, published security policy, trademark search for "Mohar".
-
-## Scheduled
-
-- On or after 2026-10-22: bump `laravel/framework` to 13.36.x and `laravel/wayfinder` to 0.1.22 (#11).
+- VAT (from #464, with an accountant): does the register keep every stretch the mode was on; does the note register's
+  Total exclude other tax; are foreign-tax-only documents "exempt".
+- Docker cleanup on the Mac (proposed 10-24, not run): build cache (~9.9 GB), dangling images (~1.4 GB),
+  `mohar-k286-php:local` (~1 GB). Keep `mohar-pg`, its volume and Mailpit; other projects' images untouched.
+- Nepali tax invoices: CBMS / electronic billing rules for VAT-registered hosts, and fiscal-year numbering (ask an
+  accountant).
+- connectIPS merchant enrolment (weeks of lead time); a WHMCS dev licence or fake-data export for importer fixtures; a
+  cPanel trial VPS.
+- Namecheap `.ca` and `.eu`: offered as built (a wrong detail name makes the registrar refuse the order, nothing is
+  bought), or kept off until a sandbox check.
+- Repository settings: Actions write for the token (re-running flaky jobs). Auto-merge and delete head branches are on
+  (2026-10-23).
+- Five behaviours in #211 ("Owner to confirm"), now merged with the conservative choice; confirm or change.
+- Bcrypt cost against sign-in bursts on a 2 vCPU host: #433 measured a 1.3 to 1.8 s sign-in p50 when 28 users sign in at
+  once. Lowering the cost speeds sign-in and weakens stored hashes; a security trade-off for the owner.
+- Business: licence and price in NPR, support model, security policy page, trademark search.
 
 ## Open issues worth knowing
 
-Go-live blockers: #47 (install path), #25 (key rotation). Data: #48–#52. Product sweep: #31–#37, #42. Integrations:
-#27 (Nepal follow-ups), #29 (PDF attachments), #30 (Support contract), #44 (credential reveal), #45 (historical
-rates), #55 (TLD race). Tests and CI: #21, #24, #54. Full list: `gh issue list`.
+Go-live (label `go-live`): issues #11 and #126 are closed (#11 by PR #242, #126 by PR #282), so none is open from the earlier list. The 40-user tail latency (#205) is a known performance finding without the label. Full list: `gh issue list --label go-live`.
 
-## Local-only state on the current codespace
+## Scheduled
 
-Not in git; does not exist on a new device:
+- Nothing scheduled.
+
+## Local-only state on the codespaces
+
+Not in git; does not exist on a new device. On the Mac: Homebrew PHP 8.4.26 (upgrade to 8.4.27 when bottled), Homebrew Composer, global Playwright 1.64.1,
+Mailpit in `compose.yaml`; screenshots via `scripts/screenshot.mjs`. Not carried over: `rea/`, the Stripe CLI login,
+Composer auth and `~/.npmrc` (log in again locally). The codespace list below is history:
 
 - Worktrees in `.worktrees/` (recreate with `scripts/new-worktree.sh <slug>`, or `git worktree add .worktrees/<slug>
-feature/<slug>` for an existing branch).
-- `.worktrees/_review/`: screenshot and preview helpers (Playwright scripts, theme artifact builder).
-- `rea/`: reverse-engineering tool checkout used at the start; not needed for the build.
+  feature/<slug>` for an existing branch). `.worktrees/_review/`: screenshot and preview helpers.
+- The owner's preview on port 8000 (`database/preview.sqlite`, started by the `resume-session` skill).
+- `rea/`: the REA reverse-engineering toolkit, installed per user on 10-17; used once (10-21) to capture the eSewa
+  UAT sandbox for #213; never pointed at WHMCS files (`CLAUDE.md`, Boundary).
 - Agent transcripts under `~/.claude/projects/-workspaces-whmcs/` (needed to resume agents in place; on a new device,
   relaunch from `.claude/agents/` with the brief template in the `run-workstream` skill).
+- Main site extras copied from the original codespace on 10-22: the Stripe CLI login (`~/.stripe`, `~/.config/stripe`),
+  Composer auth, `~/.npmrc`. The repository is cloned at `/workspaces/mohar`, with `/workspaces/whmcs` linked to it so
+  existing paths work; PHP is switched to 8.4 (`~/.php/current`), since new codespaces default to 8.3.
 - Published design review page: https://claude.ai/artifact/9zNAXTVDgoF8juYYZ6wnZM (private to the owner).

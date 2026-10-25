@@ -3,6 +3,7 @@
 namespace App\Modules\Domains\Models;
 
 use App\Modules\Domains\Database\Factories\TldFactory;
+use App\Modules\Domains\Support\RegistryLevels;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UseFactory;
@@ -22,6 +23,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $max_years
  * @property bool $allow_register
  * @property bool $allow_transfer
+ * @property bool $registered_by_client the client registers it at the registry; it is never sold here
+ * @property string|null $how_to_url guide for registering it; empty uses the domains.self_registration_url setting
  * @property int $grace_days
  * @property int $grace_fee
  * @property int $redemption_days
@@ -41,7 +44,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[UseFactory(TldFactory::class)]
 #[Fillable([
     'extension', 'display_unicode', 'registrar_key', 'auto_register', 'epp_required', 'min_years', 'max_years',
-    'allow_register', 'allow_transfer', 'grace_days', 'grace_fee', 'redemption_days', 'redemption_fee',
+    'allow_register', 'allow_transfer', 'registered_by_client', 'how_to_url', 'grace_days', 'grace_fee', 'redemption_days', 'redemption_fee',
     'renew_window_days', 'addon_dns', 'addon_id_protection', 'addon_email_forwarding', 'is_spotlight', 'badge',
     'additional_fields', 'sort_order', 'is_active',
 ])]
@@ -52,6 +55,28 @@ class Tld extends Model
 
     public const BADGES = ['hot', 'new', 'sale'];
 
+    /**
+     * Whether the client registers names under this extension at the registry themselves. On by default for .np
+     * and its second levels (com.np, org.np …), whose registry registers names only for their owners.
+     */
+    public static function registeredByClientByDefault(string $extension): bool
+    {
+        return $extension === '.np' || str_ends_with($extension, '.np');
+    }
+
+    /** Why the .np registry cannot have issued this name (asha.np), or null; the rule lives in RegistryLevels. */
+    public static function registryLevelHint(string $domain): ?string
+    {
+        return RegistryLevels::hint($domain);
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (Tld $tld): void {
+            $tld->registered_by_client ??= self::registeredByClientByDefault((string) $tld->extension);
+        });
+    }
+
     protected function casts(): array
     {
         return [
@@ -61,6 +86,7 @@ class Tld extends Model
             'max_years' => 'integer',
             'allow_register' => 'boolean',
             'allow_transfer' => 'boolean',
+            'registered_by_client' => 'boolean',
             'grace_days' => 'integer',
             'grace_fee' => 'integer',
             'redemption_days' => 'integer',

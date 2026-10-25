@@ -12,6 +12,7 @@ use App\Modules\Orders\Http\Requests\AddDomainRequest;
 use App\Modules\Orders\Http\Requests\AddProductRequest;
 use App\Modules\Orders\Http\Requests\ApplyPromotionRequest;
 use App\Modules\Orders\Pricing\CartPricer;
+use App\Modules\Orders\Pricing\ClientGroupSaving;
 use App\Modules\Orders\Services\CartManager;
 use App\Modules\Orders\Services\CustomerResolver;
 use Illuminate\Http\RedirectResponse;
@@ -26,14 +27,17 @@ class CartController extends Controller
         private CustomerResolver $customers,
     ) {}
 
-    public function show(Request $request, CartPricer $pricer): Response
+    public function show(Request $request, CartPricer $pricer, ClientGroupSaving $saving): Response
     {
         $cart = $this->carts->find($request);
         $client = $this->customers->clientFor($request->user(), $request->session());
         $currency = $cart->currency ?? $this->carts->currencyFor($request);
+        $items = $cart?->cartItems() ?? [];
+        $priced = $pricer->price($items, $currency, $cart?->promotion_code, $client);
 
         return Inertia::render('public/cart/index', [
-            'cart' => $pricer->price($cart?->cartItems() ?? [], $currency, $cart?->promotion_code, $client)->toArray(),
+            'cart' => $priced->toArray(),
+            'group_saving' => $saving->for($items, $priced, $client),
             ...$this->carts->storeProps($request),
         ]);
     }

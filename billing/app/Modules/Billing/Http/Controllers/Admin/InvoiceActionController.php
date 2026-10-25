@@ -20,15 +20,14 @@ use App\Modules\Billing\Http\Requests\Admin\AmountRequest;
 use App\Modules\Billing\Http\Requests\Admin\RecordPaymentRequest;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PayMethod;
-use App\Modules\Billing\Services\InvoicePdf;
+use App\Modules\Billing\Services\DocumentDownloads;
 use App\Modules\Core\Support\ActivityLogger;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Staff actions on a single invoice and bulk actions on the list.
@@ -129,8 +128,8 @@ class InvoiceActionController extends Controller
     public function cancelLines(Request $request, Invoice $invoice, CancelInvoiceItems $cancel): RedirectResponse
     {
         $this->authorize('billing.invoices.manage');
-        $data = $request->validate(['items' => ['required', 'array', 'min:1'], 'items.*' => ['integer']]);
-        $cancel->handle($invoice, array_values(array_map('intval', $data['items'])), $request->user()?->id);
+        $data = $request->validate(['items' => ['required', 'array', 'min:1'], 'items.*' => ['integer'], 'note' => ['nullable', 'string', 'max:500']]);
+        $cancel->handle($invoice, array_values(array_map('intval', $data['items'])), $request->user()?->id, $data['note'] ?? null);
         $this->activity->log('Invoice lines cancelled', $invoice, $invoice->client_id, ['items' => $data['items']]);
 
         return $this->done(__('Selected lines cancelled.'));
@@ -152,11 +151,11 @@ class InvoiceActionController extends Controller
         return $this->done(__('Credit removed from invoice :number.', ['number' => $invoice->displayNumber()]));
     }
 
-    public function pdf(Invoice $invoice, InvoicePdf $pdf): StreamedResponse
+    public function pdf(Invoice $invoice, DocumentDownloads $downloads): Response
     {
         $this->authorize('billing.invoices.view');
 
-        return Storage::disk('objects')->download($pdf->ensure($invoice), $pdf->filename($invoice), ['Content-Type' => 'application/pdf']);
+        return $downloads->invoice($invoice);
     }
 
     /**
@@ -173,6 +172,7 @@ class InvoiceActionController extends Controller
         $this->authorize($data['action'] === 'mark_paid' ? 'billing.payments.manage' : 'billing.invoices.manage');
 
         $done = 0;
+        $skipped = [];
 
         foreach (Invoice::query()->whereIn('id', $data['ids'])->whereIn('status', InvoiceStatus::payable())->orderBy('id')->get() as $invoice) {
             try {
@@ -183,12 +183,21 @@ class InvoiceActionController extends Controller
                 };
                 $this->activity->log('Bulk action: '.$data['action'], $invoice, $invoice->client_id);
                 $done++;
-            } catch (BillingException) {
-                continue;
+            } catch (BillingException $exception) {
+                $skipped[] = $invoice->displayNumber().': '.$exception->getMessage();
             }
         }
 
-        return $this->done(trans_choice('{0} No invoices were changed.|{1} 1 invoice updated.|[2,*] :count invoices updated.', $done, ['count' => $done]));
+        $message = trans_choice('{0} No invoices were changed.|{1} 1 invoice updated.|[2,*] :count invoices updated.', $done, ['count' => $done]);
+
+        if ($skipped !== []) {
+            // Say what was skipped and why (a numbered tax invoice needs a reason: cancel it one at a time).
+            Inertia::flash('toast', ['type' => 'info', 'message' => $message.' '.__('Skipped: :list', ['list' => implode(' ', array_slice($skipped, 0, 5))]).(count($skipped) > 5 ? ' …' : '')]);
+
+            return back();
+        }
+
+        return $this->done($message);
     }
 
     private function done(string $message): RedirectResponse

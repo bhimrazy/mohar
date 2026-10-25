@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('store')->name('store.')->group(function (): void {
     Route::get('/', [StoreController::class, 'index'])->name('index');
-    Route::get('products/{product}', [StoreController::class, 'show'])->whereNumber('product')->name('products.show');
+    Route::get('products/{product}', [StoreController::class, 'legacyProduct'])->whereNumber('product')->name('products.legacy');
     Route::post('products/{product}/quote', [StoreController::class, 'quote'])->whereNumber('product')->middleware('throttle:orders-quote')->name('products.quote');
     Route::get('domains', [StoreController::class, 'domains'])->name('domains');
     Route::put('currency', [StoreController::class, 'currency'])->middleware('throttle:orders-cart')->name('currency');
@@ -26,6 +26,11 @@ Route::prefix('store')->name('store.')->group(function (): void {
     Route::get('checkout', [CheckoutController::class, 'show'])->name('checkout');
     Route::post('checkout', [CheckoutController::class, 'store'])->middleware('throttle:orders-checkout')->name('checkout.store');
     Route::get('orders/{order:number}/complete', [CheckoutController::class, 'complete'])->name('checkout.complete');
+
+    // Last, so the fixed paths above win. The reserved words are also refused as a group slug (Catalog's ProductGroupRequest, same list).
+    $slug = '(?!(?:'.implode('|', StoreController::RESERVED_SLUGS).')(?:/|$))[a-z0-9][a-z0-9_-]*';
+    Route::get('{group}', [StoreController::class, 'group'])->where('group', $slug)->name('groups.show');
+    Route::get('{group}/{product}', [StoreController::class, 'show'])->where(['group' => $slug, 'product' => '[a-z0-9][a-z0-9_-]*'])->name('products.show');
 });
 
 Route::adminArea(function (): void {

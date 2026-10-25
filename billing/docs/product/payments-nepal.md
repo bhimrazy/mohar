@@ -29,10 +29,13 @@ signatures below are **fake** unless marked "UAT (public)". Nothing here was cop
 | Refund            | **API**, full or partial                    | Manual (portal); status shows refunds | Manual (via bank)                                                   | Manual                                                | Manual                              |
 | Sandbox           | Self-serve (`dev.khalti.com`)               | Public UAT keys                       | On request (NCHL support)                                           | From the acquiring bank                               | On request                          |
 | Amount unit       | paisa int (min 1000)                        | rupees string                         | paisa int                                                           | rupees string                                         | rupees                              |
-| Expiry            | `expires_at` from API (60 min prod default) | 15 min after login                    | Session based                                                       | Bank-defined                                          | Token based                         |
+| Expiry            | `expires_at` from API (60 min prod default) | Booking 50 min after the form post ¹  | Session based                                                       | Bank-defined                                          | Token based                         |
 | Fees / settlement | Not public; Khalti wallet then bank         | Not public; withdraw to bank free     | Charge per txn (`chargeAmt`, `chargeLiability`)                     | Bank contract                                         | Not public                          |
 | Public docs       | Yes                                         | Yes                                   | Yes                                                                 | **No** (bank-supplied spec)                           | **No**                              |
 | v1 priority       | **P1**                                      | **P1**                                | **P2**                                                              | P3                                                    | P4 (Khalti covers it)               |
+
+¹ eSewa UAT `bookingExpiryTime`, captured 2026-10-21 (§8.3). eSewa's docs say payment must follow login within 15
+minutes; the captures show the booking itself stays open longer. How the login limit behaves was not tested.
 
 Not in v1: **NPS OnePG** and **Hamro Pay** (aggregators; NPS also takes cards. Both have gated docs, so they're v2
 candidates). **Bank card acquiring** (Nabil, NIC Asia and others run CyberSource/Mastercard-style hosted pages,
@@ -73,7 +76,7 @@ sequenceDiagram
   amount), `product_details[]`, and `merchant_*` extras (echoed back). Validation errors come back as
   `{field: [msg], error_key: "validation_error"}`.
 - **Return query:** `pidx, status (Completed|Pending|User canceled), transaction_id, tidx, txnId, amount,
-total_amount, mobile, purchase_order_id, purchase_order_name`. None of it is signed, so treat it all as hints.
+  total_amount, mobile, purchase_order_id, purchase_order_name`. None of it is signed, so treat it all as hints.
 - **Lookup response:** `{pidx, total_amount, status, transaction_id, fee, refunded}`. **Pitfall:** `Expired` and
   `User canceled` come back as **HTTP 400** with a normal body. Parse the body before treating it as a transport
   error.
@@ -111,7 +114,7 @@ sequenceDiagram
 - **Form URL:** `https://rc-epay.esewa.com.np/api/epay/main/v2/form` (UAT) or `https://epay.esewa.com.np/...`
   (production). The status host is `rc.esewa.com.np` (UAT) or `esewa.com.np` (production).
 - **Fields** (all required, use 0 when unused): `amount, tax_amount, product_service_charge,
-product_delivery_charge, total_amount` (= sum), `transaction_uuid` (`[A-Za-z0-9-]`, unique per request),
+  product_delivery_charge, total_amount` (= sum), `transaction_uuid` (`[A-Za-z0-9-]`, unique per request),
   `product_code`, `success_url`, `failure_url`, `signed_field_names`, `signature`, and up to 3 `properties[x]`.
   Send `amount = total_amount` and the other parts as `0`. Tax is already on our invoice, and splitting it invites
   sum mismatches.
@@ -124,7 +127,7 @@ product_delivery_charge, total_amount` (= sum), `transaction_uuid` (`[A-Za-z0-9-
       do not reproduce with this key (we checked: the sample message gives `5DZywcrT…94E=`, not the published value).
       Use our own vectors.
 - **Success return:** `data` = base64 JSON `{transaction_code, status, total_amount, transaction_uuid,
-product_code, signed_field_names, signature}`. Rebuild the message from _its_ `signed_field_names`. The list
+  product_code, signed_field_names, signature}`. Rebuild the message from _its_ `signed_field_names`. The list
   includes `signed_field_names` itself, and you use the raw strings as received. Example (fake key):
   `transaction_code=000ABCD,status=COMPLETE,total_amount=1,130.0,transaction_uuid=inv-1042-a1,product_code=EPAYTEST,signed_field_names=transaction_code,status,total_amount,transaction_uuid,product_code,signed_field_names`
   → `C9QSBh3Ovftd7ZkOZRW2g1+iCbF3NtqdeTqsEQ/RNwo=`. **Pitfall:** `total_amount` is formatted with thousands
@@ -132,8 +135,9 @@ product_code, signed_field_names, signature}`. Rebuild the message from _its_ `s
 - **Status check** (authoritative, unsigned, TLS): pass _our_ expected `total_amount`. Read
   `{product_code, transaction_uuid, total_amount, status, ref_id}`, where `ref_id` is the provider txn id.
 - **Status mapping:** `COMPLETE` → succeeded. `PENDING` → pending. `AMBIGUOUS` → pending, and alert staff after
-  the grace period (never auto-fail). `NOT_FOUND` → pending until the attempt's TTL, then expired. `CANCELED` →
-  failed. `FULL_REFUND` / `PARTIAL_REFUND` → refunded (§3.5). The body `{code:0, error_message}` means a transient
+  the grace period (never auto-fail). `NOT_FOUND` → no payable session (see §8.3: this is also what a cancel
+  answers): a pending attempt ends on the customer's cancel return, or once it is 5 minutes old; never paid.
+  `CANCELED` → failed. `FULL_REFUND` / `PARTIAL_REFUND` → refunded (§3.5). The body `{code:0, error_message}` means a transient
   outage, so back off and retry.
 - `failure_url` is also used for PENDING, so failure is still a hint: look it up anyway. eSewa recommends a
   status check if there's no answer within 5 minutes.
@@ -162,8 +166,8 @@ sequenceDiagram
   confirm at onboarding). Merchants enrol through their bank and receive `MERCHANTID` (int), `APPID`, `APPNAME`,
   a password, and a signing certificate (`CREDITOR.pfx` in test).
 - **Form fields** (max lengths): `MERCHANTID(20) APPID(15) APPNAME(30) TXNID(20, unique per app)
-TXNDATE(DD-MM-YYYY, Asia/Kathmandu) TXNCRNCY(NPR) TXNAMT(paisa int) REFERENCEID(20) REMARKS(50) PARTICULARS(100)
-TOKEN(512)`.
+  TXNDATE(DD-MM-YYYY, Asia/Kathmandu) TXNCRNCY(NPR) TXNAMT(paisa int) REFERENCEID(20) REMARKS(50) PARTICULARS(100)
+  TOKEN(512)`.
 - **Token:** SHA256withRSA over
   `MERCHANTID=…,APPID=…,APPNAME=…,TXNID=…,TXNDATE=…,TXNCRNCY=…,TXNAMT=…,REFERENCEID=…,REMARKS=…,PARTICULARS=…,TOKEN=TOKEN`,
   base64-encoded. That is 11 pairs, the literal `TOKEN=TOKEN` comes last, and there is **no whitespace**.
@@ -231,7 +235,7 @@ interface HostedPaymentDriver extends GatewayDriver            // opt-in; manual
     /** @return list<string> ISO codes the provider settles in, e.g. ['NPR'] */
     public function currencies(): array;
     public function limits(Gateway $gateway): AmountLimits;             // min/max minor units (Khalti min 1000)
-    public function attemptTtl(Gateway $gateway): CarbonInterval;       // e.g. Khalti 60m, eSewa 15m
+    public function attemptTtl(Gateway $gateway): CarbonInterval;       // e.g. Khalti 60m, eSewa 60m
 
     /** Server-side preparation; may call the provider (Khalti/IME initiate). */
     public function initiate(Gateway $gateway, PaymentIntent $intent): RedirectInstruction|FormPost|QrPayload;
@@ -249,13 +253,16 @@ interface HostedPaymentDriver extends GatewayDriver            // opt-in; manual
 - `RedirectInstruction{url}`, `FormPost{action, fields}` (rendered as a CSP-safe auto-submit page) and
   `QrPayload{payload, expiresAt}` are the three instruction types.
 - `LookupResult{status: succeeded|pending|failed|expired|cancelled|refunded|partially_refunded, providerTxnId,
-amount (minor), currency, fee, payerRef, raw (redacted), retryable}`.
+  amount (minor), currency, fee, payerRef, raw (redacted), retryable}`.
 - `settingsFields()` gains the types `boolean` (sandbox toggle), `select{options}`, `secret_text` (multi-line PEM),
   plus `required` and `default`. Secrets keep going into `gateways.config` (`encrypted:array`), and the admin UI
   never echoes them back (it shows "••• set", and an empty submit keeps the old value).
 - Module-level tunables go in the `SettingsRegistry` billing section:
-  `billing.gateways.lookup_interval_minutes` (5), `billing.gateways.lookup_grace_minutes` (120),
-  `billing.gateways.http_timeout_seconds` (15), and `billing.gateways.ambiguous_alert_minutes` (30).
+  `billing.gateways.lookup_interval_minutes` (5), `billing.gateways.lookups_per_run` (200, at most 1,000; least
+  recently checked first, 4-minute deadline per run), `billing.gateways.lookup_grace_minutes` (120),
+  `billing.gateways.http_timeout_seconds` (15), `billing.gateways.ambiguous_alert_minutes` (30),
+  `billing.gateways.late_lookup_hours` (48), `billing.gateways.late_lookups_per_run` (100),
+  `billing.gateways.refund_check_days` (7) and `billing.gateways.refund_checks_per_run` (300) (§3.5).
 - **Packaging (an "extension"):** each extension is one class `Drivers/Gateways/Nepal/<Name>Driver.php` plus
   endpoint config in `Config/billing.php` → `gateways.<key>.{sandbox,live}` plus one line in
   `BillingServiceProvider` (`$manager->register(...)`) plus Http::fake fixtures and a contract-test dataset entry.
@@ -293,6 +300,10 @@ expires_at, last_lookup_at, lookup_count, raw (redacted json), timestamps`, with
    `last_lookup_at` older than the interval and `now < expires_at + grace`. It uses exponential backoff. Past the
    grace period it marks the attempt expired, unless the last status was AMBIGUOUS/Pending, which stays and gets a
    staff todo.
+   Closed attempts (expired, failed) are looked up again once an hour, on a schedule entry of their own, for
+   `billing.gateways.late_lookup_hours` (48, 0 = off, at most 168) after they started; a success found then is
+   booked as a late payment (billing.md §13). The customer's return looks a closed attempt up only inside that
+   window.
 
 ### 3.3 Status mapping summary
 
@@ -307,8 +318,10 @@ expires_at, last_lookup_at, lookup_count, raw (redacted json), timestamps`, with
 ### 3.4 Refunds
 
 Khalti declares `refund` (and `partial_refund` only once its unit is proven, see §8.2) and uses the existing `refund(Gateway, Transaction, Money)`.
-Every other driver omits `refund`. Staff then use `record_only` / `to_credit` (§4.7) after refunding in the
-provider portal, and the UI shows "Refund in the eSewa/ConnectIPS portal first."
+Every other driver omits `refund`. After refunding in the provider portal, staff record it with `record_only` (§4.7),
+and the UI shows "Refund in the eSewa/ConnectIPS portal first." `to_credit` is never the way to record a portal
+refund: it gives the client the same amount again as account credit. The part of a payment that went to account
+credit is recorded with Refund account credit (recorded) instead.
 
 ### 3.5 Refunds seen by lookup
 
@@ -316,8 +329,32 @@ A lookup on an already-paid attempt that reports Refunded / FULL_REFUND does **n
 creates a staff todo with a "record refund" action, so a refund made in the provider portal does not leave the
 customer with credit they never had.
 
-**Deferred (CTO, 2026-10-18): issue #27.** v1 never looks up an attempt again once it is paid, so a refund made in the
-provider portal after payment is not detected yet. Attempts refunded _before_ we saw them do go to staff review.
+**Built (#27): the daily re-lookup of paid attempts** (`Billing\Services\SettledRefundCheck`, automation task
+`billing.gateway_refund_check`, stage SYNC). Attempts refunded _before_ we saw them go to staff review, as before.
+
+- **Which attempts:** succeeded, booked (`transaction_id` set), started within `billing.gateways.refund_check_days` (7, 0 =
+  off, at most 30), on a gateway whose driver supports `lookup` but not `webhook` (Khalti and eSewa; Stripe and the
+  sandbox card push refunds by webhook). Each is looked up at most once every 20 hours, so a forced re-run of the day's
+  task calls no provider again. The query reads `payment_attempts_created_at_index` (a week of attempts, not the table),
+  least recently looked up first, at most `billing.gateways.refund_checks_per_run` (300, at most 1,000), with a 10-minute
+  deadline. A transient error (`retryable`) stops that gateway for the run and leaves the attempt unstamped.
+- **What is flagged:** a `refunded` answer while the payment's own refund rows (succeeded or pending, including payouts
+  of account credit through the gateway, but never refunds to account credit, which pay nothing out) total less than the payment,
+  counting also a payout of the payment's credit (its overpayment, or its own refunds to credit) recorded with Refund
+  account credit (recorded). That payout names no payment, so it counts only up to what the client no longer holds:
+  payouts recorded since the payment, and at most the payment's credit less the client's credit balance now. A client
+  who still holds the credit is flagged, or a `partially_refunded` answer while it has none. The answer is applied under
+  the payment's lock, then the attempt's, the order the provider refund callback uses; a staff refund reserves under the
+  payment's lock, so it is either counted or comes after the flag (race tests on PostgreSQL). Neither provider reports the
+  refunded amount, so a second partial portal refund after one recorded here is not told apart.
+- **What happens:** no money moves. The attempt gets `check_reason = portal_refund` (to-do "Refunds made at the provider to
+  record", `billing.payments.manage`), a review reason, `raw.portal_refund` (status, time, amount refunded here, amount
+  the payment left as credit) and an activity entry `billing.payment.portal_refund`. Staff record the refund on the
+  invoice (Refund → record); for the part the payment left as account credit, or that a refund to credit turned into
+  credit, which the invoice's refund refuses, the reason points to Refund account credit. Then they mark the payment checked. An open late or credit flag on the same
+  attempt is not lost: it is kept in `raw.portal_refund.previous_check` and after "; was:" in the review reason. The same status is not flagged twice; a partial refund that becomes full is flagged again.
+- **Khalti bank-funded payments** stay manual for v1 (no payer mobile number stored): every refund Khalti declines tells
+  staff to refund a bank-funded payment in the Khalti portal and record it.
 
 ## 4. Security checklist
 
@@ -461,7 +498,7 @@ merchants).
     - ConnectIPS: needs NCHL onboarding and PFX → PEM signing, and its `TXNID` max of 20 characters requires a short
       provider reference (see §8.4).
     - Fonepay and IME Pay.
-    - §3.5 out-of-band refunds after payment: deferred to issue #27.
+    - §3.5 out-of-band refunds after payment: built (P5c, #27), see §3.5.
     - eSewa Intent (the mobile-app deeplink flow, see §8.3).
 
 ### 8.2 Khalti: what the official docs say today vs this spec
@@ -498,6 +535,17 @@ merchants).
 - **Connection test:** Khalti has no ping endpoint. We look up a made-up pidx: 401 means the key was rejected, and
   400/404 means it was accepted.
 - **`purchase_order_id`:** no length limit is documented. We send our 26-character attempt reference.
+- **Continue payment (#251):** the lookup does not return `payment_url`, and the docs show it only as a sample
+  initiate response (`https://test-pay.khalti.com/?pidx=…`) with no stated format, so we don't build it from the pidx.
+  The `payment_url` from initiate is kept on the attempt (`payment_attempts.resume_url`, encrypted with `APP_KEY`,
+  never logged or sent as a prop) and dropped once the attempt leaves Pending. It mostly repeats the pidx, which is
+  stored in plain text, so the encryption is defence in depth rather than secrecy. "Continue payment" on the invoice
+  redirects to it only while the invoice still has a balance, the attempt is pending and unexpired, the URL passes the
+  same Khalti host check as initiate and names the attempt's pidx, and a lookup of that pidx says `Initiated`. Otherwise
+  the attempt is settled from that same lookup (one Khalti call per click) and the client is told the next step:
+  Pending (paid, bank confirming) gives "Your payment is being confirmed…", no answer gives "try again in a few
+  minutes", and a closed session shows where it stands. A Khalti client is never told to use another method, because
+  Khalti has no such button. eSewa is not resumable: its signed form is served once.
 
 ### 8.3 eSewa: what the official docs and UAT say today vs this spec
 
@@ -520,6 +568,54 @@ merchants).
   with a server callback. eSewa's own guidance sends desktop browsers to ePay web. v1 uses ePay v2 everywhere; Intent
   for mobile browsers is a follow-up and would bring a real callback.
 - **`transaction_uuid` length:** none is documented. UAT accepted 40 characters, and we send 26.
+- **Cancel answers `NOT_FOUND` (UAT capture, 2026-10-21).** After the customer confirms "cancel payment" on eSewa's
+  page, eSewa redirects to our `failure_url` unchanged, and the status check answers `NOT_FOUND` with
+  `ref_id: null`, never `CANCELED`. A session that was booked and not paid answers `PENDING`. An unknown uuid or a
+  different amount also answers `NOT_FOUND`. So the driver flags that answer `LookupResult::$sessionEnded`, and Billing ends a
+  pending eSewa attempt on `NOT_FOUND` when the customer came back through the cancel URL (`cancelled=1`, a hint;
+  the status check decides) or the attempt is at least 5 minutes old (the form is auto-posted on page load, so a
+  younger attempt may not have reached eSewa yet). A cancel return becomes failed, an abandoned one expired. An
+  attempt in staff review is never ended this way. Lookups stay open, so a stale form paid later is still booked
+  as a late payment (§3, #130). That backstop is required, so an attempt ends early only when the late window
+  covers it (`PaymentReconciler::lateSweepCovers()`): `gateways.late_lookup_hours` × 60 must be at least the
+  attempt's lifetime (60 min) + the late lookup interval (60) + the hourly run spacing (60), which is 3 hours today.
+  Below that (including 0, the sweep off) the attempt stays pending and polled as before. The return route lets a cancel
+  return for a pending attempt look again 10 seconds after the last lookup instead of one minute. eSewa also sends
+  real failures to `failure_url`; one that answers `NOT_FOUND` is treated, and worded, as a cancel.
+- **A signed COMPLETE return is evidence (#323).** The driver marks a return whose signature is valid and whose status is
+  COMPLETE as `ReturnHint::$signedPaid`, and the return route passes it to Billing, which keeps it on the attempt
+  (`raw.signed_return`: status, amount, code, time; it survives later lookups). If the status check then answers
+  `NOT_FOUND` (eSewa matches on the amount, so a payment settled for another amount looks like this), the attempt goes
+  to staff review (Ambiguous, `billing.payment.unmatched` in the activity log) instead of being abandoned, open and
+  blocking new payments, and still books if a later lookup says COMPLETE for our amount. A closed attempt is reopened for
+  review the same way. An attempt already in review is never expired by `NOT_FOUND` past the grace period (#217 N5).
+  The review attempt stops expiring (`expires_at` null, as for a processing payment), so it keeps blocking a new payment for the
+  invoice. The evidence is also kept when the return route skips the lookup (its one-minute floor). Staff settle it on
+  Payment attempts: **Mark as paid** (provider reference required, deduped on `provider_txn_id`, booked through the
+  normal settle path) or **Not paid** (`Failed`, `lookups_closed_at` set); both under `billing.payments.manage` with a
+  recent password and logged as `billing.payment.resolved` inside the booking transaction. Mark as paid also asks for
+  the amount shown in the portal and refuses unless it equals the attempt's amount (a part or over payment is recorded
+  with Add payment), and refuses a reference already on a booked transaction (it names the invoice). Not paid is final:
+  once `lookups_closed_at` is set, no lookup reopens or books it; a payment the gateway settles later is recorded with Add payment.
+  The blocking lasts while the attempt is within the 14 days of `PaymentInProgress::attempt()` (and of the open poller):
+  after that it stays on the review list and no longer blocks a new payment.
+  **Identifier.** The status check stores `ref_id` as `provider_txn_id`, which is what the dedupe compares; the signed
+  return carries `transaction_code` (kept in `raw.signed_return`, and on the booking as `return_transaction_code`).
+  eSewa's documents do not say the two are equal, so the form asks for the portal's reference ID and shows the return's
+  code beside it; whether they match in production is not verified.
+  Still open (#217 N4): more REA captures of confirmed cancels and of the status after the booking expires.
+- **Booking window (UAT capture, 2026-10-21).** eSewa's `product_details` for a fresh booking carries
+  `bookingExpiryTime`, 50 minutes after the form post, in every capture. The docs' "15 minutes after login" does not
+  end the booking (the login limit itself was not tested). An eSewa attempt therefore lives 60 minutes (`attempt_ttl_minutes`, never below
+  55), so the invoice stays locked while eSewa can still take the money. After a genuine cancel the attempt ends at
+  once (above), so the longer window only holds customers whose eSewa booking is still payable. We did not choose a
+  live status check before offering another method: it would put a provider call inside the invoice lock of every
+  payment start, and an eSewa outage would then block or unblock payments by guesswork.
+- **Form errors seen in UAT (2026-10-21):** a reused uuid answers HTTP 400
+  `{"error_message":"Duplicate transaction UUID.","code":0}`, a bad signature `ES104`, and amounts with thousands
+  separators `ES705` "Invalid transaction amount." These reach the customer's browser, not us, except in the
+  connection test, which reports `ES104` as a credentials problem and any other 400 as a refused test booking. Every
+  attempt has its own uuid, and our amounts never carry separators.
 
 ### 8.4 Reference format
 
@@ -530,16 +626,16 @@ stored in `provider_ref`.
 
 ### 8.5 Status mapping as built
 
-| Ours (LookupResult) | Khalti                                     | eSewa                         | Attempt becomes                                              |
-| ------------------- | ------------------------------------------ | ----------------------------- | ------------------------------------------------------------ |
-| succeeded           | Completed                                  | COMPLETE                      | succeeded (after the amount/currency/txn guards)             |
-| pending             | Pending, Initiated                         | PENDING                       | pending; staff review after TTL + grace                      |
-| not_found           | HTTP 404 (unknown pidx)                    | NOT_FOUND                     | pending; expired after TTL + grace                           |
-| ambiguous           | any other status                           | AMBIGUOUS, unknown, other txn | ambiguous (staff review, never auto-failed)                  |
-| cancelled           | User canceled (HTTP 400), Canceled, Failed | CANCELED                      | failed                                                       |
-| expired             | Expired (HTTP 400)                         | —                             | expired                                                      |
-| refunded / partial  | Refunded, Partially refunded               | FULL_REFUND, PARTIAL_REFUND   | ambiguous: "refunded at the provider before it was recorded" |
-| retryable           | 401/403/429/5xx, unreachable               | `code: 0`, 5xx, unreachable   | unchanged, polled again                                      |
+| Ours (LookupResult) | Khalti                                     | eSewa                         | Attempt becomes                                                                                 |
+| ------------------- | ------------------------------------------ | ----------------------------- | ----------------------------------------------------------------------------------------------- |
+| succeeded           | Completed                                  | COMPLETE                      | succeeded (after the amount/currency/txn guards)                                                |
+| pending             | Pending, Initiated                         | PENDING                       | pending; staff review after TTL + grace                                                         |
+| not_found           | HTTP 404 (unknown pidx)                    | NOT_FOUND (also after cancel) | pending; expired after TTL + grace. eSewa: failed on the cancel return, expired at 5 min (§8.3) |
+| ambiguous           | any other status                           | AMBIGUOUS, unknown, other txn | ambiguous (staff review, never auto-failed)                                                     |
+| cancelled           | User canceled (HTTP 400), Canceled, Failed | CANCELED                      | failed                                                                                          |
+| expired             | Expired (HTTP 400)                         | —                             | expired                                                                                         |
+| refunded / partial  | Refunded, Partially refunded               | FULL_REFUND, PARTIAL_REFUND   | ambiguous: "refunded at the provider before it was recorded"                                    |
+| retryable           | 401/403/429/5xx, unreachable               | `code: 0`, 5xx, unreachable   | unchanged, polled again                                                                         |
 
 ### 8.6 Provider logos (owner decision 2026-10-18)
 

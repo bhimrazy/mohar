@@ -107,7 +107,8 @@ class GatewayCharger
         }
 
         $this->log->log($gateway->key, 'request', 'capture', ['amount' => $amount->amount, 'currency' => $amount->currency, 'reference' => $reference], $invoiceId);
-        $result = $driver->capture($this->gateways->config($gateway), new ChargeRequest($amount, $token, __('Payment :reference', ['reference' => $reference]), $reference, $clientId, $invoiceId));
+        $config = $this->gateways->config($gateway);
+        $result = $this->gateways->during($config, fn (): ChargeResult => $driver->capture($config, new ChargeRequest($amount, $token, __('Payment :reference', ['reference' => $reference]), $reference, $clientId, $invoiceId)));
         $this->log->log($gateway->key, 'response', 'capture '.$result->status, $result->raw, $invoiceId);
 
         return $result;

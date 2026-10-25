@@ -3,8 +3,10 @@
 namespace App\Modules\PaymentsStripe\Support;
 
 use App\Data\Billing\GatewayConfig;
+use App\Data\Integrations\Endpoint;
 use App\Modules\Core\Support\Settings;
 use App\Support\Billing\SandboxPolicy;
+use App\Support\Integrations\Endpoints;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
@@ -17,6 +19,9 @@ use Throwable;
  * secret key checked against the gateway's mode, TLS verification on (the Http client default), a short connect
  * timeout, the billing.gateways.http_timeout_seconds total timeout, an Idempotency-Key on every POST, and retries
  * on background lookups only.
+ *
+ * The base URL and its request options come from Endpoints (`stripe.api`), in one call per request: the configured
+ * host unchanged, or an override from the environment in development, verified and pinned through the outbound guard.
  */
 final class StripeClient
 {
@@ -72,32 +77,39 @@ final class StripeClient
      * GET an object, e.g. get($gateway, 'checkout/sessions/cs_…', ['payment_intent']).
      *
      * @param  list<string>  $expand
+     * @param  array<string, string>  $query  extra query parameters (list filters)
      * @param  bool  $background  safe to repeat: retried on connection errors and 5xx (poller, webhooks)
      * @param  bool  $interactive  a customer's browser is waiting: one quick try
      */
-    public function get(GatewayConfig $gateway, string $path, array $expand = [], bool $background = false, bool $interactive = false): Response
+    public function get(GatewayConfig $gateway, string $path, array $expand = [], bool $background = false, bool $interactive = false, array $query = []): Response
     {
-        $query = implode('&', array_map(fn (string $field): string => 'expand[]='.rawurlencode($field), $expand));
+        $query = implode('&', [...array_map(fn (string $field): string => 'expand[]='.rawurlencode($field), $expand), ...array_map(fn (string $key, string $value): string => rawurlencode($key).'='.rawurlencode($value), array_keys($query), $query)]);
         $request = match (true) {
             $interactive => $this->interactive($gateway),
             $background => $this->retrying($gateway),
             default => $this->request($gateway),
         };
 
-        return $request->get($this->url($path).($query !== '' ? '?'.$query : ''));
+        $endpoint = $this->endpoint();
+
+        return $request->withOptions($endpoint->options)->get($endpoint->url($path).($query !== '' ? '?'.$query : ''));
     }
 
     /**
      * Single-shot POST (never retried, so nothing is sent twice) with form-encoded nested parameters.
      *
      * @param  array<string, mixed>  $parameters
+     * @param  bool  $interactive  a customer's browser is waiting: the short interactive timeouts
      */
-    public function post(GatewayConfig $gateway, string $path, array $parameters, string $idempotencyKey): Response
+    public function post(GatewayConfig $gateway, string $path, array $parameters, string $idempotencyKey, bool $interactive = false): Response
     {
-        return $this->request($gateway)
+        $endpoint = $this->endpoint();
+
+        return ($interactive ? $this->interactive($gateway) : $this->request($gateway))
+            ->withOptions($endpoint->options)
             ->asForm()
             ->withHeaders(['Idempotency-Key' => mb_substr($idempotencyKey, 0, 255)])
-            ->post($this->url($path), $parameters);
+            ->post($endpoint->url($path), $parameters);
     }
 
     /**
@@ -168,7 +180,7 @@ final class StripeClient
             ->timeout(max(2, $timeout));
     }
 
-    private function url(string $path): string
+    private function endpoint(): Endpoint
     {
         $base = config('payments_stripe.api');
 
@@ -176,7 +188,7 @@ final class StripeClient
             throw new StripeException('payments_stripe.api is not configured.');
         }
 
-        return $base.ltrim($path, '/');
+        return Endpoints::for('stripe.api', $base);
     }
 
     private static function intConfig(string $key, int $default): int

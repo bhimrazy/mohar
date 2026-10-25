@@ -45,7 +45,12 @@ class CreditLedgerService implements CreditLedger
     }
 
     /**
-     * Append a signed movement. Throws when the balance would go negative unless $allowNegative (reversals).
+     * Append a signed movement. Throws when the balance would go negative unless $allowNegative (reversals), and when
+     * the amount is not in the client's currency.
+     * $gateway and $externalRef name the provider movement behind it; the pair is unique when set. $idempotencyKey is
+     * the once-only key of a posting Mohar makes itself (an import, automation), prefixed with the poster's name
+     * (`import:…`); unique when set. $taxNoteId names the note that settles to or takes back the credit. Neither is checked here: the caller reads it under the client lock first, and the
+     * unique index stops a second writer that did not.
      */
     public function post(
         int $clientId,
@@ -56,9 +61,19 @@ class CreditLedgerService implements CreditLedger
         ?string $description = null,
         ?int $staffId = null,
         bool $allowNegative = false,
+        ?string $gateway = null,
+        ?string $externalRef = null,
+        ?string $idempotencyKey = null,
+        ?int $taxNoteId = null,
     ): CreditLedgerEntry {
-        return DB::transaction(function () use ($clientId, $amount, $reason, $invoiceId, $transactionId, $description, $staffId, $allowNegative): CreditLedgerEntry {
-            Client::query()->whereKey($clientId)->lockForUpdate()->firstOrFail();
+        return DB::transaction(function () use ($clientId, $amount, $reason, $invoiceId, $transactionId, $description, $staffId, $allowNegative, $gateway, $externalRef, $idempotencyKey, $taxNoteId): CreditLedgerEntry {
+            $client = Client::query()->whereKey($clientId)->lockForUpdate()->firstOrFail();
+
+            // Credit is kept in the client's currency. Read under the lock, so a caller that priced the amount from a
+            // client row read earlier cannot post it after a currency change (#218).
+            if ($amount->currency !== $client->currency) {
+                throw new BillingException(__('Account credit must be in the client currency (:currency).', ['currency' => $client->currency]));
+            }
 
             $balance = $this->balance($clientId, $amount->currency)->add($amount);
 
@@ -76,6 +91,10 @@ class CreditLedgerService implements CreditLedger
                 'transaction_id' => $transactionId,
                 'description' => $description,
                 'staff_id' => $staffId,
+                'gateway' => $gateway,
+                'external_ref' => $externalRef,
+                'idempotency_key' => $idempotencyKey,
+                'tax_note_id' => $taxNoteId,
             ]);
         });
     }

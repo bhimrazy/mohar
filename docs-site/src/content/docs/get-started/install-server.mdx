@@ -1,0 +1,137 @@
+---
+title: Install on a server without Docker
+description: Install the app on a server where you run PHP, PostgreSQL and the workers yourself.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Use this when you already run PHP and PostgreSQL, or prefer managed services. Check the
+[requirements](../requirements/#on-a-server-without-docker) first. The commands run from the `billing/` folder of the
+release, as the user that runs PHP.
+
+<Steps>
+
+1. Prepare the database and object storage.
+    - **Managed or existing services:** create a PostgreSQL database with a user that owns it, and a private bucket
+      with an access key limited to that bucket.
+    - **On the same host with Docker:** `billing/compose.yaml` starts PostgreSQL and RustFS on `127.0.0.1` only. Set
+      `DB_PASSWORD`, `OBJECTS_ACCESS_KEY` and `OBJECTS_SECRET_KEY` in `.env` before you run
+      `docker compose up -d --wait` for the first time; PostgreSQL reads them only when its volume is created. The file
+      turns the RustFS web console on (`RUSTFS_CONSOLE_ENABLE`); set it to `'false'` in `compose.yaml` for production.
+
+2. Install the PHP packages and build the front-end files.
+
+    ```bash
+    composer install --no-dev --optimize-autoloader
+    npm ci && npm run build
+    ```
+
+    Node is needed only for this step. The PHP user must be able to write `storage/` and `bootstrap/cache/`.
+
+3. Create `.env` from `.env.example` and set at least:
+
+    ```dotenv
+    APP_ENV=production
+    APP_DEBUG=false
+    APP_URL=https://billing.example.com
+
+    DB_CONNECTION=pgsql
+    DB_HOST=127.0.0.1
+    DB_PORT=5432
+    DB_DATABASE=billing
+    DB_USERNAME=billing
+    DB_PASSWORD=change-me
+
+    SESSION_SECURE_COOKIE=true
+    MAIL_MAILER=smtp
+
+    OBJECTS_DRIVER=s3
+    OBJECTS_ENDPOINT=https://s3.example.com
+    OBJECTS_ACCESS_KEY=...
+    OBJECTS_SECRET_KEY=...
+    OBJECTS_BUCKET=billing
+    OBJECTS_REGION=us-east-1
+    ```
+
+    `APP_URL` must be the exact address clients use, with `https://` and no slash at the end. Links in emails are
+    built from it, and requests for other host names are refused. Add the `MAIL_` details for your mail account.
+
+4. Generate the application key, once, and back up `.env`.
+
+    ```bash
+    php artisan key:generate
+    ```
+
+    The key decrypts stored gateway, registrar and server credentials. Keep a copy in your password manager, away
+    from database backups.
+
+5. Create the tables and the bucket, then run the installer.
+
+    ```bash
+    php artisan migrate --force
+    php artisan objects:ensure-bucket
+    php artisan app:install
+    ```
+
+    The installer checks the environment, including that each queue connection's `retry_after` is above the longest
+    job timeout, adds reference data (currencies and staff roles) and asks for the first administrator's name, email
+    and password. It starts with Nepal's defaults: country Nepal, currency NPR, time zone Asia/Kathmandu, a 13% VAT
+    rule (tax stays off until you enable it) and dates like `1 Jan 2026`. In a terminal it asks for the country,
+    currency and time zone first; without one, pass `--country`, `--currency` and `--timezone`. All of it can be
+    changed later in Settings → Company and Setup → Currencies, and a later run never changes an existing
+    installation.
+
+6. Point the web server's document root at `billing/public`, send every request that is not a file to `index.php`,
+   and serve HTTPS only. Then cache the configuration:
+
+    ```bash
+    php artisan optimize
+    ```
+
+    Run `php artisan optimize` again whenever you change `.env`.
+
+7. Add the scheduler to cron, as the user that runs PHP:
+
+    ```text
+    * * * * * cd /srv/billing/billing && php artisan schedule:run >> /dev/null 2>&1
+    ```
+
+8. Keep four queue workers running with systemd or Supervisor. The installer prints the same four commands.
+
+    ```bash
+    php artisan queue:work --queue=payments,provisioning,registrar --tries=3 --timeout=200
+    php artisan queue:work --queue=notifications,webhooks --tries=3
+    php artisan queue:work --queue=default --tries=3
+    php artisan queue:work automation --queue=automation --tries=1 --timeout=3600
+    ```
+
+    The fourth one runs **Run now** from **Setup → Automation**. Start it exactly as shown, run only one, and give it a
+    stop timeout above 3,600 seconds (systemd `TimeoutStopSec`, Supervisor `stopwaitsecs`), so a restart waits for a
+    run in progress instead of cutting it off.
+
+    A systemd unit for one of them:
+
+    ```ini
+    [Unit]
+    Description=billing queue worker (notifications, webhooks)
+    After=network.target
+
+    [Service]
+    User=www-data
+    WorkingDirectory=/srv/billing/billing
+    ExecStart=/usr/bin/php artisan queue:work --queue=notifications,webhooks --tries=3 --max-time=3600
+    Restart=always
+
+    [Install]
+    WantedBy=multi-user.target
+    ```
+
+</Steps>
+
+<Aside title="Behind a load balancer or reverse proxy">
+	Set `TRUSTED_PROXIES` in `.env` to the proxy's address or range, then run `php artisan optimize`. Without it the
+	app sees every visitor as the proxy, sign-in limits apply to everyone at once, and HTTPS-only headers are not sent.
+	Never set it to `*` on a network others can reach.
+</Aside>
+
+Next: [Sign in for the first time](../first-sign-in/).

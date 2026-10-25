@@ -1,5 +1,23 @@
 <?php
 
+/*
+ * APP_KEY and APP_PREVIOUS_KEYS come from the environment, or from the file `<NAME>_FILE` names (Docker and Compose
+ * secrets under /run/secrets, systemd credentials, Kubernetes secret volumes); a relative path is taken from the
+ * application directory. A non-empty variable wins. Each file is read once, when the configuration is loaded or cached.
+ */
+$secretFile = static function (string $name): ?string {
+    $path = (string) env($name.'_FILE');
+
+    return $path === '' ? null : (str_starts_with($path, '/') ? $path : base_path($path));
+};
+$readSecret = static function (?string $path): ?string {
+    $contents = $path !== null && is_file($path) && is_readable($path) ? trim((string) file_get_contents($path)) : '';
+
+    return $contents === '' ? null : $contents;
+};
+$appKey = (string) env('APP_KEY') !== '' ? (string) env('APP_KEY') : $readSecret($secretFile('APP_KEY'));
+$previousKeys = (string) env('APP_PREVIOUS_KEYS') !== '' ? (string) env('APP_PREVIOUS_KEYS') : $readSecret($secretFile('APP_PREVIOUS_KEYS'));
+
 return [
 
     /*
@@ -97,13 +115,19 @@ return [
 
     'cipher' => 'AES-256-CBC',
 
-    'key' => env('APP_KEY'),
+    // See docs/devops/key-rotation.md. Previous keys are separated by commas or new lines.
+    'key' => $appKey,
 
     'previous_keys' => [
-        ...array_filter(
-            explode(',', (string) env('APP_PREVIOUS_KEYS', '')),
-        ),
+        ...array_values(array_filter(preg_split('/[\s,]+/', (string) $previousKeys) ?: [])),
     ],
+
+    // For the install check: where the key came from ('env', 'file' or null), and the files named by *_FILE.
+    'key_source' => (string) env('APP_KEY') !== '' ? 'env' : ($appKey !== null ? 'file' : null),
+
+    'key_file' => $secretFile('APP_KEY'),
+
+    'previous_keys_file' => $secretFile('APP_PREVIOUS_KEYS'),
 
     /*
     |--------------------------------------------------------------------------

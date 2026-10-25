@@ -2,18 +2,21 @@
 
 namespace App\Modules\Domains\Http\Controllers\Admin;
 
+use App\Contracts\Domains\Registrar\RegistrarDriver;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Domains\Actions\UpdateDomainDetails;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Http\Requests\UpdateDomainRequest;
 use App\Modules\Domains\Http\Resources\DomainResource;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainContact;
 use App\Modules\Domains\Models\Tld;
+use App\Modules\Domains\Services\RegistrarManager;
 use App\Modules\Domains\Services\RenewalInvoices;
+use App\Modules\Domains\Services\TldAttributeService;
+use App\Support\Domains\RegistrarDriverRegistry;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -22,12 +25,12 @@ use Inertia\Response;
 
 class DomainController extends Controller
 {
-    public function index(Request $request, RegistrarManager $registrars): Response
+    public function index(Request $request, RegistrarDriverRegistry $registrars): Response
     {
         $this->authorize('domains.domains.view');
 
         $domains = Domain::query()
-            ->with('client:id,first_name,last_name,company_name')
+            ->with(['client:id,first_name,last_name,company_name', 'tldModel:id,registered_by_client,how_to_url'])
             ->search($request->string('search')->toString())
             ->when($request->filled('status'), fn (Builder $query) => $query->where('status', $request->string('status')->toString()))
             ->when($request->filled('registrar'), fn (Builder $query) => $request->string('registrar')->toString() === 'manual'
@@ -47,28 +50,29 @@ class DomainController extends Controller
             'filters' => $request->only(['search', 'status', 'registrar', 'tld', 'expiring', 'client', 'attention']),
             'statuses' => DomainStatus::values(),
             'registrars' => $registrars->keys(),
-            'registrarNames' => $registrars->names(),
+            'registrarNames' => array_map(fn (RegistrarDriver $driver): string => $driver->name(), $registrars->all()),
             'tlds' => Tld::query()->ordered()->pluck('extension'),
         ]);
     }
 
-    public function show(Request $request, Domain $domain, RegistrarManager $registrars): Response
+    public function show(Request $request, Domain $domain, RegistrarDriverRegistry $registrars, RegistrarManager $accounts, TldAttributeService $tldAttributes): Response
     {
         $this->authorize('domains.domains.view');
-        $domain->load(['client:id,first_name,last_name,company_name', 'contacts']);
+        $domain->load(['client:id,first_name,last_name,company_name', 'contacts', 'tldModel:id,registered_by_client,how_to_url']);
 
         return Inertia::render('admin/domains/show', [
             'domain' => new DomainResource($domain),
             'contacts' => $this->contacts($domain),
-            'capabilities' => $registrars->capabilitiesOf($domain->registrar_key),
+            'capabilities' => $domain->registrar_key !== null && $registrars->has($domain->registrar_key) ? $registrars->capabilitiesOf($domain->registrar_key) : [],
             'registrar' => $domain->registrar_key === null || ! $registrars->has($domain->registrar_key) ? null : [
                 'key' => $domain->registrar_key,
-                'name' => $registrars->driver($domain->registrar_key)->name(),
-                'active' => $registrars->isActive($domain->registrar_key),
+                'name' => $registrars->get($domain->registrar_key)->name(),
+                'active' => $accounts->isActive($domain->registrar_key),
             ],
+            'registryDetails' => $tldAttributes->describe($domain->tld, array_map(strval(...), (array) ($domain->additional_fields['tld_attributes'] ?? [])), mask: false),
             'billingAvailable' => app(RenewalInvoices::class)->available(),
             'registrars' => $registrars->keys(),
-            'registrarNames' => $registrars->names(),
+            'registrarNames' => array_map(fn (RegistrarDriver $driver): string => $driver->name(), $registrars->all()),
             'statuses' => DomainStatus::values(),
             'allowedStatuses' => array_map(fn (DomainStatus $status): string => $status->value, $domain->status->allowedTransitions()),
             'commandLog' => $domain->commandLog()->with('staff:id,name')->latest('id')->limit(25)->get()

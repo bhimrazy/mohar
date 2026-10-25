@@ -2,8 +2,9 @@
 
 namespace App\Modules\Domains\Http\Resources;
 
+use App\Contracts\Core\CompanyClock;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Models\Domain;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -28,11 +29,14 @@ class DomainResource extends JsonResource
             'type' => $this->type,
             'status' => $this->status->value,
             'registrar_key' => $this->registrar_key,
+            'registered_by_client' => $this->isRegisteredByClient(),
+            // Registry guide for names the client registers themselves: the TLD's own, else the host-wide default.
+            'how_to_url' => $this->isRegisteredByClient() ? ($this->tldModel->how_to_url ?: (app(Settings::class)->get('domains.self_registration_url', '') ?: null)) : null,
             'registration_date' => $this->registration_date?->toDateString(),
             'expiry_date' => $this->expiry_date?->toDateString(),
             'next_due_date' => $this->next_due_date->toDateString(),
             'next_invoice_date' => $this->when($staff, fn (): string => $this->next_invoice_date->toDateString()),
-            'days_until_expiry' => $this->expiry_date === null ? null : (int) CarbonImmutable::today()->diffInDays($this->expiry_date, false),
+            'days_until_expiry' => $this->expiry_date === null ? null : (int) app(CompanyClock::class)->todayDate()->diffInDays($this->expiry_date, false),
             'period_years' => $this->period_years,
             'first_payment_amount' => $this->when($staff, $this->first_payment_amount),
             'recurring_amount' => $this->recurring_amount,
@@ -51,6 +55,7 @@ class DomainResource extends JsonResource
             'last_synced_at' => $this->when($staff, fn (): ?string => $this->last_synced_at?->toIso8601String()),
             'last_sync_status' => $this->when($staff, $this->last_sync_status),
             'linked_service_id' => $this->when($staff, $this->linked_service_id),
+            'registrar_order_id' => $this->when($staff, fn (): string|int|null => is_int($meta['remote']['order_id'] ?? null) || is_string($meta['remote']['order_id'] ?? null) ? $meta['remote']['order_id'] : null),
             'has_epp_code' => $this->when($staff, fn (): bool => $this->epp_code !== null),
             'client' => $this->whenLoaded('client', fn (): array => ['id' => $this->client->id, 'display_name' => $this->client->display_name]),
             'created_at' => $this->created_at?->toIso8601String(),

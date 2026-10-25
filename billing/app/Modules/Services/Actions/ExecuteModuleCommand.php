@@ -130,14 +130,11 @@ class ExecuteModuleCommand
             return;
         }
 
-        if ($jobDied && $this->markUnfinishedAsUnknown($service->id, $command) > 0) {
-            $this->openQueueItem($service, $command, $args, self::unknownMessage($error), 1, ModuleQueueItem::KIND_VERIFY);
-        } else {
-            $this->openQueueItem($service, $command, $args, $error, 1, ModuleQueueItem::KIND_FAILURE);
-        }
+        $unknown = $jobDied && $this->markUnfinishedAsUnknown($service->id, $command) > 0;
+        $this->openQueueItem($service, $command, $args, $unknown ? self::unknownMessage($error) : $error, 1, $unknown ? ModuleQueueItem::KIND_VERIFY : ModuleQueueItem::KIND_FAILURE);
 
         $this->effects->failed($service, $command, $args, $error);
-        ProvisioningFailed::dispatch($service->id, $service->client_id, $command->value, $error);
+        ProvisioningFailed::dispatch($service->id, $service->client_id, $command->value, $error, $unknown);
     }
 
     /**
@@ -169,7 +166,7 @@ class ExecuteModuleCommand
             if ($this->markUnfinishedAsUnknown($service->id, $command) > 0) {
                 $error = 'A previous create attempt did not finish; its outcome is unknown. Check the server, then retry or resolve.';
                 $this->openQueueItem($service, $command, $args, $error, $attempt, ModuleQueueItem::KIND_VERIFY);
-                ProvisioningFailed::dispatch($service->id, $service->client_id, $command->value, $error);
+                ProvisioningFailed::dispatch($service->id, $service->client_id, $command->value, $error, outcomeUnknown: true);
 
                 return CommandOutcome::failed($error);
             }
@@ -212,12 +209,11 @@ class ExecuteModuleCommand
             ServerCapacityExhausted::dispatch($service->id, $service->product_id, $product?->serverGroupId);
             $result = DriverResult::fail($exception->getMessage());
         } catch (Throwable $exception) {
-            $secrets = $context?->secrets() ?? [];
-            report(new \RuntimeException($this->redactor->maskValues($exception->getMessage(), $secrets)));
+            report(new \RuntimeException($this->redactor->maskValues($exception->getMessage(), $this->secrets($context, $args))));
             $result = DriverResult::fail($exception->getMessage());
         }
 
-        $secrets = [...($context?->secrets() ?? []), ...(isset($args['password']) ? [(string) $args['password']] : [])];
+        $secrets = $this->secrets($context, $args);
         $error = $result->success ? null : $this->redactor->maskValues((string) $result->message, $secrets);
         $outcome = $result->outcome();
 
@@ -450,11 +446,22 @@ class ExecuteModuleCommand
         } catch (RetryableProvisioningException $exception) {
             throw $exception;
         } catch (Throwable $exception) {
-            $message = $this->redactor->maskValues($exception->getMessage(), $context->secrets());
+            $message = $this->redactor->maskValues($exception->getMessage(), $this->secrets($context, $args));
             report(new \RuntimeException($message));
 
             return DriverResult::unknown("The {$driver->name()} driver failed during the call: {$message}");
         }
+    }
+
+    /**
+     * The values to mask in anything this command reports or stores: the context's secrets and a new password.
+     *
+     * @param  array<string, mixed>  $args
+     * @return list<string>
+     */
+    private function secrets(?ProvisioningContext $context, array $args): array
+    {
+        return [...($context?->secrets() ?? []), ...(isset($args['password']) ? [(string) $args['password']] : [])];
     }
 
     /**
@@ -571,7 +578,8 @@ class ExecuteModuleCommand
             $this->effects->failed($service, $command, $args, $error);
         });
 
-        ProvisioningFailed::dispatch($service->id, $service->client_id, $command->value, $error);
+        // A verify item means the provider may have acted: staff get the "being checked" notice, not a failure.
+        ProvisioningFailed::dispatch($service->id, $service->client_id, $command->value, $error, $kind === ModuleQueueItem::KIND_VERIFY);
 
         return CommandOutcome::failed($error);
     }

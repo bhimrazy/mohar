@@ -3,6 +3,7 @@
 namespace App\Modules\Orders\Actions;
 
 use App\Contracts\Catalog\PriceBook;
+use App\Contracts\Domains\DomainNameRules;
 use App\Enums\BillingCycle;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
@@ -12,6 +13,7 @@ use App\Modules\Orders\Models\Cart;
 use App\Modules\Orders\Pricing\CartPricer;
 use App\Modules\Orders\Services\CustomFieldRules;
 use App\Modules\Orders\Services\DomainGuard;
+use App\Modules\Orders\Services\TldAttributeInput;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -25,10 +27,12 @@ class AddProductToCart
         private CartPricer $pricer,
         private CustomFieldRules $customFieldRules,
         private Settings $settings,
+        private TldAttributeInput $tldAttributes,
+        private DomainNameRules $nameRules,
     ) {}
 
     /**
-     * @param  array{product_id: int, cycle: string, config_options?: array<int|string, mixed>, custom_fields?: array<int|string, mixed>, domain_mode?: ?string, domain_name?: ?string, epp_code?: ?string, addon_ids?: list<int|string>}  $input
+     * @param  array{product_id: int, cycle: string, config_options?: array<int|string, mixed>, custom_fields?: array<int|string, mixed>, domain_mode?: ?string, domain_name?: ?string, epp_code?: ?string, addon_ids?: list<int|string>, tld_attributes?: mixed}  $input
      *
      * @throws ValidationException
      */
@@ -43,7 +47,13 @@ class AddProductToCart
 
         $cycle = BillingCycle::tryFrom($input['cycle']);
 
-        if ($cycle === null || ! in_array($cycle, $this->priceBook->availableCycles($productId, $cart->currency), true)) {
+        $cycles = $this->priceBook->availableCycles($productId, $cart->currency);
+
+        if ($cycles === []) {
+            throw ValidationException::withMessages(['product_id' => __(':product is not sold in :currency.', ['product' => $product->name, 'currency' => $cart->currency])]);
+        }
+
+        if ($cycle === null || ! in_array($cycle, $cycles, true)) {
             throw ValidationException::withMessages(['cycle' => __('Choose one of the available billing cycles.')]);
         }
 
@@ -55,6 +65,7 @@ class AddProductToCart
             throw ValidationException::withMessages($errors);
         }
 
+        $name = DomainGuard::normalise((string) ($input['domain_name'] ?? ''));
         $item = new CartItem(
             key: $replaceKey ?? CartItem::newKey(),
             kind: CartItemKind::Product,
@@ -63,9 +74,10 @@ class AddProductToCart
             configOptions: $configOptions,
             customFields: $customFields,
             domainMode: $this->domainMode($input, $product->requiresDomain),
-            domainName: ($name = trim((string) ($input['domain_name'] ?? ''))) === '' ? null : strtolower($name),
+            domainName: $name === '' ? null : $name,
             eppCode: ($input['domain_mode'] ?? null) === 'transfer' ? $this->eppCode($input) : null,
             addonIds: $this->addonIds($productId, $cart->currency, $input['addon_ids'] ?? []),
+            tldAttributes: ($input['domain_mode'] ?? null) === 'register' ? $this->tldAttributes->clean($name === '' ? null : $name, $input['tld_attributes'] ?? null, 'domain_name') : [],
         );
 
         $priced = $this->pricer->price([$item], $cart->currency, null, $client)->items[0];
@@ -157,7 +169,7 @@ class AddProductToCart
     private function domainMode(array $input, bool $requiresDomain): ?string
     {
         $mode = $input['domain_mode'] ?? null;
-        $name = trim((string) ($input['domain_name'] ?? ''));
+        $name = DomainGuard::normalise((string) ($input['domain_name'] ?? ''));
 
         if ($mode === null || $mode === '') {
             if ($requiresDomain) {
@@ -173,6 +185,10 @@ class AddProductToCart
 
         if (! DomainGuard::isValidName($name)) {
             throw ValidationException::withMessages(['domain_name' => __('Enter a valid domain name, for example example.com.')]);
+        }
+
+        if (($error = $this->nameRules->registryLevelError($name)) !== null) {
+            throw ValidationException::withMessages(['domain_name' => $error]);
         }
 
         return (string) $mode;

@@ -130,6 +130,10 @@ return [
     'migrations' => [
         'table' => 'migrations',
         'update_date_on_publish' => true,
+        // How long DDL waits for its table lock on PostgreSQL before it retries (LockTimeout, OnlineIndex);
+        // concurrent index builds wait for every older transaction, so they get longer (docs/architecture.md).
+        'lock_timeout' => env('DB_MIGRATION_LOCK_TIMEOUT', '3s'),
+        'concurrent_lock_timeout' => env('DB_MIGRATION_CONCURRENT_LOCK_TIMEOUT', '60s'),
     ],
 
     /*
