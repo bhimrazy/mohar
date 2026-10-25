@@ -16,10 +16,6 @@ return [
         'live' => 'https://api.cybersource.com',
     ],
 
-    // What the bank agreement lets the profile settle in: NPR, plus USD only where the agreement allows it
-    // (owner decision Q4). Other invoice currencies need the gateway's "Convert to" set to one of these.
-    'currencies' => array_values(array_intersect(['NPR', 'USD'], array_map('trim', explode(',', strtoupper((string) env('CYBERSOURCE_CURRENCIES', 'NPR')))))),
-
     'min_amount' => 100, // minor units (Rs 1 or $1); the bank enforces its own floor
     'attempt_ttl_minutes' => 60,
 

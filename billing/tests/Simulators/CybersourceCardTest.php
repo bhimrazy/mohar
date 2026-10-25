@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 use Mohar\Simulators\Kernel\Processes;
 use Mohar\Simulators\Providers\Cybersource\CybersourceSimulator;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\Simulators\SimulatorHarness;
 use Tests\TestCase;
 
@@ -63,7 +64,7 @@ function openCardSession(Invoice $invoice): string
  * The customer picks $choice on the hosted page and the browser posts the signed result into the app with its exact
  * bytes. Returns the app's answer.
  *
- * @return TestResponse<\Symfony\Component\HttpFoundation\Response>
+ * @return TestResponse<Response>
  */
 function payByCard(Invoice $invoice, string $choice): TestResponse
 {
@@ -75,7 +76,7 @@ function payByCard(Invoice $invoice, string $choice): TestResponse
     return postSigned(html_entity_decode($action[1]), $fields);
 }
 
-/** @return TestResponse<\Symfony\Component\HttpFoundation\Response> */
+/** @return TestResponse<Response> */
 function postSigned(string $url, array $fields): TestResponse
 {
     return test()->call('POST', $url, $fields, server: ['CONTENT_TYPE' => 'application/x-www-form-urlencoded'], content: http_build_query($fields));

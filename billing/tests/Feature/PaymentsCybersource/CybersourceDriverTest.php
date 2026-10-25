@@ -59,7 +59,7 @@ test('NPR only by default; USD is offered and sent as USD when the bank agreemen
     $usd = issueInvoice($client);
     $this->post(route('client.invoices.pay', $usd->id), ['gateway' => CybersourceDriver::KEY])->assertSessionHasErrors('billing');
 
-    config(['payments_cybersource.currencies' => ['NPR', 'USD']]);
+    config(['services.cybersource.currencies' => 'NPR, usd']);
     $checkout = $this->post(route('client.invoices.pay', $usd->id), ['gateway' => CybersourceDriver::KEY])->assertRedirect()->headers->get('Location');
 
     expect($this->get((string) $checkout)->inertiaProps('form.fields.currency'))->toBe('USD');
@@ -136,7 +136,7 @@ test('REST statuses map: review is processing, decline fails, an uncaptured auth
 
 test('a forged or incomplete return is no hint: no reference, no signed status', function (Closure $forge) {
     [, $attempt] = startCard();
-    $request = \Illuminate\Http\Request::create('/', 'POST', $forge(cardReturn(...), $attempt));
+    $request = Illuminate\Http\Request::create('/', 'POST', $forge(cardReturn(...), $attempt));
     $hint = app(CybersourceDriver::class)->parseReturn(new GatewayConfig('cybersource', 'Cards', cybersourceSettings(), sandbox: true), $request);
 
     expect($hint)->reference->toBeNull()->signatureValid->toBeFalse()->signedPaid->toBeFalse()->claimedStatus->toBeNull();

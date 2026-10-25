@@ -296,6 +296,12 @@ interoperable QR built to Nepal Rastra Bank's NepalQR framework, settled through
 It is the only Nepal card route with a public specification and a self-serve test environment, and the bank that
 uses it already ships plugins for it, so its onboarding is routine. It fits our contracts with no kernel change.
 
+**Built (V1, 2026-10-25):** module `app/Modules/PaymentsCybersource`, gateway key `cybersource`, verified against the
+simulator only. Choices made in the build: the cancel is posted to our cancel URL (`override_custom_cancel_page`);
+REST has no record of a cancelled session, so a lookup that finds nothing ends the attempt early only after
+Cybersource signed a CANCEL for it; USD is an operator switch (`CYBERSOURCE_CURRENCIES=NPR,USD`), because a
+driver's currency list cannot depend on staff settings.
+
 - **Initiate:** `initiate()` returns a `FormPost` to Cybersource's `/pay` endpoint (test host
   `testsecureacceptance.cybersource.com`, live `secureacceptance.cybersource.com`) with the bank-issued
   `access_key` and `profile_id`, a unique `transaction_uuid`, `signed_date_time` (UTC, ISO 8601),

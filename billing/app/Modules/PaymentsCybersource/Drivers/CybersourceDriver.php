@@ -80,9 +80,13 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
 
     public function currencies(): array
     {
-        $currencies = config('payments_cybersource.currencies', ['NPR']);
+        // NPR, plus USD only where the bank agreement allows it (owner decision Q4): CYBERSOURCE_CURRENCIES=NPR,USD.
+        // Other invoice currencies need the gateway's "Convert to" set to one of these.
+        $configured = config('services.cybersource.currencies', 'NPR');
+        $configured = is_array($configured) ? $configured : explode(',', is_string($configured) ? $configured : 'NPR');
+        $currencies = array_values(array_intersect(['NPR', 'USD'], array_map(fn (mixed $code): string => strtoupper(trim(is_string($code) ? $code : '')), $configured)));
 
-        return is_array($currencies) && $currencies !== [] ? array_values(array_filter($currencies, 'is_string')) : ['NPR'];
+        return $currencies === [] ? ['NPR'] : $currencies;
     }
 
     public function settingsFields(): array
@@ -128,7 +132,7 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
     public function initiate(GatewayConfig $gateway, PaymentIntent $intent): FormPost
     {
         if (! in_array($intent->amount->currency, $this->currencies(), true)) {
-            throw new CybersourceException("This Cybersource profile takes ".implode(', ', $this->currencies()).", not {$intent->amount->currency}.");
+            throw new CybersourceException('This Cybersource profile takes '.implode(', ', $this->currencies()).", not {$intent->amount->currency}.");
         }
 
         if (! $intent->amount->isPositive()) {
@@ -501,7 +505,11 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
         return is_array($rows) ? array_values(array_filter($rows, fn (mixed $row): bool => is_array($row) && is_string($row['id'] ?? null) && $keep($row))) : [];
     }
 
-    /** A payment, not a follow-on (refund, void) whose rootId names another transaction. */
+    /**
+     * A payment, not a follow-on (refund, void) whose rootId names another transaction.
+     *
+     * @param  array<array-key, mixed>  $row
+     */
     private static function isPayment(array $row): bool
     {
         return ! isset($row['rootId']) || $row['rootId'] === $row['id'];
