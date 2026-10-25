@@ -121,8 +121,8 @@ test('every gateway driver call outside the drivers runs in the redaction scope'
             continue;
         }
 
-        // The Stripe smoke command runs all its checks in one RedactionScope::during() with the test key.
-        $wholeFileScoped = str_ends_with($path, 'Console/Commands/StripeSmoke.php') && str_contains($code, 'RedactionScope::during(');
+        // The smoke commands run all their checks in one RedactionScope::during() with the test key.
+        $wholeFileScoped = preg_match('#Console/Commands/(Stripe|Razorpay)Smoke\.php$#', $path) === 1 && str_contains($code, 'RedactionScope::during(');
         preg_match_all($calls, $code, $found, PREG_OFFSET_CAPTURE);
 
         foreach ($found[0] as [$call, $offset]) {

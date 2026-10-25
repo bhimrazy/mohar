@@ -1,6 +1,6 @@
 # Payments — gateway expansion: connectIPS, Fonepay, cards in Nepal, more wallets, India (design, v1)
 
-Status: research and design only, nothing built; owner and CTO answers to §10.5 recorded 2026-10-25 (§10.6) · Owner: Billing (payments) · Extends `payments-nepal.md` (Khalti,
+Status: research and design; the Razorpay driver (R1) is built against our simulator; owner and CTO answers to §10.5 recorded 2026-10-25 (§10.6) · Owner: Billing (payments) · Extends `payments-nepal.md` (Khalti,
 eSewa built) and `payments-stripe.md` (Stripe built) · Public docs read 2026-10-20 and re-checked 2026-10-25 (§14)
 
 Clean-room: written from the providers' public developer docs, fee schedules and news, in our own words. No SDK,

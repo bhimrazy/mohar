@@ -19,7 +19,10 @@ final class RazorpayApi
     /** Razorpay's documented minimum order: Rs 1. */
     public const MIN_AMOUNT = 100;
 
-    /** The merchant fee this simulator charges, in percent of the amount, and the GST on that fee (assumed: 2% + 18%, not confirmed from Razorpay's docs). */
+    /**
+     * The merchant fee this simulator charges, in percent of the amount, and the GST on that fee (assumed: 2% + 18%, not
+     * confirmed from Razorpay's docs). A payment's `fee` includes the GST and `tax` is the GST part, as Razorpay reports them.
+     */
     public const FEE_PERCENT = 2;
 
     public const FEE_GST_PERCENT = 18;
@@ -255,7 +258,8 @@ final class RazorpayApi
     private function captured(array $payment): array
     {
         $fee = intdiv($payment['amount'] * self::FEE_PERCENT + 50, 100);
-        $payment = [...$payment, 'status' => 'captured', 'captured' => true, 'fee' => $fee, 'tax' => intdiv($fee * self::FEE_GST_PERCENT + 50, 100)];
+        $tax = intdiv($fee * self::FEE_GST_PERCENT + 50, 100);
+        $payment = [...$payment, 'status' => 'captured', 'captured' => true, 'fee' => $fee + $tax, 'tax' => $tax];
         $this->save($payment);
 
         $order = (array) $this->order($payment['order_id']);
