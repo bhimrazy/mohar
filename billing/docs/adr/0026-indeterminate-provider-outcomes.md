@@ -64,3 +64,16 @@ each add another path.
 
 - **One result type for all families.** ADR 0009 §4 already rejected it: the async semantics differ.
 - **A timeout-based release after N days.** A late provider success would then pay twice, or lose money.
+
+## Amendment (#500) — 2026-10-25, a success must say what was paid; signed cancels travel on the hint
+
+- **A success without its amount or currency is indeterminate.** `SettlePaymentAttempt` books a
+  `LookupResult::SUCCEEDED` only when it carries both, and both equal the attempt's. Without either, the attempt goes
+  to staff review (§1: the provider may have taken money, but we cannot prove how much). The guard no longer skips
+  the currency check when the driver gives none.
+- **Signed cancels are a hint for one lookup, not driver state.** A driver that verifies the provider's signature
+  over a cancel sets `ReturnHint::$signedCancel`; Billing passes it to that attempt's lookup as
+  `PaymentAttemptRef::$signedCancel`, and the lookup alone decides (it may answer `not_found` with `sessionEnded`).
+  Drivers keep no static memory of returns: it held only within one PHP process and grew with a long-lived worker.
+  A signed cancel that arrives only through the merchant notice (`CallbackEvent`) is not carried; the attempt then
+  ends at the grace period.
