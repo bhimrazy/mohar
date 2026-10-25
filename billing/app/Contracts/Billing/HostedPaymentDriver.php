@@ -37,6 +37,9 @@ interface HostedPaymentDriver extends GatewayDriver
     /** Parse the browser return (verify any signature) into hints. Never marks anything paid. */
     public function parseReturn(GatewayConfig $gateway, Request $request): ReturnHint;
 
-    /** Authoritative status from the provider. Must be safe to call repeatedly. */
+    /**
+     * Authoritative status from the provider. Must be safe to call repeatedly. A SUCCEEDED result carries the amount
+     * and currency paid (LookupResult); without them Billing holds the attempt for staff review.
+     */
     public function lookup(GatewayConfig $gateway, PaymentAttemptRef $attempt): LookupResult;
 }

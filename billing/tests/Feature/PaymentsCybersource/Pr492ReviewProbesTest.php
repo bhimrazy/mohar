@@ -111,15 +111,28 @@ test('P5 a sale authorised for less than requested, voided or reversed is never 
     'reversed' => ['applicationInformation.status', 'REVERSED'],
 ]);
 
-// P6 the signed-cancel map outlives the request inside one process.
-test('P6 a signed CANCEL is remembered for later lookups in the same process', function () {
+// P6 a signed CANCEL travels on the return's hint into that one lookup: the driver keeps no memory of it.
+test('P6 a signed CANCEL ends the session only for the lookup Billing passes it to', function () {
     [, $attempt] = startCard();
     fakeCardRest([]);
     $request = Request::create('/', 'POST', [], [], [], ['CONTENT_TYPE' => 'application/x-www-form-urlencoded'], http_build_query(cardReturn($attempt, 'CANCEL')));
-    app(CybersourceDriver::class)->parseReturn(probeConfig(), $request);
+    $driver = app(CybersourceDriver::class);
 
-    expect(app(CybersourceDriver::class)->lookup(probeConfig(), new PaymentAttemptRef($attempt->reference, Money::of(113_000, 'NPR')))->sessionEnded)->toBeTrue();
+    expect($driver->parseReturn(probeConfig(), $request))->signedCancel->toBeTrue()->signedPaid->toBeFalse()
+        ->and($driver->lookup(probeConfig(), new PaymentAttemptRef($attempt->reference, Money::of(113_000, 'NPR')))->sessionEnded)->toBeFalse()
+        ->and($driver->lookup(probeConfig(), new PaymentAttemptRef($attempt->reference, Money::of(113_000, 'NPR'), interactive: true, signedCancel: true)))
+        ->status->toBe('not_found')->sessionEnded->toBeTrue();
 });
+
+test('P6b a signed ACCEPT or an unsigned cancel is never a signed cancel', function (string $decision, string $secret) {
+    [, $attempt] = startCard();
+    $request = Request::create('/', 'POST', [], [], [], ['CONTENT_TYPE' => 'application/x-www-form-urlencoded'], http_build_query(cardReturn($attempt, $decision, secret: $secret)));
+
+    expect(app(CybersourceDriver::class)->parseReturn(probeConfig(), $request)->signedCancel)->toBeFalse();
+})->with([
+    'signed accept' => ['ACCEPT', CS_SECRET],
+    'cancel with a guessed key' => ['CANCEL', 'guessed'],
+]);
 
 // P7 a REST row for another reference is never used.
 test('P7 a search row for another reference is ignored', function () {

@@ -356,7 +356,8 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
             $raw = self::compact(['refund' => $refund['id'], 'status' => $refund['status'] ?? null, 'payment' => $request->providerTxnId]);
 
             if (($refund['amount'] ?? null) !== $request->amount->amount || ($refund['currency'] ?? null) !== $request->amount->currency) {
-                return new ChargeResult(ChargeResult::ERROR, $refund['id'], declineReason: 'the refund at Razorpay has another amount or currency', raw: $raw);
+                // No refund id: a refund that is not ours as asked must never be matched to our row (raw keeps it).
+                return new ChargeResult(ChargeResult::ERROR, declineReason: 'the refund at Razorpay has another amount or currency', raw: $raw);
             }
 
             return self::refundOutcome($refund['id'], $refund['status'] ?? null, $raw);

@@ -462,7 +462,8 @@ connectIPS needs it registered with NCHL. One static URL serves both success and
 
 If the Fonepay spec confirms that verification needs values that only arrive on the return (`UID`, bank code):
 `ReturnHint` gains a trailing `array $lookupContext = []` (at most 5 short string values, only when the signature is
-valid), Billing stores it on the attempt, and `PaymentAttemptRef` gains a trailing `array $context = []`. We do this
+valid), Billing stores it on the attempt (the rule of ADR 0026's #500 amendment, as for `signedCancel`), and
+`PaymentAttemptRef` gains a trailing `array $context = []` derived from what is stored. We do this
 only once the spec is in hand; if Fonepay offers status by `PRN`, no change is needed.
 
 ### 9.5 Webhook nudges for hosted drivers (none)

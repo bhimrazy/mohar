@@ -5,6 +5,7 @@ use App\Data\Billing\RefundRequest;
 use App\Events\Billing\InvoicePaid;
 use App\Modules\Billing\Actions\ConfigureGateway;
 use App\Modules\Billing\Actions\RefundTransaction;
+use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\RefundMode;
@@ -177,6 +178,19 @@ test('a signed CANCEL to the cancel page ends the attempt, so the invoice can be
     $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => CybersourceDriver::KEY])->assertRedirect()->assertSessionHasNoErrors();
 });
 
+test('a signed CANCEL within seconds of a poll is kept, and the next poll ends the attempt', function () {
+    [, $attempt] = startCard();
+    fakeCardRest([]);
+    app(SettlePaymentAttempt::class)->handle($attempt);
+    $this->travel(3)->seconds();
+
+    postCardReturn(cardReturn($attempt, 'CANCEL', ['reason_code' => '']), cancel: true, attempt: $attempt);
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Pending)->raw->toHaveKey(SettlePaymentAttempt::SIGNED_CANCEL);
+
+    app(SettlePaymentAttempt::class)->handle($attempt->fresh());
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Failed)->review_reason->toContain('Cancelled by the customer');
+});
+
 test('an unsigned cancel does not end the attempt while the customer may still be paying', function () {
     [, $attempt] = startCard();
     fakeCardRest([]);
@@ -258,6 +272,18 @@ test('a refund check finds our refund by reference under the payment, and says n
     expect($driver->lookupRefund($config, $request(5))->status)->toBe('error')
         ->and($driver->lookupRefund($config, $request(60))->status)->toBe('declined');
 });
+
+test('a refund under our reference for another amount or currency is an error that takes no refund id', function (string $amount, string $currency) {
+    $config = new GatewayConfig('cybersource', 'Cards', cybersourceSettings(), sandbox: true);
+    fakeCardRest([cardTxn('42', 'PENDING', $amount, $currency, id: '7290000000000000000099', rootId: '7290000000000000000001')]);
+
+    $result = app(CybersourceDriver::class)->lookupRefund($config, new RefundRequest('7290000000000000000001', Money::of(13_000, 'NPR'), Money::of(113_000, 'NPR'), reference: '42'));
+
+    expect($result)->status->toBe('error')->txnId->toBeNull()->raw->toMatchArray(['refund' => '7290000000000000000099']);
+})->with([
+    'amount' => ['200.00', 'NPR'],
+    'currency' => ['130.00', 'USD'],
+]);
 
 test('the notice only triggers a lookup: a bad signature is refused, a stale one too', function () {
     [, $attempt] = startCard();

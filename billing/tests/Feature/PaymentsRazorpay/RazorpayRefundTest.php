@@ -1,6 +1,9 @@
 <?php
 
+use App\Data\Billing\ChargeResult;
+use App\Data\Billing\RefundRequest;
 use App\Modules\Billing\Actions\RefundTransaction;
+use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Enums\TransactionStatus;
@@ -8,6 +11,7 @@ use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\PaymentsRazorpay\Drivers\RazorpayDriver;
+use App\Support\Money;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -96,4 +100,19 @@ test('a refund Razorpay refuses leaves the payment refundable', function () {
     expect(fn () => app(RefundTransaction::class)->handle($payment, 113_000, RefundMode::Gateway))->toThrow(BillingException::class)
         ->and($payment->fresh()->refundable_remaining)->toBe(113_000)
         ->and(Transaction::query()->where('type', TransactionType::Refund)->sole()->status)->toBe(TransactionStatus::Failed);
+});
+
+test('Check refund on a refund tagged with our reference but for another amount stays pending and takes no refund id', function () {
+    $payment = paidRazorpayPayment();
+    FakeRazorpay::$refund = fn () => throw new ConnectionException('timed out');
+    $pending = app(RefundTransaction::class)->handle($payment, 13_000, RefundMode::Gateway);
+    FakeRazorpay::$refunds['rfnd_MoharOther0001'] = rzpRefund('rfnd_MoharOther0001', 20_000, ['notes' => ['mohar_refund' => (string) $pending->id]]);
+
+    $result = app(RazorpayDriver::class)->lookupRefund(
+        app(GatewayManager::class)->config(RazorpayDriver::KEY),
+        new RefundRequest(RZP_PAYMENT, Money::of(13_000, 'INR'), Money::of(113_000, 'INR'), reference: (string) $pending->id),
+    );
+
+    expect($result)->status->toBe(ChargeResult::ERROR)->txnId->toBeNull()->raw->toMatchArray(['refund' => 'rfnd_MoharOther0001'])
+        ->and(app(RefundTransaction::class)->check($pending))->status->toBe(TransactionStatus::Pending)->gateway_txn_id->toBeNull();
 });
