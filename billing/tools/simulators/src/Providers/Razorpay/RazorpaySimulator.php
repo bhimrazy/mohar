@@ -21,8 +21,7 @@ use Mohar\Simulators\Kernel\Scenario;
  * - every change as a webhook event, signed with HMAC-SHA256 of the raw body (`X-Razorpay-Signature`).
  *
  * India is simulated only: the Razorpay driver (app/Modules/PaymentsRazorpay) runs against it, with no live capture yet
- * (docs-sourced shapes). The keys are for
- * local scenarios only.
+ * (docs-sourced shapes). The keys are for local scenarios only.
  */
 final class RazorpaySimulator implements HasControlActions, RedactsPayments, SignsCallbacks, Simulator
 {

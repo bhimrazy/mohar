@@ -10,6 +10,7 @@ use App\Data\Billing\PaymentIntent;
 use App\Data\Billing\RefundRequest;
 use App\Enums\HostedSessionCancel;
 use App\Modules\PaymentsRazorpay\Drivers\RazorpayDriver;
+use App\Modules\PaymentsRazorpay\Support\RazorpayClient;
 use App\Support\Billing\SandboxPolicy;
 use App\Support\Integrations\RedactionScope;
 use App\Support\Integrations\RedactionSet;
@@ -42,7 +43,7 @@ class RazorpaySmoke extends Command
     /** @var list<array{0: string, 1: string, 2: string}> */
     private array $steps = [];
 
-    public function handle(RazorpayDriver $driver): int
+    public function handle(RazorpayDriver $driver, RazorpayClient $client): int
     {
         if (! SandboxPolicy::allowed()) {
             $this->error('Test money is not allowed in this environment (production). Run the smoke test elsewhere.');
@@ -69,7 +70,7 @@ class RazorpaySmoke extends Command
         $money = Money::of(max(100, (int) $this->option('amount')), 'INR');
 
         try {
-            RedactionScope::during(RedactionSet::of([$secret]), fn () => $this->runChecks($driver, $gateway, $money));
+            RedactionScope::during(RedactionSet::of([$secret]), fn () => $this->runChecks($driver, $client, $gateway, $money));
         } catch (Throwable $exception) {
             $this->step('unexpected error', false, str_replace($secret, '[secret]', $exception->getMessage()));
         }
@@ -81,7 +82,7 @@ class RazorpaySmoke extends Command
         return $failed ? self::FAILURE : self::SUCCESS;
     }
 
-    private function runChecks(RazorpayDriver $driver, GatewayConfig $gateway, Money $money): void
+    private function runChecks(RazorpayDriver $driver, RazorpayClient $client, GatewayConfig $gateway, Money $money): void
     {
         $check = $driver->testConnection($gateway);
 
@@ -110,6 +111,14 @@ class RazorpaySmoke extends Command
         } while ($paid->status === LookupResult::PENDING && now()->lt($deadline));
 
         if (! $this->step('payment confirmed by lookup', $paid->succeeded() && $paid->amount === $money->amount, $paid->status.' '.($paid->providerTxnId ?? '').' fee '.$paid->fee)) {
+            return;
+        }
+
+        // Refund webhooks are booked only for payments that carry our reference note (copied from the link): unverified
+        // until this step passes against a real account.
+        $notes = $client->get($gateway, 'payments/'.$paid->providerTxnId)->json('notes.mohar_reference');
+
+        if (! $this->step('payment carries our reference note', $notes === $ref->reference, 'notes.mohar_reference '.(is_string($notes) ? $notes : 'missing'))) {
             return;
         }
 

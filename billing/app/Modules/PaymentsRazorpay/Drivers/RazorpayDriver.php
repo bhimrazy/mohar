@@ -30,7 +30,6 @@ use Carbon\CarbonInterval;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 /**
@@ -51,6 +50,20 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
     public const REFUND_ORIGIN = 'admin';
 
     public const WEBHOOK_EVENTS = 'payment_link.paid, payment_link.partially_paid, payment_link.expired, payment_link.cancelled, refund.processed, refund.failed';
+
+    /** Pages of the payment's refund list one refund check reads at most. */
+    private const REFUND_PAGES = 10;
+
+    /** A link webhook's attempt is looked up at most this long after it named it, with the quick (webhook) timeouts. */
+    private const WEBHOOK_LOOKUP_SECONDS = 30;
+
+    /**
+     * The attempt a link webhook just named. Billing looks it up next in the same request, while Razorpay waits for
+     * the answer, so that one lookup makes a single quick try and leaves anything slow to the poller.
+     *
+     * @var array{reference: string, at: float}|null
+     */
+    private ?array $webhookLookup = null;
 
     public function __construct(private RazorpayClient $client) {}
 
@@ -184,8 +197,12 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
             return new LookupResult(LookupResult::NOT_FOUND, raw: ['error' => 'no payment link stored for this attempt']);
         }
 
+        $webhook = $this->webhookLookup;
+        $this->webhookLookup = null;
+        $quick = $attempt->interactive || ($webhook !== null && $webhook['reference'] === $attempt->reference && microtime(true) - $webhook['at'] < self::WEBHOOK_LOOKUP_SECONDS);
+
         try {
-            $response = $this->client->get($gateway, 'payment_links/'.$attempt->providerRef, background: ! $attempt->interactive, interactive: $attempt->interactive);
+            $response = $this->client->get($gateway, 'payment_links/'.$attempt->providerRef, background: ! $quick, interactive: $quick);
 
             if (($failed = self::failedLookup($response)) !== null) {
                 return $failed;
@@ -202,7 +219,7 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
                 'created' => new LookupResult(LookupResult::PENDING, raw: $raw),
                 'expired' => new LookupResult(LookupResult::EXPIRED, raw: $raw),
                 'cancelled' => new LookupResult(LookupResult::CANCELLED, raw: $raw),
-                'paid' => $this->paidLink($gateway, $attempt, $link, $raw),
+                'paid' => $this->paidLink($gateway, $quick, $link, $raw),
                 // partially_paid can't happen with accept_partial off: staff look at it.
                 default => new LookupResult(LookupResult::AMBIGUOUS, raw: $raw),
             };
@@ -310,16 +327,25 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
             return new ChargeResult(ChargeResult::ERROR, declineReason: 'Razorpay refund lookups need a payment id and our refund reference');
         }
 
-        try {
-            $response = $this->client->get($gateway, 'payments/'.$request->providerTxnId.'/refunds', ['count' => '100'], background: true);
-        } catch (ConnectionException|RazorpayException) {
-            return new ChargeResult(ChargeResult::ERROR, declineReason: 'no answer from Razorpay');
-        }
+        $items = [];
+        $complete = false;
 
-        $items = $response->json('items');
+        // Pages of 100 (Razorpay's largest), at most REFUND_PAGES of them; a longer list is never called complete.
+        for ($page = 0; $page < self::REFUND_PAGES && ! $complete; $page++) {
+            try {
+                $response = $this->client->get($gateway, 'payments/'.$request->providerTxnId.'/refunds', ['count' => '100', 'skip' => (string) ($page * 100)], background: true);
+            } catch (ConnectionException|RazorpayException) {
+                return new ChargeResult(ChargeResult::ERROR, declineReason: 'no answer from Razorpay');
+            }
 
-        if (! $response->successful() || ! is_array($items)) {
-            return new ChargeResult(ChargeResult::ERROR, declineReason: mb_substr(RazorpayClient::errorSummary($response), 0, 150));
+            $found = $response->json('items');
+
+            if (! $response->successful() || ! is_array($found)) {
+                return new ChargeResult(ChargeResult::ERROR, declineReason: mb_substr(RazorpayClient::errorSummary($response), 0, 150));
+            }
+
+            $items = [...$items, ...$found];
+            $complete = count($found) < 100;
         }
 
         foreach ($items as $refund) {
@@ -338,16 +364,16 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
 
         $settled = $request->sentAt !== null && $request->sentAt->lte(now()->subMinutes(RazorpayClient::intConfig('refund_settle_minutes', 15)));
 
-        return count($items) < 100 && $settled
+        return $complete && $settled
             ? new ChargeResult(ChargeResult::DECLINED, declineReason: 'Razorpay has no refund with this reference', raw: ['payment' => $request->providerTxnId])
             : new ChargeResult(ChargeResult::ERROR, declineReason: 'Razorpay has no refund with this reference yet, but may still record it');
     }
 
     /**
      * Verify X-Razorpay-Signature (hex HMAC-SHA256 of the raw body under the webhook secret) before reading anything.
-     * Razorpay signs no timestamp; X-Razorpay-Event-Id stays the same on every retry, so a link event is acted on once
-     * per id (the reconciliation poller still covers an attempt whose lookup failed then). Refund events are deduplicated
-     * by refund id in Billing instead, so a retry Billing asked for (409) still lands.
+     * Razorpay signs no timestamp and its event id is not needed for dedupe: a link event only triggers a lookup, which is
+     * idempotent (a redelivery books nothing twice), and Billing dedupes refunds by refund id, so a retry it asked for
+     * (409) still lands. Fetches here make one quick try: Razorpay waits for the answer, and a non-2xx makes it retry.
      */
     public function parseCallback(GatewayConfig $gateway, Request $request): CallbackEvent|CallbackRejection
     {
@@ -374,7 +400,7 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
 
             return match ($type) {
                 'payment_link.paid', 'payment_link.partially_paid', 'payment_link.expired', 'payment_link.cancelled' => $this->linkEvent($body['payload'], $raw),
-                'refund.created', 'refund.processed', 'refund.failed' => $this->refundEvent($gateway, $body['payload'], $raw),
+                'refund.processed', 'refund.failed' => $this->refundEvent($gateway, $body['payload'], $raw),
                 default => self::ignored($raw, 'not used'),
             };
         } catch (ConnectionException) {
@@ -412,7 +438,7 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
      * @param  array<string, mixed>  $link
      * @param  array<string, scalar>  $raw
      */
-    private function paidLink(GatewayConfig $gateway, PaymentAttemptRef $attempt, array $link, array $raw): LookupResult
+    private function paidLink(GatewayConfig $gateway, bool $quick, array $link, array $raw): LookupResult
     {
         $payments = array_values(array_filter(is_array($link['payments'] ?? null) ? $link['payments'] : [], fn (mixed $payment): bool => is_array($payment) && ($payment['status'] ?? null) !== 'failed'));
         $paymentId = $payments[0]['payment_id'] ?? null;
@@ -421,7 +447,7 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
             return new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'the paid link does not name exactly one payment']);
         }
 
-        $response = $this->client->get($gateway, 'payments/'.$paymentId, background: ! $attempt->interactive, interactive: $attempt->interactive);
+        $response = $this->client->get($gateway, 'payments/'.$paymentId, background: ! $quick, interactive: $quick);
 
         if (! $response->successful()) {
             return $response->serverError() || $response->status() === 429
@@ -451,7 +477,7 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
             amount: $payment['amount'],
             currency: strtoupper($payment['currency']),
             // Razorpay's fee includes the GST on it.
-            fee: $status === LookupResult::SUCCEEDED && is_int($payment['fee'] ?? null) ? max(0, $payment['fee']) : 0,
+            fee: in_array($status, [LookupResult::SUCCEEDED, LookupResult::PARTIALLY_REFUNDED], true) && is_int($payment['fee'] ?? null) ? max(0, $payment['fee']) : 0,
             raw: $raw,
         );
     }
@@ -470,9 +496,7 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
             return self::ignored($raw, 'not a payment link from this site');
         }
 
-        if (! Cache::add('payments_razorpay.event.'.$raw['event'], true, now()->addHours(RazorpayClient::intConfig('event_dedupe_hours', 25)))) {
-            return self::ignored($raw, 'duplicate event id');
-        }
+        $this->webhookLookup = ['reference' => $reference, 'at' => microtime(true)];
 
         // Only names the attempt: Billing looks the stored link up, never using this body's figures.
         return CallbackEvent::attemptUpdated($reference, $id, [...$raw, 'link' => $id]);
@@ -490,7 +514,7 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
             return new CallbackRejection('malformed event');
         }
 
-        $response = $this->client->get($gateway, 'refunds/'.$id, background: true);
+        $response = $this->client->get($gateway, 'refunds/'.$id, interactive: true);
 
         if (($unavailable = self::unavailable($response, $raw)) !== null) {
             return $unavailable;
@@ -503,7 +527,7 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
             return self::ignored($raw, 'refund without a payment');
         }
 
-        $payment = $this->client->get($gateway, 'payments/'.$paymentId, background: true);
+        $payment = $this->client->get($gateway, 'payments/'.$paymentId, interactive: true);
 
         if (($unavailable = self::unavailable($payment, $raw)) !== null) {
             return $unavailable;
@@ -518,7 +542,8 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
         $status = is_string($refund['status'] ?? null) ? $refund['status'] : 'unknown';
 
         if ($status !== 'processed') {
-            return self::ignored($raw, $status === 'failed' && $fromAdmin ? 'refund from the admin FAILED at Razorpay, check it' : 'refund '.$status);
+            // A failed admin refund is still pending here (only `processed` books it): "Check refund" releases it.
+            return self::ignored($raw, $status === 'failed' && $fromAdmin ? 'refund from the admin FAILED at Razorpay; Check refund releases it' : 'refund '.$status);
         }
 
         if (! is_int($refund['amount'] ?? null) || $refund['amount'] <= 0 || ! is_string($refund['currency'] ?? null)) {
@@ -594,15 +619,20 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
     }
 
     /**
-     * processed and pending refunds exist at Razorpay and complete on their own; failed ones don't.
+     * Only `processed` is a refund made. `pending` may still fail, so it is unknown: the refund row stays pending with
+     * its amount held until refund.processed or "Check refund" settles it, and `failed` releases it.
      *
      * @param  array<string, scalar>  $raw
      */
     private static function refundOutcome(string $id, mixed $status, array $raw): ChargeResult
     {
-        return in_array($status, ['processed', 'pending'], true)
-            ? new ChargeResult(ChargeResult::SUCCESS, $id, raw: $raw)
-            : new ChargeResult(ChargeResult::DECLINED, $id, declineReason: 'Razorpay refund '.(is_string($status) ? $status : 'not accepted'), raw: $raw);
+        return match ($status) {
+            'processed' => new ChargeResult(ChargeResult::SUCCESS, $id, raw: $raw),
+            'failed' => new ChargeResult(ChargeResult::DECLINED, $id, declineReason: 'Razorpay refund failed', raw: $raw),
+            // No refund id on an unknown answer: Billing would keep it on the pending row, and then answer the
+            // refund.processed webhook "duplicate" by that id instead of settling the row.
+            default => new ChargeResult(ChargeResult::ERROR, declineReason: 'Razorpay refund '.(is_string($status) ? mb_substr($status, 0, 20) : 'unconfirmed').'; it stays pending until Razorpay confirms it', raw: $raw),
+        };
     }
 
     /**

@@ -26,10 +26,6 @@ return [
     // only after this long (Razorpay's refund API takes no idempotency key, so the request is never repeated).
     'refund_settle_minutes' => 15,
 
-    // How long a webhook event id is remembered, so a redelivery of a payment link event costs no second lookup.
-    // Razorpay retries a failing webhook for 24 hours.
-    'event_dedupe_hours' => 25,
-
     'http' => [
         'connect_timeout_seconds' => 5,
         // Background lookups only (never POSTs or the customer's return): retried on connection errors and 5xx.

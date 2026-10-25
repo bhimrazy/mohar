@@ -33,7 +33,7 @@ test('a webhook without a valid signature over the raw body is refused before an
     'body changed after signing' => [fn (array $event) => postRazorpayWebhook(json_encode($event).' ', signature: hash_hmac('sha256', (string) json_encode($event), RZP_WEBHOOK_SECRET))],
 ]);
 
-test('payment_link.paid settles by lookup, never from the body, and a redelivered event id is acted on once', function () {
+test('payment_link.paid settles by lookup, never from the body, and a redelivery books nothing twice', function () {
     [, $invoice, $attempt] = startRazorpay();
     // The body claims a payment the lookup doesn't confirm: the link is still open at Razorpay.
     $event = rzpEvent('payment_link.paid', ['payment_link' => [...FakeRazorpay::$links[RZP_LINK], 'status' => 'paid', 'amount_paid' => 113_000]]);
@@ -42,12 +42,11 @@ test('payment_link.paid settles by lookup, never from the body, and a redelivere
     expect($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
 
     razorpayPaid($attempt);
-    $calls = Http::recorded()->count();
-    postRazorpayWebhook($event)->assertOk()->assertJson(['result' => 'ignored event type']);
-    expect(Http::recorded()->count())->toBe($calls)->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
+    postRazorpayWebhook($event)->assertOk()->assertJson(['result' => 'payment recorded']);
+    postRazorpayWebhook($event, eventId: 'MoharEvent0002')->assertOk()->assertJson(['result' => 'duplicate']);
 
-    postRazorpayWebhook($event, eventId: 'MoharEvent0002')->assertOk()->assertJson(['result' => 'payment recorded']);
-    expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)->and($attempt->fresh()->status)->toBe(AttemptStatus::Succeeded);
+    expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)->and($attempt->fresh()->status)->toBe(AttemptStatus::Succeeded)
+        ->and(Transaction::query()->where('gateway', RazorpayDriver::KEY)->count())->toBe(1);
 });
 
 test('events that are not ours or not used are acknowledged without a provider call', function (array $event) {
