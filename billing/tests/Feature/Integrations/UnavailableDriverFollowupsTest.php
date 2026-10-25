@@ -37,7 +37,7 @@ function registerUnavailablePanel(): void
     });
 }
 
-test('a driver that cannot be built is built once per request or job, and tried again by the next job', function () {
+test('a driver that cannot be built is built once per request or job, and tried again by the next job or request', function () {
     $calls = 0;
     app(RegistrarDriverRegistry::class)->register('broken', function () use (&$calls) {
         $calls++;
@@ -57,8 +57,15 @@ test('a driver that cannot be built is built once per request or job, and tried 
 
     event(new JobProcessing('sync', Mockery::mock(Job::class)->shouldIgnoreMissing()));
     $registry->keys();
+    $registry->keys();
 
     expect($calls)->toBe(2);
+
+    // The end of a request (or console command) forgets it too.
+    app()->terminate();
+    $registry->keys();
+
+    expect($calls)->toBe(3);
 });
 
 test('a server on an unavailable driver loses all its driver settings when its address changes outside the form', function () {

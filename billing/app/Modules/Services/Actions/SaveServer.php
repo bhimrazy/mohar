@@ -96,7 +96,7 @@ class SaveServer
     {
         $cleared = [];
 
-        foreach ([...$this->settings->secretKeys($driver), ServerSettings::CERTIFICATE_PIN] as $key) {
+        foreach ([...$this->settings->secretKeys($driver, $merged['settings']), ServerSettings::CERTIFICATE_PIN] as $key) {
             $entered = $key !== ServerSettings::CERTIFICATE_PIN && (string) ($submitted[$key] ?? '') !== '';
 
             if (! $entered && array_key_exists($key, $merged['settings'])) {

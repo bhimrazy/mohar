@@ -23,9 +23,9 @@ use Throwable;
  * safe to reuse. has(), keys() and all() count only drivers that pass those checks: a driver that fails them is
  * reported, left out and listed by unavailable() for staff, so one broken package cannot take down the pages that list
  * every driver, and nothing new can be bound to it. A failure of the family's own checks (a LogicException) is
- * remembered for FAILURE_TTL seconds; any other failure (a constructor that throws) is remembered until the current
- * request or queued job ends (forgetTransientFailures(), called by AppServiceProvider), so it is built and reported
- * once per request or job, and tried again by the next.
+ * remembered for FAILURE_TTL seconds; any other failure (a constructor that throws) is remembered until the next
+ * request or queued job starts (forgetTransientFailures(), which AppServiceProvider calls when a job starts and when
+ * the application terminates), so it is built and reported once per request or job, and tried again by the next.
  * isRegistered() answers for every registered key, for callers that must fail closed on a hidden driver.
  *
  * @api
