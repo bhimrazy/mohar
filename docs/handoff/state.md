@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-25 by the CTO session, on the owner's Mac. Update this file whenever a PR merges, a workstream starts or
+Last updated: 2026-10-25 (evening) by the CTO session, on the owner's Mac. Update this file whenever a PR merges, a workstream starts or
 stops, or the owner makes a decision. Keep it short: merges older than the current day move to `billing/docs/progress.md`, and history goes in `history.md` and `docs/reviews/`.
 
 ## Summary
@@ -97,11 +97,22 @@ gets the two register export permissions), #481 (admin client summary), #482 (VA
 PDF via `BillingDocuments::document()`, webhooks, client-area notes, print counting; kernel: `$notify` on note events and
 `Invoicer::cancel`, `EmailSent` related ids). Issues closed by hand: #27, #32, #37, #157, #307, #317, #389.
 
-No agents running. Open PRs: #128 only (draft, owner questions).
+Gateway expansion, merged 2026-10-25 (owner decisions in `requirements.md`: connectIPS, Cybersource cards and Razorpay are extension drivers
+verified against our simulators, no real accounts yet; NepalPay QR dropped; Fonepay waits for a bank spec): #128 (spec,
+real-test-account to-do list in §15), simulators #485 Razorpay, #486 Cybersource, #487 connectIPS; foundation #489 (`certificate`
+setting type, `GatewayCredentialExpiring`/`Expired`, unique `(gateway, provider_ref)` on `payment_attempts`, return lookup by
+provider ref, step-up refusals keep no old input on any `password.recent` form) with follow-ups #490, #495 (broken drivers
+reported and hidden, not fatal), #496, #501 (flaky tests); drivers #491 connectIPS, #492 Cybersource, #493 Razorpay; #497 (a
+pending refund matched by its provider id is settled; Stripe books only `succeeded` refunds; a released refund's id moves to
+`raw.mohar.released_provider_refund_id`); #500 (settle guard sends a paid result without currency or amount to staff review;
+`ReturnHint`/`PaymentAttemptRef::$signedCancel`, stored on the attempt); #494 (Arch rules for the whole app as a text scan:
+the arch plugin parsed all of `app/` and ran out of 1 GB); #488 (`scripts/pr-screenshots.sh`: screenshots in PR descriptions on
+`refs/pr-assets/pr-<n>`, owner rule). Issues closed by hand: #154, #30, #24.
 
-| PR   | Workstream                                    | Status and next step (2026-10-25)                                                                 |
-| ---- | --------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| #128 | Gateway expansion spec                        | Draft. Owner questions in the PR.                                                                 |
+No agents running. No open PRs. Open follow-ups from this wave: #483 admin Credit notes list with resend; #498 failed Stripe
+refund already booked goes to review; #499 backfill released refund rows; ADR 0010 `kernel:api-snapshot` and
+`Kernel::API_VERSION` still do not exist; `SignedOutcome` enum if a third signed signal appears; a Stripe simulator pending
+refund scenario; connectIPS `.pfx` from a real NCHL may use legacy encryption OpenSSL 3 refuses (clear message shown).
 
 Walkthrough: `docs-site` Overview and Get started → Walkthrough (12 steps, run against a seeded app). Before a demo
 start Mailpit (`docker compose up -d` in `billing/`) and `composer dev` (now includes the scheduler).
@@ -128,6 +139,7 @@ new issues; a PR merges when nothing blocks, except money, auth and data deletio
   `support:recompute-unanswered --since=<deploy start>` after a blue-green deploy (#450).
 - Data-changing since: migration `2026_10_25_100600` (#478) renames groups whose slug the store now reserves (to `<slug>-plans`,
   logged); `app:install` resets the Billing system role to add the two register export permissions (#480).
+- Data-changing since: migration `2026_11_01_300780` adds `invoices.print_count` (#482); #489's migration adds the unique provider-ref index (duplicates resolved first: the paid attempt keeps the reference, losers keep it in `raw` and go to review) and a Core `integration_credentials` table.
 - Next: VAT PR 6 and 8 if planned, P6b (extend `BillingDocuments`, do not add `InvoiceDocuments`), #483 admin Credit notes list
   with resend, P2c remainder, P13 (issue plan).
 - Deferred from this wave (add to packages): #480 accept only csv/pdf in the export route, throw on unknown layout, drop dead
