@@ -14,8 +14,10 @@ use App\Modules\Billing\Models\Transaction;
 use App\Modules\PaymentsStripe\Drivers\StripeDriver;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
 require_once __DIR__.'/helpers.php';
@@ -393,4 +395,23 @@ test('a booked credit refund that Stripe reports failed goes on Disputes to revi
 
     expect(Transaction::toReview()->sole())->id->toBe($row->id)->review_amount->toBe(1_000)
         ->description->toBe('Part beyond the cap; Provider reports conflicting outcome: failed after it was booked');
+});
+
+test('a failed report that finds no row waits on the payment locks, and sees a refund another delivery booked meanwhile', function () {
+    $payment = paidStripePayment();
+    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001*' => Http::response(stripeFixture('refund', ['amount' => 2_500, 'status' => 'failed']))]);
+
+    // A "succeeded" delivery for this Dashboard refund holds the payment lock and commits once the failed one asks for it.
+    $booked = false;
+    DB::listen(function (QueryExecuted $query) use ($payment, &$booked) {
+        if (! $booked && str_contains($query->sql, 'from "transactions" where "id" in') && $query->bindings === [$payment->id]) {
+            $booked = true;
+            app(RefundTransaction::class)->handle($payment->fresh(), 2_500, RefundMode::RecordOnly, gatewayTxnId: 're_3MoharRefund0001', reason: 'Refunded at the gateway');
+        }
+    });
+
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001'))->assertOk()
+        ->assertJson(['result' => 'refund failed at the provider after it was booked; put on Disputes to review']);
+
+    expect($booked)->toBeTrue()->and(Transaction::toReview()->sole())->gateway_txn_id->toBe('re_3MoharRefund0001')->review_amount->toBe(2_500);
 });

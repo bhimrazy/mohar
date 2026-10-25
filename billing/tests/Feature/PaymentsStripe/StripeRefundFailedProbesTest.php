@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Http;
 
 require_once __DIR__.'/helpers.php';
 
-// Review-board probes for #505 (#498): pin the parts of failedAfterBooking() no PR test fails without.
+// Review-board probes for #505 (#498): pin the parts of failedAtProvider() and flagFailedAtProvider() no PR test fails without.
 
 beforeEach(function () {
     Http::preventStrayRequests();

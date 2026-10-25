@@ -289,7 +289,11 @@ class GatewayCallbackHandler
             $wasFailed = $own->status === TransactionStatus::Failed;
             $settled = $this->refund->settle($own, $event->txnId, $event->raw);
 
-            return $this->outcome($gatewayKey, 200, $wasFailed || $settled->review_amount !== null ? 'credit refund paid after a decline; staff review' : 'credit refund recorded', $event->raw, null);
+            return $this->outcome($gatewayKey, 200, match (true) {
+                $wasFailed => 'credit refund paid after a decline; staff review',
+                $settled->review_amount !== null => 'credit refund recorded; staff review',
+                default => 'credit refund recorded',
+            }, $event->raw, null);
         }
 
         if ($creditRefund) {
