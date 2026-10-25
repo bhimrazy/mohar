@@ -85,3 +85,5 @@ test('the scans catch a use of a removed class and an extended registry', functi
         ->and(sourceNamesClass('use App\Modules\Domains\Drivers\Registrars\RegistrarFactory;', 'App\Modules\Domains\Drivers\Registrars\Registrar'))->toBeFalse()
         ->and(removedSpiSources('Modules'))->not->toBe([]);
 });
+
+afterAll(fn () => releaseArchCache());
