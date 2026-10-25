@@ -249,15 +249,19 @@ class GatewayCallbackHandler
      */
     private function refunded(string $gatewayKey, CallbackEvent $event): array
     {
-        if ($this->refund->existing($gatewayKey, $event->txnId) !== null) {
+        $known = $event->txnId !== '' ? $this->refund->existing($gatewayKey, $event->txnId) : null;
+
+        // A pending row can already hold the provider's refund id: an unknown answer (a pending state) that carried it.
+        // The callback is the provider's word on that row, so it is settled below like any pending refund we sent.
+        if ($known !== null && $known->status !== TransactionStatus::Pending) {
             return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $event->invoiceId);
         }
 
         // A refund started from our admin names its refund row. A row that recorded it ends here, a pending one is
         // settled below, and one marked failed (declined or released, yet the refund happened) is booked now.
-        $own = $event->reference !== null && ctype_digit($event->reference)
+        $own = $known ?? ($event->reference !== null && ctype_digit($event->reference)
             ? Transaction::query()->whereKey((int) $event->reference)->where('gateway', $gatewayKey)->where('type', TransactionType::Refund)->first()
-            : null;
+            : null);
 
         if ($own?->status === TransactionStatus::Succeeded) {
             return $this->outcome($gatewayKey, 200, 'refund already recorded', $event->raw, $own->invoice_id);
