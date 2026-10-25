@@ -6,6 +6,7 @@ use App\Contracts\Billing\ConnectionTester;
 use App\Contracts\Billing\DescribesManualRefund;
 use App\Contracts\Billing\HostedPaymentDriver;
 use App\Contracts\Branding\BrandProvider;
+use App\Contracts\Integrations\ProvidesLogo;
 use App\Data\Billing\AmountLimits;
 use App\Data\Billing\FormPost;
 use App\Data\Billing\GatewayConfig;
@@ -14,6 +15,7 @@ use App\Data\Billing\PaymentAttemptRef;
 use App\Data\Billing\PaymentIntent;
 use App\Data\Billing\ReturnHint;
 use App\Data\Integrations\ConnectionCheck;
+use App\Data\Integrations\IntegrationLogo;
 use App\Modules\PaymentsNepal\Support\NprAmount;
 use App\Modules\PaymentsNepal\Support\ProviderException;
 use App\Modules\PaymentsNepal\Support\ProviderHttp;
@@ -34,7 +36,7 @@ use OpenSSLAsymmetricKey;
  * credit leg), called with the stored amount, settles. NCHL signs no answer, so every echoed field is compared with
  * the stored attempt. There is no refund API: the merchant refunds by bank transfer and records it.
  */
-final class ConnectipsDriver extends AbstractGatewayDriver implements ConnectionTester, DescribesManualRefund, HostedPaymentDriver
+final class ConnectipsDriver extends AbstractGatewayDriver implements ConnectionTester, DescribesManualRefund, HostedPaymentDriver, ProvidesLogo
 {
     public const KEY = 'connectips';
 
@@ -65,6 +67,12 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
     public function name(): string
     {
         return 'connectIPS';
+    }
+
+    /** connectIPS's own logo from connectips.com, served from public/images/gateways; it reads on light and dark. */
+    public function logo(): IntegrationLogo
+    {
+        return new IntegrationLogo(asset('images/gateways/connectips.png'), __('Pay with connectIPS'));
     }
 
     public function capabilities(): array
