@@ -20,8 +20,8 @@ use Mohar\Simulators\Kernel\Scenario;
  * - a hosted checkout and a payment-link page on the same TLS port, returning the signed result the merchant verifies;
  * - every change as a webhook event, signed with HMAC-SHA256 of the raw body (`X-Razorpay-Signature`).
  *
- * India is simulated only: there is no Razorpay driver yet, and no live capture (docs-sourced shapes). The keys are for
- * local scenarios only.
+ * India is simulated only: the Razorpay driver (app/Modules/PaymentsRazorpay) runs against it, with no live capture yet
+ * (docs-sourced shapes). The keys are for local scenarios only.
  */
 final class RazorpaySimulator implements HasControlActions, RedactsPayments, SignsCallbacks, Simulator
 {
@@ -94,8 +94,8 @@ final class RazorpaySimulator implements HasControlActions, RedactsPayments, Sig
             ],
             'notes' => [
                 'Razorpay gateway: test mode on, key id '.self::KEY_ID.', key secret '.self::KEY_SECRET.', webhook secret '.self::WEBHOOK_SECRET.'.',
-                'Tell the simulator where to send webhooks: POST /__sim/actions/webhook_url {"url": "<APP_URL>/webhooks/razorpay"}, then deliver them from /__sim/outbox.',
-                'The endpoint names above are the ones a Razorpay driver should read through Endpoints (no driver exists yet).',
+                'Tell the simulator where to send webhooks: POST /__sim/actions/webhook_url {"url": "<APP_URL>/billing/webhooks/razorpay"}, then deliver them from /__sim/outbox.',
+                'The Razorpay driver reads the endpoint names above through Endpoints.',
             ],
         ];
     }

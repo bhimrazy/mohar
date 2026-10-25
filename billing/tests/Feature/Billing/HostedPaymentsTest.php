@@ -28,8 +28,11 @@ use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\PaymentsCybersource\Drivers\CybersourceDriver;
+use App\Modules\PaymentsCybersource\Support\CybersourceException;
 use App\Modules\PaymentsNepal\Support\NprAmount;
 use App\Modules\PaymentsNepal\Support\ProviderException;
+use App\Modules\PaymentsRazorpay\Support\RazorpayException;
 use App\Modules\PaymentsStripe\Support\StripeException;
 use App\Support\Billing\AbstractGatewayDriver;
 use App\Support\Dashboard\Dashboard;
@@ -127,16 +130,40 @@ function hostedSandbox(): void
 }
 
 /** The hosted drivers every contract test runs against: Billing's own, the test double and the extension modules'. */
-const HOSTED_DRIVERS = ['sandbox_card', 'fake_wallet', 'khalti', 'esewa', 'stripe'];
+const HOSTED_DRIVERS = ['sandbox_card', 'fake_wallet', 'khalti', 'esewa', 'stripe', 'cybersource', 'razorpay'];
+
+const CONTRACT_RAZORPAY_SECRET = 'ContractRazorpayKeySecret0000001';
 
 /**
- * Active Khalti, eSewa and Stripe gateways in sandbox mode with fake credentials.
+ * Active Khalti, eSewa, Stripe, Cybersource and Razorpay gateways in sandbox mode with fake credentials.
  */
 function hostedProviderGateways(): void
 {
     Gateway::query()->create(['key' => 'khalti', 'display_name' => 'Khalti', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'secret_key' => 'test_secret_contract_khalti']]);
     Gateway::query()->create(['key' => 'esewa', 'display_name' => 'eSewa', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'product_code' => 'EPAYTEST', 'secret_key' => 'contract-esewa-secret']]);
+    Gateway::query()->create(['key' => 'cybersource', 'display_name' => 'Cards', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'merchant_id' => 'contract_merchant',
+        'profile_id' => 'contract-profile', 'access_key' => 'contract-access', 'secret_key' => 'contract-cybersource-secret', 'rest_key_id' => 'contract-rest-key', 'rest_secret' => base64_encode('contract-cybersource-rest-secret')]]);
     Gateway::query()->create(['key' => 'stripe', 'display_name' => 'Stripe', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'secret_key' => 'sk_test_51ContractStripeSecret0000', 'webhook_secret' => 'whsec_ContractStripeWebhook00']]);
+    Gateway::query()->create(['key' => 'razorpay', 'display_name' => 'Razorpay', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'key_id' => 'rzp_test_ContractKey001', 'key_secret' => CONTRACT_RAZORPAY_SECRET, 'webhook_secret' => 'ContractRazorpayWebhookSecret001']]);
+}
+
+/**
+ * Razorpay's payment link for a stored attempt (open, or paid by pay_Contract0001), and that payment.
+ *
+ * @return array<string, mixed>
+ */
+function contractRazorpayLink(string $reference, int $amount, bool $paid): array
+{
+    return ['id' => 'plink_Contract0001', 'reference_id' => $reference, 'notes' => ['mohar_reference' => $reference], 'amount' => $amount, 'currency' => 'INR',
+        'order_id' => 'order_Contract0001', 'status' => $paid ? 'paid' : 'created', 'short_url' => 'https://rzp.io/i/Contract', 'expire_by' => now()->addMinutes(30)->getTimestamp(),
+        'payments' => $paid ? [['payment_id' => 'pay_Contract0001', 'amount' => $amount, 'status' => 'captured']] : null];
+}
+
+/** The signed query Razorpay's payment link sends the browser back with, under $secret. */
+function contractRazorpayReturn(string $reference, string $secret = CONTRACT_RAZORPAY_SECRET): array
+{
+    return ['razorpay_payment_id' => 'pay_Contract0001', 'razorpay_payment_link_id' => 'plink_Contract0001', 'razorpay_payment_link_reference_id' => $reference,
+        'razorpay_payment_link_status' => 'paid', 'razorpay_signature' => hash_hmac('sha256', 'plink_Contract0001|'.$reference.'|paid|pay_Contract0001', $secret)];
 }
 
 /**
@@ -150,13 +177,19 @@ function hostedProviderGateways(): void
 function hostedDriverCase(string $key, array $lines): array
 {
     Http::preventStrayRequests();
-    $currency = in_array($key, ['sandbox_card', 'stripe'], true) ? 'USD' : 'NPR';
+    $currency = match ($key) {
+        'sandbox_card', 'stripe' => 'USD',
+        'razorpay' => 'INR',
+        default => 'NPR',
+    };
 
-    if ($currency === 'NPR') {
-        Currency::factory()->npr()->create();
-    }
+    match ($currency) {
+        'NPR' => Currency::factory()->npr()->create(),
+        'INR' => Currency::factory()->inr()->create(),
+        default => null,
+    };
 
-    [, $client] = actingAsClient(Client::factory()->create(['currency' => $currency, 'country' => $currency === 'NPR' ? 'NP' : 'US']));
+    [, $client] = actingAsClient(Client::factory()->create(['currency' => $currency, 'country' => ['NPR' => 'NP', 'INR' => 'IN', 'USD' => 'US'][$currency]]));
     $invoice = issueInvoice($client, $lines);
     $returnUrl = fn (array $query): string => route('billing.gateways.return', [$key, ...$query]);
     $paid = false;
@@ -198,11 +231,34 @@ function hostedDriverCase(string $key, array $lines): array
             return Http::response(['product_code' => 'EPAYTEST', 'transaction_uuid' => $request['transaction_uuid'], 'total_amount' => (float) $request['total_amount'],
                 'status' => $paid ? 'COMPLETE' : 'PENDING', 'ref_id' => $paid ? '0007G36' : null]);
         },
+        'https://apitest.cybersource.com/tss/v2/searches' => function (ProviderRequest $request) use (&$paid) {
+            $reference = substr((string) $request['query'], strlen('clientReferenceInformation.code:'));
+            $amount = PaymentAttempt::query()->where('gateway', 'cybersource')->where('reference', $reference)->value('amount');
+
+            return Http::response(['_embedded' => ['transactionSummaries' => $paid && $amount !== null ? [cybersourceContractTxn($reference, (int) $amount)] : []]]);
+        },
+        'https://apitest.cybersource.com/tss/v2/transactions/*' => function () {
+            $attempt = PaymentAttempt::query()->where('gateway', 'cybersource')->latest('id')->firstOrFail();
+
+            return Http::response(cybersourceContractTxn($attempt->reference, $attempt->amount));
+        },
         STRIPE_API.'checkout/sessions' => fn (ProviderRequest $request) => Http::response(stripeCreatedSession($request['client_reference_id'], $invoice->id)),
         STRIPE_API.'checkout/sessions/'.STRIPE_SESSION.'*' => function () use (&$paid, $invoice) {
             $attempt = PaymentAttempt::query()->where('gateway', 'stripe')->where('provider_ref', STRIPE_SESSION)->sole();
 
             return Http::response($paid ? stripePaidSession($attempt, ['payment_intent' => ['amount_received' => $attempt->amount]]) : stripeCreatedSession($attempt->reference, $invoice->id));
+        },
+        'https://api.razorpay.com/v1/payment_links' => fn (ProviderRequest $request) => Http::response(contractRazorpayLink($request['reference_id'], $request['amount'], false)),
+        'https://api.razorpay.com/v1/payment_links/plink_Contract0001' => function () use (&$paid) {
+            $attempt = PaymentAttempt::query()->where('gateway', 'razorpay')->where('provider_ref', 'plink_Contract0001')->sole();
+
+            return Http::response(contractRazorpayLink($attempt->reference, $attempt->amount, $paid));
+        },
+        'https://api.razorpay.com/v1/payments/pay_Contract0001' => function () {
+            $attempt = PaymentAttempt::query()->where('gateway', 'razorpay')->where('provider_ref', 'plink_Contract0001')->sole();
+
+            return Http::response(['id' => 'pay_Contract0001', 'amount' => $attempt->amount, 'currency' => 'INR', 'status' => 'captured', 'order_id' => 'order_Contract0001',
+                'amount_refunded' => 0, 'fee' => 0, 'notes' => ['mohar_reference' => $attempt->reference]]);
         },
     ]);
 
@@ -219,7 +275,27 @@ function hostedDriverCase(string $key, array $lines): array
             fn (PaymentAttempt $attempt) => $returnUrl(['ref' => $attempt->reference]),
             fn () => $sent(STRIPE_API.'checkout/sessions')['line_items'][0]['price_data']['unit_amount'],
         ],
+        'cybersource' => [$invoice, $markPaid,
+            fn (PaymentAttempt $attempt) => $returnUrl(['ref' => $attempt->reference]),
+            fn (PaymentAttempt $attempt, FormPost $form) => Money::fromDecimal($form->fields['amount'], 'NPR')->amount,
+        ],
+        'razorpay' => [$invoice, $markPaid,
+            fn (PaymentAttempt $attempt) => $returnUrl(contractRazorpayReturn($attempt->reference)),
+            fn () => $sent('https://api.razorpay.com/v1/payment_links')['amount'],
+        ],
     };
+}
+
+/**
+ * A captured Cybersource sale under our reference, as the REST search and retrieve answer it.
+ *
+ * @return array<string, mixed>
+ */
+function cybersourceContractTxn(string $reference, int $amount): array
+{
+    return ['id' => '7290000000000000000001', 'clientReferenceInformation' => ['code' => $reference],
+        'applicationInformation' => ['status' => 'TRANSMITTED', 'reasonCode' => '100', 'applications' => [['name' => 'ics_auth', 'rCode' => '1'], ['name' => 'ics_bill', 'rCode' => '1']]],
+        'orderInformation' => ['amountDetails' => ['totalAmount' => Money::of($amount, 'NPR')->toDecimal(), 'currency' => 'NPR']]];
 }
 
 /**
@@ -230,6 +306,15 @@ function hostedDriverCase(string $key, array $lines): array
  */
 function forgedSuccessReturn(string $key, string $reference): array
 {
+    if ($key === 'cybersource') {
+        // Posted as a form: an ACCEPT signed with a key that is not the profile's.
+        $fields = ['decision' => 'ACCEPT', 'reason_code' => '100', 'transaction_id' => '7290000000000000000009', 'req_access_key' => 'contract-access', 'req_profile_id' => 'contract-profile',
+            'req_reference_number' => $reference, 'req_transaction_uuid' => 'PIDX1', 'req_amount' => '50.00', 'req_currency' => 'NPR', 'signed_date_time' => gmdate('Y-m-d\TH:i:s\Z')];
+        $fields['signed_field_names'] = implode(',', [...array_keys($fields), 'signed_field_names']);
+
+        return [...$fields, 'signature' => CybersourceDriver::signature($fields, $fields['signed_field_names'], 'attacker-key')];
+    }
+
     if ($key === 'esewa') {
         $payload = ['transaction_code' => 'FORGED1', 'status' => 'COMPLETE', 'total_amount' => '50.0', 'transaction_uuid' => $reference, 'product_code' => 'EPAYTEST',
             'signed_field_names' => 'transaction_code,status,total_amount,transaction_uuid,product_code,signed_field_names'];
@@ -244,6 +329,8 @@ function forgedSuccessReturn(string $key, string $reference): array
         'fake_wallet' => ['ref' => $reference, 'status' => 'COMPLETE'],
         'khalti' => ['pidx' => 'PIDX1', 'purchase_order_id' => $reference, 'status' => 'Completed', 'transaction_id' => 'FORGED-1', 'total_amount' => '5000'],
         'stripe' => ['ref' => $reference, 'session_id' => 'cs_test_forged0000000001'],
+        // A paid link return signed with a key that is not the merchant's.
+        'razorpay' => contractRazorpayReturn($reference, 'attacker-key-secret'),
     };
 }
 
@@ -573,6 +660,8 @@ test('every hosted driver refuses to start a payment in a currency it does not l
         'khalti' => [ProviderException::class, 'Khalti only takes NPR, not XTS.'],
         'esewa' => [ProviderException::class, 'eSewa only takes NPR, not XTS.'],
         'stripe' => [StripeException::class, 'Stripe can\'t take 5000 minor units of XTS exactly.'],
+        'cybersource' => [CybersourceException::class, 'This Cybersource profile takes NPR, not XTS.'],
+        'razorpay' => [RazorpayException::class, 'Razorpay only takes INR, not XTS.'],
     };
 
     expect($driver)->toBeInstanceOf(HostedPaymentDriver::class)
@@ -582,18 +671,24 @@ test('every hosted driver refuses to start a payment in a currency it does not l
 
 test('every hosted driver honours the contract', function (string $key) {
     hostedSandbox();
-    // The extension drivers (PaymentsNepal, PaymentsStripe) with sandbox credentials; their providers answer "still pending".
+    // The extension drivers (PaymentsNepal, PaymentsStripe, PaymentsRazorpay) with sandbox credentials; their providers answer "still pending".
     hostedProviderGateways();
     Http::preventStrayRequests();
     Http::fake([
         'https://dev.khalti.com/api/v2/epayment/lookup/' => Http::response(['pidx' => 'PIDX1', 'status' => 'Pending', 'total_amount' => 5_000, 'transaction_id' => null, 'fee' => 0, 'refunded' => false]),
         'https://rc.esewa.com.np/api/epay/transaction/status/*' => Http::response(['product_code' => 'EPAYTEST', 'transaction_uuid' => 'inv-0-a1', 'total_amount' => 50.0, 'status' => 'PENDING', 'ref_id' => null]),
+        'https://apitest.cybersource.com/tss/v2/searches' => Http::response(['_embedded' => ['transactionSummaries' => []]]),
         'https://api.stripe.com/v1/checkout/sessions/cs_test_contract0001*' => Http::response(['id' => 'cs_test_contract0001', 'object' => 'checkout.session', 'client_reference_id' => 'inv-0-a1', 'metadata' => ['mohar_reference' => 'inv-0-a1'], 'mode' => 'payment', 'livemode' => false, 'status' => 'open', 'payment_status' => 'unpaid', 'payment_intent' => null]),
+        'https://api.razorpay.com/v1/payment_links/plink_Contract0001' => Http::response(contractRazorpayLink('inv-0-a1', 5_000, false)),
     ]);
     $registry = app(GatewayRegistry::class);
     $driver = $registry->driver($key);
     $config = app(GatewayManager::class)->config($key);
-    $ref = new PaymentAttemptRef('inv-0-a1', Money::of(5_000, $driver->currencies()[0]), providerRef: $key === 'stripe' ? 'cs_test_contract0001' : 'PIDX1');
+    $ref = new PaymentAttemptRef('inv-0-a1', Money::of(5_000, $driver->currencies()[0]), providerRef: match ($key) {
+        'stripe' => 'cs_test_contract0001',
+        'razorpay' => 'plink_Contract0001',
+        default => 'PIDX1',
+    });
 
     expect($driver)->toBeInstanceOf(HostedPaymentDriver::class)
         ->and($driver->currencies())->not->toBeEmpty()
@@ -617,7 +712,9 @@ test('every hosted driver honours the contract', function (string $key) {
     // A return claiming success settles nothing by itself: the provider's lookup, which still says pending, decides.
     $attempt = PaymentAttempt::query()->create(['reference' => 'inv-0-a1', 'gateway' => $key, 'client_id' => $foreign->client_id, 'amount' => 5_000, 'currency' => $ref->amount->currency,
         'document_amount' => 5_000, 'document_currency' => $ref->amount->currency, 'provider_ref' => $ref->providerRef, 'expires_at' => now()->addHour()]);
-    $this->get(route('billing.gateways.return', [$key, ...forgedSuccessReturn($key, $attempt->reference)]));
+    $key === 'cybersource'
+        ? $this->post(route('billing.gateways.return', [$key, 'ref' => $attempt->reference]), forgedSuccessReturn($key, $attempt->reference))
+        : $this->get(route('billing.gateways.return', [$key, ...forgedSuccessReturn($key, $attempt->reference)]));
 
     expect($attempt->fresh())->status->toBe(AttemptStatus::Pending)->lookup_count->toBe(1)
         ->and(Transaction::query()->count())->toBe(0);

@@ -23,7 +23,9 @@ use Throwable;
  * safe to reuse. has(), keys() and all() count only drivers that pass those checks: a driver that fails them is
  * reported, left out and listed by unavailable() for staff, so one broken package cannot take down the pages that list
  * every driver, and nothing new can be bound to it. A failure of the family's own checks (a LogicException) is
- * remembered for FAILURE_TTL seconds; any other failure (a constructor that failed once) is checked again next time.
+ * remembered for FAILURE_TTL seconds; any other failure (a constructor that throws) is remembered until the current
+ * request or queued job ends (forgetTransientFailures(), called by AppServiceProvider), so it is built and reported
+ * once per request or job, and tried again by the next.
  * isRegistered() answers for every registered key, for callers that must fail closed on a hidden driver.
  *
  * @api
@@ -45,6 +47,9 @@ abstract class DriverRegistry
 
     /** @var array<string, array{reason: string, until: int}> keys that failed the family's checks, until a recheck */
     private array $failed = [];
+
+    /** @var array<string, true> keys whose driver could not be built in the current request or job */
+    private array $transient = [];
 
     public function __construct(protected Container $container) {}
 
@@ -80,7 +85,7 @@ abstract class DriverRegistry
         }
 
         $this->drivers[$key] = $driver;
-        unset($this->usable[$key], $this->failed[$key]);
+        unset($this->usable[$key], $this->failed[$key], $this->transient[$key]);
     }
 
     /**
@@ -167,7 +172,7 @@ abstract class DriverRegistry
             return true;
         }
 
-        if (isset($this->failed[$key]) && $this->failed[$key]['until'] > now()->getTimestamp()) {
+        if (isset($this->transient[$key]) || (isset($this->failed[$key]) && $this->failed[$key]['until'] > now()->getTimestamp())) {
             return false;
         }
 
@@ -183,9 +188,18 @@ abstract class DriverRegistry
             $this->failed[$key] = ['reason' => $exception->getMessage(), 'until' => now()->getTimestamp() + self::FAILURE_TTL];
         } catch (Throwable $exception) {
             report($exception);
+            $this->transient[$key] = true;
         }
 
         return false;
+    }
+
+    /**
+     * Ends the current request's or job's memory of drivers that could not be built, so the next one tries again.
+     */
+    public function forgetTransientFailures(): void
+    {
+        $this->transient = [];
     }
 
     /**

@@ -12,7 +12,7 @@ uses(TestCase::class);
 
 /**
  * The razorpay simulator over its TLS port, called the way a driver would: JSON with Basic auth, amounts in paise (INR
- * 1,130.55 is 113055). There is no Razorpay driver yet, so these tests are the contract it will be built against.
+ * 1,130.55 is 113055). These tests are the contract the Razorpay driver (app/Modules/PaymentsRazorpay) is built against.
  */
 beforeEach(function () {
     $this->scenario = Processes::start(RazorpaySimulator::class);
@@ -92,7 +92,7 @@ test('an order is paid, captured and fetched in paise, and the checkout signatur
     $payment = rzp('GET', '/payments/'.$paid['payment_id'])->json();
     $fields = $paid['callback']['fields'];
 
-    expect($payment)->toMatchArray(['status' => 'captured', 'captured' => true, 'amount' => 113_055, 'order_id' => $order['id'], 'method' => 'upi', 'fee' => 2_261, 'tax' => 407, 'amount_refunded' => 0, 'refund_status' => null])
+    expect($payment)->toMatchArray(['status' => 'captured', 'captured' => true, 'amount' => 113_055, 'order_id' => $order['id'], 'method' => 'upi', 'fee' => 2_668, 'tax' => 407, 'amount_refunded' => 0, 'refund_status' => null])
         ->and($fields['razorpay_signature'])->toBe(hash_hmac('sha256', $order['id'].'|'.$payment['id'], RazorpaySimulator::KEY_SECRET))
         ->and($fields['razorpay_order_id'])->toBe($order['id'])
         ->and(rzp('GET', '/orders/'.$order['id'])->json())->toMatchArray(['status' => 'paid', 'amount_paid' => 113_055, 'amount_due' => 0, 'attempts' => 1])

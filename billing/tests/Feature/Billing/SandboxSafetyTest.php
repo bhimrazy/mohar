@@ -44,7 +44,7 @@ test('sandbox mode can\'t be turned on in production for any gateway that has on
         ->filter(fn ($driver) => collect($driver->settingsFields())->contains('key', 'sandbox'))->keys()->sort()->values()->all();
     app()->detectEnvironment(fn () => 'production');
 
-    expect($withSandboxSetting)->toBe(['esewa', 'khalti', 'stripe'])
+    expect($withSandboxSetting)->toBe(['cybersource', 'esewa', 'khalti', 'razorpay', 'stripe'])
         ->and(fn () => app(ConfigureGateway::class)->handle($key, ['display_name' => ucfirst($key), 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 0, 'convert_to_currency' => null], [...$credentials, 'sandbox' => '1']))
         ->toThrow(BillingException::class, 'Sandbox mode can\'t be used in production.')
         ->and(Gateway::query()->where('key', $key)->exists())->toBeFalse();
@@ -52,6 +52,8 @@ test('sandbox mode can\'t be turned on in production for any gateway that has on
     'stripe' => ['stripe', ['secret_key' => 'sk_test_51SandboxPolicyCheck00000', 'webhook_secret' => 'whsec_SandboxPolicyCheck000000']],
     'khalti' => ['khalti', ['secret_key' => 'test_secret_key_sandbox_policy_check']],
     'esewa' => ['esewa', ['product_code' => 'EPAYTEST', 'secret_key' => 'sandbox-policy-esewa-secret']],
+    'cybersource' => ['cybersource', ['merchant_id' => 'm', 'profile_id' => 'p', 'access_key' => 'a', 'secret_key' => 'sandbox-policy-cybersource-secret', 'rest_key_id' => 'k', 'rest_secret' => 'U2FuZGJveFBvbGljeUN5YmVyc291cmNl']],
+    'razorpay' => ['razorpay', ['key_id' => 'rzp_test_SandboxPolicy01', 'key_secret' => 'sandbox-policy-razorpay-secret', 'webhook_secret' => 'sandbox-policy-razorpay-webhook']],
 ]);
 
 test('the seeder never creates the sandbox gateway outside local and testing', function () {

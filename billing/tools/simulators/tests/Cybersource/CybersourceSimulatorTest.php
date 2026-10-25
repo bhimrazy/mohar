@@ -173,9 +173,10 @@ test('a form with a bad signature, an unknown key, an unsigned required field or
 
 test('card fields on the form are refused, signed or not, and never stored, returned or sent in a notice', function () {
     $this->actions['notice_url'](['url' => 'https://shop.example.test/billing/webhooks/cybersource'], $this->scenario);
-    $signed = csForm('u-card-signed', ['card_number' => '4111111111111111', 'card_cvn' => '123']);
+    // Marker values, not digits: random ids in the stored state can contain any short run of digits.
+    $signed = csForm('u-card-signed', ['card_number' => '4111111111111111', 'card_cvn' => 'cvn-marker-s3']);
 
-    expect(csPost([...csForm('u-card'), 'card_number' => '4242424242424242', 'card_cvn' => '999'])->status())->toBe(400)
+    expect(csPost([...csForm('u-card'), 'card_number' => '4242424242424242', 'card_cvn' => 'cvn-marker-q7'])->status())->toBe(400)
         ->and(csPost($signed)->status())->toBe(400)
         ->and($this->scenario->state()->all('sessions'))->toBe([]);
 
@@ -183,7 +184,7 @@ test('card fields on the form are refused, signed or not, and never stored, retu
     $fields = csChoose('accept', 'u-clean')['fields'];
     $everything = json_encode([$this->scenario->state()->all('sessions'), $fields, $this->scenario->outbox()->pending()]);
 
-    expect($everything)->not->toContain('4242424242424242')->not->toContain('4111111111111111')->not->toContain('999')->not->toContain('req_card_cvn')
+    expect($everything)->not->toContain('4242424242424242')->not->toContain('4111111111111111')->not->toContain('cvn-marker-q7')->not->toContain('cvn-marker-s3')->not->toContain('req_card_cvn')
         ->and($fields['req_card_number'])->toBe('xxxxxxxxxxxx1111');
 });
 
@@ -198,6 +199,15 @@ test('decline, review, error and cancel return their decisions; only a decline o
             ->and(CybersourceApi::signature($fields, $fields['signed_field_names'], CybersourceSimulator::SECRET_KEY))->toBe($fields['signature'])
             ->and(csFind($form['reference_number'])['applicationInformation']['status'] ?? null)->toBe($status);
     }
+});
+
+test('a cancel posts to the form\'s cancel page when it names one; other outcomes still go to the receipt page', function () {
+    $pages = ['override_custom_receipt_page' => 'https://shop.example.test/return', 'override_custom_cancel_page' => 'https://shop.example.test/return?cancelled=1'];
+    csOpen('u-c1', $pages);
+    csOpen('u-c2', $pages);
+
+    expect(csChoose('cancel', 'u-c1')['url'])->toBe($pages['override_custom_cancel_page'])
+        ->and(csChoose('decline', 'u-c2')['url'])->toBe($pages['override_custom_receipt_page']);
 });
 
 test('a review becomes a capture or a decline when Decision Manager decides, and each verdict sends a signed notice', function () {
