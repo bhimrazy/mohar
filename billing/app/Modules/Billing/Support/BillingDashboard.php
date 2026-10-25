@@ -2,7 +2,9 @@
 
 namespace App\Modules\Billing\Support;
 
+use App\Contracts\Core\CompanyClock;
 use App\Models\User;
+use App\Modules\Billing\Actions\CheckGatewayCredentials;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\TransactionType;
@@ -77,6 +79,7 @@ class BillingDashboard
         $dashboard->widget('admin', 'billing.recent_payments', 'list', fn (?User $user): array => $this->recentPayments(), 'billing.transactions.view', 51, 'md');
 
         $dashboard->todo('admin', 'billing.overdue', fn (?User $user): array => $this->overdueTodo(), 'billing.invoices.view', 10);
+        $dashboard->health('admin', 'billing.gateway_credentials', fn (?User $user): ?array => app(CheckGatewayCredentials::class)->health(app(CompanyClock::class)->calendarDate()), 'billing.gateways.manage', 40);
 
         $dashboard->todo('admin', 'billing.due_today', fn (?User $user): array => [
             'label' => 'Unpaid invoices due today',

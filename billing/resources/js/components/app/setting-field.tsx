@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { DateTime } from '@/components/app/date';
 import { Field } from '@/components/app/field';
 import { SelectField } from '@/components/app/select-field';
 import { Input } from '@/components/ui/input';
@@ -17,7 +18,8 @@ export type SettingFieldData = {
         | 'select'
         | 'url'
         | 'secret'
-        | 'secret_text';
+        | 'secret_text'
+        | 'certificate';
     secret: boolean;
     required: boolean;
     help: string | null;
@@ -28,6 +30,15 @@ export type SettingFieldData = {
     options_source: string | null;
     /** Shortest new value in bytes, for secret fields; null otherwise. */
     min_length: number | null;
+};
+
+/** Public metadata of a stored certificate (App\\Data\\Integrations\\CertificateInfo::toArray()). */
+export type CertificateInfoData = {
+    subject: string;
+    issuer: string;
+    serial: string;
+    not_before: string;
+    not_after: string;
 };
 
 /** The save refusal for a secret under its minimum, mirroring SecretMinimumLength. */
@@ -113,6 +124,16 @@ export function SettingFieldControl({
         );
     }
 
+    if (field.type === 'certificate') {
+        // Only forms that render CertificateFieldInput (gateways) can take an upload.
+        return (
+            <p id={id} className="text-sm text-muted-foreground">
+                This setting needs a certificate upload, which this form does
+                not support.
+            </p>
+        );
+    }
+
     if (field.type === 'text' || field.type === 'secret_text') {
         return (
             <Textarea
@@ -194,5 +215,93 @@ export function SettingFieldInput({
                 invalid={!!shown}
             />
         </Field>
+    );
+}
+
+type CertificateInputProps = {
+    id: string;
+    field: SettingFieldData;
+    /** The stored certificate, or null when none is stored. */
+    stored: CertificateInfoData | null;
+    passphrase: string;
+    onFileChange: (file: File | null) => void;
+    onPassphraseChange: (value: string) => void;
+    fileError?: string;
+    passphraseError?: string;
+    disabled?: boolean;
+};
+
+/**
+ * Upload for a certificate setting: a .pfx or .p12 file and its passphrase. The server keeps only the private key,
+ * encrypted, and the certificate's details; the file and passphrase are discarded. Leaving it empty keeps the stored
+ * certificate.
+ */
+export function CertificateFieldInput({
+    id,
+    field,
+    stored,
+    passphrase,
+    onFileChange,
+    onPassphraseChange,
+    fileError,
+    passphraseError,
+    disabled,
+}: CertificateInputProps) {
+    return (
+        <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+                className="content-start"
+                htmlFor={id}
+                label={field.label}
+                optional={!field.required}
+                error={fileError}
+                hint={
+                    stored ? (
+                        <>
+                            Certificate set, expires{' '}
+                            <DateTime value={stored.not_after} />. Serial{' '}
+                            <span className="font-mono break-all">
+                                {stored.serial}
+                            </span>
+                            . Upload a new file to replace it.
+                        </>
+                    ) : (
+                        (field.help ??
+                        'The .pfx or .p12 file from the provider, at most 64 KB.')
+                    )
+                }
+            >
+                <Input
+                    id={id}
+                    type="file"
+                    accept=".pfx,.p12,application/x-pkcs12"
+                    disabled={disabled}
+                    aria-invalid={!!fileError}
+                    aria-describedby={`${id}-description`}
+                    onChange={(event) =>
+                        onFileChange(event.target.files?.[0] ?? null)
+                    }
+                />
+            </Field>
+            <Field
+                className="content-start"
+                htmlFor={`${id}-passphrase`}
+                label={`${field.label} passphrase`}
+                optional
+                error={passphraseError}
+                hint="Used once to open the file, never stored."
+            >
+                <Input
+                    id={`${id}-passphrase`}
+                    type="password"
+                    autoComplete="off"
+                    disabled={disabled}
+                    aria-invalid={!!passphraseError}
+                    aria-describedby={`${id}-passphrase-description`}
+                    value={passphrase}
+                    onChange={(event) => onPassphraseChange(event.target.value)}
+                />
+            </Field>
+        </div>
     );
 }

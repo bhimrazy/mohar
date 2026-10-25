@@ -880,6 +880,18 @@ We stopped sending events to this endpoint after {{ webhook.consecutive_failures
 
 [Open endpoint]({{ webhook.admin_url }})
 MD),
+    $staff('staff.gateway_credential_expiring', 'Gateway certificate expiring', '{% if credential.expired %}{{ credential.gateway }} certificate expired{% else %}{{ credential.gateway }} certificate expires in {{ credential.days_left }} days{% endif %}', <<<'MD'
+# Gateway certificate {% if credential.expired %}expired{% else %}expiring{% endif %}
+
+{% if credential.expired %}{{ credential.gateway }} can no longer sign payments, so customers cannot pay with it. Upload the new certificate from the provider now.{% else %}{{ credential.gateway }} stops taking payments when its certificate expires. Ask the provider for a new one and upload it before then.{% endif %}
+
+| Gateway | {{ credential.gateway }} |
+|---|---|
+| Setting | {{ credential.label }} |
+| Expires | {{ credential.expires_on | date }} |
+
+[Open gateway settings]({{ credential.admin_url }})
+MD),
     $staff('staff.template_render_failed', 'Email template failed to render', 'Email template "{{ template.name }}" failed to render', <<<'MD'
 # Email template error
 
@@ -1039,6 +1051,7 @@ $descriptions = [
     'staff.login_failures' => 'Warns staff about repeated failed sign-ins.',
     'staff.client_details_changed' => 'Tells staff a client changed their details.',
     'staff.webhook_endpoint_disabled' => 'Tells staff a webhook endpoint was disabled after repeated failures.',
+    'staff.gateway_credential_expiring' => 'Warns staff before a payment gateway\'s certificate expires, and when it has expired.',
     'staff.template_render_failed' => 'Tells staff an email template failed to render, with the error.',
 ];
 

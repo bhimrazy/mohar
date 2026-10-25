@@ -3,6 +3,7 @@
 namespace App\Modules\Billing\Actions;
 
 use App\Contracts\Billing\GatewayDriver;
+use App\Data\Billing\GatewayConfig;
 use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Events\Billing\GatewayConfigurationChanged;
@@ -15,11 +16,13 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Support\AfterCommit;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Support\Billing\SandboxPolicy;
+use App\Support\Integrations\CertificateBundle;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Save a gateway's staff configuration. Secret settings left empty keep their stored value; deactivating can move
- * unpaid invoices to a replacement gateway.
+ * Save a gateway's staff configuration. Secret settings left empty keep their stored value; a certificate setting
+ * changes only through an upload read by GatewayRequest (never from text); deactivating can move unpaid invoices to a
+ * replacement gateway.
  */
 class ConfigureGateway
 {
@@ -31,8 +34,9 @@ class ConfigureGateway
     /**
      * @param  array{display_name: string, is_active: bool, show_on_order_form: bool, sort_order: int, convert_to_currency: string|null}  $attributes
      * @param  array<string, string|null>  $settings
+     * @param  array<string, CertificateBundle>  $certificates  uploaded certificates, by setting key
      */
-    public function handle(string $key, array $attributes, array $settings, ?string $replacement = null, ?int $userId = null): Gateway
+    public function handle(string $key, array $attributes, array $settings, ?string $replacement = null, ?int $userId = null, array $certificates = []): Gateway
     {
         if (str_starts_with($key, 'sandbox') && ! SandboxCardDriver::enabled() && $attributes['is_active']) {
             throw new BillingException(__('Sandbox gateways can\'t be activated in production.'));
@@ -45,6 +49,19 @@ class ConfigureGateway
         $changes = [];
 
         foreach (array_map(SettingField::fromArray(...), $driver->settingsFields()) as $field) {
+            if ($field->type === FieldType::Certificate) {
+                if (isset($certificates[$field->key])) {
+                    $info = $certificates[$field->key]->info;
+                    $before = $config[GatewayConfig::CERTIFICATES][$field->key]['not_after'] ?? null;
+                    $config[$field->key] = $certificates[$field->key]->privateKeyPem;
+                    $config[GatewayConfig::CERTIFICATES][$field->key] = $info->toArray();
+                    $changes['settings.'.$field->key] = 'rotated';
+                    $changes['settings.'.$field->key.'.expires'] = ['from' => $before, 'to' => $info->toArray()['not_after']];
+                }
+
+                continue;
+            }
+
             $value = (string) ($settings[$field->key] ?? '');
             $secret = $field->isSecret();
 
@@ -70,7 +87,16 @@ class ConfigureGateway
             }
         }
 
-        return DB::transaction(function () use ($gateway, $attributes, $config, $wasActive, $key, $replacement, $changes, $userId): Gateway {
+        return DB::transaction(function () use ($gateway, $attributes, $config, $wasActive, $key, $replacement, $changes, $userId, $certificates): Gateway {
+            // The daily expiry check records its warnings on the row; keep the ones it wrote since this form was read.
+            $locked = $gateway->exists ? Gateway::query()->lockForUpdate()->find($gateway->id) : null;
+
+            foreach ($locked?->config[GatewayConfig::CERTIFICATES] ?? [] as $field => $stored) {
+                if (! isset($certificates[$field]) && is_array($stored) && isset($config[GatewayConfig::CERTIFICATES][$field])) {
+                    $config[GatewayConfig::CERTIFICATES][$field] = $stored;
+                }
+            }
+
             $gateway->fill([...$attributes, 'config' => $config])->save();
 
             if ($wasActive && ! $gateway->is_active && $replacement !== null) {

@@ -15,7 +15,7 @@ use Inertia\Inertia;
 
 /**
  * Customer's browser coming back from a hosted payment page (GET or POST). The parameters are hints only: we load
- * the attempt by reference and gateway and settle it from an authoritative lookup().
+ * the attempt by reference (or provider reference) and gateway and settle it from an authoritative lookup().
  */
 class GatewayReturnController extends Controller
 {
@@ -26,9 +26,12 @@ class GatewayReturnController extends Controller
 
         $config = $gateways->config($gateway);
         $hint = $gateways->during($config, fn (): ReturnHint => $driver->parseReturn($config, $request));
-        $attempt = $hint->reference !== null
-            ? PaymentAttempt::query()->where('gateway', $gateway)->where('reference', $hint->reference)->first()
-            : null;
+        // A provider that sends back only its own reference (connectIPS TXNID) is matched by gateway and provider reference.
+        $attempt = match (true) {
+            $hint->reference !== null => PaymentAttempt::query()->where('gateway', $gateway)->where('reference', $hint->reference)->first(),
+            $hint->providerRef !== null && $hint->providerRef !== '' => PaymentAttempt::query()->where('gateway', $gateway)->where('provider_ref', $hint->providerRef)->first(),
+            default => null,
+        };
 
         if ($attempt === null) {
             Inertia::flash('toast', ['type' => 'error', 'message' => __('We couldn\'t match this payment. If you were charged, contact us.')]);

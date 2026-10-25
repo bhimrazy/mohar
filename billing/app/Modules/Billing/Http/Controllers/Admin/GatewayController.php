@@ -6,6 +6,7 @@ use App\Contracts\Billing\ConnectionTester;
 use App\Contracts\Billing\GatewayDriver;
 use App\Data\Integrations\ConnectionCheck;
 use App\Data\Integrations\SettingField;
+use App\Enums\FieldType;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\ConfigureGateway;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
@@ -37,6 +38,7 @@ class GatewayController extends Controller
         $driver = $this->gateways->driver($gateway);
         $model = $this->gateways->gateway($gateway);
         $fields = array_map(SettingField::fromArray(...), $driver->settingsFields());
+        $config = $this->gateways->config($model);
 
         return Inertia::render('admin/billing/gateways/edit', [
             'gateway' => [
@@ -49,11 +51,16 @@ class GatewayController extends Controller
                     ->mapWithKeys(fn (SettingField $field): array => [$field->key => (string) $model->setting($field->key, '') !== '']),
                 // Keys only: stored secrets saved before the minimum length, which staff should replace.
                 'secrets_short' => StoredSecrets::tooShort($fields, $model->config ?? []),
+                // The stored certificates' public metadata (subject, serial, validity), never the key.
+                'certificates' => collect($fields)->filter(fn (SettingField $field): bool => $field->type === FieldType::Certificate)
+                    ->mapWithKeys(fn (SettingField $field): array => [$field->key => $config->certificate($field->key)?->toArray()]),
             ],
             'fields' => array_map(fn (SettingField $field): array => $field->toArray(), $fields),
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->pluck('code'),
             'replacements' => array_values(array_map(fn (GatewayDriver $other): array => ['value' => $other->key(), 'label' => $this->gateways->gateway($other->key())->display_name], array_filter($this->gateways->drivers(), fn (GatewayDriver $other): bool => $other->key() !== $gateway))),
             'webhook_url' => $driver->supports(GatewayDriver::WEBHOOK) ? route('billing.webhooks', $gateway) : null,
+            // Where the provider sends the customer back, for providers that need it registered (connectIPS).
+            'return_url' => $this->gateways->hosted($gateway) !== null ? route('billing.gateways.return', $gateway) : null,
             'can_test_connection' => $driver instanceof ConnectionTester,
         ]);
     }
@@ -69,7 +76,7 @@ class GatewayController extends Controller
             'show_on_order_form' => $request->boolean('show_on_order_form'),
             'sort_order' => $request->integer('sort_order'),
             'convert_to_currency' => $request->validated('convert_to_currency'),
-        ], $settings, $request->filled('replacement') ? $request->string('replacement')->toString() : null, $request->user()?->id);
+        ], $settings, $request->filled('replacement') ? $request->string('replacement')->toString() : null, $request->user()?->id, $request->certificates());
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __(':gateway saved.', ['gateway' => $model->display_name])]);
 
