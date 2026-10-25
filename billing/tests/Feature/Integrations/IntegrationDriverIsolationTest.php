@@ -124,7 +124,7 @@ test('a confirmed platform settings save that fails validation does not flash th
     expect(json_encode(session()->all()))->not->toContain('leak-probe-');
 });
 
-test('a driver that failed to build once is checked again, while one failing the family checks stays hidden for a minute', function () {
+test('a driver that failed to build once is checked again by the next request or job, while one failing the family checks stays hidden for a minute', function () {
     $calls = 0;
     app(RegistrarDriverRegistry::class)->register('flaky', function () use (&$calls) {
         if (++$calls === 1) {
@@ -135,7 +135,11 @@ test('a driver that failed to build once is checked again, while one failing the
     });
 
     expect(app(RegistrarDriverRegistry::class)->keys())->not->toContain('flaky')
-        ->and(app(RegistrarDriverRegistry::class)->keys())->toContain('flaky')
+        ->and(app(RegistrarDriverRegistry::class)->keys())->not->toContain('flaky');
+
+    app(RegistrarDriverRegistry::class)->forgetTransientFailures();
+
+    expect(app(RegistrarDriverRegistry::class)->keys())->toContain('flaky')
         ->and(app(RegistrarDriverRegistry::class)->has('flaky'))->toBeTrue();
 
     $declares = true;
