@@ -45,7 +45,7 @@ final class MigrationLint
 
     /** @var array<string, string> pattern => what it does; applied to a statement that runs raw SQL */
     private const RAW_SQL = [
-        '/\b(DROP|RENAME)\b/i' => 'runs raw SQL that drops or renames',
+        '/\bDROP\s+(?:NOT\s+NULL|DEFAULT)\b/i' => 'drops NOT NULL or a default',
         '/\bALTER\s+(?:COLUMN\s+)?\S+\s+(?:SET\s+DATA\s+)?TYPE\b/i' => 'changes a column type',
         '/\bSET\s+NOT\s+NULL\b/i' => 'makes a column NOT NULL',
         '/\bADD\s+(?:CONSTRAINT|CHECK|UNIQUE|PRIMARY\s+KEY|FOREIGN\s+KEY)\b/i' => 'adds a constraint the previous release may violate',
@@ -55,7 +55,7 @@ final class MigrationLint
 
     private const UNIQUE = 'adds a unique index the previous release may violate';
 
-    private const SCHEMA_TABLE = '/\bSchema\s*::\s*(?:connection\s*\([^)]*\)\s*->\s*)?table\s*\(\s*(?:([\'"])(\w+)\1)?/';
+    private const UNLOCKED_INDEX = 'builds an index with allowLocking, which blocks writes while it builds';
 
     private const RAW_CALL = '/\b(?:statement|unprepared)\s*\(/i';
 
@@ -66,10 +66,19 @@ final class MigrationLint
     {
         [$fileComments, $methods] = self::parse($source);
 
+        // down() is skipped unless another method calls it: then its drops run on the way up.
+        $down = $methods['down'] ?? [];
+        unset($methods['down']);
+
+        if ($methods !== [] && preg_match('/(?:\$this\s*->|(?:self|static)\s*::)\s*down\s*\(/i', implode("\n", array_column(array_merge(...array_values($methods)), 'text'))) === 1) {
+            $methods['down'] = $down;
+        }
+
         $all = array_merge(...array_values($methods)) ?: [];
         $text = implode("\n", array_column($all, 'text'));
         $created = self::createdTables($text);
         $covered = self::coveredMethods($all);
+        $receivers = self::schemaReceivers($text);
         $hasNoTransaction = preg_match('/\$withinTransaction\s*=\s*false\b/', $text.' '.self::codeOf($source)) === 1;
 
         $findings = [];
@@ -96,13 +105,19 @@ final class MigrationLint
                             $excusable[] = $meaning;
                         }
                     }
+
+                    $withoutLoosening = preg_replace('/\bDROP\s+(?:NOT\s+NULL|DEFAULT)\b/i', ' ', $s) ?? $s;
+
+                    if (preg_match('/\b(DROP|RENAME)\b/i', $withoutLoosening) === 1) {
+                        $excusable[] = 'runs raw SQL that drops or renames';
+                    }
                 }
 
                 if ($tightened && preg_match('/->\s*dropForeign\s*\(/', $s) === 1) {
                     $excusable[] = self::TIGHTENED_KEY;
                 }
 
-                $existing = self::existingTables($s, $raw, $created);
+                $existing = self::existingTables($s, $raw, $created, $receivers);
                 $errors = [];
 
                 if (preg_match('/\bOnlineIndex\s*::\s*(create|trigram)\b/', $s) === 1) {
@@ -111,28 +126,31 @@ final class MigrationLint
                     }
                 }
 
-                if ($existing !== [] && preg_match('/->\s*unique\s*\(/', $s) === 1) {
+                if ($existing !== [] && preg_match('/->\s*(?:unique|primary)\s*\(/', $s) === 1) {
                     $excusable[] = self::UNIQUE;
                 }
 
-                if ($existing !== [] && preg_match('/\bLockTimeout\s*::\s*run\s*\(/', $s) !== 1 && ! isset($covered[$method])) {
+                if (array_filter($existing, fn (string $table): bool => ! self::locked($s, $table)) !== [] && ! isset($covered[$method])) {
                     $errors[] = 'alters an existing table outside LockTimeout::run (architecture rule 5)';
                 }
 
-                $rawIndex = $raw && preg_match('/\bCREATE\s+(UNIQUE\s+)?INDEX\b(?:\s+CONCURRENTLY)?(?:\s+IF\s+NOT\s+EXISTS)?\s+\S+\s+ON\s+(?:ONLY\s+)?["`]?(\w+)/i', $s, $index) === 1
-                    && ! in_array($index[2], $created, true);
+                $rawIndex = $raw && preg_match('/\bCREATE\s+(UNIQUE\s+)?INDEX\b(?:\s+CONCURRENTLY)?(?:\s+IF\s+NOT\s+EXISTS)?\s+(?:(?!ON\b)\S+\s+)?ON\s+(?:ONLY\s+)?["`]?(\w*)/i', $s, $index) === 1
+                    && ($index[2] === '' || ! in_array($index[2], $created, true));
 
                 if ($rawIndex && $index[1] !== '') {
                     $excusable[] = self::UNIQUE;
                 }
 
-                if ($rawIndex || ($existing !== [] && preg_match('/->\s*(index|unique|fullText|spatialIndex|rawIndex)\s*\(/', $s) === 1)) {
+                if ($rawIndex || ($existing !== [] && preg_match('/->\s*(index|unique|primary|fullText|spatialIndex|rawIndex)\s*\(/', $s) === 1)) {
                     $errors[] = 'builds an index outside OnlineIndex (architecture rule 6)';
                 }
 
-                if (! $hasNoTransaction && preg_match('/\bOnlineIndex\s*::\s*(create|trigram)\b/', $s) === 1
-                    && preg_match('/\ballowLocking\s*:\s*true\b/', $text) !== 1) {
-                    $errors[] = 'OnlineIndex without `public $withinTransaction = false;` (architecture rule 6)';
+                if (preg_match('/\bOnlineIndex\s*::\s*(create|trigram)\b/', $s) === 1) {
+                    if (preg_match('/\ballowLocking\s*:\s*true\b/', $s) === 1) {
+                        $excusable[] = self::UNLOCKED_INDEX;
+                    } elseif (! $hasNoTransaction) {
+                        $errors[] = 'OnlineIndex without `public $withinTransaction = false;` (architecture rule 6)';
+                    }
                 }
 
                 foreach (array_unique($errors) as $message) {
@@ -289,9 +307,7 @@ final class MigrationLint
             $end = self::close($tokens, $body);
             $methodName = strtolower($tokens[$name]->text);
 
-            if ($methodName !== 'down') {
-                $methods[$methodName] = self::statements(array_slice($tokens, $body + 1, $end - $body - 1));
-            }
+            $methods[$methodName] = self::statements(array_slice($tokens, $body + 1, $end - $body - 1));
 
             $i = $end;
         }
@@ -458,21 +474,50 @@ final class MigrationLint
      * @param  list<string>  $created
      * @return list<string> tables the statement alters that this migration did not create; "?" when the name is not a literal
      */
-    private static function existingTables(string $s, bool $raw, array $created): array
+    private static function existingTables(string $s, bool $raw, array $created, string $receivers): array
     {
         $tables = [];
 
-        if (preg_match_all(self::SCHEMA_TABLE, $s, $matches, PREG_SET_ORDER) > 0) {
+        if (preg_match_all('/(?:'.$receivers.')(?:table|drop|dropIfExists|rename)\s*\(\s*(?:([\'"])(\w+)\1)?/', $s, $matches, PREG_SET_ORDER) > 0) {
             foreach ($matches as $match) {
                 $tables[] = ($match[2] ?? '') !== '' ? $match[2] : '?';
             }
         }
 
-        if ($raw && preg_match_all('/\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?["`]?(\w+)/i', $s, $alter) > 0) {
-            $tables = array_merge($tables, $alter[1]);
+        if ($raw && preg_match_all('/\b(?:ALTER|DROP)\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?["`]?(\w*)/i', $s, $alter) > 0) {
+            $tables = array_merge($tables, array_map(fn (string $name): string => $name === '' ? '?' : $name, $alter[1]));
         }
 
         return array_values(array_diff($tables, $created));
+    }
+
+    /**
+     * A regex alternative for what a schema call hangs off: Schema::, Schema::connection()->, getSchemaBuilder()->, or
+     * a variable assigned from one of them.
+     */
+    private static function schemaReceivers(string $text): string
+    {
+        $receivers = ['\bSchema\s*::\s*(?:connection\s*\([^)]*\)\s*->\s*)?', 'getSchemaBuilder\s*\(\s*\)\s*->\s*'];
+
+        if (preg_match_all('/(\$\w+)\s*=\s*[^;]*?(?:Schema\s*::|getSchemaBuilder\s*\()/', $text, $vars) > 0) {
+            foreach (array_unique($vars[1]) as $var) {
+                $receivers[] = '\\'.$var.'\s*->\s*';
+            }
+        }
+
+        return implode('|', $receivers);
+    }
+
+    /**
+     * LockTimeout::run is around the table: its first argument names it, or is not a literal, or the table is unknown.
+     */
+    private static function locked(string $s, string $table): bool
+    {
+        if ($table === '?') {
+            return preg_match('/\bLockTimeout\s*::\s*run\s*\(/', $s) === 1;
+        }
+
+        return preg_match('/\bLockTimeout\s*::\s*run\s*\(\s*(?:\$|[\'"]'.preg_quote($table, '/').'[\'"])/', $s) === 1;
     }
 
     /**

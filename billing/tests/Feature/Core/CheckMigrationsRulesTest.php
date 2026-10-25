@@ -59,6 +59,12 @@ test('rule 5: DDL on an existing table outside LockTimeout::run fails, inside it
     'bare Schema::table' => ["Schema::table('clients', fn (Blueprint \$table) => \$table->string('a')->nullable());", false],
     'raw ALTER TABLE' => ["DB::statement('ALTER TABLE clients ADD COLUMN a varchar(10)');", false],
     'through Schema::connection' => ["Schema::connection('pgsql')->table('clients', fn (Blueprint \$table) => \$table->string('a')->nullable());", false],
+    'Schema::dropIfExists' => ["Schema::dropIfExists('legacy_things');", false],
+    'Schema::rename' => ["Schema::rename('legacy_things', 'old_things');", false],
+    'raw DROP TABLE' => ["DB::statement('DROP TABLE legacy_things');", false],
+    'getSchemaBuilder()->table' => ["DB::connection()->getSchemaBuilder()->table('clients', fn (Blueprint \$table) => \$table->string('a')->nullable());", false],
+    'a schema variable' => ["\$schema = Schema::connection('pgsql');\n        \$schema->table('clients', fn (Blueprint \$table) => \$table->string('a')->nullable());", false],
+    'LockTimeout::run on another table' => ["LockTimeout::run('invoices', fn () => Schema::table('clients', fn (Blueprint \$table) => \$table->string('a')->nullable()));", false],
     'wrapped' => ["LockTimeout::run('clients', fn () => Schema::table('clients', fn (Blueprint \$table) => \$table->string('a')->nullable()));", true],
     'a table created in the same migration' => ["Schema::create('memos', fn (Blueprint \$table) => \$table->id());\n        Schema::table('memos', fn (Blueprint \$table) => \$table->string('a')->nullable());", true],
 ]);
@@ -81,6 +87,9 @@ test('rule 6: an index outside OnlineIndex fails; on a new table it is fine', fu
 })->with([
     'index() in Schema::table' => ["LockTimeout::run('clients', fn () => Schema::table('clients', fn (Blueprint \$table) => \$table->index('email')));", false],
     'raw CREATE INDEX' => ["DB::statement('CREATE INDEX clients_a_index ON clients (a)');", false],
+    'raw CREATE INDEX with no name' => ["DB::statement('CREATE INDEX ON clients (email)');", false],
+    'raw CREATE INDEX on a built table name' => ["DB::statement('CREATE INDEX clients_e ON '.\$table.' (email)');", false],
+    'primary() on an existing table' => ["LockTimeout::run('clients', fn () => Schema::table('clients', fn (Blueprint \$table) => \$table->primary('id')));", false],
     'index() on a new table' => ["Schema::create('memos', function (Blueprint \$table) {\n            \$table->id();\n            \$table->index('id');\n        });", true],
 ]);
 
@@ -92,6 +101,57 @@ test('rule 6: OnlineIndex::create needs withinTransaction = false', function () 
         ->assertFailed();
 
     $this->artisan('deploy:check-migrations', ['paths' => [ruleMigration($this->dir, 'online', $up, 'public $withinTransaction = false;', '2026_10_19_000002')]])
+        ->assertSuccessful();
+});
+
+test('a primary key on an existing table needs a tag', function () {
+    $up = "// @compatible the table is empty and no release reads it yet.\n        LockTimeout::run('clients', fn () => Schema::table('clients', fn (Blueprint \$table) => \$table->primary('id')));";
+
+    $this->artisan('deploy:check-migrations', ['paths' => [ruleMigration($this->dir, 'pk', ruleUp($up))]])
+        ->expectsOutputToContain('outside OnlineIndex')
+        ->assertFailed();
+});
+
+test('allowLocking is not a silent exemption: it needs a tag with a reason', function () {
+    $call = "OnlineIndex::create('clients', ['email'], allowLocking: true);";
+
+    $this->artisan('deploy:check-migrations', ['paths' => [ruleMigration($this->dir, 'locking', ruleUp($call))]])
+        ->expectsOutputToContain('allowLocking')
+        ->assertFailed();
+
+    $this->artisan('deploy:check-migrations', ['paths' => [ruleMigration($this->dir, 'locking_tagged', ruleUp("// @compatible the table has a few dozen rows.\n        ".$call), timestamp: '2026_10_19_000002')]])
+        ->assertSuccessful();
+});
+
+test('a drop in down() that up() calls is checked, one that nothing calls is not', function (string $up, bool $flagged) {
+    $source = <<<PHP
+        <?php
+
+        return new class extends Migration
+        {
+            public function up(): void
+            {
+                {$up}
+            }
+
+            public function down(): void
+            {
+                LockTimeout::run('clients', fn () => Schema::table('clients', fn (Blueprint \$table) => \$table->dropColumn('a')));
+            }
+        };
+        PHP;
+
+    expect(MigrationLint::analyse($source) !== [])->toBe($flagged);
+})->with([
+    'up() calls down()' => ['$this->down();', true],
+    'up() does not' => ["Schema::create('memos', fn (Blueprint \$table) => \$table->id());", false],
+]);
+
+test('dropping NOT NULL is named as such, not as a drop or rename', function () {
+    $up = "// @compatible the previous release only writes a value and reads null as no match.\n        LockTimeout::run('clients', fn () => DB::statement('ALTER TABLE clients ALTER COLUMN a DROP NOT NULL'));";
+
+    $this->artisan('deploy:check-migrations', ['paths' => [ruleMigration($this->dir, 'drop_not_null', ruleUp($up))]])
+        ->expectsOutputToContain('drops NOT NULL or a default')
         ->assertSuccessful();
 });
 
@@ -182,19 +242,23 @@ test('the repository has no duplicate timestamps beyond the allow-list', functio
     })(), $shared))->toBe($allowed);
 });
 
-test('the baseline lists only migrations that exist, and every other migration passes the checker', function () {
+test('the baseline is frozen, lists only migrations that exist, and every other migration passes the checker', function () {
     $migrator = app('migrator');
     $files = $migrator->getMigrationFiles(array_merge([database_path('migrations')], $migrator->paths()));
     $baseline = array_values(array_filter(
         array_map('trim', file(database_path('migration-rules-baseline.txt'), FILE_IGNORE_NEW_LINES)),
         fn (string $line): bool => $line !== '' && ! str_starts_with($line, '#'),
     ));
+    sort($baseline);
 
+    // Frozen: appending a name would skip a new migration. Shrinking the list needs this hash edited too.
+    expect(hash('sha256', implode('|', $baseline).'|'))->toBe('1a996826c81156a367bc892b687a53cb55463ff0c102662431db5e1673747827');
     expect(array_diff($baseline, array_keys($files)))->toBe([]);
 
-    $new = array_values(array_diff_key($files, array_flip($baseline)));
+    $checked = array_values(array_diff_key($files, array_flip($baseline)));
+    expect($checked)->not->toBe([]);
 
-    foreach ($new as $path) {
+    foreach ($checked as $path) {
         $errors = array_filter(MigrationLint::analyse((string) file_get_contents($path)), fn (array $f): bool => $f['level'] === 'error');
 
         expect($errors)->toBe([], basename($path).' breaks the migration rules; run php artisan deploy:check-migrations '.basename($path));

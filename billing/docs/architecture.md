@@ -313,15 +313,18 @@ migrations must be ones the previous release can run against:
 
 `php artisan deploy:check-migrations` enforces rules 1 to 3, and 5 and 6 below: `--since=origin/develop` locally
 before a pull request, and `--pending` in the new image before every deploy (the deploy script stops on a finding).
-It also refuses a migration timestamp that another migration already has (two merged pairs are allow-listed in
-`MigrationLint`). It reads every method except `down()`, so a drop in a helper or through `Schema::connection()` is
-seen, as are raw `ALTER COLUMN … TYPE`, `SET NOT NULL`, `ADD CONSTRAINT`, a unique index on an existing table and a
-foreign key dropped and added again without a `nullOnDelete`/`cascadeOnDelete` action. A `@contract` or `@compatible`
-tag needs a reason and excuses the statement it directly precedes; a tag on the class excuses a file that has one such
-statement. Rules 5 and 6 cannot be excused. Migrations merged before the checker are listed in
-`database/migration-rules-baseline.txt` and skipped; do not add to it. It is not a CI step, but
-`CheckMigrationsRulesTest` runs the same checks over every migration not in the baseline, so a new one that breaks them
-fails CI.
+It also refuses a migration timestamp that another migration already has (three merged pairs are allow-listed in
+`MigrationLint`). It reads every method except `down()` (unless another method calls it), so a drop in a helper or
+through `Schema::connection()` is seen, as are raw `ALTER COLUMN … TYPE`, `SET NOT NULL`, `ADD CONSTRAINT`, a unique
+index or primary key on an existing table and a foreign key dropped and added again without a
+`nullOnDelete`/`cascadeOnDelete` action. A `@contract` or `@compatible` tag needs a reason and excuses the statement
+it precedes or sits in; a tag on the class excuses a file that has one such statement. Rules 5 and 6 (DDL, drops and
+renames of existing tables outside `LockTimeout::run` for that table, an index outside `OnlineIndex`, `OnlineIndex`
+outside `$withinTransaction = false`) cannot be excused. The one exception is `OnlineIndex::create(…, allowLocking:
+true)`, which needs a tag with a reason (a small table). SQL or table names built at run time are not seen. The 39
+migrations merged before the checker that break these rules are listed in `database/migration-rules-baseline.txt` and
+skipped; the list is frozen by a hash in `CheckMigrationsRulesTest`, so never add to it. The test runs the same checks
+over every other migration, so a new one that breaks them fails CI (the checker itself is not a CI step).
 
 Locks, for every new migration (the old release keeps serving while it runs):
 
