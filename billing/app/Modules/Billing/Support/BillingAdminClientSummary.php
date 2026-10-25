@@ -96,7 +96,7 @@ class BillingAdminClientSummary
                     .'sum(case when status in (?, ?) and balance > 0 then 1 else 0 end) as unpaid_count, '
                     .'sum(case when status = ? and due_date < ? then 1 else 0 end) as overdue_count',
                     [...array_merge($due, [InvoiceStatus::PaymentPending->value]), InvoiceStatus::Unpaid->value, $today, ...$due, InvoiceStatus::Unpaid->value, $today],
-                )->get();
+                )->toBase()->get();
 
             foreach ($invoices as $row) {
                 $rows[$row->currency] = [...$blank, 'outstanding' => (int) $row->outstanding, 'overdue' => (int) $row->overdue, 'paid' => (int) $row->paid, 'unpaid_count' => (int) $row->unpaid_count, 'overdue_count' => (int) $row->overdue_count];
