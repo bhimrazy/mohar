@@ -25,6 +25,7 @@ use Carbon\CarbonInterval;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Cybersource Secure Acceptance Hosted Checkout, as NIC Asia Bank provisions it (payments-gateways-expansion.md §6.2).
@@ -51,7 +52,10 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
     /** Transaction statuses that mean the payment is waiting for Decision Manager or the processor. */
     private const IN_REVIEW = ['PENDING_REVIEW', 'PENDING', 'REVIEW'];
 
-    private const DECLINED = ['DECLINED', 'REJECTED', 'FAILED', 'CANCELLED', 'VOIDED', 'REVERSED'];
+    private const DECLINED = ['DECLINED', 'REJECTED', 'FAILED', 'CANCELLED'];
+
+    /** Statuses of a payment taken back after it was made: staff look at it, whatever the application codes say. */
+    private const TAKEN_BACK = ['VOIDED', 'REVERSED'];
 
     /**
      * References Cybersource signed a CANCEL for, in this process (see lookup()). Static because Billing may resolve
@@ -140,6 +144,7 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
         }
 
         [$accessKey, $profileId, $secret] = $this->profile($gateway);
+        // Checked here too, so no payment starts that the REST lookup could never confirm.
         CybersourceRest::credentials($gateway);
         $uuid = bin2hex(random_bytes(16));
         $fields = [
@@ -149,6 +154,7 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
             'signed_field_names' => self::REQUEST_SIGNED_FIELDS,
             'unsigned_field_names' => '',
             'signed_date_time' => gmdate('Y-m-d\TH:i:s\Z'),
+            // Docs examples use en-us; to verify on the evaluation account (spec §15).
             'locale' => 'en',
             'transaction_type' => 'sale',
             'reference_number' => $intent->reference,
@@ -210,7 +216,8 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
     }
 
     /**
-     * Search by our reference, then read each payment found. Succeeded only for one authorised and captured sale under
+     * Search by our reference, then read each payment found (only the newest while the customer waits, so a return
+     * costs at most two short calls). Succeeded only for one authorised and captured sale under
      * our reference; Billing then checks its amount and currency against the attempt. REST has no record of a
      * session the customer cancelled, so "not found" ends the session early only when Cybersource signed a CANCEL
      * for this reference to this process (the return or notice that Billing parsed just before this lookup).
@@ -226,7 +233,14 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
 
             $details = [];
 
-            foreach (array_slice(self::rows($search, fn (array $row): bool => self::isPayment($row) && data_get($row, 'clientReferenceInformation.code') === $attempt->reference), 0, 3) as $row) {
+            $rows = self::rows($search, fn (array $row): bool => self::isPayment($row) && data_get($row, 'clientReferenceInformation.code') === $attempt->reference);
+
+            // Several payments under one reference need every one read: left to the poller, not the waiting customer.
+            if ($attempt->interactive && count($rows) > 1) {
+                return new LookupResult(LookupResult::PENDING, raw: ['found' => count($rows)], retryable: true);
+            }
+
+            foreach (array_slice($rows, 0, 3) as $row) {
                 $detail = $this->rest->send($gateway, 'GET', 'tss/v2/transactions/'.rawurlencode((string) $row['id']), interactive: $attempt->interactive, retry: true);
 
                 if (! $detail->successful() || ! is_array($detail->json())) {
@@ -241,8 +255,16 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
             return new LookupResult(LookupResult::PENDING, raw: ['error' => $exception->getMessage()], retryable: true);
         }
 
+        $cancelled = isset(self::$signedCancels[$attempt->reference]);
+
+        // The search may not have indexed a payment made seconds ago: while the customer waits, "nothing yet" is left
+        // to the poller rather than read as not found (which would send a signed ACCEPT straight to staff review).
+        if ($details === [] && $attempt->interactive && ! $cancelled) {
+            return new LookupResult(LookupResult::PENDING, raw: ['found' => 0], retryable: true);
+        }
+
         if ($details === []) {
-            return new LookupResult(LookupResult::NOT_FOUND, raw: ['found' => 0], sessionEnded: isset(self::$signedCancels[$attempt->reference]));
+            return new LookupResult(LookupResult::NOT_FOUND, raw: ['found' => 0], sessionEnded: $cancelled);
         }
 
         return self::classify($details, $attempt->reference);
@@ -278,9 +300,13 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
             return new ChargeResult(ChargeResult::ERROR, declineReason: CybersourceRest::summary($response), raw: $raw);
         }
 
-        return $response->successful() && is_string($id) && in_array($status, ['PENDING', 'TRANSMITTED', 'COMPLETED', 'SUCCEEDED'], true)
-            ? new ChargeResult(ChargeResult::SUCCESS, $id, raw: $raw)
-            : new ChargeResult(ChargeResult::DECLINED, is_string($id) ? $id : null, declineReason: mb_substr(CybersourceRest::summary($response), 0, 150), raw: $raw);
+        // A refund Cybersource created in a status we don't know stays pending: the refund check decides, so the
+        // amount is never released while money may already be on its way back.
+        return match (true) {
+            $response->successful() && is_string($id) && in_array($status, ['PENDING', 'TRANSMITTED', 'COMPLETED', 'SUCCEEDED'], true) => new ChargeResult(ChargeResult::SUCCESS, $id, raw: $raw),
+            $response->successful() && is_string($id) && ! in_array($status, ['DECLINED', 'INVALID_REQUEST', 'FAILED'], true) => new ChargeResult(ChargeResult::ERROR, $id, declineReason: 'Cybersource answered with refund status '.($status ?? 'none').'; check the refund', raw: $raw),
+            default => new ChargeResult(ChargeResult::DECLINED, is_string($id) ? $id : null, declineReason: mb_substr(CybersourceRest::summary($response), 0, 150), raw: $raw),
+        };
     }
 
     /**
@@ -303,7 +329,11 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
             return new ChargeResult(ChargeResult::ERROR, declineReason: CybersourceRest::summary($search));
         }
 
-        foreach (self::rows($search, fn (array $row): bool => ($row['rootId'] ?? null) === $request->providerTxnId && ($row['id'] ?? null) !== $request->providerTxnId) as $row) {
+        // The search is not trusted to be exact: the row must be under this payment and carry our own refund reference.
+        $ours = fn (array $row): bool => ($row['rootId'] ?? null) === $request->providerTxnId && ($row['id'] ?? null) !== $request->providerTxnId
+            && data_get($row, 'clientReferenceInformation.code') === self::refundReference($request);
+
+        foreach (self::rows($search, $ours) as $row) {
             $raw = ['refund' => (string) $row['id'], 'status' => data_get($row, 'applicationInformation.status'), 'payment' => $request->providerTxnId];
 
             if (self::minor(data_get($row, 'orderInformation.amountDetails.totalAmount')) !== $request->amount->amount || data_get($row, 'orderInformation.amountDetails.currency') !== $request->amount->currency) {
@@ -389,10 +419,13 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
             return null;
         }
 
-        foreach ($names as $name) {
-            if (preg_match(self::RESPONSE_SIGNABLE, $name) !== 1) {
-                return null;
-            }
+        $unknown = array_values(array_filter($names, fn (string $name): bool => preg_match(self::RESPONSE_SIGNABLE, $name) !== 1));
+
+        if ($unknown !== []) {
+            // Names only, never values: a real profile signing a field we don't list would otherwise fail silently.
+            Log::warning('Cybersource reply refused: it signs fields outside the allowed list.', ['gateway' => self::KEY, 'fields' => array_slice(array_map(fn (string $name): string => mb_substr($name, 0, 64), $unknown), 0, 20)]);
+
+            return null;
         }
 
         try {
@@ -448,7 +481,7 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
      */
     private static function classify(array $details, string $reference): LookupResult
     {
-        $paid = $review = $uncaptured = $declined = $unknown = [];
+        $paid = $review = $uncaptured = $declined = $unknown = $takenBack = [];
 
         foreach ($details as $detail) {
             $status = strtoupper((string) data_get($detail, 'applicationInformation.status', ''));
@@ -457,6 +490,7 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
 
             match (true) {
                 data_get($detail, 'clientReferenceInformation.code') !== $reference => $unknown[] = $detail,
+                in_array($status, self::TAKEN_BACK, true) => $takenBack[] = $detail,
                 ($applications['ics_auth'] ?? false) && ($applications['ics_bill'] ?? false) => $paid[] = $detail,
                 in_array($status, self::IN_REVIEW, true) => $review[] = $detail,
                 in_array($status, self::DECLINED, true) || ($applications->has('ics_auth') && ! $applications['ics_auth']) => $declined[] = $detail,
@@ -465,18 +499,19 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
             };
         }
 
-        $first = $paid[0] ?? $review[0] ?? $uncaptured[0] ?? $unknown[0] ?? $declined[0];
+        $first = $paid[0] ?? $takenBack[0] ?? $review[0] ?? $uncaptured[0] ?? $unknown[0] ?? $declined[0];
         $raw = self::lookupRaw($first);
+        $amount = self::minor(data_get($first, 'orderInformation.amountDetails.totalAmount'));
+        $currency = data_get($first, 'orderInformation.amountDetails.currency');
+        $authorised = data_get($first, 'orderInformation.amountDetails.authorizedAmount');
 
         return match (true) {
             count($paid) > 1 => new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'Cybersource holds more than one captured payment for this reference']),
-            count($paid) === 1 => new LookupResult(
-                LookupResult::SUCCEEDED,
-                providerTxnId: is_string($first['id'] ?? null) ? $first['id'] : null,
-                amount: self::minor(data_get($first, 'orderInformation.amountDetails.totalAmount')),
-                currency: is_string(data_get($first, 'orderInformation.amountDetails.currency')) ? data_get($first, 'orderInformation.amountDetails.currency') : null,
-                raw: $raw,
-            ),
+            $takenBack !== [] => new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'Cybersource shows the payment voided or reversed']),
+            // Billing compares a currency only when one is given, so a paid answer without both is never a success.
+            count($paid) === 1 && ($amount === null || ! is_string($currency) || preg_match('/^[A-Z]{3}$/', $currency) !== 1) => new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'Cybersource answered without an amount or currency']),
+            count($paid) === 1 && $authorised !== null && self::minor($authorised) !== $amount => new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'Cybersource authorised a different amount than the sale (partial authorisation)']),
+            count($paid) === 1 => new LookupResult(LookupResult::SUCCEEDED, providerTxnId: is_string($first['id'] ?? null) ? $first['id'] : null, amount: $amount, currency: $currency, raw: $raw),
             $review !== [] => new LookupResult(LookupResult::PROCESSING, raw: $raw),
             $uncaptured !== [] => new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'Cybersource authorised the card but did not capture the sale']),
             $unknown !== [] => new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'Cybersource answered with a transaction this driver cannot read']),

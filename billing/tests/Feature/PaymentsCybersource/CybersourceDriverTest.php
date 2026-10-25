@@ -104,6 +104,9 @@ test('the REST lookup decides: another amount, currency or a payment not found n
     fakeCardRest(array_map(fn (Closure $txn) => $txn($attempt->reference), $txns));
 
     postCardReturn(cardReturn($attempt));
+    // What the waiting customer's single lookup leaves open (nothing indexed yet, several payments) the poller decides.
+    $this->travel(5)->minutes();
+    $this->artisan('billing:reconcile-payments')->assertSuccessful();
 
     expect($attempt->fresh()->status)->toBe($status)
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid)
@@ -111,7 +114,7 @@ test('the REST lookup decides: another amount, currency or a payment not found n
 })->with([
     'another amount' => [[fn (string $ref) => cardTxn($ref, amount: '11300.00')], AttemptStatus::Ambiguous],
     'another currency' => [[fn (string $ref) => cardTxn($ref, currency: 'USD')], AttemptStatus::Ambiguous],
-    // A signed ACCEPT that REST cannot find is kept as evidence and goes to staff review.
+    // A signed ACCEPT that REST still cannot find on the poller's lookup is kept as evidence and goes to staff review.
     'not found' => [[], AttemptStatus::Ambiguous],
     'two captured payments' => [[fn (string $ref) => cardTxn($ref), fn (string $ref) => cardTxn($ref, id: '7290000000000000000002')], AttemptStatus::Ambiguous],
 ]);
@@ -278,11 +281,11 @@ test('test connection reads a transaction that cannot exist and moves no money',
 test('secrets never reach the gateway log, stored payloads or staff pages', function () {
     [, $attempt] = startCard();
     fakeCardRest([cardTxn($attempt->reference)]);
-    postCardReturn(cardReturn($attempt));
+    postCardReturn(cardReturn($attempt, extra: ['req_card_expiry_date' => '12-2030']));
     actingAsStaff();
 
     $everything = GatewayLog::query()->get()->toJson().$attempt->fresh()->toJson().Transaction::query()->get()->toJson()
         .$this->get(route('admin.billing.gateways.edit', 'cybersource'))->getContent();
 
-    expect($everything)->not->toContain(CS_SECRET)->not->toContain(CS_REST_SECRET)->not->toContain('xxxxxxxxxxxx1111');
+    expect($everything)->not->toContain(CS_SECRET)->not->toContain(CS_REST_SECRET)->not->toContain('xxxxxxxxxxxx1111')->not->toContain('12-2030');
 });

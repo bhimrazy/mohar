@@ -1,10 +1,11 @@
 ### Added
 
 - **Card payments through NIC Asia's Cybersource gateway (#492).** A new gateway, "Cards (Cybersource, NIC Asia)",
-  sends the customer to Cybersource's hosted card page (Secure Acceptance Hosted Checkout); the card number, CVV and
-  expiry are typed there and never reach our servers. A payment is marked paid only when the Cybersource REST API
+  sends the customer to Cybersource's hosted card page (Secure Acceptance Hosted Checkout), where the card is typed;
+  the masked card number and expiry that Cybersource posts back are never stored or logged. A payment is marked paid only when the Cybersource REST API
   confirms a captured sale with the same amount, currency and reference; the signed browser return and the signed
-  notice to the webhook URL only trigger that check. A payment held by Decision Manager stays open until it is
+  notice to the webhook URL only trigger that check; a payment voided, reversed or authorised for less than the sale
+  goes to staff review. A payment held by Decision Manager stays open until it is
   decided, and goes to staff review if it stays undecided past the grace period. A cancel on the card page ends the
   attempt so the customer can pay again. Staff can refund in full or in part from the transaction, and "Test
   connection" checks the merchant ID and REST key without moving money. Test mode uses Cybersource's test hosts and
