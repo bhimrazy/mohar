@@ -109,6 +109,14 @@ test('each section needs its own permission', function () {
     expect(array_keys(clientSummaryWidgets($client)))->toBe(['services.count', 'services.recent']);
 });
 
+test('a staff member with no module permission gets the page without a summary', function () {
+    actingAsStaff(['core.clients.view']);
+    $client = clientSummaryNepalClient();
+    issueInvoice($client, [10_000]);
+
+    expect(clientSummaryWidgets($client))->toBe([]);
+});
+
 test('the client page stays within its query budget however many rows the client has', function () {
     actingAsStaff(['*']);
     $client = clientSummaryNepalClient();

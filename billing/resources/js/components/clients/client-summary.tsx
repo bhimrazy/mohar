@@ -48,14 +48,14 @@ export function ClientSummary({ widgets }: { widgets: DashboardWidget[] }) {
     return (
         <section aria-label="Account summary" className="flex flex-col gap-4">
             {money.length > 0 && (
-                <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                     {money.map((widget) => (
                         <Stat key={widget.key} widget={widget} />
                     ))}
                 </div>
             )}
             {counts.length > 0 && (
-                <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                     {counts.map((widget) => (
                         <Stat key={widget.key} widget={widget} />
                     ))}
@@ -67,7 +67,12 @@ export function ClientSummary({ widgets }: { widgets: DashboardWidget[] }) {
                         <ListWidget
                             key={widget.key}
                             title={widget.title}
-                            items={widget.items}
+                            items={widget.items.map((item) => ({
+                                ...item,
+                                href: item.href ?? undefined,
+                                meta: item.meta ?? undefined,
+                                status: item.status ?? undefined,
+                            }))}
                             href={widget.href}
                             empty={widget.empty}
                         />
