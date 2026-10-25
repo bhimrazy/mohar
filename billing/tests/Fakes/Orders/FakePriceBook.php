@@ -68,7 +68,7 @@ class FakePriceBook implements PriceBook
         $this->products[$id] = new ProductSummary(
             $id, $name, 'Hosting', 'shared_hosting', 'demo', null, [], $autoSetup, null, $requiresDomain, $taxable, $stock, $active,
             freeDomain: $freeDomain, freeDomainTlds: $freeDomainTlds, freeDomainCycles: $freeDomainCycles, freeDomainRecurring: $freeDomainRecurring,
-            slug: 'product-'.$id, allowedGateways: $allowedGateways,
+            slug: 'product-'.$id, allowedGateways: $allowedGateways, groupSlug: 'hosting',
         );
         $this->prices[$id] = $pricing;
 
@@ -93,6 +93,9 @@ class FakePriceBook implements PriceBook
         return $this;
     }
 
+    /** @var array<int, int> client id => group discount percent applied to the recurring price */
+    public array $clientDiscounts = [];
+
     public function product(int $productId): ?ProductSummary
     {
         return $this->products[$productId] ?? null;
@@ -115,6 +118,12 @@ class FakePriceBook implements PriceBook
                     $recurring += collect($value['pricing'])->firstWhere('cycle', $selection->cycle->value)['recurring'] ?? 0;
                 }
             }
+        }
+
+        $percent = $selection->clientId === null ? 0 : ($this->clientDiscounts[$selection->clientId] ?? 0);
+
+        if ($percent > 0) {
+            $recurring = intdiv($recurring * (100 - $percent) + 50, 100);
         }
 
         return new PriceQuote($selection->currency, $selection->cycle, $recurring, $price[1]);
@@ -147,6 +156,7 @@ class FakePriceBook implements PriceBook
             'products' => array_values(array_map(fn (ProductSummary $product): array => [
                 'id' => $product->id,
                 'name' => $product->name,
+                'slug' => (string) $product->slug,
                 'description' => null,
                 'type' => $product->type,
                 'requires_domain' => $product->requiresDomain,

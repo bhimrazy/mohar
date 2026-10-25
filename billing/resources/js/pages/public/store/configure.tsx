@@ -1,4 +1,5 @@
-import { Link, useForm, useHttp } from '@inertiajs/react';
+import { Link, setLayoutProps, useForm, useHttp } from '@inertiajs/react';
+import { StoreTitle } from '@/components/orders/storefront-hero';
 import {
     TldAttributeFields,
     tldFieldsFor,
@@ -61,6 +62,7 @@ type Props = {
         id: number;
         name: string;
         group: string | null;
+        group_url: string | null;
         requires_domain: boolean;
         in_stock: boolean;
     };
@@ -208,6 +210,16 @@ export default function Configure({
     existing_domain: existingDomain,
     tld_attribute_fields: tldAttributeFields,
 }: Props) {
+    // Client area: Store › group › this product (the public layout ignores breadcrumbs).
+    setLayoutProps({
+        breadcrumbs: [
+            { title: 'Store', href: store.index.url() },
+            ...(product.group && product.group_url
+                ? [{ title: product.group, href: product.group_url }]
+                : []),
+        ],
+    });
+
     const form = useForm<FormData>({
         cycle: editing?.cycle ?? cycles[0]?.cycle ?? 'monthly',
         config_options: initialOptions(configOptions, editing),
@@ -335,9 +347,7 @@ export default function Configure({
                                 {product.group}
                             </p>
                         )}
-                        <h1 className="text-3xl font-semibold tracking-tight">
-                            {product.name}
-                        </h1>
+                        <StoreTitle>{product.name}</StoreTitle>
                     </div>
                     <CurrencyUnavailable
                         title={`${product.name} is not sold in ${currency}`}
@@ -375,9 +385,7 @@ export default function Configure({
                                 {product.group}
                             </p>
                         )}
-                        <h1 className="text-3xl font-semibold tracking-tight">
-                            {product.name}
-                        </h1>
+                        <StoreTitle>{product.name}</StoreTitle>
                         <p className="text-muted-foreground">
                             {editing
                                 ? 'Change your configuration and update the cart.'

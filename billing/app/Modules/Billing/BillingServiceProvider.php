@@ -62,6 +62,7 @@ use App\Modules\Billing\Services\PaymentReconciler;
 use App\Modules\Billing\Services\SettledRefundCheck;
 use App\Modules\Billing\Services\Tax\BillingTaxIdRules;
 use App\Modules\Billing\Services\Tax\TaxEngine;
+use App\Modules\Billing\Support\BillingAdminClientSummary;
 use App\Modules\Billing\Support\BillingClientDashboard;
 use App\Modules\Billing\Support\BillingDashboard;
 use App\Modules\Billing\Support\BillingSettings;
@@ -269,6 +270,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $dashboard = $this->app->make(Dashboard::class);
         $this->app->make(BillingDashboard::class)->register($dashboard);
         $this->app->make(BillingClientDashboard::class)->register($dashboard);
+        $this->app->make(BillingAdminClientSummary::class)->register($dashboard);
     }
 
     /**

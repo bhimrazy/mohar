@@ -51,6 +51,11 @@ class TaxNoteRegisterReport extends RegisterReport
         ];
     }
 
+    protected function summaryKeys(): array
+    {
+        return ['number', 'bs_date', 'type', 'invoice', 'buyer', 'pan', 'taxable', 'exempt', 'vat', 'total'];
+    }
+
     protected function notesOnly(): bool
     {
         return true;

@@ -96,6 +96,26 @@ class DomainPricingService implements DomainPricing
         return $action === 'transfer' ? array_slice($terms, 0, 1) : $terms;
     }
 
+    /**
+     * Load the prices of these TLDs in one query, so pricing several domains costs no query per TLD.
+     *
+     * @param  list<int>  $tldIds
+     */
+    public function primePrices(array $tldIds): void
+    {
+        $missing = array_values(array_diff(array_unique($tldIds), array_keys($this->prices)));
+
+        if ($missing === []) {
+            return;
+        }
+
+        $prices = TldPrice::query()->whereIn('tld_id', $missing)->where('enabled', true)->get()->groupBy('tld_id');
+
+        foreach ($missing as $id) {
+            $this->prices[$id] = $prices->get($id) ?? collect();
+        }
+    }
+
     public function catalog(string $currency, ?int $clientId = null): array
     {
         $group = $this->groupOf($clientId);

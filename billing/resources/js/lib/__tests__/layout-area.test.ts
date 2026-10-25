@@ -44,8 +44,20 @@ describe('showsPublicPageInClientArea', () => {
         ).toBe(false);
     });
 
-    it('leaves the store on the public layout', () => {
-        expect(showsPublicPageInClientArea('public/store/index', client)).toBe(
+    it.each([
+        'public/store/index',
+        'public/store/domains',
+        'public/cart/index',
+        'public/checkout/index',
+    ])('keeps a signed-in client in the client area on %s', (page) => {
+        expect(showsPublicPageInClientArea(page, client)).toBe(true);
+    });
+
+    it('leaves the store on the public layout for guests and staff', () => {
+        expect(showsPublicPageInClientArea('public/store/index', guest)).toBe(
+            false,
+        );
+        expect(showsPublicPageInClientArea('public/store/index', staff)).toBe(
             false,
         );
     });

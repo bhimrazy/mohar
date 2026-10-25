@@ -33,7 +33,7 @@ describe('store pages', function () {
     });
 
     it('renders the configure page with every available cycle', function () {
-        $this->get(route('store.products.show', 1))
+        $this->get(route('store.products.show', ['hosting', 'product-1']))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->component('public/store/configure')
@@ -43,7 +43,7 @@ describe('store pages', function () {
     });
 
     it('returns 404 for an unknown product', function () {
-        $this->get(route('store.products.show', 99))->assertNotFound();
+        $this->get(route('store.products.show', ['hosting', 'product-99']))->assertNotFound();
     });
 
     it('previews the configured price from the server', function () {
@@ -144,8 +144,8 @@ describe('cart', function () {
 
     it('carries a domain the visitor owns from the search into "Use a domain I own"', function () {
         $this->get(route('store.index', ['domain' => 'asha.com.np']))->assertInertia(fn (Assert $page) => $page->where('existingDomain', 'asha.com.np'));
-        $this->get(route('store.products.show', [1, 'domain' => 'asha.com.np']))->assertInertia(fn (Assert $page) => $page->where('existing_domain', 'asha.com.np'));
-        $this->get(route('store.products.show', [1, 'domain' => 'asha.np']))->assertInertia(fn (Assert $page) => $page->where('existing_domain', null));
+        $this->get(route('store.products.show', ['hosting', 'product-1', 'domain' => 'asha.com.np']))->assertInertia(fn (Assert $page) => $page->where('existing_domain', 'asha.com.np'));
+        $this->get(route('store.products.show', ['hosting', 'product-1', 'domain' => 'asha.np']))->assertInertia(fn (Assert $page) => $page->where('existing_domain', null));
     });
 
     it('requires an EPP code for domain transfers', function () {

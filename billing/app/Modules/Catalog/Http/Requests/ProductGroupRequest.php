@@ -12,6 +12,9 @@ class ProductGroupRequest extends FormRequest
 {
     use ValidatesSlug;
 
+    /** First path segments under /store that belong to the store itself, so a group page cannot use them. */
+    public const RESERVED_SLUGS = ['cart', 'checkout', 'domains', 'currency', 'orders', 'products'];
+
     public function authorize(): bool
     {
         return $this->user()?->hasPermission('catalog.products.manage') ?? false;
@@ -38,7 +41,11 @@ class ProductGroupRequest extends FormRequest
 
         return [
             'name' => ['required', 'string', 'max:150'],
-            'slug' => [...$this->slugRules(), Rule::unique('product_groups', 'slug')->ignore($group?->id)],
+            'slug' => [
+                ...$this->slugRules(),
+                Rule::unique('product_groups', 'slug')->ignore($group?->id),
+                Rule::notIn(self::RESERVED_SLUGS),
+            ],
             'headline' => ['nullable', 'string', 'max:255'],
             'tagline' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:5000'],
@@ -57,6 +64,7 @@ class ProductGroupRequest extends FormRequest
     {
         return [
             ...$this->slugMessages(),
+            'slug.not_in' => __('This slug is reserved for the store (:words). Enter a different slug.', ['words' => implode(', ', self::RESERVED_SLUGS)]),
             'allowed_gateways.required_if_accepted' => __('Enter at least one gateway, or allow every gateway.'),
             'allowed_gateways.*.regex' => __('Gateway keys may only contain letters, numbers, dots, dashes and underscores.'),
         ];

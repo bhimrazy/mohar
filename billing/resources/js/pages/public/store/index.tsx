@@ -1,4 +1,4 @@
-import { Form, Link } from '@inertiajs/react';
+import { Form, Link, setLayoutProps } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import { Check, Globe, Search } from 'lucide-react';
 import { Money } from '@/components/app/money';
@@ -25,6 +25,8 @@ type Props = {
     support_url: string | null;
     /** A domain the visitor already owns, carried from the domain search into "Use a domain I own". */
     existingDomain: string | null;
+    /** Set on a group page (`/store/{group}`), which lists only this group. */
+    group?: { id: number; name: string; slug: string; url: string } | null;
 };
 
 /** Percentage saved against paying monthly for the same period (0 when not cheaper). */
@@ -45,11 +47,9 @@ function savingFor(rows: PriceRow[], row: PriceRow): number {
 function ProductCard({
     product,
     currency,
-    existingDomain,
 }: {
     product: StoreProduct;
     currency: string;
-    existingDomain: string | null;
 }) {
     const cheapest = lowestMonthly(product.pricing);
     const setup = product.pricing.find((row) => row.setup > 0);
@@ -142,16 +142,7 @@ function ProductCard({
             <div className="mt-auto pt-6">
                 {product.in_stock ? (
                     <Button asChild className="w-full">
-                        <Link
-                            href={store.products.show.url(
-                                product.id,
-                                existingDomain
-                                    ? { query: { domain: existingDomain } }
-                                    : undefined,
-                            )}
-                        >
-                            Configure and order
-                        </Link>
+                        <Link href={product.url}>Configure and order</Link>
                     </Button>
                 ) : (
                     <Button className="w-full" variant="secondary" disabled>
@@ -169,18 +160,30 @@ export default function StoreIndex({
     sold_in: soldIn,
     account_currency: accountCurrency,
     support_url: supportUrl,
-    existingDomain,
+    group: currentGroup = null,
 }: Props) {
+    // Client area: a group page sits under Store (the public layout ignores breadcrumbs).
+    setLayoutProps({
+        breadcrumbs: currentGroup
+            ? [{ title: 'Store', href: store.index.url() }]
+            : [],
+    });
+
     const visible = groups.filter((group) => group.products.length > 0);
 
     return (
         <>
-            <Head title="Store" />
+            <Head title={currentGroup?.name ?? 'Store'} />
 
             <StorefrontHero
                 eyebrow="Hosting, servers and domains"
-                title="Everything you need to get online"
-                description="Pick a plan, add a domain and you're live. Clear pricing, no surprises at renewal."
+                title={
+                    currentGroup?.name ?? 'Everything you need to get online'
+                }
+                description={
+                    (currentGroup && visible[0]?.description) ||
+                    "Pick a plan, add a domain and you're live. Clear pricing, no surprises at renewal."
+                }
             >
                 <Form
                     {...store.domains.form()}
@@ -193,7 +196,7 @@ export default function StoreIndex({
                         />
                         <Input
                             name="domain"
-                            placeholder="Find your domain, e.g. mybusiness.com"
+                            placeholder="Find your domain, e.g. ashatraders.com"
                             aria-label="Domain name"
                             className="h-11 bg-background pl-9"
                         />
@@ -239,7 +242,14 @@ export default function StoreIndex({
                         aria-labelledby={`group-${group.id}`}
                         className="scroll-mt-24"
                     >
-                        <div className="mb-6 max-w-2xl space-y-1">
+                        {/* A group page names the group in its title already. */}
+                        <div
+                            className={
+                                currentGroup
+                                    ? 'sr-only'
+                                    : 'mb-6 max-w-2xl space-y-1'
+                            }
+                        >
                             <h2
                                 id={`group-${group.id}`}
                                 className="text-2xl font-semibold tracking-tight"
@@ -258,7 +268,6 @@ export default function StoreIndex({
                                     key={product.id}
                                     product={product}
                                     currency={currency}
-                                    existingDomain={existingDomain}
                                 />
                             ))}
                         </div>

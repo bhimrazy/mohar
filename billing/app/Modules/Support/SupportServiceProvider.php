@@ -25,6 +25,7 @@ use App\Modules\Support\Models\KbArticle;
 use App\Modules\Support\Models\NetworkIncident;
 use App\Modules\Support\Models\Ticket;
 use App\Modules\Support\Models\TicketMessage;
+use App\Modules\Support\Services\SupportAdminClientSummary;
 use App\Modules\Support\Services\SupportPublicHelp;
 use App\Modules\Support\Services\SupportSettings;
 use App\Modules\Support\Services\SupportTicketStaff;
@@ -46,6 +47,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 
 class SupportServiceProvider extends ModuleServiceProvider
@@ -129,6 +131,7 @@ class SupportServiceProvider extends ModuleServiceProvider
     private function registerDashboard(): void
     {
         $dashboard = $this->app->make(Dashboard::class);
+        $this->app->make(SupportAdminClientSummary::class)->register($dashboard);
         $scoped = fn (?User $user) => $user !== null
             ? app(TicketAccess::class)->scope(Ticket::query()->notMerged(), $user)
             : Ticket::query()->whereRaw('1 = 0');
@@ -201,10 +204,13 @@ class SupportServiceProvider extends ModuleServiceProvider
             'icon' => 'LifeBuoy',
         ] : null, order: 60);
 
-        $dashboard->widget('client', 'support.tickets', 'list', fn (?User $user, Client $client): ?array => app(ClientContext::class)->allows($user, $client, 'support') ? [
-            'title' => 'Support',
+        $dashboard->widget('client', 'support.tickets', 'list', function (?User $user, Client $client): ?array {
+            if (! app(ClientContext::class)->allows($user, $client, 'support')) {
+                return null;
+            }
+
             // Tickets staff answered (awaiting the client) first, then the latest activity.
-            'items' => Ticket::query()->notMerged()->where('client_id', $client->id)->where('status', '!=', TicketStatus::Closed->value)
+            $items = Ticket::query()->notMerged()->where('client_id', $client->id)->where('status', '!=', TicketStatus::Closed->value)
                 ->orderByRaw('case when status = ? then 0 else 1 end', [TicketStatus::Answered->value])
                 ->orderByDesc('last_reply_at')->orderByDesc('id')
                 ->limit(3)
@@ -220,11 +226,21 @@ class SupportServiceProvider extends ModuleServiceProvider
                         default => $ticket->status->value,
                     },
                     'meta' => $ticket->last_reply_at?->toIso8601String(),
-                ])->values()->all(),
-            'href' => route('client.support.tickets.index'),
-            'empty' => 'No open tickets. We are here if you need help.',
-            'emptyAction' => ['label' => 'Open a ticket', 'href' => route('client.support.tickets.create')],
-        ] : null, order: 30);
+                ])->values()->all();
+
+            return [
+                'title' => 'Support',
+                'items' => $items,
+                'href' => route('client.support.tickets.index'),
+                'empty' => 'No open tickets. We are here if you need help.',
+                'emptyAction' => ['label' => 'Open a ticket', 'href' => route('client.support.tickets.create')],
+                // The empty state already offers "Open a ticket"; the header links are for clients with tickets.
+                'actions' => $items === [] ? [] : [
+                    ['label' => 'New ticket', 'href' => route('client.support.tickets.create'), 'icon' => 'Plus'],
+                    ...(Route::has('support.kb.index') ? [['label' => 'Help articles', 'href' => route('support.kb.index'), 'icon' => 'BookOpen']] : []),
+                ],
+            ];
+        }, order: 30);
     }
 
     /**

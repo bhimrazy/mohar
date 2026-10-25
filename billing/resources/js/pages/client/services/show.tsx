@@ -262,6 +262,7 @@ export default function ClientServiceShow({
                                         service.id,
                                     )}
                                     currentProduct={service.product_name}
+                                    currentCycle={service.cycle}
                                     creditOnDowngrade={creditOnDowngrade}
                                 />
                             </SectionCard>

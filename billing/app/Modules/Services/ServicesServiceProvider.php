@@ -57,6 +57,7 @@ use App\Modules\Services\Support\AccountList;
 use App\Modules\Services\Support\ClientNameservers;
 use App\Modules\Services\Support\CommandInitiators;
 use App\Modules\Services\Support\ServerSettings;
+use App\Modules\Services\Support\ServicesAdminClientSummary;
 use App\Modules\Services\Support\ServicesDashboard;
 use App\Support\Automation\Automation;
 use App\Support\CalendarDate;
@@ -203,6 +204,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
         ], 'services.services.view', 30);
 
         $this->app->make(ServicesDashboard::class)->register($dashboard);
+        $this->app->make(ServicesAdminClientSummary::class)->register($dashboard);
 
         $dashboard->card('admin', 'services.pending', fn (?User $user): array => [
             'label' => 'Pending provisioning',

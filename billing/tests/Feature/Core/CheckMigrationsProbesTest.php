@@ -29,6 +29,7 @@ function probeMigration(string $dir, string $name, string $body, string $docbloc
     file_put_contents($path, <<<PHP
         <?php
 
+        use App\\Modules\\Core\\Support\\LockTimeout;
         use Illuminate\\Database\\Migrations\\Migration;
         use Illuminate\\Database\\Schema\\Blueprint;
         use Illuminate\\Support\\Facades\\DB;
@@ -81,7 +82,7 @@ test('a tag for one change does not exempt an unrelated drop in the same up()', 
     $this->artisan('deploy:check-migrations', ['paths' => [$file]])->assertFailed();
 })->with([
     '@compatible' => '/** @compatible widening the rate: the previous release writes values that still fit. */',
-])->skip('Follow-up from the #111 review: scope a tag to the finding it names.');
+]);
 
 test('drops and renames that do not use the exact facade call are caught', function (string $up) {
     $file = probeMigration($this->dir, 'indirect', upOnly($up));
@@ -93,7 +94,7 @@ test('drops and renames that do not use the exact facade call are caught', funct
     'DB::connection()->statement DROP' => ["DB::connection()->statement('ALTER TABLE clients DROP COLUMN first_name');"],
     'raw ALTER COLUMN TYPE' => ["DB::statement('ALTER TABLE clients ALTER COLUMN first_name TYPE varchar(20)');"],
     'raw SET NOT NULL' => ["DB::statement('ALTER TABLE clients ALTER COLUMN company SET NOT NULL');"],
-])->skip('Follow-up from the #111 review: indirect drops and raw ALTER COLUMN TYPE / SET NOT NULL.');
+]);
 
 test('a drop in a helper method that up() calls is caught', function () {
     $file = probeMigration($this->dir, 'helper', <<<'PHP'
@@ -113,7 +114,7 @@ test('a drop in a helper method that up() calls is caught', function () {
         PHP);
 
     $this->artisan('deploy:check-migrations', ['paths' => [$file]])->assertFailed();
-})->skip('Follow-up from the #111 review: check every method of the class except down().');
+});
 
 test('--since finds a migration changed since the ref in a repository where the app is a subdirectory', function () {
     // A throwaway repository shaped like this one: the app in billing/, git at the root.
