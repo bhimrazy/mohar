@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $tax_note_id
  * @property int|null $invoice_item_id null only for a late-fee debit note
  * @property string $description
+ * @property int $quantity
  * @property bool $taxable
  * @property int $amount net
  * @property int $tax1_amount

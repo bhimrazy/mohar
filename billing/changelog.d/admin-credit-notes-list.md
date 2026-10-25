@@ -1,0 +1,4 @@
+### Added
+
+- **Billing → Credit notes (#483).** Staff with `billing.tax_notes.view` see every credit and debit note in one list, filter it by type, reason, how it was settled (invoice balance, account credit, refund), staff or automatic, Bikram Sambat month, AD date range, client, and note or invoice number, open a note with its lines, and download its PDF. A **Resend email** button on each note sends the client the same email again, with the PDF attached when attachments are on, including for a note first issued without an email.
+- Upgrade note: the new permission `billing.tax_notes.resend` controls resending. Roles with `billing.*` (the seeded Billing role) have it; grant it by hand to other roles. Each resend is logged as `billing.tax_note.resend_requested`, and a staff member can send 10 per minute.

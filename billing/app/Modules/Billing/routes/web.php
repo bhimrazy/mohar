@@ -11,6 +11,7 @@ use App\Modules\Billing\Http\Controllers\Admin\NepalVatController;
 use App\Modules\Billing\Http\Controllers\Admin\PaymentAttemptController;
 use App\Modules\Billing\Http\Controllers\Admin\QuoteController as AdminQuoteController;
 use App\Modules\Billing\Http\Controllers\Admin\TaxNoteController;
+use App\Modules\Billing\Http\Controllers\Admin\TaxNoteListController;
 use App\Modules\Billing\Http\Controllers\Admin\TaxRuleController;
 use App\Modules\Billing\Http\Controllers\Admin\TransactionController;
 use App\Modules\Billing\Http\Controllers\Admin\VatRegisterController;
@@ -48,6 +49,9 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
         Route::post('notes', [TaxNoteController::class, 'store'])->middleware('password.recent')->name('notes.store');
     });
 
+    Route::get('notes', [TaxNoteListController::class, 'index'])->name('notes.index');
+    Route::get('notes/{taxNote}', [TaxNoteListController::class, 'show'])->whereNumber('taxNote')->name('notes.show');
+    Route::post('notes/{taxNote}/resend', [TaxNoteListController::class, 'resend'])->whereNumber('taxNote')->middleware('throttle:billing-note-resend')->name('notes.resend');
     Route::get('notes/{taxNote}/pdf', [TaxNoteController::class, 'pdf'])->name('notes.pdf');
 
     Route::get('transactions', [TransactionController::class, 'index'])->name('transactions.index');

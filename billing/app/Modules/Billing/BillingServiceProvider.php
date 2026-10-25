@@ -193,6 +193,10 @@ class BillingServiceProvider extends ModuleServiceProvider
         RateLimiter::for('billing-registers', fn (Request $request): Limit => Limit::perMinute(self::REGISTER_REQUESTS_PER_MINUTE)
             ->by('billing-registers|'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
 
+        // A resend emails the client: cap how fast one staff member can send.
+        RateLimiter::for('billing-note-resend', fn (Request $request): Limit => Limit::perMinute(self::NOTE_RESENDS_PER_MINUTE)
+            ->by('billing-note-resend|'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+
         // Each client pay request may open a provider session (Khalti initiate) with the merchant's key: cap it per
         // signed-in user so one account can't get the key throttled or flagged at the provider.
         RateLimiter::for('billing-pay', fn (Request $request): Limit => Limit::perMinute(self::PAY_REQUESTS_PER_MINUTE)
@@ -252,6 +256,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $navigation->add('admin', new NavItem('Gateways', 'admin.billing.gateways.index', 'CreditCard', 'Setup', 33, 'billing.gateways.manage', 'admin.billing.gateways.*'));
         $navigation->add('admin', new NavItem('Nepal VAT', 'admin.billing.vat-mode.edit', 'FileText', 'Setup', 32, 'billing.tax.manage', 'admin.billing.vat-mode.*'));
         $navigation->add('admin', new NavItem('Tax rules', 'admin.billing.tax-rules.index', 'Percent', 'Setup', 31, 'billing.tax.manage', 'admin.billing.tax-rules.*'));
+        $navigation->add('admin', new NavItem('Credit notes', 'admin.billing.notes.index', 'Receipt', 'Billing', 44, 'billing.tax_notes.view', 'admin.billing.notes.*'));
         $navigation->add('admin', new NavItem('VAT register', 'admin.billing.vat-register.index', 'BookOpen', 'Billing', 45, 'reports.vat_register.view', 'admin.billing.vat-register.*'));
         $navigation->add('admin', new NavItem('Payment attempts', 'admin.billing.payment-attempts.index', 'Activity', 'Billing', 50, 'billing.payments.manage', 'admin.billing.payment-attempts.*'));
         $navigation->add('admin', new NavItem('Gateway log', 'admin.billing.gateway-log.index', 'Webhook', 'Setup', 92, 'billing.gateway_log.view', 'admin.billing.gateway-log.*'));
@@ -284,6 +289,9 @@ class BillingServiceProvider extends ModuleServiceProvider
      */
     /** Client pay requests (invoice and batch) per user per minute. */
     public const PAY_REQUESTS_PER_MINUTE = 10;
+
+    /** Credit and debit note resends per staff member per minute. */
+    public const NOTE_RESENDS_PER_MINUTE = 10;
 
     /** Register screen and export requests per staff member per minute. */
     public const REGISTER_REQUESTS_PER_MINUTE = 60;
@@ -318,6 +326,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             'billing.tax.manage' => 'Manage tax rules',
             'billing.tax_notes.view' => 'View credit and debit notes',
             'billing.tax_notes.issue' => 'Issue, reverse and settle credit and debit notes',
+            'billing.tax_notes.resend' => 'Email a credit or debit note to the client again',
             'billing.settings.manage' => 'Change billing settings',
         ], sensitive: self::SENSITIVE_PERMISSIONS);
     }

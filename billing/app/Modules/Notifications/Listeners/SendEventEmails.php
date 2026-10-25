@@ -17,6 +17,7 @@ use App\Events\Billing\InvoiceRefunded;
 use App\Events\Billing\PaymentFailed;
 use App\Events\Billing\PaymentReceived;
 use App\Events\Billing\QuoteSent;
+use App\Events\Billing\TaxNoteResent;
 use App\Events\Core\AutomationRunCompleted;
 use App\Events\Core\ClientRegistered;
 use App\Events\Core\ClientUpdated;
@@ -111,6 +112,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         InvoiceModified::class => 'invoiceModified',
         CreditNoteIssued::class => 'taxNoteIssued',
         DebitNoteIssued::class => 'taxNoteIssued',
+        TaxNoteResent::class => 'taxNoteResent',
         QuoteSent::class => 'quoteSent',
         DomainRegistered::class => 'domainRegistered',
         DomainTransferInitiated::class => 'domainTransferInitiated',
@@ -166,6 +168,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
                 $event instanceof InvoiceRefunded => $this->invoiceRefunded($event),
                 $event instanceof InvoiceModified => $this->invoiceModified($event),
                 $event instanceof CreditNoteIssued, $event instanceof DebitNoteIssued => $this->taxNoteIssued($event),
+                $event instanceof TaxNoteResent => $this->taxNoteResent($event),
                 $event instanceof QuoteSent => $this->quoteSent($event),
                 $event instanceof DomainRegistered => $this->domainRegistered($event),
                 $event instanceof DomainTransferInitiated => $this->domainTransferInitiated($event),
@@ -392,7 +395,18 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
             return;
         }
 
-        $this->clientMail($event instanceof CreditNoteIssued ? 'credit_note.issued' : 'debit_note.issued', $event->clientId, EmailCategory::Invoice, [
+        $this->noteMail($event instanceof CreditNoteIssued ? 'credit_note.issued' : 'debit_note.issued', $event);
+    }
+
+    /** The same email again, on staff's request, even when the note was first issued without one. */
+    public function taxNoteResent(TaxNoteResent $event): void
+    {
+        $this->noteMail($event->kind === 'credit' ? 'credit_note.issued' : 'debit_note.issued', $event);
+    }
+
+    private function noteMail(string $templateKey, CreditNoteIssued|DebitNoteIssued|TaxNoteResent $event): void
+    {
+        $this->clientMail($templateKey, $event->clientId, EmailCategory::Invoice, [
             ...$this->invoiceContext($event->invoiceId),
             'tax_note' => [...$this->context->resolve('tax_note', $event->taxNoteId), 'pdf_attached' => (bool) ($this->context->resolve('tax_note_mail', $event->taxNoteId)['pdf_attached'] ?? false)],
         ], $event, 'tax_note', $event->taxNoteId);
