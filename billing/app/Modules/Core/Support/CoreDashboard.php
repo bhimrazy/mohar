@@ -5,6 +5,8 @@ namespace App\Modules\Core\Support;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Domains\RegistrarDriverRegistry;
+use App\Support\Services\ProvisioningDriverRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Route;
 
@@ -25,7 +27,37 @@ class CoreDashboard
             'tone' => 'danger',
             'icon' => 'Clock',
         ], 'core.settings.update', 5);
+        $dashboard->health('admin', 'core.integration_drivers', fn (): ?array => $this->unavailableDrivers(), 'core.settings.update', 60);
         $dashboard->widget('admin', 'core.clients.signups', 'chart', fn (?User $user): array => $this->signups(), 'core.clients.view', 35, 'md', deferred: true);
+    }
+
+    /**
+     * Registrar and provisioning drivers that are installed but left out because they failed the host's checks; null
+     * when there are none. Staff see which driver and why, not only the error log.
+     *
+     * @return array{label: string, detail: string, value: string, tone: string, icon: string}|null
+     */
+    private function unavailableDrivers(): ?array
+    {
+        $unavailable = [];
+
+        foreach ([__('Registrar') => app(RegistrarDriverRegistry::class), __('Provisioning') => app(ProvisioningDriverRegistry::class)] as $family => $registry) {
+            foreach ($registry->unavailable() as $key => $reason) {
+                $unavailable[] = "{$family} {$key}: {$reason}";
+            }
+        }
+
+        if ($unavailable === []) {
+            return null;
+        }
+
+        return [
+            'label' => __('Integration drivers'),
+            'detail' => implode(' ', $unavailable),
+            'value' => trans_choice('{1} 1 unavailable|[2,*] :count unavailable', count($unavailable)),
+            'tone' => 'danger',
+            'icon' => 'Server',
+        ];
     }
 
     /**

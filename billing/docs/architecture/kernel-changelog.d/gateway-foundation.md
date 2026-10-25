@@ -5,7 +5,8 @@
   (which refuse it), and `RegistrarDriverRegistry::fields()` and `ProvisioningDriverRegistry::metadata()` (which throw
   for a driver declaring it). `isSecret()` is true for it, so it joins `GatewayConfig::$secretSettingKeys` and every
   form's secret input paths.
-- `App\Data\Integrations\SettingField` refuses keys starting with `_` (reserved for host entries).
+- `App\Data\Integrations\SettingField` refuses keys starting with `_` (reserved for host entries). Breaking under
+  ADR 0010 (a constructor now throws for input it accepted); allowed pre-1.0, and no in-repo driver uses such a key.
 - New `App\Data\Integrations\CertificateInfo` (with `SETTINGS_KEY`), `App\Support\Integrations\CertificateBundle`
   (`MAX_BYTES` = 64 KB) and `CertificateRefused`; the last two are internal to hosts, not `@api`.
 - `App\Data\Billing\GatewayConfig::certificate(string $key): ?CertificateInfo`. Additive.

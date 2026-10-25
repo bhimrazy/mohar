@@ -3,17 +3,19 @@
 namespace App\Modules\Catalog\Services;
 
 use App\Contracts\Services\ProvisioningDrivers;
+use App\Support\Services\ProvisioningDriverRegistry;
 
 /**
  * Keeps provisioning secrets out of the browser. A setting is secret when the driver marks it so, or when
  * its name looks like a credential. Secret values are sent masked, and an empty submitted value keeps the
- * stored secret ("leave empty to keep").
+ * stored secret ("leave empty to keep"). For a driver that is registered but unavailable (it failed the host's
+ * checks, so its declared fields cannot be read) every setting counts as secret: nothing is sent, nothing is wiped.
  */
 class DriverSecrets
 {
     private const SECRET_NAME = '/(pass(word)?|secret|token|api[_.-]?key|private[_.-]?key|credential)$/i';
 
-    public function __construct(private ProvisioningDrivers $drivers) {}
+    public function __construct(private ProvisioningDrivers $drivers, private ProvisioningDriverRegistry $registry) {}
 
     /**
      * @param  array<string, mixed>  $config
@@ -21,6 +23,10 @@ class DriverSecrets
      */
     public function secretKeys(string $driver, array $config = []): array
     {
+        if ($this->registry->isRegistered($driver) && ! $this->registry->has($driver)) {
+            return array_map('strval', array_keys($config));
+        }
+
         $declared = [];
 
         foreach ($this->drivers->all() as $candidate) {

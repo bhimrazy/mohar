@@ -4,32 +4,9 @@ use PHPUnit\Framework\ExpectationFailedException;
 
 /*
  * Extension and driver rules (ADR 0009, ADR 0012). Kept apart from ArchitectureTest.php so the arch plugin's
- * parsed-source cache stays small per file (see the Arch hook in tests/Pest.php).
+ * parsed-source cache stays small per file (see the Arch hook in tests/Pest.php). The whole-app rules (removed SPIs,
+ * registry extension) are text scans in RemovedSpiScanTest.php: as arch rules they parsed all of app/.
  */
-
-arch('nothing uses the removed module-internal provisioning SPI (ADR 0009)')
-    ->expect('App')
-    ->not->toUse([
-        'App\Modules\Services\Drivers\Provisioning\ProvisioningDriver',
-        'App\Modules\Services\Drivers\Provisioning\ServiceContext',
-        'App\Modules\Services\Drivers\Provisioning\DriverMetadata',
-        'App\Modules\Services\Drivers\Provisioning\DriverResult',
-        'App\Modules\Services\Drivers\Provisioning\DriverRegistry',
-        'App\Modules\Services\Drivers\Provisioning\UsageRow',
-        'App\Modules\Services\Exceptions\RetryableProvisioningException',
-        'App\Modules\Services\Support\Redactor',
-    ]);
-
-arch('nothing uses the removed module-internal registrar SPI (ADR 0009)')
-    ->expect('App')
-    ->not->toUse([
-        'App\Modules\Domains\Drivers\Registrars\Registrar',
-        'App\Modules\Domains\Drivers\Registrars\Data',
-        'App\Modules\Domains\Drivers\Registrars\RegistrarManager',
-        'App\Modules\Domains\Exceptions\RegistrarException',
-        'App\Modules\Domains\Exceptions\RegistrarTimeout',
-        'App\Modules\Domains\Exceptions\CapabilityNotSupported',
-    ]);
 
 arch('App\Modules\Domains\Drivers\Registrars sees snapshots only: no models, no database')
     ->expect('App\Modules\Domains\Drivers\Registrars')
@@ -51,10 +28,6 @@ foreach (['App\Modules\Services\Drivers\Provisioning', 'Tests\Fixtures\Extension
 arch('an extension package uses the kernel only, never a module')
     ->expect('Tests\Fixtures\Extensions')
     ->not->toUse('App\Modules');
-
-arch('driver registries are kernel classes, final, and never extended by modules (ADR 0012)')
-    ->expect('App\Modules')
-    ->not->toExtend('App\Support\Integrations\DriverRegistry');
 
 arch('concrete driver registries are final')
     ->expect(['App\Support\Services\ProvisioningDriverRegistry', 'App\Support\Domains\RegistrarDriverRegistry'])
@@ -87,7 +60,7 @@ test('the record-importer rule refuses an importer that dispatches an event', fu
 test('every arch target in this file matches at least one class', function () use ($importerNamespaces) {
     expect($importerNamespaces)->not->toBe([])
         ->and(archTargetsWithoutClasses([
-            'App', 'App\Modules', 'App\Contracts\Domains\Registrar', 'App\Data\Domains\Registrar', 'App\Modules\Domains\Drivers\Registrars', 'App\Modules\Services\Drivers\Provisioning', 'Tests\Fixtures\Extensions', ...$importerNamespaces,
+            'App\Contracts\Domains\Registrar', 'App\Data\Domains\Registrar', 'App\Modules\Domains\Drivers\Registrars', 'App\Modules\Services\Drivers\Provisioning', 'Tests\Fixtures\Extensions', ...$importerNamespaces,
             // Single-class targets: a rename would otherwise leave the rule checking nothing.
             'App\Support\Services\ProvisioningDriverRegistry', 'App\Support\Domains\RegistrarDriverRegistry', 'App\Support\Integrations\DriverRegistry',
         ]))->toBe([]);

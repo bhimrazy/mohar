@@ -4,12 +4,17 @@ namespace App\Modules\Platform\Http\Requests;
 
 use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Platform\Services\SettingsCatalog;
+use App\Support\Integrations\KeepsSecretsOutOfOldInput;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class SettingsRequest extends FormRequest
 {
+    use KeepsSecretsOutOfOldInput;
+
     public function authorize(SettingsCatalog $catalog): bool
     {
         $user = $this->user();
@@ -26,7 +31,14 @@ class SettingsRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         if (app(SettingsCatalog::class)->requiresConfirmation((string) $this->route('section')) && ! RequireRecentPasswordConfirmation::recentlyConfirmed($this)) {
-            throw ValidationException::withMessages([RequireRecentPasswordConfirmation::ERROR_KEY => __('Confirm your password to continue.')]);
+            $refusal = ValidationException::withMessages([RequireRecentPasswordConfirmation::ERROR_KEY => __('Confirm your password to continue.')]);
+
+            // Back with the error only, never the old input: the section may hold secrets (ADR 0018 Amendment).
+            if (! $this->expectsJson()) {
+                $refusal->response = back()->withErrors($refusal->errors());
+            }
+
+            throw $refusal;
         }
     }
 
@@ -36,6 +48,21 @@ class SettingsRequest extends FormRequest
     public function rules(SettingsCatalog $catalog): array
     {
         return $catalog->rules((string) $this->route('section'));
+    }
+
+    /**
+     * Every submitted value except the section's declared non-secret settings: a `secret: true` setting, and anything
+     * undeclared, never reaches the flashed old input.
+     *
+     * @return list<string>
+     */
+    protected function secretInputPaths(): array
+    {
+        $public = collect(app(SettingsCatalog::class)->section((string) $this->route('section'))['settings'] ?? [])
+            ->reject(fn ($definition): bool => $definition->secret)->map(fn ($definition): string => $definition->key)->all();
+
+        return array_values(array_filter(array_keys(Arr::dot($this->all())), fn (string $path): bool => ! collect($public)
+            ->contains(fn (string $key): bool => $path === $key || Str::startsWith($path, $key.'.'))));
     }
 
     /**

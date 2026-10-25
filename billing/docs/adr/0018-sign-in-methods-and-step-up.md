@@ -207,3 +207,15 @@ A login always keeps at least one way to sign in:
 - **The step-up download key holds a URL.** `RequireRecentPasswordConfirmation::DOWNLOAD_KEY` stores the file URL that
   sent the person to the confirm page, not a flag. The page calls itself a download only while that URL equals
   `url.intended`, and a dialog (JSON) confirm drops `url.intended` only when it is that download.
+
+## Amendment (#490) — 2026-10-25, a step-up refusal carries no old input
+
+A mutation refused for the step-up (the `password.recent` middleware, and form requests that check the step-up
+themselves, such as the platform settings sections) answers with a redirect back that carries the
+`password_confirmation` error and no old input. The middleware runs before the route's form request, so flashing the
+input would store a typed API key or certificate passphrase in the session store; the confirm dialog replays the visit
+itself, so nothing needs the old input. Once the step-up passes, the form request's own validation errors flash the
+input without its secrets (`KeepsSecretsOutOfOldInput`; the platform settings request treats every submitted value
+except the section's non-secret settings as secret). JSON clients still get 423 (middleware) or a
+422 validation response (form requests). First shipped for the middleware in #489, completed for the settings
+sections in #490.
