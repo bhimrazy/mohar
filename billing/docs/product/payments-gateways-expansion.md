@@ -1,6 +1,6 @@
 # Payments — gateway expansion: connectIPS, Fonepay, cards in Nepal, more wallets, India (design, v1)
 
-Status: research and design only, nothing built · Owner: Billing (payments) · Extends `payments-nepal.md` (Khalti,
+Status: research and design only, nothing built; owner and CTO answers to §10.5 recorded 2026-10-25 (§10.6) · Owner: Billing (payments) · Extends `payments-nepal.md` (Khalti,
 eSewa built) and `payments-stripe.md` (Stripe built) · Public docs read 2026-10-20 (§14)
 
 Clean-room: written from the providers' public developer docs, fee schedules and news, in our own words. No SDK,
@@ -61,7 +61,7 @@ automatic settlement import (§9.6, later), and a dedicated driver per small wal
 | **connectIPS** (NCHL)                                                              | Browser form POST to NCHL, bank login and OTP, redirect back with `TXNID`                               | `HostedPaymentDriver`, `FormPost`, `lookup()` via validatetxn (+ gettxndetail)                    | RSA SHA-256 signature with the merchant's private key (from .pfx)                   | Unsigned, only `TXNID` | `validatetxn` (Basic auth + signed token); `gettxndetail` for fee, bank | None by API ("cannot be reversed"); bank     | No. UAT account by email to NCHL support                                              | Through the merchant's bank (KYC), then NCHL enrolment         | NPR 2 / 4 / 8 per payment by amount slab; banks may add their own | Signing and flow: yes (simulator). Live: no        |
 | **Fonepay** web                                                                    | GET redirect with HMAC-SHA512 `DV`, signed return, verify call                                          | `HostedPaymentDriver`, `RedirectInstruction`, `lookup()`                                          | HMAC-SHA512 (hex) with merchant secret                                              | Signed (`DV`)          | Merchant verification call; reported to need the return's `UID`         | Not public; reported manual                  | No. Dev host and credentials from the bank                                            | Through a Fonepay partner bank                                 | Not public (one reseller cites NPR 25,000 + VAT integration fee)  | No: no official public spec                        |
 | **Fonepay** dynamic QR (third-party v2)                                            | Server creates a QR, customer scans it in a Fonepay-network bank or wallet app, we poll status by `PRN` | `HostedPaymentDriver`, `QrPayload`, `lookup()`                                                    | Username/password + RSA-signed requests (community)                                 | None (no redirect)     | Status by `PRN`                                                         | Not public                                   | No                                                                                    | Through a partner bank ("billing API" request)                 | Not public                                                        | No                                                 |
-| **NepalPay QR** (NCHL)                                                             | Server asks NCHL for a dynamic NepalQR; scan from any interoperable app                                 | `HostedPaymentDriver`, `QrPayload`, `lookup()` via transaction report                             | Basic auth + RSA SHA-256 signed token (.pfx)                                        | None                   | Merchant transaction report by trace id                                 | Report shows refund rows; process not public | No. Same NCHL route as connectIPS                                                     | Through NCHL and the acquiring member; merchant access unclear | Not public for QR                                                 | Signing and flow: yes (public spec). Live: no      |
+| **NepalPay QR** (NCHL) (dropped)                                                   | Server asks NCHL for a dynamic NepalQR; scan from any interoperable app                                 | `HostedPaymentDriver`, `QrPayload`, `lookup()` via transaction report                             | Basic auth + RSA SHA-256 signed token (.pfx)                                        | None                   | Merchant transaction report by trace id                                 | Report shows refund rows; process not public | No. Same NCHL route as connectIPS                                                     | Through NCHL and the acquiring member; merchant access unclear | Not public for QR                                                 | Signing and flow: yes (public spec). Live: no      |
 | **Cards: NIC Asia** (Cybersource Secure Acceptance Hosted Checkout)                | Browser form POST of HMAC-signed fields to Cybersource's hosted page; signed POST back                  | `HostedPaymentDriver`, `FormPost`, `lookup()` via Cybersource REST (if the bank issues REST keys) | HMAC-SHA256 over `signed_field_names` (profile id, access key, secret key)          | Signed (same scheme)   | REST transaction query (needs REST keys; see §6.2)                      | Business Center; REST refund if REST keys    | Yes: free self-serve Cybersource evaluation account (generic, not the bank's profile) | NIC Asia current account and service agreement                 | Bank tariff (MDR not public)                                      | Mostly: public spec, simulator, evaluation account |
 | **Cards: other banks** (HBL 2C2P PACO, Nabil TranzAxis, NCHL-hosted bank gateways) | Bank-specific hosted pages; HBL uses JOSE-encrypted, RSA-signed API calls                               | `HostedPaymentDriver`                                                                             | Bank-specific                                                                       | Bank-specific          | Bank-specific                                                           | Mostly bank portal                           | No                                                                                    | Bank agreement                                                 | Not public                                                        | No                                                 |
 | **NPS OnePG** (aggregator)                                                         | Hosted page with the payer's choice of bank, wallet, connectIPS (cards unconfirmed)                     | `HostedPaymentDriver`                                                                             | Merchant id, API username/password and secret key (from an official client package) | Not public             | Not public                                                              | Not public                                   | No (docs not public)                                                                  | Aggregator merchant agreement                                  | Not public                                                        | No                                                 |
@@ -233,7 +233,9 @@ spec with the merchant credentials.
 - **Better than the category:** a QR on the invoice page also lets a customer on a laptop pay with the phone they
   already bank on, with no login on our side and no redirect. Most hosting billing tools offer only the redirect.
 
-### 5.3 NepalPay QR (NCHL) as an alternative
+### 5.3 NepalPay QR (NCHL): dropped from the plan (owner decision Q6, 2026-10-25)
+
+**Decision:** dropped. Research on 2026-10-25 found no web platform, hosting company or plugin that takes NepalPay QR through a merchant API; the public spec is for banks and payment operators (§10.6). The rest of this section stays as the record of what was read, and is not a build candidate.
 
 NCHL publishes a full NepalPay QR specification (doc.connectips.com, NepalPAY-QR section). It is the national
 interoperable QR built to Nepal Rastra Bank's NepalQR framework, settled through NCHL with other QR schemes.
@@ -251,11 +253,12 @@ interoperable QR built to Nepal Rastra Bank's NepalQR framework, settled through
   NepalPay QR through its acquiring bank, not direct API access (Q6).
 - **Reach:** NepalPay QR is interoperable with SmartQR but, per 2026 reporting, not with Fonepay, and eSewa does not
   scan it. So it does not replace Fonepay.
-- **Why keep it on the list:** if NCHL does give a merchant access, it shares the connectIPS signing code and
-  certificate handling, and its spec is public, so we could build a faithful simulator. It stays a candidate behind
-  connectIPS, not a commitment.
+- **Why it was kept, and why it is now dropped:** it would share the connectIPS signing code, but nothing shows a
+  merchant can reach the API. Reopen only if a bank or NCHL offers a hosting merchant direct access in writing.
 
 ### 5.4 Fonepay onboarding and fees
+
+**Owner decision (2026-10-25):** keep Fonepay as "build when the partner bank supplies the spec". Research on 2026-10-25 again found no official public developer documentation; every web integration we found (community Laravel, Flutter and Python packages, WordPress plugins) uses merchant code plus secret with an HMAC-SHA512 redirect, or username, password, terminal id and RSA signing for the QR API, and plugin support threads show "verification failure" when sandbox and live credentials are mixed. This matches §5.1 and §5.2 and changes nothing in the design (§10.6).
 
 - Through a Fonepay partner bank: a registered business, a business account with that bank, then a request to enable
   web payment or Dynamic QR. Credentials come from the bank: merchant code and secret for web; username, password and
@@ -313,18 +316,16 @@ uses it already ships plugins for it, so its onboarding is routine. It fits our 
   authentication using a REST key id and shared secret created in the Business Center. Succeeded only for an
   authorised and captured sale whose amount, currency and reference match the stored attempt; REVIEW (Decision
   Manager) → `processing`, then staff review if it stays; DECLINE → failed; CANCEL → cancelled.
-- **Open point (Q9):** whether NIC Asia merchants get REST keys or only Business Center access is unknown. Without
-  REST keys there is no server-side status check, only the signed browser post and the signed server notice. Our
-  rule is that only `lookup()` settles; we do not relax it silently. The options for the CTO are: require REST keys
-  (recommended), or accept the signed server-to-server notice as the lookup for this driver only, with amount,
-  currency and reference checks.
+- **Decision (Q9, CTO, 2026-10-25): REST keys are required.** The driver does not settle from the signed notice and
+  has no notice-only lookup. If the bank issues no REST keys, the gateway form says the driver cannot be activated
+  until it does. Whether NIC Asia issues REST keys is still unknown and goes on the to-do list (§15).
 - **Refunds:** REST follow-on refunds (full and partial) when REST keys exist (`REFUND`, `PARTIAL_REFUND`);
   otherwise in the Business Center and recorded, as for eSewa.
 - **Settlement:** to the merchant's NIC Asia account on the bank's schedule; Business Center reports for
   reconciliation, and Cybersource reporting APIs if REST keys exist (a later `ProvidesSettlementReport`, §9.6).
 - **Sandbox:** Cybersource offers a free self-serve evaluation account (a test Business Center), which exercises the
   same Secure Acceptance flow with our own test profile. The bank's real profile only comes with the agreement.
-  Registering an evaluation account is a third-party account, so it needs the owner's approval (Q10).
+  **Decision (Q10, owner, 2026-10-25):** simulate now; a real evaluation account is a later to-do (§15).
 - **Better than the category:** the bank's plugins verify the signed browser post and stop there. We also confirm
   every payment from the server side and record the fee and transaction id, so a forged or replayed post cannot mark
   an invoice paid.
@@ -439,7 +440,7 @@ centrally by the CTO session (ADR 0010 rules: additive, trailing defaulted field
   before and red after expiry. connectIPS and NepalPay QR use it; card processors with certificates or expiring API
   passwords could too.
 - Without this change a v1 driver could take a pasted PEM in a `secret_text` field, but staff would have to run
-  OpenSSL themselves and nothing would warn before expiry. We recommend the change (Q8).
+  OpenSSL themselves and nothing would warn before expiry. **Approved by the CTO (Q8, 2026-10-25).**
 
 ### 9.3 Show the URLs to register with the provider (Billing, no contract change)
 
@@ -501,12 +502,12 @@ Scored on value to a Nepali host, effort, and whether we can verify without the 
 
 | #   | Gateway                                                                   | Value to Nepal hosts                                                                 | Effort                                       | Verifiable without owner                                           | When                                                       |
 | --- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------- |
-| 1   | **connectIPS**                                                            | High: every bank customer, NPR 2–8 flat fee, on the storefront today                 | Medium (RSA signing, certificate, short ref) | Flow and signing yes (public spec, simulator); real UAT needs NCHL | Now. Owner starts the bank and NCHL paperwork in parallel  |
-| 2   | **Cards: Cybersource SA (NIC Asia)**                                      | Medium: storefront promise, USD and foreign cards; cards are rare in this market     | Medium (HMAC form like eSewa, REST lookup)   | Mostly: public spec, simulator, free evaluation account (Q10)      | After connectIPS, if the owner can bank with NIC Asia (Q4) |
+| 1   | **connectIPS**                                                            | High: every bank customer, NPR 2–8 flat fee, on the storefront today                 | Medium (RSA signing, certificate, short ref) | Flow and signing yes (public spec, simulator); real UAT needs NCHL | Now, as an extension/driver module built and proven against our simulator; no NCHL UAT wait (Q1) |
+| 2   | **Cards: Cybersource SA (NIC Asia)**                                      | Medium: storefront promise, USD and foreign cards; cards are rare in this market     | Medium (HMAC form like eSewa, REST lookup)   | Mostly: public spec, simulator, free evaluation account (Q10)      | After connectIPS: NIC Asia Cybersource, built against our simulator (Q4, Q10) |
 | 3   | **Fonepay** (web or QR, per bank)                                         | High reach (dominant QR network) but eSewa, Khalti and connectIPS already cover most | Medium, but spec unknown                     | No: no public spec or sandbox                                      | When the owner has the partner bank's spec and dev keys    |
-| 4   | **Razorpay** (India, planned)                                             | None for Nepal; high for Indian hosts using the product                              | Medium (redirect, webhook, refunds)          | Yes, once a test account is approved (Q7)                          | In parallel with 1–2 whenever an engineer is free          |
+| 4   | **Razorpay** (India, planned)                                             | None for Nepal; high for Indian hosts using the product                              | Medium (redirect, webhook, refunds)          | Yes, once a test account is approved (Q7)                          | In parallel whenever an engineer is free; simulated for now (Q7) |
 | 5   | Cashfree (India)                                                          | None for Nepal; Indian hosts expect it                                               | Medium                                       | Yes (self-serve sandbox)                                           | After Razorpay                                             |
-| 6   | NepalPay QR, NPS OnePG, Hamro Pay, other banks' card pages, PayU, PhonePe | Low or unproven                                                                      | Varies                                       | No (except Hamro Pay possibly)                                     | On request only                                            |
+| 6   | NPS OnePG, Hamro Pay, other banks' card pages, PayU, PhonePe (NepalPay QR dropped, §5.3) | Low or unproven                                                                      | Varies                                       | No (except Hamro Pay possibly)                                     | On request only                                            |
 
 IME Pay: none (Khalti covers it). PayPal: planned separately, not for Nepali merchants.
 
@@ -530,6 +531,8 @@ a simulator at 1,000–2,000 lines; the larger ones are trimmed to the operation
 | CF1–2 | Cashfree driver and simulator                                                                                                                                                                       | 1,300 + 1,300 | R1 (pattern)      |
 
 Totals: connectIPS 4 PRs (K1, B1, C1, C2), cards 2, Fonepay 2, Razorpay 2, Cashfree 2.
+
+Order change (2026-10-25): because nothing waits on NCHL, the simulator comes first. Build the simulator (C2) with or just ahead of the driver (C1) and keep the driver working against it. The driver ships as a self-contained extension/driver module behind the gateway driver registry, so it is integrated and working when the owner needs it, and switching to NCHL's test platform later is a change of host and credentials only (§15). The same applies to V1/V2 and R1/R2.
 
 ### 10.3 Simulators (ADR 0016)
 
@@ -562,31 +565,51 @@ Every simulator follows ADR 0016: stateful, TLS front, control plane, faults, co
 
 | Gateway    | The owner provides                                                                                                                                                                                                                          |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| connectIPS | Creditor enrolment through the owner's bank; an NCHL UAT account (merchant id, app id, app name, app password, `CREDITOR.pfx` and its passphrase, UAT and live hosts); return URL registered with NCHL; later the live set                  |
-| Cards      | Which bank (Q4); the service agreement; Secure Acceptance profile id, access key and secret key for test and live; REST key id and secret if the bank allows; NPR-only or USD too; approval for a free Cybersource evaluation account (Q10) |
+| connectIPS | Creditor enrolment through the owner's bank; live enrolment when going live; the NCHL UAT account is not needed to build (§15); return URL registered with NCHL at go-live                  |
+| Cards      | Which bank (Q4); the service agreement; Secure Acceptance profile id, access key and secret key for test and live; REST key id and secret (required, Q9); NPR, and USD where the agreement allows (Q4) |
 | Fonepay    | Which partner bank; the bank's integration spec; dev merchant code and secret (web) or username, password, terminal id and keys (QR); product choice (web, QR, Checkout by Fonepay)                                                         |
-| Razorpay   | Decision that Indian hosts are a target now (Q7); approval for a developer test account                                                                                                                                                     |
+| Razorpay   | Nothing to build; a real Razorpay test account is a later to-do (§15)                                                                                                                                                     |
 | All        | Approval of kernel change K1 (CTO decides, owner informed)                                                                                                                                                                                  |
 
-### 10.5 Open questions
+### 10.5 Open questions and answers
 
-1. **Q1 (owner):** Through which bank will the business enrol for connectIPS? Can the owner request the NCHL UAT
-   account now, so it arrives while C1 and C2 are built?
+Answered on 2026-10-25 by the owner and the CTO; Q2, Q3 and Q5 stay open for onboarding or UAT. The decisions are
+written out in §10.6.
+
+1. **Q1 (owner), answered:** do not wait on or request an NCHL UAT account. Build against our simulator (§10.6).
 2. **Q2 (verify at onboarding):** the connectIPS UAT and live hosts (community code uses `uat.connectips.com` and
    `login.connectips.com`).
 3. **Q3 (verify in UAT):** the connectIPS token string (no spaces, as in the example), the validation token's
    algorithm, and NCHL's reply to a bad token.
-4. **Q4 (owner):** For cards, can the business take NIC Asia's Cybersource gateway (the one with a public spec), or
-   must it use its current bank's gateway? NPR only, or USD as well?
+4. **Q4 (owner), answered:** support NIC Asia's Cybersource Secure Acceptance gateway, NPR, and USD where the
+   agreement allows; simulator now.
 5. **Q5 (verify with the bank spec):** Does Fonepay's verification need the return's `UID`, or is there a status
    check by `PRN`? Decides whether kernel change §9.4 is needed.
-6. **Q6 (owner, ask NCHL):** Can a merchant get direct NepalPay QR API access, or only through its acquiring bank?
-7. **Q7 (owner):** Are Indian hosts a target now? If yes, approve a Razorpay test account so R1 can be verified for
-   real.
-8. **Q8 (CTO):** Approve K1: the `certificate` setting type and the `GatewayCredentialExpiring` event.
-9. **Q9 (CTO):** If the bank gives no Cybersource REST keys, do we accept the signed server-to-server notice as the
-   lookup for that driver only, or require REST keys? Recommendation: require REST keys.
-10. **Q10 (owner):** May a developer register a free Cybersource evaluation (test) account?
+6. **Q6 (owner), answered:** NepalPay QR researched and dropped (§5.3).
+7. **Q7 (owner), answered:** simulate Razorpay (and note Cashfree) for now; test accounts later (§15).
+8. **Q8 (CTO), answered:** K1 approved.
+9. **Q9 (CTO), answered:** require Cybersource REST keys; no notice-only lookup.
+10. **Q10 (owner), answered:** simulate now; set up a real evaluation account later (§15).
+
+### 10.6 Decisions recorded (2026-10-25)
+
+- **Q1 connectIPS.** The owner does not want to wait on or request an NCHL UAT account. connectIPS is built as an
+  extension/driver module, integrated and working when needed, and verified against our own simulator built from
+  NCHL's public API (§10.3). If NCHL later provides its test platform, we run the driver against it (§15). Go-live
+  still needs a UAT or sandbox run to prove the open points in §4.6 (ADR 0016 Limits).
+- **Q4 cards.** Support NIC Asia's Cybersource Secure Acceptance gateway: NPR, and USD where the bank agreement
+  allows. Same approach: simulator now (V2).
+- **Q6 NepalPay QR.** Dropped. Public sources read on 2026-10-25 show NepalPay QR obtained through a bank, a spec
+  for member institutions (merchant registration by bulk upload, a payment-confirmation endpoint the service
+  provider exposes, reporting for network members), and no public sandbox. Searches for Nepali web platforms and
+  plugins that use it found eSewa, Khalti, connectIPS and Fonepay only; the community multi-gateway packages we found
+  cover those four. We found no merchant API route for a hosting company and no hosting company using it online.
+  Not found is not proof of absence; the §5.3 reopen condition applies.
+- **Q7 India.** Simulate Razorpay for now and note Cashfree after it. Real test platforms are set up later (§15).
+- **Q10 Cybersource.** Simulate now; the real evaluation account is a later to-do (§15).
+- **Q8 CTO.** K1 approved: the `certificate` setting type and the `GatewayCredentialExpiring` event (§9.2).
+- **Q9 CTO.** REST keys are required for the Cybersource lookup (§6.2).
+- **Fonepay.** No public spec found again; stays "build when the partner bank supplies the spec" (§5.4).
 
 ## 11. Admin and client capabilities
 
@@ -655,11 +678,17 @@ Every simulator follows ADR 0016: stateful, TLS front, control plane, faults, co
 
 16. MUST: The form's signature is base64 HMAC-SHA256 over the fields named in `signed_field_names`, in that order;
     a return whose signature fails, or that signs an unknown field or omits a required one, is never a valid hint.
-17. MUST: Settlement comes from the REST lookup (or the CTO's Q9 decision), with amount, currency and reference
-    checked; DECLINE → failed, CANCEL → cancelled, REVIEW → processing and then staff review.
+17. MUST: Settlement comes only from the REST lookup (REST keys are required; a signed notice never settles), with
+    amount, currency and reference checked; DECLINE → failed, CANCEL → cancelled, REVIEW → processing and then staff review.
 18. MUST: No card number, CVV or expiry ever reaches our servers.
-19. SHOULD: With REST keys, staff can refund in full or in part through the API; without them the dialog says to
-    refund in the Business Center.
+19. SHOULD: Staff can refund in full or in part through the REST API.
+19a. MUST: The gateway cannot be activated without REST keys, and the form says why.
+
+**Delivery (owner decisions, 2026-10-25)**
+
+- MUST: connectIPS and the Cybersource driver each ship as an extension/driver module and pass their conformance
+  tests against our simulator, with no NCHL or Cybersource account needed to build or test.
+- MUST: NepalPay QR is not built.
 
 **Fonepay**
 
@@ -736,6 +765,20 @@ reading at the source before a build relies on it.
   https://domainnepal.com/hosting/ (search only)
 - Stripe countries: https://stripe.com/global (fetched)
 
+**Added 2026-10-25 (fetched or searched on that date)**
+
+- NepalPay QR availability and merchant integration (search results only, no merchant-facing integration found):
+  https://nchl.com.np/nepalpay-qr/ ,
+  https://doc.connectips.com/docs/NepalPAY-QR/QR-Merchant-Bulk-Enrollment/payment_confirmation_api ,
+  https://doc.connectips.com/docs/NepalPAY-QR/QR-Merchant-Bulk-Enrollment/api_for_bulk_merchant_upload
+- Web-platform gateway coverage (search only; third-party): https://pypi.org/project/valoris-payment-gateway/ ,
+  https://thulo.com/integrations , https://packagist.org/packages/mantraideas/laravel-fonepay
+- Cybersource sandbox signup (fetched): https://developer.cybersource.com/hello-world/sandbox.html ; REST key creation
+  (search only): https://developer.cybersource.com/docs/cybs/en-us/security-keys/user/all/ada/security-keys/keys-rest-create.html
+- Razorpay test mode and key prefixes (search only): https://razorpay.com/docs/payments/quickstart.md
+- Cashfree sandbox keys (search only): https://www.cashfree.com/docs/payments/quickstart-guide ,
+  https://www.cashfree.com/docs/api-reference/authentication.md
+
 **Aggregators and wallets**
 
 - NPS: https://nepalpayment.com/ (fetched, no content), https://www-0.nuget.org/packages/onepg.gateway.library (fetched),
@@ -775,3 +818,20 @@ reading at the source before a build relies on it.
 - RBI e-mandate framework (secondary summary; the RBI PDF was not readable): https://ksandk.com/newsletter/rbi-e-mandate-framework/ ;
   card-on-file tokenisation and the payment aggregator direction (search only)
 - WHMCS Marketplace listings: https://marketplace.whmcs.com/search?search=razorpay , …=cashfree , …=payu , …=phonepe
+
+## 15. To do later: set up real test accounts
+
+Nothing here blocks building. Each item turns a simulator-verified driver into one proven against the real service.
+Only a human with a company identity can do the registration; we never register on the owner's behalf. Keep the keys
+in the gateway form's write-only fields or the environment, never in the repo. The "what to ask" lines are our
+assumptions about each process; the owner confirms them with the provider.
+
+| Account | Where to register | What to ask | What results | Then |
+| --- | --- | --- | --- | --- |
+| connectIPS UAT (NCHL) | Email NCHL's connectIPS technical support (the contact is on doc.connectips.com), or through the owner's bank once enrolled | A UAT creditor account; the UAT and live hosts; whether localhost return URLs are allowed; the exact token string and validation-token algorithm (Q2, Q3) | Merchant id, app id, app name, app password, a test `.pfx` and passphrase, UAT host | Run the driver against UAT; fix the simulator to match; tag recordings `source: uat` |
+| Cybersource evaluation | https://developer.cybersource.com/hello-world/sandbox.html (organisation id, company details, reCAPTCHA; an email then creates the Test Business Center user) | Nothing to ask; later ask NIC Asia whether the live profile includes REST keys (Q9) | A Test Business Center. There we create a Secure Acceptance profile (profile id, access key, secret key) and a REST key id and shared secret (Payment Configuration, Key Management) | Run the driver and refunds against it; confirm the HMAC and HTTP-signature code |
+| Razorpay test | https://dashboard.razorpay.com sign-up; test mode works before KYC | Nothing; for live later, Indian entity KYC | Test key id (`rzp_test_` prefix) and key secret, shown once; a webhook secret you set | Run the R1 smoke command; add recordings |
+| Cashfree test | Cashfree merchant dashboard sign-up, then switch to test | Nothing; live needs an Indian entity | Sandbox app id and secret key (`TEST` prefix) for the Payments product | After Razorpay, same checks for CF1 |
+| Fonepay partner | A Fonepay partner bank (the owner's bank, or one of the 11 on Checkout by Fonepay) | The integration spec for web payment and for Dynamic QR; dev host; whether verification needs `UID` or works by `PRN` (Q5); settlement and fees; refund process | Dev merchant code and secret (web) or username, password, terminal id and RSA keys (QR) | Only then build F1 and F2 |
+
+Also for later: NIC Asia (REST keys, USD, fees, settlement time) and the owner's own bank for connectIPS enrolment.
