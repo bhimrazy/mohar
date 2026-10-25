@@ -423,9 +423,10 @@ class GatewayCallbackHandler
 
     /**
      * The provider reports a refund as failed (#498). Nothing is booked or reversed here. A refund we booked as made
-     * goes on "Disputes to review", once; a pending one is left to Check refund, which asks the provider and releases
-     * it; one we never recorded, or already released, changes nothing. The row is matched by the provider refund id,
-     * or by our reference when it holds no other id, and must belong to the payment the event names.
+     * goes on "Disputes to review", once. A pending one is marked under its lock and left to Check refund, which asks
+     * the provider and releases it; if it is booked anyway (a "succeeded" delivery settling it meanwhile), the booking
+     * puts it on review. One we never recorded, or already released, changes nothing. The row is matched by the
+     * provider refund id, or by our reference when it holds no other id, and must belong to the payment the event names.
      *
      * @return Outcome
      */
@@ -435,11 +436,14 @@ class GatewayCallbackHandler
             return $this->outcome($gatewayKey, 200, 'failed refund without an id; nothing changed', $event->raw);
         }
 
-        $row = $this->refund->existing($gatewayKey, $event->txnId)
-            ?? ($event->reference !== null && ctype_digit($event->reference)
-                ? Transaction::query()->whereKey((int) $event->reference)->where('gateway', $gatewayKey)->where('type', TransactionType::Refund)
-                    ->where(fn ($own) => $own->whereNull('gateway_txn_id')->orWhere('gateway_txn_id', $event->txnId))->first()
-                : null);
+        $row = $this->failedRefundRow($gatewayKey, $event);
+        $parents = $row === null ? $this->parents($gatewayKey, $event) : [];
+
+        if ($parents !== []) {
+            // A refund callback booking this refund holds these payment locks until it commits: wait for it, then look again.
+            DB::transaction(fn () => $this->lockParents($parents));
+            $row = $this->failedRefundRow($gatewayKey, $event);
+        }
 
         if ($row === null) {
             return $this->outcome($gatewayKey, 200, 'failed refund not recorded here; nothing changed', $event->raw);
@@ -451,14 +455,6 @@ class GatewayCallbackHandler
             return $this->outcome($gatewayKey, 200, 'failed refund names another payment; nothing changed', $event->raw, $row->invoice_id);
         }
 
-        if ($row->status === TransactionStatus::Pending) {
-            return $this->outcome($gatewayKey, 200, 'refund failed at the provider; Check refund releases it', $event->raw, $row->invoice_id);
-        }
-
-        if ($row->status !== TransactionStatus::Succeeded) {
-            return $this->outcome($gatewayKey, 200, 'refund already released; nothing changed', $event->raw, $row->invoice_id);
-        }
-
         try {
             $reported = $this->amounts->toDocument($parent, $event->amount, $event->currency);
         } catch (BillingException) {
@@ -466,9 +462,23 @@ class GatewayCallbackHandler
             $reported = 0;
         }
 
-        return $this->refund->failedAfterBooking($row, $reported)
-            ? $this->outcome($gatewayKey, 200, 'refund failed at the provider after it was booked; put on Disputes to review', $event->raw, $row->invoice_id)
-            : $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $row->invoice_id);
+        $result = match ($this->refund->failedAtProvider($row, $reported)) {
+            RefundTransaction::FAILED_FLAGGED => 'refund failed at the provider after it was booked; put on Disputes to review',
+            RefundTransaction::FAILED_PENDING => 'refund failed at the provider; Check refund releases it',
+            RefundTransaction::FAILED_RELEASED => 'refund already released; nothing changed',
+            default => 'duplicate',
+        };
+
+        return $this->outcome($gatewayKey, 200, $result, $event->raw, $row->invoice_id);
+    }
+
+    private function failedRefundRow(string $gatewayKey, CallbackEvent $event): ?Transaction
+    {
+        return $this->refund->existing($gatewayKey, $event->txnId)
+            ?? ($event->reference !== null && ctype_digit($event->reference)
+                ? Transaction::query()->whereKey((int) $event->reference)->where('gateway', $gatewayKey)->where('type', TransactionType::Refund)
+                    ->where(fn ($own) => $own->whereNull('gateway_txn_id')->orWhere('gateway_txn_id', $event->txnId))->first()
+                : null);
     }
 
     /**

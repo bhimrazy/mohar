@@ -132,6 +132,8 @@ class RefundAccountCredit
 
             $state = $locked->raw[Transaction::REFUND_STATE] ?? [];
             $late = $locked->status === TransactionStatus::Failed;
+            // The provider reported it failed while it was pending (RefundTransaction::failedAtProvider()); a late payment is on review already.
+            $reportedFailed = isset($state[Transaction::PROVIDER_FAILED_AT]);
             $locked->forceFill([
                 'status' => TransactionStatus::Succeeded,
                 'gateway_txn_id' => $providerRefundId ?? $locked->gateway_txn_id,
@@ -151,6 +153,10 @@ class RefundAccountCredit
             }
 
             $locked->save();
+
+            if ($reportedFailed && ! $late) {
+                $this->refunds->flagFailedAtProvider($locked, 0);
+            }
 
             return $locked;
         });
