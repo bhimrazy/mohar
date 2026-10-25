@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\User;
+use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Settings;
@@ -12,6 +14,8 @@ use App\Modules\Services\Models\Service;
 use App\Modules\Support\Enums\TicketStatus;
 use App\Modules\Support\Models\Department;
 use App\Modules\Support\Models\Ticket;
+use App\Support\Currencies\MoneyFormatter;
+use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -182,7 +186,7 @@ test('domain rows offer the auto-renew switch, and Renew now with its term and p
             'method' => 'post',
             'confirm' => [
                 'title' => 'Renew asha-traders.com for 1 year?',
-                'description' => 'We create an invoice for Rs 1,500.00 (1 year) and take you to it. The domain renews when the invoice is paid.',
+                'description' => 'We create an invoice for Rs 1,500.00 (1 year), plus tax where it applies, and take you to it. The domain renews when the invoice is paid.',
                 'confirmLabel' => 'Create renewal invoice',
                 'data' => ['years' => 1],
             ],
@@ -195,6 +199,44 @@ test('domain rows offer the auto-renew switch, and Renew now with its term and p
     $this->post($items['asha-traders.com']['action']['href'], $items['asha-traders.com']['action']['confirm']['data'])
         ->assertRedirect()->assertSessionHasNoErrors();
     expect(app('session.store')->get('inertia.flash_data.toast.message'))->toStartWith('Renewal invoice');
+});
+
+test('Renew now on a redemption domain states the term plus the fee, the invoice\'s amount before VAT', function () {
+    TaxRule::factory()->create(['name' => 'VAT', 'country' => 'NP', 'rate' => '13.000']);
+    $tld = Tld::factory()->extension('.com')->priced('NPR', renew: 150_000)->create(['redemption_fee' => 8_000]);
+    $domain = Domain::factory()->named('restore', $tld)->expiring('2026-09-01')
+        ->create(['client_id' => $this->client->id, 'currency' => 'NPR', 'recurring_amount' => 150_000, 'status' => DomainStatus::Redemption]);
+
+    $action = collect(dashboardPanel('domains.list')['items'])->firstWhere('title', 'restore.com')['action'];
+
+    $this->post($action['href'], $action['confirm']['data'])->assertSessionHasNoErrors();
+    $invoice = Invoice::query()->where('client_id', $this->client->id)->sole();
+    $beforeTax = app(MoneyFormatter::class)->format(Money::of($invoice->subtotal, 'NPR'));
+
+    // The fee is stored in the default currency and converted, as on the invoice.
+    expect($invoice->subtotal)->toBeGreaterThan(150_000)
+        ->and($action['confirm']['description'])->toBe("We create an invoice for {$beforeTax} (1 year plus the redemption fee), plus tax where it applies, and take you to it. The domain renews when the invoice is paid.")
+        ->and($invoice->total)->toBe($invoice->subtotal + $invoice->tax1_amount + $invoice->tax2_amount);
+});
+
+test('a domain whose renewal invoice is already open offers Pay invoice instead of Renew now', function () {
+    $domain = p8bDashboardDomain($this->client, 'asha-traders.com', '2026-11-10');
+    $this->post(route('client.domains.renew', $domain->id), ['years' => 1])->assertSessionHasNoErrors();
+    $invoice = Invoice::query()->where('client_id', $this->client->id)->sole();
+
+    expect(collect(dashboardPanel('domains.list')['items'])->firstWhere('title', 'asha-traders.com')['action'])
+        ->toBe(['label' => 'Pay invoice', 'href' => route('client.invoices.show', $invoice->id)]);
+});
+
+test('Renew now is throttled per client', function () {
+    $domain = p8bDashboardDomain($this->client, 'asha-traders.com', '2026-11-10');
+
+    foreach (range(1, 10) as $attempt) {
+        $this->post(route('client.domains.renew', $domain->id), ['years' => 1])->assertRedirect();
+    }
+
+    $this->post(route('client.domains.renew', $domain->id), ['years' => 1])->assertTooManyRequests();
+    expect(Invoice::query()->where('client_id', $this->client->id)->count())->toBe(1);
 });
 
 test('no domain controls for names registered by the client, domains not open to changes, or with renewal orders off', function () {
@@ -226,6 +268,11 @@ test('auto-renew toggled on the dashboard returns there; elsewhere or from anoth
         ->assertRedirect(route('client.domains.show', $domain->id));
     $this->from('https://evil.example/phish')->put(route('client.domains.auto-renew', $domain->id), ['enabled' => true])
         ->assertRedirect(route('client.domains.show', $domain->id));
+    // Same host for parse_url, another host for a browser; and another scheme or port is another origin.
+    foreach (['http://evil.example\\@localhost/dashboard', 'https://localhost/dashboard', 'http://localhost:8080/dashboard'] as $referer) {
+        $this->from($referer)->put(route('client.domains.auto-renew', $domain->id), ['enabled' => true])
+            ->assertRedirect(route('client.domains.show', $domain->id));
+    }
 });
 
 test('the support panel adds New ticket and Help articles to its header only when it lists tickets', function () {
@@ -248,7 +295,7 @@ test('every panel has an empty state with a next step when the client has nothin
             'services.list' => route('store.index'),
             'billing.invoices' => route('store.index'),
             'support.tickets' => route('client.support.tickets.create'),
-            'domains.list' => route('domains.search'),
+            'domains.list' => route('store.domains'),
         ]);
 });
 

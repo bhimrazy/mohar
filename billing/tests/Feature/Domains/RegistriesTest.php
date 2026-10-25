@@ -33,12 +33,12 @@ test('admin navigation shows the Domains group by permission', function () {
     expect(collect($groups['Domains']['items'])->pluck('title')->all())->toBe(['Domains', 'TLD pricing']);
 });
 
-test('client navigation links to my domains and the public search', function () {
+test('client navigation links to my domains and the store\'s domain search', function () {
     [$user] = actingAsClient();
 
     $items = collect(app(Navigation::class)->forUser('client', $user))->firstWhere('title', 'Domains')['items'];
 
-    expect(collect($items)->pluck('href')->all())->toBe([route('client.domains.index'), route('domains.search')]);
+    expect(collect($items)->pluck('href')->all())->toBe([route('client.domains.index'), route('store.domains')]);
 });
 
 test('the client profile links to the client domains', function () {

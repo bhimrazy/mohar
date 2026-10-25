@@ -129,9 +129,19 @@ class StoreController extends Controller
         $summary = $this->priceBook->product($product);
         abort_if($summary === null || ! $summary->active, 404);
 
-        return $summary->slug === null || $summary->groupSlug === null
+        return $summary->slug === null || ! $this->hasSlugRoute($summary->groupSlug)
             ? $this->configure($request, $summary, $customers, $tldAttributes)
             : $this->canonical($request, $summary->groupSlug, $summary->slug);
+    }
+
+    /**
+     * Whether the group's slug can carry product URLs. A reserved slug saved before the store took the word is
+     * renamed by Catalog's migration; until then its products are served on the numeric link rather than redirected
+     * to a URL no route matches.
+     */
+    private function hasSlugRoute(?string $groupSlug): bool
+    {
+        return $groupSlug !== null && ! in_array($groupSlug, self::RESERVED_SLUGS, true);
     }
 
     public function show(Request $request, string $group, string $product, CustomerResolver $customers, TldAttributeInput $tldAttributes): Response|RedirectResponse
@@ -139,7 +149,7 @@ class StoreController extends Controller
         $summary = $this->priceBook->productBySlug($product);
         abort_if($summary === null || ! $summary->active, 404);
 
-        if ($summary->groupSlug !== null && $summary->groupSlug !== $group) {
+        if ($this->hasSlugRoute($summary->groupSlug) && $summary->groupSlug !== $group) {
             return $this->canonical($request, $summary->groupSlug, $product);
         }
 

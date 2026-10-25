@@ -432,13 +432,13 @@ export default function Domains({
 
         setChecking(true);
         lookup
-            .get(`${lookupUrl}?${new URLSearchParams({ q: search })}`)
+            .get(`${lookupUrl}?${new URLSearchParams({ q: search, currency })}`)
             .then((response) => setAnswer(response))
             .catch(() => setAnswer(null))
             .finally(() => setChecking(false));
         // The lookup runs once per search; `lookup` is a new object on every render.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [lookupUrl, search]);
+    }, [lookupUrl, search, currency]);
 
     const byDomain = new Map(
         [...(answer?.results ?? []), ...(answer?.suggestions ?? [])].map(

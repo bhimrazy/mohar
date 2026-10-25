@@ -99,11 +99,13 @@ class DomainController extends Controller
 
         Inertia::flash('toast', ['type' => 'success', 'message' => $request->boolean('enabled') ? __('Auto-renew is on.') : __('Auto-renew is off. Renew the domain before it expires to keep it.')]);
 
-        // Toggled from the dashboard or the domain page: return there, but never to another host.
+        // Toggled from the dashboard or the domain page: return there, but only within this site's origin (scheme, host
+        // and port, followed by a path), never to a URL a parser could read as another host.
         $fallback = route('client.domains.show', $domain);
         $previous = url()->previous($fallback);
+        $origin = rtrim(url('/'), '/');
 
-        return redirect()->to(parse_url($previous, PHP_URL_HOST) === $request->getHost() ? $previous : $fallback);
+        return redirect()->to(str_starts_with($previous, $origin.'/') && ! str_contains($previous, '\\') ? $previous : $fallback);
     }
 
     public function lock(ToggleRequest $request, int $domain, SetRegistrarLock $lock): RedirectResponse

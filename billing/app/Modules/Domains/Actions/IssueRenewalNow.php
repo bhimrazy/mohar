@@ -72,16 +72,7 @@ class IssueRenewalNow
 
         [$years, $amount] = $actor === 'client' ? $this->clientTerm($domain, $years) : [$domain->period_years, $domain->recurring_amount];
 
-        $kind = match ($domain->status) {
-            DomainStatus::Grace => 'grace',
-            DomainStatus::Redemption => 'redemption',
-            default => 'renewal',
-        };
-        $fee = match ($kind) {
-            'grace' => $domain->tldModel->grace_fee,
-            'redemption' => $domain->tldModel->redemption_fee,
-            default => 0,
-        };
+        [$kind, $fee] = $this->invoices->charge($domain);
 
         $result = $this->invoices->issue($domain, $kind, $fee, $years, $amount);
         $this->activity->log("Renewal invoice {$result->number} created by {$actor} for {$years} year(s)", $domain, $domain->client_id, ['invoice_id' => $result->invoiceId]);

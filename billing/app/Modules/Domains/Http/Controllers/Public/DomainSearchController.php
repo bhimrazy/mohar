@@ -2,6 +2,7 @@
 
 namespace App\Modules\Domains\Http\Controllers\Public;
 
+use App\Contracts\Orders\ShopperSession;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
@@ -16,7 +17,7 @@ use Inertia\Response;
 
 /**
  * Public domain search page and JSON lookup (spec §6). Prices use the signed-in client's currency
- * and group; guests may pick a currency. With the store installed its domain search is the one search
+ * and group; guests may pick a currency, else see the store's. With the store installed its domain search is the one search
  * page (issue #37): this page redirects there and the store reads availability from `lookup`.
  */
 class DomainSearchController extends Controller
@@ -63,7 +64,8 @@ class DomainSearchController extends Controller
         }
 
         $requested = strtoupper($request->string('currency')->toString());
-        $currency = $requested !== '' && Currency::query()->where('code', $requested)->exists() ? $requested : Currency::default()->code;
+        // A guest's explicit pick, else the store's (the currency switcher), so the store page and this lookup agree.
+        $currency = $requested !== '' && Currency::query()->where('code', $requested)->exists() ? $requested : app(ShopperSession::class)->currency($request);
 
         return [$currency, null];
     }

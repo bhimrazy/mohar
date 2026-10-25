@@ -41,6 +41,7 @@ use App\Modules\Domains\Listeners\HandleInvoicePaid;
 use App\Modules\Domains\Listeners\MirrorLinkedServiceState;
 use App\Modules\Domains\Listeners\MoveRegistrarRefsOnClientMerge;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\DomainInvoice;
 use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\RegistrarCommandLog;
 use App\Modules\Domains\Models\RegistrarRefRecord;
@@ -81,6 +82,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 
 /**
@@ -205,7 +207,8 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $navigation->add('admin', new NavItem('TLD pricing', 'admin.domains.tlds.index', 'Tag', 'Domains', 20, 'domains.tlds.view', 'admin.domains.tlds.*'));
         $navigation->add('admin', new NavItem('Registrars', 'admin.domains.registrars.index', 'Server', 'Domains', 30, 'domains.registrars.manage', 'admin.domains.registrars.*'));
         $navigation->add('client', new NavItem('My domains', 'client.domains.index', 'Globe', 'Domains', 10, null, 'client.domains.*'));
-        $navigation->add('client', new NavItem('Register a domain', 'domains.search', 'Search', 'Domains', 20, null, 'store.domains'));
+        // After boot, when every module's routes (or the route cache) are loaded: the store's search when Orders is on.
+        $this->app->booted(fn () => $navigation->add('client', new NavItem('Register a domain', Route::has('store.domains') ? 'store.domains' : 'domains.search', 'Search', 'Domains', 20, null, 'store.domains')));
         $navigation->add('admin-client', new NavItem('Domains', 'admin.domains.index', 'Globe', order: 30, permission: 'domains.domains.view'));
     }
 
@@ -282,13 +285,14 @@ class DomainsServiceProvider extends ModuleServiceProvider
             'items' => $this->clientDashboardDomains($client),
             'href' => route('client.domains.index'),
             'empty' => 'You have no domains yet.',
-            'emptyAction' => ['label' => 'Register a domain', 'href' => route('domains.search')],
+            'emptyAction' => ['label' => 'Register a domain', 'href' => route(Route::has('store.domains') ? 'store.domains' : 'domains.search')],
         ] : null, null, 40);
     }
 
     /**
      * The client dashboard's domain rows. Manageable domains get the auto-renew switch; those that can be renewed now
-     * and expire within 30 days (or are in grace or redemption) get Renew now, priced only for those rows.
+     * and expire within 30 days (or are in grace or redemption) get Renew now, priced only for those rows, or Pay
+     * invoice when the renewal invoice of the period is already open.
      *
      * @return list<array<string, mixed>>
      */
@@ -297,61 +301,100 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $today = app(CompanyClock::class)->calendarDate();
         $soon = $today->addDays(30)->toString();
         $renewalOrders = (bool) app(Settings::class)->get('domains.enable_renewal_orders', true);
+        $invoices = app(RenewalInvoices::class);
 
-        return array_values(Domain::query()->where('client_id', $client->id)->withStatus(DomainStatus::nonTerminal())
-            ->with('tldModel:id,registered_by_client')
+        $domains = Domain::query()->where('client_id', $client->id)->withStatus(DomainStatus::nonTerminal())
+            ->with('tldModel:id,registered_by_client,grace_fee,redemption_fee')
             ->orderByRaw('case when expiry_date is null then 1 else 0 end')->orderBy('expiry_date')->orderBy('id')
             ->limit(5)
-            ->get(['id', 'tld_id', 'tld', 'name_unicode', 'status', 'expiry_date', 'auto_renew', 'currency', 'recurring_amount', 'linked_service_status'])
-            // One price query for every extension listed, however many rows offer Renew now.
-            ->tap(fn ($domains) => app(DomainPricingService::class)->primePrices(array_values(array_filter($domains->pluck('tld_id')->all()))))
-            ->map(function (Domain $domain) use ($client, $today, $soon, $renewalOrders): array {
-                $expiry = $domain->expiry_date?->toDateString();
-                $manageable = $domain->status->allowsClientActions() && ! $domain->isRegisteredByClient();
-                // The domain page's canRenewNow rule, narrowed to domains that need it soon.
-                $offerRenewal = $manageable && $renewalOrders && ! ($domain->isFree() && $domain->linked_service_status === 'active')
-                    && ($domain->status !== DomainStatus::Active || ($expiry !== null && $expiry <= $soon));
-                $term = $offerRenewal ? (app(DomainPricingService::class)->renewalTerms($domain, $domain->currency, $client->client_group_id)[0] ?? null) : null;
+            ->get(['id', 'client_id', 'tld_id', 'tld', 'name_unicode', 'status', 'expiry_date', 'next_due_date', 'period_years', 'auto_renew', 'currency', 'recurring_amount', 'linked_service_status']);
 
-                return [
-                    'title' => $domain->name_unicode,
-                    // The switch shows the state where there is one; the line keeps room for the date.
-                    'subtitle' => $manageable ? null : ($domain->auto_renew ? 'Auto-renew on' : 'Auto-renew off'),
-                    'href' => route('client.domains.show', $domain->id),
-                    'status' => $domain->status === DomainStatus::Active && $expiry !== null && $expiry <= $soon ? 'expiring' : $domain->status->value,
-                    'date' => $expiry,
-                    'dateLabel' => match (true) {
-                        $expiry !== null && $expiry < $today->toString() => 'Expired',
-                        $domain->auto_renew => 'Renews',
-                        default => 'Expires',
-                    },
-                    'toggle' => $manageable ? [
-                        'label' => 'Auto-renew '.$domain->name_unicode,
-                        'text' => 'Auto-renew',
-                        'href' => route('client.domains.auto-renew', $domain->id),
-                        'field' => 'enabled',
-                        'on' => $domain->auto_renew,
-                    ] : null,
-                    'action' => $term === null ? null : $this->renewNowAction($domain, $term['years'], $term['price']),
-                ];
-            })->all());
+        $offers = $domains->filter(function (Domain $domain) use ($soon, $renewalOrders): bool {
+            $expiry = $domain->expiry_date?->toDateString();
+
+            // The domain page's canRenewNow rule, narrowed to domains that need it soon.
+            return $this->manageableOnDashboard($domain) && $renewalOrders && ! ($domain->isFree() && $domain->linked_service_status === 'active')
+                && ($domain->status !== DomainStatus::Active || ($expiry !== null && $expiry <= $soon));
+        })->keyBy('id');
+
+        // One query for the open renewal invoices and one price query for every extension, however many rows offer it.
+        $open = $offers->isEmpty() || ! $invoices->available() ? collect() : DomainInvoice::query()
+            ->whereIn('domain_id', $offers->modelKeys())->where('status', 'open')->whereIn('kind', RenewalInvoices::RENEWAL_KINDS)
+            ->orderByDesc('id')->get(['domain_id', 'invoice_id', 'period_start'])
+            ->filter(fn (DomainInvoice $invoice): bool => $invoice->period_start->toDateString() === $domains->find($invoice->domain_id)?->next_due_date->toDateString())
+            ->keyBy('domain_id');
+        app(DomainPricingService::class)->primePrices(array_values(array_filter($offers->pluck('tld_id')->all())));
+
+        return array_values($domains->map(function (Domain $domain) use ($client, $today, $soon, $offers, $open): array {
+            $expiry = $domain->expiry_date?->toDateString();
+            $manageable = $this->manageableOnDashboard($domain);
+
+            return [
+                'title' => $domain->name_unicode,
+                // The switch shows the state where there is one; the line keeps room for the date.
+                'subtitle' => $manageable ? null : ($domain->auto_renew ? 'Auto-renew on' : 'Auto-renew off'),
+                'href' => route('client.domains.show', $domain->id),
+                'status' => $domain->status === DomainStatus::Active && $expiry !== null && $expiry <= $soon ? 'expiring' : $domain->status->value,
+                'date' => $expiry,
+                'dateLabel' => match (true) {
+                    $expiry !== null && $expiry < $today->toString() => 'Expired',
+                    $domain->auto_renew => 'Renews',
+                    default => 'Expires',
+                },
+                'toggle' => $manageable ? [
+                    'label' => 'Auto-renew '.$domain->name_unicode,
+                    'text' => 'Auto-renew',
+                    'href' => route('client.domains.auto-renew', $domain->id),
+                    'field' => 'enabled',
+                    'on' => $domain->auto_renew,
+                ] : null,
+                'action' => $offers->has($domain->id) ? $this->renewalAction($domain, $client, $open->get($domain->id)) : null,
+            ];
+        })->all());
+    }
+
+    private function manageableOnDashboard(Domain $domain): bool
+    {
+        return $domain->status->allowsClientActions() && ! $domain->isRegisteredByClient();
     }
 
     /**
-     * @return array<string, mixed>
+     * Pay invoice when the period's renewal invoice is open (Renew now would be refused), otherwise Renew now with the
+     * amount IssueRenewalNow bills before tax: the term plus the grace or redemption fee.
+     *
+     * @return array<string, mixed>|null
      */
-    private function renewNowAction(Domain $domain, int $years, int $price): array
+    private function renewalAction(Domain $domain, Client $client, ?DomainInvoice $open): ?array
     {
-        $term = $years === 1 ? '1 year' : "{$years} years";
-        $amount = app(MoneyFormatter::class)->format(Money::of($price, $domain->currency));
+        if ($open !== null) {
+            return Route::has('client.invoices.show') ? ['label' => 'Pay invoice', 'href' => route('client.invoices.show', $open->invoice_id)] : null;
+        }
+
+        $term = app(DomainPricingService::class)->renewalTerms($domain, $domain->currency, $client->client_group_id)[0] ?? null;
+
+        if ($term === null) {
+            return null;
+        }
+
+        $invoices = app(RenewalInvoices::class);
+        [$kind, $fee] = $invoices->charge($domain);
+        $total = array_sum(array_map(fn ($line): int => $line->unitAmount, $invoices->lines($domain, $kind, $fee, $term['years'], $term['price'])));
+        $years = $term['years'];
+        $period = $years === 1 ? '1 year' : "{$years} years";
+        $amount = app(MoneyFormatter::class)->format(Money::of($total, $domain->currency));
+        $what = match ($kind) {
+            'grace' => "{$period} plus the late renewal fee",
+            'redemption' => "{$period} plus the redemption fee",
+            default => $period,
+        };
 
         return [
             'label' => 'Renew now',
             'href' => route('client.domains.renew', $domain->id),
             'method' => 'post',
             'confirm' => [
-                'title' => "Renew {$domain->name_unicode} for {$term}?",
-                'description' => "We create an invoice for {$amount} ({$term}) and take you to it. The domain renews when the invoice is paid.",
+                'title' => "Renew {$domain->name_unicode} for {$period}?",
+                'description' => "We create an invoice for {$amount} ({$what}), plus tax where it applies, and take you to it. The domain renews when the invoice is paid.",
                 'confirmLabel' => 'Create renewal invoice',
                 'data' => ['years' => $years],
             ],

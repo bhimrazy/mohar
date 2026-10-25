@@ -2,6 +2,7 @@ import { Link, router } from '@inertiajs/react';
 import { ArrowRight } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
+import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { DateTime } from '@/components/app/date';
 import { StatusBadge } from '@/components/app/status-badge';
@@ -326,6 +327,18 @@ function RowToggle({ toggle }: { toggle: ListWidgetToggle }) {
             preserveScroll: true,
             onStart: () => setProcessing(true),
             onFinish: () => setProcessing(false),
+            // The switch snaps back on its own; say why instead of failing silently.
+            onError: (errors) =>
+                toast.error(
+                    Object.values(errors)[0] ?? 'The change was not saved.',
+                ),
+            onHttpException: () => {
+                toast.error(
+                    'The change was not saved. Reload the page and try again.',
+                );
+
+                return false;
+            },
         });
 
     return (
