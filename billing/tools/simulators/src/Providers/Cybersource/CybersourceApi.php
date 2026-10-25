@@ -45,6 +45,11 @@ final class CybersourceApi
             }
         }
 
+        // Card data is typed on the hosted page; a form that carries it is refused, so it is never stored or echoed.
+        if (array_filter(array_keys($fields), fn (string $name): bool => str_starts_with($name, 'card_')) !== []) {
+            return self::error(400, 'Card fields must not be sent with the request; the customer enters them on the hosted page.');
+        }
+
         $names = explode(',', $fields['signed_field_names']);
 
         if ($fields['access_key'] !== CybersourceSimulator::ACCESS_KEY
@@ -52,8 +57,8 @@ final class CybersourceApi
             return self::error(403, 'Access denied: the request signature does not match.');
         }
 
-        // The signature covers every request field except the card fields (typed on the hosted page) and any the form lists as unsigned.
-        $exempt = ['signature', 'card_number', 'card_cvn', ...explode(',', $fields['unsigned_field_names'] ?? '')];
+        // The signature covers every request field except `signature` and any the form lists as unsigned.
+        $exempt = ['signature', ...explode(',', $fields['unsigned_field_names'] ?? '')];
 
         if (array_diff(self::REQUIRED_SIGNED, $names) !== [] || array_diff($names, array_keys($fields)) !== [] || array_diff(array_keys($fields), $names, $exempt) !== []) {
             return self::error(403, 'Access denied: a required field is not signed or not sent, or a sent field is not signed.');
@@ -203,10 +208,10 @@ final class CybersourceApi
         return base64_encode(hash_hmac('sha256', $message, $secret, true));
     }
 
-    /** A 22-digit transaction id that sorts by creation time. */
-    public static function newId(): string
+    /** A 22-digit transaction id; a counter shared by all workers makes ids sort in creation order, even within one second. */
+    public function newId(): string
     {
-        return sprintf('%010d', time()).sprintf('%012d', random_int(0, 999_999_999_999));
+        return sprintf('%010d%012d', time(), $this->scenario->state()->increment('counters', 'transaction_id'));
     }
 
     /**
@@ -238,7 +243,7 @@ final class CybersourceApi
         if (in_array($choice, ['accept', 'decline', 'review'], true)) {
             $settled = isset($options['settled_amount']) ? CybersourceRest::minor((string) $options['settled_amount']) : null;
             $transaction = [
-                'id' => self::newId(), 'kind' => 'payment', 'root_id' => null, 'reference' => $session['fields']['reference_number'],
+                'id' => $this->newId(), 'kind' => 'payment', 'root_id' => null, 'reference' => $session['fields']['reference_number'],
                 'amount' => $settled ?? $session['amount'], 'currency' => (string) ($options['settled_currency'] ?? $session['currency']),
                 'captured' => $choice === 'accept' && $session['type'] === 'sale', 'refunded' => 0, 'reason_code' => $reason, 'created' => time(),
                 'status' => match ($choice) {

@@ -123,7 +123,7 @@ final class CybersourceRest
             }
 
             $refund = [
-                'id' => CybersourceApi::newId(), 'kind' => 'refund', 'root_id' => $id, 'reference' => (string) (((array) ($input['clientReferenceInformation'] ?? []))['code'] ?? $payment['reference']),
+                'id' => (new CybersourceApi($this->scenario))->newId(), 'kind' => 'refund', 'root_id' => $id, 'reference' => (string) (((array) ($input['clientReferenceInformation'] ?? []))['code'] ?? $payment['reference']),
                 'amount' => $amount, 'currency' => $payment['currency'], 'captured' => false, 'refunded' => 0, 'status' => 'PENDING', 'reason_code' => '100', 'created' => time(), 'card' => $payment['card'],
             ];
             $this->scenario->state()->put('txns', $refund['id'], $refund);

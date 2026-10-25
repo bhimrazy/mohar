@@ -156,7 +156,6 @@ test('a form with a bad signature, an unknown key, an unsigned required field or
 
     expect(csPost($withoutUnsignedList)->status())->toBe(303)
         ->and(csPost([...csForm('u-extra'), 'bill_to_email' => 'x@example.test'])->status())->toBe(403)
-        ->and(csPost([...csForm('u-card'), 'card_number' => '4111111111111111'])->status())->toBe(303)
         ->and(csPost([...$good, 'amount' => '1.00'])->status())->toBe(403)
         ->and(csPost(csForm('u-wrong', secret: 'not-the-secret'))->status())->toBe(403)
         ->and(csPost(csForm('u-key', ['access_key' => 'someoneelseskey']))->status())->toBe(403)
@@ -169,7 +168,23 @@ test('a form with a bad signature, an unknown key, an unsigned required field or
     csOpen('u-twice');
 
     expect(csPost(csForm('u-twice'))->status())->toBe(400)
-        ->and($this->scenario->state()->all('sessions'))->toHaveCount(3);
+        ->and($this->scenario->state()->all('sessions'))->toHaveCount(2);
+});
+
+test('card fields on the form are refused, signed or not, and never stored, returned or sent in a notice', function () {
+    $this->actions['notice_url'](['url' => 'https://shop.example.test/billing/webhooks/cybersource'], $this->scenario);
+    $signed = csForm('u-card-signed', ['card_number' => '4111111111111111', 'card_cvn' => '123']);
+
+    expect(csPost([...csForm('u-card'), 'card_number' => '4242424242424242', 'card_cvn' => '999'])->status())->toBe(400)
+        ->and(csPost($signed)->status())->toBe(400)
+        ->and($this->scenario->state()->all('sessions'))->toBe([]);
+
+    csOpen('u-clean');
+    $fields = csChoose('accept', 'u-clean')['fields'];
+    $everything = json_encode([$this->scenario->state()->all('sessions'), $fields, $this->scenario->outbox()->pending()]);
+
+    expect($everything)->not->toContain('4242424242424242')->not->toContain('4111111111111111')->not->toContain('999')->not->toContain('req_card_cvn')
+        ->and($fields['req_card_number'])->toBe('xxxxxxxxxxxx1111');
 });
 
 test('decline, review, error and cancel return their decisions; only a decline or review has a transaction to look up', function () {
