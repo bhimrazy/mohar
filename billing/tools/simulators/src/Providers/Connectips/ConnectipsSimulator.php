@@ -99,9 +99,10 @@ final class ConnectipsSimulator implements HasControlActions, RedactsPayments, S
         }
 
         chmod(self::pfxPath($scenario), 0600);
+        $details = openssl_pkey_get_details($key) ?: throw new \RuntimeException('Could not read the merchant public key.');
         $scenario->state()->put('config', 'merchant', [
             'merchant_id' => self::MERCHANT_ID,
-            'public_key' => (string) openssl_pkey_get_details($key)['key'],
+            'public_key' => (string) $details['key'],
             'return_urls' => null,
             'bad_token_reply' => 'error',
             'token_spacing' => 'none',
