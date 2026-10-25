@@ -19,7 +19,7 @@ final class RazorpayApi
     /** Razorpay's documented minimum order: Rs 1. */
     public const MIN_AMOUNT = 100;
 
-    /** The merchant fee this simulator charges, in percent of the amount, and the GST on that fee (Razorpay: 2% + 18%). */
+    /** The merchant fee this simulator charges, in percent of the amount, and the GST on that fee (assumed: 2% + 18%, not confirmed from Razorpay's docs). */
     public const FEE_PERCENT = 2;
 
     public const FEE_GST_PERCENT = 18;
@@ -145,6 +145,10 @@ final class RazorpayApi
                 return self::error('Only an authorized payment can be captured.');
             }
 
+            if (($this->order($payment['order_id'])['status'] ?? null) === 'paid') {
+                return self::error('The order is already paid.');
+            }
+
             if ($input['amount'] !== $payment['amount']) {
                 return self::error('The capture amount must equal the authorized amount.', field: 'amount');
             }
@@ -155,7 +159,8 @@ final class RazorpayApi
 
     /**
      * Pay an order the way the checkout does, or fail it. Success authorizes the payment and, when the account captures
-     * automatically, captures it at once. Returns null when the order is unknown or already paid.
+     * automatically, captures it at once. Returns null when the order is unknown, already paid, or holds an authorized
+     * payment (a second attempt would let two payments be captured against one order).
      *
      * @param  array{method?: string, vpa?: string, card?: string, email?: string, contact?: string, outcome?: string}  $options
      * @return array<string, mixed>|null the payment
@@ -165,7 +170,7 @@ final class RazorpayApi
         return $this->scenario->state()->transaction(function () use ($orderId, $options): ?array {
             $order = $this->order($orderId);
 
-            if ($order === null || $order['status'] === 'paid') {
+            if ($order === null || $order['status'] === 'paid' || $this->hasAuthorized($orderId)) {
                 return null;
             }
 
@@ -227,6 +232,17 @@ final class RazorpayApi
 
             return $this->scenario->state()->get('config', 'capture') === 'manual' ? $payment : $this->captured($payment);
         });
+    }
+
+    private function hasAuthorized(string $orderId): bool
+    {
+        foreach ($this->payments() as $payment) {
+            if ($payment['order_id'] === $orderId && $payment['status'] === 'authorized') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -452,10 +468,8 @@ final class RazorpayApi
             return self::error('The reference_id may not be longer than 40 characters.', field: 'reference_id');
         }
 
-        foreach (['callback_url'] as $field) {
-            if (isset($input[$field]) && ! preg_match('#^https?://[^\s/]+#', (string) $input[$field])) {
-                return self::error("The {$field} must be a valid URL.", field: $field);
-            }
+        if (isset($input['callback_url']) && ! preg_match('#^https?://[^\s/]+#', (string) $input['callback_url'])) {
+            return self::error('The callback_url must be a valid URL.', field: 'callback_url');
         }
 
         if (isset($input['expire_by']) && (! is_int($input['expire_by']) || $input['expire_by'] < time() + self::LINK_MIN_SECONDS)) {

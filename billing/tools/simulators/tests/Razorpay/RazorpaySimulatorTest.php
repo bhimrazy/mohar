@@ -143,7 +143,7 @@ test('a failed attempt leaves the order attempted and a retry can still pay it',
         ->and(rzp('GET', '/orders/'.$order['id'])->json())->toMatchArray(['status' => 'attempted', 'amount_paid' => 0, 'attempts' => 1]);
 
     $declined = rzpAct('pay', ['order_id' => $order['id'], 'method' => 'card', 'card' => '4100280000080001']);
-    expect(rzp('GET', '/payments/'.$declined['payment_id'])->json())->toMatchArray(['status' => 'failed', 'error_reason' => 'insufficient_funds', 'card_id' => rzp('GET', '/payments/'.$declined['payment_id'])->json('card_id')])
+    expect(rzp('GET', '/payments/'.$declined['payment_id'])->json())->toMatchArray(['status' => 'failed', 'method' => 'card', 'error_reason' => 'insufficient_funds'])
         ->and((string) json_encode($this->scenario->state()->all('payments')))->not->toContain('4100280000080001');
 
     $retry = rzpAct('pay', ['order_id' => $order['id'], 'method' => 'card', 'card' => '4100280000001007']);
@@ -280,4 +280,36 @@ test('a payment link can be cancelled while open, not after, and expire_by must 
 
     $this->scenario->state()->put('links', $open, [...$this->scenario->state()->get('links', $open), 'status' => 'created', 'expire_by' => time() - 1]);
     expect(rzp('GET', "/payment_links/{$open}")->json('status'))->toBe('expired');
+});
+
+test('manual capture refuses a second attempt while one payment is authorized, so an order is never credited twice', function () {
+    rzpAct('capture_mode', ['mode' => 'manual']);
+    rzpAct('webhook_url', ['url' => 'https://app.example.test/webhooks/razorpay', 'enabled_events' => ['order.paid']]);
+    $order = rzpOrder(20_000);
+    $first = rzpAct('pay', ['order_id' => $order['id']])['payment_id'];
+
+    expect(fn () => rzpAct('pay', ['order_id' => $order['id']]))->toThrow(InvalidArgumentException::class);
+    rzp('POST', "/payments/{$first}/capture", ['amount' => 20_000, 'currency' => 'INR']);
+
+    expect(rzp('GET', '/orders/'.$order['id'])->json())->toMatchArray(['amount_paid' => 20_000, 'attempts' => 1])
+        ->and(rzp('GET', '/orders/'.$order['id'].'/payments')->json('count'))->toBe(1)
+        ->and(array_column(rzpDeliver(), 0))->toBe(['order.paid']);
+});
+
+test('a payment link is paid by the pay action with payment_link_id, and an expired or cancelled link refuses payment', function () {
+    $link = rzp('POST', '/payment_links', ['amount' => 8_000, 'currency' => 'INR', 'reference_id' => 'ref-1', 'callback_url' => 'https://shop.example.test/return'])->json();
+    $paid = rzpAct('pay', ['payment_link_id' => $link['id']]);
+    parse_str((string) parse_url($paid['redirect'], PHP_URL_QUERY), $query);
+
+    expect($paid['status'])->toBe('captured')
+        ->and($query['razorpay_signature'])->toBe(RazorpayApi::linkSignature($link['id'], 'ref-1', 'paid', $paid['payment_id']))
+        ->and(rzp('GET', '/payment_links/'.$link['id'])->json('status'))->toBe('paid')
+        ->and(fn () => rzpAct('pay', ['payment_link_id' => $link['id']]))->toThrow(InvalidArgumentException::class);
+
+    $expired = rzp('POST', '/payment_links', ['amount' => 8_000, 'currency' => 'INR'])->json('id');
+    $this->scenario->state()->put('links', $expired, [...$this->scenario->state()->get('links', $expired), 'expire_by' => time() - 1]);
+
+    expect(fn () => rzpAct('pay', ['payment_link_id' => $expired]))->toThrow(InvalidArgumentException::class)
+        ->and(rzpBrowser()->post($this->scenario->apiUrl()."/l/{$expired}/pay")->status())->toBe(410)
+        ->and(rzp('GET', '/orders/'.rzp('GET', "/payment_links/{$expired}")->json('order_id'))->json('attempts'))->toBe(0);
 });

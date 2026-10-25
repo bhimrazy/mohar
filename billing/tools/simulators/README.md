@@ -124,17 +124,15 @@ India is simulated for now (owner decision): there is no Razorpay driver and no 
     - `GET /payments/{id}`, `POST /payments/{id}/capture` (`amount` must equal the authorized amount, `currency` `INR`; a second capture is refused).
     - `POST /payments/{id}/refund` (no `amount` refunds the rest; `speed` `normal` or `optimum`), `GET /payments/{id}/refunds`, `GET /refunds/{id}`. A refund needs a captured payment and at most what is left; a full refund makes the payment `refunded`, a partial one keeps `captured` with `refund_status: partial`.
     - `POST /payment_links`, `GET /payment_links/{id}`, `POST /payment_links/{id}/cancel`. A link is backed by an order (`reference_id` is its receipt); `expire_by` must be 15 minutes out; an open link past it reads `expired`.
-- **State.** An order is `created`, `attempted` after any payment attempt, `paid` once a captured payment covers it; failed attempts can be retried. A payment is `authorized`, `captured`, `refunded` or `failed`. Fee (2%) and GST on it (18%) appear on capture.
+- **State.** An order is `created`, `attempted` after any payment attempt, `paid` once a captured payment covers it; failed attempts can be retried. A payment is `authorized`, `captured`, `refunded` or `failed`. Fee and GST on it appear on capture (2% + 18% is an assumption, not confirmed from Razorpay's docs). A second attempt is refused while one payment on the order is `authorized`, and capturing a payment of a paid order is refused.
 - **Capture mode.** Automatic by default: a paid payment is authorized and captured at once. `capture_mode` `manual` leaves it `authorized` until captured.
 - **Hosted pages.** `GET /checkout?order_id=&callback_url=&cancel_url=` stands in for the script checkout, with Pay, Fail and Cancel. Pay answers a self-submitting POST form to `callback_url` with `razorpay_payment_id`, `razorpay_order_id` and `razorpay_signature` (HMAC-SHA256 hex of `order_id|payment_id` under the key secret); Fail posts the `error[...]` fields; Cancel redirects to `cancel_url`. `GET /l/{id}` is a payment link's page: Pay redirects (GET) to the link's `callback_url` with `razorpay_payment_link_id`, `..._reference_id`, `..._status`, `razorpay_payment_id` and a signature over `link_id|reference_id|status|payment_id`.
 - **Webhooks.** `payment.authorized`, `payment.captured`, `payment.failed`, `order.paid`, `refund.created`, `refund.processed`, `refund.failed` and `payment_link.paid`, in Razorpay's envelope (`entity`, `account_id`, `event`, `contains`, `payload`). Each is queued for the URL set with `webhook_url` (only the events in its optional `enabled_events`) and signed at delivery: `X-Razorpay-Signature` is HMAC-SHA256 hex of the raw body under `WEBHOOK_SECRET`. `X-Razorpay-Event-Id` is stable across retries; receivers dedupe on it. Razorpay sends no timestamp, so the `stale` variant changes nothing. Auto-capture sends `payment.authorized` then `payment.captured`.
 - **Control actions.** `webhook_url`, `capture_mode`; `pay` ({`order_id` or `payment_link_id`}, `outcome` `success|failed`, `method`, `vpa`: `failure@razorpay` fails as Razorpay's test UPI id does; pass `callback_url` to get the POST `callback` fields back; a link returns `redirect`); `capture`; `refund` (a dashboard refund, all or `amount` paise); `refund_failed` (the bank rejects it).
 - **Using it from the app.** The printed `INTEGRATION_ENDPOINTS` names `razorpay.api` and `razorpay.checkout` (proposed keys for the driver), plus `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`.
-- **Chosen where the docs are silent.** Refunds are `processed` at once; error wording is ours; checkout is a plain page, not Razorpay's modal; the fee rate; UPI collect requests are not simulated (NPCI ended them for merchants in 2026).
+- **Chosen where the docs are silent.** Refunds are `processed` at once; error wording is ours; checkout is a plain page, not Razorpay's modal; the fee rate; UPI collect requests (the payer typing a UPI id) are not simulated. A 2026 NPCI restriction on them is reported but to verify.
 
 #### Setting up a real Razorpay test account later
-
-For comparison, Cashfree (a later India gateway) authenticates with the headers `x-client-id`, `x-client-secret` and `x-api-version` (for example `2025-01-01`) against the sandbox base `https://sandbox.cashfree.com/pg/`.
 
 Nothing here has been run against Razorpay; check each step against razorpay.com/docs when you do it.
 
@@ -151,6 +149,8 @@ Nothing here has been run against Razorpay; check each step against razorpay.com
     - cancelling the payment in test mode still yields a success, which the simulator does not copy (its Cancel goes to `cancel_url`), so the driver must never trust the browser return alone.
 6. Replay a recording against the sandbox once a driver exists (`simulate:record razorpay` is not implemented), then change the "Shapes" note above from docs-sourced to live.
 7. Before going live: complete KYC, create live keys and a live webhook (a separate secret), and re-run the payment, failure and refund paths with a small real amount.
+
+For comparison, Cashfree (a later India gateway) authenticates with the headers `x-client-id`, `x-client-secret` and `x-api-version` (for example `2025-01-01`) against the sandbox base `https://sandbox.cashfree.com/pg/`.
 
 ### `esewa`: eSewa ePay v2, for the PaymentsNepal driver
 

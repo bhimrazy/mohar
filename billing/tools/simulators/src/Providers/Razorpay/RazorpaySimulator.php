@@ -47,7 +47,7 @@ final class RazorpaySimulator implements HasControlActions, RedactsPayments, Sig
     public function routes(): array
     {
         $authorised = fn (Closure $handler): Closure => function (Request $request, Scenario $scenario, array $parameters) use ($handler): Response {
-            if ($request->header('Authorization') !== 'Basic '.base64_encode(self::KEY_ID.':'.self::KEY_SECRET)) {
+            if (! hash_equals('Basic '.base64_encode(self::KEY_ID.':'.self::KEY_SECRET), (string) $request->header('Authorization'))) {
                 return RazorpayApi::error('The API key provided is invalid.', 401);
             }
 
