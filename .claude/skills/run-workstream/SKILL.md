@@ -29,7 +29,8 @@ Module: <name>. Spec: billing/docs/product/<module>.md (implement v1 per its acc
 out-of-scope section stays out). Expected size: <lines>; split proposed if above 2,000.
 Worktree: $MOHAR_ROOT/.worktrees/<slug>/billing, branch feature/<slug>, at develop <sha>.
 Setup: <npm ci needed? migrate:fresh --seed, wayfinder:generate --with-form>.
-Dev server ports: <range, e.g. 8100-8199>; screenshots to billing/docs/screenshots/<module>/.
+Dev server ports: <range, e.g. 8100-8199>; screenshots to billing/docs/screenshots/<module>/, and into the PR
+description with scripts/pr-screenshots.sh <pr> <image>... (hidden ref, not a branch).
 Module-specific constraints: <contracts to use, events to consume or emit, security requirements,
 integration notes with modules already merged, Nepal defaults where relevant>.
 Order of work: <phases, and what "done" means for each>.
