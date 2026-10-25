@@ -9,5 +9,16 @@
   Disputes to review instead of being answered as a duplicate.
 - **Stripe refunds that are `pending` or `requires_action` are no longer booked as refunded.** Only a `succeeded`
   refund is booked; `failed` and `canceled` release the amount. Any other state keeps the refund pending with its amount
-  held until `refund.updated` or Check refund decides. Upgrade note: a Stripe refund made after this release can now
-  show as "being confirmed with the provider" until Stripe finishes it, where it used to show as refunded at once.
+  held until `refund.updated` or Check refund decides.
+
+  Upgrade notes:
+  - A Stripe refund made after this release can show as "being confirmed with the provider" until Stripe finishes it,
+    where it used to show as refunded at once. While it is pending, no other refund of that payment can be started,
+    which for `requires_action` can take days.
+  - Stripe refunds booked as refunded before this release while Stripe still had them `pending` or `requires_action`
+    can still be failed by Stripe later; that is only logged, and the refund stays booked. Find them and check each at
+    Stripe (PostgreSQL):
+    `SELECT id, gateway_txn_id, amount_out FROM transactions WHERE gateway = 'stripe' AND type = 'refund' AND status = 'succeeded' AND raw->>'status' IS NOT NULL AND raw->>'status' <> 'succeeded';`
+  - Refund rows released before this release still hold their provider refund id, so a later report that the refund
+    was paid is still answered as a duplicate and books nothing. Find them and check each with the provider:
+    `SELECT id, gateway, gateway_txn_id, amount_out FROM transactions WHERE type = 'refund' AND status = 'failed' AND gateway_txn_id IS NOT NULL;`
