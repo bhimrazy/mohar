@@ -346,7 +346,8 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
     /**
      * Verify X-Razorpay-Signature (hex HMAC-SHA256 of the raw body under the webhook secret) before reading anything.
      * Razorpay signs no timestamp; X-Razorpay-Event-Id stays the same on every retry, so a link event is acted on once
-     * per id. Refund events are deduplicated by refund id in Billing instead, so a retry Billing asked for still lands.
+     * per id (the reconciliation poller still covers an attempt whose lookup failed then). Refund events are deduplicated
+     * by refund id in Billing instead, so a retry Billing asked for (409) still lands.
      */
     public function parseCallback(GatewayConfig $gateway, Request $request): CallbackEvent|CallbackRejection
     {
@@ -633,7 +634,8 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
             return true;
         }
 
-        return ! isset($parts['port']) && ($host === $domain || str_ends_with($host, '.'.$domain));
+        return ! isset($parts['port']) && preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/', $host) === 1
+            && ($host === $domain || str_ends_with($host, '.'.$domain));
     }
 
     private static function isId(string $prefix, ?string $value): bool
