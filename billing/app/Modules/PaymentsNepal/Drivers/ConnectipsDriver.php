@@ -87,7 +87,7 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
 
     public function manualRefundNote(): string
     {
-        return __('connectIPS has no refund API and payments can\'t be reversed: refund the customer by bank transfer from your own account, then record the refund here.');
+        return __('connectIPS has no refund API and payments can\'t be reversed: refund the customer by bank transfer from your own account, then record the refund on the invoice.');
     }
 
     public function settingsFields(): array
