@@ -164,8 +164,9 @@ The script, step by step:
 
 1. Builds the checkout as `mohar-app:<commit>` (or uses `--image`).
 2. Runs `php artisan deploy:check-migrations --pending` in the new image, and stops if a pending migration drops,
-   renames or changes schema in one step (`DEPLOY_SKIP_MIGRATION_CHECK=1` skips the check once you have reviewed
-   it).
+   renames or changes schema in one step, runs DDL on an existing table outside `LockTimeout::run`, builds an index
+   outside `OnlineIndex`, or reuses a migration timestamp (`DEPLOY_SKIP_MIGRATION_CHECK=1` skips the check once you
+   have reviewed it).
 3. Runs the one-shot `migrate` with the new image: migrations, the bucket, reference data.
 4. Starts the idle colour's web container and waits for its health check, then probes `/up` from Caddy's network.
    If it is not healthy, it stops it and leaves traffic where it was.

@@ -20,6 +20,7 @@ function migrationFile(string $dir, string $name, string $up, string $down = '',
     file_put_contents($path, <<<PHP
         <?php
 
+        use App\\Modules\\Core\\Support\\LockTimeout;
         use Illuminate\\Database\\Migrations\\Migration;
         use Illuminate\\Database\\Schema\\Blueprint;
         use Illuminate\\Support\\Facades\\DB;
@@ -46,10 +47,9 @@ function migrationFile(string $dir, string $name, string $up, string $down = '',
 test('an additive migration passes, even when its down() drops what it added', function () {
     $file = migrationFile($this->dir, 'add_notes', <<<'PHP'
         Schema::create('notes', fn (Blueprint $table) => $table->id());
-        Schema::table('clients', function (Blueprint $table) {
+        LockTimeout::run('clients', fn () => Schema::table('clients', function (Blueprint $table) {
             $table->string('nickname')->nullable();
-            $table->index('nickname');
-        });
+        }));
         PHP, "Schema::dropIfExists('notes');");
 
     $this->artisan('deploy:check-migrations', ['paths' => [$file]])
@@ -74,7 +74,7 @@ test('dropping, renaming or changing a column or table in up() fails', function 
 ]);
 
 test('a migration tagged @contract is reported as the contract step, not failed', function () {
-    $file = migrationFile($this->dir, 'contract_nickname', "Schema::table('clients', fn (Blueprint \$table) => \$table->dropColumn('nickname'));",
+    $file = migrationFile($this->dir, 'contract_nickname', "LockTimeout::run('clients', fn () => Schema::table('clients', fn (Blueprint \$table) => \$table->dropColumn('nickname')));",
         docblock: '/** @contract nickname has not been read since release 1.4 (expanded in 1.3). */');
 
     $this->artisan('deploy:check-migrations', ['paths' => [$file]])
@@ -83,7 +83,7 @@ test('a migration tagged @contract is reported as the contract step, not failed'
 });
 
 test('a change tagged @compatible is reported as compatible, not failed', function () {
-    $file = migrationFile($this->dir, 'widen_rate', "Schema::table('currencies', fn (Blueprint \$table) => \$table->decimal('rate', 24, 12)->change());",
+    $file = migrationFile($this->dir, 'widen_rate', "LockTimeout::run('currencies', fn () => Schema::table('currencies', fn (Blueprint \$table) => \$table->decimal('rate', 24, 12)->change()));",
         docblock: '/** @compatible widening: the previous release writes values that still fit. */');
 
     $this->artisan('deploy:check-migrations', ['paths' => [$file]])
