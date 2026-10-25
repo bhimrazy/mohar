@@ -115,6 +115,43 @@ The control plane answers only requests that carry `X-Sim-Token`:
 - **Using it from the app.** Set the printed `INTEGRATION_ENDPOINTS` (`khalti.api`, `khalti.refund`, `khalti.pay`), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`. Use the Khalti gateway in sandbox mode with the simulator's key.
 - **Shapes.** Written from docs.khalti.com only; there is no Khalti sandbox capture yet (#208). The driver's own fixtures (`tests/Feature/PaymentsNepal/KhaltiDriverTest.php`) use the same key paths.
 
+### `razorpay`: Razorpay India in test mode (simulated; no driver yet)
+
+India is simulated for now (owner decision): there is no Razorpay driver and no live capture, so shapes come from razorpay.com/docs/api only. `tests/Razorpay/RazorpaySimulatorTest.php` is the contract the driver will be built against.
+
+- **API (`/v1`).** HTTP Basic `RazorpaySimulator::KEY_ID` : `KEY_SECRET`; anything else is a 401 with Razorpay's `error` envelope. An unknown id is a 400 (not 404), as at Razorpay.
+    - `POST /orders`, `GET /orders/{id}`, `GET /orders/{id}/payments`. Amounts are paise integers (at least 100), the currency must be `INR`, `receipt` is at most 40 characters and `notes` at most 15 pairs.
+    - `GET /payments/{id}`, `POST /payments/{id}/capture` (`amount` must equal the authorized amount, `currency` `INR`; a second capture is refused).
+    - `POST /payments/{id}/refund` (no `amount` refunds the rest; `speed` `normal` or `optimum`), `GET /payments/{id}/refunds`, `GET /refunds/{id}`. A refund needs a captured payment and at most what is left; a full refund makes the payment `refunded`, a partial one keeps `captured` with `refund_status: partial`.
+    - `POST /payment_links`, `GET /payment_links/{id}`, `POST /payment_links/{id}/cancel`. A link is backed by an order (`reference_id` is its receipt); `expire_by` must be 15 minutes out; an open link past it reads `expired`.
+- **State.** An order is `created`, `attempted` after any payment attempt, `paid` once a captured payment covers it; failed attempts can be retried. A payment is `authorized`, `captured`, `refunded` or `failed`. Fee and GST on it appear on capture (2% + 18% is an assumption, not confirmed from Razorpay's docs). A second attempt is refused while one payment on the order is `authorized`, and capturing a payment of a paid order is refused.
+- **Capture mode.** Automatic by default: a paid payment is authorized and captured at once. `capture_mode` `manual` leaves it `authorized` until captured.
+- **Hosted pages.** `GET /checkout?order_id=&callback_url=&cancel_url=` stands in for the script checkout, with Pay, Fail and Cancel. Pay answers a self-submitting POST form to `callback_url` with `razorpay_payment_id`, `razorpay_order_id` and `razorpay_signature` (HMAC-SHA256 hex of `order_id|payment_id` under the key secret); Fail posts the `error[...]` fields; Cancel redirects to `cancel_url`. `GET /l/{id}` is a payment link's page: Pay redirects (GET) to the link's `callback_url` with `razorpay_payment_link_id`, `..._reference_id`, `..._status`, `razorpay_payment_id` and a signature over `link_id|reference_id|status|payment_id`.
+- **Webhooks.** `payment.authorized`, `payment.captured`, `payment.failed`, `order.paid`, `refund.created`, `refund.processed`, `refund.failed` and `payment_link.paid`, in Razorpay's envelope (`entity`, `account_id`, `event`, `contains`, `payload`). Each is queued for the URL set with `webhook_url` (only the events in its optional `enabled_events`) and signed at delivery: `X-Razorpay-Signature` is HMAC-SHA256 hex of the raw body under `WEBHOOK_SECRET`. `X-Razorpay-Event-Id` is stable across retries; receivers dedupe on it. Razorpay sends no timestamp, so the `stale` variant changes nothing. Auto-capture sends `payment.authorized` then `payment.captured`.
+- **Control actions.** `webhook_url`, `capture_mode`; `pay` ({`order_id` or `payment_link_id`}, `outcome` `success|failed`, `method`, `vpa`: `failure@razorpay` fails as Razorpay's test UPI id does; pass `callback_url` to get the POST `callback` fields back; a link returns `redirect`); `capture`; `refund` (a dashboard refund, all or `amount` paise); `refund_failed` (the bank rejects it).
+- **Using it from the app.** The printed `INTEGRATION_ENDPOINTS` names `razorpay.api` and `razorpay.checkout` (proposed keys for the driver), plus `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`.
+- **Chosen where the docs are silent.** Refunds are `processed` at once; error wording is ours; checkout is a plain page, not Razorpay's modal; the fee rate; UPI collect requests (the payer typing a UPI id) are not simulated. A 2026 NPCI restriction on them is reported but to verify.
+
+#### Setting up a real Razorpay test account later
+
+Nothing here has been run against Razorpay; check each step against razorpay.com/docs when you do it.
+
+1. Sign up at razorpay.com. Whether test mode needs KYC is unconfirmed; live mode does (and an Indian business entity).
+2. In the dashboard switch to **Test Mode** and generate an API key pair: the key id and the key secret, shown once, so store both at once. Test and live keys are separate. The simulator assumes test key ids start with `rzp_test_` (`RazorpaySimulator::KEY_PREFIX`); that prefix is not confirmed by the docs.
+3. Choose automatic or manual capture in the dashboard's payment-capture settings, to match the gateway setting in the app.
+4. Add a webhook under the dashboard's webhook settings:
+    - the URL must be public HTTPS, so use a tunnel for a local app (the simulator needs none);
+    - the secret is optional but set one: it is separate from the key secret, and `X-Razorpay-Signature` is HMAC-SHA256 hex of the raw body under it;
+    - select `payment.authorized`, `payment.captured`, `payment.failed`, `order.paid`, `refund.created`, `refund.processed`, `refund.failed` and `payment_link.paid`.
+5. Test payments in the checkout (verified against Razorpay's docs on 2026-10-25; they can change):
+    - cards, any CVV and future expiry: Visa `4100 2800 0000 1007` and Mastercard `5555 5100 0008 1006` succeed; Visa `4100 2800 0008 0001` fails for insufficient funds. The mock bank page accepts any OTP of 4 to 10 digits;
+    - UPI: `success@razorpay` succeeds and `failure@razorpay` fails;
+    - cancelling the payment in test mode still yields a success, which the simulator does not copy (its Cancel goes to `cancel_url`), so the driver must never trust the browser return alone.
+6. Replay a recording against the sandbox once a driver exists (`simulate:record razorpay` is not implemented), then change the "Shapes" note above from docs-sourced to live.
+7. Before going live: complete KYC, create live keys and a live webhook (a separate secret), and re-run the payment, failure and refund paths with a small real amount.
+
+For comparison, Cashfree (a later India gateway) authenticates with the headers `x-client-id`, `x-client-secret` and `x-api-version` (for example `2025-01-01`) against the sandbox base `https://sandbox.cashfree.com/pg/`.
+
 ### `esewa`: eSewa ePay v2, for the PaymentsNepal driver
 
 - **Form.** `POST /api/epay/main/v2/form` (form fields, as the customer's browser posts them).
@@ -261,7 +298,7 @@ The fixture in `tests/Fixtures/EchoSimulator.php` is the smallest working exampl
 
 - The TLS front frames requests by `Content-Length` only: no `Transfer-Encoding: chunked` and no `Expect: 100-continue`. Laravel's HTTP client (Guzzle with string bodies) never sends those.
 - The request log applies the kernel `Redactor` default rule, then its payment rule (card numbers, CVCs, expiry, and Luhn-valid digits inside text). It also masks `cpsess` paths and `session=` values.
-- Recordings apply the payment rule only for a simulator that implements `RedactsPayments` (Stripe, Khalti, eSewa), so keys such as `expires_at` keep their values elsewhere.
+- Recordings apply the payment rule only for a simulator that implements `RedactsPayments` (Stripe, Khalti, eSewa, Razorpay), so keys such as `expires_at` keep their values elsewhere.
 - `StateStore::transaction()` nests: inner calls run in savepoints.
 - In a recording's shape check, a masked value matches any type.
 

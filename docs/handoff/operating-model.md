@@ -211,6 +211,10 @@ is also the owner's own machine: the agent budget above applies, `/tmp` survives
   shared-kernel changes, security notes, tests, screenshots.
 - Screenshots: headless Playwright, under `billing/docs/screenshots/<module>/`, through `npm run images:optimize`
   (CI fails on images over 500 KB).
+- Screenshots in the PR description wherever the change has a visible result (owner, 2026-10-25), so it can be reviewed
+  from the PR page: `scripts/pr-screenshots.sh <pr> <image>...` pushes them to `refs/pr-assets/pr-<n>` (not a branch,
+  so not listed under branches) and prints the Markdown to paste. Images only need committing to `docs/screenshots/`
+  when the docs use them. Links use the commit sha; while the repository is private they load only for signed-in viewers.
 - Markdown docs use kebab-case names, except `CLAUDE.md`. Docs are factual and plain.
 
 ## Periodic reviews

@@ -16,6 +16,7 @@ use Mohar\Simulators\Providers\Cybersource\CybersourceSimulator;
 use Mohar\Simulators\Providers\Esewa\EsewaSimulator;
 use Mohar\Simulators\Providers\Khalti\KhaltiSimulator;
 use Mohar\Simulators\Providers\Namecheap\NamecheapSimulator;
+use Mohar\Simulators\Providers\Razorpay\RazorpaySimulator;
 use Mohar\Simulators\Providers\ResellerClub\ResellerClubSimulator;
 use Mohar\Simulators\Providers\Stripe\StripeSimulator;
 use Mohar\Simulators\Providers\Whm\WhmSimulator;
@@ -51,7 +52,7 @@ final class SimulatorsServiceProvider extends ServiceProvider
      */
     public function simulators(): array
     {
-        return [WhmSimulator::class, StripeSimulator::class, KhaltiSimulator::class, EsewaSimulator::class, CybersourceSimulator::class, ResellerClubSimulator::class, NamecheapSimulator::class, WhmcsSimulator::class];
+        return [WhmSimulator::class, StripeSimulator::class, KhaltiSimulator::class, EsewaSimulator::class, CybersourceSimulator::class, ResellerClubSimulator::class, NamecheapSimulator::class, WhmcsSimulator::class, RazorpaySimulator::class];
     }
 
     public function boot(): void
