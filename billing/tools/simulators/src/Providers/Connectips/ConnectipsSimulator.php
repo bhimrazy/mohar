@@ -137,7 +137,8 @@ final class ConnectipsSimulator implements HasControlActions, RedactsPayments, S
      *   choice (ConnectipsApi::choose()); they return `redirect`, the URL the browser follows into the app;
      * - `settle` {txn_id, app_id?, outcome, credit_status?, charge_liability?}: what NCHL later does (`success`, `failed`,
      *   `incomplete`, `not_found`, or `credit_status` alone on a paid one);
-     * - `configure` {bad_token_reply, token_spacing, validate_amount_style, echo_variant, validation_algorithm}: the open assumptions.
+     * - `configure` {bad_token_reply, token_spacing, validate_amount_style, echo_variant, validation_algorithm}: the open assumptions, and `frozen_date` (DD-MM-YYYY or null) to pin the TXNDATE check; `clock` returns the date it expects;
+     *   the open assumptions.
      */
     public function actions(): array
     {
@@ -157,7 +158,8 @@ final class ConnectipsSimulator implements HasControlActions, RedactsPayments, S
             'leave' => $choice('leave'),
             'cancel' => $choice('cancel'),
             'settle' => fn (array $input, Scenario $scenario): array => (new ConnectipsApi($scenario))->settle((string) $input['txn_id'], $input),
-            'configure' => fn (array $input, Scenario $scenario): array => (new ConnectipsApi($scenario))->configure(array_intersect_key($input, array_flip(['bad_token_reply', 'token_spacing', 'validate_amount_style', 'echo_variant', 'validation_algorithm']))),
+            'clock' => fn (array $input, Scenario $scenario): array => ['today' => (new ConnectipsApi($scenario))->today()],
+            'configure' => fn (array $input, Scenario $scenario): array => (new ConnectipsApi($scenario))->configure(array_intersect_key($input, array_flip(['bad_token_reply', 'token_spacing', 'validate_amount_style', 'echo_variant', 'validation_algorithm', 'frozen_date']))),
         ];
     }
 }

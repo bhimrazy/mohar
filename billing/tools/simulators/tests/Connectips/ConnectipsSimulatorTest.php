@@ -21,6 +21,9 @@ beforeEach(function () {
     $this->scenario = Processes::start(Sim::class);
     $this->act = fn (string $name, array $input = []): array => $this->scenario->simulator()->actions()[$name]($input, $this->scenario);
     ($this->act)('register_return_urls', ['success' => 'https://app.test/return/ok', 'failure' => 'https://app.test/return/failed?src=cips']);
+    // The simulator's own Nepal date, frozen so a run across midnight cannot split the form's date from the check.
+    $this->today = ($this->act)('clock')['today'];
+    ($this->act)('configure', ['frozen_date' => $this->today]);
     openssl_pkcs12_read((string) file_get_contents(Sim::pfxPath($this->scenario)), $bundle, Sim::PFX_PASSPHRASE);
     $this->privateKey = $bundle['pkey'];
 });
@@ -51,7 +54,7 @@ function cipsForm(string $txnId, int $paisa = 113_055, array $override = [], str
 {
     $fields = [
         'MERCHANTID' => Sim::MERCHANT_ID, 'APPID' => Sim::APP_ID, 'APPNAME' => Sim::APP_NAME, 'TXNID' => $txnId,
-        'TXNDATE' => (new DateTimeImmutable('now', new DateTimeZone('Asia/Kathmandu')))->format('d-m-Y'), 'TXNCRNCY' => 'NPR',
+        'TXNDATE' => test()->today, 'TXNCRNCY' => 'NPR',
         'TXNAMT' => (string) $paisa, 'REFERENCEID' => 'INV-1001', 'REMARKS' => 'Hosting', 'PARTICULARS' => 'Invoice 1001',
         ...$override,
     ];
@@ -132,8 +135,14 @@ test('unpaid outcomes read as NCHL reports them: failed, incomplete, and not fou
     expect(cipsLookup('validatetxn', 'U-abandon')->json('statusDesc'))->toBe('TRANSACTION NOT FOUND')
         ->and(cipsLookup('validatetxn', 'NEVER-POSTED')->json('statusDesc'))->toBe('TRANSACTION NOT FOUND');
 
-    // A decided transaction takes no second choice.
-    expect(cipsChoose(cipsBook('U-twice'), 'decline')->status())->toBe(303);
+    // A decided transaction takes no second choice, whichever way it ended.
+    foreach (['decline', 'leave', 'cancel'] as $choice) {
+        $id = cipsBook("U-end-{$choice}");
+        expect(cipsChoose($id, $choice)->status())->toBe(303)
+            ->and(cipsChoose($id, 'pay')->status())->toBe(410)
+            ->and(cipsLookup('validatetxn', "U-end-{$choice}")->json('status'))->not->toBe('SUCCESS');
+    }
+
     expect(cipsChoose(cipsBook('U-twice-2'), 'bogus')->status())->toBe(410);
 });
 
@@ -154,7 +163,10 @@ test('creditStatus carries 000, 999, DEFER and a failing code; a left transactio
     expect(cipsLookup('validatetxn', 'C-late')->json('status'))->toBe('ERROR');
     ($this->act)('settle', ['txn_id' => 'C-late', 'outcome' => 'success']);
     expect(cipsLookup('validatetxn', 'C-late')->json('status'))->toBe('SUCCESS');
-    expect(fn () => ($this->act)('settle', ['txn_id' => 'C-late', 'outcome' => 'failed']))->toThrow(InvalidArgumentException::class);
+    cipsBook('C-bad');
+    expect(fn () => ($this->act)('settle', ['txn_id' => 'C-late', 'outcome' => 'failed']))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => ($this->act)('settle', ['txn_id' => 'C-late', 'credit_status' => '123']))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => ($this->act)('pay', ['txn_id' => 'C-bad', 'credit_status' => 'OK']))->toThrow(InvalidArgumentException::class);
 });
 
 test('the form is refused when the token, a field or the date is wrong, and a reused TXNID is a 403', function () {

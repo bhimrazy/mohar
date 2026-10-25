@@ -62,7 +62,7 @@ final class ConnectipsApi
             return self::html(400, '<p>Currency must be NPR and the amount 1 to '.self::MAX_PAISA.' paisa.</p>');
         }
 
-        if ($fields['TXNDATE'] !== (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Kathmandu')))->format('d-m-Y')) {
+        if ($fields['TXNDATE'] !== $this->today()) {
             return self::html(400, '<p>TXNDATE must be today in Nepal time, DD-MM-YYYY.</p>');
         }
 
@@ -103,7 +103,8 @@ final class ConnectipsApi
      * - `defer`: the same with `DEFER`, the credit leg still to settle;
      * - `decline`: the bank or OTP refuses; NCHL records FAILED and the browser goes to the failure URL;
      * - `leave`: reached the bank login and left before the OTP (INCOMPLETE), to the failure URL;
-     * - `cancel`: cancelled on the connectIPS login page (NCHL keeps no record), to the failure URL.
+     * - `cancel`: cancelled on the connectIPS login page (NCHL keeps no record), to the failure URL; like decline and leave
+     *   it ends the session, so a later Pay is refused.
      * A second `pay` or `defer` on a paid transaction returns the same success URL. No registered return URL, or an
      * expired session, gives an empty result (the 403 "session expired" page).
      *
@@ -139,7 +140,7 @@ final class ConnectipsApi
                 'pay', 'defer' => $this->paid($txn, $choice === 'defer' ? 'DEFER' : (string) ($options['credit_status'] ?? '000'), $options),
                 'decline' => [...$txn, 'status' => 'failed'],
                 'leave' => [...$txn, 'status' => 'incomplete'],
-                'cancel' => $txn,
+                'cancel' => [...$txn, 'status' => 'not_found'],
             };
             $this->save($txn);
 
@@ -185,6 +186,7 @@ final class ConnectipsApi
             if ($txn['status'] !== 'success' && $outcome === 'success') {
                 $txn = $this->paid($txn, (string) ($input['credit_status'] ?? '000'), $input);
             } elseif ($txn['status'] === 'success') {
+                self::assertCreditStatus((string) ($input['credit_status'] ?? $txn['credit_status']));
                 $txn = [...$txn, 'credit_status' => (string) ($input['credit_status'] ?? $txn['credit_status'])];
             } else {
                 $txn = [...$txn, 'status' => $outcome];
@@ -211,6 +213,10 @@ final class ConnectipsApi
         ];
 
         foreach ($changes as $name => $value) {
+            if ($name === 'frozen_date' && ($value === null || preg_match('/^\d{2}-\d{2}-\d{4}$/', (string) $value) === 1)) {
+                continue;
+            }
+
             if ($name !== 'return_urls' && ! in_array($value, $allowed[$name] ?? [], true)) {
                 throw new \InvalidArgumentException("Bad value for [{$name}].");
             }
@@ -272,6 +278,19 @@ final class ConnectipsApi
         return Response::json($this->answer($body, $status, $description, $merchant, $detail ? $txn : null));
     }
 
+    /** The date the simulator treats as today (Nepal time, DD-MM-YYYY), unless a test froze it. */
+    public function today(): string
+    {
+        return $this->merchant()['frozen_date'] ?? (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Kathmandu')))->format('d-m-Y');
+    }
+
+    private static function assertCreditStatus(string $code): void
+    {
+        if (! in_array($code, [...self::CREDIT_OK, self::CREDIT_FAILED], true)) {
+            throw new \InvalidArgumentException("Unknown credit_status [{$code}]; use 000, 999, DEFER or ".self::CREDIT_FAILED.'.');
+        }
+    }
+
     /**
      * The NCHL fee for a payment, in paisa: NPR 2 up to 500, NPR 4 up to 5,000, NPR 8 above.
      */
@@ -301,6 +320,7 @@ final class ConnectipsApi
     private function paid(array $txn, string $creditStatus, array $options): array
     {
         $liability = (string) ($options['charge_liability'] ?? 'MN');
+        self::assertCreditStatus($creditStatus);
 
         if (! in_array($liability, ['MN', 'CG'], true)) {
             throw new \InvalidArgumentException('charge_liability is MN or CG.');
