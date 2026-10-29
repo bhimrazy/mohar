@@ -162,7 +162,7 @@ function normalise(name, version) {
  * (`$VAR`) is returned unchanged, so it fails the digest check instead of escaping it.
  *
  * @param {string} text
- * @returns {string[]} references in file order, e.g. "node:24.21.0-trixie-slim@sha256:…"
+ * @returns {string[]} references in file order, e.g. "node:24.22.1-trixie-slim@sha256:…"
  */
 export function dockerfileImages(text) {
     const stages = new Set();

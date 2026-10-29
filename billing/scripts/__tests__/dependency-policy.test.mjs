@@ -165,7 +165,7 @@ describe('security exceptions', () => {
 });
 
 describe('dockerfileImages', () => {
-    const node = `node:24.21.0-trixie-slim@${POSTGRES_INDEX}`;
+    const node = `node:24.22.1-trixie-slim@${POSTGRES_INDEX}`;
     const composer = `composer:2.10.3@${RUSTFS_INDEX}`;
 
     it('returns external FROM and --from images, not stages, scratch or stage indexes', () => {
