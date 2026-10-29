@@ -25,6 +25,8 @@ use ReflectionNamedType;
  * `CompanyClock::dayBounds()`. Name the parameter `$today`, so the arch scan (CompanyClockScanTest) can see it. Tasks
  * return a short summary (int count or string) for the run log.
  * A task must be safe to re-run for the same date (it may be retried after a failure).
+ *
+ * @api
  */
 class Automation
 {

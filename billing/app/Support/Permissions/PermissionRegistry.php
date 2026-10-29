@@ -17,6 +17,8 @@ use Closure;
  * must list them explicitly. The only exception is "*", the full-administrator grant. Routes guarded by a
  * sensitive permission also require a recent password confirmation (see docs/security/standards.md).
  * Entries in $sensitive are exact keys or "prefix.*" patterns.
+ *
+ * @api
  */
 class PermissionRegistry
 {

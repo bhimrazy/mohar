@@ -7,6 +7,8 @@ use Throwable;
 /**
  * The registrar did not answer in time: the command may or may not have been executed.
  * Never retried automatically for register/transfer (prevents double registration and charges).
+ *
+ * @api
  */
 class RegistrarTimeout extends RegistrarException
 {

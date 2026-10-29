@@ -10,6 +10,8 @@ use Illuminate\Support\Str;
  * a re-dispatched or unserialised copy) is recognised, while two separate events with identical payloads
  * are two occurrences. The id is assigned on first read, and at the latest when the event is serialised
  * (queued listeners, retries), so every copy of one occurrence shares it.
+ *
+ * @api
  */
 trait IdentifiesOccurrence
 {

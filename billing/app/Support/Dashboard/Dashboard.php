@@ -48,6 +48,8 @@ use Closure;
  *       'value' => '98.6%', 'tone' => 'success'|'warning'|'danger'|'neutral', 'icon' => 'Server', 'href'?], 'services.module_log.view');
  *
  * Sizes: 'sm' (1/4 row), 'md' (1/2), 'lg' (full). Heavy widgets set $deferred = true (loaded after first paint).
+ *
+ * @api
  */
 class Dashboard
 {
