@@ -49,6 +49,8 @@ type SettingField = {
     required: boolean;
     value: unknown;
     is_set: boolean;
+    /** Stored in the database (not only supplied by .env). */
+    saved: boolean;
     locked_reason: string | null;
     /** Default currency code, for money fields. */
     currency: string | null;
@@ -432,7 +434,7 @@ export default function SettingsEdit({ sections, section, mailTest }: Props) {
                                                 />
                                             )}
                                             {field.secret &&
-                                                field.is_set &&
+                                                field.saved &&
                                                 !off && (
                                                     <div className="mt-2 flex items-center gap-2">
                                                         <Checkbox

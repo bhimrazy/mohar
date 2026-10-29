@@ -177,7 +177,9 @@ final class MailServerSettings
      */
     public function secrets(): array
     {
-        $values = [config('mail.mailers.smtp.password'), config('services.ses.secret'), config('services.ses.key')];
+        // The SMTP password as the transport gets it: saved, from MAIL_PASSWORD, or inside a MAIL_URL.
+        $smtp = $this->smtpConfig((array) config('mail.mailers.smtp'));
+        $values = [$smtp['password'] ?? null, config('services.ses.secret'), config('services.ses.key')];
 
         return array_values(array_filter($values, fn (mixed $value): bool => is_string($value) && $value !== ''));
     }
@@ -253,8 +255,12 @@ final class MailServerSettings
     {
         $port = (int) ($config['port'] ?? 0);
         $scheme = ($config['scheme'] ?? null) ?: ($port === 465 ? 'smtps' : 'smtp');
-        $transport = new DeadlineSmtpTransport((string) $config['host'], $port, $scheme === 'smtps' ? true : null, (float) self::TEST_DEADLINE);
-        $transport->setRequireTls((bool) ($config['require_tls'] ?? false));
+        // The options the framework's SMTP factory reads, including those a MAIL_URL carries as query parameters.
+        $bool = fn (string $key, bool $default): bool => ! isset($config[$key]) || $config[$key] === '' ? $default : filter_var($config[$key], FILTER_VALIDATE_BOOL);
+        $autoTls = $bool('auto_tls', true);
+        $transport = new DeadlineSmtpTransport((string) $config['host'], $port, $scheme === 'smtps' ? true : ($autoTls ? null : false), (float) self::TEST_DEADLINE);
+        $transport->setAutoTls($autoTls);
+        $transport->setRequireTls($bool('require_tls', false));
 
         if (($config['username'] ?? '') !== '') {
             $transport->setUsername((string) $config['username']);
@@ -271,6 +277,18 @@ final class MailServerSettings
         $stream = $transport->getStream();
 
         if ($stream instanceof SocketStream) {
+            $options = $stream->getStreamOptions();
+
+            if (! $bool('verify_peer', true)) {
+                $options['ssl']['verify_peer'] = false;
+                $options['ssl']['verify_peer_name'] = false;
+            }
+
+            if (($config['peer_fingerprint'] ?? null) !== null) {
+                $options['ssl']['peer_fingerprint'] = $config['peer_fingerprint'];
+            }
+
+            $stream->setStreamOptions($options);
             $stream->setTimeout((float) ($config['timeout'] ?? self::TEST_TIMEOUT));
 
             if (($config['source_ip'] ?? '') !== '') {

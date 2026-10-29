@@ -249,3 +249,57 @@ test('the install check reads the mailer saved in the admin area, not only .env'
     app(Settings::class)->set('mail.default', 'smtp');
     expect($warns())->toBeFalse();
 });
+
+test('a password that comes only from MAIL_URL is masked in the test error, the log and the page', function () {
+    $stub = SmtpStub::start('echo');
+    $password = 'Env-Url-Pass-5531';
+
+    try {
+        config(['mail.default' => 'smtp', 'mail.mailers.smtp.url' => "smtp://env-user:{$password}@127.0.0.1:{$stub->port}"]);
+        actingAsStaff(['core.settings.mail']);
+        confirmPassword();
+
+        $this->post(route('admin.platform.settings.mail.test'), ['to' => 'owner@example.com.np'])->assertSessionHas('inertia.flash_data.mailTest.ok', false);
+    } finally {
+        $stub->stop();
+    }
+
+    $error = (string) session('inertia.flash_data.mailTest.error');
+    $logged = json_encode(ActivityLog::query()->where('event', 'settings.mail_test')->sole()->properties);
+    $page = $this->get(route('admin.platform.settings.edit', ['section' => 'mail']))->getContent();
+    $plain = base64_encode("\0env-user\0{$password}");
+    expect($error)->toContain('535');
+
+    foreach ([$password, base64_encode($password), $plain, rtrim($plain, '=')] as $form) {
+        expect($error)->not->toContain($form)->and($logged)->not->toContain($form)->and($page)->not->toContain($form);
+    }
+});
+
+test('"Remove the saved value" is offered only for a secret saved in the database, not one that only .env supplies', function () {
+    config(['mail.mailers.smtp.password' => 'env-pass']);
+    actingAsStaff(['core.settings.mail']);
+    confirmPassword();
+    $field = fn (Assert $p) => $p->where('section.fields.5.key', 'mail.mailers.smtp.password');
+
+    $this->get(route('admin.platform.settings.edit', ['section' => 'mail']))->assertInertia(fn (Assert $p) => $field($p)->where('section.fields.5.saved', false));
+
+    saveMail(relayPayload(['password' => 'Saved-Pass']))->assertSessionHasNoErrors();
+    $this->get(route('admin.platform.settings.edit', ['section' => 'mail']))->assertInertia(fn (Assert $p) => $field($p)->where('section.fields.5.saved', true));
+
+    saveMail([...relayPayload(), 'clear' => ['mail.mailers.smtp.password']])->assertSessionHasNoErrors();
+    $this->get(route('admin.platform.settings.edit', ['section' => 'mail']))->assertInertia(fn (Assert $p) => $field($p)->where('section.fields.5.saved', false));
+});
+
+test('the test transport honours verify_peer and auto_tls from MAIL_URL like the real mailer', function () {
+    config(['mail.default' => 'smtp', 'mail.mailers.smtp.url' => 'smtp://u:p@relay.example.com.np:2525?verify_peer=0&auto_tls=0']);
+    $real = realSmtp();
+    app(MailServerSettings::class)->registerTestMailer();
+    $test = app('mail.manager')->mailer(MailServerSettings::TEST_MAILER)->getSymfonyTransport();
+
+    expect($test->getStream()->getHost())->toBe('relay.example.com.np')
+        ->and($test->getStream()->getPort())->toBe(2525)
+        ->and($test->isAutoTls())->toBeFalse()->toBe($real->isAutoTls())
+        ->and($test->getStream()->isTLS())->toBeFalse()->toBe($real->getStream()->isTLS())
+        ->and($test->getStream()->getStreamOptions()['ssl']['verify_peer'])->toBeFalse()
+        ->and($test->getStream()->getStreamOptions())->toEqual($real->getStream()->getStreamOptions());
+});

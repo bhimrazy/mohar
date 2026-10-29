@@ -3,10 +3,10 @@
 - **Mail server settings in Admin → Settings → Mail server.** Staff choose SMTP, Amazon SES or Log only and enter the
   host, port, encryption (STARTTLS required, TLS from the start, or automatic), username and password, or the SES access
   key, secret and region, without editing `.env`. Passwords and keys are stored encrypted, never sent back to the page
-  and masked in the activity log. A value saved here replaces its `MAIL_*` / `AWS_*` counterpart; a value never saved
+  and masked in the activity log (a password from a `MAIL_URL` too). A value saved here replaces its `MAIL_*` / `AWS_*` counterpart; a value never saved
   keeps the `.env` one, including `MAIL_SCHEME` when encryption is "Automatic" (Automatic changes nothing). A `MAIL_URL`
   in `.env` is replaced by SMTP values saved here, and the page says so. A saved password or secret is removed with the
-  "Remove the saved value on save" control; a blank field alone keeps it. The SMTP host may be on this machine or your
+  "Remove the saved value on save" control (offered only for a value saved in the database, not one that only `.env` supplies); a blank field alone keeps it. The SMTP host may be on this machine or your
   network but not a link-local, cloud-metadata or reserved address. The sender address and Reply-To stay under
   Settings → Email delivery.
 - **Send test email.** Sends one message at once, with the saved settings, to an address staff enter (their own by
