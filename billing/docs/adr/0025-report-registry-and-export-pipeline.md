@@ -217,14 +217,14 @@ replaces the §2 text that has the owner render the screen "using the registry's
 - **Each screen route is rate-limited** per user, so the view permission cannot be used to pull a report page by page
   at machine speed. The VAT registers allow 60 requests a minute (`billing-registers`).
 - **Every report pages conformantly.** A report that ignores `limit` and `offset` would show page 1 again as page 2;
-  the viewer caps the row count but cannot detect the repeat. `App\Support\Reports\ReportConformance` (moved by the ADR 0020 amendment (#PRNUM)) checks the
+  the viewer caps the row count but cannot detect the repeat. `App\Support\Reports\ReportConformance` (moved by the ADR 0020 amendment (#515)) checks the
   pages against the unpaged rows. `tests/Arch/ReportsTest.php` finds each report in `app/` and requires another test
   file to pass that report's registry key to `ReportConformance::assertPages()`.
 - **Count and totals are bounded.** `count()` and `ProvidesTotals::totals()` run on every page without a cache. Both
   must be aggregate queries served by an index, a fixed number of them, never a walk through the sorted rows. A report
   whose filters allow an open-ended period caps it: the VAT registers accept an AD range of at most one year.
 
-## Amendment (#PRNUM) — 2026-10-29, one identity for permission and step-up; a capped PDF header
+## Amendment (#515) — 2026-10-29, one identity for permission and step-up; a capped PDF header
 
 - **The query's user decides both checks.** `ReportExporter::export()` loads the user named by `ReportQuery::$userId`
   once and decides the export permission and, for a `HasSensitiveExport` report, the step-up for that user. The

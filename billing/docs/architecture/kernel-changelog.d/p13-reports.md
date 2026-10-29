@@ -1,4 +1,4 @@
-### Report conformance kit moves to the kernel; step-up decided for the query's user (#PRNUM)
+### Report conformance kit moves to the kernel; step-up decided for the query's user (#515)
 
 - `Tests\Support\Reports\ReportConformance` is now `App\Support\Reports\ReportConformance` (`@api`) and throws
   `App\Support\Reports\ReportConformanceFailure` instead of using PHPUnit assertions. New

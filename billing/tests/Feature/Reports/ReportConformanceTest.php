@@ -8,7 +8,7 @@ use App\Support\Reports\ReportExporter;
 use App\Support\Reports\ReportRegistry;
 use Tests\Support\Reports\UserListReport;
 
-/** The shipped conformance kit (ADR 0020, Amendment (#PRNUM)): it passes a sound report and fails the broken ones. */
+/** The shipped conformance kit (ADR 0020, Amendment (#515)): it passes a sound report and fails the broken ones. */
 class PerRowQueryReport extends UserListReport
 {
     public function key(): string

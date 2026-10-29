@@ -8,7 +8,7 @@ use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 
 /**
- * The conformance kit for a report, usable by any package that registers one (ADR 0020, Amendment (#PRNUM)). Call both
+ * The conformance kit for a report, usable by any package that registers one (ADR 0020, Amendment (#515)). Call both
  * checks from the package's own tests, with a query whose user may view the report and fixture data of more than one
  * page. Each throws ReportConformanceFailure. tests/Arch/ReportsTest requires both for every report in app/.
  *

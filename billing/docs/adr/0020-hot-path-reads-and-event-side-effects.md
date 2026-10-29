@@ -64,7 +64,7 @@ three causes that come from the architecture, not from one module:
 
     The first and third touch the money path and get the full gate set.
 
-## Amendment (#PRNUM) — 2026-10-29, a query budget for report pages and a shipped conformance kit
+## Amendment (#515) — 2026-10-29, a query budget for report pages and a shipped conformance kit
 
 `ReportViewer::page()` is a hot read: it runs on every screen page, uncached, and runs `count()` and `ProvidesTotals::totals()` besides `rows()`.
 
