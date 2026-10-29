@@ -289,7 +289,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
             new SettingDefinition('mail.default', 'Send email with', 'select', 'Until this page is saved, the server environment (.env) settings are used. Log only writes each message to the application log.', options: MailServerSettings::MAILERS),
             new SettingDefinition($smtp('host'), 'SMTP host', help: 'For example smtp.yourdomain.com.', rules: [$required('smtp'), 'max:255', 'regex:/^[A-Za-z0-9.\-:\[\]]*$/']),
             new SettingDefinition($smtp('port'), 'SMTP port', 'integer', 'Usually 587 for STARTTLS or 465 for TLS.', rules: ['min:1', 'max:65535']),
-            new SettingDefinition($smtp('encryption'), 'Encryption', 'select', 'STARTTLS, required, refuses a server that does not offer it, so the password is never sent unencrypted.', options: MailServerSettings::ENCRYPTION),
+            new SettingDefinition($smtp('encryption'), 'Encryption', 'select', 'STARTTLS, required, and TLS never send the password unencrypted. Automatic uses TLS on port 465 and otherwise STARTTLS only when the server offers it.', options: MailServerSettings::ENCRYPTION),
             new SettingDefinition($smtp('username'), 'SMTP username', help: 'Leave empty if the server does not ask for a sign-in.', rules: ['max:255']),
             new SettingDefinition($smtp('password'), 'SMTP password', secret: true, rules: ['max:255']),
             new SettingDefinition('services.ses.key', 'AWS access key ID', secret: true, rules: ['max:128']),

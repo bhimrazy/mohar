@@ -205,7 +205,6 @@ Typed registry (`SettingDefinition: key, type, default, rules, is_secret, owner_
 
 - Maintenance mode blocks client area & checkout (503 page or redirect); staff, API and webhooks continue. **MUST**
 
-
 Mail server (section `mail`, sensitive permission `core.settings.mail`): `mail.default` (smtp, ses, log),
 `mail.mailers.smtp.{host,port,encryption,username,password}`, `services.ses.{key,secret,region}`. The keys are the
 config keys they override, so a value never saved reads `.env`; `encryption` (starttls, tls, auto) maps to the scheme

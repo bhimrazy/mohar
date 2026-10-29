@@ -30,9 +30,9 @@ final class MailServerSettings
     ];
 
     public const ENCRYPTION = [
-        'starttls' => 'STARTTLS, required (usually port 587)',
-        'tls' => 'TLS from the start (usually port 465)',
-        'auto' => 'Automatic: TLS on port 465, otherwise STARTTLS when the server offers it',
+        'starttls' => 'STARTTLS, required (port 587)',
+        'tls' => 'TLS (port 465)',
+        'auto' => 'Automatic',
     ];
 
     /** Setting keys. Each is also the config key it overrides, except the encryption, mapped in overrides(). */

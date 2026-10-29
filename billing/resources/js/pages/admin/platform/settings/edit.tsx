@@ -182,7 +182,7 @@ export default function SettingsEdit({ sections, section, mailTest }: Props) {
                 <div className="grid gap-6 md:grid-cols-[200px_1fr]">
                     <nav
                         aria-label="Settings sections"
-                        className="flex gap-1 overflow-x-auto md:flex-col"
+                        className="flex gap-1 overflow-x-auto md:row-span-2 md:flex-col"
                     >
                         {sections.map((item) => (
                             <Link
