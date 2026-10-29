@@ -1,3 +1,4 @@
+import { selfRegisteredNote } from '@/lib/self-registered-note';
 import { router } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import { CheckCircle2, Search, XCircle } from 'lucide-react';
@@ -41,16 +42,10 @@ function statusText(result: LookupResult): string {
         case 'unsupported':
             return "We don't offer this extension";
         case 'self_registered':
-            return 'Registered at the registry, not sold here';
+            return 'Register it at the registry';
         default:
             return 'Availability unknown — try again shortly';
     }
-}
-
-function selfRegisteredNote(tld?: string | null): string {
-    const free = tld?.endsWith('.np') ? ', free for eligible applicants' : '';
-
-    return `${tld} domains are registered by you at the registry${free}. Once it is approved, set the nameservers shown on your hosting service.`;
 }
 
 function ResultRow({

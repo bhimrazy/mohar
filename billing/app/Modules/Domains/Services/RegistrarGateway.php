@@ -69,7 +69,7 @@ class RegistrarGateway
     {
         $account = $this->accounts->account($registrarKey);
 
-        if (! $this->accounts->isActive($registrarKey, $account)) {
+        if (! $this->accounts->isActiveFor($registrarKey, $account)) {
             $name = $this->drivers->get($registrarKey)->name();
 
             throw new RegistrarException($account !== null
@@ -77,7 +77,7 @@ class RegistrarGateway
                 : "The {$name} registrar has no saved account; save its account under Registrars first.");
         }
 
-        return $this->run($registrarKey, $capability, $interface, $call, $domain, $request, $staffId, $logSuccess, $secrets, $account);
+        return $this->run($account, $registrarKey, $capability, $interface, $call, $domain, $request, $staffId, $logSuccess, $secrets);
     }
 
     /**
@@ -88,7 +88,7 @@ class RegistrarGateway
      */
     public function testConnection(string $registrarKey): ConnectionCheck
     {
-        return $this->run($registrarKey, RegistrarDriverRegistry::TEST_CONNECTION, TestsRegistrarConnection::class, fn (TestsRegistrarConnection $driver, RegistrarConfig $config): ConnectionCheck => $driver->testConnection($config));
+        return $this->run($this->accounts->account($registrarKey), $registrarKey, RegistrarDriverRegistry::TEST_CONNECTION, TestsRegistrarConnection::class, fn (TestsRegistrarConnection $driver, RegistrarConfig $config): ConnectionCheck => $driver->testConnection($config));
     }
 
     /**
@@ -99,12 +99,12 @@ class RegistrarGateway
      * @param  Closure(TDriver, RegistrarConfig): T  $call
      * @param  array<string, mixed>  $request
      * @param  list<string>  $secrets
-     * @param  RegistrarAccount|null  $account  the account call() already loaded; run() loads it when absent
+     * @param  RegistrarAccount|null  $account  the saved account, already loaded by the caller (null: none saved)
      * @return T
      *
      * @throws RegistrarException
      */
-    private function run(string $registrarKey, string $capability, string $interface, Closure $call, ?Domain $domain = null, array $request = [], ?int $staffId = null, bool $logSuccess = true, array $secrets = [], ?RegistrarAccount $account = null): mixed
+    private function run(?RegistrarAccount $account, string $registrarKey, string $capability, string $interface, Closure $call, ?Domain $domain = null, array $request = [], ?int $staffId = null, bool $logSuccess = true, array $secrets = []): mixed
     {
         $driver = $this->drivers->get($registrarKey);
 
@@ -118,7 +118,7 @@ class RegistrarGateway
 
         $started = hrtime(true);
         $staffId ??= $this->currentStaffId();
-        $config = $this->accounts->config($registrarKey, $account ?? $this->accounts->account($registrarKey));
+        $config = $this->accounts->configFor($registrarKey, $account);
         $secrets = [...$config->secrets(), ...array_values(array_filter($secrets, fn (string $secret): bool => $secret !== ''))];
 
         try {

@@ -199,7 +199,7 @@ class CartPricer
         if ($price === null && $this->domainPricing->terms($tld, $action === 'transfer' ? 'transfer' : 'register', $currency, $clientId) === []) {
             $priced->errors[] = $this->nameRules->registeredByClient($tld)
                 ? __(':tld domains are not sold here. If you already own one, choose "Use a domain I own".', ['tld' => $tld])
-                : __(':tld domains cannot be ordered in :currency. Choose another currency or extension.', ['tld' => $tld, 'currency' => $currency]);
+                : __($action === 'transfer' ? ':tld domains cannot be transferred here in :currency.' : ':tld domains cannot be registered here in :currency.', ['tld' => $tld, 'currency' => $currency]);
 
             return;
         }

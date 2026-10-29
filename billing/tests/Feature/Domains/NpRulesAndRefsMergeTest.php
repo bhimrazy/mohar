@@ -116,7 +116,7 @@ test('a TLD with no price in the visitor\'s currency gets its own message; .np k
     $errors = fn (string $domain): array => app(App\Modules\Orders\Pricing\CartPricer::class)
         ->price([new App\Modules\Orders\Data\CartItem(key: 'k1', kind: App\Modules\Orders\Enums\CartItemKind::DomainRegister, domainName: $domain, years: 1)], 'NPR')->items[0]->errors;
 
-    expect($errors('asha.com'))->toBe(['.com domains cannot be ordered in NPR. Choose another currency or extension.'])
+    expect($errors('asha.com'))->toBe(['.com domains cannot be registered here in NPR.'])
         ->and($errors('asha.com.np')[0])->toStartWith('.com.np domains are not sold here');
 });
 

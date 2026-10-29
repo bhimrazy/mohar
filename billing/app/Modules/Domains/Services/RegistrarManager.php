@@ -18,9 +18,14 @@ class RegistrarManager
     /**
      * The account the driver registered as $key runs against; an unconfigured account has no settings.
      */
-    public function config(string $key, ?RegistrarAccount $account = null): RegistrarConfig
+    public function config(string $key): RegistrarConfig
     {
-        $account ??= $this->account($key);
+        return $this->configFor($key, $this->account($key));
+    }
+
+    /** config() for an account the caller already loaded; null means the key has no saved row. */
+    public function configFor(string $key, ?RegistrarAccount $account): RegistrarConfig
+    {
         $secretKeys = array_values(array_map(
             fn (SettingField $field): string => $field->key,
             array_filter($this->drivers->fields($key), fn (SettingField $field): bool => $field->isSecret()),
@@ -38,13 +43,17 @@ class RegistrarManager
     /**
      * Whether the driver is registered and usable: its account is enabled, or it has none and needs none.
      */
-    public function isActive(string $key, ?RegistrarAccount $account = null): bool
+    public function isActive(string $key): bool
+    {
+        return $this->drivers->has($key) && $this->isActiveFor($key, $this->account($key));
+    }
+
+    /** isActive() for an account the caller already loaded; null means the key has no saved row. */
+    public function isActiveFor(string $key, ?RegistrarAccount $account): bool
     {
         if (! $this->drivers->has($key)) {
             return false;
         }
-
-        $account ??= $this->account($key);
 
         return $account === null ? ! $this->drivers->needsAccount($key) : $account->is_active;
     }
