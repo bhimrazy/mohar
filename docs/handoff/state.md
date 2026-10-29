@@ -109,10 +109,21 @@ pending refund matched by its provider id is settled; Stripe books only `succeed
 the arch plugin parsed all of `app/` and ran out of 1 GB); #488 (`scripts/pr-screenshots.sh`: screenshots in PR descriptions on
 `refs/pr-assets/pr-<n>`, owner rule). Issues closed by hand: #154, #30, #24.
 
-No agents running. No open PRs. Open follow-ups from this wave: #483 admin Credit notes list with resend; #498 failed Stripe
-refund already booked goes to review; #499 backfill released refund rows; ADR 0010 `kernel:api-snapshot` and
-`Kernel::API_VERSION` still do not exist; `SignedOutcome` enum if a third signed signal appears; a Stripe simulator pending
-refund scenario; connectIPS `.pfx` from a real NCHL may use legacy encryption OpenSSL 3 refuses (clear message shown).
+Open follow-ups from the gateway wave: ADR 0010 `kernel:api-snapshot` and `Kernel::API_VERSION` still do not exist;
+`SignedOutcome` enum if a third signed signal appears; a Stripe simulator pending refund scenario; connectIPS `.pfx` from a
+real NCHL may use legacy encryption OpenSSL 3 refuses (clear message shown).
+
+Billing follow-ups, merged 2026-10-25: #503 (admin Billing → Credit notes list with filters, note page and resend; new
+permission `billing.tax_notes.resend`, the seeded Billing role has it; kernel: event `TaxNoteResendRequested`), #504 (P6b:
+invoice and quote PDFs attached to their emails through `BillingDocuments` `INVOICE`/`QUOTE`; quote PDF keyed by a content
+digest; "attached" text only when the file is attached; a failed render sends the mail without it; renewal query budget 47),
+#505 (a failed Stripe refund already booked goes to Disputes to review, kernel `CallbackEvent::REFUND_FAILED`; data-only
+migration `2026_11_03_300800` moves released refund ids into `raw`). Issues closed by hand: #483, #29, #498, #499.
+
+No agents running. No open PRs. Open follow-ups: #506 (note email can say "attached" when the render fails at send; CI
+flakes: `RenewalIssuingTest` budget 50 vs 47 on fresh PostgreSQL, dompdf out of memory in `NepalDemoSeedTest`); #507
+(a "succeeded" refund delivery racing a failed report can book an unmarked row); #503 review leftovers: invoice-number search
+scans without an index, no per-note resend cooldown, "View in email log" link on the resend toast.
 
 Walkthrough: `docs-site` Overview and Get started → Walkthrough (12 steps, run against a seeded app). Before a demo
 start Mailpit (`docker compose up -d` in `billing/`) and `composer dev` (now includes the scheduler).
