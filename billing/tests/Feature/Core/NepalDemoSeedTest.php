@@ -6,13 +6,13 @@ use App\Modules\Catalog\Database\Seeders\CatalogSeeder;
 use App\Modules\Catalog\Models\Product;
 use App\Modules\Core\Database\Seeders\CoreSeeder;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Database\Seeders\DomainsSeeder;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\TldPrice;
 use App\Modules\Services\Database\Seeders\ServicesSeeder;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Models\ServiceAddon;
-use App\Modules\Core\Support\Settings;
 use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
