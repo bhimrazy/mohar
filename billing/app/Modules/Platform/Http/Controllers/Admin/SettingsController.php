@@ -8,6 +8,7 @@ use App\Modules\Platform\Actions\Settings\UpdateSettings;
 use App\Modules\Platform\Http\Requests\SettingsRequest;
 use App\Modules\Platform\Services\SettingsCatalog;
 use App\Modules\Platform\Support\AccountMail;
+use App\Modules\Platform\Support\MailServerSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -15,7 +16,7 @@ use Inertia\Response;
 
 class SettingsController extends Controller
 {
-    public function edit(Request $request, SettingsCatalog $catalog, ?string $section = null): Response|RedirectResponse
+    public function edit(Request $request, SettingsCatalog $catalog, MailServerSettings $mail, ?string $section = null): Response|RedirectResponse
     {
         $user = $request->user();
         abort_if($user === null, 401);
@@ -45,6 +46,11 @@ class SettingsController extends Controller
                 'editable' => $catalog->canEdit($user, $section),
                 'fields' => $catalog->fields($section),
             ],
+            'mailTest' => $section === MailServerSettings::SECTION && $catalog->canEdit($user, $section) ? [
+                'default_to' => $user->email,
+                'saved_here' => $mail->savedHere(),
+                'max_attempts' => MailTestController::MAX_ATTEMPTS,
+            ] : null,
         ]);
     }
 

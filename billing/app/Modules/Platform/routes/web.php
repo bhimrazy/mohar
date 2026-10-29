@@ -10,6 +10,7 @@ use App\Modules\Platform\Http\Controllers\Admin\ClientUserController;
 use App\Modules\Platform\Http\Controllers\Admin\CurrencyController;
 use App\Modules\Platform\Http\Controllers\Admin\ExchangeRateController;
 use App\Modules\Platform\Http\Controllers\Admin\ImpersonationController;
+use App\Modules\Platform\Http\Controllers\Admin\MailTestController;
 use App\Modules\Platform\Http\Controllers\Admin\PriceConversionController;
 use App\Modules\Platform\Http\Controllers\Admin\RoleController;
 use App\Modules\Platform\Http\Controllers\Admin\SearchController;
@@ -62,6 +63,7 @@ Route::adminArea(fn () => Route::name('platform.')->group(function (): void {
 
     Route::get('settings/{section?}', [SettingsController::class, 'edit'])->name('settings.edit');
     Route::put('settings/{section}', [SettingsController::class, 'update'])->name('settings.update');
+    Route::post('settings/mail/test', MailTestController::class)->middleware('password.recent')->name('settings.mail.test');
 
     Route::get('activity', [ActivityLogController::class, 'index'])->name('activity.index');
     Route::get('automation', [AutomationController::class, 'index'])->name('automation.index');

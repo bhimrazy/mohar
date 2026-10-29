@@ -242,7 +242,7 @@ final class EnvironmentChecks
         $mailer = (string) config('mail.default');
 
         if (in_array((string) config("mail.mailers.{$mailer}.transport", $mailer), ['log', 'array'], true)) {
-            $checks[] = new EnvironmentCheck('Mail', CheckStatus::Warning, "MAIL_MAILER={$mailer} sends nothing. Security notices and invoices need real mail: set the MAIL_* settings.");
+            $checks[] = new EnvironmentCheck('Mail', CheckStatus::Warning, "MAIL_MAILER={$mailer} sends nothing. Security notices and invoices need real mail: set the MAIL_* settings, or set the mail server in Admin → Settings → Mail server after installing.");
         }
 
         // Staff 2FA and the forced change of a one-time password are enforced by the Platform module's middleware.
