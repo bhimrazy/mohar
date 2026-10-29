@@ -69,6 +69,8 @@ other_bases() {
 
 # drop_family <base database> <dry-run: 0|1>: the database, its parallel copies (<db>_test_<n>) and the copies the tests
 # derive from it (<db>[_test_<n>]_<name>, Tests\TestCase::useSeededDatabase), except those of another worktree's slug.
+# Scope: every idle database starting with <db>_ is reached, so a longer slug that has no worktree of that name loses its
+# idle databases too (pg.sh <slug> recreates them). Use the worktree's directory name as the slug.
 # Idle ones only. Returns non-zero when a drop fails.
 drop_family() {
     local base="$1" dry="$2" db busy rows rc=0 skip="" o

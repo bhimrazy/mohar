@@ -19,7 +19,8 @@ checklist; this file holds what they have in common. The brief gives the PR numb
   test database on the shared server.
 - Scratch worktrees go under `$MOHAR_ROOT/.claude/worktrees/_review/<name>`. `touch .claude-in-use` in the tree
   (`scripts/sweep-stale.sh` skips marked trees), and before reporting remove the worktree (`git worktree remove`) and
-  the databases you created.
+  the databases you created. Use the worktree's directory name as the `pg.sh` slug (`_review/<name>` → `<name>`), so the sweep and
+  `--drop` can match databases to their owner; `--drop <slug>` can also drop idle databases of a longer slug with no worktree.
 - Dev servers on the port range in your brief; stop them by port PID (`ss -ltnp | grep :<port>`), never `pkill -f`.
 
 ## Verdict

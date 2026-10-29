@@ -57,8 +57,9 @@ account, so reviews are posted as comments and the verdict line is the gate.
    naming each blocking item and its evidence, `gh pr merge --squash --match-head-commit <sha>`. Use `--merge`
    instead when another open PR is based on the branch, so the stacked PR keeps its parent's commits (owner,
    2026-10-24). Right after a successful `gh pr merge`, run `scripts/finish-workstream.sh <slug>`: it refuses,
-   changing nothing, unless the work is safe (clean tree, HEAD is a merged PR head or fully on origin); then it removes
-   the worktree, the local branch and the slug's test databases.
+   changing nothing, unless the work is safe: no `.claude-in-use` marker, a clean tree, and the branch tip is a merged
+   PR head (pushed work with an open PR is not enough; a detached tree needs only all its commits on origin). Then it
+   removes the worktree, the local branch and the slug's test databases.
 8. **Record.** `state.md`, `billing/docs/progress.md`; the PR's changelog fragment is already in. Non-blocking items
    become issues.
 9. **Before an owner update** after user-facing merges: a `product-reviewer` sweep of `develop`; act on its
@@ -178,7 +179,9 @@ Cleanup is part of the process (2026-10-29: 139 stale worktrees, 68 GB, and 1,20
 Worktrees live in `.claude/worktrees/<slug>`. The merge step runs `scripts/finish-workstream.sh <slug>`. Review and
 probe agents create a scratch worktree under `.claude/worktrees/_review/<name>`, `touch .claude-in-use` in it (the
 sweep skips marked trees), and before reporting remove the worktree and the test databases they created
-(`scripts/pg.sh --drop <slug>`). `scripts/sweep-stale.sh` (dry run; `--apply` removes worktrees, `--apply --dbs` also
+(`scripts/pg.sh --drop <slug>`). The `pg.sh` slug must be the worktree's directory name (`_review/<name>` → slug `<name>`),
+so the sweep and `--drop` match databases to their owners; limit: `--drop <slug>` can also drop the idle databases of a
+longer slug that has no worktree. `scripts/sweep-stale.sh` (dry run; `--apply` removes worktrees, `--apply --dbs` also
 drops orphan databases, only when no suite is running) is the safety net, run at session start; it never touches dirty
 or unpushed work, marked trees, or trees active in the last 12 hours. `.claude/worktrees/` is shared with Claude
 Code's own worktree feature (`EnterWorktree`, `isolation: "worktree"`); the sweep keeps those unless their PR merged.

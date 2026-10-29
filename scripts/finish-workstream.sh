@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Clean up after a merged workstream: scripts/finish-workstream.sh [--dry-run] <slug>
+# Clean up after a merged workstream: scripts/finish-workstream.sh [--dry-run] <slug>   (--dry-run in any position)
 # Run right after `gh pr merge`. It first decides whether the work is safe, and changes nothing unless it is:
-#   - the worktree (.claude/worktrees/<slug>, or the old .worktrees/<slug>) has no uncommitted changes, and
-#   - its HEAD (detached included) is the head of a merged PR, or none of its commits are missing from origin.
-# Otherwise it prints why and exits non-zero (1 dirty or bad input, 2 unmerged or unpushed commits), so a mistyped slug
-# cannot cost a worktree. When safe it
+#   - no .claude-in-use file at the worktree root (an agent is using it), and no uncommitted changes, and
+#   - a branch worktree (or a branch without a worktree): its tip is the head of a merged PR. Pushed work with an open
+#     PR is NOT enough, so it survives; or
+#   - a detached worktree: none of its commits are missing from origin.
+# Otherwise it prints why and exits non-zero (1 marked, dirty or bad input; 2 work not merged or not on origin), so a
+# mistyped slug cannot cost a worktree. The worktree is .claude/worktrees/<slug>, or the old .worktrees/<slug>. When safe it
 #   1. removes the worktree,
 #   2. deletes the local branch (the one the worktree had, or feature/<slug>),
 #   3. drops the slug's test databases (scripts/pg.sh --drop: base, parallel and seeded copies), skipping any in use;
@@ -15,9 +17,14 @@ set -uo pipefail
 export LC_ALL=C
 
 main_fn() {
-    local dry=0 slug here common main g gh_repo wt="" d branch="" head="" tip="" merged outside ghnote="" ghout scripts rc=0
-    [ "${1:-}" = "--dry-run" ] && { dry=1; shift; }
-    slug="${1:-}"
+    local dry=0 slug="" a here common main g gh_repo wt="" d branch="" head="" merged outside ghnote="" ghout scripts rc=0
+    for a in "$@"; do
+        case "$a" in
+            --dry-run) dry=1 ;;
+            -*) echo "finish-workstream: unknown option '$a'" >&2; echo "usage: scripts/finish-workstream.sh [--dry-run] <slug>" >&2; return 1 ;;
+            *) [ -z "$slug" ] || { echo "usage: scripts/finish-workstream.sh [--dry-run] <slug>" >&2; return 1; }; slug="$a" ;;
+        esac
+    done
     [[ "$slug" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "usage: scripts/finish-workstream.sh [--dry-run] <slug>" >&2; return 1; }
 
     here="$(cd "$(dirname "$0")" && pwd)"
@@ -35,6 +42,10 @@ main_fn() {
     done
     if [ -n "$wt" ]; then
         branch="$(git -C "$wt" branch --show-current 2>/dev/null)"
+        if [ -e "$wt/.claude-in-use" ]; then
+            echo "refused: $wt is marked in use (.claude-in-use); remove the marker when the agent is done. Nothing was changed." >&2
+            return 1
+        fi
         head="$(git -C "$wt" rev-parse HEAD)" || { echo "refused: cannot read HEAD of $wt" >&2; return 1; }
         if [ -n "$(git -C "$wt" --no-optional-locks status --porcelain 2>/dev/null)" ]; then
             echo "refused: $wt has uncommitted changes; commit or discard them first. Nothing was changed." >&2
@@ -60,10 +71,13 @@ main_fn() {
         outside="$(g rev-list "$head" --not --remotes=origin | wc -l | tr -d ' ')"
         if [ -n "$merged" ]; then
             echo "safe: ${head:0:9} is the head of a merged PR${branch:+ ($branch)}"
-        elif [ "$outside" = 0 ]; then
-            echo "safe: all commits of ${head:0:9} are on origin"
+        elif [ -z "$branch" ] && [ "$outside" = 0 ]; then
+            echo "safe: detached, all commits of ${head:0:9} are on origin"
+        elif [ -z "$branch" ]; then
+            echo "refused: detached HEAD at ${head:0:9} has $outside commit(s) not on origin. Push or discard them, then rerun. Nothing was changed." >&2
+            return 2
         else
-            echo "refused: ${branch:-detached HEAD} at ${head:0:9} is not the head of a merged PR and $outside commit(s) are not on origin${ghnote}. Push or merge it, then rerun. Nothing was changed." >&2
+            echo "refused: $branch at ${head:0:9} is not the head of a merged PR${ghnote} ($outside commit(s) not on origin). Merge it, then rerun. Nothing was changed." >&2
             return 2
         fi
     fi

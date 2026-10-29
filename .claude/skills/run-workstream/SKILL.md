@@ -47,7 +47,7 @@ Merge origin/develop (no rebase); squash only against a fixed SHA, never a movin
 When the engineer reports a pushed, clean head, launch per the policy table (background, same model rule). Tell every
 review or probe agent to create its scratch worktree under `.claude/worktrees/_review/<name>`, `touch .claude-in-use`
 in it, and before reporting remove the worktree (`git worktree remove`) and the test databases it made
-(`scripts/pg.sh --drop <slug>`):
+(`scripts/pg.sh --drop <slug>`). The `pg.sh` slug must be the worktree's directory name (`_review/<name>` → `<name>`):
 
 - Money, auth, permissions or migrations: `review-board` with "combined" in the brief (security threats and the
   tables in scope named), PR number, worktree, domain expertise, focus areas. One review.
