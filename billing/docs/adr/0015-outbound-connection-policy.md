@@ -99,8 +99,14 @@ with the kernel guard. Infrastructure that staff set up uses the install policy.
   the kernel guard, which pins the connection. So webhooks already get the profile's behaviour. The option goes into
   the kernel guard with the second such destination, for example a client-entered URL, and `WebhookUrlGuard` then
   drops its own list. Until then a parameter with no caller would be untested surface.
-- The DNS resolution deadline is still documented, not enforced. PHP's resolver functions (`dns_get_record`,
-  `gethostbynamel`) take no timeout, and `resolv.conf` sets the real limit. Enforcing one needs its own resolver
-  (UDP queries with a socket timeout, nameservers read from `resolv.conf`, `/etc/hosts` handled) or a lookup in a
-  child process with a deadline. Both are an architect decision (issue #67). Callers in a web request, such as the
-  cPanel "Test connection" button, should expect the system limit.
+- DNS lookups get no deadline inside the process. This is a decision, not an oversight. PHP's resolver calls
+  (`dns_get_record`, `gethostbynamel`) take no timeout. A resolver of our own would need TCP fallback, truncation,
+  CNAMEs, search domains and `/etc/hosts`, which makes a large, security-sensitive surface. A child process per lookup
+  is too costly under FrankenPHP workers for a rare failure. The deployment bounds the lookup instead.
+  `deploy/compose.prod.yaml` sets `dns_opt: [timeout:2, attempts:2]` on the `x-app` services, and glibc and musl both
+  honour it.
+- Worst case for a synchronous caller, such as the cPanel "Test connection" button: one query to Docker's embedded
+  resolver gives up after about 4 s. `resolve()` asks for A and AAAA, then makes one fallback lookup, so a host that
+  never answers fails after about 12 s. Search domains in the host's `resolv.conf` multiply that.
+  `docs/devops/production.md` (Troubleshooting) says so. Queued callers are bounded by their job timeouts as well
+  (ADR 0017). Other installs set the same options in `resolv.conf`.

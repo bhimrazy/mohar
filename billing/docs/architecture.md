@@ -113,8 +113,9 @@ loaded. Registration is `register(key, class-string|Closure, replace: false)`, r
 lists the UI shows are computed from the interfaces a driver implements. Kernel API changes are listed in
 `docs/architecture/kernel-changelog.md`, through a fragment in `docs/architecture/kernel-changelog.d/`. The public
 signatures are recorded in `docs/architecture/kernel-api.txt`: after a kernel change run `php artisan
-kernel:api-snapshot` and commit the file; CI fails when it is stale, and when it changes without a kernel fragment
-(ADR 0010 Amendment (#513)).
+kernel:api-snapshot` and commit the file; CI fails when it is stale, when it changes without a kernel fragment, and
+when it changes with no `app/` change (ADR 0010 Amendment (#513)). Mark a member that is public in PHP but not API
+`@internal`.
 
 Provisioning drivers implement `Contracts\Services\Provisioning\ProvisioningDriver` plus capability interfaces,
 receive `ProvisioningContext` snapshots (never models), and register with `Support\Services\ProvisioningDriverRegistry`.

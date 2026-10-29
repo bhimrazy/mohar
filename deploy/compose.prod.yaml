@@ -86,6 +86,11 @@ x-app: &app
         - edge
         - backend
         - egress
+    # Bounds DNS lookups made during a request (ADR 0015 Amendment (#513)): PHP's resolver calls take no timeout, so
+    # resolv.conf sets it. Worst case per lookup: 2 s x 2 attempts per nameserver. glibc and musl both honour these.
+    dns_opt:
+        - timeout:2
+        - attempts:2
     stop_grace_period: 30s
     deploy:
         resources:

@@ -3,14 +3,17 @@
 - New `App\Support\Kernel` (`@api`) with `API_VERSION = '0.1.0'`. Only the release PR bumps it, by the rule in ADR 0010
   Amendment (#513).
 - New `docs/architecture/kernel-api.txt`, written by `php artisan kernel:api-snapshot`. It holds the public
-  signatures of `app/Contracts`, `app/Data`, `app/Events`, `app/Enums` and the `@api` classes in `app/Support`.
-  CI fails when the file is stale, and when it changes without a fragment here.
+  signatures of `app/Contracts`, `app/Data`, `app/Events`, `app/Enums` and the `@api` classes in `app/Support`, with
+  docblock types as `doc` lines. A member tagged `@internal` is left out. CI fails when the file is stale, when it
+  changes without a fragment here, and when it changes while no `billing/app/` file does. Format and scope: ADR 0010
+  Amendment (#513).
 - These classes now carry `@api` and are in the snapshot: `Money`, `SettingsRegistry`, `SettingDefinition`,
   `PermissionRegistry`, `ThemeRegistry`, `SitemapRegistry`, `ClientMergeRegistry`, `ReferenceDataRegistry`,
-  `Dashboard`, `Navigation`, `NavItem`, `GlobalSearch`, `ExchangeRateSources`, `PriceConverters`,
-  `AbstractGatewayDriver`, `IdentifiesOccurrence`, `RetryableProvisioningException`, `RegistrarException`,
-  `RegistrarTimeout`, `CapabilityNotSupported`, `OutboundAddressRefused` and `ExchangeRateUnavailable`. Their code is
-  unchanged.
+  `Dashboard`, `Navigation`, `NavItem`, `GlobalSearch`, `ExchangeRateSources`, `PriceConverters`, `ThemePreset`,
+  `Queues`, `Automation`, `AbstractGatewayDriver`, `IdentifiesOccurrence`, `InvoiceNotCancellable`,
+  `RetryableProvisioningException`, `RegistrarException`, `RegistrarTimeout`, `CapabilityNotSupported`,
+  `OutboundAddressRefused` and `ExchangeRateUnavailable`. Their code is unchanged. `ReportExporter::__construct` is
+  marked `@internal`: it takes Core services and is resolved from the container.
 - **Breaking.** `App\Contracts\Services\ProvisioningDrivers::all()` no longer returns the `config_fields` key, which
   was deprecated in #65 (issue #68). Read `fields`, the `SettingField::toArray()` shape. Allowed under the pre-1.0
   window: nothing in the repository read it, and `RegistryProvisioningDrivers`, `FakeProvisioningDrivers` and the
