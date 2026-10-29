@@ -82,4 +82,16 @@ test('the guard reports a report whose key no test passes to both checks', funct
         ->and(reportsWithoutConformance([UserListReport::class], [$both]))->toBe([]);
 });
 
+test('production code does not call the conformance kit', function () {
+    $callers = [];
+
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(dirname(__DIR__, 2).'/app', FilesystemIterator::SKIP_DOTS)) as $file) {
+        if ($file->getExtension() === 'php' && ! str_ends_with($file->getFilename(), 'ReportConformance.php') && str_contains((string) file_get_contents($file->getPathname()), 'ReportConformance::')) {
+            $callers[] = $file->getPathname();
+        }
+    }
+
+    expect($callers)->toBe([]);
+});
+
 afterAll(fn () => releaseArchCache());

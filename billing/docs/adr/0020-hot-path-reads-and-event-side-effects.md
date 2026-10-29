@@ -73,7 +73,7 @@ three causes that come from the architecture, not from one module:
   sorted rows or OFFSET pages), and `rows()` loads what it shows in bulk. No statement runs once per row shown.
 - **Test.** `ReportConformance::assertQueryBudget()` measures a page of up to 200 rows after one warm-up run and
   fails on either breach. `tests/Arch/ReportsTest.php` requires it, next to `assertPages()`, for every report in `app/`.
-  A report that legitimately needs more passes a higher budget in its own test and says why there.
+  The 12 is 4 of ReportViewer's own (the user and role for the permission check, the row query and `count()`), leaving 8 for `totals()` and the report's bulk lookups; the VAT registers measured 8 in all. Raising `QUERY_BUDGET` is a minor change; lowering it is breaking, because a package's report can pass today and fail after. A report that legitimately needs more passes a higher budget in its own test and says why there.
 - **Where the kit lives.** `App\Support\Reports\ReportConformance` (moved from `tests/Support/Reports`) is part of
   the shipped kernel (`@api`), so a package that registers a report can run the same two checks in its own suite. It
   throws `ReportConformanceFailure` (an `AssertionError`) and needs neither PHPUnit nor Pest, so it adds no dev

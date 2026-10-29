@@ -76,7 +76,7 @@ test('a header taller than half a page is cut and the PDF still has the pages it
 
     expect($result['printed'])->toBe($result['planned'])
         ->and(count($header))->toBeLessThan(31)
-        ->and(end($header)[0])->toBe('…')
+        ->and(end($header)[0])->toBe('…')->and(end($header)[1])->toContain('more header lines not shown')
         ->and(mb_strlen($header[0][1]))->toBe(360);
 });
 

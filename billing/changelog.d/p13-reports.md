@@ -6,3 +6,7 @@
 ### Changed
 
 - **Report pages have a query budget, and the conformance kit ships with the app (#431).** One screen page of a report, totals included, may run at most 12 queries and no statement once per row. Report packages can run the same checks with `App\Support\Reports\ReportConformance::assertPages()` and `assertQueryBudget()`; the class moved from `tests/Support/Reports`.
+
+### Security
+
+- **A stored password-confirmation time that is zero, negative or in the future no longer counts as a confirmation (#354).**

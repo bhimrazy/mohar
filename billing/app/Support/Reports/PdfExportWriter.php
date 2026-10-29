@@ -193,7 +193,7 @@ final class PdfExportWriter implements ExportWriter
             // Keep one line free for the "left out" note unless this is the last entry.
             if ($used + $height + ($more > 0 ? $line + 2 : 0) > self::HEADER_BUDGET) {
                 $left = count($context->header) - $index;
-                $kept[] = ['…', __(':count more header lines not shown', ['count' => $left])];
+                $kept[] = ['…', trans_choice('{1} :count more header line not shown|[2,*] :count more header lines not shown', $left)];
 
                 return $kept;
             }

@@ -90,6 +90,9 @@ final class ReportExporter
     /**
      * @param  int|null  $passwordConfirmedAt  when the query's user confirmed the password (unix time), for an export that
      *                                         runs with no request; without it the current request must be that user's
+     *                                         It must come from a stored confirmation (the session's `auth.password_confirmed_at`
+     *                                         read when the export was queued), never `time()` passed by a synchronous
+     *                                         caller, which would confirm nothing.
      *
      * @throws AuthorizationException when the acting user may not export the report
      * @throws ValidationException when the report or layout is unknown or the export is over the row limit
