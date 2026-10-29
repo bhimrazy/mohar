@@ -4,9 +4,10 @@ use App\Contracts\Reports\Report;
 use Tests\Support\Reports\UserListReport;
 
 /*
- * Every report in app/ is checked for paging (#403): a report that ignores `limit` and `offset` shows page 1 again as
- * page 2, and nothing at run time notices. Some test file other than this one must pass the report's registry key to
- * the conformance helper, as `assertPages('<key>'`. Reports are found by reading app/ and reflecting on each class,
+ * Every report in app/ is checked for paging (#403) and for its query budget (#431): a report that ignores `limit` and
+ * `offset` shows page 1 again as page 2, and one that queries per row or runs unbounded totals slows every page. Some
+ * test file other than this one must pass the report's registry key to both checks of the conformance kit, as
+ * `assertPages('<key>'` and `assertQueryBudget('<key>'`. Reports are found by reading app/ and reflecting on each class,
  * so no database or registry is needed.
  */
 
@@ -35,7 +36,7 @@ function reportClassesInApp(): array
 }
 
 /**
- * The reports whose key no test source passes to the conformance helper.
+ * The reports whose key no test source passes to one of the conformance checks.
  *
  * @param  list<class-string<Report>>  $reports
  * @param  list<string>  $sources  test files' contents
@@ -45,13 +46,20 @@ function reportsWithoutConformance(array $reports, array $sources): array
 {
     return array_values(array_filter($reports, function (string $class) use ($sources): bool {
         $key = (new ReflectionClass($class))->newInstanceWithoutConstructor()->key();
-        $call = '/ReportConformance::assertPages\(\s*[\'"]'.preg_quote($key, '/').'[\'"]/';
 
-        return ! collect($sources)->contains(fn (string $code): bool => preg_match($call, $code) === 1);
+        foreach (['assertPages', 'assertQueryBudget'] as $check) {
+            $call = '/ReportConformance::'.$check.'\(\s*[\'"]'.preg_quote($key, '/').'[\'"]/';
+
+            if (! collect($sources)->contains(fn (string $code): bool => preg_match($call, $code) === 1)) {
+                return true;
+            }
+        }
+
+        return false;
     }));
 }
 
-test('every report in app/ has a paging conformance test', function () {
+test('every report in app/ has a paging and a query-budget conformance test', function () {
     $sources = [];
 
     foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(dirname(__DIR__), FilesystemIterator::SKIP_DOTS)) as $file) {
@@ -66,9 +74,12 @@ test('every report in app/ has a paging conformance test', function () {
         ->and(reportsWithoutConformance($reports, $sources))->toBe([]);
 });
 
-test('the guard reports a report whose key no test passes to the helper', function () {
+test('the guard reports a report whose key no test passes to both checks', function () {
+    $both = '<?php ReportConformance::assertPages(\'user_list\', $query); ReportConformance::assertQueryBudget(\'user_list\', $query);';
+
     expect(reportsWithoutConformance([UserListReport::class], ['<?php ReportConformance::assertPages(\'other_report\', $query);']))->toBe([UserListReport::class])
-        ->and(reportsWithoutConformance([UserListReport::class], ['<?php ReportConformance::assertPages(\'user_list\', $query);']))->toBe([]);
+        ->and(reportsWithoutConformance([UserListReport::class], ['<?php ReportConformance::assertPages(\'user_list\', $query);']))->toBe([UserListReport::class])
+        ->and(reportsWithoutConformance([UserListReport::class], [$both]))->toBe([]);
 });
 
 afterAll(fn () => releaseArchCache());

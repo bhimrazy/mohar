@@ -3,6 +3,8 @@
 use App\Contracts\Reports\Report;
 use App\Enums\ColumnType;
 use App\Enums\ExportFormat;
+use App\Http\Middleware\RequireRecentPasswordConfirmation;
+use App\Models\User;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Support\Settings;
 use App\Support\CalendarDate;
@@ -263,6 +265,32 @@ test('a sensitive export needs a recent password confirmation', function () {
     app()->instance('request', $request);
 
     expect($run)->not->toThrow(HttpException::class);
+});
+
+test('a queued sensitive export is decided for the query user: a stored confirmation time, not another request', function () {
+    app(ReportRegistry::class)->register('demo_secret', DemoSensitiveReport::class);
+    $owner = actingAsStaff(['reports.demo_secret.export']);
+    $exporter = app(ReportExporter::class);
+    $query = $exporter->query('demo_secret', ['from' => '2026-10-01', 'to' => '2026-10-31'], $owner->id);
+    $export = fn (?int $at) => $exporter->export('demo_secret', $query, ExportFormat::Csv, null, $at);
+
+    // Another user's confirmed session in the current request does not stand in for the query user's.
+    $other = User::factory()->create();
+    $request = Request::create('/queue');
+    $request->setLaravelSession(app('session.store'));
+    $request->session()->put('auth.password_confirmed_at', time());
+    app()->instance('request', $request);
+    $request->setUserResolver(fn () => $other);
+
+    expect(fn () => $export(null))->toThrow(HttpException::class, 'Password confirmation required.')
+        ->and(fn () => $export(time() - RequireRecentPasswordConfirmation::timeout() - 1))->toThrow(HttpException::class)
+        ->and($export(time()))->toBeInstanceOf(StreamedResponse::class);
+
+    // The permission is the same user's: a stored time does not give a user without the export permission a file.
+    $viewer = User::factory()->create();
+    $unpermitted = $exporter->query('demo_secret', ['from' => '2026-10-01', 'to' => '2026-10-31'], $viewer->id);
+
+    expect(fn () => $exporter->export('demo_secret', $unpermitted, ExportFormat::Csv, null, time()))->toThrow(AuthorizationException::class);
 });
 
 test('each export writes one report.exported entry with key, layout, format, filters and rows', function () {
