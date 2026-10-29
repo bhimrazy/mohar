@@ -182,6 +182,15 @@ The script, step by step:
    automation worker waits for it, up to an hour** (their 3,660 s stop grace); traffic has already switched, and both
    colours' pools keep working the queues meanwhile. Check Admin → Automation before deploying.
 7. Records the live and previous colour and their images in `deploy/state/deploy.env`.
+8. Removes the app images this project deployed earlier, which `deploy/state/images` lists. The live and previous
+   colours' images stay (a rollback needs them), and so does anything an earlier deploy did not record: images from
+   before this feature (remove those by hand), other projects' images, other tags of `mohar-app` and
+   `mohar-app:smoke`. Skipped with a warning, and retried next time: an image a container still uses, one that a
+   container of another compose project uses, and everything if a colour's image cannot be inspected, the record
+   cannot be written or another deploy holds `deploy/state/images.lock` (remove that directory if no deploy runs).
+   A failure never fails the deploy. Two projects that deploy the same image tag share one image: the check on the
+   other project's containers protects a running one, but not one that has not started yet. Build cache is not
+   touched (`docker builder prune` is yours to run). `DEPLOY_PRUNE_IMAGES=0` keeps every image.
 
 Back up the database before an update that contains migrations, and read the changelog's upgrade notes. While both
 colours run, the host needs more memory: see Sizing.
@@ -189,7 +198,9 @@ colours run, the host needs more memory: see Sizing.
 **Base images.** The `FROM` images in `deploy/Dockerfile` are updated by Dependabot (14-day cooldown). Caddy and
 RustFS in `compose.prod.yaml` are bumped by hand: GitHub does not document whether Dependabot reads a compose file
 named `compose.prod.yaml`. Every pin must be a digest at least 7 days old (`composer deps:check`), and the postgres
-image must equal the one in `billing/compose.yaml` (CI checks it).
+image must equal the one in `billing/compose.yaml` (CI checks it). Docker Hub rebuilds a tag in place (new base
+layers, same version), so a digest pinned earlier can stop matching its tag: the check then reports "is not the digest
+of ..." and the pin moves to the tag's current digest once that is 7 days old.
 
 **PHP security floor.** The image runs PHP 8.4.27 (FrankenPHP 1.13.2), which fixes CVE-2026-109618 and
 CVE-2026-109619 (unauthenticated remote code execution in every web SAPI); images built from an older checkout run
