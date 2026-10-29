@@ -6,6 +6,8 @@
 #     <marker-rev> (default <head>; CI passes HEAD^2, the PR head) carries the trailer "Changelog-Assemble: yes" and
 #     the diff only edits those two files and deletes fragments: that is the assemble commit.
 #   - Fails when a fragment is malformed (scripts/changelog-assemble.sh --check).
+#   - Fails when the kernel API snapshot (billing/docs/architecture/kernel-api.txt, ADR 0010) changes and no
+#     kernel-changelog.d/ fragment is added or edited: every recorded surface change has an entry.
 #   - Warns, without failing, when app code changes and no billing/changelog.d/ fragment is added or edited, and when
 #     the kernel surface (ADR 0010) changes and no kernel-changelog.d/ fragment is.
 # Env: BASE_REF, the PR's base branch (a release PR into main carries develop's assembled changelog and is not
@@ -45,6 +47,7 @@ app_frag_re='^billing/changelog[.]d/[^/]+[.]md$'
 kernel_frag_re='^billing/docs/architecture/kernel-changelog[.]d/[^/]+[.]md$'
 code_re='^billing/(app|bootstrap|config|database|lang|resources|routes)/'
 kernel_re='^billing/app/((Contracts|Data|Events|Enums)/|Support/(.+Registry|Money)[.]php$)'
+kernel_api='billing/docs/architecture/kernel-api.txt'
 
 # "<status>\t<path>" per changed file; renames show as a delete plus an add.
 changes="$(git diff --name-status --no-renames "$base" "$head")"
@@ -88,7 +91,10 @@ fi
 if grep -qE "$code_re" <<< "$paths" && ! grep -qx "$app_log" <<< "$direct" && [ -z "$(added_or_edited "$app_frag_re")" ]; then
     annotate warning billing/changelog.d "app code changed but no billing/changelog.d/ fragment was added; add one unless users and operators see no change"
 fi
-if grep -qE "$kernel_re" <<< "$paths" && ! grep -qx "$kernel_log" <<< "$direct" && [ -z "$(added_or_edited "$kernel_frag_re")" ]; then
+if grep -qx "$kernel_api" <<< "$paths" && ! grep -qx "$kernel_log" <<< "$direct" && [ -z "$(added_or_edited "$kernel_frag_re")" ]; then
+    annotate error "$kernel_api" "the kernel API snapshot changed but no kernel-changelog.d/ fragment was added; add billing/docs/architecture/kernel-changelog.d/<branch-slug>.md describing the change (format: that folder's README.md, ADR 0010)"
+    failed=1
+elif grep -qE "$kernel_re" <<< "$paths" && ! grep -qx "$kernel_log" <<< "$direct" && [ -z "$(added_or_edited "$kernel_frag_re")" ]; then
     annotate warning billing/docs/architecture/kernel-changelog.d "the kernel surface changed (ADR 0010) but no kernel-changelog.d/ fragment was added; add one unless the public API is unchanged"
 fi
 

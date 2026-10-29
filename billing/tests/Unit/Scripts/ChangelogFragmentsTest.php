@@ -372,6 +372,21 @@ describe('changelog-check.sh', function () {
             ->toContain('::warning file=billing/docs/architecture/kernel-changelog.d::the kernel surface changed');
     });
 
+    it('fails a kernel API snapshot change without a kernel fragment, and passes it with one', function () {
+        $this->repo = clfRepo();
+        clfGit($this->repo, 'checkout', '-q', '-b', 'feature/x');
+        clfWrite($this->repo, 'billing/docs/architecture/kernel-api.txt', "api 0.1.0\n\nApp\\Contracts\\Thing interface\n");
+
+        $run = clfCheck($this->repo, env: ['GITHUB_ACTIONS' => 'true']);
+
+        expect($run->getExitCode())->toBe(1)
+            ->and($run->getOutput())->toContain('::error file=billing/docs/architecture/kernel-api.txt::the kernel API snapshot changed but no kernel-changelog.d/ fragment');
+
+        clfWrite($this->repo, 'billing/docs/architecture/kernel-changelog.d/x.md', "### `Thing` (#9)\n\n- New.\n");
+
+        expect(clfCheck($this->repo)->getExitCode())->toBe(0);
+    });
+
     it('stays quiet for a docs-only change', function () {
         $this->repo = clfRepo();
         clfGit($this->repo, 'checkout', '-q', '-b', 'feature/docs');
@@ -383,11 +398,13 @@ describe('changelog-check.sh', function () {
     });
 });
 
-it('runs the changelog check in CI and in the local merge gate, which stands in for CI', function () {
+it('runs the changelog and kernel snapshot checks in CI and in the local merge gate, which stands in for CI', function () {
     $root = dirname(__DIR__, 4);
     $ci = (string) file_get_contents("{$root}/.github/workflows/ci.yml");
     $gate = (string) file_get_contents("{$root}/scripts/merge-gate.sh");
 
     expect($ci)->toContain('../scripts/changelog-check.sh --marker-rev HEAD^2 HEAD^1 HEAD')
-        ->and($gate)->toContain('changelog-check.sh" --marker-rev HEAD^2 HEAD^1 HEAD');
+        ->and($gate)->toContain('changelog-check.sh" --marker-rev HEAD^2 HEAD^1 HEAD')
+        ->and($ci)->toContain('php artisan kernel:api-snapshot --check')
+        ->and($gate)->toContain('php artisan kernel:api-snapshot --check');
 });

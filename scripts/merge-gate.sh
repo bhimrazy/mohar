@@ -380,6 +380,7 @@ if [ "$os" = Darwin ]; then
 fi
 
 # ---------------------------------------------------------------- CI's steps after install, in CI's order
+step "kernel API snapshot" php artisan kernel:api-snapshot --check
 step "vp check (format + lint)" npx vp check
 step "image sizes" npm run images:check
 when "$code" "Pint" vendor/bin/pint --parallel --max-processes="$processes" --test
