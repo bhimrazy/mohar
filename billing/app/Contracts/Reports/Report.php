@@ -43,7 +43,7 @@ interface Report
      * When `$query->limit` is set (a screen page), return only that page: `orderBy()` in a total order (end with a
      * unique key such as the id, or rows repeat or vanish between pages), then `offset($query->offset)`,
      * `limit($query->limit)` and `get()`. `lazyById()` cannot be used here: it orders by id alone and ignores the
-     * offset. tests/Support/Reports/ReportConformance checks this for every report.
+     * offset. App\Support\Reports\ReportConformance checks this for every report.
      *
      * A `money` cell is a `Money`; a `date` cell is a date value (00:00 UTC on that date, like a `date` cast), so an
      * instant must go through `CompanyClock::localDate()` or use an `instant` column.

@@ -106,7 +106,7 @@ it('lets staff send a new invitation, which revokes the old link', function () {
 
     $this->get(route('admin.clients.show', $this->client))
         ->assertInertia(fn (Assert $page) => $page->where('users.0.invitation.state', 'expired'));
-    $this->withSession(['auth.password_confirmed_at' => time()])
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])
         ->post(route('admin.platform.clients.users.invitation', [$this->client, $user]))->assertRedirect();
 
     auth()->logout(); // the accept page is for guests
@@ -172,7 +172,7 @@ it('refuses to invite again a login that was invited before the upgrade, or that
         ->and(fn () => $logins->resendInvitation($this->client, $used))->toThrow(ValidationException::class, 'Send a password reset instead.');
 
     actingAsStaff(['core.users.manage', 'core.clients.view']);
-    $this->withSession(['auth.password_confirmed_at' => time()])
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])
         ->post(route('admin.platform.clients.users.password-reset', [$this->client, $legacy]))->assertRedirect()->assertSessionHasNoErrors();
     expect(EmailMessage::query()->where('template_key', 'auth.password_reset')->where('recipient', 'legacy@example.test')->exists())->toBeTrue();
 });

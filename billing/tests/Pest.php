@@ -85,7 +85,7 @@ function actingAsStaff(array $permissions = ['*']): User
  */
 function confirmPassword(): void
 {
-    test()->withSession(['auth.password_confirmed_at' => time()]);
+    test()->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
 }
 
 /**

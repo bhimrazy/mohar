@@ -70,7 +70,7 @@ test('without a recent confirmation the reveal is refused and not audited', func
     expect(revealAudits())->toBe(0);
 })->with([
     'never confirmed' => [fn () => null],
-    'confirmation expired' => [fn () => test()->withSession(['auth.password_confirmed_at' => time() - (int) config('auth.step_up_seconds') - 1])],
+    'confirmation expired' => [fn () => test()->withSession(['auth.password_confirmed_at' => now()->getTimestamp() - (int) config('auth.step_up_seconds') - 1])],
 ]);
 
 test('a login without a password is told to set one', function () {

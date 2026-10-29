@@ -76,6 +76,7 @@ test('B3: every module that stores amounts per client answers through the kernel
 test('B2: the undo snapshot is what the importer overwrote under its lock, so an admin edit just before it is what undo restores', function () {
     $source = ClientCsv::apply(ClientCsv::check(ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'a@example.com')]))))->migration_source_id;
     $this->travel(1)->hours();
+    confirmPassword();
     $run = ClientCsv::check(ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'a@example.com', last: 'Changed')]), ['source_id' => $source]));
 
     // An admin edit commits after anything Migration could read and before the importer takes its row lock.

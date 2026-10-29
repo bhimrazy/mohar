@@ -68,6 +68,7 @@ it('dates an immediate cancellation and an addon on the company day', function (
 
     foreach ([[$before, $dayBefore], [$at, $dayAfter]] as [$instant, $date]) {
         atUtc($zone, $instant);
+        confirmPassword();
         $this->post(route('admin.services.services.cancel', $service), ['type' => 'immediate', 'reason' => 'Moving'])->assertSessionHasNoErrors();
         $request = CancellationRequest::query()->latest('id')->firstOrFail();
         expect($request->process_after->toDateString())->toBe($date);
@@ -83,6 +84,7 @@ it('sets the termination date of a service on the company day', function (string
 
     foreach ([[$before, $dayBefore], [$at, $dayAfter]] as [$instant, $date]) {
         atUtc($zone, $instant);
+        confirmPassword();
         $service = Service::factory()->create();
         $this->post(route('admin.services.services.status', $service), ['status' => 'terminated'])->assertSessionHasNoErrors();
         expect($service->refresh())->status->toBe(ServiceStatus::Terminated)->and($service->termination_date->toDateString())->toBe($date);
@@ -138,6 +140,7 @@ it('starts a service ordered at the company midnight on the company date', funct
 
     foreach ([[$before, $dayBefore], [$at, $dayAfter]] as [$instant, $date]) {
         atUtc($zone, $instant);
+        confirmPassword();
         $service = Service::query()->findOrFail(app(ServiceRegistry::class)->createPending($draft()));
         expect($service->registration_date->toDateString())->toBe($date)->and($service->next_due_date->toDateString())->toBe($date);
     }
@@ -154,6 +157,7 @@ it('accepts an import due date of the company today and refuses the day before',
 
     foreach ([$before, $at] as $instant) {
         atUtc($zone, $instant);
+        confirmPassword();
         $today = app(CompanyClock::class)->todayDate()->toDateString();
         $put($today)->assertSessionDoesntHaveErrors('next_due_date');
         $put(CarbonImmutable::parse($today)->subDay()->toDateString())->assertSessionHasErrors('next_due_date');
@@ -191,6 +195,7 @@ it('lifts an overdue suspension on payment while the due day is still today, not
     foreach ([[$before, ServiceStatus::Active], [$at, ServiceStatus::Suspended]] as [$instant, $expected]) {
         $service->forceFill(['status' => ServiceStatus::Suspended, 'suspension_reason' => 'overdue'])->save();
         atUtc($zone, $instant);
+        confirmPassword();
         $paidEarlier();
         expect($service->refresh()->status)->toBe($expected);
     }

@@ -116,6 +116,7 @@ test('applying creates imported clients and owner logins that cannot sign in, an
 test('a re-run with an External ID never changes a client\'s email or its login; it updates the rest and says so', function () {
     $source = ClientCsv::apply(ClientCsv::check(ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'a@example.com')]))))->migration_source_id;
     $this->travel(1)->hours();
+    confirmPassword();
 
     $run = ClientCsv::check(ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'a.new@example.com', last: 'Changed')]), ['source_id' => $source]));
     expect($run->update_count)->toBe(1)
@@ -135,6 +136,7 @@ test('a re-run of the same file is unchanged everywhere and leaves updated_at al
     $source = ClientCsv::apply(ClientCsv::check(ClientCsv::upload($file())))->migration_source_id;
     $stamps = Client::query()->orderBy('id')->pluck('updated_at')->map->toIso8601String()->all();
     $this->travel(1)->hours();
+    confirmPassword();
 
     $run = ClientCsv::check(ClientCsv::upload($file(), ['source_id' => $source]));
 

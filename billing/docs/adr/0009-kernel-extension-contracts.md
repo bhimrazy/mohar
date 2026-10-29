@@ -397,3 +397,11 @@ RSA key NCHL ships as a PKCS#12 file).
    it runs in the save request), messages name the field by its label and never repeat the value, and secret values
    are never passed. The gateway form calls it after its own field checks and shows each message at
    `settings.<key>`. The registrar and server forms do not call it yet; they adopt it when a driver needs it.
+
+## Amendment (#515) — 2026-10-29, where conformance kits live
+
+A conformance kit checks that an extension keeps its contract (for reports: paging and a query budget). Rule: the kit
+for a contract that packages implement ships in the kernel, under `App\Support\<Area>\`, marked `@api`, throws its
+own `AssertionError` subclass and depends on neither PHPUnit nor Pest. A kit that only checks this repository's own
+code stays in `tests/Support`. Production code in `app/` never calls a kit; `tests/Arch/ReportsTest.php` fails if it
+does. The first kit is `App\Support\Reports\ReportConformance` (ADR 0020 Amendment (#515)).

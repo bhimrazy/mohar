@@ -8,8 +8,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 
 /**
  * The one permission check shared by ReportViewer and ReportExporter: the query's user must hold
- * `reports.{key}.{ability}`. The step-up check for a sensitive export stays in the exporter; deciding both against one
- * stored identity for a queued export is #354.
+ * `reports.{key}.{ability}`. The exporter decides the step-up for the same user (#354).
  */
 final class ReportAccess
 {

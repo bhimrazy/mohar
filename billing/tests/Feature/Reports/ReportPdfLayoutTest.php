@@ -68,6 +68,33 @@ test('the PDF has the pages it planned for text of every width', function (strin
     'narrow letters' => [str_repeat('i l ', 40), 5, 0, 0],
 ]);
 
+test('a header taller than half a page is cut and the PDF still has the pages it planned (#367)', function () {
+    ManyTextReport::$header = array_map(fn (int $i): array => ['Label '.$i, str_repeat('Long header value ', 20)], range(1, 30));
+
+    $result = exportPdf(repeatRows('Kathmandu Metropolitan City Ward Office', 40));
+    $header = $result['data']['header'];
+
+    expect($result['printed'])->toBe($result['planned'])
+        ->and(count($header))->toBeLessThan(31)
+        ->and(end($header)[0])->toBe('…')->and(end($header)[1])->toContain('more header lines not shown')
+        ->and(mb_strlen($header[0][1]))->toBe(360);
+});
+
+test('one header value of several thousand characters is cut with an ellipsis', function () {
+    ManyTextReport::$header = [['Notes', str_repeat('Long header value ', 200)]];
+
+    $result = exportPdf(repeatRows('Asha Rai', 3));
+
+    expect($result['data']['header'][0][1])->toEndWith('…')->and(mb_strlen($result['data']['header'][0][1]))->toBeLessThan(800)
+        ->and($result['printed'])->toBe($result['planned']);
+});
+
+test('a short header is printed whole', function () {
+    $result = exportPdf(repeatRows('Asha Rai', 3));
+
+    expect($result['data']['header'])->toBe([['PAN', '123456789'], ['Period', '2026-10-01 to 2026-10-31']]);
+});
+
 test('the grand totals and the page totals of several currencies fit the page they are planned on', function (int $count) {
     $rows = array_map(fn (int $i): array => [...ManyTextReport::textRow('Buyer '.$i), 'amount' => Money::of(1_000 + $i, ['NPR', 'USD', 'EUR'][$i % 3])], range(1, $count));
 

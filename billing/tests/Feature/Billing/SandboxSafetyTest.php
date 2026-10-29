@@ -95,7 +95,7 @@ test('money-moving and security staff actions require a recent password confirma
     $this->post(route('admin.billing.tax-rules.store'), ['name' => 'VAT', 'level' => 1, 'rate' => '5'])->assertSessionHasErrors('password_confirmation');
     $this->postJson(route('admin.billing.invoices.mark-paid', $payment->invoice_id))->assertStatus(423);
 
-    $this->withSession(['auth.password_confirmed_at' => time()])
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])
         ->post(route('admin.billing.transactions.refund', $payment), ['amount' => '10.00', 'mode' => 'record_only'])
         ->assertRedirect();
     expect($payment->fresh()->refundable_remaining)->toBe(0);
