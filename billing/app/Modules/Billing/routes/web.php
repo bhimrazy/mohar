@@ -44,7 +44,7 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
         Route::post('cancel-lines', 'cancelLines')->name('cancel-lines');
         Route::post('credit', 'applyCredit')->middleware('password.recent')->name('credit.apply');
         Route::delete('credit', 'removeCredit')->middleware('password.recent')->name('credit.remove');
-        Route::get('pdf', 'pdf')->name('pdf');
+        Route::get('pdf', 'pdf')->middleware('throttle:billing-documents')->name('pdf');
         Route::get('notes/preview', [TaxNoteController::class, 'preview'])->name('notes.preview');
         Route::post('notes', [TaxNoteController::class, 'store'])->middleware('password.recent')->name('notes.store');
     });
@@ -52,7 +52,7 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
     Route::get('notes', [TaxNoteListController::class, 'index'])->name('notes.index');
     Route::get('notes/{taxNote}', [TaxNoteListController::class, 'show'])->whereNumber('taxNote')->name('notes.show');
     Route::post('notes/{taxNote}/resend', [TaxNoteListController::class, 'resend'])->whereNumber('taxNote')->middleware('throttle:billing-note-resend')->name('notes.resend');
-    Route::get('notes/{taxNote}/pdf', [TaxNoteController::class, 'pdf'])->name('notes.pdf');
+    Route::get('notes/{taxNote}/pdf', [TaxNoteController::class, 'pdf'])->middleware('throttle:billing-documents')->name('notes.pdf');
 
     Route::get('transactions', [TransactionController::class, 'index'])->name('transactions.index');
     Route::post('transactions', [TransactionController::class, 'store'])->middleware('password.recent')->name('transactions.store');
@@ -64,7 +64,7 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
     Route::resource('quotes', AdminQuoteController::class);
     Route::post('quotes/{quote}/deliver', [AdminQuoteController::class, 'deliver'])->name('quotes.deliver');
     Route::post('quotes/{quote}/convert', [AdminQuoteController::class, 'convert'])->name('quotes.convert');
-    Route::get('quotes/{quote}/pdf', [AdminQuoteController::class, 'pdf'])->name('quotes.pdf');
+    Route::get('quotes/{quote}/pdf', [AdminQuoteController::class, 'pdf'])->middleware('throttle:billing-documents')->name('quotes.pdf');
 
     Route::get('credit', [AdminCreditController::class, 'index'])->name('credit.index');
     Route::put('clients/{client}/billing-preferences', [AdminCreditController::class, 'preferences'])->name('clients.preferences');
@@ -97,9 +97,9 @@ Route::clientArea(function (): void {
         Route::get('batches/{batch}', [PaymentBatchController::class, 'show'])->whereNumber('batch')->name('batches.show');
         Route::post('batches/{batch}/pay', [PaymentBatchController::class, 'pay'])->whereNumber('batch')->middleware('throttle:billing-pay')->name('batches.pay');
         Route::get('notes', [ClientTaxNoteController::class, 'index'])->name('notes.index');
-        Route::get('notes/{note}/pdf', [ClientTaxNoteController::class, 'pdf'])->whereNumber('note')->name('notes.pdf');
+        Route::get('notes/{note}/pdf', [ClientTaxNoteController::class, 'pdf'])->whereNumber('note')->middleware('throttle:billing-documents')->name('notes.pdf');
         Route::get('{invoice}', 'show')->whereNumber('invoice')->name('show');
-        Route::get('{invoice}/pdf', 'pdf')->whereNumber('invoice')->name('pdf');
+        Route::get('{invoice}/pdf', 'pdf')->whereNumber('invoice')->middleware('throttle:billing-documents')->name('pdf');
         Route::post('{invoice}/pay', 'pay')->whereNumber('invoice')->middleware('throttle:billing-pay')->name('pay');
         Route::get('{invoice}/payments/{reference}/continue', 'resumeAttempt')->whereNumber('invoice')->where('reference', '[a-z0-9-]{3,40}')->middleware('throttle:billing-pay')->name('attempts.resume');
         Route::post('{invoice}/payments/{reference}/close', 'closeAttempt')->whereNumber('invoice')->where('reference', '[a-z0-9-]{3,40}')->middleware('throttle:billing-pay')->name('attempts.close');
@@ -110,7 +110,7 @@ Route::clientArea(function (): void {
     Route::prefix('quotes')->name('quotes.')->controller(QuoteController::class)->group(function (): void {
         Route::get('/', 'index')->name('index');
         Route::get('{quote}', 'show')->whereNumber('quote')->name('show');
-        Route::get('{quote}/pdf', 'pdf')->whereNumber('quote')->name('pdf');
+        Route::get('{quote}/pdf', 'pdf')->whereNumber('quote')->middleware('throttle:billing-documents')->name('pdf');
         Route::post('{quote}/accept', 'accept')->whereNumber('quote')->name('accept');
         Route::post('{quote}/decline', 'decline')->whereNumber('quote')->name('decline');
     });

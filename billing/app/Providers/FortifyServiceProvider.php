@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Actions\Fortify\CreateNewUser;
+use App\Actions\Fortify\PasswordGuesses;
 use App\Actions\Fortify\RefuseExpiredPassword;
 use App\Actions\Fortify\RememberValidatedLogin;
 use App\Actions\Fortify\ResetUserPassword;
@@ -11,6 +12,8 @@ use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Http\Responses\PasswordConfirmedResponse;
 use App\Http\Responses\PasswordResetFailedResponse;
 use App\Http\Responses\PasswordResetLinkRequestedResponse;
+use App\Models\User;
+use App\Modules\Core\Support\ActivityLogger;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Http\Request;
@@ -78,12 +81,21 @@ class FortifyServiceProvider extends ServiceProvider
             PrepareAuthenticatedSession::class,
         ]));
 
-        // Fortify's own confirm check, then the one-time password expiry (#60): an expired one confirms nothing.
+        // The login's wrong-password budget first (PasswordGuesses), then Fortify's own confirm check, then the
+        // one-time password expiry (#60): an expired one confirms nothing.
         Fortify::confirmPasswordsUsing(function ($user, ?string $password = null): bool {
+            if ($user instanceof User) {
+                PasswordGuesses::ensureAllowed($user, request(), 'password');
+            }
+
             $valid = app(StatefulGuard::class)->validate([Fortify::username() => $user->{Fortify::username()}, 'password' => $password]);
 
             if ($valid) {
                 RefuseExpiredPassword::check($user, 'confirm_password', field: 'password');
+            } elseif ($user instanceof User) {
+                PasswordGuesses::failed($user, request());
+                // Who and from where, never the guess; PasswordGuesses bounds how many rows this writes.
+                app(ActivityLogger::class)->log('Password confirmation failed', $user, event: 'auth.confirm_password_failed', actor: $user);
             }
 
             return $valid;
