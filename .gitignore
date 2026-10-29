@@ -1,6 +1,8 @@
 .claude/worktrees/
 # Old location, kept while worktrees from before the move exist.
 .worktrees/
+# Marks a worktree an agent is using; scripts/sweep-stale.sh skips it.
+.claude-in-use
 rea/
 
 # Production secrets for deploy/compose.prod.yaml (copy of deploy/.env.production.example)
