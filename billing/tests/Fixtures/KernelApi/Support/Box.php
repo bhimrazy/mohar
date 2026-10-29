@@ -2,23 +2,39 @@
 
 namespace Tests\Fixtures\KernelApi\Support;
 
+use DateTimeZone;
 use Tests\Fixtures\KernelApi\Contracts\Widget;
 use Tests\Fixtures\KernelApi\Enums\Size;
 
 /**
  * @api
+ *
+ * @template TItem of Widget
  */
-final class Box implements Widget
+class Box implements Widget
 {
     use Stamps;
 
+    final public const string NAME = 'box';
+
+    protected const LIMIT = 3;
+
     private const SECRET = 'no';
 
-    public function __construct(public readonly int $width, protected array $tags = ['a']) {}
+    /** @var list<string> */
+    public array $labels = ['new'];
 
+    /**
+     * @param  array<int, string>  $tags
+     */
+    public function __construct(public readonly int $width, protected array $tags = ['a'], public DateTimeZone $zone = new DateTimeZone('UTC')) {}
+
+    /**
+     * @return non-empty-string
+     */
     public function render(Size $size = Size::Small, ?string $title = null, string ...$classes): string
     {
-        return '';
+        return '-'.self::SECRET;
     }
 
     /**
@@ -26,7 +42,19 @@ final class Box implements Widget
      */
     public static function draw(int &$count): void {}
 
-    protected function hidden(): void {}
+    /**
+     * @param  callable(TItem): bool  $filter
+     * @return list<TItem>
+     */
+    protected function filter(callable $filter): array
+    {
+        return [];
+    }
+
+    /**
+     * @internal
+     */
+    public function reset(): void {}
 
     private function internal(): void {}
 }

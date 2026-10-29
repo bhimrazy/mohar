@@ -4,6 +4,8 @@ namespace App\Support\Themes;
 
 /**
  * A built-in theme registered by a module or theme pack. Tokens follow ThemeSchema.
+ *
+ * @api
  */
 final readonly class ThemePreset
 {

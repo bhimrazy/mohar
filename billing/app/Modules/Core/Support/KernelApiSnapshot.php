@@ -20,7 +20,11 @@ use UnitEnum;
  * (ADR 0010 "Enforcement"), sorted so a diff names exactly what changed. Built by reflection over the kernel
  * directories only: every class in app/Contracts, app/Data, app/Events and app/Enums, and the app/Support classes
  * whose docblock carries `@api`. Members inherited from a parent or a trait are listed on the class that declares
- * them; private members, docblock types and payload shapes are not part of the snapshot.
+ * them. Private members and members tagged `@internal` are left out.
+ *
+ * Docblock types (`@param`, `@return`, `@var`, `@throws`, `@template`, `@extends`, `@implements`) are added as `doc`
+ * lines below their member, read as text without a parser: names stay as written in the file, and a tag whose type
+ * equals the native one is not repeated.
  */
 final class KernelApiSnapshot
 {
@@ -31,6 +35,9 @@ final class KernelApiSnapshot
 
     /** Directory whose classes are public only with `@api`. */
     private const API_TAGGED_DIRECTORY = 'Support';
+
+    /** Docblock tags whose type is part of the contract. */
+    private const TYPE_TAGS = ['param', 'return', 'var', 'throws', 'template', 'template-covariant', 'extends', 'implements'];
 
     /**
      * @param  string  $path  the committed snapshot file
@@ -105,16 +112,24 @@ final class KernelApiSnapshot
         $name = $class->getName();
         $members = [];
 
+        $this->addDocLines($members, '0', "{$name} doc class", $class->getDocComment());
+
         foreach ($class->getReflectionConstants() as $constant) {
-            if ($constant->getDeclaringClass()->getName() === $name && ! $constant->isPrivate() && ! $constant->isEnumCase() && $this->visible($class, $constant)) {
-                $members['1 '.$constant->getName()] = "{$name} const {$constant->getName()} = ".$this->value($constant->getValue());
+            if ($constant->getDeclaringClass()->getName() === $name && ! $constant->isPrivate() && ! $constant->isEnumCase()
+                && $this->visible($class, $constant) && ! $this->tagged($constant->getDocComment(), 'internal')) {
+                $key = '1 '.$constant->getName();
+                $members[$key] = "{$name} const ".$this->constant($constant);
+                $this->addDocLines($members, $key, "{$name} doc const {$constant->getName()}", $constant->getDocComment());
             }
         }
 
         if (($enum = $this->enum($class)) !== null) {
             foreach ($enum->getCases() as $case) {
-                $members['2 '.$case->getName()] = "{$name} case {$case->getName()}"
-                    .($case instanceof ReflectionEnumBackedCase ? ' = '.var_export($case->getBackingValue(), true) : '');
+                if (! $this->tagged($case->getDocComment(), 'internal')) {
+                    $members['2 '.$case->getName()] = "{$name} case {$case->getName()}"
+                        .($case instanceof ReflectionEnumBackedCase ? ' = '.var_export($case->getBackingValue(), true) : '')
+                        .$this->deprecated($case->getDocComment());
+                }
             }
         }
 
@@ -123,15 +138,25 @@ final class KernelApiSnapshot
         // An enum's only properties are the built-in $name and $value.
         foreach ($class->isEnum() ? [] : $class->getProperties() as $property) {
             if ($property->getDeclaringClass()->getName() === $name && ! $property->isPrivate() && $this->visible($class, $property)
-                && ! in_array($property->getName(), $traitProperties, true)) {
-                $members['3 '.$property->getName()] = "{$name} property ".$this->property($property);
+                && ! in_array($property->getName(), $traitProperties, true) && ! $this->tagged($property->getDocComment(), 'internal')) {
+                $key = '3 '.$property->getName();
+                $members[$key] = "{$name} property ".$this->property($property);
+                $this->addDocLines($members, $key, "{$name} doc property \${$property->getName()}", $property->getDocComment(), $property->hasType() ? (string) $property->getType() : null);
             }
         }
 
         foreach ($class->getMethods() as $method) {
             if ($method->getDeclaringClass()->getName() === $name && ! $method->isPrivate() && $this->visible($class, $method)
-                && $method->getFileName() === $class->getFileName()) {
-                $members['4 '.$method->getName()] = "{$name} method ".$this->method($class, $method);
+                && $method->getFileName() === $class->getFileName() && ! $this->tagged($method->getDocComment(), 'internal')) {
+                $key = '4 '.$method->getName();
+                $members[$key] = "{$name} method ".$this->method($class, $method);
+                $native = [];
+
+                foreach ($method->getParameters() as $parameter) {
+                    $native['$'.$parameter->getName()] = $parameter->hasType() ? (string) $parameter->getType() : null;
+                }
+
+                $this->addDocLines($members, $key, "{$name} doc method {$method->getName()}", $method->getDocComment(), $method->hasReturnType() ? (string) $method->getReturnType() : null, $native);
             }
         }
 
@@ -178,8 +203,8 @@ final class KernelApiSnapshot
             $class->isInterface() && $class->getInterfaceNames() !== [] ? 'extends '.implode(', ', $this->sorted($class->getInterfaceNames())) : null,
             $interfaces !== [] ? 'implements '.implode(', ', $interfaces) : null,
             $class->getTraitNames() !== [] ? 'uses '.implode(', ', $this->sorted($class->getTraitNames())) : null,
-            preg_match('/^\s*\*\s*@open\b/m', $doc) === 1 ? '@open' : null,
-            preg_match('/^\s*\*\s*@deprecated\b/m', $doc) === 1 ? '@deprecated' : null,
+            $this->tagged($doc, 'open') ? '@open' : null,
+            $this->tagged($doc, 'deprecated') ? '@deprecated' : null,
         ]));
     }
 
@@ -209,6 +234,21 @@ final class KernelApiSnapshot
         return $this->sorted(array_diff($class->getInterfaceNames(), $inherited, $builtIn));
     }
 
+    private function constant(ReflectionClassConstant $constant): string
+    {
+        return implode(' ', array_filter([
+            $constant->isPublic() ? 'public' : 'protected',
+            $constant->isFinal() ? 'final' : null,
+            $constant->hasType() ? (string) $constant->getType() : null,
+            $constant->getName(),
+            '=',
+            $this->value($constant->getValue()),
+        ])).$this->deprecated($constant->getDocComment());
+    }
+
+    /**
+     * A promoted property's default is shown on the constructor line instead.
+     */
     private function property(ReflectionProperty $property): string
     {
         return implode(' ', array_filter([
@@ -217,7 +257,9 @@ final class KernelApiSnapshot
             $property->isReadOnly() ? 'readonly' : null,
             $property->hasType() ? (string) $property->getType() : null,
             '$'.$property->getName(),
-        ]));
+        ]))
+            .(! $property->isPromoted() && $property->hasDefaultValue() ? ' = '.$this->value($property->getDefaultValue()) : '')
+            .$this->deprecated($property->getDocComment());
     }
 
     /**
@@ -237,7 +279,7 @@ final class KernelApiSnapshot
 
         $parameters = implode(', ', array_map($this->parameter(...), $method->getParameters()));
         $return = $method->hasReturnType() ? ': '.$method->getReturnType() : '';
-        $deprecated = preg_match('/^\s*\*\s*@deprecated\b/m', (string) $method->getDocComment()) === 1 ? ' @deprecated' : '';
+        $deprecated = $this->deprecated($method->getDocComment());
 
         return implode(' ', [...$modifiers, ($method->returnsReference() ? '&' : '').$method->getName()."({$parameters}){$return}{$deprecated}"]);
     }
@@ -253,7 +295,27 @@ final class KernelApiSnapshot
             return $text;
         }
 
-        return $text.' = '.($parameter->isDefaultValueConstant() ? (string) $parameter->getDefaultValueConstantName() : $this->value($parameter->getDefaultValue()));
+        if ($parameter->isDefaultValueConstant()) {
+            return $text.' = '.$parameter->getDefaultValueConstantName();
+        }
+
+        $default = $parameter->getDefaultValue();
+
+        return $text.' = '.(is_object($default) && ! $default instanceof UnitEnum ? $this->newExpression($parameter, $default) : $this->value($default));
+    }
+
+    /**
+     * A `new X(...)` default with its arguments as written in the source; reflection gives only the built object.
+     */
+    private function newExpression(ReflectionParameter $parameter, object $default): string
+    {
+        $function = $parameter->getDeclaringFunction();
+        $file = $function->getFileName();
+        $source = $file === false ? '' : implode('', array_slice((array) file($file), (int) $function->getStartLine() - 1, (int) $function->getEndLine() - (int) $function->getStartLine() + 1));
+        $pattern = '/\$'.preg_quote($parameter->getName(), '/').'\s*=\s*new\s+[\\\\\w]+\s*(\((?:[^()]++|(?1))*\))?/';
+        $arguments = preg_match($pattern, $source, $match) === 1 ? (string) preg_replace('/\s+/', ' ', $match[1] ?? '') : '';
+
+        return 'new '.$default::class.$arguments;
     }
 
     private function value(mixed $value): string
@@ -265,6 +327,125 @@ final class KernelApiSnapshot
             is_array($value) => (string) json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
             default => var_export($value, true),
         };
+    }
+
+    private function tagged(string|false $doc, string $tag): bool
+    {
+        return $doc !== false && preg_match('/^\s*(?:\/\*\*|\*)?\s*@'.preg_quote($tag, '/').'\b/m', $doc) === 1;
+    }
+
+    private function deprecated(string|false $doc): string
+    {
+        return $this->tagged($doc, 'deprecated') ? ' @deprecated' : '';
+    }
+
+    /**
+     * Adds one `doc` line per type tag, under the member's sort key. A type equal to the native one is skipped.
+     *
+     * @param  array<string, string>  $members
+     * @param  array<string, string|null>  $parameters  parameter name => native type
+     */
+    private function addDocLines(array &$members, string $key, string $prefix, string|false $doc, ?string $nativeType = null, array $parameters = []): void
+    {
+        foreach ($this->typeTags($doc) as $index => [$tag, $subject, $type]) {
+            $native = $tag === 'param' ? ($parameters[$subject] ?? null) : (in_array($tag, ['return', 'var'], true) ? $nativeType : null);
+
+            if ($native !== null && $this->sameType($native, $type)) {
+                continue;
+            }
+
+            $members[$key.' doc '.str_pad((string) $index, 3, '0', STR_PAD_LEFT)] = rtrim(trim("{$prefix} @{$tag} {$subject}")." {$type}");
+        }
+    }
+
+    /**
+     * The type tags of a docblock as [tag, subject, type]: the subject is a parameter name or a template name.
+     *
+     * @return list<array{0: string, 1: string, 2: string}>
+     */
+    private function typeTags(string|false $doc): array
+    {
+        if ($doc === false) {
+            return [];
+        }
+
+        $body = (string) preg_replace(['/^\s*\/\*\*/', '/\*\/\s*$/', '/^[ \t]*(?:\* ?)?[ \t]*/m'], '', $doc);
+        preg_match_all('/^@([\w-]+)(.*?)(?=^@|\z)/ms', $body, $matches, PREG_SET_ORDER);
+        $tags = [];
+
+        foreach ($matches as [, $tag, $text]) {
+            $tag = (string) preg_replace('/^(?:phpstan|psalm)-/', '', $tag);
+            $text = trim((string) preg_replace('/\s+/', ' ', $text));
+
+            if (! in_array($tag, self::TYPE_TAGS, true) || $text === '') {
+                continue;
+            }
+
+            if (str_starts_with($tag, 'template')) {
+                preg_match('/^(\w+)(?: (?:of|as) (.*))?$/', $text, $parts);
+                $tags[] = [$tag, $parts[1] ?? $text, isset($parts[2]) ? 'of '.$this->leadingType($parts[2]) : ''];
+
+                continue;
+            }
+
+            $type = $this->leadingType($text);
+
+            if (str_starts_with($type, '$')) {
+                continue;
+            }
+            $subject = $tag === 'param' && preg_match('/^\s*(?:\.\.\.)?&?(\$\w+)/', substr($text, strlen($type)), $name) === 1 ? $name[1] : '';
+            $tags[] = [$tag, $subject, $type];
+        }
+
+        return $tags;
+    }
+
+    /**
+     * The type at the start of a tag's text, up to the first space outside brackets that does not continue it.
+     */
+    private function leadingType(string $text): string
+    {
+        $type = '';
+        $depth = 0;
+        $length = strlen($text);
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $text[$i];
+            $depth += match ($char) {
+                '<', '{', '(', '[' => 1,
+                '>', '}', ')', ']' => -1,
+                default => 0,
+            };
+
+            if ($char === ' ' && $depth <= 0) {
+                $next = ltrim(substr($text, $i))[0] ?? '';
+
+                if (! in_array(substr(rtrim($type), -1), ['|', '&', ':'], true) && ! in_array($next, ['|', '&', ':'], true)) {
+                    break;
+                }
+            }
+
+            $type .= $char;
+        }
+
+        return trim($type);
+    }
+
+    /**
+     * Whether a docblock type says no more than the native one: unions compared in any order, `?T` as `T|null`, and
+     * class names by their last segment, since the docblock keeps the names as imported.
+     */
+    private function sameType(string $native, string $doc): bool
+    {
+        $normalise = function (string $type): string {
+            $parts = explode('|', str_starts_with($type, '?') ? substr($type, 1).'|null' : $type);
+            $parts = array_map(fn (string $part): string => strtolower((string) preg_replace('/^.*\\\\/', '', trim($part))), $parts);
+            sort($parts);
+
+            return implode('|', $parts);
+        };
+
+        return $normalise($native) === $normalise($doc);
     }
 
     /**
