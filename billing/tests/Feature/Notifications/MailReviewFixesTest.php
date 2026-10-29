@@ -370,7 +370,7 @@ it('does not let staff switch an always-sent template off', function () {
     $staff = User::factory()->staff(['notifications.templates.manage', 'notifications.templates.view'])->create();
     $template = EmailTemplate::query()->where('key', 'auth.login_added')->sole();
 
-    $this->actingAs($staff)->withSession(['auth.password_confirmed_at' => time()])
+    $this->actingAs($staff)->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])
         ->post(route('admin.notifications.templates.toggle', $template))->assertStatus(422);
     $this->actingAs($staff)->get(route('admin.notifications.templates.edit', $template))
         ->assertInertia(fn ($page) => $page->where('template.always_sent', true));

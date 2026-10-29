@@ -45,7 +45,7 @@ test('probe: domain search does not offer "I already have it" for a bare .np nam
 
 test('probe: the "How to register" URL setting accepts https only', function (string $url, bool $ok) {
     actingAsStaff(['*']);
-    session(['auth.password_confirmed_at' => time()]);
+    session(['auth.password_confirmed_at' => now()->getTimestamp()]);
 
     $response = $this->put(route('admin.platform.settings.update', ['section' => 'domains_search']), ['domains' => ['self_registration_url' => $url]]);
 

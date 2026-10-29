@@ -33,7 +33,7 @@ test('a plain download without a recent password goes to the confirm page and re
 });
 
 test('a stale confirmation counts as none, and a wrong password does not unlock the file', function () {
-    $this->withSession(['auth.password_confirmed_at' => time() - config('auth.step_up_seconds') - 1]);
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp() - config('auth.step_up_seconds') - 1]);
 
     $this->get($this->url)->assertRedirect(route('password.confirm'));
     $this->post(route('password.confirm.store'), ['password' => 'wrong'])->assertSessionHasErrors('password');

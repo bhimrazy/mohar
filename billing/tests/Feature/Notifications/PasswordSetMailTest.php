@@ -46,7 +46,7 @@ it('is editable in the template editor and sends the edited wording', function (
     $template = EmailTemplate::query()->where('key', 'auth.password_set')->sole();
 
     $this->actingAs(User::factory()->staff(['notifications.templates.manage', 'notifications.templates.view'])->create())
-        ->withSession(['auth.password_confirmed_at' => time()])
+        ->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])
         ->put(route('admin.notifications.templates.update', $template), [
             'name' => $template->name, 'locale' => 'en', 'subject' => 'Pick your {{ company.name }} password', 'heading' => 'Pick a password',
             'action_label' => 'Pick a password', 'body' => 'Hello {{ user.first_name }}, choose a password with the button below.',

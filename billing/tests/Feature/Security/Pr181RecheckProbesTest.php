@@ -37,10 +37,10 @@ test('mark reviewed is idempotent: one activity entry, and a second post changes
     $chargeback = Transaction::query()->where('type', 'chargeback')->sole();
 
     billingStaff();
-    $this->withSession(['auth.password_confirmed_at' => time()])->post(route('admin.billing.transactions.reviewed', $chargeback))->assertRedirect();
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])->post(route('admin.billing.transactions.reviewed', $chargeback))->assertRedirect();
     $first = $chargeback->fresh()->reviewed_at;
     $this->travel(5)->minutes();
-    $this->withSession(['auth.password_confirmed_at' => time()])->post(route('admin.billing.transactions.reviewed', $chargeback))->assertRedirect();
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])->post(route('admin.billing.transactions.reviewed', $chargeback))->assertRedirect();
 
     expect($chargeback->fresh()->reviewed_at->equalTo($first))->toBeTrue()
         ->and(ActivityLog::query()->where('event', 'billing.reversal.reviewed')->count())->toBe(1);
@@ -57,7 +57,7 @@ test('mark reviewed needs a recent password and a reversal with a review amount'
     expect($chargeback->fresh()->reviewed_at)->toBeNull()
         ->and(ActivityLog::query()->where('event', 'billing.reversal.reviewed')->exists())->toBeFalse();
 
-    $this->withSession(['auth.password_confirmed_at' => time()])->post(route('admin.billing.transactions.reviewed', $payment))->assertNotFound();
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])->post(route('admin.billing.transactions.reviewed', $payment))->assertNotFound();
 });
 
 // The to-do is gated on billing.payments.manage but links to a page gated on billing.transactions.view.

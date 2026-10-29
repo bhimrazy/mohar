@@ -185,7 +185,7 @@ it('uses the template preheader and saves it from the editor', function () {
     $staff = User::factory()->staff(['notifications.templates.manage', 'notifications.templates.view'])->create();
     $template = EmailTemplate::query()->with('translations')->where('key', 'client.welcome')->sole();
 
-    $this->actingAs($staff)->withSession(['auth.password_confirmed_at' => time()])->put(route('admin.notifications.templates.update', $template), [
+    $this->actingAs($staff)->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])->put(route('admin.notifications.templates.update', $template), [
         'name' => $template->name, 'locale' => 'en', 'subject' => 'Welcome', 'preheader' => 'Your account is ready, {{ client.first_name }}.', 'body' => "# Hi\n\nWelcome.",
     ])->assertSessionHasNoErrors();
 

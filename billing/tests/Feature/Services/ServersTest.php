@@ -36,7 +36,7 @@ function serverPayload(array $overrides = []): array
 
 test('staff manage servers and credentials are stored encrypted and never exposed', function () {
     actingAsStaff(['services.servers.view', 'services.servers.manage']);
-    $this->withSession(['auth.password_confirmed_at' => time()]);
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
 
     $this->post(route('admin.services.servers.store'), serverPayload())->assertRedirect(route('admin.services.servers.index'));
 
@@ -56,7 +56,7 @@ test('staff manage servers and credentials are stored encrypted and never expose
 
 test('only one default server per driver is kept', function () {
     actingAsStaff(['services.servers.view', 'services.servers.manage']);
-    $this->withSession(['auth.password_confirmed_at' => time()]);
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
     $old = Server::factory()->create(['is_default' => true]);
 
     $this->post(route('admin.services.servers.store'), serverPayload())->assertRedirect();
@@ -66,7 +66,7 @@ test('only one default server per driver is kept', function () {
 
 test('server input is validated', function () {
     actingAsStaff(['services.servers.view', 'services.servers.manage']);
-    $this->withSession(['auth.password_confirmed_at' => time()]);
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
 
     $this->post(route('admin.services.servers.store'), serverPayload(['hostname' => 'bad host!', 'driver' => 'cpanel-x', 'nameservers' => ['a', 'b', 'c', 'd', 'e', 'f'], 'port' => 70000]))
         ->assertSessionHasErrors(['hostname', 'driver', 'nameservers', 'port']);
@@ -74,7 +74,7 @@ test('server input is validated', function () {
 
 test('a server with services cannot be deleted', function () {
     actingAsStaff(['services.servers.view', 'services.servers.manage']);
-    $this->withSession(['auth.password_confirmed_at' => time()]);
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
     $server = Server::factory()->create();
     Service::factory()->status(ServiceStatus::Terminated)->create(['server_id' => $server->id]);
 
@@ -88,7 +88,7 @@ test('a server with services cannot be deleted', function () {
 
 test('test connection reports success and failure', function () {
     actingAsStaff(['services.servers.view', 'services.servers.manage']);
-    $this->withSession(['auth.password_confirmed_at' => time()]);
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
     $server = Server::factory()->create();
 
     $this->post(route('admin.services.servers.test', $server))->assertSessionHasNoErrors();
@@ -99,7 +99,7 @@ test('test connection reports success and failure', function () {
 
 test('server groups keep their fill type and server order', function () {
     actingAsStaff(['services.servers.view', 'services.servers.manage']);
-    $this->withSession(['auth.password_confirmed_at' => time()]);
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
     [$a, $b] = Server::factory()->count(2)->create();
 
     $this->post(route('admin.services.server-groups.store'), ['name' => 'Shared EU', 'fill_type' => 'fill_sequentially', 'server_ids' => [$b->id, $a->id]])->assertRedirect();
@@ -115,7 +115,7 @@ test('server groups keep their fill type and server order', function () {
 test('viewing servers does not allow managing them', function () {
     actingAsStaff(['services.servers.view']);
 
-    $this->withSession(['auth.password_confirmed_at' => time()]);
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
     $this->get(route('admin.services.servers.index'))->assertOk()->assertInertia(fn (Assert $page) => $page->where('canManage', false));
     $this->post(route('admin.services.servers.store'), serverPayload())->assertForbidden();
     $this->post(route('admin.services.servers.test', Server::factory()->create()))->assertForbidden();

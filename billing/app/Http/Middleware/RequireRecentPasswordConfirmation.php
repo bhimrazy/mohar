@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -132,14 +133,31 @@ class RequireRecentPasswordConfirmation
      */
     public static function recentlyConfirmed(Request $request): bool
     {
+        $confirmedAt = $request->hasSession() ? (int) $request->session()->get('auth.password_confirmed_at', 0) : 0;
+
+        if ($request->user() !== null) {
+            return self::confirmedFor($request->user(), $confirmedAt);
+        }
+
+        return now()->getTimestamp() - $confirmedAt < self::timeout();
+    }
+
+    /**
+     * The same rule for a stored user and the timestamp of their confirmation, for work with no request (a queued
+     * export, #354). A login without a password or with an expired one-time password is never confirmed.
+     */
+    public static function confirmedFor(User $user, int $confirmedAt): bool
+    {
         // An expired one-time password no longer confirms anything, even in a session opened before it expired.
-        if ($request->user() !== null && (! $request->user()->hasPassword() || $request->user()->passwordExpired())) {
+        if (! $user->hasPassword() || $user->passwordExpired()) {
             return false;
         }
 
-        $confirmedAt = $request->hasSession() ? (int) $request->session()->get('auth.password_confirmed_at', 0) : 0;
+        // A stored time is data from outside this request: zero, negative or in the future (beyond a minute of clock
+        // skew) is never a confirmation.
+        $now = now()->getTimestamp();
 
-        return time() - $confirmedAt < self::timeout();
+        return $confirmedAt > 0 && $confirmedAt <= $now + 60 && $now - $confirmedAt < self::timeout();
     }
 
     public static function timeout(): int
