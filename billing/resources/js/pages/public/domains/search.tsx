@@ -47,7 +47,7 @@ function statusText(result: LookupResult): string {
     }
 }
 
-function selfRegisteredNote(tld: string | null): string {
+function selfRegisteredNote(tld?: string | null): string {
     const free = tld?.endsWith('.np') ? ', free for eligible applicants' : '';
 
     return `${tld} domains are registered by you at the registry${free}. Once it is approved, set the nameservers shown on your hosting service.`;
