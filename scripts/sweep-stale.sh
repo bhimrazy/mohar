@@ -9,7 +9,7 @@
 # Anything dirty, with commits outside origin, or whose PR is not merged is listed as "kept: <reason>" and never touched.
 # A tree that could be in use is kept too: one with a .claude-in-use file at its root (agents create it, git-ignored), and
 # any branch or _review/ tree whose git HEAD or index, or top-level files (also in billing/), changed in the last
-# SWEEP_IDLE_HOURS (default 12). That is a handful of stat calls, no walk of vendor/ or node_modules/. The sweep reads
+# SWEEP_IDLE_HOURS (default 12; 0 turns the check off). That is a handful of stat calls, no walk of vendor/ or node_modules/. The sweep reads
 # trees with `git --no-optional-locks`, so it does not refresh an index and fake activity.
 # Databases with open connections are skipped by pg.sh. A database is matched to a worktree by its directory name
 # (pg.sh --db-name), so scratch databases of an agent that used another slug are swept too: run --apply when no suite runs.
@@ -64,6 +64,7 @@ remove() { # remove <path> <reason> [<branch>]
 # recently_used <worktree>: true when its git HEAD or index, or a top-level entry of it or of billing/, changed lately.
 recently_used() {
     local gd
+    [ "$idle_min" -gt 0 ] || return 1
     gd="$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null)" || return 1
     [ -n "$(find "$gd/HEAD" "$gd/index" "$1" "$1/billing" -maxdepth 1 -mmin "-$idle_min" ! -name .git 2>/dev/null | head -1)" ]
 }
