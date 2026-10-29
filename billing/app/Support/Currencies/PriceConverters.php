@@ -9,6 +9,8 @@ use App\Contracts\Currencies\PriceConverter;
  * Admin → Currencies → Converted prices previews and applies all of them; an empty registry is valid.
  *
  *   app(PriceConverters::class)->register(CatalogPriceConverter::class);
+ *
+ * @api
  */
 class PriceConverters
 {

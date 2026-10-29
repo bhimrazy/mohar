@@ -11,6 +11,8 @@ use Closure;
  *   app(GlobalSearch::class)->provider('Invoices', fn (string $term) => Invoice::query()->whereLike('number', "%{$term}%")
  *       ->limit(5)->get()->map(fn ($invoice) => ['title' => $invoice->number, 'subtitle' => ..., 'href' => route(...)])->all(),
  *       'billing.invoices.view');
+ *
+ * @api
  */
 class GlobalSearch
 {

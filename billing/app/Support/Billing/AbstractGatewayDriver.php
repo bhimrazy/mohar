@@ -16,6 +16,8 @@ use Illuminate\Http\Request;
 /**
  * Defaults for gateway drivers that implement only part of the contract. Billing never calls a method whose
  * capability the driver doesn't declare, so the defaults only guard against programming errors.
+ *
+ * @api
  */
 abstract class AbstractGatewayDriver implements GatewayDriver
 {

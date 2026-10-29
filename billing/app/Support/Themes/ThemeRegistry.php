@@ -11,6 +11,8 @@ use InvalidArgumentException;
  *
  * Presets are validated against ThemeSchema on registration, so a broken pack fails loudly in dev/CI
  * instead of rendering a half-styled page.
+ *
+ * @api
  */
 class ThemeRegistry
 {
