@@ -9,7 +9,7 @@ use App\Support\Migration\ImportRegistry;
 
 /**
  * Kernel C1 (client-import spec §16, AC 1; ADR 0012): importers are registered once by entity key, report that key,
- * and run after the entities they depend on.
+ * and run after the entities they depend on. Invoice-domain import spec AC 2: `after:` orders without requiring.
  */
 function fakeImporter(string $key): Closure
 {
@@ -77,4 +77,25 @@ test('keys are validated, a duplicate needs replace, and an importer must report
 
     $registry->register('client', fakeImporter('client'), replace: true);
     expect($registry->has('client'))->toBeTrue();
+});
+
+test('after: orders an entity after those in the same import and ignores those that are absent', function () {
+    $registry = new ImportRegistry(app());
+    $registry->register('invoice', fakeImporter('invoice'), dependsOn: ['client'], after: ['domain', 'service']);
+    $registry->register('client', fakeImporter('client'));
+
+    // No domain or service importer (Domains filtered out, services not built): the invoice import still runs.
+    expect($registry->ordered(['invoice']))->toBe(['client', 'invoice'])
+        ->and($registry->ordered())->toBe(['client', 'invoice']);
+
+    $registry->register('domain', fakeImporter('domain'), dependsOn: ['client']);
+
+    // A registered after: entity is ordered first only when it is part of the import; it is never added.
+    expect($registry->ordered())->toBe(['client', 'domain', 'invoice'])
+        ->and($registry->ordered(['invoice', 'domain']))->toBe(['client', 'domain', 'invoice'])
+        ->and($registry->ordered(['invoice']))->toBe(['client', 'invoice'])
+        ->and(fn () => $registry->register('payment', fakeImporter('payment'), after: ['Domain']))->toThrow(InvalidArgumentException::class);
+
+    $registry->register('domain', fakeImporter('domain'), replace: true, after: ['invoice']);
+    expect(fn () => $registry->ordered())->toThrow(LogicException::class, 'Import entities depend on each other in a cycle: invoice → domain → invoice.');
 });

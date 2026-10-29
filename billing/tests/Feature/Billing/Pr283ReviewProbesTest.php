@@ -30,6 +30,11 @@ function pr283Context(int $runId): ImportContext
         {
             return null;
         }
+
+        public function targetIds(string $entity, array $sourceIds): array
+        {
+            return [];
+        }
     }, ['source_name' => 'Old billing']);
 }
 

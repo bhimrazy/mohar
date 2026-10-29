@@ -255,8 +255,21 @@ App\Contracts\Integrations\ValidatesSettings interface
 App\Contracts\Integrations\ValidatesSettings method validateSettings(array $settings): array
 App\Contracts\Integrations\ValidatesSettings doc method validateSettings @param $settings array<string, string>
 App\Contracts\Integrations\ValidatesSettings doc method validateSettings @return array<string, string>
+App\Contracts\Migration\DeclaresValueMaps interface extends App\Contracts\Migration\RecordImporter
+App\Contracts\Migration\DeclaresValueMaps method valueMaps(): array
+App\Contracts\Migration\DeclaresValueMaps doc method valueMaps @return array<string, list<array{value: string, label: string}>>
 App\Contracts\Migration\ImportIdResolver interface
 App\Contracts\Migration\ImportIdResolver method targetId(string $entity, string $sourceId): ?int
+App\Contracts\Migration\ImportIdResolver method targetIds(string $entity, array $sourceIds): array
+App\Contracts\Migration\ImportIdResolver doc method targetIds @param $sourceIds list<string>
+App\Contracts\Migration\ImportIdResolver doc method targetIds @return array<string, int>
+App\Contracts\Migration\MatchesExisting interface extends App\Contracts\Migration\RecordImporter
+App\Contracts\Migration\MatchesExisting method matchExisting(array $records, App\Data\Migration\ImportContext $context): array
+App\Contracts\Migration\MatchesExisting doc method matchExisting @param $records list<ImportRecord>
+App\Contracts\Migration\MatchesExisting doc method matchExisting @return array<string, int>
+App\Contracts\Migration\PreparesChunk interface extends App\Contracts\Migration\RecordImporter
+App\Contracts\Migration\PreparesChunk method prepare(array $records, App\Data\Migration\ImportContext $context): void
+App\Contracts\Migration\PreparesChunk doc method prepare @param $records list<ImportRecord>
 App\Contracts\Migration\RecordImporter interface
 App\Contracts\Migration\RecordImporter method cutover(App\Data\Migration\ImportContext $context): int
 App\Contracts\Migration\RecordImporter method finalize(App\Data\Migration\ImportContext $context): array
@@ -2256,9 +2269,10 @@ App\Support\Migration\ImportRegistry method public ordered(array $keys = []): ar
 App\Support\Migration\ImportRegistry doc method ordered @param $keys list<string>
 App\Support\Migration\ImportRegistry doc method ordered @return list<string>
 App\Support\Migration\ImportRegistry doc method ordered @throws LogicException
-App\Support\Migration\ImportRegistry method public register(string $key, Closure|string $importer, bool $replace = false, array $dependsOn = []): void
+App\Support\Migration\ImportRegistry method public register(string $key, Closure|string $importer, bool $replace = false, array $dependsOn = [], array $after = []): void
 App\Support\Migration\ImportRegistry doc method register @param $importer class-string<RecordImporter>|Closure(Container): RecordImporter
 App\Support\Migration\ImportRegistry doc method register @param $dependsOn list<string>
+App\Support\Migration\ImportRegistry doc method register @param $after list<string>
 App\Support\Money final readonly class implements JsonSerializable
 App\Support\Money property public readonly int $amount
 App\Support\Money property public readonly string $currency

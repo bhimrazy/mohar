@@ -33,16 +33,23 @@ arch('concrete driver registries are final')
     ->expect(['App\Support\Services\ProvisioningDriverRegistry', 'App\Support\Domains\RegistrarDriverRegistry'])
     ->toBeFinal();
 
-/** What a record importer may not use (client-import spec §9, AC 2): it writes quietly and reaches no provider. */
+/**
+ * What a record importer may not use (client-import spec §9, AC 2; invoice-domain-import spec AC 2): it writes
+ * quietly and reaches no provider, neither through a kernel contract nor through its module's drivers, jobs or mail.
+ */
 function importerForbidden(): array
 {
+    $app = dirname(__DIR__, 2).'/app';
+    $namespace = fn (string $path): string => 'App\\'.str_replace('/', '\\', substr($path, strlen($app) + 1));
+
     return [
         'event', 'dispatch', 'Illuminate\Contracts\Events\Dispatcher', 'Illuminate\Support\Facades\Event', 'Illuminate\Support\Facades\Bus',
-        'Illuminate\Support\Facades\Mail', 'Illuminate\Support\Facades\Notification', 'App\Contracts\Notifications\SystemMailer',
+        'Illuminate\Support\Facades\Queue', 'Illuminate\Support\Facades\Mail', 'Illuminate\Support\Facades\Notification', 'App\Contracts\Notifications\SystemMailer',
         'App\Contracts\Auth\AuthMailer', 'App\Contracts\Integrations\IntegrationDriver', 'App\Contracts\Services\Provisioning',
-        'App\Contracts\Billing\GatewayDriver', 'App\Contracts\Billing\HostedPaymentDriver', 'App\Support\Services\ProvisioningDriverRegistry',
-        'App\Contracts\Domains\Registrar', 'App\Support\Domains\RegistrarDriverRegistry',
-        ...array_map(fn (string $area): string => 'App\\Events\\'.basename($area), array_filter(glob(dirname(__DIR__, 2).'/app/Events/*', GLOB_ONLYDIR) ?: [], fn (string $area): bool => basename($area) !== 'Migration')),
+        'App\Contracts\Billing\GatewayDriver', 'App\Contracts\Billing\HostedPaymentDriver', 'App\Contracts\Billing\GatewayRegistry', 'App\Support\Services\ProvisioningDriverRegistry',
+        'App\Contracts\Domains\Registrar', 'App\Support\Domains\RegistrarDriverRegistry', 'App\Support\Integrations\DriverRegistry',
+        ...array_map(fn (string $area): string => 'App\\Events\\'.basename($area), array_filter(glob($app.'/Events/*', GLOB_ONLYDIR) ?: [], fn (string $area): bool => basename($area) !== 'Migration')),
+        ...array_map($namespace, glob($app.'/Modules/*/{Drivers,Jobs,Mail,Notifications}', GLOB_ONLYDIR | GLOB_BRACE) ?: []),
     ];
 }
 
@@ -53,8 +60,9 @@ foreach ($importerNamespaces as $namespace) {
     arch("{$namespace} writes quietly and calls no driver")->expect($namespace)->not->toUse(importerForbidden());
 }
 
-test('the record-importer rule refuses an importer that dispatches an event', function () {
-    expect(fn () => expect('Tests\Fixtures\Migration\Import')->not->toUse(importerForbidden()))->toThrow(ExpectationFailedException::class);
+test('the record-importer rule refuses an importer that dispatches an event or queues a module job', function () {
+    expect(fn () => expect('Tests\Fixtures\Migration\Import\EventfulImporter')->not->toUse(importerForbidden()))->toThrow(ExpectationFailedException::class)
+        ->and(fn () => expect('Tests\Fixtures\Migration\Import\RenewingImporter')->not->toUse(importerForbidden()))->toThrow(ExpectationFailedException::class);
 });
 
 test('every arch target in this file matches at least one class', function () use ($importerNamespaces) {
