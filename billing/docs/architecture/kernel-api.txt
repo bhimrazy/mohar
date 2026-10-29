@@ -2337,8 +2337,13 @@ App\Support\Queues doc method automationConnection @param $connections array<str
 App\Support\Queues doc method automationConnection @return array<string, mixed>
 App\Support\Queues method public static workerCommands(): array
 App\Support\Queues doc method workerCommands @return list<string>
+App\Support\Reports\ReportConformance final class
+App\Support\Reports\ReportConformance const public QUERY_BUDGET = 12
+App\Support\Reports\ReportConformance method public static assertPages(string $key, App\Data\Reports\ReportQuery $query, int $limit = 2): void
+App\Support\Reports\ReportConformance method public static assertQueryBudget(string $key, App\Data\Reports\ReportQuery $query, int $budget = self::QUERY_BUDGET): void
+App\Support\Reports\ReportConformanceFailure final class extends AssertionError
 App\Support\Reports\ReportExporter final class
-App\Support\Reports\ReportExporter method public export(string $key, App\Data\Reports\ReportQuery $query, App\Enums\ExportFormat $format, ?string $layout = null): Symfony\Component\HttpFoundation\StreamedResponse
+App\Support\Reports\ReportExporter method public export(string $key, App\Data\Reports\ReportQuery $query, App\Enums\ExportFormat $format, ?string $layout = null, ?int $passwordConfirmedAt = null): Symfony\Component\HttpFoundation\StreamedResponse
 App\Support\Reports\ReportExporter doc method export @throws AuthorizationException
 App\Support\Reports\ReportExporter doc method export @throws ValidationException
 App\Support\Reports\ReportExporter doc method export @throws HttpException
