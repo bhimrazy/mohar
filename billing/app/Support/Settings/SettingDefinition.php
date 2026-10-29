@@ -4,6 +4,11 @@ namespace App\Support\Settings;
 
 use Closure;
 
+/**
+ * One editable setting in a SettingsRegistry section.
+ *
+ * @api
+ */
 final readonly class SettingDefinition
 {
     /**

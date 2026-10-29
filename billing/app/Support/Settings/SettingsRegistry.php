@@ -10,6 +10,8 @@ namespace App\Support\Settings;
  *       new SettingDefinition('billing.invoice_prefix', 'Invoice number prefix'),
  *       new SettingDefinition('billing.late_fee_days', 'Days after due date to add a late fee', 'integer', rules: ['min:0']),
  *   ], permission: 'billing.settings.manage');
+ *
+ * @api
  */
 class SettingsRegistry
 {

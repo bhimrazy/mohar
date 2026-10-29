@@ -15,11 +15,7 @@ interface ProvisioningDrivers
      * Each driver's product settings. `fields` is the one integration field shape (SettingField::toArray()); fields
      * with `options_source: remote` take their options from remoteOptions().
      *
-     * `config_fields` is the older shape (`type: password|text|select|...`, `options` as a list of values), kept for
-     * existing consumers. @deprecated since #65 (ADR 0009 PR B2); removed before kernel API 1.0.0 (issue #68). Read
-     * `fields` instead. Implementers MUST return both keys until then.
-     *
-     * @return list<array{key: string, label: string, fields: list<array{key: string, label: string, type: string, secret: bool, required: bool, help: string|null, options: array<array-key, string>, default: string|int|bool|null, options_source: string|null, min_length: int|null}>, config_fields: list<array{key: string, label: string, type: string, required: bool, secret: bool, options?: list<string>, options_source?: string}>}>
+     * @return list<array{key: string, label: string, fields: list<array{key: string, label: string, type: string, secret: bool, required: bool, help: string|null, options: array<array-key, string>, default: string|int|bool|null, options_source: string|null, min_length: int|null}>}>
      */
     public function all(): array;
 

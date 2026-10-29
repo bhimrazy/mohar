@@ -17,6 +17,8 @@ use Closure;
  * The merge itself moves only Core-owned rows (contacts, logins) and dispatches App\Events\Core\ClientMerged
  * inside its database transaction; each module re-points and reconciles its own tables in a synchronous
  * listener (so a failure rolls the whole merge back).
+ *
+ * @api
  */
 class ClientMergeRegistry
 {

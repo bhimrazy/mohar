@@ -9,6 +9,8 @@ namespace App\Support;
  * The pools share their connection's retry_after (240 s by default). Work that can run longer than that has its own
  * connection, AUTOMATION, whose retry_after is above the job's timeout: a queue worker hands a reserved job to a
  * second worker once retry_after has passed, even while the first is still running it (ADR 0017 §3, issue #82).
+ *
+ * @api
  */
 final class Queues
 {
