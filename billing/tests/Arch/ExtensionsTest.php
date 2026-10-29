@@ -49,7 +49,8 @@ function importerForbidden(): array
         'App\Contracts\Billing\GatewayDriver', 'App\Contracts\Billing\HostedPaymentDriver', 'App\Contracts\Billing\GatewayRegistry', 'App\Support\Services\ProvisioningDriverRegistry',
         'App\Contracts\Domains\Registrar', 'App\Support\Domains\RegistrarDriverRegistry', 'App\Support\Integrations\DriverRegistry',
         ...array_map(fn (string $area): string => 'App\\Events\\'.basename($area), array_filter(glob($app.'/Events/*', GLOB_ONLYDIR) ?: [], fn (string $area): bool => basename($area) !== 'Migration')),
-        ...array_map($namespace, glob($app.'/Modules/*/{Drivers,Jobs,Mail,Notifications}', GLOB_ONLYDIR | GLOB_BRACE) ?: []),
+        // No GLOB_BRACE: musl builds do not define it.
+        ...array_map($namespace, array_merge(...array_map(fn (string $kind): array => glob("{$app}/Modules/*/{$kind}", GLOB_ONLYDIR) ?: [], ['Drivers', 'Jobs', 'Mail', 'Notifications']))),
     ];
 }
 
