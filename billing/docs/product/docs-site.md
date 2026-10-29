@@ -66,7 +66,7 @@ hosts on Cloudflare Pages, not GitHub Pages.
 | Cadence and breakage | six patch releases between 2026-09-15 and 2026-10-08                           | a release every 3–4 days (20 between 2026-07-30 and 2026-10-16); 4 releases labelled breaking in 68, plus behaviour changes (Python 3.11+ from 0.0.68) |
 | 7-day cooldown       | passes (0.42.6 of 2026-10-08)                                                  | passes with 0.0.70 (2026-10-12); 0.0.71 (2026-10-16) does not                                                                                          |
 | Supply chain         | 361 lock entries (npm)                                                         | **11 packages** (pip: zensical + click, deepmerge, jinja2, markdown, pathspec, pygments, pymdown-extensions, pyyaml, tomli, markupsafe), Rust core     |
-| Toolchain            | Node 24.21.0, already pinned in `billing/.nvmrc`                               | Python ≥ 3.11 and a hashed `requirements.txt` or `uv.lock` in its own folder; Python is not part of the repo's toolchain or dependency checks today    |
+| Toolchain            | Node 24.22.1, already pinned in `billing/.nvmrc`                               | Python ≥ 3.11 and a hashed `requirements.txt` or `uv.lock` in its own folder; Python is not part of the repo's toolchain or dependency checks today    |
 | Local build to Pages | plain `dist/`; our script pushes it                                            | plain `site/`; the official guide shows only an Actions workflow and there is no `gh-deploy` command, but the same push script would work (inferred)   |
 | Versioning, i18n     | community `starlight-versions`; i18n built in                                  | fork of `mike` until native versioning; one language per build                                                                                         |
 
@@ -143,7 +143,7 @@ set up.
 
 ```text
 docs-site/
-  package.json, package-lock.json, .npmrc (copy of billing/.npmrc), .nvmrc (24.21.0)
+  package.json, package-lock.json, .npmrc (copy of billing/.npmrc), .nvmrc (24.22.1)
   astro.config.mjs        site, base, sidebar, brand
   src/product.mjs         the product name, the only place it is written
   src/styles/theme.css    brand colour, font, screenshot frame

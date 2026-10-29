@@ -92,8 +92,8 @@ RUN APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= APP_ENV=producti
     php artisan wayfinder:generate --with-form
 
 # ------------------------------------------------------------------ assets: Vite build (only public/build leaves)
-# Node 24.21.0 (billing/.nvmrc) on Debian trixie slim, multi-arch index pushed 2026-10-06.
-FROM node:24.21.0-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66 AS assets
+# Node 24.22.1 (billing/.nvmrc) on Debian trixie slim, multi-arch index pushed 2026-10-28, security-exception (ADR 0007).
+FROM node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a AS assets
 
 WORKDIR /app
 
@@ -117,8 +117,8 @@ RUN WAYFINDER_COMMAND=true npm run build
 FROM php AS dev
 
 COPY --from=composer:2.10.3@sha256:af98f42dfff7c68ba8d53c2164fd9fde1087b7d449514baa38c418b1f6bc4bac /usr/bin/composer /usr/bin/composer
-COPY --from=node:24.21.0-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66 /usr/local/bin/node /usr/local/bin/node
-COPY --from=node:24.21.0-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66 /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
     && cp "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini" \
