@@ -5,10 +5,11 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
 
 ## Summary
 
-- Progress toward "a product a host would switch to": **62/100** (CEO review 2026-10-22,
-  `docs/reviews/2026-10-22-ceo.md`; rubric in `docs/reviews/readme.md`; the round-3 score on 10-20 was 53). Merges
-  after that review are not scored yet; the next CEO round scores them. CTO engineering score: 63/100
-  (`docs/reviews/2026-10-22-cto.md`).
+- Progress toward "a product a host would switch to": **74/100** (CEO review 2026-10-29,
+  `docs/reviews/2026-10-29-ceo.md`; rubric in `docs/reviews/readme.md`; 70 on 10-24). CTO engineering score: 66/100
+  (`docs/reviews/2026-10-29-cto.md`). Same day: security round (`2026-10-29-security.md`, no high findings), WHMCS
+  parity (`2026-10-29-whmcs-parity.md`: 152 of 226 features built and tested, top-10 gaps) and open-source comparison
+  (`2026-10-29-oss-comparison.md`: FOSSBilling, Paymenter; adopt a frontend i18n ADR first).
 - Merged on 2026-10-23 (about 45 PRs, #360 to #434; list: `gh pr list --state merged --search "merged:2026-10-23"`):
     - Company clock: Services, Notifications, Platform, Domains and the Namecheap dates read the company date (#361,
       #363, #364, #398, #425); `CalendarDate` for company dates (#410).
@@ -120,10 +121,32 @@ digest; "attached" text only when the file is attached; a failed render sends th
 #505 (a failed Stripe refund already booked goes to Disputes to review, kernel `CallbackEvent::REFUND_FAILED`; data-only
 migration `2026_11_03_300800` moves released refund ids into `raw`). Issues closed by hand: #483, #29, #498, #499.
 
-No agents running. No open PRs. Open follow-ups: #506 (note email can say "attached" when the render fails at send; CI
-flakes: `RenewalIssuingTest` budget 50 vs 47 on fresh PostgreSQL, dompdf out of memory in `NepalDemoSeedTest`); #507
-(a "succeeded" refund delivery racing a failed report can book an unmarked row); #503 review leftovers: invoice-number search
-scans without an index, no per-note resend cooldown, "View in email log" link on the resend toast.
+Wave merged 2026-10-29: #510 (P2c: `.np` wording, own out-of-currency cart message, one registrar account read per call;
+kernel `DomainNameRules::registeredByClient`), #511 (P18: deploy prunes only this project's recorded images, never live or
+previous; Debian trixie-20261020 base), #512 (spec: unpaid invoice and domain import, phase 3; build starts with PR 0),
+#513 (P12a: `kernel:api-snapshot`, `billing/docs/architecture/kernel-api.txt`, `Kernel::API_VERSION` 0.1.0, `config_fields`
+removed; production `dns_opt` timeout 2 attempts 2), #514 (#506: note PDF claim, renewal budget and seed memory flakes),
+#515 (P13: export step-up decided for the query user, future confirmation times refused, one Carbon clock, PDF header cap,
+`App\Support\Reports\ReportConformance` with a query budget), #520 (P4: mail-down warnings, invitation password
+fingerprint, unverified logins refused on add, owner transfer and merge, a first invitation replaces the password, password
+reset ends other sessions, sign-up survives mail down), #522 (security M1/M3: one wrong-password budget per login for
+step-up, password change and account deletion; PDF download limits). Docs: #509, #517, #518, #519, #521. Issues closed by
+hand: #506, #203, #267, #158, #68, #354, #367, #431, #443, #97, #171.
+
+Rule since 10-29: every open kernel PR merges develop and runs `php artisan kernel:api-snapshot`; a re-review follows every
+fix round on money and auth PRs (CTO review).
+
+No agents running. No open PRs. Open follow-ups: #507 (a "succeeded" refund racing a failed report); #516 (test `objects`
+disk survives runs); #523 (password-guess budget not atomic, audit `client_id`, L3 step-up for provisioning secrets);
+#406 and #244 (re-pin caddy/composer after 10-29 18:13 UTC, k6 10-31, postgres 11-02, Node 11-04); #67, #70, #83 (P12a
+leftovers); #503 review leftovers (invoice-number search index, per-note resend cooldown, email-log link); #520 leftovers
+(pending-attach flow for unverified logins, mail send inside the first-invitation transaction); #511 leftover (rollback with
+mutable tags); a scheduled `check-dependency-age.mjs --all` job; `product-vision.md` claims to mark "planned" (AI,
+OpenTelemetry, p95 under 200 ms, i18n/WCAG). Owner decisions open: `symfony/mime` 8.1.10 and Node 24.22.1 cooldown
+exceptions; lift "simulators only" for eSewa and Khalti; Nepal SMS provider and panel order after cPanel; import spec Q2
+(ResellerClub per-client customer) blocks its PR 4.
+Next (from the 10-29 reviews): import PR 0 (ADR 0019 contracts), mail transport settings with test send, frontend i18n ADR,
+month-end reports pack, public API design.
 
 Walkthrough: `docs-site` Overview and Get started → Walkthrough (12 steps, run against a seeded app). Before a demo
 start Mailpit (`docker compose up -d` in `billing/`) and `composer dev` (now includes the scheduler).
