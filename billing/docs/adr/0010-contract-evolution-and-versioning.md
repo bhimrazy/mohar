@@ -111,3 +111,54 @@ No aliases are needed. ADR 0009's moves rely on this.
   default, as a new event would get it; without that, a copy serialised before the parameter existed would leave the
   typed property uninitialised. First used by `CreditNoteIssued::$notify` and `DebitNoteIssued::$notify`; it also
   covers `InvoiceCreated::$notify`.
+
+## Amendment (#513) — 2026-10-29, the snapshot, the version rule and deprecated array keys
+
+### The snapshot
+
+- `php artisan kernel:api-snapshot` (Core) writes `docs/architecture/kernel-api.txt`. Each line is one class,
+  constant, enum case, property or method, with its parameter names, types and defaults, and the `@open` and
+  `@deprecated` markers. Lines are sorted, so a diff names exactly what changed. Members are listed on the class that
+  declares them. Private members never appear, and protected ones only on classes that can be extended.
+- The scope is every class in `app/Contracts`, `app/Data`, `app/Events` and `app/Enums`, plus each `app/Support` class
+  whose class docblock carries `@api`. That makes "internal unless `@api`" mechanical. `Money`, `Kernel`, the
+  registries (`Dashboard`, `Navigation` and `GlobalSearch` included), their payload classes (`NavItem`,
+  `SettingDefinition`), `AbstractGatewayDriver`, `IdentifiesOccurrence` and the exceptions drivers throw now carry it.
+- The snapshot leaves out docblock types, documented array shapes, webhook payloads and merge-field keys. Those
+  stay under review and the kernel changelog.
+- CI runs `kernel:api-snapshot --check` in the Checks job, and so does `scripts/merge-gate.sh`. It reflects over the
+  kernel folders only (well under a second) and never parses the whole app. `scripts/changelog-check.sh` fails a PR
+  that changes `kernel-api.txt` without adding or editing a `kernel-changelog.d/` fragment.
+
+### The version
+
+- `App\Support\Kernel::API_VERSION` is `0.1.0`. The snapshot prints it on its second line.
+- Only the release PR bumps it, after the kernel changelog is assembled. A feature PR never does: parallel kernel PRs
+  would all conflict on one constant (ADR 0027).
+- The bump rule:
+    - Before 1.0.0, a release with kernel entries bumps the minor (`0.2.0`), breaking ones included under the
+      pre-1.0 window. A release without kernel entries keeps the version.
+    - From 1.0.0, a release bumps the major when any entry is marked breaking, otherwise the minor when it has
+      entries. A breaking fragment starts its first bullet with `**Breaking.**`.
+    - The patch number stays 0. A fix that changes no signature and no documented semantics needs no kernel entry.
+- `1.0.0` still comes with the first external package or the first tagged release.
+
+### Deprecating a key in a documented array shape
+
+- Add the replacement key next to the old one. That is compatible. The method's docblock then says
+  "`<key>` is deprecated since `<version>`, removed in `<next major>`; read `<replacement>`", and the kernel changelog
+  records it. PHPDoc has no per-key tag, so that sentence is the marker.
+- Implementers return both keys for the whole deprecation window (one minor release and 90 days, whichever is
+  longer). No runtime notice is possible, because nobody can tell when a caller reads an array key. So the removing
+  PR has to show that nothing in the repository still reads the key, and it updates fakes and tests.
+- A new shape that crosses a service contract should be a DTO. A documented array is for data that goes straight
+  into a page prop or a payload.
+- Before 1.0.0 the pre-1.0 window applies: `ProvisioningDrivers::all()` drops `config_fields` in #513 (issue #68)
+  with no window.
+
+### Long constructors
+
+- A kernel DTO or event with more than five constructor parameters gains new ones only as trailing defaulted
+  parameters, and callers pass those by name. Docs and new in-repo callers build such a class with named arguments.
+  Splitting `DriverMetadata` or `ProvisioningContext` into option objects, or moving the WHM-only
+  `ServerConnection::$accessHash` out, is a breaking change and stays open in issue #83.

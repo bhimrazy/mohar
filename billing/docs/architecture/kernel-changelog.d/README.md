@@ -14,5 +14,11 @@ PR, then bullets. No other heading, no frontmatter.
   implementers need no change.
 ```
 
+Start the first bullet of a breaking change with `**Breaking.**`; the release that ships it reads the marker to bump
+`App\Support\Kernel::API_VERSION` (ADR 0010 Amendment (#513)).
+
+A change to the public signatures also regenerates `docs/architecture/kernel-api.txt` (`php artisan
+kernel:api-snapshot`). CI fails when that file is stale, and when it changes in a PR that adds or edits no fragment here.
+
 `scripts/changelog-assemble.sh` puts the entries at the top of `## Unreleased (pre-1.0)` and deletes the fragments.
-CI warns when a kernel file changes and the PR adds no fragment here.
+CI also warns when a kernel file changes and the PR adds no fragment here.
