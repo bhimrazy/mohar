@@ -118,7 +118,7 @@ final class KernelApiSnapshot
             }
         }
 
-        $traitProperties = $this->traitMembers($class, fn (ReflectionClass $trait): array => $trait->getProperties());
+        $traitProperties = $this->traitProperties($class);
 
         // An enum's only properties are the built-in $name and $value.
         foreach ($class->isEnum() ? [] : $class->getProperties() as $property) {
@@ -268,19 +268,18 @@ final class KernelApiSnapshot
     }
 
     /**
-     * Names of the members the class's traits declare (properties carry no file name to tell them apart).
+     * Names of the properties the class's traits declare; a property carries no file name to tell them apart.
      *
      * @param  ReflectionClass<object>  $class
-     * @param  callable(ReflectionClass<object>): list<ReflectionProperty>  $members
      * @return list<string>
      */
-    private function traitMembers(ReflectionClass $class, callable $members): array
+    private function traitProperties(ReflectionClass $class): array
     {
         $names = [];
 
         foreach ($class->getTraits() as $trait) {
-            foreach ($members($trait) as $member) {
-                $names[] = $member->getName();
+            foreach ($trait->getProperties() as $property) {
+                $names[] = $property->getName();
             }
         }
 
