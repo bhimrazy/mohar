@@ -43,8 +43,9 @@ function importerForbidden(): array
     $namespace = fn (string $path): string => 'App\\'.str_replace('/', '\\', substr($path, strlen($app) + 1));
 
     return [
-        'event', 'dispatch', 'Illuminate\Contracts\Events\Dispatcher', 'Illuminate\Support\Facades\Event', 'Illuminate\Support\Facades\Bus',
-        'Illuminate\Support\Facades\Queue', 'Illuminate\Support\Facades\Mail', 'Illuminate\Support\Facades\Notification', 'App\Contracts\Notifications\SystemMailer',
+        'event', 'dispatch', 'dispatch_sync', 'Illuminate\Contracts\Events\Dispatcher', 'Illuminate\Contracts\Bus', 'Illuminate\Contracts\Queue',
+        'Illuminate\Contracts\Mail', 'Illuminate\Contracts\Notifications', 'Illuminate\Http\Client', 'Illuminate\Support\Facades\Http',
+        'Illuminate\Support\Facades\Event', 'Illuminate\Support\Facades\Bus', 'Illuminate\Support\Facades\Queue', 'Illuminate\Support\Facades\Mail', 'Illuminate\Support\Facades\Notification', 'App\Contracts\Notifications\SystemMailer',
         'App\Contracts\Auth\AuthMailer', 'App\Contracts\Integrations\IntegrationDriver', 'App\Contracts\Services\Provisioning',
         'App\Contracts\Billing\GatewayDriver', 'App\Contracts\Billing\HostedPaymentDriver', 'App\Contracts\Billing\GatewayRegistry', 'App\Support\Services\ProvisioningDriverRegistry',
         'App\Contracts\Domains\Registrar', 'App\Support\Domains\RegistrarDriverRegistry', 'App\Support\Integrations\DriverRegistry',
@@ -61,10 +62,13 @@ foreach ($importerNamespaces as $namespace) {
     arch("{$namespace} writes quietly and calls no driver")->expect($namespace)->not->toUse(importerForbidden());
 }
 
-test('the record-importer rule refuses an importer that dispatches an event or queues a module job', function () {
-    expect(fn () => expect('Tests\Fixtures\Migration\Import\EventfulImporter')->not->toUse(importerForbidden()))->toThrow(ExpectationFailedException::class)
-        ->and(fn () => expect('Tests\Fixtures\Migration\Import\RenewingImporter')->not->toUse(importerForbidden()))->toThrow(ExpectationFailedException::class);
-});
+// One probe per route to a provider or a job: each must be refused on its own.
+foreach (['EventfulImporter' => 'dispatches an event', 'RenewingImporter' => "queues its module's job", 'NoticeImporter' => "uses its module's notification",
+    'HttpImporter' => 'calls the Http facade', 'BusImporter' => 'queues through the bus contract', 'SyncImporter' => 'calls dispatch_sync()'] as $probe => $route) {
+    test("the record-importer rule refuses an importer that {$route}", function () use ($probe) {
+        expect(fn () => expect("Tests\\Fixtures\\Migration\\Import\\{$probe}")->not->toUse(importerForbidden()))->toThrow(ExpectationFailedException::class);
+    });
+}
 
 test('every arch target in this file matches at least one class', function () use ($importerNamespaces) {
     expect($importerNamespaces)->not->toBe([])
