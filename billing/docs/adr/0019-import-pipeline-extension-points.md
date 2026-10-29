@@ -90,6 +90,47 @@ Accepted on merge of #259.
   Within a run, entities are reverted in the reverse of `ImportRegistry::ordered()` (opening balances and logins
   before the client), each in its own transaction.
 
+## Amendment (#527) — 2026-10-29, capabilities and ordering for invoice and domain import
+
+Accepted on merge of #527, the kernel PR of `billing/docs/product/invoice-domain-import.md` (§13, PR 0; architecture
+review on #512). It decides the capabilities this ADR left as a direction.
+
+- **Accepted capabilities** (optional interfaces extending `RecordImporter`; an importer without them works as before):
+    - `PreparesChunk::prepare(list<ImportRecord> $records, ImportContext $context): void` loads what a chunk needs in
+      one go. Migration takes one instance from `ImportRegistry::get()` per chunk and calls `prepare()` once before
+      `validate()` or `upsert()` runs on any record of it. Prepared state lives on that instance only; `prepare()`
+      writes nothing, and `upsert()` re-reads under its lock what it writes.
+    - `MatchesExisting::matchExisting(list<ImportRecord>, ImportContext): array<string, int>`, batch, keyed by source id.
+      A match is a proposal: Migration asks only for records the id map does not resolve (the id map wins), and update
+      or skip stays a Migration row decision.
+    - `DeclaresValueMaps::valueMaps(): array<string, list<array{value, label}>>` lists the targets of each value map
+      (invoice statuses, tax rules, registrars, extensions), so Migration's mapping step shows them without reading
+      the owner's tables. A map key names the attribute it applies to (`status`, `items.tax_rule`). Migration replaces
+      mapped source values with the chosen target before `validate()` and `upsert()`, and `validate()` returns an
+      `ImportIssue` for a value that is not a listed target. No module adds a separate lookup contract for Migration.
+- **`ImportIdResolver::targetIds(string $entity, list<string> $sourceIds): array<string, int>`**, the batch form of
+  `targetId()`, for `prepare()`. `ImportIdResolver` is a service contract: only Migration implements it (`SourceIds`,
+  one query per 1,000 ids), so adding a method is compatible (ADR 0010).
+- **Soft ordering.** `ImportRegistry::register(..., after: [...])` orders an entity after those entities when they are
+  part of the same import and ignores them otherwise. It never adds an entity to `ordered()` and never makes one
+  required, so `invoice` can name `after: ['domain', 'service']` and still run under `MODULES=` without Domains and
+  before a `service` importer exists. `dependsOn` stays the hard form; a cycle through either kind is refused. Undo's
+  reverse order follows `ordered()`, `after` included.
+- **Vocabulary.** New entities `invoice` and `domain`. An invoice's lines and payments travel as
+  `ImportRecord::$children['items']` and `['payments']`, and are counted as the entities `invoice_item` and `payment`
+  in `MigrationRunCompleted::$counts`. Consumers ignore entity keys they do not know.
+- **Owning modules may react to `MigrationRunCompleted`** to bring their own projections up to date, because imported
+  records dispatch no domain event (Domains links the open invoices of imported domains). Such a listener follows the
+  importers' rules: no mail or notification, no domain event, no driver call, and running it twice for a run changes
+  nothing. It finds the run's records through its own tables.
+- **Reference data is created on apply only.** A decision that creates reference data (a retired extension for an
+  unknown TLD) is carried out by `upsert()` only when the run applies; a dry run reports what it would create.
+- **Arch rule.** Besides kernel driver contracts and events, an importer in `App\Modules\*\Import` may not use any
+  module's `Drivers`, `Jobs`, `Mail` or `Notifications` namespace, the `Queue` facade, `GatewayRegistry` or the
+  integrations `DriverRegistry` (`tests/Arch/ExtensionsTest.php`).
+- Not in this amendment: `InvoiceQueries::openLines()` and a cross-source client key (spec §13 items 4 and 5) land with
+  their first consumers.
+
 ## Open questions
 
 - Whether the cPanel account import moves onto these contracts. It needs `SourceConnector` in the kernel, an
