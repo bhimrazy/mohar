@@ -6,14 +6,17 @@ use App\Modules\Catalog\Database\Seeders\CatalogSeeder;
 use App\Modules\Catalog\Models\Product;
 use App\Modules\Core\Database\Seeders\CoreSeeder;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Database\Seeders\DomainsSeeder;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\TldPrice;
 use App\Modules\Services\Database\Seeders\ServicesSeeder;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Models\ServiceAddon;
+use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
+    Storage::fake('objects');
     $this->seed(CoreSeeder::class);
     $this->seed(CatalogSeeder::class);
     $this->seed(DomainsSeeder::class);
@@ -52,4 +55,13 @@ it('bills each showcase line at its own price: the service for hosting, the TLD 
         ->and($line('Business — himallabs.io'))->not->toBe($line('Domain renewal'))
         ->and($lines->pluck('description')->filter(fn (string $text) => str_contains($text, 'Domain') && str_contains($text, '.np'))->all())->toBe([])
         ->and($lines->pluck('description')->filter(fn (string $text) => str_contains($text, 'himal-labs'))->all())->toBe([]);
+});
+
+it('renders no PDF while seeding and leaves the attachment setting as it was', function () {
+    $this->seed(ServicesSeeder::class);
+    $this->seed(BillingSeeder::class);
+
+    expect(Invoice::query()->whereNotNull('number')->exists())->toBeTrue()
+        ->and(app(Settings::class)->get('billing.pdf.attach_to_emails'))->toBeTrue()
+        ->and(Storage::disk('objects')->allFiles('billing'))->toBe([]);
 });

@@ -3,6 +3,7 @@
 namespace App\Modules\Domains\Support;
 
 use App\Contracts\Domains\DomainNameRules;
+use App\Modules\Domains\Services\DomainPricingService;
 
 /**
  * The one place that knows which country registries issue names only under fixed second levels. Orders reach it
@@ -11,6 +12,8 @@ use App\Contracts\Domains\DomainNameRules;
  */
 class RegistryLevels implements DomainNameRules
 {
+    public function __construct(private DomainPricingService $pricing) {}
+
     /** Verified 2026-10-20 at register.com.np/np-ccTLDs (the .np registry, run by Mercantile Communications per IANA). */
     public const SECOND_LEVELS = [
         'np' => ['com', 'coop', 'edu', 'gov', 'info', 'mil', 'name', 'net', 'org'],
@@ -61,6 +64,11 @@ class RegistryLevels implements DomainNameRules
             'tld' => $violation['tld'],
             'levels' => self::levelList($violation),
         ]);
+    }
+
+    public function registeredByClient(string $tld): bool
+    {
+        return $this->pricing->tld($tld)?->registered_by_client === true;
     }
 
     /** @param array{tld: string, levels: list<string>} $violation */
