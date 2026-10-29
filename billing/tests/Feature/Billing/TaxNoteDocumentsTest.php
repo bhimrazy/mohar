@@ -9,7 +9,9 @@ use App\Modules\Billing\Jobs\RenderTaxNotePdf;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Billing\Models\TaxRule;
+use App\Modules\Billing\Services\BillingDocumentAttachments;
 use App\Modules\Billing\Services\InvoicePdf;
+use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Services\TaxNoteIssuer;
 use App\Modules\Billing\Services\TaxNotePdf;
 use App\Modules\Core\Models\ActivityLog;
@@ -25,6 +27,7 @@ use App\Modules\Notifications\Models\WebhookEndpoint;
 use App\Modules\Notifications\Services\NotificationMailer;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
@@ -309,6 +312,26 @@ test('a document over the size cap is left off the mail and logged', function ()
     // The PDF was rendered after commit, before the mail was composed: its text does not claim an attachment.
     expect(EmailMessage::query()->where('related_type', 'tax_note')->sole()->body_text)->not->toContain('attached');
     Log::shouldHaveReceived('warning')->withArgs(fn (string $message, array $context = []): bool => str_contains($message, 'too large to attach') && $context['related_type'] === 'tax_note')->once();
+});
+
+test('a note email does not claim its PDF when the render has not happened and would be over the cap at send', function () {
+    Queue::fake();
+    $note = documentNote(documentInvoice(), notify: false);
+    config(['notifications.attachment_max_bytes' => 10]);
+
+    expect(Storage::disk('objects')->exists(app(TaxNotePdf::class)->path($note)))->toBeFalse()
+        ->and(app(BillingDocumentAttachments::class)->attaches($note))->toBeFalse();
+});
+
+test('a note email does not claim its PDF when the render fails, and the failure is reported', function () {
+    $note = documentNote(documentInvoice(), notify: false);
+    $pdf = Mockery::mock(TaxNotePdf::class);
+    $pdf->shouldReceive('ensure')->andThrow(new RuntimeException('dompdf failed'));
+    $attachments = new BillingDocumentAttachments($pdf, app(InvoicePdf::class), app(BillingSettings::class), app(Settings::class));
+    Exceptions::fake();
+
+    expect($attachments->attaches($note))->toBeFalse();
+    Exceptions::assertReported(fn (RuntimeException $e): bool => $e->getMessage() === 'dompdf failed');
 });
 
 test('the attachment is rendered in the message locale and cached per locale', function () {

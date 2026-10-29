@@ -5,6 +5,7 @@ namespace App\Modules\Billing\Database\Seeders;
 use App\Contracts\Billing\GatewayRegistry;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Core\CompanyClock;
+use App\Modules\Core\Support\Settings;
 use App\Data\Billing\InvoiceDraft;
 use App\Data\Billing\InvoiceLineData;
 use App\Enums\BillableType;
@@ -58,7 +59,25 @@ class BillingSeeder extends DemoSeeder
 
     private const NPR_DOMAIN_COM_RENEWAL = 227_900;
 
+    /**
+     * Seeded payments and invoices email the client; with PDF attachments on, each of those emails renders a PDF, about
+     * 80 renders in one process (dompdf holds memory per render and ran a 1 GB limit out, #506). Attachments are off
+     * while seeding and put back as they were.
+     */
     public function run(ApplyPayment $pay, CancelInvoice $cancel, RefundTransaction $refund, Quotes $quotes, CreateAddFundsInvoice $addFunds, SaveDraftInvoice $drafts): void
+    {
+        $settings = app(Settings::class);
+        $attach = $settings->get('billing.pdf.attach_to_emails');
+        $settings->set('billing.pdf.attach_to_emails', false);
+
+        try {
+            $this->seed($pay, $cancel, $refund, $quotes, $addFunds, $drafts);
+        } finally {
+            $settings->set('billing.pdf.attach_to_emails', $attach);
+        }
+    }
+
+    private function seed(ApplyPayment $pay, CancelInvoice $cancel, RefundTransaction $refund, Quotes $quotes, CreateAddFundsInvoice $addFunds, SaveDraftInvoice $drafts): void
     {
         $this->gateways();
         $this->taxRules();
