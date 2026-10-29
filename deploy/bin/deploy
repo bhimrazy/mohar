@@ -161,10 +161,23 @@ move_workers() {
 dk() { if command -v timeout >/dev/null 2>&1; then timeout 60 docker "$@"; else docker "$@"; fi; }
 
 # Remove the images this project deployed before, except the two colours' images. $1 is the image just deployed and
-# is recorded first. Best effort, never fatal; when a colour's image cannot be inspected nothing is removed.
+# is recorded first. Best effort, never fatal: an unwritable record, a held lock, a colour image that cannot be
+# inspected or an image another project's container uses each skip the removal with a warning.
 prune_images() {
-    local list="$DEPLOY_STATE_DIR/images" keep=" " ref id kept=() 
-    grep -qxF -- "$1" "$list" 2>/dev/null || printf '%s\n' "$1" >> "$list"
+    local list="$DEPLOY_STATE_DIR/images" lock="$DEPLOY_STATE_DIR/images.lock" n=0
+    until mkdir "$lock" 2>/dev/null; do
+        n=$((n + 1))
+        [ "$n" -lt 10 ] || { say "warning: $lock is held (remove it if no deploy is running); no old images removed"; return 0; }
+        sleep 1
+    done
+    # The lock is released on every path out of this function.
+    prune_locked "$list" "$1" || say "warning: could not update $list; no old images removed"
+    rmdir "$lock" 2>/dev/null || true
+}
+
+prune_locked() {
+    local list="$1" keep=" " ref id kept=() others
+    { grep -qxF -- "$2" "$list" 2>/dev/null || printf '%s\n' "$2" >> "$list"; } 2>/dev/null || return 1
     for ref in "$IMAGE_BLUE" "$IMAGE_GREEN"; do
         [ -n "$ref" ] || continue
         id="$(dk image inspect --format '{{.Id}}' "$ref" 2>/dev/null)" && [ -n "$id" ] \
@@ -173,12 +186,16 @@ prune_images() {
     done
     while IFS= read -r ref; do
         [ -n "$ref" ] || continue
-        if id="$(dk image inspect --format '{{.Id}}' "$ref" 2>/dev/null)" && [ -n "$id" ]; then
-            case "$keep" in *" $id "*) kept+=("$ref"); continue ;; esac
-            if dk image rm "$ref" >/dev/null 2>&1; then say "removed old image $ref"; else say "warning: could not remove $ref (in use?)"; kept+=("$ref"); fi
+        id="$(dk image inspect --format '{{.Id}}' "$ref" 2>/dev/null)" && [ -n "$id" ] || continue # already gone
+        case "$keep" in *" $id "*) kept+=("$ref"); continue ;; esac
+        # Another project may have deployed the same tag: leave an image any of its containers uses.
+        if ! others="$(dk ps -a --filter "ancestor=$ref" --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null)" \
+            || printf '%s\n' "$others" | grep -qvx -e "$project" -e ''; then
+            say "warning: $ref may be used by another project; kept"; kept+=("$ref"); continue
         fi
+        if dk image rm "$ref" >/dev/null 2>&1; then say "removed old image $ref"; else say "warning: could not remove $ref (in use?)"; kept+=("$ref"); fi
     done < "$list"
-    printf '%s\n' ${kept[@]+"${kept[@]}"} > "$list.tmp" && mv "$list.tmp" "$list"
+    printf '%s\n' ${kept[@]+"${kept[@]}"} > "$list.tmp" 2>/dev/null && mv "$list.tmp" "$list" 2>/dev/null
 }
 
 cmd_deploy() {

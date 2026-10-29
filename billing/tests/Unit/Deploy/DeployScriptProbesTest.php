@@ -28,7 +28,15 @@ if [ "${args[0]}" = image ]; then
             echo "$last" >> "$dir/removed"
             grep -v "^id-${last##*:} " "$dir/images" > "$dir/images.tmp"; mv "$dir/images.tmp" "$dir/images"
             ;;
+        *) echo "fake docker: unexpected image subcommand: $*" | tee -a "$dir/unexpected" >&2; exit 2 ;;
     esac
+    exit 0
+fi
+if [ "${args[0]}" = ps ]; then
+    # Prints the compose project of each container whose image is the --filter ancestor=<ref>.
+    for a in "${args[@]}"; do
+        case "$a" in ancestor=*) [ "${a#ancestor=}" = "${FAKE_FOREIGN:-@none@}" ] && echo otherproject ;; esac
+    done
     exit 0
 fi
 [ "${args[0]}" = compose ] || exit 0
@@ -192,7 +200,7 @@ test('an old image that cannot be removed does not fail the deploy and is tried 
     expect(d3Removed($dir))->toBe(['img:2']);
 });
 
-test('nothing is removed when a colour\'s image cannot be inspected, after a failed deploy, on rollback, or with DEPLOY_PRUNE_IMAGES=0', function () {
+test('nothing is removed after a failed deploy, on rollback, or with DEPLOY_PRUNE_IMAGES=0', function () {
     $this->sandbox = $dir = d3Sandbox();
     d3Images($dir, ['1', '2', '3', '4']);
 
@@ -200,8 +208,43 @@ test('nothing is removed when a colour\'s image cannot be inspected, after a fai
         ->and(d3Deploy($dir, ['--image', 'img:2'], ['FAKE_FAIL_UP' => 'app-green']))->not->toBe(0)
         ->and(d3Deploy($dir, ['--image', 'img:2'], ['DEPLOY_PRUNE_IMAGES' => '0']))->toBe(0)
         ->and(d3Deploy($dir, ['rollback']))->toBe(0)
-        ->and(d3Deploy($dir, ['--image', 'img:3'], ['FAKE_FAIL_INSPECT' => 'img:2']))->toBe(0) // live 3 is blue, previous 2 is not inspectable
+        ->and(d3Removed($dir))->toBe([])
+        ->and(@file_get_contents("{$dir}/unexpected"))->toBeFalse();
+});
+
+test('nothing is removed when the other colour\'s image cannot be inspected', function () {
+    $this->sandbox = $dir = d3Sandbox();
+    d3Images($dir, ['1', '2', '3']);
+    expect(d3Deploy($dir, ['--image', 'img:1']))->toBe(0)->and(d3Deploy($dir, ['--image', 'img:2']))->toBe(0);
+
+    // Deploying 3 makes blue 3 and green 2: 1 is old, but green's image cannot be inspected, so 1 must stay.
+    expect(d3Deploy($dir, ['--image', 'img:3'], ['FAKE_FAIL_INSPECT' => 'img:2']))->toBe(0)
         ->and(d3Removed($dir))->toBe([]);
+    expect(d3Deploy($dir, ['--image', 'img:3']))->toBe(0)->and(d3Removed($dir))->toBe(['img:1', 'img:2']); // the skipped one is retried
+});
+
+test('an image a container of another project uses is kept', function () {
+    $this->sandbox = $dir = d3Sandbox();
+    d3Images($dir, ['1', '2', '3']);
+    expect(d3Deploy($dir, ['--image', 'img:1']))->toBe(0)->and(d3Deploy($dir, ['--image', 'img:2']))->toBe(0);
+
+    expect(d3Deploy($dir, ['--image', 'img:3'], ['FAKE_FOREIGN' => 'img:1']))->toBe(0)->and(d3Removed($dir))->toBe([]);
+});
+
+test('an unwritable record or a held lock never fails a finished deploy and removes nothing', function () {
+    $this->sandbox = $dir = d3Sandbox();
+    d3Images($dir, ['1', '2', '3']);
+    file_put_contents("{$dir}/bin/sleep", "#!/bin/sh\nexit 0\n");
+    chmod("{$dir}/bin/sleep", 0755);
+    expect(d3Deploy($dir, ['--image', 'img:1']))->toBe(0)->and(d3Deploy($dir, ['--image', 'img:2']))->toBe(0);
+
+    mkdir("{$dir}/state/images.lock"); // a concurrent deploy holds the lock
+    expect(d3Deploy($dir, ['--image', 'img:3']))->toBe(0)->and(d3Removed($dir))->toBe([]);
+    rmdir("{$dir}/state/images.lock");
+
+    unlink("{$dir}/state/images");
+    mkdir("{$dir}/state/images"); // the record cannot be written
+    expect(d3Deploy($dir, ['--image', 'img:1']))->toBe(0)->and(d3Removed($dir))->toBe([]);
 });
 
 /** Deploy blue, then green, then a third deploy (to blue) in which $failing does not become healthy. */
