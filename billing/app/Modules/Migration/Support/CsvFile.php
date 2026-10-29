@@ -74,8 +74,9 @@ final class CsvFile
                 self::refuse(__('Row :row has more cells than the :limit columns a file may have.', ['row' => number_format($rows), 'limit' => $maxColumns]));
             }
 
+            // Past the sampled start, a character in another encoding is refused here rather than replaced later.
             if (! mb_check_encoding(implode("\n", $row), 'UTF-8')) {
-                self::refuse(__('This file is not UTF-8 text. Save the file as CSV UTF-8 and upload it again.'));
+                self::refuse(__('Row :row is not UTF-8 text. Save the file as CSV UTF-8 and upload it again.', ['row' => number_format($rows)]));
             }
 
             foreach ($row as $cell) {

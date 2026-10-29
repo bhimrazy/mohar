@@ -55,7 +55,7 @@ test('probe N3: invalid UTF-8 after the first 64 KB is refused, not silently rep
     fclose($handle);
 
     $this->post(route('admin.migration.imports.store'), ['file' => new UploadedFile($path, 'clients.csv', 'text/csv', null, true), 'source_name' => 'Old', 'preset' => 'generic'])
-        ->assertSessionHasErrors(['file' => 'This file is not UTF-8 text. Save the file as CSV UTF-8 and upload it again.']);
+        ->assertSessionHasErrors(['file' => 'Row 2,501 is not UTF-8 text. Save the file as CSV UTF-8 and upload it again.']);
 });
 
 // N4: a crash between deleting the file and recording the end left a run that could never finish.

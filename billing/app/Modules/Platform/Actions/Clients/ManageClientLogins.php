@@ -12,14 +12,15 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientInvitation;
 use App\Modules\Core\Support\AccountLinks;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\InvitationExpiry;
 use App\Modules\Platform\Notifications\ClientInvitationNotification;
 use App\Modules\Platform\Support\AccountMail;
-use App\Modules\Platform\Support\InvitationExpiry;
 use App\Modules\Platform\Support\PlatformClientLoginInvitations;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 /**
  * Logins (users) that can act for a client account: invite, per-area permissions, ownership transfer, removal.
@@ -106,17 +107,26 @@ class ManageClientLogins
             throw ValidationException::withMessages(['user' => __('Invitation not sent: the link host isn\'t your site address. :problem', ['problem' => $problem])]);
         }
 
-        $this->sendInvitation($user, $client);
-        $this->activity->log('Invitation sent again', $user, $client->id, ['email' => $user->email], 'client.invitation_resent');
+        if ($this->sendInvitation($user, $client)) {
+            $this->activity->log('Invitation sent again', $user, $client->id, ['email' => $user->email], 'client.invitation_resent');
+        }
     }
 
     /**
      * Staff send the login a password-reset link (the normal reset email, through AuthMailer), for logins that can't
-     * be invited again.
+     * be invited again. A mail transport failure is recorded on AccountMail and refused with a message.
+     *
+     * @throws ValidationException
      */
     public function sendPasswordReset(Client $client, User $user): void
     {
-        $status = Password::broker()->sendResetLink(['email' => $user->email]);
+        try {
+            $status = Password::broker()->sendResetLink(['email' => $user->email]);
+        } catch (TransportExceptionInterface $e) {
+            $this->mail->transportFailed($e, 'auth.password_reset', $user->email, $client->id);
+
+            throw ValidationException::withMessages(['user' => __('The password reset email could not be sent because the mail server could not be reached. Try again once mail works.')]);
+        }
 
         if ($status !== Password::RESET_LINK_SENT) {
             throw ValidationException::withMessages(['user' => __($status)]);
@@ -130,13 +140,22 @@ class ManageClientLogins
      * number of days; a new invitation replaces the token, so an older link stops working. Accepting it sets the
      * password. When the template system refuses it (its link failed the checks) nothing is sent by any other path:
      * the refusal is a security event and staff see it on the form. The Platform notification is used only when no
-     * template system is there to take it.
+     * template system is there to take it. When the mail transport fails, the invitation is put back as it was and the
+     * failure is recorded on AccountMail (the action that called this is committed); the result is false.
      *
      * @throws ValidationException
      */
-    private function sendInvitation(User $user, Client $client): void
+    private function sendInvitation(User $user, Client $client): bool
     {
-        $outcome = $this->mailInvitation($user, $client, PlatformClientLoginInvitations::template(InvitationPurpose::LoginAdded), ($actor = auth()->user()) instanceof User ? $actor->id : null);
+        $template = PlatformClientLoginInvitations::template(InvitationPurpose::LoginAdded);
+
+        try {
+            $outcome = $this->mailInvitation($user, $client, $template, ($actor = auth()->user()) instanceof User ? $actor->id : null);
+        } catch (TransportExceptionInterface $e) {
+            $this->mail->transportFailed($e, $template, $user->email, $client->id);
+
+            return false;
+        }
 
         if ($outcome === SystemMailOutcome::Refused) {
             throw ValidationException::withMessages(['email' => __('The login was added, but the invitation was not sent: its link failed the security check. Check APP_URL, then send the invitation again.')]);
@@ -145,13 +164,17 @@ class ManageClientLogins
         if ($outcome === SystemMailOutcome::Suppressed) {
             throw ValidationException::withMessages(['email' => __('The login was added, but the invitation was not sent: email is switched off, or the invitation template is turned off. Turn it on, then send the invitation again.')]);
         }
+
+        return true;
     }
 
     /**
      * Mails a new invitation link with the given template, replacing the login's earlier link. When the template
      * system refuses it, or holds it because mail is off (Suppressed), the invitation is put back as it was (removed,
      * or the earlier link restored), so nothing looks sent that was not, and nothing else sends it. A refusal is also
-     * logged as a security event.
+     * logged as a security event. A mail transport failure puts it back the same way and is rethrown.
+     *
+     * @throws TransportExceptionInterface
      */
     public function mailInvitation(User $user, Client $client, string $templateKey, ?int $actorId): SystemMailOutcome
     {
@@ -160,25 +183,33 @@ class ManageClientLogins
         $previous = ClientInvitation::query()->where('client_id', $client->id)->where('user_id', $user->id)->first();
         $invitation = ClientInvitation::query()->updateOrCreate(
             ['client_id' => $client->id, 'user_id' => $user->id],
-            ['token_hash' => ClientInvitation::hashToken($token), 'email' => mb_strtolower($user->email), 'sent_at' => now(), 'expires_at' => $expiresAt, 'accepted_at' => null, 'invited_by' => $actorId],
+            ['token_hash' => ClientInvitation::hashToken($token), 'email' => mb_strtolower($user->email), 'sent_at' => now(), 'expires_at' => $expiresAt, 'accepted_at' => null, 'invited_by' => $actorId,
+                'password_fingerprint' => ClientInvitation::fingerprint($user->password)],
         );
         $url = AccountLinks::withAppOrigin(fn (): string => route('platform.client-invitations.show', $token));
+        $putBack = fn () => $previous === null ? $invitation->delete() : $invitation->forceFill($previous->only(['token_hash', 'email', 'sent_at', 'expires_at', 'accepted_at', 'invited_by', 'password_fingerprint']))->save();
 
-        $outcome = $this->mailer->send($templateKey, $user, [
-            'user' => ['first_name' => Str::before(trim($user->name), ' '), 'email' => $user->email],
-            'auth' => ['invite_url' => new SensitiveValue($url, secret: $token), 'expires_at' => $expiresAt, 'expires_in' => InvitationExpiry::phrase()],
-        ], 'invite|'.$user->id.'|'.ClientInvitation::hashToken($token), $client->id, carriesSecret: true);
+        try {
+            $outcome = $this->mailer->send($templateKey, $user, [
+                'user' => ['first_name' => Str::before(trim($user->name), ' '), 'email' => $user->email],
+                'auth' => ['invite_url' => new SensitiveValue($url, secret: $token), 'expires_at' => $expiresAt, 'expires_in' => InvitationExpiry::phrase()],
+            ], 'invite|'.$user->id.'|'.ClientInvitation::hashToken($token), $client->id, carriesSecret: true);
+
+            if ($outcome === SystemMailOutcome::Unavailable) {
+                $user->notify(new ClientInvitationNotification($client->display_name, $url, $expiresAt));
+            }
+        } catch (TransportExceptionInterface $e) {
+            $putBack();
+
+            throw $e;
+        }
 
         if ($outcome === SystemMailOutcome::Refused || $outcome === SystemMailOutcome::Suppressed) {
-            $previous === null ? $invitation->delete() : $invitation->forceFill($previous->only(['token_hash', 'email', 'sent_at', 'expires_at', 'accepted_at', 'invited_by']))->save();
+            $putBack();
         }
 
         if ($outcome === SystemMailOutcome::Refused) {
             $this->activity->log('Invitation not sent: its link failed the security check', $user, $client->id, ['email' => $user->email], 'security');
-        }
-
-        if ($outcome === SystemMailOutcome::Unavailable) {
-            $user->notify(new ClientInvitationNotification($client->display_name, $url, $expiresAt));
         }
 
         return $outcome;

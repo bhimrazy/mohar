@@ -14,7 +14,7 @@ export type ClientLogin = {
     is_owner: boolean;
     permissions: string[];
     last_login_at: string | null;
-    /** An invitation not accepted yet. */
+    /** An invitation not accepted yet that still works for this login (none once the login was used). */
     invitation: { state: 'pending' | 'expired'; expires_at: string } | null;
 };
 

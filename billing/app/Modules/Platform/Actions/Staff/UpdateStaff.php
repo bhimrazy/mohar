@@ -70,10 +70,12 @@ class UpdateStaff
         $result = new LoginEmailChanged(verificationSent: true, oldAddressTold: true);
 
         if ($emailChanged) {
-            // Both addresses hear about it: the old one so a takeover is noticed, the new one for the record.
-            $noticed = $this->mail->notice('staff.email_changed', [$oldEmail, $newEmail], ['actor' => $actor->name, 'old_email' => $oldEmail, 'new_email' => $newEmail], 'staff:'.$staff->id, __('Your staff sign-in email was changed'), [
-                __(':actor changed the sign-in email of your staff account from :old to :new.', ['actor' => $actor->name, 'old' => $oldEmail, 'new' => $newEmail]),
-            ]);
+            // Both addresses hear about it: the old one so a takeover is noticed, the new one for the record. Sent one
+            // at a time, so the result says whether the old address was told (a failed copy to the new one is logged).
+            $notice = ['actor' => $actor->name, 'old_email' => $oldEmail, 'new_email' => $newEmail];
+            $lines = [__(':actor changed the sign-in email of your staff account from :old to :new.', ['actor' => $actor->name, 'old' => $oldEmail, 'new' => $newEmail])];
+            $noticed = $this->mail->notice('staff.email_changed', [$oldEmail], $notice, 'staff:'.$staff->id, __('Your staff sign-in email was changed'), $lines);
+            $this->mail->notice('staff.email_changed', [$newEmail], $notice, 'staff:'.$staff->id, __('Your staff sign-in email was changed'), $lines);
 
             $result = new LoginEmailChanged($this->emails->sendVerification($staff), $noticed);
         }

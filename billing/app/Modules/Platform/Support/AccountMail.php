@@ -59,9 +59,8 @@ final class AccountMail
                 $notification = new SecurityNotice($fallbackSubject, $fallbackLines);
                 $recipient instanceof User ? $recipient->notify($notification) : Notification::route('mail', $recipient)->notify($notification);
             } catch (TransportExceptionInterface $e) {
-                report($e);
                 $allSent = false;
-                $this->failed($templateKey, $address, $e::class, $clientId);
+                $this->transportFailed($e, $templateKey, $address, $clientId);
             }
         }
 
@@ -81,6 +80,24 @@ final class AccountMail
             'type' => 'warning',
             'message' => $success['message'].' '.__('A security notice about it could not be delivered. The activity log has the details.'),
         ];
+    }
+
+    /**
+     * Records a mail this class did not send itself (a client-login invitation) that the mail transport failed:
+     * reported, logged as `account.notice_failed`, and answered by undelivered().
+     */
+    public function transportFailed(TransportExceptionInterface $e, string $templateKey, string $address, ?int $clientId = null): void
+    {
+        report($e);
+        $this->failed($templateKey, $address, $e::class, $clientId);
+    }
+
+    /**
+     * Whether a mail with this template key was not delivered in this request.
+     */
+    public function undelivered(string $templateKey): bool
+    {
+        return in_array($templateKey, $this->undelivered, true);
     }
 
     private function failed(string $templateKey, string $address, string $reason, ?int $clientId): void

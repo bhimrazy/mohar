@@ -116,7 +116,7 @@ class StaffController extends Controller
         ]);
     }
 
-    public function update(StaffRequest $request, User $staff, UpdateStaff $update): RedirectResponse
+    public function update(StaffRequest $request, User $staff, UpdateStaff $update, AccountMail $mail): RedirectResponse
     {
         abort_unless($staff->is_staff, 404);
         $actor = $request->user();
@@ -131,7 +131,8 @@ class StaffController extends Controller
 
         $name = $staff->name;
         Inertia::flash('toast', match (true) {
-            $mailed->verificationSent && $mailed->oldAddressTold => ['type' => 'success', 'message' => __('Staff member :name saved.', ['name' => $name])],
+            // A failed copy to the new address alone gets AccountMail's general warning.
+            $mailed->verificationSent && $mailed->oldAddressTold => $mail->toast(['type' => 'success', 'message' => __('Staff member :name saved.', ['name' => $name])]),
             $mailed->oldAddressTold => ['type' => 'warning', 'message' => __('Staff member :name saved, but the verification email could not be sent. Once mail works again, they can resend it from their profile page.', ['name' => $name])],
             $mailed->verificationSent => ['type' => 'warning', 'message' => __('Staff member :name saved, but the notice to their previous email address could not be sent. The activity log has the details.', ['name' => $name])],
             default => ['type' => 'warning', 'message' => __('Staff member :name saved, but neither the verification email nor the notice to their previous email address could be sent. Once mail works again, they can resend the verification email from their profile page.', ['name' => $name])],

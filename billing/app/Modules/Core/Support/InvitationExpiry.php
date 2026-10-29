@@ -1,11 +1,10 @@
 <?php
 
-namespace App\Modules\Platform\Support;
-
-use App\Modules\Core\Support\Settings;
+namespace App\Modules\Core\Support;
 
 /**
- * How long invitation links work, for staff and client-login invitations alike (platform.invitation_expiry_days).
+ * How long invitation links work, for staff and client-login invitations alike (platform.invitation_expiry_days),
+ * and what the template previews show.
  */
 final class InvitationExpiry
 {
