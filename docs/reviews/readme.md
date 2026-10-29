@@ -21,4 +21,4 @@ quoted anywhere else (state.md, an owner update) cites the review it came from.
 | Extension surface and API       | 5      |
 | Proof outside the codespace     | 5      |
 
-History: 38 (10-19, corrected), 46 (10-20 morning), 53 (10-20 afternoon, round 3), 62 (10-22), 70 (10-24).
+History: 38 (10-19, corrected), 46 (10-20 morning), 53 (10-20 afternoon, round 3), 62 (10-22), 70 (10-24), 74 (10-29).
