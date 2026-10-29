@@ -213,22 +213,22 @@ in it shows hard-coded strings and text that overflows its layout, before a real
 - **PDF engine.** dompdf does no OpenType shaping. With a Devanagari font it shows the glyphs but not the script: the
   vowel sign in कि is not reordered, conjuncts such as क्ष, त्र and श्र fall apart, and the reph is misplaced. So a
   Nepali or Hindi PDF needs a shaping engine. Candidates:
-  - **Gotenberg sidecar** (Chromium behind an HTTP API, Apache-2.0, image pinned by digest): the same rendering as the
-    browser, HarfBuzz shaping and font fallback. Costs: a large image, Chromium's memory under concurrent renders, and
-    one more internal service under ADR 0015.
-  - **WeasyPrint sidecar** (BSD-3-Clause, Pango and HarfBuzz): correct shaping, good paged-media CSS, a lighter image
-    than Chromium; less like the browser.
-  - **mPDF** (in PHP, has Indic shaping): rejected, because it is GPL-2.0-only and Mohar is distributed under a
-    proprietary licence.
-  - **Browsershot** (Puppeteer and Chromium inside the app image): rejected, because it puts Node and Chromium into
-    the web and worker image.
+    - **Gotenberg sidecar** (Chromium behind an HTTP API, Apache-2.0, image pinned by digest): the same rendering as the
+      browser, HarfBuzz shaping and font fallback. Costs: a large image, Chromium's memory under concurrent renders, and
+      one more internal service under ADR 0015.
+    - **WeasyPrint sidecar** (BSD-3-Clause, Pango and HarfBuzz): correct shaping, good paged-media CSS, a lighter image
+      than Chromium; less like the browser.
+    - **mPDF** (in PHP, has Indic shaping): rejected, because it is GPL-2.0-only and Mohar is distributed under a
+      proprietary licence.
+    - **Browsershot** (Puppeteer and Chromium inside the app image): rejected, because it puts Node and Chromium into
+      the web and worker image.
 
-  Recommendation: keep dompdf for English documents, which changes nothing and keeps the `sizing.md` numbers. Before the
-  first Nepali PDF, run a spike: render the invoice and tax-note templates with a fixed set of test strings (the
-  conjuncts above, a Nepali client name, mixed Latin and Devanagari) through both sidecars. Measure p95 and memory
-  against dompdf's 115–171 ms p95. The PDF seam (a small renderer interface in `app/Contracts`, used by the three render
-  sites) is added in that spike's PR, not before. The same engine also lifts ADR 0025's known limitation for
-  user-typed Devanagari.
+    Recommendation: keep dompdf for English documents, which changes nothing and keeps the `sizing.md` numbers. Before the
+    first Nepali PDF, run a spike: render the invoice and tax-note templates with a fixed set of test strings (the
+    conjuncts above, a Nepali client name, mixed Latin and Devanagari) through both sidecars. Measure p95 and memory
+    against dompdf's 115–171 ms p95. The PDF seam (a small renderer interface in `app/Contracts`, used by the three render
+    sites) is added in that spike's PR, not before. The same engine also lifts ADR 0025's known limitation for
+    user-typed Devanagari.
 
 ### 8. Migrating the 159 pages
 
