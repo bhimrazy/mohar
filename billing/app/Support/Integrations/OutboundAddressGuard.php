@@ -22,6 +22,10 @@ use Illuminate\Http\Client\PendingRequest;
  * (`proxy: ''`; a proxy would resolve the name again and defeat the pin), and follow no redirects. Pin a fresh
  * PendingRequest per destination: pin() changes the request it is given.
  *
+ * The mail relay profile (`relay: true`, ADR 0015 amendment #532) is for an SMTP host that staff type in: loopback and
+ * private ranges are accepted whatever the install policy, because a relay on localhost or the LAN is normal. Every
+ * other refusal still applies.
+ *
  * resolve() uses the system resolver, which has no deadline of its own (resolv.conf, typically 5 s per server and
  * attempt). Callers in a web request should expect that; queued jobs are bounded by their own timeout.
  *
@@ -54,7 +58,7 @@ final class OutboundAddressGuard
     /**
      * @throws OutboundAddressRefused
      */
-    public function resolve(string $host, int $port): ResolvedAddress
+    public function resolve(string $host, int $port, bool $relay = false): ResolvedAddress
     {
         $host = strtolower(trim($host, " \t\n\r\0\x0B[]"));
 
@@ -81,7 +85,7 @@ final class OutboundAddressGuard
         }
 
         foreach ($ips as $ip) {
-            $reason = $this->refusal($ip);
+            $reason = $this->refusal($ip, $relay);
 
             if ($reason !== null) {
                 throw new OutboundAddressRefused($literal ? "{$host} is not allowed ({$reason} address)." : "{$host} resolves to {$ip}, which is not allowed ({$reason} address).");
@@ -115,9 +119,9 @@ final class OutboundAddressGuard
     }
 
     /**
-     * Why an address is refused under the install policy, or null when it is allowed.
+     * Why an address is refused under the install policy (or the relay profile), or null when it is allowed.
      */
-    public function refusal(string $ip): ?string
+    public function refusal(string $ip, bool $relay = false): ?string
     {
         $binary = @inet_pton($ip);
 
@@ -128,15 +132,15 @@ final class OutboundAddressGuard
         $embedded = $this->embeddedIpv4($binary);
 
         if ($embedded !== null) {
-            $reason = $this->refusalOf($embedded);
+            $reason = $this->refusalOf($embedded, $relay);
 
             return $reason === null ? null : "{$reason} (inside an IPv6 address)";
         }
 
-        return $this->refusalOf($binary);
+        return $this->refusalOf($binary, $relay);
     }
 
-    private function refusalOf(string $binary): ?string
+    private function refusalOf(string $binary, bool $relay): ?string
     {
         foreach (self::REFUSED as $reason => $ranges) {
             if ($this->inAny($binary, $ranges)) {
@@ -147,11 +151,11 @@ final class OutboundAddressGuard
         if ($this->inAny($binary, self::LOOPBACK)) {
             // Only development and test environments may reach loopback, whatever OUTBOUND_ALLOW_LOOPBACK says elsewhere
             // (ADR 0015 amendment 1, ADR 0016): an empty, unknown or production-like environment fails closed.
-            return config('integrations.outbound.allow_loopback', false) && Endpoints::developmentEnvironment(app()) ? null : 'loopback';
+            return $relay || config('integrations.outbound.allow_loopback', false) && Endpoints::developmentEnvironment(app()) ? null : 'loopback';
         }
 
         if ($this->inAny($binary, self::PRIVATE)) {
-            return config('integrations.outbound.allow_private_addresses', true) ? null : 'private';
+            return $relay || config('integrations.outbound.allow_private_addresses', true) ? null : 'private';
         }
 
         if (strlen($binary) === 16 && ! $this->inAny($binary, self::GLOBAL_UNICAST_V6)) {

@@ -171,3 +171,18 @@ test('only local and testing reach loopback, whatever the install policy says el
     'live' => ['live', false],
     'empty' => ['', false],
 ]);
+
+test('the mail relay profile accepts loopback and private addresses whatever the policy, and nothing else', function () {
+    config(['integrations.outbound.allow_private_addresses' => false, 'integrations.outbound.allow_loopback' => false]);
+
+    foreach (['127.0.0.1', '::1', '10.1.2.3', '192.168.1.10', 'fd12::1', '::ffff:10.0.0.1'] as $ip) {
+        expect(guardResolving([$ip])->refusal($ip))->not->toBeNull()
+            ->and(guardResolving([$ip])->resolve('relay.example.np', 25, relay: true)->ip)->toBe($ip);
+    }
+
+    foreach (['169.254.169.254', 'fe80::1', '100.100.100.200', '0.0.0.0', '240.0.0.1', '192.0.2.1', '::ffff:169.254.169.254'] as $ip) {
+        expect(fn () => guardResolving([$ip])->resolve('relay.example.np', 25, relay: true))->toThrow(OutboundAddressRefused::class);
+    }
+
+    expect(fn () => guardResolving(['127.0.0.1'])->resolve('0x7f.1', 25, relay: true))->toThrow(OutboundAddressRefused::class);
+});

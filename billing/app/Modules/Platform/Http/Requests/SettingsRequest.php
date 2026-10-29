@@ -9,6 +9,7 @@ use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class SettingsRequest extends FormRequest
@@ -47,7 +48,15 @@ class SettingsRequest extends FormRequest
      */
     public function rules(SettingsCatalog $catalog): array
     {
-        return $catalog->rules((string) $this->route('section'));
+        $section = (string) $this->route('section');
+        $secrets = collect($catalog->section($section)['settings'] ?? [])->filter(fn ($definition): bool => $definition->secret)->map(fn ($definition): string => $definition->key)->values()->all();
+
+        return [
+            ...$catalog->rules($section),
+            // Keys of saved secrets to remove: a blank secret field alone keeps the stored value.
+            'clear' => ['nullable', 'array'],
+            'clear.*' => ['string', Rule::in($secrets)],
+        ];
     }
 
     /**

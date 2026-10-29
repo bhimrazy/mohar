@@ -2199,8 +2199,8 @@ App\Support\Integrations\OutboundAddressGuard doc method __construct @param $res
 App\Support\Integrations\OutboundAddressGuard method public pin(Illuminate\Http\Client\PendingRequest $request, App\Data\Integrations\ResolvedAddress $address): Illuminate\Http\Client\PendingRequest
 App\Support\Integrations\OutboundAddressGuard method public pinOptions(App\Data\Integrations\ResolvedAddress $address): array
 App\Support\Integrations\OutboundAddressGuard doc method pinOptions @return array{proxy: string, allow_redirects: false, curl: array<int, list<string>>}
-App\Support\Integrations\OutboundAddressGuard method public refusal(string $ip): ?string
-App\Support\Integrations\OutboundAddressGuard method public resolve(string $host, int $port): App\Data\Integrations\ResolvedAddress
+App\Support\Integrations\OutboundAddressGuard method public refusal(string $ip, bool $relay = false): ?string
+App\Support\Integrations\OutboundAddressGuard method public resolve(string $host, int $port, bool $relay = false): App\Data\Integrations\ResolvedAddress
 App\Support\Integrations\OutboundAddressGuard doc method resolve @throws OutboundAddressRefused
 App\Support\Integrations\OutboundAddressRefused final class extends RuntimeException
 App\Support\Integrations\RedactionScope final class

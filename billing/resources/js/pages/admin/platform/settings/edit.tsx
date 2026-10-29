@@ -1,4 +1,5 @@
 import { Link, router, usePage } from '@inertiajs/react';
+import { Info } from 'lucide-react';
 import { Head } from '@/components/app/head';
 import type { FormEvent } from 'react';
 import { useState } from 'react';
@@ -11,9 +12,16 @@ import { CountrySelect } from '@/components/app/country-select';
 import { SelectField } from '@/components/app/select-field';
 import { SwitchField } from '@/components/app/switch-field';
 import { CheckboxGroup } from '@/components/app/checkbox-group';
+import {
+    MailTestCard,
+    type MailTestProps,
+} from '@/components/platform/mail-test-card';
 import PasswordInput from '@/components/password-input';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { labelWithCurrency, parseMoneyInput } from '@/lib/money';
@@ -41,6 +49,8 @@ type SettingField = {
     required: boolean;
     value: unknown;
     is_set: boolean;
+    /** Stored in the database (not only supplied by .env). */
+    saved: boolean;
     locked_reason: string | null;
     /** Default currency code, for money fields. */
     currency: string | null;
@@ -54,9 +64,26 @@ type Props = {
         editable: boolean;
         fields: SettingField[];
     };
+    /** The mail server section's test send, for staff who can change it. */
+    mailTest: MailTestProps | null;
 };
 
 type Value = string | boolean | string[];
+
+/** Mail server fields that belong to one mailer, shown only while that mailer is chosen. */
+function hidden(key: string, values: Record<string, Value>): boolean {
+    const mailer = values['mail.default'];
+
+    if (mailer === undefined) {
+        return false;
+    }
+
+    if (key.startsWith('mail.mailers.smtp.')) {
+        return mailer !== 'smtp';
+    }
+
+    return key.startsWith('services.ses.') && mailer !== 'ses';
+}
 
 function initial(field: SettingField): Value {
     if (field.type === 'boolean') {
@@ -95,13 +122,23 @@ function nest(values: Record<string, Value>): Record<string, unknown> {
     return result;
 }
 
-export default function SettingsEdit({ sections, section }: Props) {
+export default function SettingsEdit({ sections, section, mailTest }: Props) {
     const { errors } = usePage<{ errors: Record<string, string> }>().props;
-    const [values, setValues] = useState<Record<string, Value>>(() =>
+    const [saved, setSaved] = useState<Record<string, Value>>(() =>
         Object.fromEntries(
             section.fields.map((field) => [field.key, initial(field)]),
         ),
     );
+    const [values, setValues] = useState(saved);
+    // Saved secrets the form will remove on save (a blank secret field alone keeps the stored value).
+    const [cleared, setCleared] = useState<string[]>([]);
+    const unsaved =
+        cleared.length > 0 ||
+        section.fields.some(
+            (field) =>
+                JSON.stringify(values[field.key]) !==
+                JSON.stringify(saved[field.key]),
+        );
     const [processing, setProcessing] = useState(false);
     const set = (key: string, value: Value) =>
         setValues((current) => ({ ...current, [key]: value }));
@@ -126,19 +163,24 @@ export default function SettingsEdit({ sections, section }: Props) {
         );
         router.visit(SettingsController.update.url(section.key), {
             method: 'put',
-            data: nest(data) as Record<string, string>,
+            data: {
+                ...nest(data),
+                ...(cleared.length > 0 ? { clear: cleared } : {}),
+            } as Record<string, string>,
             preserveScroll: true,
             onStart: () => setProcessing(true),
             onFinish: () => setProcessing(false),
-            onSuccess: () =>
-                setValues((current) =>
-                    Object.fromEntries(
-                        section.fields.map((field) => [
-                            field.key,
-                            field.secret ? '' : current[field.key],
-                        ]),
-                    ),
-                ),
+            onSuccess: () => {
+                const next = Object.fromEntries(
+                    section.fields.map((field) => [
+                        field.key,
+                        field.secret ? '' : values[field.key],
+                    ]),
+                );
+                setValues(next);
+                setSaved(next);
+                setCleared([]);
+            },
         });
     };
 
@@ -154,7 +196,7 @@ export default function SettingsEdit({ sections, section }: Props) {
                 <div className="grid gap-6 md:grid-cols-[200px_1fr]">
                     <nav
                         aria-label="Settings sections"
-                        className="flex gap-1 overflow-x-auto md:flex-col"
+                        className="flex gap-1 overflow-x-auto md:row-span-2 md:flex-col"
                     >
                         {sections.map((item) => (
                             <Link
@@ -177,6 +219,16 @@ export default function SettingsEdit({ sections, section }: Props) {
                     </nav>
 
                     <form onSubmit={submit} className="min-w-0">
+                        {mailTest?.env_url && (
+                            <Alert className="mb-6">
+                                <Info />
+                                <AlertDescription>
+                                    {mailTest.env_url === 'overridden'
+                                        ? 'MAIL_URL is set in the server environment (.env). The SMTP settings saved here replace it.'
+                                        : 'MAIL_URL is set in the server environment (.env) and is used until you save SMTP settings here. Saved settings replace it.'}
+                                </AlertDescription>
+                            </Alert>
+                        )}
                         <SectionCard
                             title={section.title}
                             description={
@@ -196,6 +248,10 @@ export default function SettingsEdit({ sections, section }: Props) {
                         >
                             <div className="grid gap-6">
                                 {section.fields.map((field) => {
+                                    if (hidden(field.key, values)) {
+                                        return null;
+                                    }
+
                                     const id = `setting-${field.key.replace(/\./g, '-')}`;
                                     // A multiselect's refusals arrive per item ("key.0").
                                     const error =
@@ -377,12 +433,55 @@ export default function SettingsEdit({ sections, section }: Props) {
                                                     }
                                                 />
                                             )}
+                                            {field.secret &&
+                                                field.saved &&
+                                                !off && (
+                                                    <div className="mt-2 flex items-center gap-2">
+                                                        <Checkbox
+                                                            id={`${id}-clear`}
+                                                            checked={cleared.includes(
+                                                                field.key,
+                                                            )}
+                                                            onCheckedChange={(
+                                                                checked,
+                                                            ) =>
+                                                                setCleared(
+                                                                    (list) =>
+                                                                        checked
+                                                                            ? [
+                                                                                  ...list,
+                                                                                  field.key,
+                                                                              ]
+                                                                            : list.filter(
+                                                                                  (
+                                                                                      key,
+                                                                                  ) =>
+                                                                                      key !==
+                                                                                      field.key,
+                                                                              ),
+                                                                )
+                                                            }
+                                                        />
+                                                        <Label
+                                                            htmlFor={`${id}-clear`}
+                                                            className="text-sm font-normal"
+                                                        >
+                                                            Remove the saved
+                                                            value on save
+                                                        </Label>
+                                                    </div>
+                                                )}
                                         </Field>
                                     );
                                 })}
                             </div>
                         </SectionCard>
                     </form>
+                    {mailTest && (
+                        <div className="min-w-0 md:col-start-2">
+                            <MailTestCard test={mailTest} unsaved={unsaved} />
+                        </div>
+                    )}
                 </div>
             </Page>
         </>

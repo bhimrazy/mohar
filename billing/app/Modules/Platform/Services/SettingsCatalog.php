@@ -64,7 +64,7 @@ class SettingsCatalog
     }
 
     /**
-     * @return list<array{key: string, label: string, type: string, help: ?string, options: list<array{value: string, label: string}>, secret: bool, required: bool, value: mixed, is_set: bool, locked_reason: ?string, currency: ?string}>
+     * @return list<array{key: string, label: string, type: string, help: ?string, options: list<array{value: string, label: string}>, secret: bool, required: bool, value: mixed, is_set: bool, saved: bool, locked_reason: ?string, currency: ?string}>
      */
     public function fields(string $section): array
     {
@@ -101,6 +101,8 @@ class SettingsCatalog
                     default => $value,
                 },
                 'is_set' => $stored !== null && $stored !== '' && $stored !== [],
+                // A value of its own in the database, not one that only config (.env) supplies.
+                'saved' => ($saved = $this->settings->all()[$definition->key] ?? null) !== null && $saved !== '',
                 // Money settings are entered in the default currency's units.
                 'currency' => $definition->type === 'money' ? $currency : null,
             ];

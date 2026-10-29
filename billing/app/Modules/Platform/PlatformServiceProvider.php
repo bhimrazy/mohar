@@ -28,6 +28,8 @@ use App\Modules\Platform\Services\PermissionGuard;
 use App\Modules\Platform\Services\SettingsCatalog;
 use App\Modules\Platform\Support\AccountMail;
 use App\Modules\Platform\Support\ExchangeRateTask;
+use App\Modules\Platform\Support\MailRelayHost;
+use App\Modules\Platform\Support\MailServerSettings;
 use App\Modules\Platform\Support\PlatformClientLoginInvitations;
 use App\Modules\Platform\Support\PlatformDashboard;
 use App\Support\Automation\Automation;
@@ -50,6 +52,8 @@ use Illuminate\Auth\Events\Logout;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Foundation\DevCommands;
+use Illuminate\Mail\MailManager;
+use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 
@@ -66,6 +70,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
         $this->app->singleton(SettingsCatalog::class);
         $this->app->scoped(Impersonation::class);
         $this->app->scoped(AccountMail::class);
+        $this->app->singleton(MailServerSettings::class);
         $this->app->bind(ClientLoginInvitations::class, PlatformClientLoginInvitations::class);
     }
 
@@ -89,6 +94,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
         $this->registerNavigation();
         $this->registerPermissions();
         $this->registerSettings();
+        $this->registerMailServer();
         $this->registerSearch();
         $this->registerMergeParticipants();
         $this->registerAutomation();
@@ -241,9 +247,10 @@ class PlatformServiceProvider extends ModuleServiceProvider
             'core.settings.view' => 'View settings',
             'core.settings.update' => 'Change general settings',
             'core.settings.security' => 'Change security settings',
+            'core.settings.mail' => 'Change the mail server and send test email',
             'core.automation.view' => 'View the automation log',
             'core.automation.run' => 'Run automation manually',
-        ], sensitive: ['core.staff.*', 'core.roles.*', 'core.settings.security', 'core.currencies.rates']);
+        ], sensitive: ['core.staff.*', 'core.roles.*', 'core.settings.security', 'core.settings.mail', 'core.currencies.rates']);
     }
 
     private function registerSettings(): void
@@ -268,6 +275,35 @@ class PlatformServiceProvider extends ModuleServiceProvider
             new SettingDefinition('platform.automation_log_retention_days', 'Automation log retention (days)', 'integer', 'Daily automation runs are deleted after this many days; each task keeps its latest run (90 to 3,650).', rules: ['min:90', 'max:3650']),
             new SettingDefinition('platform.failed_jobs_retention_days', 'Failed background jobs retention (days)', 'integer', 'Failed jobs can no longer be retried once deleted (7 to 365).', rules: ['min:7', 'max:365']),
         ], 'core.settings.security');
+    }
+
+    /**
+     * Mail transport settings (they can redirect every reset link, so a sensitive permission) and their use at runtime:
+     * when the mail manager is built, and before every queued job so long-running workers follow a change.
+     */
+    private function registerMailServer(): void
+    {
+        $smtp = fn (string $field): string => "mail.mailers.smtp.{$field}";
+        $required = fn (string $mailer): string => 'required_if:mail.default,'.$mailer;
+
+        $this->app->make(SettingsRegistry::class)->section(MailServerSettings::SECTION, 'Mail server', [
+            new SettingDefinition('mail.default', 'Send email with', 'select', 'Until this page is saved, the server environment (.env) settings are used. Log only writes each message to the application log.', options: MailServerSettings::MAILERS),
+            new SettingDefinition($smtp('host'), 'SMTP host', help: 'For example smtp.yourdomain.com. A server on this machine or your own network is fine; link-local and cloud metadata addresses are refused.', rules: [$required('smtp'), 'max:255', 'regex:/^[A-Za-z0-9.\-:\[\]]*$/', new MailRelayHost]),
+            new SettingDefinition($smtp('port'), 'SMTP port', 'integer', 'Usually 587 for STARTTLS or 465 for TLS.', rules: ['min:1', 'max:65535']),
+            new SettingDefinition($smtp('encryption'), 'Encryption', 'select', 'STARTTLS, required, and TLS never send the password unencrypted. Automatic changes nothing: it keeps MAIL_SCHEME from the server environment, or else uses TLS on port 465 and otherwise STARTTLS only when the server offers it.', options: MailServerSettings::ENCRYPTION),
+            new SettingDefinition($smtp('username'), 'SMTP username', help: 'Leave empty if the server does not ask for a sign-in.', rules: ['max:255']),
+            new SettingDefinition($smtp('password'), 'SMTP password', secret: true, rules: ['max:255']),
+            new SettingDefinition('services.ses.key', 'AWS access key ID', secret: true, rules: ['max:128']),
+            new SettingDefinition('services.ses.secret', 'AWS secret access key', secret: true, rules: ['max:255']),
+            new SettingDefinition('services.ses.region', 'AWS region', help: 'The SES region your sending domain is verified in, for example ap-south-1.', rules: [$required('ses'), 'max:32', 'regex:/^$|^[a-z]{2}(-[a-z]+)+-\d$/']),
+        ], 'core.settings.mail');
+
+        $this->app->afterResolving('mail.manager', fn (MailManager $manager) => $this->app->make(MailServerSettings::class)->apply($manager));
+        Event::listen(JobProcessing::class, function (): void {
+            if ($this->app->resolved('mail.manager')) {
+                $this->app->make(MailServerSettings::class)->apply();
+            }
+        });
     }
 
     private function registerSearch(): void

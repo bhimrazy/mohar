@@ -37,9 +37,9 @@ class UpdateSettings
     }
 
     /**
-     * Save changed values of one section; blank secret fields keep their stored value.
+     * Save changed values of one section; blank secret fields keep their stored value unless `clear` names them.
      *
-     * @param  array<string, mixed>  $input  validated, nested input (e.g. ['core' => ['company_name' => '…']])
+     * @param  array<string, mixed>  $input  validated, nested input (e.g. ['core' => ['company_name' => '…']]), plus `clear`: keys of secrets to remove
      * @return list<string> changed keys
      */
     public function handle(string $section, array $input): array
@@ -47,6 +47,8 @@ class UpdateSettings
         $changes = [];
         $diff = [];
         $definitions = $this->catalog->section($section);
+        // Secrets the form asks to remove; a blank secret field alone keeps the stored value.
+        $clear = array_values(array_filter(Arr::wrap($input['clear'] ?? []), 'is_string'));
 
         if ($definitions === null) {
             return [];
@@ -60,6 +62,11 @@ class UpdateSettings
             $raw = Arr::get($input, $definition->key);
 
             if ($definition->secret && ($raw === null || $raw === '')) {
+                if (in_array($definition->key, $clear, true) && $this->settings->get($definition->key) !== null && array_key_exists($definition->key, $this->settings->all())) {
+                    $changes[$definition->key] = null;
+                    $diff[$definition->key] = ['old' => self::MASK, 'new' => null];
+                }
+
                 continue;
             }
 

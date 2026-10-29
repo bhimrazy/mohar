@@ -4,10 +4,12 @@ namespace App\Modules\Platform\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Middleware\RequireRecentPasswordConfirmation;
+use App\Models\User;
 use App\Modules\Platform\Actions\Settings\UpdateSettings;
 use App\Modules\Platform\Http\Requests\SettingsRequest;
 use App\Modules\Platform\Services\SettingsCatalog;
 use App\Modules\Platform\Support\AccountMail;
+use App\Modules\Platform\Support\MailServerSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -15,7 +17,7 @@ use Inertia\Response;
 
 class SettingsController extends Controller
 {
-    public function edit(Request $request, SettingsCatalog $catalog, ?string $section = null): Response|RedirectResponse
+    public function edit(Request $request, SettingsCatalog $catalog, MailServerSettings $mail, ?string $section = null): Response|RedirectResponse
     {
         $user = $request->user();
         abort_if($user === null, 401);
@@ -43,9 +45,25 @@ class SettingsController extends Controller
                 'key' => $section,
                 'title' => $sections[$section]['title'],
                 'editable' => $catalog->canEdit($user, $section),
-                'fields' => $catalog->fields($section),
+                'fields' => $this->fields($catalog, $mail, $user, $section),
             ],
+            'mailTest' => $section === MailServerSettings::SECTION && $catalog->canEdit($user, $section) ? [
+                'default_to' => $user->email,
+                'saved_here' => $mail->savedHere(),
+                'max_attempts' => MailTestController::MAX_ATTEMPTS,
+                'env_url' => $mail->envUrl(),
+            ] : null,
         ]);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function fields(SettingsCatalog $catalog, MailServerSettings $mail, User $user, string $section): array
+    {
+        $fields = $catalog->fields($section);
+
+        return $section === MailServerSettings::SECTION && ! $catalog->canEdit($user, $section) ? $mail->concealed($fields) : $fields;
     }
 
     public function update(SettingsRequest $request, string $section, UpdateSettings $update, AccountMail $mail): RedirectResponse

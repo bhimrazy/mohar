@@ -205,6 +205,15 @@ Typed registry (`SettingDefinition: key, type, default, rules, is_secret, owner_
 
 - Maintenance mode blocks client area & checkout (503 page or redirect); staff, API and webhooks continue. **MUST**
 
+Mail server (section `mail`, sensitive permission `core.settings.mail`): `mail.default` (smtp, ses, log),
+`mail.mailers.smtp.{host,port,encryption,username,password}`, `services.ses.{key,secret,region}`. The keys are the
+config keys they override, so a value never saved reads `.env`; `encryption` (starttls, tls, auto) maps to the scheme
+and `require_tls`. `MailServerSettings` applies them when the mail manager is built and before every queued job, so
+workers follow a change without a restart. "Send test email" sends synchronously through a copy of the default mailer
+with a 15-second timeout, shows the masked server error, is limited to 5 per staff member per 10 minutes and is
+activity-logged. Sender and Reply-To stay in Notifications' `email_delivery` section (the sender name is always the
+company name), so they are not repeated here.
+
 ## 8. Activity log
 
 - Writes for: staff/user login success & failure, logout, impersonation start/end, settings change, role/permission change, staff create/disable, client create/update (diff)/close/merge/delete, financial actions (payments, refunds, credits, invoice cancel), provisioning & registrar commands, EPP retrieval, data export, 2FA changes. **MUST**

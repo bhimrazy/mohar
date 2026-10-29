@@ -10,6 +10,7 @@ use App\Modules\Notifications\Services\EmailComposer;
 use App\Modules\Notifications\Services\SampleContext;
 use App\Modules\Platform\Models\StaffInvitation;
 use App\Modules\Platform\Notifications\ClientInvitationNotification;
+use App\Modules\Platform\Notifications\MailServerTest;
 use App\Modules\Platform\Notifications\SecurityNotice;
 use App\Modules\Platform\Notifications\StaffInvitationNotification;
 use App\Notifications\SetPasswordNotification;
@@ -36,6 +37,7 @@ const COVERED_MAIL_CLASSES = [
     StaffInvitationNotification::class,
     ClientInvitationNotification::class,
     SetPasswordNotification::class,
+    MailServerTest::class,
 ];
 
 beforeEach(fn () => app(Settings::class)->set('core.company_name', 'Acme Hosting'));
@@ -103,4 +105,5 @@ it('renders framework and module notifications with the branded layout', functio
     'login email notice' => [fn (User $user) => new LoginEmailNotice('Your sign-in email was changed', ['It was changed to a***w@example.com.'])],
     'staff invitation' => [fn (User $user) => new StaffInvitationNotification(StaffInvitation::factory()->create(), 'token')],
     'client invitation' => [fn (User $user) => new ClientInvitationNotification('Acme Studio', url('/account-invitation/token'), now()->addWeek())],
+    'mail server test' => [fn (User $user) => new MailServerTest('Acme Hosting', 'Sita Sharma')],
 ]);
