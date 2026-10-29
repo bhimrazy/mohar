@@ -139,7 +139,7 @@ class RequireRecentPasswordConfirmation
             return self::confirmedFor($request->user(), $confirmedAt);
         }
 
-        return time() - $confirmedAt < self::timeout();
+        return now()->getTimestamp() - $confirmedAt < self::timeout();
     }
 
     /**
@@ -155,7 +155,7 @@ class RequireRecentPasswordConfirmation
 
         // A stored time is data from outside this request: zero, negative or in the future (beyond a minute of clock
         // skew) is never a confirmation.
-        $now = time();
+        $now = now()->getTimestamp();
 
         return $confirmedAt > 0 && $confirmedAt <= $now + 60 && $now - $confirmedAt < self::timeout();
     }

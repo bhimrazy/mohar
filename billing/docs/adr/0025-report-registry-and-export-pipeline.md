@@ -236,7 +236,7 @@ replaces the §2 text that has the owner render the screen "using the registry's
   at most 250px (half the page budget); entries beyond that are replaced by one line saying how many were left out.
   The CSV header block is unchanged.
 - **A queued export's step-up is decided at dispatch.** The request that queues the export checks the permission and the
-  step-up, and stores the decision with the job; the worker does not re-check the five-minute-style window, which a
+  step-up, and stores the decision with the job; the worker does not re-check the window (`auth.step_up_seconds`), which a
   queue delay would make fail at random. `passwordConfirmedAt` must come from a stored confirmation, never `time()`
   from a synchronous caller. When the queued export is built, the user, query, format, layout and that decision travel
   in an `ExportRequest` value object, not as loose arguments. `confirmedFor()` rejects a zero, negative or future

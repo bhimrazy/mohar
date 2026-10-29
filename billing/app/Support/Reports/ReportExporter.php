@@ -29,7 +29,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
  * `reports.{key}.export` (and a recent password confirmation when the report's export is sensitive), refuses an
  * export over the row limit (`reports.sync_export_max_rows` for CSV, `reports.sync_pdf_max_rows` for PDF), never
  * writes more rows than that limit even when the report's count() is wrong, writes one `report.exported` activity
- * entry and returns the file. Synchronous only in this build; a queued export passes the user in the query and their confirmation time.
+ * entry and returns the file. Synchronous only in this build; a queued export will pass the user in the query and their stored confirmation time.
  *
  * Audit timing: a CSV is streamed, so its entry is written before the first byte (an attempted export of tax data
  * is on record even if the connection drops) and records the most rows that can be written, min(count, limit); the
@@ -88,11 +88,11 @@ final class ReportExporter
     }
 
     /**
-     * @param  int|null  $passwordConfirmedAt  when the query's user confirmed the password (unix time), for an export that
-     *                                         runs with no request; without it the current request must be that user's
-     *                                         It must come from a stored confirmation (the session's `auth.password_confirmed_at`
-     *                                         read when the export was queued), never `time()` passed by a synchronous
-     *                                         caller, which would confirm nothing.
+     * The permission and the step-up are decided for the user in the query.
+     *
+     * `$passwordConfirmedAt` (unix time) is for an export that runs with no request. It must be a stored confirmation:
+     * the session's `auth.password_confirmed_at`, read when the export was queued. A synchronous caller must not pass
+     * `time()`, which would confirm nothing. Without it, the current request must be that user's and recently confirmed.
      *
      * @throws AuthorizationException when the acting user may not export the report
      * @throws ValidationException when the report or layout is unknown or the export is over the row limit

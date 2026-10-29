@@ -54,7 +54,7 @@ test('a sound report passes both checks', function () {
     ReportConformance::assertPages('user_list', $query, 2);
     ReportConformance::assertQueryBudget('user_list', $query);
 
-    expect(true)->toBeTrue(); // the kit throws instead of asserting
+    expect(app(ReportRegistry::class)->has('user_list'))->toBeTrue();
 });
 
 test('a report that ignores the page fails the paging check', function () {

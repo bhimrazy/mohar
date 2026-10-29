@@ -7,3 +7,5 @@
 - `ReportExporter::export()` has a new trailing parameter `?int $passwordConfirmedAt = null`. Additive. A sensitive
   export is now confirmed only by that time or by the current request when it belongs to the query's user.
 - New `RequireRecentPasswordConfirmation::confirmedFor(User, int $confirmedAt)`.
+- `ReportConformance::QUERY_BUDGET` versioning: raising it is a minor change, lowering it is breaking (a package's report can pass today and fail after).
+- `assertQueryBudget` needs a fixture that shows at least two rows; with fewer it fails rather than passing unchecked.

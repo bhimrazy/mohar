@@ -337,3 +337,17 @@ test('a Date column takes a CalendarDate as its typed value', function () {
         ->and($cells->display(ColumnType::Date, CalendarDate::parse('2026-10-19')))->toBe('2026-10-19')
         ->and($cells->display(ColumnType::Text, CalendarDate::parse('2026-10-19')))->toBe('2026-10-19');
 });
+
+test('a stored confirmation time allows 60 seconds of clock skew and no more, and follows the Carbon clock', function () {
+    $user = actingAsStaff();
+    $now = now()->getTimestamp();
+
+    expect(RequireRecentPasswordConfirmation::confirmedFor($user, $now + 60))->toBeTrue()
+        ->and(RequireRecentPasswordConfirmation::confirmedFor($user, $now + 61))->toBeFalse()
+        ->and(RequireRecentPasswordConfirmation::confirmedFor($user, 0))->toBeFalse();
+
+    $this->travel(16)->minutes();
+
+    expect(RequireRecentPasswordConfirmation::confirmedFor($user, $now))->toBeFalse()
+        ->and(RequireRecentPasswordConfirmation::confirmedFor($user, now()->getTimestamp()))->toBeTrue();
+});
