@@ -7,9 +7,10 @@
 #   $MOHAR_ROOT/scripts/pg.sh --prune [slug...]  drop test databases with no open connections,
 #                                                       except those of the slugs given (dropped ones are recreated on demand),
 #                                                       and any idle billing_e2e_* left by an interrupted `simulate:e2e`
-#   $MOHAR_ROOT/scripts/pg.sh --drop [--dry-run] <slug>  drop that slug's database and its parallel copies (skips any in use)
+#   $MOHAR_ROOT/scripts/pg.sh --drop [--dry-run] <slug>  drop that slug's database, its parallel copies and seeded copies (skips any in use
+#                                                       and the databases of other worktrees' slugs; --dry-run in any position)
 #   $MOHAR_ROOT/scripts/pg.sh --drop-db [--dry-run] <database>  the same by database name (billing_test_*), for the sweep
-#   $MOHAR_ROOT/scripts/pg.sh --list             print every test database, one base name per line (no parallel copies)
+#   $MOHAR_ROOT/scripts/pg.sh --list             print the test databases, one per line (parallel copies only when their base is gone)
 #   $MOHAR_ROOT/scripts/pg.sh --db-name <slug>   print the database name for a slug, without starting anything
 # Then run `composer test:pgsql` (or any artisan command) in the worktree's billing/ directory.
 # The data lives in the Docker volume mohar-pg-data, on disk: a tmpfs is limited by the Docker VM's memory, which
@@ -21,7 +22,7 @@
 # becomes its first 46 bytes, "_", and the first 8 hex digits of its SHA-256, so it stays 55 bytes and unique.
 # The container gets --shm-size=512m: Docker's 64 MB default fails the full suite with SQLSTATE[53100] "could not
 # resize shared memory segment". It applies when the container is next created (after --stop or a Docker restart).
-# Any slug works; only the database name of a long slug changes. The same rule (name_fit) gives the race tests their
+# Any slug works except one containing test_<n> (rejected); only the database name of a long slug changes. The same rule (name_fit) gives the race tests their
 # extra databases (Tests\TestCase::pgsqlIdentifier, 63-byte limit).
 set -euo pipefail
 name=mohar-pg
@@ -41,6 +42,11 @@ name_fit() {
 
 # db_for <slug>: the test database name for a worktree slug (55 bytes: room for _test_<n> with up to 99 workers).
 db_for() {
+    # test_<n> in a slug would make its database look like a parallel copy of a shorter slug's.
+    if printf '%s' "$1" | grep -Eq '(^|[-_.])test[-_.][0-9]'; then
+        echo "pg.sh: slug '$1' contains test_<n>; it would look like a parallel copy of another slug's database. Pick another slug." >&2
+        return 1
+    fi
     name_fit "billing_test_$(echo "$1" | tr -c 'a-zA-Z0-9\n' '_')" 55
 }
 
@@ -50,24 +56,44 @@ if [ "${1:-}" = "--db-name" ]; then
     exit 0
 fi
 
-# drop_family <base database> <dry-run: 0|1>: the database and its parallel copies (<db>_test_<n>[_<name>]), idle ones only.
+# other_bases <base database>: databases of other worktrees' slugs that extend <base> (billing_test_a is a prefix of
+# billing_test_a_b), so that dropping slug "a" never reaches the idle databases of a live slug "a-b".
+other_bases() {
+    local base="$1" wt o common
+    common="$(git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+    git --git-dir="$common" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | while IFS= read -r wt; do
+        o="$(db_for "$(basename "$wt")" 2>/dev/null)" || continue
+        case "$o" in "${base}_"*) echo "$o" ;; esac
+    done
+}
+
+# drop_family <base database> <dry-run: 0|1>: the database, its parallel copies (<db>_test_<n>) and the copies the tests
+# derive from it (<db>[_test_<n>]_<name>, Tests\TestCase::useSeededDatabase), except those of another worktree's slug.
+# Idle ones only. Returns non-zero when a drop fails.
 drop_family() {
-    local base="$1" dry="$2" db busy
-    docker exec "$name" psql -U billing -d billing -tAc "
+    local base="$1" dry="$2" db busy rows rc=0 skip="" o
+    for o in $(other_bases "$base"); do skip="$skip AND NOT (datname = '$o' OR datname LIKE '${o}\\_%')"; done
+    rows="$(docker exec "$name" psql -U billing -d billing -tAc "
         SELECT datname, EXISTS (SELECT 1 FROM pg_stat_activity a WHERE a.datname = d.datname) FROM pg_database d
-        WHERE datname = '$base' OR datname ~ '^${base}_test_[0-9]+(_.*)?\$'" |
-        while IFS='|' read -r db busy; do
-            [ -n "$db" ] || continue
-            if [ "$busy" = t ]; then echo "kept $db (open connections)"
-            elif [ "$dry" = 1 ]; then echo "would drop $db"
-            else docker exec "$name" dropdb -U billing --if-exists "$db" && echo "dropped $db"; fi
-        done
+        WHERE datname ~ '^${base}(_test_[0-9]+)?(_[A-Za-z0-9_]+)?\$' $skip ORDER BY 1")" || return 1
+    while IFS='|' read -r db busy; do
+        [ -n "$db" ] || continue
+        if [ "$busy" = t ]; then echo "kept $db (open connections)"
+        elif [ "$dry" = 1 ]; then echo "would drop $db"
+        elif docker exec "$name" dropdb -U billing --if-exists "$db"; then echo "dropped $db"
+        else echo "failed to drop $db" >&2; rc=1; fi
+    done <<< "$rows"
+    return $rc
 }
 
 if [ "${1:-}" = "--list" ]; then
+    # Base databases, and parallel/seeded copies whose base no longer exists (orphans).
     docker exec "$name" psql -U billing -d billing -tAc "
-        SELECT datname FROM pg_database
-        WHERE datname LIKE 'billing\_test\_%' AND datname !~ '^billing_test_.+_test_[0-9]+(_.*)?\$' ORDER BY 1"
+        SELECT datname FROM pg_database d
+        WHERE datname LIKE 'billing\_test\_%'
+          AND (datname !~ '^billing_test_.+_test_[0-9]+(_.*)?\$'
+               OR NOT EXISTS (SELECT 1 FROM pg_database b WHERE b.datname = regexp_replace(d.datname, '_test_[0-9]+(_.*)?\$', '')))
+        ORDER BY 1"
     exit 0
 fi
 
@@ -75,13 +101,21 @@ if [ "${1:-}" = "--drop" ] || [ "${1:-}" = "--drop-db" ]; then
     mode="$1"
     shift
     dry=0
-    [ "${1:-}" = "--dry-run" ] && { dry=1; shift; }
-    target="${1:?usage: pg.sh $mode [--dry-run] <${mode#--drop-}>}"
+    target=""
+    kind="slug"; [ "$mode" = "--drop-db" ] && kind="database"
+    for a in "$@"; do
+        case "$a" in
+            --dry-run) dry=1 ;;
+            -*) echo "usage: pg.sh $mode [--dry-run] <$kind>" >&2; exit 1 ;;
+            *) [ -z "$target" ] || { echo "usage: pg.sh $mode [--dry-run] <$kind>" >&2; exit 1; }; target="$a" ;;
+        esac
+    done
+    [ -n "$target" ] || { echo "usage: pg.sh $mode [--dry-run] <$kind>" >&2; exit 1; }
     docker ps --format '{{.Names}}' | grep -qx "$name" || { echo "$name is not running; nothing to drop"; exit 0; }
     if [ "$mode" = "--drop" ]; then target="$(db_for "$target")"; fi
     [[ "$target" =~ ^billing_test_[a-zA-Z0-9_]+$ ]] || { echo "pg.sh: refusing '$target': not a billing_test_* database name" >&2; exit 1; }
     drop_family "$target" "$dry"
-    exit 0
+    exit $?
 fi
 
 if [ "${1:-}" = "--stop" ]; then
