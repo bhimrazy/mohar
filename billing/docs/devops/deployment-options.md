@@ -66,7 +66,7 @@ Stages (one Dockerfile, targets `prod` and `dev`):
    then `php artisan package:discover`. The Composer binary comes from the pinned `composer` image by digest.
 2. `wayfinder`: the runtime base plus the app and `vendor/`; runs `php artisan wayfinder:generate --with-form`
    with a throwaway `APP_KEY` and SQLite so the generated TypeScript exists.
-3. `assets`: `node:24.21.0-trixie-slim` by digest (the `.nvmrc` version); `npm ci` from the lockfile, copies the
+3. `assets`: `node:24.22.1-trixie-slim` by digest (the `.nvmrc` version); `npm ci` from the lockfile, copies the
    Wayfinder output from stage 2, `npm run build`. Only `public/build` leaves this stage.
 4. `prod`: `dunglas/frankenphp:<ver>-php8.4-trixie` by digest; extensions via `install-php-extensions` (the
    FrankenPHP image ships it; it removes build dependencies after installing). Copies the app, `vendor/` and
