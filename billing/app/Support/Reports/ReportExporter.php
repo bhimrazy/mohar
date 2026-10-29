@@ -29,7 +29,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
  * `reports.{key}.export` (and a recent password confirmation when the report's export is sensitive), refuses an
  * export over the row limit (`reports.sync_export_max_rows` for CSV, `reports.sync_pdf_max_rows` for PDF), never
  * writes more rows than that limit even when the report's count() is wrong, writes one `report.exported` activity
- * entry and returns the file. Synchronous only in this build; queued delivery comes with the Reports module.
+ * entry and returns the file. Synchronous only in this build; a queued export will pass the user in the query and their stored confirmation time.
  *
  * Audit timing: a CSV is streamed, so its entry is written before the first byte (an attempted export of tax data
  * is on record even if the connection drops) and records the most rows that can be written, min(count, limit); the
@@ -93,15 +93,21 @@ final class ReportExporter
     }
 
     /**
+     * The permission and the step-up are decided for the user in the query.
+     *
+     * `$passwordConfirmedAt` (unix time) is for an export that runs with no request. It must be a stored confirmation:
+     * the session's `auth.password_confirmed_at`, read when the export was queued. A synchronous caller must not pass
+     * `time()`, which would confirm nothing. Without it, the current request must be that user's and recently confirmed.
+     *
      * @throws AuthorizationException when the acting user may not export the report
      * @throws ValidationException when the report or layout is unknown or the export is over the row limit
-     * @throws HttpException 423 when the export is sensitive and the password was not confirmed recently
+     * @throws HttpException 423 when the export is sensitive and the query's user did not confirm the password recently
      */
-    public function export(string $key, ReportQuery $query, ExportFormat $format, ?string $layout = null): StreamedResponse
+    public function export(string $key, ReportQuery $query, ExportFormat $format, ?string $layout = null, ?int $passwordConfirmedAt = null): StreamedResponse
     {
         $report = $this->report($key);
         $query = $query->unpaged();
-        $user = $this->authorize($report, $query);
+        $user = $this->authorize($report, $query, $passwordConfirmedAt);
         $layout = $this->layout($report, $layout);
         $writer = $this->writers[$format->value];
 
@@ -193,15 +199,31 @@ final class ReportExporter
         ], event: 'report.exported', actor: $user);
     }
 
-    private function authorize(Report $report, ReportQuery $query): User
+    /**
+     * The permission and the step-up are both decided for the query's user (#354). The step-up reads the timestamp
+     * the caller passes (a queued export captures it when it is queued), else the current request's session, and
+     * only when that request belongs to the same user; anything else is not a confirmation.
+     */
+    private function authorize(Report $report, ReportQuery $query, ?int $passwordConfirmedAt): User
     {
         $user = ReportAccess::authorize($report->key(), $query, 'export', __('You do not have permission to export this report.'));
 
-        if ($report instanceof HasSensitiveExport && ! RequireRecentPasswordConfirmation::recentlyConfirmed(request())) {
+        if ($report instanceof HasSensitiveExport && ! $this->confirmed($user, $passwordConfirmedAt)) {
             throw new HttpException(423, __('Password confirmation required.'));
         }
 
         return $user;
+    }
+
+    private function confirmed(User $user, ?int $passwordConfirmedAt): bool
+    {
+        if ($passwordConfirmedAt !== null) {
+            return RequireRecentPasswordConfirmation::confirmedFor($user, $passwordConfirmedAt);
+        }
+
+        $request = request();
+
+        return $request->user()?->is($user) === true && RequireRecentPasswordConfirmation::recentlyConfirmed($request);
     }
 
     private function layout(Report $report, ?string $layout): ?string

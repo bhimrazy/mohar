@@ -45,7 +45,7 @@ it('treats an empty-string password as no password everywhere', function () {
     expect($user->hasPassword())->toBeFalse()
         ->and(Hash::check('', $user->password))->toBeFalse()
         ->and(Hash::check('x', null))->toBeFalse();
-    $this->actingAs($user)->withSession(['auth.password_confirmed_at' => time()])->postJson('/_rb384')
+    $this->actingAs($user)->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])->postJson('/_rb384')
         ->assertStatus(423)->assertJson(['code' => 'password_not_set']);
 });
 
@@ -64,7 +64,7 @@ it('cannot sign in with a null password, and the password update still needs a c
 it('keeps the confirmed timestamp valid for a login with a password', function () {
     $user = User::factory()->create();
 
-    $this->actingAs($user)->withSession(['auth.password_confirmed_at' => time()])->post('/_rb384')->assertOk();
+    $this->actingAs($user)->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])->post('/_rb384')->assertOk();
 });
 
 it('leaves a passwordless login with no sign-in method counted once the counter exists (ADR 0018 §8)', function () {

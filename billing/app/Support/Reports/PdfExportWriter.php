@@ -44,6 +44,11 @@ final class PdfExportWriter implements ExportWriter
      */
     private const PAGE_BUDGET = 500;
 
+    /** Most lines a header value takes, and the most height the whole header block may take (half the page budget). */
+    private const MAX_HEADER_LINES = 3;
+
+    private const HEADER_BUDGET = 250;
+
     /** The title block and the gap above the table, on the first page only. */
     private const FIRST_PAGE_FIXED = 60;
 
@@ -80,7 +85,8 @@ final class PdfExportWriter implements ExportWriter
         $pageSums = new Sums;
         $currencies = [];
         $used = 0.0;
-        $budget = self::PAGE_BUDGET - self::FIRST_PAGE_FIXED - $this->headerHeight($context, $line);
+        $header = $this->header($context, $line);
+        $budget = self::PAGE_BUDGET - self::FIRST_PAGE_FIXED - $this->headerHeight($header, $line);
 
         foreach ($context->rows as $row) {
             $cells = $this->display($context, $row, $widths);
@@ -123,7 +129,7 @@ final class PdfExportWriter implements ExportWriter
         fwrite($stream, Pdf::loadView('reports.pdf', [
             'brand' => $this->brand->brand()->name,
             'title' => $context->report->label(),
-            'header' => $context->header,
+            'header' => $header,
             'columns' => $context->columns,
             'pages' => $pages,
             'totals' => $totals,
@@ -136,17 +142,67 @@ final class PdfExportWriter implements ExportWriter
         ])->setPaper('a4', 'landscape')->output());
     }
 
-    /** The height of the header block, each value wrapped in the room the label column leaves it. */
-    private function headerHeight(ExportContext $context, float $line): float
+    /**
+     * The room a header value has beside the widest label.
+     *
+     * @param  non-empty-list<array{0: string, 1: string}>  $header
+     */
+    private function headerRoom(array $header): float
     {
-        if ($context->header === []) {
+        return self::PAGE_WIDTH - max(array_map(fn (array $entry): float => $this->measure->width((string) $entry[0]), $header)) - 12 - 2 * self::CELL_PADDING;
+    }
+
+    /**
+     * The height of the header block, each value wrapped in the room the label column leaves it.
+     *
+     * @param  list<array{0: string, 1: string}>  $header
+     */
+    private function headerHeight(array $header, float $line): float
+    {
+        if ($header === []) {
             return 0.0;
         }
 
-        $label = max(array_map(fn (array $entry): float => $this->measure->width((string) $entry[0]), $context->header));
-        $room = self::PAGE_WIDTH - $label - 12 - 2 * self::CELL_PADDING;
+        $room = $this->headerRoom($header);
 
-        return 8.0 + array_sum(array_map(fn (array $entry): float => $this->measure->lines((string) $entry[1], $room, bold: true) * $line + 2, $context->header));
+        return 8.0 + array_sum(array_map(fn (array $entry): float => $this->measure->lines((string) $entry[1], $room, bold: true) * $line + 2, $header));
+    }
+
+    /**
+     * The header as printed (#367): a value takes at most MAX_HEADER_LINES lines and ends in an ellipsis when cut, and
+     * the block takes at most HEADER_BUDGET, so the table always has room on the first page. Entries that do not fit
+     * are replaced by one line that says how many were left out.
+     *
+     * @return list<array{0: string, 1: string}>
+     */
+    private function header(ExportContext $context, float $line): array
+    {
+        if ($context->header === []) {
+            return [];
+        }
+
+        $room = $this->headerRoom($context->header);
+        $kept = [];
+        $used = 8.0;
+
+        foreach ($context->header as $index => [$label, $value]) {
+            $value = $this->clip((string) $value, $room, self::MAX_HEADER_LINES, bold: true);
+            $height = $this->measure->lines($value, $room, bold: true) * $line + 2;
+            $more = count($context->header) - $index - 1;
+
+            // Keep one line free for the "left out" note unless this is the last entry.
+            if ($used + $height + ($more > 0 ? $line + 2 : 0) > self::HEADER_BUDGET) {
+                $left = count($context->header) - $index;
+                $kept[] = ['…', trans_choice('{1} :count more header line not shown|[2,*] :count more header lines not shown', $left)];
+
+                return $kept;
+            }
+
+            $kept[] = [(string) $label, $value];
+            $used += $height;
+        }
+
+        return $kept;
     }
 
     /**
@@ -189,10 +245,10 @@ final class PdfExportWriter implements ExportWriter
         return $line;
     }
 
-    /** A text that would take more than MAX_CELL_LINES lines is cut, at a whole character, and ends in an ellipsis. */
-    private function clip(string $text, float $room): string
+    /** A text that would take more than `$maxLines` lines is cut, at a whole character, and ends in an ellipsis. */
+    private function clip(string $text, float $room, int $maxLines = self::MAX_CELL_LINES, bool $bold = false): string
     {
-        if ($this->measure->lines($text, $room) <= self::MAX_CELL_LINES) {
+        if ($this->measure->lines($text, $room, $bold) <= $maxLines) {
             return $text;
         }
 
@@ -205,7 +261,7 @@ final class PdfExportWriter implements ExportWriter
         while ($low < $high) {
             $middle = intdiv($low + $high + 1, 2);
 
-            if ($this->measure->lines(rtrim(implode('', array_slice($graphemes, 0, $middle))).'…', $room) <= self::MAX_CELL_LINES) {
+            if ($this->measure->lines(rtrim(implode('', array_slice($graphemes, 0, $middle))).'…', $room, $bold) <= $maxLines) {
                 $low = $middle;
             } else {
                 $high = $middle - 1;

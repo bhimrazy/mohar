@@ -229,7 +229,7 @@ function stepUpRequest(RoutingRoute $route, array $parameters, User $user, bool 
     $test->actingAs($user);
 
     if ($confirmed) {
-        $test->withSession(['auth.password_confirmed_at' => time()]);
+        $test->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
     }
 
     $method = collect($route->methods())->first(fn (string $method): bool => ! in_array($method, ['GET', 'HEAD', 'OPTIONS'], true));

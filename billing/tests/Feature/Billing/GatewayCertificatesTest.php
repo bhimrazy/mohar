@@ -117,6 +117,7 @@ test('a wrong passphrase, a file that is not PKCS#12, an expired certificate or 
 
     $expired = testPfx(days: 1);
     $this->travel(2)->days();
+    confirmPassword();
     $expiredOn = CalendarDate::parse(app(CompanyClock::class)->localDate(now()->subDay()))->format('M j, Y');
     $refuse(['file' => UploadedFile::fake()->createWithContent('CREDITOR.pfx', $expired), 'passphrase' => 'pfx-pass-123'], 'This certificate expired on '.$expiredOn.'. Ask the provider for a new one.');
 

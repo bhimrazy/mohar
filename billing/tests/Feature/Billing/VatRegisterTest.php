@@ -20,6 +20,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\DateFormats;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Reports\ReportConformance;
 use App\Support\Reports\ReportExporter;
 use App\Support\Reports\ReportRegistry;
 use App\Support\Reports\ReportViewer;
@@ -29,7 +30,6 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\View;
 use Illuminate\Validation\ValidationException;
 use Inertia\Testing\AssertableInertia;
-use Tests\Support\Reports\ReportConformance;
 
 require_once __DIR__.'/helpers.php';
 
@@ -146,12 +146,16 @@ test('the note register lists the notes of the month with their reason, settleme
 });
 
 test('both registers page conformantly', function () {
+    // The kit throws ReportConformanceFailure instead of asserting.
+    $this->expectNotToPerformAssertions();
     kartikRegisterFixture();
     onRegisterDay('2026-10-30', fn () => registerNote(NoteRequest::creditAmount(Invoice::query()->whereNotNull('number')->orderBy('id')->firstOrFail()->id, 226, 'goodwill', 'Third')));
     actingAsStaff(['reports.vat_register.view', 'reports.tax_note_register.view']);
 
     ReportConformance::assertPages('vat_register', app(ReportExporter::class)->query('vat_register', ['month' => '2083-07'], auth()->id()), 2);
     ReportConformance::assertPages('tax_note_register', app(ReportExporter::class)->query('tax_note_register', ['month' => '2083-07'], auth()->id()), 2);
+    ReportConformance::assertQueryBudget('vat_register', app(ReportExporter::class)->query('vat_register', ['month' => '2083-07'], auth()->id()));
+    ReportConformance::assertQueryBudget('tax_note_register', app(ReportExporter::class)->query('tax_note_register', ['month' => '2083-07'], auth()->id()));
 });
 
 test('a USD invoice is converted with its stored rate, per document, and a full credit note nets to zero (AC 41)', function () {

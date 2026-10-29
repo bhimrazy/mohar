@@ -217,9 +217,27 @@ replaces the §2 text that has the owner render the screen "using the registry's
 - **Each screen route is rate-limited** per user, so the view permission cannot be used to pull a report page by page
   at machine speed. The VAT registers allow 60 requests a minute (`billing-registers`).
 - **Every report pages conformantly.** A report that ignores `limit` and `offset` would show page 1 again as page 2;
-  the viewer caps the row count but cannot detect the repeat. `tests/Support/Reports/ReportConformance` checks the
+  the viewer caps the row count but cannot detect the repeat. `App\Support\Reports\ReportConformance` (moved by the ADR 0020 amendment (#515)) checks the
   pages against the unpaged rows. `tests/Arch/ReportsTest.php` finds each report in `app/` and requires another test
   file to pass that report's registry key to `ReportConformance::assertPages()`.
 - **Count and totals are bounded.** `count()` and `ProvidesTotals::totals()` run on every page without a cache. Both
   must be aggregate queries served by an index, a fixed number of them, never a walk through the sorted rows. A report
   whose filters allow an open-ended period caps it: the VAT registers accept an AD range of at most one year.
+
+## Amendment (#515) — 2026-10-29, one identity for permission and step-up; a capped PDF header
+
+- **The query's user decides both checks.** `ReportExporter::export()` loads the user named by `ReportQuery::$userId`
+  once and decides the export permission and, for a `HasSensitiveExport` report, the step-up for that user. The
+  step-up reads the optional `$passwordConfirmedAt` argument (unix time, which a queued export captures from the
+  session when it is queued), else the current request's session, and only when that request belongs to the same
+  user. A request from another user, or none, is not a confirmation. `RequireRecentPasswordConfirmation::confirmedFor()`
+  holds the rule (a password is set, the one-time password has not expired, the window `auth.step_up_seconds`).
+- **The PDF header is capped.** A header value takes at most 3 lines and ends in an ellipsis when cut; the block takes
+  at most 250px (half the page budget); entries beyond that are replaced by one line saying how many were left out.
+  The CSV header block is unchanged.
+- **A queued export's step-up is decided at dispatch.** The request that queues the export checks the permission and the
+  step-up, and stores the decision with the job; the worker does not re-check the window (`auth.step_up_seconds`), which a
+  queue delay would make fail at random. `passwordConfirmedAt` must come from a stored confirmation, never `time()`
+  from a synchronous caller. When the queued export is built, the user, query, format, layout and that decision travel
+  in an `ExportRequest` value object, not as loose arguments. `confirmedFor()` rejects a zero, negative or future
+  time (more than 60 seconds ahead).

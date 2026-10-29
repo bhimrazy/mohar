@@ -49,11 +49,11 @@ it('tells a passwordless login to set a password on an Inertia request', functio
 it('does not pass step-up for a passwordless login with a forged or fresh confirmation timestamp', function () {
     $user = passwordlessStaff();
 
-    $this->actingAs($user)->withSession(['auth.password_confirmed_at' => time()])
+    $this->actingAs($user)->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])
         ->postJson('/_step-up-probe')->assertStatus(423);
     $this->actingAs($user)->withSession(['auth.password_confirmed_at' => PHP_INT_MAX])
         ->post('/_step-up-probe', [], ['X-Inertia' => 'true'])->assertSessionHasErrors('step_up_reason');
-    $this->actingAs($user)->withSession(['auth.password_confirmed_at' => time()])
+    $this->actingAs($user)->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])
         ->get('/_step-up-probe-file', ['X-Step-Up-Check' => '1', 'Accept' => 'application/json'])
         ->assertStatus(423)->assertJson(['code' => 'password_not_set']);
 });
@@ -88,7 +88,7 @@ it('leaves a login with a password unchanged', function () {
     $this->actingAs($user)->postJson('/_step-up-probe')->assertStatus(423)->assertJsonMissingPath('code');
     $this->actingAs($user)->post('/_step-up-probe', [], ['X-Inertia' => 'true'])
         ->assertSessionHasErrors('password_confirmation')->assertSessionDoesntHaveErrors('step_up_reason');
-    $this->actingAs($user)->withSession(['auth.password_confirmed_at' => time()])
+    $this->actingAs($user)->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])
         ->post('/_step-up-probe')->assertOk();
     $this->actingAs($user)->get(route('password.confirm'))
         ->assertInertia(fn (Assert $page) => $page->where('hasPassword', true)->where('auth.user.has_password', true));
