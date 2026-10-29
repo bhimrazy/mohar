@@ -11,7 +11,9 @@ use App\Data\Migration\ImportRecord;
  *
  * A match is a proposal. Migration asks only for records the run's id map does not resolve (the id map wins), shows
  * the match on the review, and decides per row whether to update or skip; the matched id reaches upsert() as
- * $existingTargetId. matchExisting() writes nothing and takes no lock.
+ * $existingTargetId. Two records may propose the same target; Migration then shows both rows as a conflict for staff
+ * to decide and never updates that target twice in one run. matchExisting() receives mapped values (DeclaresValueMaps),
+ * writes nothing and takes no lock.
  */
 interface MatchesExisting extends RecordImporter
 {

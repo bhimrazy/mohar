@@ -19,7 +19,9 @@ interface ImportIdResolver
      *
      * @param  string  $entity  the importer's registry key, e.g. "client"
      * @param  list<string>  $sourceIds
-     * @return array<string, int> target id keyed by source id; ids not in the map are left out
+     * @return array<int|string, int> target id keyed by source id; ids not in the map are left out. PHP stores a
+     *                                numeric source id ("1001") as an int key: look ids up by the source id
+     *                                (`$targets[$record->sourceId] ?? null`), never by comparing keys strictly.
      */
     public function targetIds(string $entity, array $sourceIds): array;
 }

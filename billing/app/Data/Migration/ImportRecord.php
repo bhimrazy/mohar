@@ -6,8 +6,10 @@ namespace App\Data\Migration;
  * One source record in our vocabulary (our field names, enums, minor units and ISO dates). $entity is the importer's
  * registry key ("client", "invoice", "domain"); $sourceSystem the kind of source ("csv", "whmcs_api").
  *
- * Records written together travel as one record with $children: an invoice carries `items` and `payments`, whose
- * outcomes are counted under their own entities (`invoice_item`, `payment`).
+ * Records written together travel as one record with $children: an invoice carries `items` and `payments`. The
+ * parent's importer writes its children, and its revert() takes them back. `invoice_item` and `payment` are reserved
+ * entity names that no importer registers; how children's outcomes are reported is decided with
+ * invoice-domain-import PR 2.
  */
 final readonly class ImportRecord
 {

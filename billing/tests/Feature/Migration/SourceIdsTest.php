@@ -25,20 +25,30 @@ test('targetIds() resolves many source ids of one source and entity in one query
     $ids = new SourceIds($source->id);
 
     DB::enableQueryLog();
+    expect($ids->targetIds('client', []))->toBe([])->and(DB::getQueryLog())->toBe([]);
+
     $targets = $ids->targetIds('client', ['1001', 'email:abc', '1002', '1001', 'missing']);
 
-    expect($targets)->toEqual(['1001' => 11, 'email:abc' => 12])
+    // A numeric source id comes back as an int key, as PHP stores it; lookups by the source id still work.
+    expect($targets)->toBe([1001 => 11, 'email:abc' => 12])
+        ->and($targets['1001'])->toBe(11)
         ->and(DB::getQueryLog())->toHaveCount(1)
-        ->and($ids->targetIds('client', []))->toBe([])
         ->and($ids->targetId('client', 'email:abc'))->toBe(12);
 });
 
-test('targetIds() splits a long list into batches of a thousand', function () {
+test('targetIds() takes a thousand ids per query and merges hits from both sides of a batch', function () {
     $source = MigrationSource::query()->forceCreate(['source_system' => 'csv', 'name' => 'Old billing']);
-    mapSourceId($source, 'domain', 'd-1500', 7);
+    mapSourceId($source, 'domain', 'd-1', 5);
+    mapSourceId($source, 'domain', 'd-1000', 6);
+    mapSourceId($source, 'domain', 'd-1001', 7);
+    $ids = new SourceIds($source->id);
+    $range = fn (int $count): array => array_map(fn (int $n): string => "d-{$n}", range(1, $count));
 
     DB::enableQueryLog();
-    $targets = (new SourceIds($source->id))->targetIds('domain', array_map(fn (int $n): string => "d-{$n}", range(1, 2500)));
+    expect($ids->targetIds('domain', $range(1000)))->toBe(['d-1' => 5, 'd-1000' => 6])
+        ->and(DB::getQueryLog())->toHaveCount(1);
 
-    expect($targets)->toBe(['d-1500' => 7])->and(DB::getQueryLog())->toHaveCount(3);
+    DB::flushQueryLog();
+    expect($ids->targetIds('domain', $range(1001)))->toBe(['d-1' => 5, 'd-1000' => 6, 'd-1001' => 7])
+        ->and(DB::getQueryLog())->toHaveCount(2);
 });

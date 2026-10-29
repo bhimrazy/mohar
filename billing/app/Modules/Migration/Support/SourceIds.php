@@ -10,7 +10,7 @@ use App\Modules\Migration\Models\MigrationIdMap;
  */
 final readonly class SourceIds implements ImportIdResolver
 {
-    /** Source ids per query: one check chunk (CheckRun::CHUNK) in one statement, far below the bind limits. */
+    /** Source ids per query: 1,002 bindings, far below the SQLite and PostgreSQL limits. */
     private const BATCH = 1000;
 
     public function __construct(private int $sourceId) {}
@@ -31,7 +31,7 @@ final readonly class SourceIds implements ImportIdResolver
             MigrationIdMap::query()->where('migration_source_id', $this->sourceId)->where('entity', $entity)->whereIn('source_id', $batch)
                 ->pluck('target_id', 'source_id')
                 ->each(function (mixed $target, int|string $source) use (&$targets): void {
-                    $targets[(string) $source] = (int) $target;
+                    $targets[$source] = (int) $target;
                 });
         }
 

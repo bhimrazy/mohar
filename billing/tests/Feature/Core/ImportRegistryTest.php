@@ -96,6 +96,29 @@ test('after: orders an entity after those in the same import and ignores those t
         ->and($registry->ordered(['invoice']))->toBe(['client', 'invoice'])
         ->and(fn () => $registry->register('payment', fakeImporter('payment'), after: ['Domain']))->toThrow(InvalidArgumentException::class);
 
+    // A soft-only cycle is refused only when both sides are in the import; with one side absent its edge is inactive.
     $registry->register('domain', fakeImporter('domain'), replace: true, after: ['invoice']);
-    expect(fn () => $registry->ordered())->toThrow(LogicException::class, 'Import entities depend on each other in a cycle: invoice → domain → invoice.');
+    expect($registry->ordered(['invoice']))->toBe(['client', 'invoice'])
+        ->and(fn () => $registry->ordered(['invoice', 'domain']))->toThrow(LogicException::class, 'Import entities depend on each other in a cycle: invoice → domain → invoice.')
+        ->and(fn () => $registry->ordered())->toThrow(LogicException::class, 'in a cycle');
+});
+
+test('a cycle through a hard and a soft edge is refused when both entities are in the import', function () {
+    $registry = new ImportRegistry(app());
+    $registry->register('client', fakeImporter('client'), after: ['domain']);
+    $registry->register('domain', fakeImporter('domain'), dependsOn: ['client']);
+
+    expect($registry->ordered(['client']))->toBe(['client'])
+        ->and(fn () => $registry->ordered())->toThrow(LogicException::class, 'Import entities depend on each other in a cycle: client → domain → client.')
+        ->and(fn () => $registry->ordered(['domain']))->toThrow(LogicException::class, 'in a cycle');
+});
+
+test('the registered importers are built anew on each get(), so prepared chunk state never leaks', function () {
+    $registry = app(ImportRegistry::class);
+
+    expect($registry->keys())->not->toBe([]);
+
+    foreach ($registry->keys() as $key) {
+        expect($registry->get($key))->not->toBe($registry->get($key));
+    }
 });

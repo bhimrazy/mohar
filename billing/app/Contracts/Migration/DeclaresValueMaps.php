@@ -7,11 +7,12 @@ namespace App\Contracts\Migration;
  * statuses, tax rules, registrars, extensions. Migration's mapping step lists these targets, so staff map each value
  * found in the source to one without Migration reading the owner's tables.
  *
- * A map's key names the attribute it applies to: `status` for ImportRecord::$attributes['status'], `items.tax_rule`
- * for the `tax_rule` of each child in ImportRecord::$children['items']. Migration replaces each mapped source value
- * with the chosen target's `value` before validate() and upsert() see the record, so the importer receives only its
- * own values. validate() returns an ImportIssue for a value that is not one of the listed targets: one staff have not
- * mapped yet, or a target that has since been removed.
+ * A map's key is the path of the attribute it applies to: `status` for ImportRecord::$attributes['status'],
+ * `items.tax_rule` for the `tax_rule` of each child in ImportRecord::$children['items']. Keys are per entity (the
+ * invoice and domain importers may both declare `status`), and Migration stores the choices by entity and key. It
+ * replaces each mapped source value with the chosen target's `value` before prepare(), matchExisting(), validate()
+ * and upsert() see the record, so the importer receives only its own values. validate() returns an ImportIssue for a
+ * value that is not one of the listed targets: one staff have not mapped yet, or a target that has since been removed.
  */
 interface DeclaresValueMaps extends RecordImporter
 {

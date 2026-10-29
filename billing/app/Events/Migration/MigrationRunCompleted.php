@@ -12,8 +12,9 @@ use Illuminate\Foundation\Events\Dispatchable;
  * A run that stops dispatches MigrationRunPaused instead, never this. $sourceSystem is the kind of source ("csv",
  * "whmcs_api"). No per-record event is ever dispatched.
  *
- * The module that owns an imported entity may listen to bring its own projections up to date for what the run wrote
- * (Domains links the open invoices of imported domains), because imported records dispatch no domain event. Such a
+ * The module that owns an imported entity may listen to bring its own projections up to date for what the run wrote,
+ * because imported records dispatch no domain event (for example, Domains will link the open invoices of imported
+ * domains; invoice-domain-import spec PR 2). Such a
  * listener follows the importers' rules: it sends no mail or notification, dispatches no domain event, calls no
  * driver, finds the run's records through its own tables, and does nothing the second time it runs for a run.
  */
@@ -22,9 +23,10 @@ final class MigrationRunCompleted implements DomainEvent, ShouldDispatchAfterCom
     use Dispatchable, IdentifiesOccurrence;
 
     /**
-     * $counts is keyed by entity, the importer's registry key: `client`, `user`, `credit_balance`, `invoice`,
-     * `invoice_item`, `payment`, `domain`. More keys come with later importers, and consumers ignore those they do not
-     * know.
+     * $counts is keyed by entity: the importers' registry keys (`client`, `user`, `credit_balance`, later `invoice`
+     * and `domain`), plus the reserved keys `invoice_item` and `payment` for an invoice's children, which no importer
+     * registers; how children are counted is decided with invoice-domain-import PR 2. More keys come with later
+     * importers, and consumers ignore those they do not know.
      *
      * @param  array<string, array{created: int, updated: int, unchanged: int, skipped: int, failed: int}>  $counts
      */

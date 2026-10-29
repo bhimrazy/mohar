@@ -22,7 +22,9 @@ use LogicException;
  * an importer not built yet).
  *
  * The key is the entity: the same string is ImportRecord::$entity and the id map's entity. register() resolves
- * nothing; get() builds the importer through the container and checks it reports its key.
+ * nothing; get() builds the importer through the container and checks it reports its key. Register a class that is
+ * not bound as a singleton, or a closure that constructs a new importer: Migration calls get() once per chunk and
+ * relies on a new instance each time (PreparesChunk).
  *
  * @api
  */
