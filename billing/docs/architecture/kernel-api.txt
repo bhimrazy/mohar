@@ -262,11 +262,11 @@ App\Contracts\Migration\ImportIdResolver interface
 App\Contracts\Migration\ImportIdResolver method targetId(string $entity, string $sourceId): ?int
 App\Contracts\Migration\ImportIdResolver method targetIds(string $entity, array $sourceIds): array
 App\Contracts\Migration\ImportIdResolver doc method targetIds @param $sourceIds list<string>
-App\Contracts\Migration\ImportIdResolver doc method targetIds @return array<string, int>
+App\Contracts\Migration\ImportIdResolver doc method targetIds @return array<int|string, int>
 App\Contracts\Migration\MatchesExisting interface extends App\Contracts\Migration\RecordImporter
 App\Contracts\Migration\MatchesExisting method matchExisting(array $records, App\Data\Migration\ImportContext $context): array
 App\Contracts\Migration\MatchesExisting doc method matchExisting @param $records list<ImportRecord>
-App\Contracts\Migration\MatchesExisting doc method matchExisting @return array<string, int>
+App\Contracts\Migration\MatchesExisting doc method matchExisting @return array<int|string, int>
 App\Contracts\Migration\PreparesChunk interface extends App\Contracts\Migration\RecordImporter
 App\Contracts\Migration\PreparesChunk method prepare(array $records, App\Data\Migration\ImportContext $context): void
 App\Contracts\Migration\PreparesChunk doc method prepare @param $records list<ImportRecord>

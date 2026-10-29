@@ -102,7 +102,7 @@ review on #512). It decides the capabilities this ADR left as a direction.
       lock what it writes. An importer is registered so that `ImportRegistry::get()` builds a new instance on each
       call (a class not bound as a singleton, or a closure that constructs one); a test checks this for every
       registered importer.
-    - `MatchesExisting::matchExisting(list<ImportRecord>, ImportContext): array<string, int>`, batch, keyed by source id.
+    - `MatchesExisting::matchExisting(list<ImportRecord>, ImportContext): array<int|string, int>`, batch, keyed by source id.
       A match is a proposal: Migration asks only for records the id map does not resolve (the id map wins), and update
       or skip stays a Migration row decision. When two records propose the same target, both rows are a conflict for
       staff, and the target is never updated twice in one run.

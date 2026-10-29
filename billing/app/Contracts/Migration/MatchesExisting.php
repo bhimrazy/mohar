@@ -19,7 +19,8 @@ interface MatchesExisting extends RecordImporter
 {
     /**
      * @param  list<ImportRecord>  $records
-     * @return array<string, int> target id keyed by ImportRecord::$sourceId; records without a match are left out
+     * @return array<int|string, int> target id keyed by ImportRecord::$sourceId (a numeric id is an int key, as PHP
+     *                                stores it); records without a match are left out
      */
     public function matchExisting(array $records, ImportContext $context): array;
 }
