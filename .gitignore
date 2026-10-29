@@ -1,3 +1,5 @@
+.claude/worktrees/
+# Old location, kept while worktrees from before the move exist.
 .worktrees/
 rea/
 

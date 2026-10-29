@@ -14,7 +14,7 @@ name as live text, else the name alone, and a tagline only when the host sets on
     - `contrast.mjs` checks WCAG contrast in light, dark and inverted.
     - `make-logos.mjs` and `make-doc.mjs` render the PNG logos and A's document thumbnail.
     - `webmail-pane.html` is the generic reading pane used for the in-context captures.
-    - Run them through `scripts/heavy.sh node tools/<script>`. They use the Playwright install in `.worktrees/_review/pw`.
+    - Run them through `scripts/heavy.sh node tools/<script>`. They use the Playwright install in `.claude/worktrees/_review/pw`.
 
 **Decision for the owner:** pick A, B or C. **Recommendation: A, "Two-card receipt".** It is built on the receipt the owner shared as a reference, adapted to our brand. The reasons are in [Recommendation](#recommendation).
 

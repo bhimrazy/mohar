@@ -40,7 +40,7 @@ account, so reviews are posted as comments and the verdict line is the gate.
 1. **Spec.** `billing/docs/product/<module>.md` exists with MUST/SHOULD acceptance criteria. Before a module that
    encodes local practice (registries, payment enrolment, tax filing, documents), the assumed workflow is put to the
    owner in one line and the answer waited for.
-2. **Worktree.** `scripts/new-worktree.sh <slug>` → `.worktrees/<slug>/billing` on `feature/<slug>` from a freshly
+2. **Worktree.** `scripts/new-worktree.sh <slug>` → `.claude/worktrees/<slug>/billing` on `feature/<slug>` from a freshly
    fetched `origin/develop`.
 3. **Build.** Launch `module-engineer` with the brief template in the `run-workstream` skill. The engineer commits in
    small steps, pushes WIP as `[skip ci]`, verifies locally, and opens a draft PR into `develop` with gates green and
@@ -56,7 +56,8 @@ account, so reviews are posted as comments and the verdict line is the gate.
 7. **Merge (CTO).** Merge `origin/develop` into the branch, run the gates, mark ready, wait for CI, post the sign-off
    naming each blocking item and its evidence, `gh pr merge --squash --match-head-commit <sha>`. Use `--merge`
    instead when another open PR is based on the branch, so the stacked PR keeps its parent's commits (owner,
-   2026-10-24). Remove the worktree and branch.
+   2026-10-24). Right after a successful `gh pr merge`, run `scripts/finish-workstream.sh <slug>`: it removes the
+   worktree, the local branch (only if merged or fully on origin) and the slug's test databases.
 8. **Record.** `state.md`, `billing/docs/progress.md`; the PR's changelog fragment is already in. Non-blocking items
    become issues.
 9. **Before an owner update** after user-facing merges: a `product-reviewer` sweep of `develop`; act on its
@@ -171,6 +172,12 @@ The owner switches the repository (`bhimrazy/mohar`) between public and private 
 The local machine is the owner's Mac (since 2026-10-22: 10 cores, 24 GB, Docker Desktop with 8 CPUs and 3.6 GB). It
 is also the owner's own machine: the agent budget above applies, `/tmp` survives reboots but is still not for work, and
 `storage-cleanup.sh` leaves Docker alone unless `STORAGE_DOCKER=1` (other projects share it). The rules below apply on both.
+
+Cleanup is part of the process (2026-10-29: 139 stale worktrees, 68 GB, and 1,208 test databases, 20 GB, had piled up).
+Worktrees live in `.claude/worktrees/<slug>`. The merge step runs `scripts/finish-workstream.sh <slug>`. Review and
+probe agents make scratch worktrees under `.claude/worktrees/_review/` and remove them, and any test databases they
+created (`scripts/pg.sh --drop <slug>`), before reporting. `scripts/sweep-stale.sh` (dry run; `--apply` acts) is the
+safety net, run at session start; it never touches dirty or unpushed work.
 
 - Codespace: 4 vCPU, 15 GB RAM, 32 GB disk shared by `/`, `/workspaces` and Docker (about 9 GB is the base image). `/tmp` is a
   separate disk wiped on restart: disposable caches only (the npm cache lives there), never work.
