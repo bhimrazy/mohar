@@ -199,6 +199,7 @@ test('the start day can move until the mode has started, then it is fixed; the m
     expect(app(NepalVatMode::class)->enabledFrom())->toBe($second);
 
     CarbonImmutable::setTestNow(CarbonImmutable::parse($second, 'Asia/Kathmandu')->addHours(1));
+    confirmPassword();
     $this->put(route('admin.billing.vat-mode.update'), vatModePayload(['enabled_from' => $third]))->assertSessionHasNoErrors();
     expect(app(NepalVatMode::class)->enabledFrom())->toBe($second);
 
