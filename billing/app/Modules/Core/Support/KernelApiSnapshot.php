@@ -111,8 +111,8 @@ final class KernelApiSnapshot
             }
         }
 
-        if ($class->isEnum()) {
-            foreach ((new ReflectionEnum($name))->getCases() as $case) {
+        if (($enum = $this->enum($class)) !== null) {
+            foreach ($enum->getCases() as $case) {
                 $members['2 '.$case->getName()] = "{$name} case {$case->getName()}"
                     .($case instanceof ReflectionEnumBackedCase ? ' = '.var_export($case->getBackingValue(), true) : '');
             }
@@ -158,7 +158,7 @@ final class KernelApiSnapshot
         $kind = match (true) {
             $class->isInterface() => 'interface',
             $class->isTrait() => 'trait',
-            $class->isEnum() => 'enum'.(($backing = (new ReflectionEnum($class->getName()))->getBackingType()) !== null ? ': '.$backing : ''),
+            $class->isEnum() => 'enum'.(($backing = $this->enum($class)?->getBackingType()) !== null ? ': '.$backing : ''),
             default => implode(' ', array_filter([
                 $class->isFinal() ? 'final' : null,
                 $class->isAbstract() ? 'abstract' : null,
@@ -181,6 +181,17 @@ final class KernelApiSnapshot
             preg_match('/^\s*\*\s*@open\b/m', $doc) === 1 ? '@open' : null,
             preg_match('/^\s*\*\s*@deprecated\b/m', $doc) === 1 ? '@deprecated' : null,
         ]));
+    }
+
+    /**
+     * @param  ReflectionClass<object>  $class
+     * @return ReflectionEnum<UnitEnum>|null
+     */
+    private function enum(ReflectionClass $class): ?ReflectionEnum
+    {
+        $name = $class->getName();
+
+        return enum_exists($name) ? new ReflectionEnum($name) : null;
     }
 
     /**
