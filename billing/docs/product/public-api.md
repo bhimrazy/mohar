@@ -81,55 +81,55 @@ or decrypt secrets, and a password grant for client sign-in.
 
 ## 4. v1.0 endpoints (staff root)
 
-| Method | Path                                    | Ability                                   | Notes                                                                                       |
-| ------ | --------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------- |
-| GET    | `/me`                                   | —                                         | Token kind, owner, effective abilities, expiry. Core only                                   |
-| GET    | `/openapi.json`                         | none (public)                             | The committed OpenAPI document                                                              |
-| GET    | `/currencies`                           | —                                         | Code, exponent, default flag, rate to default                                               |
-| GET    | `/payment-methods`                      | `billing.invoices.view`                   | Active gateways per currency (`GatewayDirectory`)                                           |
-| GET    | `/clients`                              | `core.clients.view`                       | Filters: `status`, `email`, `group_id`, `currency`, `updated_since`                          |
-| GET    | `/clients/{id}`                         | `core.clients.view`                       | `include=contacts,credit_balances`                                                          |
-| POST   | `/clients`                              | `core.clients.create`                     | Same Action as Admin → Clients → New; `send_welcome` as in the form                         |
-| PATCH  | `/clients/{id}`                         | `core.clients.update`                     | `If-Match` supported; the inline controller logic is extracted to an Action first           |
-| GET    | `/contacts`                             | `core.clients.view`                       | Filter `client_id` required                                                                 |
-| POST   | `/contacts`                             | `core.contacts.manage`                    | `SaveContact`                                                                               |
-| PATCH  | `/contacts/{id}`                        | `core.contacts.manage`                    |                                                                                             |
-| GET    | `/products`                             | `catalog.products.view`                   | With pricing per currency and cycle (`PriceBook`); filters `group_id`, `module`             |
-| GET    | `/products/{id}`                        | `catalog.products.view`                   |                                                                                             |
-| GET    | `/invoices`                             | `billing.invoices.view`                   | Filters: `client_id`, `status`, `due_before`, `due_after`, `updated_since`                   |
-| GET    | `/invoices/{id}`                        | `billing.invoices.view`                   | `include=items,transactions`                                                                |
-| GET    | `/invoices/{id}/pdf`                    | `billing.invoices.view`                   | `application/pdf`; the fiscal PDF limiter applies                                           |
-| POST   | `/invoices`                             | `billing.invoices.manage`                 | **Idem**. `IssueInvoice` via `Invoicer`; draft or issued as in the admin form               |
-| POST   | `/invoices/{id}/payments`               | `billing.payments.manage`                 | **Idem**. Record a manual payment (`ApplyPayment`); `send_email`                            |
-| POST   | `/invoices/{id}/capture`                | `billing.payments.manage`                 | **Idem**. Charge a stored pay method (`CaptureInvoice`); an unknown outcome follows ADR 0026 |
-| POST   | `/invoices/{id}/apply-credit`           | `billing.credit.manage`                   | **Idem**. `ApplyCredit`                                                                     |
-| GET    | `/transactions`                         | `billing.transactions.view`               | Filters: `client_id`, `invoice_id`, `gateway`, `date_from`, `date_to`                        |
-| GET    | `/transactions/{id}`                    | `billing.transactions.view`               |                                                                                             |
-| GET    | `/credit-entries`                       | `billing.invoices.view`                   | Credit ledger; filter `client_id` required; balances in `/clients/{id}?include=`            |
-| POST   | `/credit-entries`                       | `billing.credit.manage`                   | **Idem**. Add credit (not an adjustment, which is sensitive: v1.1)                          |
-| GET    | `/pay-methods`                          | `billing.invoices.view`                   | Filter `client_id` required; masked card or wallet data only                                |
-| GET    | `/services`                             | `services.services.view`                  | Filters: `client_id`, `status`, `product_id`, `server_id`, `next_due_before`, `updated_since` |
-| GET    | `/services/{id}`                        | `services.services.view`                  | `include=addons`; never credentials                                                         |
-| POST   | `/services/{id}/create`                 | `services.services.provision`             | **Idem**. `ExecuteModuleCommand`; 202 when queued                                           |
-| POST   | `/services/{id}/suspend`                | `services.services.provision`             | **Idem**. `reason`                                                                          |
-| POST   | `/services/{id}/unsuspend`              | `services.services.provision`             | **Idem**                                                                                    |
-| POST   | `/services/{id}/terminate`              | `services.services.provision`             | **Idem**                                                                                    |
-| POST   | `/services/{id}/cancellation-requests`  | `services.cancellations.manage`           | `RequestCancellation`; `type` immediate or end of period                                    |
-| GET    | `/service-addons`                       | `services.services.view`                  | Filter `client_id` or `service_id`                                                          |
-| GET    | `/orders`                               | `orders.orders.view`                      | Filters: `client_id`, `status`, `updated_since`                                             |
-| GET    | `/orders/{id}`                          | `orders.orders.view`                      | `include=items,invoice`                                                                     |
-| POST   | `/orders`                               | `orders.orders.create`                    | **Idem**. Cart-less order builder for an existing client (new, shared with the storefront)  |
-| POST   | `/orders/{id}/accept`                   | `orders.orders.accept`                    | `AcceptOrder`; options as in the admin accept dialog                                        |
-| POST   | `/orders/{id}/cancel`                   | `orders.orders.cancel`                    | `CancelOrder`                                                                               |
-| GET    | `/domains`                              | `domains.domains.view`                    | Filters: `client_id`, `status`, `tld`, `expires_before`, `updated_since`                     |
-| GET    | `/domains/{id}`                         | `domains.domains.view`                    | Never the EPP code                                                                          |
-| PUT    | `/domains/{id}/nameservers`             | `domains.domains.update`                  | `UpdateNameservers`; replaces the whole list, so `PUT` is right here                        |
-| GET    | `/domain-availability`                  | `domains.tlds.view`                       | `name=example.com.np`; `DomainLookup`; its own limiter                                      |
-| GET    | `/tlds`                                 | `domains.tlds.view`                       | Pricing per currency and action (`DomainPricing`)                                           |
-| GET    | `/tickets`                              | `support.tickets.view`                    | Filters: `client_id`, `status`, `department_id`, `updated_since`; department access applies |
-| GET    | `/tickets/{id}`                         | `support.tickets.view`                    | `include=replies`; internal notes only with `support.tickets.manage`                        |
-| POST   | `/tickets`                              | `support.tickets.open`                    | `OpenTicket` for a client; no attachments in v1.0                                           |
-| POST   | `/tickets/{id}/replies`                 | `support.tickets.reply`                   | `PostReply`; `internal: true` for a note                                                    |
+| Method | Path                                   | Ability                         | Notes                                                                                         |
+| ------ | -------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------- |
+| GET    | `/me`                                  | —                               | Token kind, owner, effective abilities, expiry. Core only                                     |
+| GET    | `/openapi.json`                        | none (public)                   | The committed OpenAPI document                                                                |
+| GET    | `/currencies`                          | —                               | Code, exponent, default flag, rate to default                                                 |
+| GET    | `/payment-methods`                     | `billing.invoices.view`         | Active gateways per currency (`GatewayDirectory`)                                             |
+| GET    | `/clients`                             | `core.clients.view`             | Filters: `status`, `email`, `group_id`, `currency`, `updated_since`                           |
+| GET    | `/clients/{id}`                        | `core.clients.view`             | `include=contacts,credit_balances`                                                            |
+| POST   | `/clients`                             | `core.clients.create`           | Same Action as Admin → Clients → New; `send_welcome` as in the form                           |
+| PATCH  | `/clients/{id}`                        | `core.clients.update`           | `If-Match` supported; the inline controller logic is extracted to an Action first             |
+| GET    | `/contacts`                            | `core.clients.view`             | Filter `client_id` required                                                                   |
+| POST   | `/contacts`                            | `core.contacts.manage`          | `SaveContact`                                                                                 |
+| PATCH  | `/contacts/{id}`                       | `core.contacts.manage`          |                                                                                               |
+| GET    | `/products`                            | `catalog.products.view`         | With pricing per currency and cycle (`PriceBook`); filters `group_id`, `module`               |
+| GET    | `/products/{id}`                       | `catalog.products.view`         |                                                                                               |
+| GET    | `/invoices`                            | `billing.invoices.view`         | Filters: `client_id`, `status`, `due_before`, `due_after`, `updated_since`                    |
+| GET    | `/invoices/{id}`                       | `billing.invoices.view`         | `include=items,transactions`                                                                  |
+| GET    | `/invoices/{id}/pdf`                   | `billing.invoices.view`         | `application/pdf`; the fiscal PDF limiter applies                                             |
+| POST   | `/invoices`                            | `billing.invoices.manage`       | **Idem**. `IssueInvoice` via `Invoicer`; draft or issued as in the admin form                 |
+| POST   | `/invoices/{id}/payments`              | `billing.payments.manage`       | **Idem**. Record a manual payment (`ApplyPayment`); `send_email`                              |
+| POST   | `/invoices/{id}/capture`               | `billing.payments.manage`       | **Idem**. Charge a stored pay method (`CaptureInvoice`); an unknown outcome follows ADR 0026  |
+| POST   | `/invoices/{id}/apply-credit`          | `billing.credit.manage`         | **Idem**. `ApplyCredit`                                                                       |
+| GET    | `/transactions`                        | `billing.transactions.view`     | Filters: `client_id`, `invoice_id`, `gateway`, `date_from`, `date_to`                         |
+| GET    | `/transactions/{id}`                   | `billing.transactions.view`     |                                                                                               |
+| GET    | `/credit-entries`                      | `billing.invoices.view`         | Credit ledger; filter `client_id` required; balances in `/clients/{id}?include=`              |
+| POST   | `/credit-entries`                      | `billing.credit.manage`         | **Idem**. Add credit (not an adjustment, which is sensitive: v1.1)                            |
+| GET    | `/pay-methods`                         | `billing.invoices.view`         | Filter `client_id` required; masked card or wallet data only                                  |
+| GET    | `/services`                            | `services.services.view`        | Filters: `client_id`, `status`, `product_id`, `server_id`, `next_due_before`, `updated_since` |
+| GET    | `/services/{id}`                       | `services.services.view`        | `include=addons`; never credentials                                                           |
+| POST   | `/services/{id}/create`                | `services.services.provision`   | **Idem**. `ExecuteModuleCommand`; 202 when queued                                             |
+| POST   | `/services/{id}/suspend`               | `services.services.provision`   | **Idem**. `reason`                                                                            |
+| POST   | `/services/{id}/unsuspend`             | `services.services.provision`   | **Idem**                                                                                      |
+| POST   | `/services/{id}/terminate`             | `services.services.provision`   | **Idem**                                                                                      |
+| POST   | `/services/{id}/cancellation-requests` | `services.cancellations.manage` | `RequestCancellation`; `type` immediate or end of period                                      |
+| GET    | `/service-addons`                      | `services.services.view`        | Filter `client_id` or `service_id`                                                            |
+| GET    | `/orders`                              | `orders.orders.view`            | Filters: `client_id`, `status`, `updated_since`                                               |
+| GET    | `/orders/{id}`                         | `orders.orders.view`            | `include=items,invoice`                                                                       |
+| POST   | `/orders`                              | `orders.orders.create`          | **Idem**. Cart-less order builder for an existing client (new, shared with the storefront)    |
+| POST   | `/orders/{id}/accept`                  | `orders.orders.accept`          | `AcceptOrder`; options as in the admin accept dialog                                          |
+| POST   | `/orders/{id}/cancel`                  | `orders.orders.cancel`          | `CancelOrder`                                                                                 |
+| GET    | `/domains`                             | `domains.domains.view`          | Filters: `client_id`, `status`, `tld`, `expires_before`, `updated_since`                      |
+| GET    | `/domains/{id}`                        | `domains.domains.view`          | Never the EPP code                                                                            |
+| PUT    | `/domains/{id}/nameservers`            | `domains.domains.update`        | `UpdateNameservers`; replaces the whole list, so `PUT` is right here                          |
+| GET    | `/domain-availability`                 | `domains.tlds.view`             | `name=example.com.np`; `DomainLookup`; its own limiter                                        |
+| GET    | `/tlds`                                | `domains.tlds.view`             | Pricing per currency and action (`DomainPricing`)                                             |
+| GET    | `/tickets`                             | `support.tickets.view`          | Filters: `client_id`, `status`, `department_id`, `updated_since`; department access applies   |
+| GET    | `/tickets/{id}`                        | `support.tickets.view`          | `include=replies`; internal notes only with `support.tickets.manage`                          |
+| POST   | `/tickets`                             | `support.tickets.open`          | `OpenTicket` for a client; no attachments in v1.0                                             |
+| POST   | `/tickets/{id}/replies`                | `support.tickets.reply`         | `PostReply`; `internal: true` for a note                                                      |
 
 **Exception to the nameservers row.** ADR 0029 §6 says "no `PUT`". The nameservers row is the only exception: it
 replaces a whole list, which is what `PUT` means. The ADR is amended if review prefers
@@ -139,40 +139,40 @@ replaces a whole list, which is what `PUT` means. The ADR is amended if review p
 
 ### 5.1 Account root (client tokens)
 
-| Method | Path                                         | Area          | Notes                                                                       |
-| ------ | -------------------------------------------- | ------------- | --------------------------------------------------------------------------- |
-| GET    | `/account`                                   | —             | Account profile, currency, credit balance                                   |
-| PATCH  | `/account`                                   | `profile`     | Same rules as the client profile form (email change needs the web step-up) |
-| GET    | `/account/contacts`, POST, PATCH `{id}`      | `contacts`    |                                                                             |
-| GET    | `/account/invoices`, `/{id}`, `/{id}/pdf`    | `billing`     |                                                                             |
-| POST   | `/account/invoices/{id}/payment-sessions`    | `billing`     | **Idem**. `StartHostedPayment`; returns `next_action`                       |
-| GET    | `/account/services`, `/{id}`                 | `services`    |                                                                             |
-| POST   | `/account/services/{id}/cancellation-requests` | `services`  | Client-area rules                                                           |
-| GET    | `/account/domains`, `/{id}`                  | `domains`     |                                                                             |
-| PUT    | `/account/domains/{id}/nameservers`          | `domains`     |                                                                             |
-| GET    | `/account/tickets`, `/{id}`; POST; POST `/{id}/replies` | `support` | Client-visible replies only                                     |
+| Method | Path                                                    | Area       | Notes                                                                      |
+| ------ | ------------------------------------------------------- | ---------- | -------------------------------------------------------------------------- |
+| GET    | `/account`                                              | —          | Account profile, currency, credit balance                                  |
+| PATCH  | `/account`                                              | `profile`  | Same rules as the client profile form (email change needs the web step-up) |
+| GET    | `/account/contacts`, POST, PATCH `{id}`                 | `contacts` |                                                                            |
+| GET    | `/account/invoices`, `/{id}`, `/{id}/pdf`               | `billing`  |                                                                            |
+| POST   | `/account/invoices/{id}/payment-sessions`               | `billing`  | **Idem**. `StartHostedPayment`; returns `next_action`                      |
+| GET    | `/account/services`, `/{id}`                            | `services` |                                                                            |
+| POST   | `/account/services/{id}/cancellation-requests`          | `services` | Client-area rules                                                          |
+| GET    | `/account/domains`, `/{id}`                             | `domains`  |                                                                            |
+| PUT    | `/account/domains/{id}/nameservers`                     | `domains`  |                                                                            |
+| GET    | `/account/tickets`, `/{id}`; POST; POST `/{id}/replies` | `support`  | Client-visible replies only                                                |
 
 ### 5.2 Storefront root (storefront keys)
 
-| Method | Path                                         | Notes                                                                             |
-| ------ | -------------------------------------------- | --------------------------------------------------------------------------------- |
-| GET    | `/storefront/products`, `/{id}`              | Public catalogue in a `currency`; hidden products excluded                        |
-| GET    | `/storefront/currencies`                     |                                                                                   |
-| GET    | `/storefront/domain-availability`, `/tlds`   | `api-guest` limiter                                                               |
-| POST   | `/storefront/carts`                          | Returns the cart with its unguessable `id`                                        |
-| GET    | `/storefront/carts/{id}`                     | Lines, totals, tax, promotion                                                     |
-| POST   | `/storefront/carts/{id}/items`; PATCH, DELETE `/items/{item}` | Same validation as the web cart (`CartManager`)                  |
-| POST   | `/storefront/carts/{id}/promotion`; DELETE   | Promotion code                                                                    |
-| POST   | `/storefront/carts/{id}/checkout`            | **Idem**. Guest checkout only: creates the client (`RegisterCheckoutClient`), runs fraud screening, places the order; returns order, invoice and `next_action` |
-| POST   | `/storefront/carts/{id}/handoff`             | Single-use 60-second URL to the web checkout with the cart; for existing clients  |
+| Method | Path                                                          | Notes                                                                                                                                                          |
+| ------ | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/storefront/products`, `/{id}`                               | Public catalogue in a `currency`; hidden products excluded                                                                                                     |
+| GET    | `/storefront/currencies`                                      |                                                                                                                                                                |
+| GET    | `/storefront/domain-availability`, `/tlds`                    | `api-guest` limiter                                                                                                                                            |
+| POST   | `/storefront/carts`                                           | Returns the cart with its unguessable `id`                                                                                                                     |
+| GET    | `/storefront/carts/{id}`                                      | Lines, totals, tax, promotion                                                                                                                                  |
+| POST   | `/storefront/carts/{id}/items`; PATCH, DELETE `/items/{item}` | Same validation as the web cart (`CartManager`)                                                                                                                |
+| POST   | `/storefront/carts/{id}/promotion`; DELETE                    | Promotion code                                                                                                                                                 |
+| POST   | `/storefront/carts/{id}/checkout`                             | **Idem**. Guest checkout only: creates the client (`RegisterCheckoutClient`), runs fraud screening, places the order; returns order, invoice and `next_action` |
+| POST   | `/storefront/carts/{id}/handoff`                              | Single-use 60-second URL to the web checkout with the cart; for existing clients                                                                               |
 
 ### 5.3 Sensitive staff endpoints (hardened tokens)
 
-| Method | Path                                  | Ability (sensitive)            | Notes                                                                             |
-| ------ | ------------------------------------- | ------------------------------ | --------------------------------------------------------------------------------- |
-| POST   | `/transactions/{id}/refunds`          | `billing.refunds.manage`       | **Idem**. Same refund Action, reservations and ADR 0026 rules as the admin UI     |
-| POST   | `/credit-entries/adjustments`         | `billing.credit.adjust`        | **Idem**                                                                          |
-| POST   | `/clients/{id}/sign-in-links`         | `core.clients.sso` (new)       | Single-use, 60 s, destination allowlist (`invoices`, `services/{id}`, `cart`, `tickets`), audit entry, per-client opt-out |
+| Method | Path                          | Ability (sensitive)      | Notes                                                                                                                     |
+| ------ | ----------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/transactions/{id}/refunds`  | `billing.refunds.manage` | **Idem**. Same refund Action, reservations and ADR 0026 rules as the admin UI                                             |
+| POST   | `/credit-entries/adjustments` | `billing.credit.adjust`  | **Idem**                                                                                                                  |
+| POST   | `/clients/{id}/sign-in-links` | `core.clients.sso` (new) | Single-use, 60 s, destination allowlist (`invoices`, `services/{id}`, `cart`, `tickets`), audit entry, per-client opt-out |
 
 ### 5.4 Event feed
 
@@ -254,26 +254,26 @@ replaces a whole list, which is what `PUT` means. The ADR is amended if review p
 The foundation PRs are kernel work made by the CTO session (CLAUDE.md, shared-kernel rule). The endpoint PRs are
 module work and can run in parallel once API-0b merges.
 
-| PR      | Scope                                                                                                                                                                          | Depends on        | Owner         |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- | ------------- |
-| ADR     | This ADR and spec (docs only)                                                                                                                                                  | —                 | Architect     |
-| Approve | Owner approval of `laravel/sanctum` and the OpenAPI generator (ADR 0007); token prefix                                                                                         | ADR               | Owner         |
-| API-0a  | `App\Http\Api` foundation: Sanctum install with token columns, the principal, middleware (`api.token`, `api.ability`, `api.audience`), problem renderer, request id, rate limiters, `ListQuery`, `ApiResource` base, `/me`, `routes/callbacks.php` move, ActivityLogger `channel`, Redactor token rule, hygiene tests, `architecture.md` rule | Approve           | CTO           |
-| API-0b  | `api_idempotency_keys` and `api.idempotent`, `api:openapi` with the CI check and diff, `/openapi.json`, the API settings section, an `Automation` prune task                     | API-0a            | CTO           |
-| API-1   | Platform: staff token UI, Settings → API, all-tokens table, security notices                                                                                                    | API-0a            | Platform      |
-| API-2   | Core: clients, contacts, currencies (extract client create and update into Actions)                                                                                             | API-0b            | Core          |
-| API-3   | Billing reads: invoices, invoice PDF, transactions, credit entries, pay methods, payment methods                                                                                | API-0b            | Billing       |
-| API-4   | Billing writes: create invoice, record payment, capture, apply and add credit, with domain keys where missing                                                                  | API-3             | Billing       |
-| API-5   | Services and Catalog: services, addons, commands, cancellation requests, products                                                                                              | API-0b            | Services      |
-| API-6   | Orders: list, get, accept, cancel, cart-less `POST /orders` builder                                                                                                            | API-0b            | Orders        |
-| API-7   | Domains: list, get, nameservers, availability, TLD pricing                                                                                                                     | API-0b            | Domains       |
-| API-8   | Support: tickets list, get, open, reply                                                                                                                                        | API-0b            | Support       |
-| API-9   | Docs site: reference from the JSON, problem pages, WHMCS action mapping table, API load-test scenario                                                                           | API-2 to 8        | Docs, DevOps  |
-| v1.0 GA | Owner declares v1 generally available, ending the beta window                                                                                                                  | API-9             | Owner         |
-| API-10  | Client tokens and the `/account` root, including payment sessions                                                                                                               | v1.0              | Core, Billing |
-| API-11  | Storefront keys, session-free `CartManager` entry point, `/storefront` root, hand-off                                                                                           | API-6, API-10     | Orders        |
-| API-12  | Hardened tokens, refunds, credit adjustments, client sign-in links                                                                                                              | API-1, API-4      | CTO, Billing  |
-| API-13  | Event feed                                                                                                                                                                     | API-0b            | Notifications |
+| PR      | Scope                                                                                                                                                                                                                                                                                                                                         | Depends on    | Owner         |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- | ------------- |
+| ADR     | This ADR and spec (docs only)                                                                                                                                                                                                                                                                                                                 | —             | Architect     |
+| Approve | Owner approval of `laravel/sanctum` and the OpenAPI generator (ADR 0007); token prefix                                                                                                                                                                                                                                                        | ADR           | Owner         |
+| API-0a  | `App\Http\Api` foundation: Sanctum install with token columns, the principal, middleware (`api.token`, `api.ability`, `api.audience`), problem renderer, request id, rate limiters, `ListQuery`, `ApiResource` base, `/me`, `routes/callbacks.php` move, ActivityLogger `channel`, Redactor token rule, hygiene tests, `architecture.md` rule | Approve       | CTO           |
+| API-0b  | `api_idempotency_keys` and `api.idempotent`, `api:openapi` with the CI check and diff, `/openapi.json`, the API settings section, an `Automation` prune task                                                                                                                                                                                  | API-0a        | CTO           |
+| API-1   | Platform: staff token UI, Settings → API, all-tokens table, security notices                                                                                                                                                                                                                                                                  | API-0a        | Platform      |
+| API-2   | Core: clients, contacts, currencies (extract client create and update into Actions)                                                                                                                                                                                                                                                           | API-0b        | Core          |
+| API-3   | Billing reads: invoices, invoice PDF, transactions, credit entries, pay methods, payment methods                                                                                                                                                                                                                                              | API-0b        | Billing       |
+| API-4   | Billing writes: create invoice, record payment, capture, apply and add credit, with domain keys where missing                                                                                                                                                                                                                                 | API-3         | Billing       |
+| API-5   | Services and Catalog: services, addons, commands, cancellation requests, products                                                                                                                                                                                                                                                             | API-0b        | Services      |
+| API-6   | Orders: list, get, accept, cancel, cart-less `POST /orders` builder                                                                                                                                                                                                                                                                           | API-0b        | Orders        |
+| API-7   | Domains: list, get, nameservers, availability, TLD pricing                                                                                                                                                                                                                                                                                    | API-0b        | Domains       |
+| API-8   | Support: tickets list, get, open, reply                                                                                                                                                                                                                                                                                                       | API-0b        | Support       |
+| API-9   | Docs site: reference from the JSON, problem pages, WHMCS action mapping table, API load-test scenario                                                                                                                                                                                                                                         | API-2 to 8    | Docs, DevOps  |
+| v1.0 GA | Owner declares v1 generally available, ending the beta window                                                                                                                                                                                                                                                                                 | API-9         | Owner         |
+| API-10  | Client tokens and the `/account` root, including payment sessions                                                                                                                                                                                                                                                                             | v1.0          | Core, Billing |
+| API-11  | Storefront keys, session-free `CartManager` entry point, `/storefront` root, hand-off                                                                                                                                                                                                                                                         | API-6, API-10 | Orders        |
+| API-12  | Hardened tokens, refunds, credit adjustments, client sign-in links                                                                                                                                                                                                                                                                            | API-1, API-4  | CTO, Billing  |
+| API-13  | Event feed                                                                                                                                                                                                                                                                                                                                    | API-0b        | Notifications |
 
 Reviews:
 

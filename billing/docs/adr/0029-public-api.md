@@ -62,14 +62,15 @@ The API must add a transport over these parts, not a second application layer.
 - **Three audiences, three path roots.** Each token kind can call only its own root, and calling another root returns
   403 `auth.wrong_audience`:
 
-  | Root                     | Caller                                   | Token kind                                                       |
-  | ------------------------ | ---------------------------------------- | ---------------------------------------------------------------- |
-  | `/api/v1/*`              | Staff integrations (admin API)           | Staff token                                                      |
-  | `/api/v1/account/*`      | A client's own scripts and portals       | Client token                                                     |
-  | `/api/v1/storefront/*`   | A custom storefront site's backend       | Storefront key (a staff token with only `orders.storefront.use`) |
+    | Root                   | Caller                             | Token kind                                                       |
+    | ---------------------- | ---------------------------------- | ---------------------------------------------------------------- |
+    | `/api/v1/*`            | Staff integrations (admin API)     | Staff token                                                      |
+    | `/api/v1/account/*`    | A client's own scripts and portals | Client token                                                     |
+    | `/api/v1/storefront/*` | A custom storefront site's backend | Storefront key (a staff token with only `orders.storefront.use`) |
 
-  Keeping the roots separate means no query has to choose between staff and client visibility. A client token can never
-  reach an admin endpoint through a missed scope check.
+    Keeping the roots separate means no query has to choose between staff and client visibility. A client token can never
+    reach an admin endpoint through a missed scope check.
+
 - **Package endpoints** live under `/api/v1/ext/<package-key>/*`. Core reserves every other path. A package uses the
   same middleware, Resource base and problem types (§10), and its operations appear in the OpenAPI document under its
   own tag.
@@ -132,8 +133,9 @@ invent an emailed approval or a second password. Instead, the requirement moves 
     - it expires within 30 days;
     - it lists that permission by its exact key.
 
-  A route guarded by a sensitive permission refuses any other token with 403 `auth.sensitive_requires_hardened_token`.
-  This is the API equivalent of the `password.recent` middleware on the same web route.
+    A route guarded by a sensitive permission refuses any other token with 403 `auth.sensitive_requires_hardened_token`.
+    This is the API equivalent of the `password.recent` middleware on the same web route.
+
 - Every call to a sensitive route is audited with the token id, IP and request id. The first sensitive call from a new
   IP within the allowlist sends the owner a security notice.
 - v1.0 exposes no sensitive route. Refunds, client sign-in links (SSO), credit adjustments and anything that reveals
@@ -149,7 +151,8 @@ invent an emailed approval or a second password. Instead, the requirement moves 
     - new problem codes;
     - new values in enums documented as open.
 
-  Clients must ignore unknown fields. Those are the ADR 0010 rules, applied to HTTP representations.
+    Clients must ignore unknown fields. Those are the ADR 0010 rules, applied to HTTP representations.
+
 - **Breaking** means removing or renaming a field, path, parameter or code; changing a type or a documented meaning;
   making an optional input required; or adding a value to a closed enum. A breaking change ships only in `/api/v2`.
   When v2 ships, v1 keeps working for at least 12 months after v2 becomes generally available.
@@ -158,7 +161,8 @@ invent an emailed approval or a second password. Instead, the requirement moves 
     - send `Deprecation` (RFC 9745) and, once a date is set, `Sunset` (RFC 8594) headers on every response that uses it;
     - add a kernel changelog entry.
 
-  A deprecated element keeps working for at least 6 months, and in every case until the next major version.
+    A deprecated element keeps working for at least 6 months, and in every case until the next major version.
+
 - **Beta window.** Until the owner declares v1 generally available, v1 is beta. A breaking change is allowed then on
   the same conditions as ADR 0010's pre-1.0 window: the same PR updates the snapshot, gets the architect gate and
   carries a kernel changelog entry marked breaking. The OpenAPI document says `beta` in `info.description` until GA.
@@ -209,7 +213,8 @@ invent an emailed approval or a second password. Instead, the requirement moves 
     - single object: `{"data": {...}}`;
     - list: `{"data": [...], "meta": {"has_more": true, "next_cursor": "..."}, "links": {"next": "..."}}`.
 
-  These are Laravel API Resources with their default wrapper.
+    These are Laravel API Resources with their default wrapper.
+
 - **Expansion** is `?include=items,payments`, with an allowlist per endpoint. An unknown value returns 400
   `request.invalid_include`. Sparse fieldsets are not supported.
 - **One representation per entity.** The `Http/Resources/Api/<Entity>Resource` a module owns is also the `data.object`
@@ -245,34 +250,36 @@ invent an emailed approval or a second password. Instead, the requirement moves 
     - `request_id`;
     - for validation failures, `errors: [{"field": "items.0.amount", "code": "...", "message": "..."}]`.
 
-  `code` is the contract, while `title` and `detail` are human text that may change and may be translated once the
-  frontend translations ADR lands. Exception messages that are not problem text never reach the client.
+    `code` is the contract, while `title` and `detail` are human text that may change and may be translated once the
+    frontend translations ADR lands. Exception messages that are not problem text never reach the client.
+
 - **Kernel codes**, owned by `App\Http\Api`:
 
-  | Code                                                 | Status |
-  | ---------------------------------------------------- | ------ |
-  | `auth.unauthenticated`                               | 401    |
-  | `auth.token_expired`                                 | 401    |
-  | `auth.token_revoked`                                 | 401    |
-  | `auth.token_in_url`                                  | 400    |
-  | `auth.forbidden` (carries `required_ability`)        | 403    |
-  | `auth.wrong_audience`                                | 403    |
-  | `auth.ip_not_allowed`                                | 403    |
-  | `auth.sensitive_requires_hardened_token`             | 403    |
-  | `request.validation_failed`                          | 422    |
-  | `request.invalid_filter`                             | 400    |
-  | `request.invalid_include`                            | 400    |
-  | `request.invalid_cursor`                             | 400    |
-  | `resource.not_found`                                 | 404    |
-  | `resource.conflict`                                  | 409    |
-  | `resource.precondition_failed`                       | 412    |
-  | `idempotency.key_required`                           | 400    |
-  | `idempotency.key_reused`                             | 422    |
-  | `idempotency.in_progress`                            | 409    |
-  | `idempotency.outcome_unknown`                        | 409    |
-  | `rate_limited`                                       | 429    |
-  | `server.error`                                       | 500    |
-  | `server.unavailable`                                 | 503    |
+    | Code                                          | Status |
+    | --------------------------------------------- | ------ |
+    | `auth.unauthenticated`                        | 401    |
+    | `auth.token_expired`                          | 401    |
+    | `auth.token_revoked`                          | 401    |
+    | `auth.token_in_url`                           | 400    |
+    | `auth.forbidden` (carries `required_ability`) | 403    |
+    | `auth.wrong_audience`                         | 403    |
+    | `auth.ip_not_allowed`                         | 403    |
+    | `auth.sensitive_requires_hardened_token`      | 403    |
+    | `request.validation_failed`                   | 422    |
+    | `request.invalid_filter`                      | 400    |
+    | `request.invalid_include`                     | 400    |
+    | `request.invalid_cursor`                      | 400    |
+    | `resource.not_found`                          | 404    |
+    | `resource.conflict`                           | 409    |
+    | `resource.precondition_failed`                | 412    |
+    | `idempotency.key_required`                    | 400    |
+    | `idempotency.key_reused`                      | 422    |
+    | `idempotency.in_progress`                     | 409    |
+    | `idempotency.outcome_unknown`                 | 409    |
+    | `rate_limited`                                | 429    |
+    | `server.error`                                | 500    |
+    | `server.unavailable`                          | 503    |
+
 - **Module codes** use the module's area (`billing.invoice_not_payable`, `orders.not_pending`). A module maps its
   domain exceptions to codes in a renderer it registers for API requests. That follows the existing rule that kernel
   exceptions know nothing about HTTP (`architecture.md`, "Business logic").
@@ -293,8 +300,9 @@ invent an emailed approval or a second password. Instead, the requirement moves 
     - the service commands (create, suspend, unsuspend, terminate);
     - refunds (v1.1).
 
-  A call without the key gets 400 `idempotency.key_required`. On every other `POST` and `PATCH` the key is accepted
-  and honoured but optional.
+    A call without the key gets 400 `idempotency.key_required`. On every other `POST` and `PATCH` the key is accepted
+    and honoured but optional.
+
 - **Store.** Core owns the `api_idempotency_keys` table: owner scope, key, method and route name, a SHA-256 of the
   canonical request body, `state` (`in_progress`, `completed`), the response status and body, `created_at` and
   `expires_at` (24 hours). The scope is the token's principal (owner user id, kind and client id), not the token, so a
@@ -304,7 +312,7 @@ invent an emailed approval or a second password. Instead, the requirement moves 
     2. runs the endpoint;
     3. stores the response once the Action's transaction has committed.
 
-  The outcomes:
+    The outcomes:
     - **Same key, same body:** the stored response is replayed, with `Idempotent-Replayed: true`.
     - **Same key, different body:** 422 `idempotency.key_reused`.
     - **Same key while the first call still runs:** 409 `idempotency.in_progress`.
@@ -315,6 +323,7 @@ invent an emailed approval or a second password. Instead, the requirement moves 
     - **The row stays `in_progress` past the lock window (120 seconds; the process died):** the call gets 409
       `idempotency.outcome_unknown`, with a link to the resource. ADR 0026 applies: the caller reads the resource,
       whose status (`pending_review`, an attempt marked ambiguous) says what happened.
+
 - **Domain keys underneath.** The HTTP key does not replace action-level idempotency. Where an Action already takes a
   key (`CheckoutData::$idempotencyKey`, the credit ledger), the API passes `api:<scope hash>:<key>`, so the database
   constraint still holds if the HTTP store is lost. An Action that moves money and lacks a domain key gets one in the
@@ -326,16 +335,17 @@ invent an emailed approval or a second password. Instead, the requirement moves 
 
 - **Rate limits.** Named limiters keyed by token (or by IP when there is no token):
 
-  | Limiter     | Applies to                           | Default per minute |
-  | ----------- | ------------------------------------ | ------------------ |
-  | `api`       | all calls                            | 120                |
-  | `api-write` | non-GET calls                        | 60                 |
-  | `api-money` | idempotency-required calls           | 20                 |
-  | `api-guest` | storefront without a client session  | 60 per IP          |
+    | Limiter     | Applies to                          | Default per minute |
+    | ----------- | ----------------------------------- | ------------------ |
+    | `api`       | all calls                           | 120                |
+    | `api-write` | non-GET calls                       | 60                 |
+    | `api-money` | idempotency-required calls          | 20                 |
+    | `api-guest` | storefront without a client session | 60 per IP          |
 
-  Defaults are settings (`api.rate_limits.*`, Admin → Settings → API), with an optional per-token override that may
-  only lower them. Responses carry `X-RateLimit-Limit` and `X-RateLimit-Remaining`. A 429 carries `Retry-After` and
-  the `rate_limited` problem. Fiscal PDF downloads keep their own stricter limiter (security review 10-29, M3).
+    Defaults are settings (`api.rate_limits.*`, Admin → Settings → API), with an optional per-token override that may
+    only lower them. Responses carry `X-RateLimit-Limit` and `X-RateLimit-Remaining`. A 429 carries `Retry-After` and
+    the `rate_limited` problem. Fiscal PDF downloads keep their own stricter limiter (security review 10-29, M3).
+
 - **Audit.** Every non-GET call writes one `ActivityLogger` entry through the Action, as the UI does. `ActivityLogger`
   also records `channel: api`, the token id and the request id when the request came through a token (a Core change;
   no new log). GET calls are not audited one by one. Token create, revoke and expiry, refusals for a sensitive ability,
@@ -360,14 +370,16 @@ invent an emailed approval or a second password. Instead, the requirement moves 
     - query count;
     - request id (`X-Request-Id`, accepted from the caller when it is a valid UUID, otherwise generated).
 
-  The same values become span attributes when OpenTelemetry lands (ADR 0014).
+    The same values become span attributes when OpenTelemetry lands (ADR 0014).
+
 - **Performance budget.** On the small sizing profile (`billing/docs/devops/sizing.md`, 40 users):
     - a single-object GET has p95 under 200 ms;
     - a 100-row list has p95 under 400 ms;
     - list endpoints use a constant number of queries whatever the page size, checked by a query-budget test like the
       reports budget (ADR 0020 Amendment (#515)).
 
-  The load-test harness gains an API scenario before GA.
+    The load-test harness gains an API scenario before GA.
+
 - **CORS.** The admin and account roots send no CORS headers. The storefront root does not enable CORS in v1: it is
   called server to server (§11).
 - **Settings, not config**, for anything an administrator changes: whether the API is on, rate limits, the default
@@ -402,7 +414,7 @@ We do not ship an endpoint that mimics the WHMCS RPC actions. The reasons:
   ADR avoids.
 - It would mean matching about 162 actions' parameter semantics, and that would lock our domain model to theirs.
 - A switching host's main need, moving data, is covered better by the WHMCS API importer (`migration.md`). That
-  importer *reads* their API.
+  importer _reads_ their API.
 
 What we do instead:
 
