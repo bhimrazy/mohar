@@ -40,9 +40,8 @@ class BillingDocumentAttachments implements BillingDocuments
     /**
      * Whether the email will carry the PDF, for its text (`tax_note.pdf_attached`, `invoice.pdf_attached`,
      * `quote.pdf_attached`): attachments are on, the record has a document, and the PDF in `$locale` is within
-     * Notifications' size cap. An invoice or quote PDF is rendered here when missing, so the size is known and the text
-     * claims nothing the send will not do; a render failure is reported and answers false. A note's PDF is rendered
-     * after the note commits (RenderTaxNotePdf), so one not there yet counts as within the cap.
+     * Notifications' size cap. The PDF is rendered here when missing (a note's is normally ready from RenderTaxNotePdf),
+     * so the size is known and the text claims nothing the send will not do; a render failure is reported and answers false.
      */
     public function attaches(Invoice|Quote|TaxNote $record, ?string $locale = null): bool
     {
@@ -52,7 +51,7 @@ class BillingDocumentAttachments implements BillingDocuments
 
         try {
             $path = match (true) {
-                $record instanceof TaxNote => $this->notePdf->path($record, $locale),
+                $record instanceof TaxNote => $this->notePdf->ensure($record, $locale),
                 $record instanceof Invoice => $record->status === InvoiceStatus::Draft ? null : $this->invoicePdf->ensure($record, $locale),
                 default => $record->stage === QuoteStage::Draft ? null : $this->invoicePdf->ensureQuote($record, $locale),
             };
@@ -67,9 +66,8 @@ class BillingDocumentAttachments implements BillingDocuments
         }
 
         $cap = (int) $this->allSettings->get('notifications.attachment_max_bytes');
-        $disk = Storage::disk('objects');
 
-        return $cap <= 0 || ! $disk->exists($path) || $disk->size($path) <= $cap;
+        return $cap <= 0 || Storage::disk('objects')->size($path) <= $cap;
     }
 
     private function note(int $id, ?string $locale): ?DocumentFile

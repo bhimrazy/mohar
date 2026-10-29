@@ -165,6 +165,8 @@ test('a renewal run writes the same invoice, lines, link, credit, email and webh
 
 test('one renewal stays within its query budget', function () {
     WebhookEndpoint::query()->delete();
+    // The objects disk outlives the database, so a PDF left by an earlier run decides whether the email renders one (3 reads).
+    billingSettings(['pdf.attach_to_emails' => false]);
     $service = Service::factory()->dueOn('2026-11-15')->for(billingClient())->create(['recurring_amount' => 1_299]);
     $this->artisan('automation:run', ['--date' => '2026-10-31', '--only' => 'services.renewals'])->assertSuccessful(); // warm: settings, templates
     issueInvoice(billingClient(), [1_000]); // the invoice sequence has its row, as on every day after the first
