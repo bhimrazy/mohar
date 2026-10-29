@@ -6,10 +6,12 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientInvitation;
 use App\Modules\Core\Support\NullSystemMailer;
 use App\Modules\Platform\Actions\Clients\ManageClientLogins;
+use App\Modules\Platform\Actions\Clients\MergeClients;
 use App\Modules\Platform\Notifications\ClientInvitationNotification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Validation\ValidationException;
 use Inertia\Testing\AssertableInertia as Assert;
 
 /*
@@ -102,4 +104,34 @@ test('accepting an invitation ends every other session of the login', function (
 
     expect(DB::table('sessions')->where('id', str_repeat('a', 40))->exists())->toBeFalse()
         ->and($user->fresh()->remember_token)->not->toBe($remember);
+});
+
+test('a merge that would move unverified logins is refused and names them; nothing moves (M2)', function () {
+    $target = Client::factory()->withOwner()->create(['currency' => $this->client->currency]);
+    $verified = User::factory()->create(['email' => 'ok@example.com.np']);
+    $unverified = User::factory()->unverified()->create(['email' => 'unproven@example.com.np', 'last_login_at' => now()]);
+    $this->client->users()->attach($verified, ['is_owner' => true]);
+    $this->client->users()->attach($unverified, ['is_owner' => false, 'permissions' => '[]']);
+
+    expect(fn () => app(MergeClients::class)->handle($this->client, $target))
+        ->toThrow(ValidationException::class, 'These logins have not verified their email address, so they can\'t be moved to the other client: unproven@example.com.np.');
+
+    expect($target->users()->pluck('users.id')->all())->not->toContain($verified->id)
+        ->and($this->client->fresh()->merged_into_client_id)->toBeNull();
+
+    $this->client->users()->detach($unverified);
+    app(MergeClients::class)->handle($this->client, $target);
+    expect($target->users()->pluck('users.id')->all())->toContain($verified->id);
+});
+
+test('the client page offers "Make owner" data only for verified logins', function () {
+    voidingInvite($this->client);
+    $verified = User::factory()->create(['email' => 'ok@example.com.np']);
+    $this->client->users()->attach($verified, ['is_owner' => false, 'permissions' => '[]']);
+    actingAsStaff(['core.clients.view']);
+
+    $logins = collect($this->get(route('admin.clients.show', $this->client))->viewData('page')['props']['users'])->keyBy('email');
+
+    expect($logins['helper@example.com.np']['email_verified'])->toBeFalse()
+        ->and($logins['ok@example.com.np']['email_verified'])->toBeTrue();
 });

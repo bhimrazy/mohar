@@ -18,6 +18,8 @@ export type ClientLogin = {
     invitation: { state: 'pending' | 'expired'; expires_at: string } | null;
     /** Nobody has used the login: staff send it an invitation rather than a password reset. */
     can_invite: boolean;
+    /** Only a login that verified its email address can be made the owner. */
+    email_verified: boolean;
 };
 
 export const AREA_LABELS: Record<string, string> = {

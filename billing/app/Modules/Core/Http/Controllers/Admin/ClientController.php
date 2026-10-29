@@ -97,6 +97,7 @@ class ClientController extends Controller
                     'is_owner' => (bool) $login->getRelation('pivot')->getAttribute('is_owner'),
                     'permissions' => json_decode((string) $login->getRelation('pivot')->getAttribute('permissions'), true) ?: [],
                     'last_login_at' => $login->last_login_at?->toIso8601String(),
+                    'email_verified' => $login->email_verified_at !== null,
                     // An invitation not accepted yet and still for this login: pending until it expires, then staff can
                     // send a new one. A void one (the login has been used since) shows nothing; staff send a reset.
                     'invitation' => ($invitation = $invitations->get($login->id)) === null || $invitation->loginChanged($login) ? null : [

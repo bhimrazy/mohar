@@ -35,10 +35,24 @@ class MergeClients
             $source->status === 'closed' => __('Reopen this client before merging it.'),
             $target->status === 'closed' => __('Reopen the target client before merging into it.'),
             $source->currency !== $target->currency => __('Both clients must use the same currency (:source vs :target).', ['source' => $source->currency, 'target' => $target->currency]),
+            ($unverified = $this->unverifiedLogins($source, $target)) !== [] => __('These logins have not verified their email address, so they can\'t be moved to the other client: :emails. Each must verify it from their own account first, or remove them from this client before merging.', ['emails' => implode(', ', array_slice($unverified, 0, 5)).(count($unverified) > 5 ? ' '.__('and :count more', ['count' => count($unverified) - 5]) : '')]),
             default => $this->participants->blockers($source->id, $target->id)[0] ?? null,
         };
 
         return is_string($problem) ? $problem : null;
+    }
+
+    /**
+     * Source logins that would join the target without having proved their email (security review 2026-10-29, M2:
+     * the same rule as adding a login). Refused rather than dropped, so no legitimate login is lost silently.
+     *
+     * @return list<string>
+     */
+    private function unverifiedLogins(Client $source, Client $target): array
+    {
+        return $source->users()->whereNull('users.email_verified_at')
+            ->whereNotIn('users.id', DB::table('client_user')->where('client_id', $target->id)->select('user_id'))
+            ->orderBy('users.email')->pluck('users.email')->all();
     }
 
     /**

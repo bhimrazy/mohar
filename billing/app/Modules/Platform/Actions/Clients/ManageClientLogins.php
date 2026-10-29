@@ -56,7 +56,7 @@ class ManageClientLogins
         $created = $user === null;
 
         if (! $created && $user->email_verified_at === null) {
-            throw ValidationException::withMessages(['email' => __('This address belongs to a login that has not verified it, so it can\'t be added. Ask them to verify their email address, or to reset their password from the sign-in page, then add it again.')]);
+            throw ValidationException::withMessages(['email' => __('This address belongs to a login that has not verified it, so it can\'t be added. Ask them to sign in and verify their email address from their own account, then add it again.')]);
         }
 
         // A new login is invited with a one-time link: refuse before creating anything when no link could be mailed.

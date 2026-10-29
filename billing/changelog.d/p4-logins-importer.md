@@ -24,9 +24,11 @@
 - **A client-login invitation stops working once the login's password changes by any path (#97).** The invitation
   keeps a fingerprint of the password hash it was sent with. Accepting it now locks the login row and checks it as
   locked.
-- **Staff can no longer add an existing login that never verified its email to a client account, or make such a
-  login the owner (security review 2026-10-29, M2).** Holding a login with an unverified address proves nothing about
-  the mailbox. Staff see why and what the person can do (verify the address, or reset their password).
+- **Staff can no longer add an existing login that never verified its email to a client account, make such a login
+  the owner, or move it to another client by merging (security review 2026-10-29, M2).** Holding a login with an
+  unverified address proves nothing about the mailbox. Adding is refused with what the person must do (verify the
+  address from their own account); a merge is refused with the unverified logins listed, so staff can have them
+  verify or remove them first. "Make owner" is no longer offered for such a login.
 - **A password reset, a password change and accepting an invitation now end the login's other sessions (M2).** Stored
   sessions are deleted and remember-me cookies stop working; a change keeps the session that made it. Other session
   drivers than `database` cannot be searched by login, so only the remember-me cookies end there.

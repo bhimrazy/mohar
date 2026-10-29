@@ -332,21 +332,23 @@ export default function ClientShow({
                                                       Send a password reset
                                                   </DropdownMenuItem>
                                               )}
-                                              <DropdownMenuItem
-                                                  onSelect={() =>
-                                                      post(
-                                                          ClientUserController.transfer.url(
-                                                              [
-                                                                  client.id,
-                                                                  login.id,
-                                                              ],
-                                                          ),
-                                                      )
-                                                  }
-                                              >
-                                                  <UsersRound />
-                                                  Make owner
-                                              </DropdownMenuItem>
+                                              {login.email_verified && (
+                                                  <DropdownMenuItem
+                                                      onSelect={() =>
+                                                          post(
+                                                              ClientUserController.transfer.url(
+                                                                  [
+                                                                      client.id,
+                                                                      login.id,
+                                                                  ],
+                                                              ),
+                                                          )
+                                                      }
+                                                  >
+                                                      <UsersRound />
+                                                      Make owner
+                                                  </DropdownMenuItem>
+                                              )}
                                           </>
                                       )}
                                       {can.resetTwoFactor && (
