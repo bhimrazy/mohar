@@ -40,7 +40,7 @@ return [
         'smtp' => [
             'transport' => 'smtp',
             'scheme' => env('MAIL_SCHEME'),
-            // Admin → Settings → Mail server only (starttls|tls|auto); "auto" keeps the scheme above.
+            // Admin → Settings → Mail server only (starttls|tls|auto); "auto" overrides nothing, so MAIL_SCHEME above stays in effect.
             'encryption' => 'auto',
             'url' => env('MAIL_URL'),
             'host' => env('MAIL_HOST', '127.0.0.1'),

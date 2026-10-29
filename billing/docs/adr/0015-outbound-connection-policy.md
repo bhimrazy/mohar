@@ -110,3 +110,16 @@ with the kernel guard. Infrastructure that staff set up uses the install policy.
   never answers fails after about 12 s. Search domains in the host's `resolv.conf` multiply that.
   `docs/devops/production.md` (Troubleshooting) says so. Queued callers are bounded by their job timeouts as well
   (ADR 0017). Other installs set the same options in `resolv.conf`.
+
+## Amendment (#532) — 2026-10-29, mail relay profile
+
+- SMTP hosts that staff type in (Admin → Settings → Mail server) are judged by `OutboundAddressGuard` with
+  `relay: true`. The profile accepts loopback and private ranges whatever the install policy, because Postfix on
+  `127.0.0.1` or a relay on the LAN is normal, and the install policy refuses loopback outside `APP_ENV=local`.
+- The always-refused set still applies: link-local (including cloud metadata), unspecified, multicast, reserved and
+  documentation ranges, and non-canonical numeric hosts such as `0x7f.1`.
+- The host is checked when settings are saved (a validation rule, only while SMTP is the chosen mailer) and before the
+  test send. Queued mail does not re-check it.
+- No pinning. Symfony Mailer's socket stream resolves the name again, so DNS rebinding between check and connect
+  remains possible. Accepted: the setting needs a sensitive permission and a recent password, and a person who can
+  change it can already redirect all mail. Ports are not restricted.

@@ -1,4 +1,5 @@
 import { Link, router, usePage } from '@inertiajs/react';
+import { Info } from 'lucide-react';
 import { Head } from '@/components/app/head';
 import type { FormEvent } from 'react';
 import { useState } from 'react';
@@ -16,8 +17,11 @@ import {
     type MailTestProps,
 } from '@/components/platform/mail-test-card';
 import PasswordInput from '@/components/password-input';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { labelWithCurrency, parseMoneyInput } from '@/lib/money';
@@ -124,11 +128,15 @@ export default function SettingsEdit({ sections, section, mailTest }: Props) {
         ),
     );
     const [values, setValues] = useState(saved);
-    const unsaved = section.fields.some(
-        (field) =>
-            JSON.stringify(values[field.key]) !==
-            JSON.stringify(saved[field.key]),
-    );
+    // Saved secrets the form will remove on save (a blank secret field alone keeps the stored value).
+    const [cleared, setCleared] = useState<string[]>([]);
+    const unsaved =
+        cleared.length > 0 ||
+        section.fields.some(
+            (field) =>
+                JSON.stringify(values[field.key]) !==
+                JSON.stringify(saved[field.key]),
+        );
     const [processing, setProcessing] = useState(false);
     const set = (key: string, value: Value) =>
         setValues((current) => ({ ...current, [key]: value }));
@@ -153,7 +161,10 @@ export default function SettingsEdit({ sections, section, mailTest }: Props) {
         );
         router.visit(SettingsController.update.url(section.key), {
             method: 'put',
-            data: nest(data) as Record<string, string>,
+            data: {
+                ...nest(data),
+                ...(cleared.length > 0 ? { clear: cleared } : {}),
+            } as Record<string, string>,
             preserveScroll: true,
             onStart: () => setProcessing(true),
             onFinish: () => setProcessing(false),
@@ -166,6 +177,7 @@ export default function SettingsEdit({ sections, section, mailTest }: Props) {
                 );
                 setValues(next);
                 setSaved(next);
+                setCleared([]);
             },
         });
     };
@@ -205,6 +217,16 @@ export default function SettingsEdit({ sections, section, mailTest }: Props) {
                     </nav>
 
                     <form onSubmit={submit} className="min-w-0">
+                        {mailTest?.env_url && (
+                            <Alert className="mb-6">
+                                <Info />
+                                <AlertDescription>
+                                    {mailTest.env_url === 'overridden'
+                                        ? 'MAIL_URL is set in the server environment (.env). The SMTP settings saved here replace it.'
+                                        : 'MAIL_URL is set in the server environment (.env) and is used until you save SMTP settings here. Saved settings replace it.'}
+                                </AlertDescription>
+                            </Alert>
+                        )}
                         <SectionCard
                             title={section.title}
                             description={
@@ -409,6 +431,44 @@ export default function SettingsEdit({ sections, section, mailTest }: Props) {
                                                     }
                                                 />
                                             )}
+                                            {field.secret &&
+                                                field.is_set &&
+                                                !off && (
+                                                    <div className="mt-2 flex items-center gap-2">
+                                                        <Checkbox
+                                                            id={`${id}-clear`}
+                                                            checked={cleared.includes(
+                                                                field.key,
+                                                            )}
+                                                            onCheckedChange={(
+                                                                checked,
+                                                            ) =>
+                                                                setCleared(
+                                                                    (list) =>
+                                                                        checked
+                                                                            ? [
+                                                                                  ...list,
+                                                                                  field.key,
+                                                                              ]
+                                                                            : list.filter(
+                                                                                  (
+                                                                                      key,
+                                                                                  ) =>
+                                                                                      key !==
+                                                                                      field.key,
+                                                                              ),
+                                                                )
+                                                            }
+                                                        />
+                                                        <Label
+                                                            htmlFor={`${id}-clear`}
+                                                            className="text-sm font-normal"
+                                                        >
+                                                            Remove the saved
+                                                            value on save
+                                                        </Label>
+                                                    </div>
+                                                )}
                                         </Field>
                                     );
                                 })}

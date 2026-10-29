@@ -45,8 +45,11 @@ class MailTestController extends Controller
         RateLimiter::hit($key, 600);
         $mailer = $mail->registerTestMailer();
         $error = null;
+        $refusal = $mailer === null ? null : $mail->relayRefusal();
 
-        if ($mailer === null) {
+        if ($refusal !== null) {
+            $error = __('The SMTP host is not allowed: :reason', ['reason' => $refusal]);
+        } elseif ($mailer === null) {
             $error = __('The mailer ":mailer" is not defined in the mail configuration.', ['mailer' => (string) config('mail.default')]);
         } else {
             try {

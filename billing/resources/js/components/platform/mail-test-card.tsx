@@ -14,6 +14,8 @@ export type MailTestProps = {
     default_to: string;
     saved_here: boolean;
     max_attempts: number;
+    /** What a MAIL_URL in .env does: ignored in favour of saved SMTP values, or in effect. */
+    env_url: 'overridden' | 'in effect' | null;
 };
 
 type MailTestFlash = {

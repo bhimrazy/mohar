@@ -105,6 +105,9 @@ every item.
   primary action, responsive, readable in dark mode, with a plain-text alternative. (2026-10-18)
 - Every email the system sends uses an editable template; mail sent outside the template system (framework
   notifications included) is a bug. Plain-text parts are written text, never raw Markdown or HTML. (2026-10-18)
+  Named exceptions: the staff invitation, the security notice and the mail server test email (#532). The test
+  must fail synchronously with the transport's own error, so a template failure cannot hide it; it goes only to an
+  address staff type and uses the branded layout. (2026-10-29)
 - Every email can be answered: Reply-To is a real, monitored department or support address (never
   noreply), and the footer shows the support address as text. Security emails add "If this wasn't you,
   contact …". Only company or department addresses, never staff members' personal addresses.

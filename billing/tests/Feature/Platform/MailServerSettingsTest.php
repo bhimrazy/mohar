@@ -6,11 +6,15 @@ use App\Modules\Core\Models\Setting;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Notifications\SecurityNotice;
 use App\Modules\Platform\Support\MailServerSettings;
+use App\Support\Integrations\OutboundAddressGuard;
 use Illuminate\Contracts\Queue\Job;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Facades\Notification;
 use Inertia\Testing\AssertableInertia as Assert;
 use Symfony\Component\Mailer\Transport\Smtp\EsmtpTransport;
+use Tests\Support\Mail\SmtpStub;
+
+beforeEach(fn () => app()->instance(OutboundAddressGuard::class, SmtpStub::guard()));
 
 /** A full section save, as the page sends it. */
 function mailServerPayload(array $smtp = [], string $mailer = 'smtp'): array

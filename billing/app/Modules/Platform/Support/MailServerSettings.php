@@ -3,14 +3,18 @@
 namespace App\Modules\Platform\Support;
 
 use App\Modules\Core\Support\Settings;
+use App\Support\Integrations\OutboundAddressGuard;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Mail\MailManager;
+use Illuminate\Support\ConfigurationUrlParser;
+use Symfony\Component\Mailer\Transport\Smtp\Stream\SocketStream;
 
 /**
  * Admin → Settings → Mail server. A value saved there replaces its .env counterpart in the mail config; a value never
  * saved keeps the .env one. Applied when the mail manager is built in a process and again before every queued job:
  * settings are re-read per job, so a running queue worker picks up a change without `queue:restart`. When the
- * effective values change, the mailers already built are dropped and rebuilt on the next send.
+ * effective values change, the mailers already built are dropped and rebuilt on the next send. A saved SMTP value also
+ * replaces MAIL_URL, which would otherwise override the saved host, port and credentials.
  */
 final class MailServerSettings
 {
@@ -19,8 +23,17 @@ final class MailServerSettings
     /** Mailer a test send uses: the default mailer's config with a short timeout. */
     public const TEST_MAILER = 'settings_test';
 
-    /** Seconds a test send waits for the mail server before giving up. */
-    public const TEST_TIMEOUT = 15;
+    /** Mail driver of the test mailer's SMTP transport (DeadlineSmtpTransport). */
+    private const TEST_DRIVER = 'settings_test_smtp';
+
+    /** Seconds a test send waits for one answer from the mail server. */
+    public const TEST_TIMEOUT = 10;
+
+    /** Seconds a whole test send may take before the next SMTP command is refused. */
+    public const TEST_DEADLINE = 20;
+
+    /** Settings only staff who can change the mail server see in full; others get them masked. */
+    public const CONFIDENTIAL = ['mail.mailers.smtp.username'];
 
     /** The transports this release can build without extra packages (SES uses the AWS SDK already installed). */
     public const MAILERS = [
@@ -55,6 +68,52 @@ final class MailServerSettings
 
     public function __construct(private Application $app, private Settings $settings) {}
 
+    /**
+     * What a MAIL_URL in .env does: null when none is set, "overridden" when saved SMTP values replace it, "in effect"
+     * when it still applies because no SMTP value is saved here.
+     */
+    public function envUrl(): ?string
+    {
+        $this->apply();
+        $url = $this->baseline['mail.mailers.smtp']['url'] ?? null;
+
+        if (! is_string($url) || $url === '') {
+            return null;
+        }
+
+        return $this->smtpSaved() ? 'overridden' : 'in effect';
+    }
+
+    /**
+     * Why the default mailer's SMTP host may not be used as a mail relay (ADR 0015 relay profile), or null.
+     */
+    public function relayRefusal(): ?string
+    {
+        $this->apply();
+        $default = (string) config('mail.default');
+
+        if (config("mail.mailers.{$default}.transport") !== 'smtp') {
+            return null;
+        }
+
+        $config = $this->smtpConfig((array) config("mail.mailers.{$default}"));
+
+        return MailRelayHost::refusal($this->app->make(OutboundAddressGuard::class), (string) ($config['host'] ?? ''));
+    }
+
+    /**
+     * The fields with confidential values masked, for staff who may view but not change the mail server.
+     *
+     * @param  list<array<string, mixed>>  $fields
+     * @return list<array<string, mixed>>
+     */
+    public function concealed(array $fields): array
+    {
+        return array_map(fn (array $field): array => in_array($field['key'], self::CONFIDENTIAL, true) && ($field['is_set'] ?? false)
+            ? [...$field, 'value' => '••••••']
+            : $field, $fields);
+    }
+
     public function apply(?MailManager $manager = null): void
     {
         $overrides = $this->overrides();
@@ -85,8 +144,8 @@ final class MailServerSettings
     }
 
     /**
-     * Registers the test mailer: the default mailer as it is now configured, with a timeout so a silent server cannot
-     * hold the request. Null when the default mailer is not defined.
+     * Registers the test mailer: the default mailer as it is now configured, with timeouts (and, for SMTP, an overall
+     * deadline) so a silent or slow server cannot hold the request. Null when the default mailer is not defined.
      */
     public function registerTestMailer(): ?string
     {
@@ -99,12 +158,14 @@ final class MailServerSettings
         }
 
         $config = match ($config['transport'] ?? $default) {
-            'smtp' => [...$config, 'timeout' => self::TEST_TIMEOUT],
+            'smtp' => [...$this->smtpConfig($config), 'transport' => self::TEST_DRIVER, 'timeout' => self::TEST_TIMEOUT],
             'ses', 'ses-v2' => [...$config, 'http' => ['timeout' => self::TEST_TIMEOUT, 'connect_timeout' => self::TEST_TIMEOUT]],
             default => $config,
         };
         config(['mail.mailers.'.self::TEST_MAILER => $config]);
-        $this->app->make('mail.manager')->purge(self::TEST_MAILER);
+        $manager = $this->app->make('mail.manager');
+        $manager->extend(self::TEST_DRIVER, fn (array $config): DeadlineSmtpTransport => $this->deadlineTransport($config));
+        $manager->purge(self::TEST_MAILER);
 
         return $default;
     }
@@ -141,17 +202,82 @@ final class MailServerSettings
             $overrides['mail.mailers.smtp.port'] = (int) $overrides['mail.mailers.smtp.port'];
         }
 
-        if (array_key_exists('mail.mailers.smtp.encryption', $overrides)) {
-            // "auto" leaves the scheme to the framework (smtps on port 465), which then uses STARTTLS when offered.
-            [$scheme, $requireTls] = match ($overrides['mail.mailers.smtp.encryption']) {
-                'tls' => ['smtps', false],
-                'starttls' => ['smtp', true],
-                default => [null, false],
-            };
-            $overrides['mail.mailers.smtp.scheme'] = $scheme;
-            $overrides['mail.mailers.smtp.require_tls'] = $requireTls;
+        // "auto" overrides nothing: the scheme from .env (MAIL_SCHEME) or the framework's own choice (smtps on port 465,
+        // else STARTTLS when offered) stays in effect.
+        $tls = match ($overrides['mail.mailers.smtp.encryption'] ?? null) {
+            'tls' => ['smtps', false],
+            'starttls' => ['smtp', true],
+            default => null,
+        };
+
+        if ($tls !== null) {
+            [$overrides['mail.mailers.smtp.scheme'], $overrides['mail.mailers.smtp.require_tls']] = $tls;
+        }
+
+        if ($this->smtpSaved()) {
+            $overrides['mail.mailers.smtp.url'] = null;
         }
 
         return $overrides;
+    }
+
+    private function smtpSaved(): bool
+    {
+        return array_filter(array_keys($this->settings->all()), fn (string $key): bool => str_starts_with($key, 'mail.mailers.smtp.')) !== [];
+    }
+
+    /**
+     * The mailer's config as Laravel resolves it, with a MAIL_URL merged in.
+     *
+     * @param  array<string, mixed>  $config
+     * @return array<string, mixed>
+     */
+    private function smtpConfig(array $config): array
+    {
+        if (isset($config['url']) && $config['url'] !== '') {
+            $config = array_merge($config, (new ConfigurationUrlParser)->parseConfiguration($config));
+            unset($config['driver']);
+        }
+
+        unset($config['url']);
+
+        return $config;
+    }
+
+    /**
+     * The SMTP transport of the test mailer: the options the framework would apply, on a transport with a deadline.
+     *
+     * @param  array<string, mixed>  $config
+     */
+    private function deadlineTransport(array $config): DeadlineSmtpTransport
+    {
+        $port = (int) ($config['port'] ?? 0);
+        $scheme = ($config['scheme'] ?? null) ?: ($port === 465 ? 'smtps' : 'smtp');
+        $transport = new DeadlineSmtpTransport((string) $config['host'], $port, $scheme === 'smtps' ? true : null, (float) self::TEST_DEADLINE);
+        $transport->setRequireTls((bool) ($config['require_tls'] ?? false));
+
+        if (($config['username'] ?? '') !== '') {
+            $transport->setUsername((string) $config['username']);
+        }
+
+        if (($config['password'] ?? '') !== '') {
+            $transport->setPassword((string) $config['password']);
+        }
+
+        if (($config['local_domain'] ?? '') !== '') {
+            $transport->setLocalDomain((string) $config['local_domain']);
+        }
+
+        $stream = $transport->getStream();
+
+        if ($stream instanceof SocketStream) {
+            $stream->setTimeout((float) ($config['timeout'] ?? self::TEST_TIMEOUT));
+
+            if (($config['source_ip'] ?? '') !== '') {
+                $stream->setSourceIp((string) $config['source_ip']);
+            }
+        }
+
+        return $transport;
     }
 }
