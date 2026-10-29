@@ -75,7 +75,7 @@ test('enabling needs billing.tax.manage and a recent password, and nothing is sa
     $this->put(route('admin.billing.vat-mode.update'), vatModePayload())->assertForbidden();
 
     actingAsStaff(['billing.tax.manage']);
-    $this->withSession(['auth.password_confirmed_at' => time() - 7200])
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp() - 7200])
         ->put(route('admin.billing.vat-mode.update'), vatModePayload())->assertSessionHasErrors('password_confirmation');
 
     expect(app(NepalVatMode::class)->enabled())->toBeFalse()->and(ActivityLog::query()->where('event', 'like', 'billing.nepal_vat.%')->exists())->toBeFalse();

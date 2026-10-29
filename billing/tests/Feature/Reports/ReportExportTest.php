@@ -261,7 +261,7 @@ test('a sensitive export needs a recent password confirmation', function () {
     // The check reads the request's session, as the step-up middleware does.
     $request = Request::create('/admin/reports/demo');
     $request->setLaravelSession(app('session.store'));
-    $request->session()->put('auth.password_confirmed_at', time());
+    $request->session()->put('auth.password_confirmed_at', now()->getTimestamp());
     app()->instance('request', $request);
 
     expect($run)->not->toThrow(HttpException::class);
@@ -278,7 +278,7 @@ test('a queued sensitive export is decided for the query user: a stored confirma
     $other = User::factory()->create();
     $request = Request::create('/queue');
     $request->setLaravelSession(app('session.store'));
-    $request->session()->put('auth.password_confirmed_at', time());
+    $request->session()->put('auth.password_confirmed_at', now()->getTimestamp());
     app()->instance('request', $request);
     $request->setUserResolver(fn () => $other);
 

@@ -165,7 +165,7 @@ test('a capability the driver lacks is neither offered nor run', function () {
 
 test('testing a server whose driver has no connection test says so instead of failing', function () {
     actingAsStaff(['services.servers.view', 'services.servers.manage']);
-    $this->withSession(['auth.password_confirmed_at' => time()]);
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
 
     $this->post(route('admin.services.servers.test', Server::factory()->create(['driver' => 'none'])))
         ->assertSessionHasNoErrors()
