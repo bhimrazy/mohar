@@ -372,6 +372,34 @@ describe('changelog-check.sh', function () {
             ->toContain('::warning file=billing/docs/architecture/kernel-changelog.d::the kernel surface changed');
     });
 
+    it('fails a kernel API snapshot change without a kernel fragment, and passes it with one', function () {
+        $this->repo = clfRepo();
+        clfGit($this->repo, 'checkout', '-q', '-b', 'feature/x');
+        clfWrite($this->repo, 'billing/app/Contracts/Thing.php', "<?php\n");
+        clfWrite($this->repo, 'billing/docs/architecture/kernel-api.txt', "api 0.1.0\n\nApp\\Contracts\\Thing interface\n");
+
+        $run = clfCheck($this->repo, env: ['GITHUB_ACTIONS' => 'true']);
+
+        expect($run->getExitCode())->toBe(1)
+            ->and($run->getOutput())->toContain('::error file=billing/docs/architecture/kernel-api.txt::the kernel API snapshot changed but no kernel-changelog.d/ fragment');
+
+        clfWrite($this->repo, 'billing/docs/architecture/kernel-changelog.d/x.md', "### `Thing` (#9)\n\n- New.\n");
+
+        expect(clfCheck($this->repo)->getExitCode())->toBe(0);
+    });
+
+    it('fails a kernel API snapshot edited without any app change', function () {
+        $this->repo = clfRepo();
+        clfGit($this->repo, 'checkout', '-q', '-b', 'feature/x');
+        clfWrite($this->repo, 'billing/docs/architecture/kernel-api.txt', "api 0.1.0\n");
+        clfWrite($this->repo, 'billing/docs/architecture/kernel-changelog.d/x.md', "### `Thing` (#9)\n\n- New.\n");
+
+        $run = clfCheck($this->repo, env: ['GITHUB_ACTIONS' => 'true']);
+
+        expect($run->getExitCode())->toBe(1)
+            ->and($run->getOutput())->toContain('::error file=billing/docs/architecture/kernel-api.txt::the kernel API snapshot changed but no billing/app/ file did');
+    });
+
     it('stays quiet for a docs-only change', function () {
         $this->repo = clfRepo();
         clfGit($this->repo, 'checkout', '-q', '-b', 'feature/docs');

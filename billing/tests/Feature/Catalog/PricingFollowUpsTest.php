@@ -1,6 +1,8 @@
 <?php
 
+use App\Data\Integrations\SettingField;
 use App\Enums\BillingCycle;
+use App\Enums\FieldType;
 use App\Enums\PriceRounding;
 use App\Events\Catalog\ProductPriceChanged;
 use App\Modules\Catalog\Actions\ConvertPrices;
@@ -69,10 +71,10 @@ describe('one rounding rule for converted fees', function () {
 describe('driver change resets secrets', function () {
     function twoDrivers(): void
     {
-        $fields = [['key' => 'api_token', 'label' => 'API token', 'type' => 'password', 'required' => false, 'secret' => true]];
+        $fields = [(new SettingField('api_token', 'API token', FieldType::Secret))->toArray()];
         FakeProvisioningDrivers::bind(new FakeProvisioningDrivers([
-            ['key' => 'log', 'label' => 'Log only', 'config_fields' => $fields, 'fields' => $fields],
-            ['key' => 'other', 'label' => 'Other', 'config_fields' => $fields, 'fields' => $fields],
+            ['key' => 'log', 'label' => 'Log only', 'fields' => $fields],
+            ['key' => 'other', 'label' => 'Other', 'fields' => $fields],
         ]));
     }
 

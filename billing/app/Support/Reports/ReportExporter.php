@@ -44,6 +44,11 @@ final class ReportExporter
     /** @var array<string, ExportWriter> */
     private array $writers = [];
 
+    /**
+     * Resolved from the container; its dependencies are Core internals, so the constructor is not API.
+     *
+     * @internal
+     */
     public function __construct(
         private ReportRegistry $reports,
         private CompanyClock $clock,

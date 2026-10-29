@@ -10,6 +10,8 @@ use Throwable;
  * request is known not to have been executed; anything else must not be blindly re-submitted.
  *
  * Kernel exception (ADR 0009 §4): it knows nothing about HTTP. Domains registers how it renders.
+ *
+ * @api
  */
 class RegistrarException extends RuntimeException
 {

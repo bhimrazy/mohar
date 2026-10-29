@@ -4,6 +4,11 @@ namespace App\Support\Navigation;
 
 use App\Models\User;
 
+/**
+ * One entry in a Navigation menu.
+ *
+ * @api
+ */
 final readonly class NavItem
 {
     /**

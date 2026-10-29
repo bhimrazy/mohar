@@ -13,7 +13,7 @@ use App\Enums\FieldType;
 final class FakeProvisioningDrivers implements ProvisioningDrivers
 {
     /**
-     * @param  list<array{key: string, label: string, fields: list<array<string, mixed>>, config_fields: list<array<string, mixed>>}>  $drivers
+     * @param  list<array{key: string, label: string, fields: list<array<string, mixed>>}>  $drivers
      */
     public function __construct(public array $drivers = [], public RemoteOptions $remoteOptions = new RemoteOptions) {}
 
@@ -27,10 +27,7 @@ final class FakeProvisioningDrivers implements ProvisioningDrivers
     public static function withLogDriver(): self
     {
         return self::bind(new self([
-            ['key' => 'log', 'label' => 'Log only', 'config_fields' => [
-                ['key' => 'plan', 'label' => 'Plan name', 'type' => 'text', 'required' => true, 'secret' => false],
-                ['key' => 'api_token', 'label' => 'API token', 'type' => 'password', 'required' => false, 'secret' => true],
-            ], 'fields' => [
+            ['key' => 'log', 'label' => 'Log only', 'fields' => [
                 (new SettingField('plan', 'Plan name', required: true))->toArray(),
                 (new SettingField('api_token', 'API token', FieldType::Secret))->toArray(),
             ]],

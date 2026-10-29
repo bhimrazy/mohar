@@ -31,8 +31,9 @@ RUN set -eux; \
     done | awk '$2 == "=>" && $3 ~ /^\// { print $3 }' | sort -u | xargs -r cp -L -t /out
 
 # ------------------------------------------------------------------ runtime: PHP without the toolchain
-# Debian trixie slim, the snapshot the PHP base was built from (same glibc 2.41-12+deb13u4), pushed 2026-10-06.
-FROM debian:trixie-20261005-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS runtime
+# Debian trixie slim, the snapshot the PHP base was built from (its first layer is this image's layer; glibc
+# 2.41-12+deb13u4), multi-arch index pushed 2026-10-21.
+FROM debian:trixie-20261020-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS runtime
 
 # Libraries the slim image already has stay Debian's; only the missing ones are added to /usr/local/lib.
 COPY --from=php-libs /out /tmp/php-libs

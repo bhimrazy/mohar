@@ -9,6 +9,8 @@ use JsonSerializable;
  * Immutable monetary amount stored in minor units (1/100 of the currency unit).
  *
  * All money in the database is an integer column of minor units plus a currency code.
+ *
+ * @api
  */
 final readonly class Money implements JsonSerializable
 {

@@ -1,7 +1,8 @@
 # ADR 0015 — Outbound connection policy
 
-- Status: Proposed · 2026-10-18 · Owner: Principal architect. Amendment 1 was accepted with ADR 0016 (CTO decision 2);
-  the rest of this ADR is in force through the kernel guard and awaits its own acceptance with the first caller (#69).
+- Status: Accepted · 2026-10-29 (#513) · Owner: Principal architect. Proposed 2026-10-18; Amendment 1 was accepted with
+  ADR 0016 (CTO decision 2). Accepted after its first caller, the cPanel driver (#69), and later callers (Namecheap,
+  ResellerClub, `Endpoints`, webhooks); see Amendment (#513) for what differs from the original text.
 - Related: ADR 0009 (kernel extension contracts), ADR 0014 (observability), `docs/product/provisioning-cpanel.md`
   §9.2 (K11), the Notifications webhook guard in #28 (`WebhookUrlGuard`).
 
@@ -88,3 +89,24 @@ with the kernel guard. Infrastructure that staff set up uses the install policy.
 - `OutboundAddressGuard::pinOptions()` returns the options `pin()` applies, as an array, for callers that build their
   request options themselves (`App\Support\Integrations\Endpoints`, ADR 0016 §3). Both paths pin to the checked address
   and bypass proxies in the same way.
+
+## Amendment (#513) — 2026-10-29, acceptance, the webhook profile and the DNS deadline
+
+- Accepted as built. `OutboundAddressGuard` is the one guard. The cPanel, Namecheap and ResellerClub clients,
+  `Endpoints` and the webhook sender resolve and pin through it.
+- The `public: true` destination profile is not built. Webhooks are the only destination that third parties control
+  today. `WebhookUrlGuard` judges the one DNS answer twice: with its own private, loopback and CGNAT list, then with
+  the kernel guard, which pins the connection. So webhooks already get the profile's behaviour. The option goes into
+  the kernel guard with the second such destination, for example a client-entered URL, and `WebhookUrlGuard` then
+  drops its own list. Until then a parameter with no caller would be untested surface.
+- DNS lookups get no deadline inside the process. This is a decision, not an oversight. PHP's resolver calls
+  (`dns_get_record`, `gethostbynamel`) take no timeout. A resolver of our own would need TCP fallback, truncation,
+  CNAMEs, search domains and `/etc/hosts`, which makes a large, security-sensitive surface. A child process per lookup
+  is too costly under FrankenPHP workers for a rare failure. The deployment bounds the lookup instead.
+  `deploy/compose.prod.yaml` sets `dns_opt: [timeout:2, attempts:2]` on the `x-app` services, and glibc and musl both
+  honour it.
+- Worst case for a synchronous caller, such as the cPanel "Test connection" button: one query to Docker's embedded
+  resolver gives up after about 4 s. `resolve()` asks for A and AAAA, then makes one fallback lookup, so a host that
+  never answers fails after about 12 s. Search domains in the host's `resolv.conf` multiply that.
+  `docs/devops/production.md` (Troubleshooting) says so. Queued callers are bounded by their job timeouts as well
+  (ADR 0017). Other installs set the same options in `resolv.conf`.

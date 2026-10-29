@@ -182,6 +182,15 @@ The script, step by step:
    automation worker waits for it, up to an hour** (their 3,660 s stop grace); traffic has already switched, and both
    colours' pools keep working the queues meanwhile. Check Admin → Automation before deploying.
 7. Records the live and previous colour and their images in `deploy/state/deploy.env`.
+8. Removes the app images this project deployed earlier, which `deploy/state/images` lists. The live and previous
+   colours' images stay (a rollback needs them), and so does anything an earlier deploy did not record: images from
+   before this feature (remove those by hand), other projects' images, other tags of `mohar-app` and
+   `mohar-app:smoke`. Skipped with a warning, and retried next time: an image a container still uses, one that a
+   container of another compose project uses, and everything if a colour's image cannot be inspected, the record
+   cannot be written or another deploy holds `deploy/state/images.lock` (remove that directory if no deploy runs).
+   A failure never fails the deploy. Two projects that deploy the same image tag share one image: the check on the
+   other project's containers protects a running one, but not one that has not started yet. Build cache is not
+   touched (`docker builder prune` is yours to run). `DEPLOY_PRUNE_IMAGES=0` keeps every image.
 
 Back up the database before an update that contains migrations, and read the changelog's upgrade notes. While both
 colours run, the host needs more memory: see Sizing.
@@ -189,7 +198,9 @@ colours run, the host needs more memory: see Sizing.
 **Base images.** The `FROM` images in `deploy/Dockerfile` are updated by Dependabot (14-day cooldown). Caddy and
 RustFS in `compose.prod.yaml` are bumped by hand: GitHub does not document whether Dependabot reads a compose file
 named `compose.prod.yaml`. Every pin must be a digest at least 7 days old (`composer deps:check`), and the postgres
-image must equal the one in `billing/compose.yaml` (CI checks it).
+image must equal the one in `billing/compose.yaml` (CI checks it). Docker Hub rebuilds a tag in place (new base
+layers, same version), so a digest pinned earlier can stop matching its tag: the check then reports "is not the digest
+of ..." and the pin moves to the tag's current digest once that is 7 days old.
 
 **PHP security floor.** The image runs PHP 8.4.27 (FrankenPHP 1.13.2), which fixes CVE-2026-109618 and
 CVE-2026-109619 (unauthenticated remote code execution in every web SAPI); images built from an older checkout run
@@ -325,6 +336,7 @@ and a different `DB_PASSWORD` or `OBJECTS_*` pair on the new host.
 | Certificate errors                                                                      | DNS for `APP_DOMAIN` and ports 80/443 from the internet; `logs caddy`. Keep the `caddy-data` volume, or every start requests new certificates                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Jobs not processed                                                                      | `logs worker-default-<colour>` (or the pool that carries the queue; **Run now** is `worker-automation-<colour>`); the dashboard's automation summary shows the scheduler heartbeat                                                                                                                                                                                                                                                                                                                                                                               |
 | An automation run was killed (host reboot, out of memory, a stop that ran out of grace) | the day's remaining tasks did not run, and **Run now** reports "another run was in progress" while the killed run's locks remain. Make sure no run is in progress (Admin → Automation), then clear the scheduler's mutex and the automation locks with the live colour's scheduler: `docker compose -f deploy/compose.prod.yaml --profile <colour> exec -T scheduler-<colour> php artisan schedule:clear-cache` and `... php artisan automation:release-locks --force` (install.md §6), and press **Run now**. Tasks that already succeeded that day are skipped |
+| "Test connection" or a page that calls a gateway hangs, then fails                      | DNS from the app container. Its lookups give up per `dns_opt` on `x-app` (`timeout:2`, `attempts:2`, ADR 0015 Amendment (#513)): about 4 s per query to Docker's resolver, so a host that never answers fails after about 12 s (A and AAAA queries, then one fallback lookup). Search domains in the host's `resolv.conf` multiply that. Check `docker compose -f deploy/compose.prod.yaml --profile <colour> exec app-<colour> getent hosts <host>`                                                                                                             |
 | `Read-only file system` errors                                                          | something writes outside `storage/`, `/tmp` or `bootstrap/cache`: report it as a bug                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 ## Traefik

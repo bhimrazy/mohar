@@ -14,9 +14,13 @@
 # expand-only (docs/architecture.md): the old colour keeps serving against the new schema until the switch, and
 # after it for a rollback.
 #
+# After a successful deploy, the app images this project deployed earlier (listed in DEPLOY_STATE_DIR/images) are
+# removed, except the live and previous colours' images (a rollback needs them). Nothing else is touched: not other
+# projects' images, not images the project never deployed, not build cache. An image a container still uses stays.
+#
 # Settings: DEPLOY_ENV_FILE (deploy/.env), DEPLOY_PROJECT (mohar), DEPLOY_STATE_DIR (deploy/state: the live
 # colour and images, and the upstream file Caddy imports). DEPLOY_SKIP_MIGRATION_CHECK=1 skips the migration
-# check when you have reviewed a finding. DEPLOY_COMPOSE_OVERRIDE names an extra compose file merged over
+# check when you have reviewed a finding. DEPLOY_PRUNE_IMAGES=0 keeps every earlier image. DEPLOY_COMPOSE_OVERRIDE names an extra compose file merged over
 # compose.prod.yaml, e.g. deploy/compose.secrets.example.yaml copied and filled in to read APP_KEY from Docker
 # secrets (billing/docs/devops/key-rotation.md).
 set -euo pipefail
@@ -153,6 +157,47 @@ move_workers() {
     fi
 }
 
+# docker with a time limit where `timeout` exists (not on stock macOS).
+dk() { if command -v timeout >/dev/null 2>&1; then timeout 60 docker "$@"; else docker "$@"; fi; }
+
+# Remove the images this project deployed before, except the two colours' images. $1 is the image just deployed and
+# is recorded first. Best effort, never fatal: an unwritable record, a held lock, a colour image that cannot be
+# inspected or an image another project's container uses each skip the removal with a warning.
+prune_images() {
+    local list="$DEPLOY_STATE_DIR/images" lock="$DEPLOY_STATE_DIR/images.lock" n=0
+    until mkdir "$lock" 2>/dev/null; do
+        n=$((n + 1))
+        [ "$n" -lt 10 ] || { say "warning: $lock is held (remove it if no deploy is running); no old images removed"; return 0; }
+        sleep 1
+    done
+    # The lock is released on every path out of this function.
+    prune_locked "$list" "$1" || say "warning: could not update $list; no old images removed"
+    rmdir "$lock" 2>/dev/null || true
+}
+
+prune_locked() {
+    local list="$1" keep=" " ref id kept=() others
+    { grep -qxF -- "$2" "$list" 2>/dev/null || printf '%s\n' "$2" >> "$list"; } 2>/dev/null || return 1
+    for ref in "$IMAGE_BLUE" "$IMAGE_GREEN"; do
+        [ -n "$ref" ] || continue
+        id="$(dk image inspect --format '{{.Id}}' "$ref" 2>/dev/null)" && [ -n "$id" ] \
+            || { say "warning: cannot inspect $ref; no old images removed"; return 0; }
+        keep="$keep$id "
+    done
+    while IFS= read -r ref; do
+        [ -n "$ref" ] || continue
+        id="$(dk image inspect --format '{{.Id}}' "$ref" 2>/dev/null)" && [ -n "$id" ] || continue # already gone
+        case "$keep" in *" $id "*) kept+=("$ref"); continue ;; esac
+        # Another project may have deployed the same tag: leave an image any of its containers uses.
+        if ! others="$(dk ps -a --filter "ancestor=$ref" --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null)" \
+            || printf '%s\n' "$others" | grep -qvx -e "$project" -e ''; then
+            say "warning: $ref may be used by another project; kept"; kept+=("$ref"); continue
+        fi
+        if dk image rm "$ref" >/dev/null 2>&1; then say "removed old image $ref"; else say "warning: could not remove $ref (in use?)"; kept+=("$ref"); fi
+    done < "$list"
+    printf '%s\n' ${kept[@]+"${kept[@]}"} > "$list.tmp" 2>/dev/null && mv "$list.tmp" "$list" 2>/dev/null
+}
+
 cmd_deploy() {
     local image="" next live="$LIVE"
     while [ $# -gt 0 ]; do
@@ -203,6 +248,8 @@ cmd_deploy() {
     say "filling fiscal snapshots"
     "${compose[@]}" run --rm -T -e APP_OPTIMIZE=0 migrate php artisan billing:fiscal-snapshot \
         || say "warning: billing:fiscal-snapshot failed; the scheduler runs it again"
+
+    [ "${DEPLOY_PRUNE_IMAGES:-1}" = 0 ] || prune_images "$image"
 
     say "live: $next ($image)${PREVIOUS:+; app-$PREVIOUS keeps running for 'deploy/bin/deploy rollback' (stop it with 'retire')}"
 }

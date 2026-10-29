@@ -17,6 +17,8 @@ use LogicException;
  * `order` sorts installers that depend on others' rows (lower runs first; equal orders keep registration order).
  * Orders below 100 are reserved for Core (currencies 10, roles 20); module installers default to 100. Registration resolves nothing: installers are built through
  * the container when the install runs.
+ *
+ * @api
  */
 class ReferenceDataRegistry
 {
