@@ -204,278 +204,222 @@ export default function SettingsEdit({ sections, section, mailTest }: Props) {
                         ))}
                     </nav>
 
-                    <div className="grid min-w-0 content-start gap-6">
-                        <form onSubmit={submit} className="min-w-0">
-                            <SectionCard
-                                title={section.title}
-                                description={
-                                    disabled
-                                        ? 'You can view these settings but not change them.'
-                                        : undefined
-                                }
-                                footer={
-                                    section.editable ? (
-                                        <Button
-                                            type="submit"
-                                            disabled={processing}
+                    <form onSubmit={submit} className="min-w-0">
+                        <SectionCard
+                            title={section.title}
+                            description={
+                                disabled
+                                    ? 'You can view these settings but not change them.'
+                                    : undefined
+                            }
+                            footer={
+                                section.editable ? (
+                                    <Button type="submit" disabled={processing}>
+                                        {processing && <Spinner />}
+                                        Save {section.title.toLowerCase()}{' '}
+                                        settings
+                                    </Button>
+                                ) : undefined
+                            }
+                        >
+                            <div className="grid gap-6">
+                                {section.fields.map((field) => {
+                                    if (hidden(field.key, values)) {
+                                        return null;
+                                    }
+
+                                    const id = `setting-${field.key.replace(/\./g, '-')}`;
+                                    // A multiselect's refusals arrive per item ("key.0").
+                                    const error =
+                                        errors[field.key] ??
+                                        Object.entries(errors).find(([key]) =>
+                                            key.startsWith(`${field.key}.`),
+                                        )?.[1];
+                                    const value = values[field.key];
+                                    const locked = field.locked_reason !== null;
+                                    const off = disabled || locked;
+                                    const help = locked
+                                        ? [field.locked_reason, field.help]
+                                              .filter(Boolean)
+                                              .join(' ')
+                                        : field.help;
+
+                                    if (field.type === 'boolean') {
+                                        return (
+                                            <SwitchField
+                                                key={field.key}
+                                                id={id}
+                                                label={field.label}
+                                                description={
+                                                    error ?? help ?? undefined
+                                                }
+                                                checked={value === true}
+                                                disabled={off}
+                                                onCheckedChange={(checked) =>
+                                                    set(field.key, checked)
+                                                }
+                                            />
+                                        );
+                                    }
+
+                                    if (field.type === 'multiselect') {
+                                        return (
+                                            <CheckboxGroup
+                                                key={field.key}
+                                                id={id}
+                                                label={field.label}
+                                                hint={help ?? undefined}
+                                                error={error}
+                                                options={field.options}
+                                                value={
+                                                    Array.isArray(value)
+                                                        ? value
+                                                        : []
+                                                }
+                                                disabled={off}
+                                                onValueChange={(next) =>
+                                                    set(field.key, next)
+                                                }
+                                            />
+                                        );
+                                    }
+
+                                    return (
+                                        <Field
+                                            key={field.key}
+                                            htmlFor={id}
+                                            label={
+                                                field.type === 'money' &&
+                                                field.currency
+                                                    ? labelWithCurrency(
+                                                          field.label,
+                                                          field.currency,
+                                                      )
+                                                    : field.label
+                                            }
+                                            error={error}
+                                            hint={
+                                                field.secret
+                                                    ? field.is_set
+                                                        ? 'A value is saved. Leave blank to keep it.'
+                                                        : (help ?? 'Not set.')
+                                                    : (help ?? undefined)
+                                            }
                                         >
-                                            {processing && <Spinner />}
-                                            Save {section.title.toLowerCase()}{' '}
-                                            settings
-                                        </Button>
-                                    ) : undefined
-                                }
-                            >
-                                <div className="grid gap-6">
-                                    {section.fields
-                                        .filter(
-                                            (field) =>
-                                                !hidden(field.key, values),
-                                        )
-                                        .map((field) => {
-                                            const id = `setting-${field.key.replace(/\./g, '-')}`;
-                                            // A multiselect's refusals arrive per item ("key.0").
-                                            const error =
-                                                errors[field.key] ??
-                                                Object.entries(errors).find(
-                                                    ([key]) =>
-                                                        key.startsWith(
-                                                            `${field.key}.`,
-                                                        ),
-                                                )?.[1];
-                                            const value = values[field.key];
-                                            const locked =
-                                                field.locked_reason !== null;
-                                            const off = disabled || locked;
-                                            const help = locked
-                                                ? [
-                                                      field.locked_reason,
-                                                      field.help,
-                                                  ]
-                                                      .filter(Boolean)
-                                                      .join(' ')
-                                                : field.help;
-
-                                            if (field.type === 'boolean') {
-                                                return (
-                                                    <SwitchField
-                                                        key={field.key}
-                                                        id={id}
-                                                        label={field.label}
-                                                        description={
-                                                            error ??
-                                                            help ??
-                                                            undefined
-                                                        }
-                                                        checked={value === true}
-                                                        disabled={off}
-                                                        onCheckedChange={(
-                                                            checked,
-                                                        ) =>
-                                                            set(
-                                                                field.key,
-                                                                checked,
-                                                            )
-                                                        }
-                                                    />
-                                                );
-                                            }
-
-                                            if (field.type === 'multiselect') {
-                                                return (
-                                                    <CheckboxGroup
-                                                        key={field.key}
-                                                        id={id}
-                                                        label={field.label}
-                                                        hint={help ?? undefined}
-                                                        error={error}
-                                                        options={field.options}
-                                                        value={
-                                                            Array.isArray(value)
-                                                                ? value
-                                                                : []
-                                                        }
-                                                        disabled={off}
-                                                        onValueChange={(next) =>
-                                                            set(field.key, next)
-                                                        }
-                                                    />
-                                                );
-                                            }
-
-                                            return (
-                                                <Field
-                                                    key={field.key}
-                                                    htmlFor={id}
-                                                    label={
-                                                        field.type ===
-                                                            'money' &&
-                                                        field.currency
-                                                            ? labelWithCurrency(
-                                                                  field.label,
-                                                                  field.currency,
-                                                              )
-                                                            : field.label
+                                            {field.type === 'country' ? (
+                                                <CountrySelect
+                                                    id={id}
+                                                    value={String(value)}
+                                                    onValueChange={(next) =>
+                                                        set(field.key, next)
                                                     }
-                                                    error={error}
-                                                    hint={
-                                                        field.secret
-                                                            ? field.is_set
-                                                                ? 'A value is saved. Leave blank to keep it.'
-                                                                : (help ??
-                                                                  'Not set.')
-                                                            : (help ??
-                                                              undefined)
+                                                    emptyLabel={
+                                                        field.required
+                                                            ? undefined
+                                                            : 'Not set'
                                                     }
-                                                >
-                                                    {field.type ===
-                                                    'country' ? (
-                                                        <CountrySelect
-                                                            id={id}
-                                                            value={String(
-                                                                value,
-                                                            )}
-                                                            onValueChange={(
-                                                                next,
-                                                            ) =>
-                                                                set(
-                                                                    field.key,
-                                                                    next,
-                                                                )
-                                                            }
-                                                            emptyLabel={
-                                                                field.required
-                                                                    ? undefined
-                                                                    : 'Not set'
-                                                            }
-                                                            disabled={disabled}
-                                                            invalid={Boolean(
-                                                                error,
-                                                            )}
-                                                        />
-                                                    ) : field.type ===
-                                                      'select' ? (
-                                                        <SelectField
-                                                            id={id}
-                                                            value={String(
-                                                                value,
-                                                            )}
-                                                            onValueChange={(
-                                                                next,
-                                                            ) =>
-                                                                set(
-                                                                    field.key,
-                                                                    next,
-                                                                )
-                                                            }
-                                                            options={
-                                                                field.options
-                                                            }
-                                                            searchable={SEARCHABLE.has(
-                                                                field.key,
-                                                            )}
-                                                            disabled={off}
-                                                            invalid={Boolean(
-                                                                error,
-                                                            )}
-                                                        />
-                                                    ) : field.type ===
-                                                      'text' ? (
-                                                        <Textarea
-                                                            id={id}
-                                                            rows={4}
-                                                            value={String(
-                                                                value,
-                                                            )}
-                                                            onChange={(event) =>
-                                                                set(
-                                                                    field.key,
-                                                                    event.target
-                                                                        .value,
-                                                                )
-                                                            }
-                                                            disabled={off}
-                                                            aria-invalid={Boolean(
-                                                                error,
-                                                            )}
-                                                        />
-                                                    ) : field.secret ? (
-                                                        <PasswordInput
-                                                            id={id}
-                                                            value={String(
-                                                                value,
-                                                            )}
-                                                            autoComplete="off"
-                                                            placeholder={
-                                                                field.is_set
-                                                                    ? '••••••••'
-                                                                    : ''
-                                                            }
-                                                            onChange={(event) =>
-                                                                set(
-                                                                    field.key,
-                                                                    event.target
-                                                                        .value,
-                                                                )
-                                                            }
-                                                            disabled={off}
-                                                            aria-invalid={Boolean(
-                                                                error,
-                                                            )}
-                                                        />
-                                                    ) : (
-                                                        <Input
-                                                            id={id}
-                                                            inputMode={
-                                                                field.type ===
-                                                                'money'
-                                                                    ? 'decimal'
-                                                                    : undefined
-                                                            }
-                                                            type={
-                                                                field.type ===
-                                                                'integer'
-                                                                    ? 'number'
-                                                                    : field.type ===
-                                                                        'email'
-                                                                      ? 'email'
-                                                                      : 'text'
-                                                            }
-                                                            value={String(
-                                                                value,
-                                                            )}
-                                                            onChange={(event) =>
-                                                                set(
-                                                                    field.key,
-                                                                    event.target
-                                                                        .value,
-                                                                )
-                                                            }
-                                                            disabled={off}
-                                                            aria-invalid={Boolean(
-                                                                error,
-                                                            )}
-                                                            aria-describedby={`${id}-description`}
-                                                            className={
-                                                                field.type ===
-                                                                    'integer' ||
-                                                                field.type ===
-                                                                    'money'
-                                                                    ? 'max-w-40'
-                                                                    : undefined
-                                                            }
-                                                        />
+                                                    disabled={disabled}
+                                                    invalid={Boolean(error)}
+                                                />
+                                            ) : field.type === 'select' ? (
+                                                <SelectField
+                                                    id={id}
+                                                    value={String(value)}
+                                                    onValueChange={(next) =>
+                                                        set(field.key, next)
+                                                    }
+                                                    options={field.options}
+                                                    searchable={SEARCHABLE.has(
+                                                        field.key,
                                                     )}
-                                                </Field>
-                                            );
-                                        })}
-                                </div>
-                            </SectionCard>
-                        </form>
-                        {mailTest && (
+                                                    disabled={off}
+                                                    invalid={Boolean(error)}
+                                                />
+                                            ) : field.type === 'text' ? (
+                                                <Textarea
+                                                    id={id}
+                                                    rows={4}
+                                                    value={String(value)}
+                                                    onChange={(event) =>
+                                                        set(
+                                                            field.key,
+                                                            event.target.value,
+                                                        )
+                                                    }
+                                                    disabled={off}
+                                                    aria-invalid={Boolean(
+                                                        error,
+                                                    )}
+                                                />
+                                            ) : field.secret ? (
+                                                <PasswordInput
+                                                    id={id}
+                                                    value={String(value)}
+                                                    autoComplete="off"
+                                                    placeholder={
+                                                        field.is_set
+                                                            ? '••••••••'
+                                                            : ''
+                                                    }
+                                                    onChange={(event) =>
+                                                        set(
+                                                            field.key,
+                                                            event.target.value,
+                                                        )
+                                                    }
+                                                    disabled={off}
+                                                    aria-invalid={Boolean(
+                                                        error,
+                                                    )}
+                                                />
+                                            ) : (
+                                                <Input
+                                                    id={id}
+                                                    inputMode={
+                                                        field.type === 'money'
+                                                            ? 'decimal'
+                                                            : undefined
+                                                    }
+                                                    type={
+                                                        field.type === 'integer'
+                                                            ? 'number'
+                                                            : field.type ===
+                                                                'email'
+                                                              ? 'email'
+                                                              : 'text'
+                                                    }
+                                                    value={String(value)}
+                                                    onChange={(event) =>
+                                                        set(
+                                                            field.key,
+                                                            event.target.value,
+                                                        )
+                                                    }
+                                                    disabled={off}
+                                                    aria-invalid={Boolean(
+                                                        error,
+                                                    )}
+                                                    aria-describedby={`${id}-description`}
+                                                    className={
+                                                        field.type ===
+                                                            'integer' ||
+                                                        field.type === 'money'
+                                                            ? 'max-w-40'
+                                                            : undefined
+                                                    }
+                                                />
+                                            )}
+                                        </Field>
+                                    );
+                                })}
+                            </div>
+                        </SectionCard>
+                    </form>
+                    {mailTest && (
+                        <div className="min-w-0 md:col-start-2">
                             <MailTestCard test={mailTest} unsaved={unsaved} />
-                        )}
-                    </div>
+                        </div>
+                    )}
                 </div>
             </Page>
         </>

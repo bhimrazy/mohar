@@ -102,7 +102,7 @@ QUEUE_CONNECTION=database          # or redis
 CACHE_STORE=database               # or redis
 SESSION_SECURE_COOKIE=true
 
-MAIL_MAILER=smtp                   # plus MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD, MAIL_FROM_ADDRESS
+MAIL_MAILER=smtp                   # plus MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD, MAIL_FROM_ADDRESS; or later in Admin → Settings → Mail server
 
 OBJECTS_DRIVER=s3
 OBJECTS_ENDPOINT=https://s3.example.com
