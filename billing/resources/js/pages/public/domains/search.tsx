@@ -41,10 +41,16 @@ function statusText(result: LookupResult): string {
         case 'unsupported':
             return "We don't offer this extension";
         case 'self_registered':
-            return 'Registered by you at the registry';
+            return 'Registered at the registry, not sold here';
         default:
             return 'Availability unknown — try again shortly';
     }
+}
+
+function selfRegisteredNote(tld: string | null): string {
+    const free = tld?.endsWith('.np') ? ', free for eligible applicants' : '';
+
+    return `${tld} domains are registered by you at the registry${free}. Once it is approved, set the nameservers shown on your hosting service.`;
 }
 
 function ResultRow({
@@ -107,12 +113,7 @@ function ResultRow({
                     )}
                     {result.self_registered && !result.level_hint && (
                         <p className="mt-1 max-w-prose text-sm">
-                            {result.tld} domains are registered by you at the
-                            registry
-                            {result.tld?.endsWith('.np')
-                                ? ', free for Nepali citizens and organisations'
-                                : ''}
-                            . When it's approved, point it to our nameservers.
+                            {selfRegisteredNote(result.tld)}
                         </p>
                     )}
                 </div>

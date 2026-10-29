@@ -292,9 +292,10 @@ workflow, `np_manual`, was built in #168/#185 and closed unmerged; its branches 
 - **TLD setting.** A TLD can be marked "registered by the client at the registry" (`tlds.registered_by_client`), on
   by default for `.np` and its second levels. Such TLDs are never registered or transferred here: pricing offers no
   register or transfer terms, so the cart refuses them with "`.com.np` domains are not sold here. If you already own
-  one, choose "Use a domain I own"."
+  one, choose "Use a domain I own"." A TLD that is sold but has no price in the visitor's currency gets its own
+  message ("`.com` domains cannot be ordered in NPR. Choose another currency or extension.").
 - **Domain search.** A `.np` result says, in full sentences, that the client registers it at the registry, free for
-  Nepali citizens and organisations, and then points it to our nameservers. "How to register" opens
+  eligible applicants, and then to set the nameservers shown on the hosting service. "How to register" opens
   `domains.self_registration_url` (default https://register.com.np/how-to-register-np-domain, the guide of the `.np`
   registry, run by Mercantile Communications per IANA's root zone database). "I already have it" opens the store
   with the name carried into "Use a domain I own". A name the registry cannot issue (`asha.np`) gets the reason

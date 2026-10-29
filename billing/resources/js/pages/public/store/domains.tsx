@@ -105,7 +105,7 @@ function availabilityOf(result: LookupResult | undefined): Availability | null {
                 tone: 'info',
                 blocked:
                     result.level_hint ??
-                    `${result.tld ?? 'These'} domains are registered by you at the registry${result.tld?.endsWith('.np') ? ', free for Nepali citizens and organisations' : ''}. Once it is approved, use it with a hosting plan.`,
+                    `${result.tld ?? 'These'} domains are registered by you at the registry${result.tld?.endsWith('.np') ? ', free for eligible applicants' : ''}. Once it is approved, use it with a hosting plan.`,
             };
         case 'unknown':
             return {

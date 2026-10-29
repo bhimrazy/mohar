@@ -109,3 +109,24 @@ test('a per-client ResellerClub domain still finds its customer after a merge, s
     expect($domain->fresh()->client_id)->toBe($target->id)
         ->and($lookup()->remote['order_id'])->toBe(80000001);
 });
+
+test('a TLD with no price in the visitor\'s currency gets its own message; .np keeps "not sold here"', function () {
+    Tld::factory()->extension('.com')->priced('USD')->create(['registrar_key' => 'log']);
+    Tld::factory()->extension('.com.np')->priced('NPR')->create(['registrar_key' => 'log']);
+    $errors = fn (string $domain): array => app(App\Modules\Orders\Pricing\CartPricer::class)
+        ->price([new App\Modules\Orders\Data\CartItem(key: 'k1', kind: App\Modules\Orders\Enums\CartItemKind::DomainRegister, domainName: $domain, years: 1)], 'NPR')->items[0]->errors;
+
+    expect($errors('asha.com'))->toBe(['.com domains cannot be ordered in NPR. Choose another currency or extension.'])
+        ->and($errors('asha.com.np')[0])->toStartWith('.com.np domains are not sold here');
+});
+
+test('a registrar call reads the registrar account once', function () {
+    Tests\Fakes\Domains\FakeRegistrar::install();
+    RegistrarAccount::query()->create(['key' => 'fake', 'is_active' => true, 'test_mode' => false, 'settings' => []]);
+
+    DB::enableQueryLog();
+    app(App\Modules\Domains\Services\RegistrarGateway::class)->call('fake', 'info', App\Contracts\Domains\Registrar\RegistrarDriver::class, fn () => 'ok');
+    $reads = collect(DB::getQueryLog())->filter(fn (array $q): bool => str_contains($q['query'], 'registrar_accounts') && str_starts_with($q['query'], 'select'));
+
+    expect($reads)->toHaveCount(1);
+});

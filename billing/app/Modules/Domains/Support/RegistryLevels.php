@@ -3,6 +3,7 @@
 namespace App\Modules\Domains\Support;
 
 use App\Contracts\Domains\DomainNameRules;
+use App\Modules\Domains\Models\Tld;
 
 /**
  * The one place that knows which country registries issue names only under fixed second levels. Orders reach it
@@ -61,6 +62,11 @@ class RegistryLevels implements DomainNameRules
             'tld' => $violation['tld'],
             'levels' => self::levelList($violation),
         ]);
+    }
+
+    public function registeredByClient(string $tld): bool
+    {
+        return Tld::query()->where('extension', Tld::normaliseExtension($tld))->where('registered_by_client', true)->exists();
     }
 
     /** @param array{tld: string, levels: list<string>} $violation */
