@@ -126,10 +126,20 @@ export function PasswordConfirmationGate() {
             );
 
             if (!response.ok) {
+                // A 429 carries the wait ("Try again in n seconds").
+                const throttled =
+                    response.status === 429
+                        ? ((await response.json().catch(() => null)) as {
+                              message?: string;
+                          } | null)
+                        : null;
                 setError(
                     response.status === 422
                         ? 'The password is incorrect.'
-                        : 'Could not confirm your password. Try again.',
+                        : response.status === 429
+                          ? (throttled?.message ??
+                            'Too many password attempts. Try again in a minute.')
+                          : 'Could not confirm your password. Try again.',
                 );
 
                 return;

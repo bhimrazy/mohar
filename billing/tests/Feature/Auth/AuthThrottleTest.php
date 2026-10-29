@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\User;
+use App\Modules\Core\Models\ActivityLog;
+use App\Providers\FortifyServiceProvider;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Testing\TestResponse;
@@ -41,7 +43,6 @@ test('probe P3: registrations from one IP are throttled after ten an hour', func
 });
 
 test('registrations for one address are throttled across IPs, the same for a known and an unknown address', function () {
-    $this->freezeTime();
     User::factory()->create(['email' => 'known@example.com']);
 
     foreach (range(1, 5) as $attempt) {
@@ -96,4 +97,50 @@ test('a failed password reset says the same for a known and an unknown address',
 
     resetAttempt($known->email, '203.0.113.1')->assertSessionHasErrors(['email' => $message]);
     resetAttempt('nobody@example.com', '203.0.113.2')->assertSessionHasErrors(['email' => $message]);
+});
+
+/**
+ * Security review 2026-10-29, M1: step-up confirmations get the sign-in form's guess budget, per login and IP.
+ */
+test('confirm-password allows five guesses a minute per login and IP, then answers 429 with the wait', function () {
+    $user = User::factory()->create(['password' => 'correct-horse-battery']);
+    $this->actingAs($user);
+
+    foreach (range(1, FortifyServiceProvider::CONFIRM_ATTEMPTS_PER_MINUTE) as $attempt) {
+        $this->postJson(route('password.confirm.store'), ['password' => 'wrong-'.$attempt])->assertUnprocessable();
+    }
+
+    $this->postJson(route('password.confirm.store'), ['password' => 'correct-horse-battery'])
+        ->assertTooManyRequests()
+        ->assertHeader('Retry-After')
+        ->assertJsonPath('errors.password.0', fn (string $message): bool => str_starts_with($message, 'Too many password attempts. Try again in'));
+    expect(session('auth.password_confirmed_at'))->toBeNull();
+
+    // Another login on the same IP keeps its own budget.
+    $this->actingAs(User::factory()->create(['password' => 'other-login-password']))
+        ->postJson(route('password.confirm.store'), ['password' => 'other-login-password'])->assertCreated();
+});
+
+test('the full-page confirm form shows the throttle message on its password field', function () {
+    $this->actingAs(User::factory()->create(['password' => 'correct-horse-battery']));
+
+    foreach (range(1, FortifyServiceProvider::CONFIRM_ATTEMPTS_PER_MINUTE) as $attempt) {
+        $this->from(route('password.confirm'))->post(route('password.confirm.store'), ['password' => 'wrong-'.$attempt]);
+    }
+
+    $this->from(route('password.confirm'))->post(route('password.confirm.store'), ['password' => 'correct-horse-battery'])
+        ->assertRedirect(route('password.confirm'))
+        ->assertSessionHasErrors('password');
+    expect(session('errors')->first('password'))->toStartWith('Too many password attempts. Try again in')
+        ->and(session('auth.password_confirmed_at'))->toBeNull();
+});
+
+test('a failed password confirmation is in the activity log, without the guess', function () {
+    $user = User::factory()->create(['password' => 'correct-horse-battery']);
+
+    $this->actingAs($user)->postJson(route('password.confirm.store'), ['password' => 'wrong-guess'])->assertUnprocessable();
+
+    $entry = ActivityLog::query()->where('event', 'auth.confirm_password_failed')->sole();
+    expect($entry->user_id)->toBe($user->id)
+        ->and(json_encode($entry->toArray()))->not->toContain('wrong-guess');
 });

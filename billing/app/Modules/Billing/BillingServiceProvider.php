@@ -202,6 +202,11 @@ class BillingServiceProvider extends ModuleServiceProvider
         RateLimiter::for('billing-pay', fn (Request $request): Limit => Limit::perMinute(self::PAY_REQUESTS_PER_MINUTE)
             ->by('billing-pay|'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
 
+        // Each fiscal PDF download in Nepal VAT mode renders under the document's row lock and counts as a print: cap it
+        // per user, staff higher than clients (security review 2026-10-29, M3).
+        RateLimiter::for('billing-documents', fn (Request $request): Limit => Limit::perMinute($request->user()?->is_staff ? self::STAFF_DOCUMENTS_PER_MINUTE : self::CLIENT_DOCUMENTS_PER_MINUTE)
+            ->by('billing-documents|'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+
         // Card data must never be flashed into the session by a validation redirect (PCI DSS 3.3.1).
         $this->callAfterResolving(ExceptionHandler::class, function (object $handler): void {
             if (method_exists($handler, 'dontFlash')) {
@@ -292,6 +297,12 @@ class BillingServiceProvider extends ModuleServiceProvider
 
     /** Credit and debit note resends per staff member per minute. */
     public const NOTE_RESENDS_PER_MINUTE = 10;
+
+    /** Invoice, quote and note PDF downloads per client login per minute. */
+    public const CLIENT_DOCUMENTS_PER_MINUTE = 10;
+
+    /** The same per staff member per minute. */
+    public const STAFF_DOCUMENTS_PER_MINUTE = 60;
 
     /** Register screen and export requests per staff member per minute. */
     public const REGISTER_REQUESTS_PER_MINUTE = 60;
