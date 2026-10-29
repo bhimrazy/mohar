@@ -13,4 +13,9 @@ class NullDomainNameRules implements DomainNameRules
     {
         return null;
     }
+
+    public function registeredByClient(string $tld): bool
+    {
+        return false;
+    }
 }

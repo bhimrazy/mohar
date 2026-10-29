@@ -1,3 +1,4 @@
+import { selfRegisteredNote } from '@/lib/self-registered-note';
 import { router } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import { CheckCircle2, Search, XCircle } from 'lucide-react';
@@ -41,7 +42,7 @@ function statusText(result: LookupResult): string {
         case 'unsupported':
             return "We don't offer this extension";
         case 'self_registered':
-            return 'Registered by you at the registry';
+            return 'Register it at the registry';
         default:
             return 'Availability unknown — try again shortly';
     }
@@ -107,12 +108,7 @@ function ResultRow({
                     )}
                     {result.self_registered && !result.level_hint && (
                         <p className="mt-1 max-w-prose text-sm">
-                            {result.tld} domains are registered by you at the
-                            registry
-                            {result.tld?.endsWith('.np')
-                                ? ', free for Nepali citizens and organisations'
-                                : ''}
-                            . When it's approved, point it to our nameservers.
+                            {selfRegisteredNote(result.tld)}
                         </p>
                     )}
                 </div>
