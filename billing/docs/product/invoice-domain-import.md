@@ -117,7 +117,7 @@ publicly; this spec assumes they are not available.
 | Collections               | `collections`                                                                                                                                                             |
 | Draft                     | Off by default (option "Include drafts"); when on, `draft` with no number; the source number is kept in `source_reference`                                                |
 | Paid, Cancelled, Refunded | Not imported. Counted per status in the review ("1,204 paid invoices were not imported")                                                                                  |
-| Unknown or custom status  | Row error until mapped on the `status.invoice` value map                                                                                                                  |
+| Unknown or custom status  | Row error until mapped on the invoice importer's `status` value map                                                                                                       |
 
 The import never asks Mohar to calculate anything: lines, tax and totals are taken as recorded; `Invoicer::issue` is
 not used (`migration.md` §5.2). Every imported invoice stores `source_reference` (the number or id it had at the source),
@@ -402,20 +402,24 @@ the snapshot, with a `kernel-changelog.d` fragment):
 2. **`PreparesChunk::prepare(list<ImportRecord>, ImportContext): void`** (state scoped to the instance; the chunk job takes
    one instance from `ImportRegistry::get()` per chunk), **`MatchesExisting::matchExisting(list<ImportRecord>,
    ImportContext): array<string sourceId, int targetId>`** (batch; a proposal only, the id map wins), and
-   **`ImportIdResolver::targetIds(string $entity, list<string> $sourceIds): array<string,int>`**. Test doubles in
-   `OpeningBalanceImportTest` and `Pr283ReviewProbesTest` are updated.
+   **`ImportIdResolver::targetIds(string $entity, list<string> $sourceIds): array<int|string,int>`** (numeric source ids come
+   back as int keys). Test doubles in `OpeningBalanceImportTest` and `Pr283ReviewProbesTest` are updated. Done in #527.
 3. **`DeclaresValueMaps extends RecordImporter`**, `valueMaps(): array<string, list<array{value:string,label:string}>>`,
    with `validate()` returning `ImportIssue`s for unmapped values. Migration's "Mappings required" step lists the targets
-   without reading other modules' tables. Every map here uses it: `status.invoice`, `tax_rule`, `registrar`, `tld`. No
+   without reading other modules' tables. A map key is the path of the attribute it applies to, per entity (ADR 0019
+   Amendment (#527)): the invoice importer declares `status` and `items.tax_rule`, the domain importer `status`,
+   `registrar` and its TLD attribute. No
    Billing tax-rules contract is added for Migration; the invoice importer is Billing and calls `NepalVatMode::classify()` itself.
-4. **`InvoiceQueries::openLines(BillableType $type, list<int> $billableIds): list<array{invoice_id:int, billable_id:int,
+4. **PR 2:** **`InvoiceQueries::openLines(BillableType $type, list<int> $billableIds): list<array{invoice_id:int, billable_id:int,
    period_start:?string}>`** on the existing contract (Billing implements it; Core keeps a null default). Domains
    listens to `MigrationRunCompleted` when `counts` has `invoice`; for imported domains it writes `domain_invoices` rows
    (`kind=renewal`, `status=open`) and moves `next_invoice_date`, with no mail and no events. Needed because imported invoices dispatch no
    `InvoiceCreated`, so they would never reach Domains' projection that `HandleInvoicePaid` and the grace automation read.
-5. **Vocabulary:** entities `invoice` and `domain`; `ImportRecord::$children` keys `items` and `payments` documented as a
-   schema, no class change. Cross-source client resolution (§3.1) is a separate resolver method or documented fallback;
-   `targetId` keeps meaning one source (`SourceIds`).
+5. **Vocabulary (#527):** entities `invoice` and `domain`; `ImportRecord::$children` keys `items` and `payments`, written
+   and reverted by the invoice importer; `invoice_item` and `payment` are reserved count keys that no importer registers.
+   The fields of each child are fixed in PR 0b, which maps columns to them; how child outcomes are counted and given
+   id-map rows is decided in PR 2. **PR 2:** cross-source client resolution (§3.1) is a separate resolver method or documented
+   fallback; `targetId` keeps meaning one source (`SourceIds`).
 6. **PR 4 only:** the per-client rule needs the driver to report the order's owner. Either a new capability
    `ReportsOrderOwner` on the driver, or a trailing defaulted `?RegistrarCustomer $owner = null` on `LinkedOrder` plus a
    documented `lookupOrder` mode for "no customer recorded yet" (ADR 0010: no new parameter on a provider contract). Both
@@ -425,10 +429,10 @@ the snapshot, with a `kernel-changelog.d` fragment):
 
 **ADR amendments to write:**
 
-- **ADR 0019 amendment (#512, PR 0):** accepts `PreparesChunk`, `MatchesExisting`, `DeclaresValueMaps` and `targetIds`; adds
+- **ADR 0019 amendment (#527, PR 0, written):** accepts `PreparesChunk`, `MatchesExisting`, `DeclaresValueMaps` and `targetIds`; adds
   soft `after:` ordering; adds the vocabulary for `invoice` and `domain`; states that an owning module may react to
   `MigrationRunCompleted` to update its projections; states that reference data (a retired TLD) is created on apply only.
-- **ADR 0024 amendment:** imported invoices never carry a foreign number in `number` or `proforma_number`; a legacy-path import
+- **ADR 0024 amendment (PR 1):** imported invoices never carry a foreign number in `number` or `proforma_number`; a legacy-path import
   is numbered with `numbered_at` and the snapshot written in the import transaction, so the backfill and the enable-time
   refusals stay clean.
 
@@ -484,16 +488,16 @@ reads; Blesta, HostBill or other API connectors; Excel files; payment batches; t
 
 Each PR stays under 1,500 changed lines including tests and fixtures. PR 0 is a kernel PR by the CTO session.
 
-| PR  | Phase | Contents                                                                                                                                                                                        | Criteria |
-| --- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| 0   | 3     | Kernel (after #513): `after:` ordering, `PreparesChunk`, `MatchesExisting`, `targetIds`, `DeclaresValueMaps`, `InvoiceQueries::openLines`, vocabulary, arch rules; ADR 0019 and 0024 amendments | 1–2      |
-| 0b  | 3     | Migration pipeline per entity: generalise `UploadClientFile`, `ClientColumns`, `ClientMatcher` to per-entity columns, runs by entity                                                            | 53, 56   |
-| 1   | 3a    | Billing invoice importer: headers, status and tax maps, §4 and §6.1–6.3 (proforma and legacy paths), check and review                                                                           | 3–15     |
-| 3   | 3b    | Domains importer: TLD (blocking if unknown), status, matching, `import` origin, self-registered handling; `domains` columns                                                                     | 28–37    |
-| 2   | 3a    | Items with domain links, payments, balance cross-check, reconciliation, baselines (§9), undo, and the Domains `MigrationRunCompleted` listener                                                  | 16–27    |
-| 4   | 3b    | Registrar claims, **Verify imported orders**, driver owner capability, per-client customer rule (needs Q2)                                                                                      | 38–45    |
-| 5   | 3c    | API connector actions `GetInvoices`, `GetInvoice`, `GetClientsDomains`, delta, supplementary claims file                                                                                        | 46–50    |
-| 6   | 3     | Performance fixtures, load-test scenario, run report totals                                                                                                                                     | 51–52    |
+| PR  | Phase | Contents                                                                                                                                                                                                             | Criteria |
+| --- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| 0   | 3     | Kernel (after #513): `after:` ordering, `PreparesChunk`, `MatchesExisting`, `targetIds`, `DeclaresValueMaps`, vocabulary, arch rules; ADR 0019 amendment (#527)                                                      | 1–2      |
+| 0b  | 3     | Migration pipeline per entity: generalise `UploadClientFile`, `ClientColumns`, `ClientMatcher` to per-entity columns, runs by entity                                                                                 | 53, 56   |
+| 1   | 3a    | Billing invoice importer: headers, status and tax maps, §4 and §6.1–6.3 (proforma and legacy paths), check and review; ADR 0024 amendment                                                                            | 3–15     |
+| 3   | 3b    | Domains importer: TLD (blocking if unknown), status, matching, `import` origin, self-registered handling; `domains` columns; an Arch rule forbids `App\Modules\Domains\Actions` in `Domains\Import`                  | 28–37    |
+| 2   | 3a    | Items with domain links, payments, balance cross-check, reconciliation, baselines (§9), undo, the Domains `MigrationRunCompleted` listener, `InvoiceQueries::openLines`, cross-source client key, per-child outcomes | 16–27    |
+| 4   | 3b    | Registrar claims, **Verify imported orders**, driver owner capability, per-client customer rule (needs Q2)                                                                                                           | 38–45    |
+| 5   | 3c    | API connector actions `GetInvoices`, `GetInvoice`, `GetClientsDomains`, delta, supplementary claims file                                                                                                             | 46–50    |
+| 6   | 3     | Performance fixtures, load-test scenario, run report totals                                                                                                                                                          | 51–52    |
 
 Domains (PR 3) come before items (PR 2), or renewal lines cannot link.
 
