@@ -12,6 +12,7 @@ use App\Modules\Migration\Models\MigrationRun;
 use App\Modules\Migration\Support\ClientColumns;
 use App\Modules\Migration\Support\ClientMatcher;
 use Illuminate\Log\Events\MessageLogged;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
@@ -138,6 +139,31 @@ test('with the company option, "Acme Pvt. Ltd." matches an existing "ACME Pvt Lt
 
     expect(checkedRows(ClientCsv::check($run))[1]->decision)->toBe('create')
         ->and(checkedRows(ClientCsv::check($run, ['match_company' => true]))[1]->decision)->toBe('needs_decision');
+});
+
+test('the company check reads candidates a page at a time and still finds a match past the first page (#171)', function () {
+    $template = Client::factory()->create(['company_name' => 'Web Alpha', 'email' => 'alpha@web.example'])->getAttributes();
+    // 2,100 clients whose company starts with "Web", more than one page of candidates; the match is the last of them.
+    foreach (array_chunk(range(1, 2100), 500) as $chunk) {
+        DB::table('clients')->insert(array_map(fn (int $i): array => [...Arr::except($template, ['id']), 'company_name' => "Web Studio {$i}", 'email' => "web{$i}@web.example"], $chunk));
+    }
+    $match = Client::query()->where('company_name', 'Web Studio 2100')->sole();
+    $run = ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'new@web.example', company: 'WEB studio 2100 Pvt. Ltd.')]));
+
+    $candidateQueries = [];
+    DB::listen(function ($query) use (&$candidateQueries): void {
+        if (str_contains($query->sql, 'company_name') && str_contains(strtolower($query->sql), ' like ')) {
+            $candidateQueries[] = strtolower($query->sql);
+        }
+    });
+
+    $row = checkedRows(ClientCsv::check($run, ['match_company' => true]))[1];
+
+    // Two columns, 2,000 rows per page: two pages for 2,101 candidates.
+    expect($row->decision)->toBe('needs_decision')->and($row->match_client_id)->toBe($match->id)
+        ->and($candidateQueries)->toHaveCount(2)
+        ->and($candidateQueries[0])->toStartWith('select "id", "company_name" from "clients"')
+        ->and($candidateQueries)->each->toContain('limit 2000');
 });
 
 test('a password column cannot be mapped to anything but Ignore', function () {

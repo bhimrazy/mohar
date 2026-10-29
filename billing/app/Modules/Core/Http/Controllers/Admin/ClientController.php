@@ -80,12 +80,16 @@ class ClientController extends Controller
         $user = $request->user();
         $can = fn (string $permission): bool => $user?->hasPermission($permission) ?? false;
 
-        $invitations = ClientInvitation::query()->where('client_id', $client->id)->get(['user_id', 'expires_at', 'accepted_at'])->keyBy('user_id');
+        $invitations = ClientInvitation::query()->where('client_id', $client->id)->whereNull('accepted_at')
+            ->get(['user_id', 'email', 'sent_at', 'expires_at', 'accepted_at', 'password_fingerprint', 'created_at'])->keyBy('user_id');
 
         return Inertia::render('admin/clients/show', [
             'client' => new ClientResource($client->load('group')),
             'contacts' => $client->contacts()->orderBy('first_name')->orderBy('id')->get(['id', 'first_name', 'last_name', 'email', 'phone', 'email_preferences']),
-            'users' => $client->users()->orderByDesc('client_user.is_owner')->orderBy('users.id')->get(['users.id', 'users.name', 'users.email', 'users.last_login_at'])
+            // The password, two-factor and status columns only decide whether an invitation works or may be sent; they
+            // are not sent to the page.
+            'users' => $client->users()->orderByDesc('client_user.is_owner')->orderBy('users.id')
+                ->get(['users.id', 'users.name', 'users.email', 'users.last_login_at', 'users.password', 'users.password_changed_at', 'users.two_factor_secret', 'users.two_factor_confirmed_at', 'users.is_staff', 'users.is_active', 'users.created_at', 'users.email_verified_at'])
                 ->map(fn (User $login): array => [
                     'id' => $login->id,
                     'name' => $login->name,
@@ -93,11 +97,15 @@ class ClientController extends Controller
                     'is_owner' => (bool) $login->getRelation('pivot')->getAttribute('is_owner'),
                     'permissions' => json_decode((string) $login->getRelation('pivot')->getAttribute('permissions'), true) ?: [],
                     'last_login_at' => $login->last_login_at?->toIso8601String(),
-                    // An invitation not accepted yet: pending until it expires, then staff can send a new one.
-                    'invitation' => ($invitation = $invitations->get($login->id)) === null || $invitation->accepted_at !== null ? null : [
+                    'email_verified' => $login->email_verified_at !== null,
+                    // An invitation not accepted yet and still for this login: pending until it expires, then staff can
+                    // send a new one. A void one (the login has been used since) shows nothing; staff send a reset.
+                    'invitation' => ($invitation = $invitations->get($login->id)) === null || $invitation->loginChanged($login) ? null : [
                         'state' => $invitation->isExpired() ? 'expired' : 'pending',
                         'expires_at' => $invitation->expires_at->toIso8601String(),
                     ],
+                    // Staff may send an invitation (rather than a password reset) only to a login nobody has used.
+                    'can_invite' => $client->status !== 'closed' && ($invitation !== null ? ! $invitation->loginChanged($login) : ClientInvitation::invitableWithoutOne($login)),
                 ]),
             // Modules contribute stat cards and lists to the "admin-client" dashboard area (money, counts, latest rows).
             'summary' => $dashboard->resolveWidgets('admin-client', $user, null, $client),

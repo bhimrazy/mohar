@@ -8,6 +8,7 @@ use App\Actions\Fortify\RefuseExpiredPassword;
 use App\Actions\Fortify\RememberValidatedLogin;
 use App\Actions\Fortify\ResetUserPassword;
 use App\Actions\Fortify\SignInValidatedUser;
+use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Http\Responses\PasswordConfirmedResponse;
 use App\Http\Responses\PasswordResetFailedResponse;
@@ -35,6 +36,7 @@ use Laravel\Fortify\Contracts\SuccessfulPasswordResetLinkRequestResponse;
 use Laravel\Fortify\Events\ValidTwoFactorAuthenticationCodeProvided;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
+use Laravel\Fortify\Http\Controllers\RegisteredUserController as FortifyRegisteredUserController;
 
 class FortifyServiceProvider extends ServiceProvider
 {
@@ -51,6 +53,8 @@ class FortifyServiceProvider extends ServiceProvider
         $this->app->bind(PasswordConfirmedResponseContract::class, PasswordConfirmedResponse::class);
         // …and the same error on POST /reset-password, whether or not the address has an account.
         $this->app->bind(FailedPasswordResetResponse::class, PasswordResetFailedResponse::class);
+        // Sign-up survives a down mail server once the account is committed.
+        $this->app->bind(FortifyRegisteredUserController::class, RegisteredUserController::class);
     }
 
     /**

@@ -12,13 +12,15 @@ use Illuminate\Support\Str;
 final class LoginSessions
 {
     /**
-     * Delete every stored session of the login. Other session drivers cannot be searched by user; EnsureActiveUser
-     * covers a disabled login there, and a new remember token covers cookies.
+     * Delete every stored session of the login, except the one named by $keep (the request that changed the
+     * password). Other session drivers cannot be searched by user; EnsureActiveUser covers a disabled login there, and
+     * a new remember token covers cookies.
      */
-    public static function revoke(User $user): void
+    public static function revoke(User $user, ?string $keep = null): void
     {
         if (config('session.driver') === 'database') {
-            DB::connection(config('session.connection'))->table((string) config('session.table', 'sessions'))->where('user_id', $user->id)->delete();
+            DB::connection(config('session.connection'))->table((string) config('session.table', 'sessions'))->where('user_id', $user->id)
+                ->when($keep !== null, fn ($query) => $query->where('id', '!=', $keep))->delete();
         }
     }
 

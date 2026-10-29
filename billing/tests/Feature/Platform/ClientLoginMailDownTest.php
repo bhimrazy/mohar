@@ -1,0 +1,173 @@
+<?php
+
+use App\Contracts\Auth\AuthMailer;
+use App\Contracts\Notifications\SystemMailer;
+use App\Enums\SystemMailOutcome;
+use App\Models\User;
+use App\Modules\Core\Models\ActivityLog;
+use App\Modules\Core\Models\Client;
+use App\Modules\Core\Models\ClientInvitation;
+use App\Modules\Core\Support\LaravelAuthMailer;
+use App\Modules\Core\Support\NullSystemMailer;
+use App\Modules\Platform\Notifications\ClientInvitationNotification;
+use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Contracts\Notifications\Dispatcher;
+use Illuminate\Support\Facades\Notification;
+use Symfony\Component\Mailer\Exception\TransportException;
+
+/*
+ * #443: with the mail server down, adding a client login, sending a new invitation or a password reset no longer
+ * ends in an error page. What was committed stays; the invitation is put back as it was; staff get a warning and the
+ * activity log has the failure (#438's pattern).
+ */
+
+beforeEach(function () {
+    $this->client = Client::factory()->withOwner()->create(['company_name' => 'Himal Web', 'email' => 'owner@himalweb.com.np']);
+    actingAsStaff(['core.clients.view', 'core.users.manage']);
+    confirmPassword();
+});
+
+/**
+ * Framework mail only (no templates), and every notification fails in the transport. Returns the reported messages.
+ *
+ * @return ArrayObject<int, string>
+ */
+function clientLoginMailDown(): ArrayObject
+{
+    app()->instance(SystemMailer::class, new NullSystemMailer);
+    app()->instance(AuthMailer::class, new LaravelAuthMailer);
+    app()->instance(Dispatcher::class, new class implements Dispatcher
+    {
+        public function send($notifiables, $notification): void
+        {
+            throw new TransportException('smtp down');
+        }
+
+        public function sendNow($notifiables, $notification, ?array $channels = null): void
+        {
+            throw new TransportException('smtp down');
+        }
+    });
+    $reported = new ArrayObject;
+    app(ExceptionHandler::class)->reportable(function (TransportException $e) use ($reported): void {
+        $reported[] = $e->getMessage();
+    });
+
+    return $reported;
+}
+
+/**
+ * A new login invited while mail works, with its open invitation.
+ */
+function clientLoginInvited(Client $client): User
+{
+    app()->instance(SystemMailer::class, new NullSystemMailer);
+    Notification::fake();
+    test()->post(route('admin.platform.clients.users.store', $client), ['email' => 'helper@example.com.np', 'name' => 'Hari Helper', 'permissions' => ['billing']])
+        ->assertSessionHasNoErrors();
+    Notification::assertSentTo($user = User::query()->where('email', 'helper@example.com.np')->sole(), ClientInvitationNotification::class);
+
+    return $user;
+}
+
+test('adding a new login with the mail server down keeps the login, records no invitation and warns', function () {
+    $reported = clientLoginMailDown();
+
+    $this->post(route('admin.platform.clients.users.store', $this->client), ['email' => 'helper@example.com.np', 'name' => 'Hari Helper', 'permissions' => ['billing']])
+        ->assertRedirect(route('admin.clients.show', $this->client))
+        ->assertInertiaFlash('toast.type', 'warning')
+        ->assertInertiaFlash('toast.message', 'helper@example.com.np was added, but the invitation could not be sent because the mail server could not be reached. Once mail works, send the invitation again from the login\'s menu. The notice to the account owner was not sent either.');
+
+    $user = User::query()->where('email', 'helper@example.com.np')->sole();
+    $failed = ActivityLog::query()->where('event', 'account.notice_failed')->get()->keyBy('properties.notice');
+    expect($this->client->users()->whereKey($user->id)->exists())->toBeTrue()
+        ->and(ClientInvitation::query()->count())->toBe(0)
+        ->and($reported->getArrayCopy())->toBe(['smtp down', 'smtp down'])
+        ->and($failed['auth.user_invitation']->client_id)->toBe($this->client->id)
+        ->and($failed['auth.user_invitation']->properties)->toMatchArray(['recipient' => 'helper@example.com.np', 'reason' => TransportException::class])
+        ->and($failed['auth.login_added']->properties)->toMatchArray(['recipient' => 'owner@himalweb.com.np']);
+});
+
+test('once mail works, staff send the invitation again to the login whose first one failed', function () {
+    clientLoginMailDown();
+    $this->post(route('admin.platform.clients.users.store', $this->client), ['email' => 'helper@example.com.np', 'name' => 'Hari Helper', 'permissions' => ['billing']]);
+    $user = User::query()->where('email', 'helper@example.com.np')->sole();
+    $login = fn () => collect($this->get(route('admin.clients.show', $this->client))->viewData('page')['props']['users'])->firstWhere('id', $user->id);
+    expect($login())->toMatchArray(['invitation' => null, 'can_invite' => true]);
+
+    // Mail works again, in a later request (AccountMail is scoped to one).
+    app()->instance(Dispatcher::class, Notification::fake());
+    app()->forgetScopedInstances();
+    $this->post(route('admin.platform.clients.users.invitation', [$this->client, $user]))
+        ->assertSessionHasNoErrors()->assertInertiaFlash('toast.type', 'success');
+
+    Notification::assertSentTo($user, ClientInvitationNotification::class);
+    expect(ClientInvitation::query()->sole()->user_id)->toBe($user->id)
+        ->and($login()['invitation'])->toMatchArray(['state' => 'pending']);
+});
+
+test('a login without an invitation that verified its email or signed in gets a password reset, never an invitation', function () {
+    $verified = User::factory()->create(['email' => 'own@example.com.np']);
+    $signedIn = User::factory()->unverified()->create(['email' => 'used@example.com.np', 'last_login_at' => now()]);
+    foreach ([$verified, $signedIn] as $user) {
+        $this->client->users()->attach($user, ['is_owner' => false, 'permissions' => '[]']);
+    }
+    $logins = collect($this->get(route('admin.clients.show', $this->client))->viewData('page')['props']['users'])->keyBy('email');
+
+    expect($logins['own@example.com.np']['can_invite'])->toBeFalse()
+        ->and($logins['used@example.com.np']['can_invite'])->toBeFalse();
+    foreach ([$verified, $signedIn] as $user) {
+        $this->post(route('admin.platform.clients.users.invitation', [$this->client, $user]))->assertSessionHasErrors('user');
+    }
+    expect(ClientInvitation::query()->count())->toBe(0);
+});
+
+test('a new invitation with the mail server down leaves the earlier link working and warns', function () {
+    $user = clientLoginInvited($this->client);
+    $before = ClientInvitation::query()->sole()->only(['token_hash', 'sent_at', 'expires_at', 'password_fingerprint']);
+    $this->travel(2)->minutes();
+    clientLoginMailDown();
+
+    $this->post(route('admin.platform.clients.users.invitation', [$this->client, $user]))
+        ->assertRedirect(route('admin.clients.show', $this->client))
+        ->assertInertiaFlash('toast.type', 'warning')
+        ->assertInertiaFlash('toast.message', 'The new invitation to helper@example.com.np could not be sent because the mail server could not be reached. The earlier link is unchanged. Try again once mail works.');
+
+    expect(ClientInvitation::query()->sole()->only(array_keys($before)))->toEqual($before)
+        ->and(ActivityLog::query()->where('event', 'client.invitation_resent')->exists())->toBeFalse()
+        ->and(ActivityLog::query()->where('event', 'account.notice_failed')->sole()->properties)->toMatchArray(['notice' => 'auth.user_invitation']);
+});
+
+test('a staff password reset with the mail server down is refused with a message, not an error page', function () {
+    $user = User::factory()->create(['email' => 'legacy@example.com.np']);
+    $this->client->users()->attach($user, ['is_owner' => false, 'permissions' => '[]']);
+    $reported = clientLoginMailDown();
+
+    $this->post(route('admin.platform.clients.users.password-reset', [$this->client, $user]))
+        ->assertRedirect()
+        ->assertSessionHasErrors(['user' => 'The password reset email could not be sent because the mail server could not be reached. Try again once mail works.']);
+
+    expect($reported->getArrayCopy())->toBe(['smtp down'])
+        ->and(ActivityLog::query()->where('event', 'client.password_reset_sent')->exists())->toBeFalse()
+        ->and(ActivityLog::query()->where('event', 'account.notice_failed')->sole()->properties)->toMatchArray(['notice' => 'auth.password_reset', 'recipient' => 'legacy@example.com.np']);
+});
+
+test('a staff email change whose copy to the new address alone fails does not blame the previous address', function () {
+    actingAsStaff();
+    confirmPassword();
+    $other = User::factory()->staff()->create(['email' => 'agent@example.com.np']);
+    Notification::fake();
+    app()->instance(SystemMailer::class, new class implements SystemMailer
+    {
+        public function send(string $templateKey, User|string $recipient, array $context, string $occurrenceKey, ?int $clientId = null, bool $carriesSecret = false): SystemMailOutcome
+        {
+            return $recipient === 'agent.new@example.com.np' ? SystemMailOutcome::Refused : SystemMailOutcome::Taken;
+        }
+    });
+
+    $this->put(route('admin.platform.staff.update', $other), ['name' => $other->name, 'email' => 'agent.new@example.com.np', 'role_id' => $other->role_id, 'is_active' => true])
+        ->assertInertiaFlash('toast.type', 'warning')
+        ->assertInertiaFlash('toast.message', 'Staff member '.$other->name.' saved. A security notice about it could not be delivered. The activity log has the details.');
+
+    expect(ActivityLog::query()->where('event', 'account.notice_failed')->sole()->properties)->toMatchArray(['recipient' => 'agent.new@example.com.np']);
+});

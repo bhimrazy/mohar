@@ -12,14 +12,16 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientInvitation;
 use App\Modules\Core\Support\AccountLinks;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\InvitationExpiry;
+use App\Modules\Core\Support\LoginSessions;
 use App\Modules\Platform\Notifications\ClientInvitationNotification;
 use App\Modules\Platform\Support\AccountMail;
-use App\Modules\Platform\Support\InvitationExpiry;
 use App\Modules\Platform\Support\PlatformClientLoginInvitations;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 /**
  * Logins (users) that can act for a client account: invite, per-area permissions, ownership transfer, removal.
@@ -30,7 +32,10 @@ class ManageClientLogins
 
     /**
      * Give an email address access to the account. Unknown addresses get a new login and the invitation email (its
-     * link sets the password); existing logins are told they have access. Staff logins cannot be attached.
+     * link sets the password). An existing login is attached only when it proved its email: one that signed up with
+     * the address and never verified it is refused, since holding it proves nothing about the mailbox (security
+     * review 2026-10-29, M2), and it may know its own password, so it is not sent an invitation either. Staff logins
+     * cannot be attached.
      *
      * @param  list<string>  $permissions
      *
@@ -50,6 +55,10 @@ class ManageClientLogins
         }
 
         $created = $user === null;
+
+        if (! $created && $user->email_verified_at === null) {
+            throw ValidationException::withMessages(['email' => __('This address belongs to a login that has not verified it, so it can\'t be added. Ask them to sign in and verify their email address from their own account, then add it again.')]);
+        }
 
         // A new login is invited with a one-time link: refuse before creating anything when no link could be mailed.
         if ($created && ($problem = AccountLinks::problem()) !== null) {
@@ -82,7 +91,7 @@ class ManageClientLogins
     }
 
     /**
-     * Sends a new invitation to a login that has not accepted one yet; the previous link stops working.
+     * Sends a new invitation to a never-used login that has not accepted one yet; the previous link stops working.
      *
      * @throws ValidationException
      */
@@ -90,11 +99,13 @@ class ManageClientLogins
     {
         $invitation = ClientInvitation::query()->where('client_id', $client->id)->where('user_id', $user->id)->first();
 
-        // An invitation only ever activates a never-used login. Anything else gets a password reset instead.
+        // An invitation only ever activates a never-used login: one with an open invitation, or (#443, after a send
+        // that failed) an unverified one with none. Anything else gets a password reset instead.
         $refusal = match (true) {
-            $invitation === null => __('This login has no open invitation (it may have been invited before invitations had their own link, or set its password already). Send a password reset instead.'),
-            $invitation->accepted_at !== null => __('This login has already accepted its invitation. Send a password reset instead.'),
-            $invitation->isVoid() => __('This login already has a password, two-factor authentication or a sign-in, so it can\'t be invited again. Send a password reset instead.'),
+            $client->status === 'closed' => __('This account is closed, so no invitation can be sent.'),
+            $invitation === null && ! ClientInvitation::invitableWithoutOne($user) => __('This login has no open invitation and may already have a password (it verified its email, signed in or set one). Send a password reset instead.'),
+            $invitation?->accepted_at !== null => __('This login has already accepted its invitation. Send a password reset instead.'),
+            $invitation?->isVoid() === true => __('This login already has a password, two-factor authentication or a sign-in, so it can\'t be invited again. Send a password reset instead.'),
             default => null,
         };
 
@@ -106,17 +117,72 @@ class ManageClientLogins
             throw ValidationException::withMessages(['user' => __('Invitation not sent: the link host isn\'t your site address. :problem', ['problem' => $problem])]);
         }
 
-        $this->sendInvitation($user, $client);
-        $this->activity->log('Invitation sent again', $user, $client->id, ['email' => $user->email], 'client.invitation_resent');
+        $sent = $invitation !== null ? $this->sendInvitation($user, $client) : $this->sendFirstInvitation($user, $client);
+
+        if ($sent) {
+            $this->activity->log('Invitation sent again', $user, $client->id, ['email' => $user->email], 'client.invitation_resent');
+        }
+    }
+
+    /**
+     * With no invitation row, "never signed in" does not prove nobody knows the password (a sign-up can commit and
+     * fail before signing in). The link then comes with a new random password, other sessions end, and the
+     * fingerprint is taken from that password. All in one transaction that a failed send rolls back whole, so the
+     * login is left as it was and staff can try again (a transport failure is then recorded on AccountMail, a refusal
+     * logged again, since the rollback removed both).
+     *
+     * @throws ValidationException
+     */
+    private function sendFirstInvitation(User $user, Client $client): bool
+    {
+        $template = PlatformClientLoginInvitations::template(InvitationPurpose::LoginAdded);
+        $outcome = null;
+
+        try {
+            DB::transaction(function () use ($user, $client, $template, &$outcome): void {
+                $locked = User::query()->lockForUpdate()->findOrFail($user->id);
+
+                if (! ClientInvitation::invitableWithoutOne($locked)) {
+                    throw ValidationException::withMessages(['user' => __('This login has no open invitation and may already have a password (it verified its email, signed in or set one). Send a password reset instead.')]);
+                }
+
+                LoginSessions::rotateRememberToken($locked);
+                $locked->forceFill(['password' => Str::password(32)])->save();
+                LoginSessions::revoke($locked);
+
+                $outcome = $this->mailInvitation($locked, $client, $template, ($actor = auth()->user()) instanceof User ? $actor->id : null);
+                $this->refuseUnsent($outcome);
+            });
+        } catch (TransportExceptionInterface $e) {
+            $this->mail->transportFailed($e, $template, $user->email, $client->id);
+
+            return false;
+        } catch (ValidationException $e) {
+            if ($outcome === SystemMailOutcome::Refused) {
+                $this->activity->log('Invitation not sent: its link failed the security check', $user, $client->id, ['email' => $user->email], 'security');
+            }
+
+            throw $e;
+        }
+
+        return true;
     }
 
     /**
      * Staff send the login a password-reset link (the normal reset email, through AuthMailer), for logins that can't
-     * be invited again.
+     * be invited again. A mail transport failure is recorded on AccountMail and refused with a message.
+     *
+     * @throws ValidationException
      */
     public function sendPasswordReset(Client $client, User $user): void
     {
-        $status = Password::broker()->sendResetLink(['email' => $user->email]);
+        try {
+            $status = Password::broker()->sendResetLink(['email' => $user->email]);
+        } catch (TransportExceptionInterface $e) {
+            $this->mail->transportFailed($e, 'auth.password_reset', $user->email, $client->id);
+
+            throw ValidationException::withMessages(['user' => __('The password reset email could not be sent because the mail server could not be reached. Try again once mail works.')]);
+        }
 
         if ($status !== Password::RESET_LINK_SENT) {
             throw ValidationException::withMessages(['user' => __($status)]);
@@ -130,14 +196,33 @@ class ManageClientLogins
      * number of days; a new invitation replaces the token, so an older link stops working. Accepting it sets the
      * password. When the template system refuses it (its link failed the checks) nothing is sent by any other path:
      * the refusal is a security event and staff see it on the form. The Platform notification is used only when no
-     * template system is there to take it.
+     * template system is there to take it. When the mail transport fails, the invitation is put back as it was and the
+     * failure is recorded on AccountMail (the action that called this is committed); the result is false.
      *
      * @throws ValidationException
      */
-    private function sendInvitation(User $user, Client $client): void
+    private function sendInvitation(User $user, Client $client): bool
     {
-        $outcome = $this->mailInvitation($user, $client, PlatformClientLoginInvitations::template(InvitationPurpose::LoginAdded), ($actor = auth()->user()) instanceof User ? $actor->id : null);
+        $template = PlatformClientLoginInvitations::template(InvitationPurpose::LoginAdded);
 
+        try {
+            $outcome = $this->mailInvitation($user, $client, $template, ($actor = auth()->user()) instanceof User ? $actor->id : null);
+        } catch (TransportExceptionInterface $e) {
+            $this->mail->transportFailed($e, $template, $user->email, $client->id);
+
+            return false;
+        }
+
+        $this->refuseUnsent($outcome);
+
+        return true;
+    }
+
+    /**
+     * @throws ValidationException when the template system refused the invitation or held it
+     */
+    private function refuseUnsent(SystemMailOutcome $outcome): void
+    {
         if ($outcome === SystemMailOutcome::Refused) {
             throw ValidationException::withMessages(['email' => __('The login was added, but the invitation was not sent: its link failed the security check. Check APP_URL, then send the invitation again.')]);
         }
@@ -151,7 +236,9 @@ class ManageClientLogins
      * Mails a new invitation link with the given template, replacing the login's earlier link. When the template
      * system refuses it, or holds it because mail is off (Suppressed), the invitation is put back as it was (removed,
      * or the earlier link restored), so nothing looks sent that was not, and nothing else sends it. A refusal is also
-     * logged as a security event.
+     * logged as a security event. A mail transport failure puts it back the same way and is rethrown.
+     *
+     * @throws TransportExceptionInterface
      */
     public function mailInvitation(User $user, Client $client, string $templateKey, ?int $actorId): SystemMailOutcome
     {
@@ -160,25 +247,33 @@ class ManageClientLogins
         $previous = ClientInvitation::query()->where('client_id', $client->id)->where('user_id', $user->id)->first();
         $invitation = ClientInvitation::query()->updateOrCreate(
             ['client_id' => $client->id, 'user_id' => $user->id],
-            ['token_hash' => ClientInvitation::hashToken($token), 'email' => mb_strtolower($user->email), 'sent_at' => now(), 'expires_at' => $expiresAt, 'accepted_at' => null, 'invited_by' => $actorId],
+            ['token_hash' => ClientInvitation::hashToken($token), 'email' => mb_strtolower($user->email), 'sent_at' => now(), 'expires_at' => $expiresAt, 'accepted_at' => null, 'invited_by' => $actorId,
+                'password_fingerprint' => ClientInvitation::fingerprint($user->password)],
         );
         $url = AccountLinks::withAppOrigin(fn (): string => route('platform.client-invitations.show', $token));
+        $putBack = fn () => $previous === null ? $invitation->delete() : $invitation->forceFill($previous->only(['token_hash', 'email', 'sent_at', 'expires_at', 'accepted_at', 'invited_by', 'password_fingerprint']))->save();
 
-        $outcome = $this->mailer->send($templateKey, $user, [
-            'user' => ['first_name' => Str::before(trim($user->name), ' '), 'email' => $user->email],
-            'auth' => ['invite_url' => new SensitiveValue($url, secret: $token), 'expires_at' => $expiresAt, 'expires_in' => InvitationExpiry::phrase()],
-        ], 'invite|'.$user->id.'|'.ClientInvitation::hashToken($token), $client->id, carriesSecret: true);
+        try {
+            $outcome = $this->mailer->send($templateKey, $user, [
+                'user' => ['first_name' => Str::before(trim($user->name), ' '), 'email' => $user->email],
+                'auth' => ['invite_url' => new SensitiveValue($url, secret: $token), 'expires_at' => $expiresAt, 'expires_in' => InvitationExpiry::phrase()],
+            ], 'invite|'.$user->id.'|'.ClientInvitation::hashToken($token), $client->id, carriesSecret: true);
+
+            if ($outcome === SystemMailOutcome::Unavailable) {
+                $user->notify(new ClientInvitationNotification($client->display_name, $url, $expiresAt));
+            }
+        } catch (TransportExceptionInterface $e) {
+            $putBack();
+
+            throw $e;
+        }
 
         if ($outcome === SystemMailOutcome::Refused || $outcome === SystemMailOutcome::Suppressed) {
-            $previous === null ? $invitation->delete() : $invitation->forceFill($previous->only(['token_hash', 'email', 'sent_at', 'expires_at', 'accepted_at', 'invited_by']))->save();
+            $putBack();
         }
 
         if ($outcome === SystemMailOutcome::Refused) {
             $this->activity->log('Invitation not sent: its link failed the security check', $user, $client->id, ['email' => $user->email], 'security');
-        }
-
-        if ($outcome === SystemMailOutcome::Unavailable) {
-            $user->notify(new ClientInvitationNotification($client->display_name, $url, $expiresAt));
         }
 
         return $outcome;
@@ -200,6 +295,10 @@ class ManageClientLogins
     {
         if ($user->is_staff) {
             throw ValidationException::withMessages(['user' => __('Staff logins cannot own client accounts.')]);
+        }
+
+        if ($user->email_verified_at === null) {
+            throw ValidationException::withMessages(['user' => __('Only a login that has verified its email address can own the account. An invited login verifies it by accepting the invitation.')]);
         }
 
         $previousOwners = $client->users()->wherePivot('is_owner', true)->get();

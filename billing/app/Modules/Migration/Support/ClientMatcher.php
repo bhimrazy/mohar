@@ -28,6 +28,9 @@ final class ClientMatcher
     private const COMPARED = ['first_name', 'last_name', 'company_name', 'email', 'phone', 'address_1', 'address_2', 'city', 'state',
         'postcode', 'country', 'tax_id', 'tax_exempt', 'currency', 'client_group_id', 'language', 'status', 'notes'];
 
+    /** Candidates read per query by the company-name check. */
+    private const COMPANY_PAGE = 2000;
+
     private const LEGAL_SUFFIXES = '/\b(private limited|pvt ltd|pvt|ltd|limited|llc|inc|incorporated|gmbh|plc|co)\b/';
 
     /**
@@ -287,32 +290,39 @@ final class ClientMatcher
 
     /**
      * Existing clients whose company name matches a row's, compared without case, punctuation or legal suffixes.
-     * Candidates share the name's first word; at most five queries per chunk.
+     * Candidates share the name's first word. They are read as id and name only, COMPANY_PAGE at a time, so memory
+     * stays flat however many clients share a word (#171); full rows are loaded for the matches alone. One query per
+     * 200 words and per page of candidates, plus one for the matches.
      *
      * @param  list<array{client: array<string, mixed>}>  $rows
      * @return array<string, Client>
      */
     private function companies(array $rows): array
     {
-        $keys = array_values(array_unique(array_filter(array_map(fn (array $row): ?string => $this->companyKey($row['client']['company_name'] ?? null), $rows))));
-        $found = [];
+        $keys = array_flip(array_values(array_unique(array_filter(array_map(fn (array $row): ?string => $this->companyKey($row['client']['company_name'] ?? null), $rows)))));
+        $ids = [];
 
-        foreach (array_chunk(array_values(array_unique(array_map(fn (string $key): string => strtok($key, ' ') ?: $key, $keys))), 200) as $words) {
-            $candidates = Client::query()->where(function (Builder $query) use ($words): void {
+        foreach (array_chunk(array_values(array_unique(array_map(fn (string $key): string => strtok($key, ' ') ?: $key, array_keys($keys)))), 200) as $words) {
+            Client::query()->where(function (Builder $query) use ($words): void {
                 foreach ($words as $word) {
                     Like::where($query, 'company_name', Like::startsWith($word), 'or');
                 }
-            })->orderBy('id')->get(['id', ...self::COMPARED, 'merged_into_client_id', 'email_changed_at']);
-
-            foreach ($candidates as $client) {
-                $key = $this->companyKey($client->company_name);
-                if ($key !== null && in_array($key, $keys, true)) {
-                    $found[$key] ??= $client;
+            })->toBase()->select(['id', 'company_name'])->lazyById(self::COMPANY_PAGE)->each(function (object $candidate) use ($keys, &$ids): void {
+                $key = $this->companyKey($candidate->company_name);
+                // Pages come in id order, so the first client with a key is kept.
+                if ($key !== null && isset($keys[$key])) {
+                    $ids[$key] ??= (int) $candidate->id;
                 }
-            }
+            });
         }
 
-        return $found;
+        if ($ids === []) {
+            return [];
+        }
+
+        $clients = $this->clients(fn (Builder $query) => $query->whereKey(array_values($ids)))->keyBy('id');
+
+        return array_filter(array_map(fn (int $id): ?Client => $clients->get($id), $ids));
     }
 
     /**

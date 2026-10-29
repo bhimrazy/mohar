@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Settings;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\PasswordUpdateRequest;
 use App\Http\Requests\Settings\TwoFactorAuthenticationRequest;
+use App\Modules\Core\Support\LoginSessions;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Validation\Rules\Password;
 use Inertia\Inertia;
@@ -55,9 +56,13 @@ class SecurityController extends Controller
      */
     public function update(PasswordUpdateRequest $request): RedirectResponse
     {
-        $request->user()->update([
+        $user = $request->user();
+        // Other browsers and remember-me cookies stop working; this session stays (security review 2026-10-29, M2).
+        LoginSessions::rotateRememberToken($user);
+        $user->update([
             'password' => $request->password,
         ]);
+        LoginSessions::revoke($user, $request->session()->getId());
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Password updated.')]);
 
