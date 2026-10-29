@@ -3,7 +3,6 @@
 namespace App\Modules\Platform\Actions\Clients;
 
 use App\Events\Core\ClientMerged;
-use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientInvitation;
 use App\Modules\Core\Support\ActivityLogger;
@@ -45,21 +44,18 @@ class MergeClients
 
     /**
      * Source logins that would join the target without having proved their email (security review 2026-10-29, M2:
-     * the same rule as adding a login). Refused rather than dropped, so no legitimate login is lost silently. A login
-     * staff invited that nobody has used yet is not one: its invitation, which proves the mailbox, moves with it.
+     * the same rule as adding a login), invited ones included: a login with no sign-in may still have a password its
+     * holder chose. Refused rather than dropped, so no legitimate login is lost silently.
      *
      * @return list<string>
      */
     private function unverifiedLogins(Client $source, Client $target): array
     {
-        $logins = $source->users()->whereNull('users.email_verified_at')
+        $emails = $source->users()->whereNull('users.email_verified_at')
             ->whereNotIn('users.id', DB::table('client_user')->where('client_id', $target->id)->select('user_id'))
-            ->orderBy('users.email')->get();
-        $invitations = ClientInvitation::query()->where('client_id', $source->id)->whereNull('accepted_at')
-            ->whereIn('user_id', $logins->modelKeys())->get()->keyBy('user_id');
+            ->orderBy('users.email')->pluck('users.email')->all();
 
-        return array_values($logins->reject(fn (User $login): bool => ($invitation = $invitations->get($login->id)) !== null && ! $invitation->loginChanged($login))
-            ->map(fn (User $login): string => $login->email)->all());
+        return array_values(array_map(fn (mixed $email): string => (string) $email, $emails));
     }
 
     /**

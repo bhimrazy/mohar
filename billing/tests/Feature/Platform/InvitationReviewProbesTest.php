@@ -10,6 +10,7 @@ use App\Modules\Platform\Actions\Clients\MergeClients;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\ValidationException;
 use Inertia\Testing\AssertableInertia as Assert;
 
 /*
@@ -42,24 +43,21 @@ it('indexes every foreign key of client_invitations (architecture.md: indexes on
         ->and(Schema::hasIndex('client_invitations', ['invited_by']))->toBeTrue();
 });
 
-it('moves a pending invitation with its login when clients are merged', function () {
+it('refuses a merge while a login has a pending invitation, and moves the login once it accepted', function () {
     $source = Client::factory()->withOwner()->create(['company_name' => 'Source Ltd']);
     $target = Client::factory()->withOwner()->create(['company_name' => 'Target Ltd']);
     $token = probeInvite($source);
     $helper = User::query()->where('email', 'helper@example.test')->sole();
 
-    app(MergeClients::class)->handle($source, $target->fresh());
+    // Unverified until it accepts (#520, M2): staff wait for acceptance or remove the login.
+    expect(fn () => app(MergeClients::class)->handle($source, $target->fresh()))->toThrow(ValidationException::class, 'helper@example.test');
+    expect(ClientInvitation::query()->where('user_id', $helper->id)->sole()->client_id)->toBe($source->id);
 
-    // The login now belongs to the target only; its open invitation must follow it.
-    expect(ClientInvitation::query()->where('user_id', $helper->id)->sole()->client_id)->toBe($target->id);
-
-    actingAsStaff(['core.users.manage', 'core.clients.view']);
-    $this->get(route('admin.clients.show', $target))
-        ->assertInertia(fn (Assert $page) => $page->where('users', fn ($users) => collect($users)->firstWhere('email', 'helper@example.test')['invitation'] !== null));
-
+    $this->post(route('platform.client-invitations.accept', $token), ['password' => 'Invite-Passw0rd!x', 'password_confirmation' => 'Invite-Passw0rd!x'])->assertSessionHasNoErrors();
     auth()->logout();
-    $this->get(route('platform.client-invitations.show', $token))
-        ->assertInertia(fn (Assert $page) => $page->where('account', $target->fresh()->display_name));
+    app(MergeClients::class)->handle($source->fresh(), $target->fresh());
+
+    expect($target->users()->whereKey($helper->id)->exists())->toBeTrue();
 });
 
 it('stops showing a login as invited, and voids its link, once it set a password through "Forgot your password?"', function () {

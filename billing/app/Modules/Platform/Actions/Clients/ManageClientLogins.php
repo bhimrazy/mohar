@@ -13,6 +13,7 @@ use App\Modules\Core\Models\ClientInvitation;
 use App\Modules\Core\Support\AccountLinks;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\InvitationExpiry;
+use App\Modules\Core\Support\LoginSessions;
 use App\Modules\Platform\Notifications\ClientInvitationNotification;
 use App\Modules\Platform\Support\AccountMail;
 use App\Modules\Platform\Support\PlatformClientLoginInvitations;
@@ -116,7 +117,24 @@ class ManageClientLogins
             throw ValidationException::withMessages(['user' => __('Invitation not sent: the link host isn\'t your site address. :problem', ['problem' => $problem])]);
         }
 
-        if ($this->sendInvitation($user, $client)) {
+        // With no invitation row, "never signed in" does not prove nobody knows the password (a sign-up can commit and
+        // fail before signing in). The link then comes with a new random password, other sessions end, and the
+        // fingerprint is taken from that password.
+        $sent = $invitation !== null ? $this->sendInvitation($user, $client) : DB::transaction(function () use ($user, $client): bool {
+            $locked = User::query()->lockForUpdate()->findOrFail($user->id);
+
+            if (! ClientInvitation::invitableWithoutOne($locked)) {
+                throw ValidationException::withMessages(['user' => __('This login has no open invitation and may already have a password (it verified its email, signed in or set one). Send a password reset instead.')]);
+            }
+
+            LoginSessions::rotateRememberToken($locked);
+            $locked->forceFill(['password' => Str::password(32)])->save();
+            LoginSessions::revoke($locked);
+
+            return $this->sendInvitation($locked, $client);
+        });
+
+        if ($sent) {
             $this->activity->log('Invitation sent again', $user, $client->id, ['email' => $user->email], 'client.invitation_resent');
         }
     }

@@ -8,7 +8,12 @@
   activity log as `account.notice_failed`. With the template system, mail is queued and a down server never reached
   the request.
 - **Staff can send an invitation to a login whose first invitation was not sent (#443).** The login's menu offers
-  "Send an invitation" for a login nobody has used and that has not verified its email, the logins staff add.
+  "Send an invitation" for a login nobody has used and that has not verified its email, the logins staff add. Such an
+  invitation replaces the login's password with a new random one and ends its other sessions, so only the link sets a
+  password.
+- **A sign-up whose verification email cannot be sent (mail server down, no template system) no longer shows an
+  error page.** The person is signed in and asked to resend the email; the failure is reported and logged as
+  `auth.email_verification_failed`.
 - **A staff email change whose notice to the new address alone fails no longer says the previous address was not
   told (#443).** The general "security notice could not be delivered" warning is shown instead.
 - **The "Invited" badge on a client's logins shows only while the invitation still works (#97).** A login that has
@@ -27,8 +32,9 @@
 - **Staff can no longer add an existing login that never verified its email to a client account, make such a login
   the owner, or move it to another client by merging (security review 2026-10-29, M2).** Holding a login with an
   unverified address proves nothing about the mailbox. Adding is refused with what the person must do (verify the
-  address from their own account); a merge is refused with the unverified logins listed, so staff can have them
-  verify or remove them first. "Make owner" is no longer offered for such a login.
+  address from their own account); a merge is refused with the unverified logins listed, a login with a pending
+  invitation included, so staff wait for it to be accepted or remove the login first. "Make owner" is no longer
+  offered for such a login.
 - **A password reset, a password change and accepting an invitation now end the login's other sessions (M2).** Stored
   sessions are deleted and remember-me cookies stop working; a change keeps the session that made it. Other session
   drivers than `database` cannot be searched by login, so only the remember-me cookies end there.
