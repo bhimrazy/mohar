@@ -153,6 +153,7 @@ App\Contracts\Currencies\PriceConverter method preview(int $samples = 10): App\D
 App\Contracts\Currencies\PriceConverter method settingsSection(): ?string
 App\Contracts\Currencies\PriceConverter method usesCurrency(string $code): bool
 App\Contracts\Domains\DomainNameRules interface
+App\Contracts\Domains\DomainNameRules method registeredByClient(string $tld): bool
 App\Contracts\Domains\DomainNameRules method registryLevelError(string $domain): ?string
 App\Contracts\Domains\DomainPricing interface
 App\Contracts\Domains\DomainPricing method catalog(string $currency, ?int $clientId = null): array
