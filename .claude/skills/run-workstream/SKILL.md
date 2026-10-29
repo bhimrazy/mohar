@@ -45,8 +45,9 @@ Merge origin/develop (no rebase); squash only against a fixed SHA, never a movin
 ## 3. Review
 
 When the engineer reports a pushed, clean head, launch per the policy table (background, same model rule). Tell every
-review or probe agent to create scratch worktrees under `.claude/worktrees/_review/` and, before reporting, remove them
-(`git worktree remove`) and any test databases it made (`scripts/pg.sh --drop <slug>`):
+review or probe agent to create its scratch worktree under `.claude/worktrees/_review/<name>`, `touch .claude-in-use`
+in it, and before reporting remove the worktree (`git worktree remove`) and the test databases it made
+(`scripts/pg.sh --drop <slug>`):
 
 - Money, auth, permissions or migrations: `review-board` with "combined" in the brief (security threats and the
   tables in scope named), PR number, worktree, domain expertise, focus areas. One review.
@@ -82,7 +83,7 @@ gh pr comment <n> -b "CTO sign-off at <sha>: <each blocking item and its evidenc
 stacked=$(gh pr list --base feature/<slug> --json number --jq '.[].number'); [ -n "$stacked" ] && how=--merge || how=--squash
 for s in $stacked; do gh pr edit $s --base develop; done
 gh pr merge <n> $how --match-head-commit <sha> --delete-branch
-cd $MOHAR_ROOT && git pull --ff-only && scripts/finish-workstream.sh <slug>   # worktree, branch and test databases; --dry-run first if unsure
+cd $MOHAR_ROOT && git pull --ff-only && scripts/finish-workstream.sh <slug>   # refuses unless the work is safe; then worktree, branch, test databases (--dry-run to preview)
 ```
 
 - Code conflicts in money or auth PRs go back to the engineer; docs and lockfile conflicts the CTO resolves (changelog fragments do not conflict)

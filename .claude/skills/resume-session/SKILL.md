@@ -25,7 +25,7 @@ description: Resume the Mohar build after a Claude Code restart, a context reset
      echo "$d $(git -C "$d" branch --show-current) ahead=$(git -C "$d" rev-list --count origin/develop..HEAD) dirty=$(git -C "$d" status --short | wc -l)"
    done
    gh pr list; gh issue list
-   scripts/sweep-stale.sh    # dry run: merged worktrees, idle _review trees, orphan test databases; --apply to clean
+   scripts/sweep-stale.sh    # dry run: merged worktrees, idle _review trees, orphan databases; --apply removes trees
    ```
 
    For each open PR: `gh pr checks <n>` and `gh pr view <n> --comments` to see the latest review verdict.

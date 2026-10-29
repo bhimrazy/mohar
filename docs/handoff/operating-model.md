@@ -56,8 +56,9 @@ account, so reviews are posted as comments and the verdict line is the gate.
 7. **Merge (CTO).** Merge `origin/develop` into the branch, run the gates, mark ready, wait for CI, post the sign-off
    naming each blocking item and its evidence, `gh pr merge --squash --match-head-commit <sha>`. Use `--merge`
    instead when another open PR is based on the branch, so the stacked PR keeps its parent's commits (owner,
-   2026-10-24). Right after a successful `gh pr merge`, run `scripts/finish-workstream.sh <slug>`: it removes the
-   worktree, the local branch (only if merged or fully on origin) and the slug's test databases.
+   2026-10-24). Right after a successful `gh pr merge`, run `scripts/finish-workstream.sh <slug>`: it refuses,
+   changing nothing, unless the work is safe (clean tree, HEAD is a merged PR head or fully on origin); then it removes
+   the worktree, the local branch and the slug's test databases.
 8. **Record.** `state.md`, `billing/docs/progress.md`; the PR's changelog fragment is already in. Non-blocking items
    become issues.
 9. **Before an owner update** after user-facing merges: a `product-reviewer` sweep of `develop`; act on its
@@ -175,9 +176,12 @@ is also the owner's own machine: the agent budget above applies, `/tmp` survives
 
 Cleanup is part of the process (2026-10-29: 139 stale worktrees, 68 GB, and 1,208 test databases, 20 GB, had piled up).
 Worktrees live in `.claude/worktrees/<slug>`. The merge step runs `scripts/finish-workstream.sh <slug>`. Review and
-probe agents make scratch worktrees under `.claude/worktrees/_review/` and remove them, and any test databases they
-created (`scripts/pg.sh --drop <slug>`), before reporting. `scripts/sweep-stale.sh` (dry run; `--apply` acts) is the
-safety net, run at session start; it never touches dirty or unpushed work.
+probe agents create a scratch worktree under `.claude/worktrees/_review/<name>`, `touch .claude-in-use` in it (the
+sweep skips marked trees), and before reporting remove the worktree and the test databases they created
+(`scripts/pg.sh --drop <slug>`). `scripts/sweep-stale.sh` (dry run; `--apply` removes worktrees, `--apply --dbs` also
+drops orphan databases, only when no suite is running) is the safety net, run at session start; it never touches dirty
+or unpushed work, marked trees, or trees active in the last 12 hours. `.claude/worktrees/` is shared with Claude
+Code's own worktree feature (`EnterWorktree`, `isolation: "worktree"`); the sweep keeps those unless their PR merged.
 
 - Codespace: 4 vCPU, 15 GB RAM, 32 GB disk shared by `/`, `/workspaces` and Docker (about 9 GB is the base image). `/tmp` is a
   separate disk wiped on restart: disposable caches only (the npm cache lives there), never work.
