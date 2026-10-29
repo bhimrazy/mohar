@@ -319,6 +319,11 @@ try {
                 {
                     return null;
                 }
+
+                public function targetIds(string $entity, array $sourceIds): array
+                {
+                    return [];
+                }
             }, ['source_name' => 'Old billing']);
             $outcome = $mode === 'opening'
                 ? $importer->upsert(new ImportRecord('credit_balance', 'csv', 'race', ['amount' => (int) $amount, 'currency' => $client->currency], ['client_id' => $client->id]), $context, $client->id)

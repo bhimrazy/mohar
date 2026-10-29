@@ -33,6 +33,11 @@ function openingContext(int $runId = 7, bool $dryRun = false): ImportContext
         {
             return null;
         }
+
+        public function targetIds(string $entity, array $sourceIds): array
+        {
+            return [];
+        }
     }, ['source_name' => 'Old billing']);
 }
 
