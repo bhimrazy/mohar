@@ -224,7 +224,7 @@ cron stats.
 Mohar: strict types, PHPStan, Pint, final readonly DTOs, interfaces for every cross-module call, hard-pinned
 dependencies with a cooldown (ADR 0007). FOSSBilling: PHPStan and Rector configured, global-namespace legacy
 classes in `src/library` beside namespaced `FOSSBilling\*`, large service classes (`src/modules/Invoice/Service.php`
-is about 5,500 lines and makes 82 cross-module `mod_service` calls). Paymenter: PHPStan and Pint, a central 807-line static helper (`app/Helpers/ExtensionHelper.php`)
+is about 5,500 lines and makes 82 `mod_service` container lookups). Paymenter: PHPStan and Pint, a central 807-line static helper (`app/Helpers/ExtensionHelper.php`)
 that most money and provisioning flows go through, caret version ranges in `composer.json`, `debug_backtrace()` to
 work out an extension's type in `Extension::config()`.
 
