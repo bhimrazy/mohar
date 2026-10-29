@@ -18,6 +18,20 @@ const D3_FAKE_DOCKER = <<<'BASH'
 dir="$FAKE_DIR"
 echo "$*" >> "$dir/calls"
 args=("$@")
+if [ "${args[0]}" = image ]; then
+    # Images are lines "<id> <tag> <digest>" in $dir/images; an image's id is id-<tag>.
+    last="${args[$((${#args[@]} - 1))]}"
+    case "${args[1]}" in
+        ls) cat "$dir/images" 2>/dev/null ;;
+        inspect) grep -q "^id-${last##*:} " "$dir/images" 2>/dev/null && echo "id-${last##*:}" || exit 1 ;;
+        rm)
+            case "$last" in *"${FAKE_FAIL_RM:-@none@}"*) exit 1 ;; esac
+            echo "$last" >> "$dir/removed"
+            grep -v "^id-${last##*:} " "$dir/images" > "$dir/images.tmp"; mv "$dir/images.tmp" "$dir/images"
+            ;;
+    esac
+    exit 0
+fi
 [ "${args[0]}" = compose ] || exit 0
 i=1 sub=""
 while [ "$i" -lt "${#args[@]}" ]; do
@@ -141,6 +155,45 @@ test('deploys and rollbacks never run two schedulers or two automation workers, 
     }
 
     expect(@file_get_contents("{$dir}/violations"))->toBeFalse();
+});
+
+/** @return list<string> the image references the fake docker removed */
+function d3Removed(string $dir): array
+{
+    return array_values(array_filter(explode("\n", (string) @file_get_contents("{$dir}/removed"))));
+}
+
+test('after a deploy, old images of the repository go and the live and previous colours\' images stay', function () {
+    $this->sandbox = $dir = d3Sandbox();
+    file_put_contents("{$dir}/images", implode("\n", array_map(fn (int $n): string => "id-{$n} {$n} <none>", [1, 2, 3, 4]))."\n");
+
+    expect(d3Deploy($dir, ['--image', 'img:1']))->toBe(0) // blue
+        ->and(d3Removed($dir))->toBe(['img:2', 'img:3', 'img:4']); // nothing is deployed from 2 to 4
+    file_put_contents("{$dir}/images", implode("\n", array_map(fn (int $n): string => "id-{$n} {$n} <none>", [1, 2, 3]))."\n");
+    unlink("{$dir}/removed");
+
+    expect(d3Deploy($dir, ['--image', 'img:2']))->toBe(0) // green; blue is the previous colour
+        ->and(d3Removed($dir))->toBe(['img:3'])
+        ->and(file_get_contents("{$dir}/images"))->toContain('id-1 ', 'id-2 ')->not->toContain('id-3 ');
+});
+
+test('an old image that cannot be removed does not fail the deploy, and a digest-only image is removed by digest', function () {
+    $this->sandbox = $dir = d3Sandbox();
+    file_put_contents("{$dir}/images", "id-1 1 <none>\nid-9 <none> sha256:abc\nid-8 8 <none>\n");
+
+    expect(d3Deploy($dir, ['--image', 'img:1'], ['FAKE_FAIL_RM' => 'img:8']))->toBe(0)
+        ->and(d3Removed($dir))->toBe(['img@sha256:abc']);
+});
+
+test('nothing is removed after a failed deploy, on rollback, or with DEPLOY_PRUNE_IMAGES=0', function () {
+    $this->sandbox = $dir = d3Sandbox();
+    file_put_contents("{$dir}/images", "id-1 1 <none>\nid-2 2 <none>\nid-7 7 <none>\n");
+
+    expect(d3Deploy($dir, ['--image', 'img:1'], ['DEPLOY_PRUNE_IMAGES' => '0']))->toBe(0)
+        ->and(d3Deploy($dir, ['--image', 'img:2'], ['FAKE_FAIL_UP' => 'app-green']))->not->toBe(0)
+        ->and(d3Deploy($dir, ['--image', 'img:2'], ['DEPLOY_PRUNE_IMAGES' => '0']))->toBe(0)
+        ->and(d3Deploy($dir, ['rollback']))->toBe(0)
+        ->and(d3Removed($dir))->toBe([]);
 });
 
 /** Deploy blue, then green, then a third deploy (to blue) in which $failing does not become healthy. */

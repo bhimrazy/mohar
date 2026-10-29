@@ -182,6 +182,9 @@ The script, step by step:
    automation worker waits for it, up to an hour** (their 3,660 s stop grace); traffic has already switched, and both
    colours' pools keep working the queues meanwhile. Check Admin → Automation before deploying.
 7. Records the live and previous colour and their images in `deploy/state/deploy.env`.
+8. Removes the app images of earlier releases, keeping the live and previous colours' images (a rollback needs them).
+   An image a container still uses is skipped with a warning, and a failure never fails the deploy. Build cache is not
+   touched (`docker builder prune` is yours to run). `DEPLOY_PRUNE_IMAGES=0` keeps every image.
 
 Back up the database before an update that contains migrations, and read the changelog's upgrade notes. While both
 colours run, the host needs more memory: see Sizing.
@@ -189,7 +192,9 @@ colours run, the host needs more memory: see Sizing.
 **Base images.** The `FROM` images in `deploy/Dockerfile` are updated by Dependabot (14-day cooldown). Caddy and
 RustFS in `compose.prod.yaml` are bumped by hand: GitHub does not document whether Dependabot reads a compose file
 named `compose.prod.yaml`. Every pin must be a digest at least 7 days old (`composer deps:check`), and the postgres
-image must equal the one in `billing/compose.yaml` (CI checks it).
+image must equal the one in `billing/compose.yaml` (CI checks it). Docker Hub rebuilds a tag in place (new base
+layers, same version), so a digest pinned earlier can stop matching its tag: the check then reports "is not the digest
+of ..." and the pin moves to the tag's current digest once that is 7 days old.
 
 **PHP security floor.** The image runs PHP 8.4.27 (FrankenPHP 1.13.2), which fixes CVE-2026-109618 and
 CVE-2026-109619 (unauthenticated remote code execution in every web SAPI); images built from an older checkout run

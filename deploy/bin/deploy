@@ -14,6 +14,9 @@
 # expand-only (docs/architecture.md): the old colour keeps serving against the new schema until the switch, and
 # after it for a rollback.
 #
+# After a successful deploy, older images of the same repository are removed; the live and previous colours' images
+# stay (a rollback needs them), and an image a container still uses is skipped. DEPLOY_PRUNE_IMAGES=0 keeps them all.
+#
 # Settings: DEPLOY_ENV_FILE (deploy/.env), DEPLOY_PROJECT (mohar), DEPLOY_STATE_DIR (deploy/state: the live
 # colour and images, and the upstream file Caddy imports). DEPLOY_SKIP_MIGRATION_CHECK=1 skips the migration
 # check when you have reviewed a finding. DEPLOY_COMPOSE_OVERRIDE names an extra compose file merged over
@@ -153,6 +156,21 @@ move_workers() {
     fi
 }
 
+# Remove the app images of earlier releases: every image of $1's repository except the two colours' images. Best
+# effort, never fatal: an image in use or already gone is only reported. Build cache is left alone.
+prune_images() {
+    local repo="${1%@*}" keep=" " ref id tag digest target
+    case "${repo##*/}" in *:*) repo="${repo%:*}" ;; esac
+    for ref in "$IMAGE_BLUE" "$IMAGE_GREEN"; do
+        id="$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null)" && keep="$keep$id "
+    done
+    while read -r id tag digest; do
+        case "$keep" in *" $id "*) continue ;; esac
+        if [ "$tag" != '<none>' ]; then target="$repo:$tag"; elif [ "$digest" != '<none>' ]; then target="$repo@$digest"; else continue; fi
+        docker image rm "$target" >/dev/null 2>&1 && say "removed old image $target" || say "warning: could not remove $target (in use?)"
+    done < <(docker image ls --no-trunc --digests --format '{{.ID}} {{.Tag}} {{.Digest}}' "$repo" 2>/dev/null || true)
+}
+
 cmd_deploy() {
     local image="" next live="$LIVE"
     while [ $# -gt 0 ]; do
@@ -203,6 +221,8 @@ cmd_deploy() {
     say "filling fiscal snapshots"
     "${compose[@]}" run --rm -T -e APP_OPTIMIZE=0 migrate php artisan billing:fiscal-snapshot \
         || say "warning: billing:fiscal-snapshot failed; the scheduler runs it again"
+
+    [ "${DEPLOY_PRUNE_IMAGES:-1}" = 0 ] || prune_images "$image"
 
     say "live: $next ($image)${PREVIOUS:+; app-$PREVIOUS keeps running for 'deploy/bin/deploy rollback' (stop it with 'retire')}"
 }
