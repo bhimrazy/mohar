@@ -10,7 +10,7 @@ CI itself is defined once, at the repository root: `.github/workflows/ci.yml` (a
 | -------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | PHP            | 8.4 (local build: 8.4.15)                                                         | extensions: `pdo_sqlite`, `pdo_pgsql`, `pgsql`, `mbstring`, `openssl`, `curl`, `dom`, `zlib` |
 | Composer       | 2.10.x                                                                            |                                                                                              |
-| Node / npm     | `billing/.nvmrc` (24.21.0) / npm 11                                               | `nvm use` inside `billing/`; lockfile is `package-lock.json` → `npm ci`                      |
+| Node / npm     | `billing/.nvmrc` (24.22.1) / npm 11                                               | `nvm use` inside `billing/`; lockfile is `package-lock.json` → `npm ci`                      |
 | Docker Compose | v2.23+ (uses inline `configs.content`)                                            | RustFS + PostgreSQL                                                                          |
 | Playwright     | 1.64.1, global (`npm i -g playwright@1.64.1`, then `playwright install chromium`) | screenshots and page walks (`scripts/screenshot.mjs`); not in the lockfile                   |
 

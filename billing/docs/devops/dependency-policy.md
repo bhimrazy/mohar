@@ -28,7 +28,7 @@ packages with security advisories or flagged as malware, report (not fail) aband
 
 | Tool                     | Native support                                                                                                                                                                                           |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| npm 11.19 (Node 24.21.0) | `save-exact`; `min-release-age=<days>` (+ `min-release-age-exclude`) and `before=<date>` filter versions when **resolving** (`npm install`/`update`). `npm ci` installs the lock as-is and ignores them. |
+| npm 11.19 (Node 24.22.1) | `save-exact`; `min-release-age=<days>` (+ `min-release-age-exclude`) and `before=<date>` filter versions when **resolving** (`npm install`/`update`). `npm ci` installs the lock as-is and ignores them. |
 | Composer 2.10.3          | `config.policy` — `advisories.block` (default on), `malware.block` (default on), `abandoned`; `composer audit`. **No minimum release age**: `policy.minimum-release-age` is only a reserved name.        |
 | Dependabot               | `cooldown.default-days` (we use 14) for version updates; **security updates ignore the cooldown**.                                                                                                       |
 | Renovate                 | has `minimumReleaseAge`, but we do not run Renovate — the script fills the gap.                                                                                                                          |
