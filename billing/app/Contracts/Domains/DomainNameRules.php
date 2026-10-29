@@ -13,4 +13,9 @@ interface DomainNameRules
      * second levels), as a message to show the person ordering, or null when it is acceptable.
      */
     public function registryLevelError(string $domain): ?string;
+
+    /**
+     * Whether the extension (".np") is one clients register at the registry themselves, so it is never sold here.
+     */
+    public function registeredByClient(string $tld): bool;
 }

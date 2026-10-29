@@ -1,6 +1,7 @@
 <?php
 
 use App\Contracts\Domains\DomainNameRules;
+use App\Contracts\Domains\Registrar\RegistrarDriver;
 use App\Contracts\Domains\Registrar\RegistrarRefs;
 use App\Data\Domains\Registrar\RegistrarRef;
 use App\Modules\Core\Models\Client;
@@ -11,10 +12,15 @@ use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\Tld;
+use App\Modules\Domains\Services\RegistrarGateway;
 use App\Modules\Domains\Services\RegistrarManager;
+use App\Modules\Orders\Data\CartItem;
+use App\Modules\Orders\Enums\CartItemKind;
+use App\Modules\Orders\Pricing\CartPricer;
 use App\Support\Clients\ClientMergeRegistry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Tests\Fakes\Domains\FakeRegistrar;
 
 beforeEach(function () {
     Http::preventStrayRequests();
@@ -108,4 +114,25 @@ test('a per-client ResellerClub domain still finds its customer after a merge, s
 
     expect($domain->fresh()->client_id)->toBe($target->id)
         ->and($lookup()->remote['order_id'])->toBe(80000001);
+});
+
+test('a TLD with no price in the visitor\'s currency gets its own message; .np keeps "not sold here"', function () {
+    Tld::factory()->extension('.com')->priced('USD')->create(['registrar_key' => 'log']);
+    Tld::factory()->extension('.com.np')->priced('NPR')->create(['registrar_key' => 'log']);
+    $errors = fn (string $domain): array => app(CartPricer::class)
+        ->price([new CartItem(key: 'k1', kind: CartItemKind::DomainRegister, domainName: $domain, years: 1)], 'NPR')->items[0]->errors;
+
+    expect($errors('asha.com'))->toBe(['.com domains cannot be registered here in NPR.'])
+        ->and($errors('asha.com.np')[0])->toStartWith('.com.np domains are not sold here');
+});
+
+test('a registrar call reads the registrar account once', function () {
+    FakeRegistrar::install();
+    RegistrarAccount::query()->create(['key' => 'fake', 'is_active' => true, 'test_mode' => false, 'settings' => []]);
+
+    DB::enableQueryLog();
+    app(RegistrarGateway::class)->call('fake', 'info', RegistrarDriver::class, fn () => 'ok');
+    $reads = collect(DB::getQueryLog())->filter(fn (array $q): bool => str_contains($q['query'], 'registrar_accounts') && str_starts_with($q['query'], 'select'));
+
+    expect($reads)->toHaveCount(1);
 });

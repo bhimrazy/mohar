@@ -197,8 +197,9 @@ class CartPricer
         $price = $this->domainPricing->price($tld, $action === 'transfer' ? 'transfer' : 'register', $years, $currency, $clientId);
 
         if ($price === null && $this->domainPricing->terms($tld, $action === 'transfer' ? 'transfer' : 'register', $currency, $clientId) === []) {
-            // Not sold here at all, e.g. .np, which clients register at the registry themselves.
-            $priced->errors[] = __(':tld domains are not sold here. If you already own one, choose "Use a domain I own".', ['tld' => $tld]);
+            $priced->errors[] = $this->nameRules->registeredByClient($tld)
+                ? __(':tld domains are not sold here. If you already own one, choose "Use a domain I own".', ['tld' => $tld])
+                : __($action === 'transfer' ? ':tld domains cannot be transferred here in :currency.' : ':tld domains cannot be registered here in :currency.', ['tld' => $tld, 'currency' => $currency]);
 
             return;
         }

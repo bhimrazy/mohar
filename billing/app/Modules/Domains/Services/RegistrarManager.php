@@ -20,7 +20,12 @@ class RegistrarManager
      */
     public function config(string $key): RegistrarConfig
     {
-        $account = RegistrarAccount::query()->where('key', $key)->first();
+        return $this->configFor($key, $this->account($key));
+    }
+
+    /** config() for an account the caller already loaded; null means the key has no saved row. */
+    public function configFor(string $key, ?RegistrarAccount $account): RegistrarConfig
+    {
         $secretKeys = array_values(array_map(
             fn (SettingField $field): string => $field->key,
             array_filter($this->drivers->fields($key), fn (SettingField $field): bool => $field->isSecret()),
@@ -29,16 +34,26 @@ class RegistrarManager
         return new RegistrarConfig($key, $account->settings ?? [], $account->test_mode ?? false, $secretKeys);
     }
 
+    /** The saved account row, or null; callers that need it for several checks load it once and pass it on. */
+    public function account(string $key): ?RegistrarAccount
+    {
+        return RegistrarAccount::query()->where('key', $key)->first();
+    }
+
     /**
      * Whether the driver is registered and usable: its account is enabled, or it has none and needs none.
      */
     public function isActive(string $key): bool
     {
+        return $this->drivers->has($key) && $this->isActiveFor($key, $this->account($key));
+    }
+
+    /** isActive() for an account the caller already loaded; null means the key has no saved row. */
+    public function isActiveFor(string $key, ?RegistrarAccount $account): bool
+    {
         if (! $this->drivers->has($key)) {
             return false;
         }
-
-        $account = RegistrarAccount::query()->where('key', $key)->first();
 
         return $account === null ? ! $this->drivers->needsAccount($key) : $account->is_active;
     }
