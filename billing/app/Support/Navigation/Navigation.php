@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\Route;
  * Sidebar navigation registry. Modules add items in their provider's bootModule():
  *
  *   app(Navigation::class)->add('admin', new NavItem('Invoices', 'admin.billing.invoices.index', 'FileText', 'Billing', 10, 'billing.invoices.view'));
+ *
+ * @api
  */
 class Navigation
 {

@@ -427,7 +427,8 @@ test('ProvisioningDrivers lists drivers with typed config fields', function () {
 
     expect($drivers->exists('log'))->toBeTrue()
         ->and($drivers->exists('cpanel-x'))->toBeFalse()
-        ->and($log['config_fields'][0])->toMatchArray(['key' => 'package', 'required' => false, 'secret' => false]);
+        ->and($log['fields'][0])->toMatchArray(['key' => 'package', 'required' => false, 'secret' => false])
+        ->and($log)->not->toHaveKey('config_fields');
 });
 
 test('ClientServiceDirectory lists only the client\'s non-deleted services', function () {

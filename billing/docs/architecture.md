@@ -111,7 +111,11 @@ Driver registries are kernel classes that extend `Support\Integrations\DriverReg
 `AppServiceProvider`, so a package registers a driver in its own `boot()` whether or not the consuming module is
 loaded. Registration is `register(key, class-string|Closure, replace: false)`, resolution is lazy, and the capability
 lists the UI shows are computed from the interfaces a driver implements. Kernel API changes are listed in
-`docs/architecture/kernel-changelog.md`, through a fragment in `docs/architecture/kernel-changelog.d/`.
+`docs/architecture/kernel-changelog.md`, through a fragment in `docs/architecture/kernel-changelog.d/`. The public
+signatures are recorded in `docs/architecture/kernel-api.txt`: after a kernel change run `php artisan
+kernel:api-snapshot` and commit the file; CI fails when it is stale, when it changes without a kernel fragment, and
+when it changes with no `app/` change (ADR 0010 Amendment (#513)). Mark a member that is public in PHP but not API
+`@internal`.
 
 Provisioning drivers implement `Contracts\Services\Provisioning\ProvisioningDriver` plus capability interfaces,
 receive `ProvisioningContext` snapshots (never models), and register with `Support\Services\ProvisioningDriverRegistry`.

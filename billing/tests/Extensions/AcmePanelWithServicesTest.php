@@ -23,10 +23,6 @@ test('with Services loaded, the package driver is listed for the product editor 
                 ['key' => 'plan', 'label' => 'Acme plan', 'type' => 'string', 'secret' => false, 'required' => true, 'help' => 'The plan name as it appears in Acme Panel.', 'options' => [], 'default' => null, 'options_source' => null, 'min_length' => null],
                 ['key' => 'reseller_key', 'label' => 'Reseller key', 'type' => 'secret', 'secret' => true, 'required' => false, 'help' => null, 'options' => [], 'default' => null, 'options_source' => null, 'min_length' => 8],
             ],
-            'config_fields' => [
-                ['key' => 'plan', 'label' => 'Acme plan', 'type' => 'text', 'required' => true, 'secret' => false],
-                ['key' => 'reseller_key', 'label' => 'Reseller key', 'type' => 'password', 'required' => false, 'secret' => true],
-            ],
         ]);
 });
 

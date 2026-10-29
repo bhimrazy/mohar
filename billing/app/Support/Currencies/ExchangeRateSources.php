@@ -11,6 +11,8 @@ use InvalidArgumentException;
  *   app(ExchangeRateSources::class)->register(EcbRateSource::class);
  *
  * "manual" is reserved for staff-entered rates and cannot be registered.
+ *
+ * @api
  */
 class ExchangeRateSources
 {

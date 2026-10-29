@@ -15,6 +15,8 @@ use Throwable;
  *
  * A source lists only indexable pages: published, public, not hidden and not noindex. Sources run when the sitemap is
  * built; one that throws is reported and left out, so it never breaks the others.
+ *
+ * @api
  */
 class SitemapRegistry
 {

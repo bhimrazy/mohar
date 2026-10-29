@@ -47,6 +47,7 @@ use App\Modules\Core\Support\DateFormats;
 use App\Modules\Core\Support\DefaultBrandProvider;
 use App\Modules\Core\Support\InMemoryMergeFieldRegistry;
 use App\Modules\Core\Support\InstallSecrets;
+use App\Modules\Core\Support\KernelApiSnapshot;
 use App\Modules\Core\Support\LaravelAuthMailer;
 use App\Modules\Core\Support\NullCatalogUsage;
 use App\Modules\Core\Support\NullClientLoginInvitations;
@@ -107,6 +108,8 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->scoped(ClientContext::class);
         $this->app->singleton(MergeFieldRegistry::class, InMemoryMergeFieldRegistry::class);
         $this->app->scoped(CurrencyDirectory::class, CachedCurrencyDirectory::class);
+
+        $this->app->bind(KernelApiSnapshot::class, fn (): KernelApiSnapshot => KernelApiSnapshot::forApp());
 
         // Fallback bindings for optional modules; the owning module re-binds the real implementation.
         $this->app->bindIf(CatalogUsage::class, NullCatalogUsage::class);
