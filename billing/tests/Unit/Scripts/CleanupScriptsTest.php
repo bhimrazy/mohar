@@ -97,7 +97,7 @@ test('finish refuses a detached worktree with local commits and changes nothing'
     $run = ccsRun($ctx, 'finish-workstream.sh', ['rb-detached']);
 
     expect($run->getExitCode())->toBe(2)
-        ->and($run->getErrorOutput())->toContain('not the head of a merged PR')
+        ->and($run->getErrorOutput())->toContain('not on origin')
         ->and(is_dir($path))->toBeTrue()
         ->and(ccsGit($ctx['main'], 'cat-file', '-t', $sha))->toBe('commit');
     ccsCleanup($ctx);
@@ -140,9 +140,9 @@ test('finish removes the worktree and branch when the head is a merged PR head',
     ccsCleanup($ctx);
 });
 
-test('finish removes a clean worktree whose commits are all on origin, and a mistyped slug changes nothing', function () {
+test('finish removes a detached worktree whose commits are all on origin, and a mistyped slug changes nothing', function () {
     $ctx = ccsSetup();
-    $path = ccsWorktree($ctx, 'rb-clean');
+    $path = ccsWorktree($ctx, 'rb-clean', detached: true);
     $other = ccsWorktree($ctx, 'rb-other');
 
     $typo = ccsRun($ctx, 'finish-workstream.sh', ['rb-clena']);
@@ -152,6 +152,63 @@ test('finish removes a clean worktree whose commits are all on origin, and a mis
         ->and(is_dir($other))->toBeTrue()
         ->and($run->getExitCode())->toBe(0, $run->getErrorOutput())
         ->and(is_dir($path))->toBeFalse();
+    ccsCleanup($ctx);
+});
+
+test('finish with --dry-run after the slug changes nothing', function () {
+    $ctx = ccsSetup();
+    $path = ccsWorktree($ctx, 'rb-dry', commit: true);
+    $sha = ccsGit($path, 'rev-parse', 'HEAD');
+
+    $run = ccsRun($ctx, 'finish-workstream.sh', ['rb-dry', '--dry-run'], ['CCS_MERGED_HEADS' => $sha."\n", 'CCS_PG_UP' => '1']);
+
+    expect($run->getExitCode())->toBe(0, $run->getErrorOutput())
+        ->and($run->getOutput())->toContain('would: remove worktree')
+        ->and(is_dir($path))->toBeTrue()
+        ->and(ccsGit($ctx['main'], 'branch', '--list', 'feature/rb-dry'))->toContain('feature/rb-dry')
+        ->and(file_get_contents($ctx['log']))->not->toContain('dropdb');
+    ccsCleanup($ctx);
+});
+
+test('finish refuses an unknown option and never takes it for the slug', function () {
+    $ctx = ccsSetup();
+    $path = ccsWorktree($ctx, 'rb-flag');
+
+    $before = ccsRun($ctx, 'finish-workstream.sh', ['--force', 'rb-flag']);
+    $after = ccsRun($ctx, 'finish-workstream.sh', ['rb-flag', '--dryrun']);
+
+    expect($before->getExitCode())->toBe(1)->and($before->getErrorOutput())->toContain("unknown option '--force'")
+        ->and($after->getExitCode())->toBe(1)
+        ->and(is_dir($path))->toBeTrue();
+    ccsCleanup($ctx);
+});
+
+test('finish refuses a tree marked with .claude-in-use, even when its work is merged', function () {
+    $ctx = ccsSetup();
+    $path = ccsWorktree($ctx, 'rb-marked', commit: true);
+    $sha = ccsGit($path, 'rev-parse', 'HEAD');
+    touch("{$path}/.claude-in-use");
+
+    $run = ccsRun($ctx, 'finish-workstream.sh', ['rb-marked'], ['CCS_MERGED_HEADS' => $sha."\n"]);
+
+    expect($run->getExitCode())->toBe(1)->and($run->getErrorOutput())->toContain('marked in use')
+        ->and(is_dir($path))->toBeTrue()
+        ->and(ccsGit($ctx['main'], 'branch', '--list', 'feature/rb-marked'))->toContain('feature/rb-marked');
+    ccsCleanup($ctx);
+});
+
+test('finish refuses a pushed branch worktree whose PR is not merged, and changes nothing', function () {
+    $ctx = ccsSetup();
+    $path = ccsWorktree($ctx, 'rb-open', commit: true);
+    ccsGit($path, 'push', '-q', 'origin', 'feature/rb-open');
+    ccsGit($ctx['main'], 'fetch', '-q', 'origin');
+
+    $run = ccsRun($ctx, 'finish-workstream.sh', ['rb-open']);
+
+    expect($run->getExitCode())->toBe(2)
+        ->and($run->getErrorOutput())->toContain('not the head of a merged PR')
+        ->and(is_dir($path))->toBeTrue()
+        ->and(ccsGit($ctx['main'], 'branch', '--list', 'feature/rb-open'))->toContain('feature/rb-open');
     ccsCleanup($ctx);
 });
 
