@@ -1,8 +1,8 @@
 <?php
 
+use App\Actions\Fortify\PasswordGuesses;
 use App\Models\User;
 use App\Modules\Core\Models\ActivityLog;
-use App\Providers\FortifyServiceProvider;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Testing\TestResponse;
@@ -43,6 +43,7 @@ test('probe P3: registrations from one IP are throttled after ten an hour', func
 });
 
 test('registrations for one address are throttled across IPs, the same for a known and an unknown address', function () {
+    $this->freezeTime();
     User::factory()->create(['email' => 'known@example.com']);
 
     foreach (range(1, 5) as $attempt) {
@@ -100,13 +101,14 @@ test('a failed password reset says the same for a known and an unknown address',
 });
 
 /**
- * Security review 2026-10-29, M1: step-up confirmations get the sign-in form's guess budget, per login and IP.
+ * Security review 2026-10-29, M1, and #522: wrong current passwords (step-up, password change, account deletion)
+ * share one budget per login, five a minute per IP and twenty an hour from any IP; correct ones never count.
  */
 test('confirm-password allows five guesses a minute per login and IP, then answers 429 with the wait', function () {
     $user = User::factory()->create(['password' => 'correct-horse-battery']);
     $this->actingAs($user);
 
-    foreach (range(1, FortifyServiceProvider::CONFIRM_ATTEMPTS_PER_MINUTE) as $attempt) {
+    foreach (range(1, PasswordGuesses::PER_MINUTE) as $attempt) {
         $this->postJson(route('password.confirm.store'), ['password' => 'wrong-'.$attempt])->assertUnprocessable();
     }
 
@@ -124,7 +126,7 @@ test('confirm-password allows five guesses a minute per login and IP, then answe
 test('the full-page confirm form shows the throttle message on its password field', function () {
     $this->actingAs(User::factory()->create(['password' => 'correct-horse-battery']));
 
-    foreach (range(1, FortifyServiceProvider::CONFIRM_ATTEMPTS_PER_MINUTE) as $attempt) {
+    foreach (range(1, PasswordGuesses::PER_MINUTE) as $attempt) {
         $this->from(route('password.confirm'))->post(route('password.confirm.store'), ['password' => 'wrong-'.$attempt]);
     }
 
@@ -143,4 +145,65 @@ test('a failed password confirmation is in the activity log, without the guess',
     $entry = ActivityLog::query()->where('event', 'auth.confirm_password_failed')->sole();
     expect($entry->user_id)->toBe($user->id)
         ->and(json_encode($entry->toArray()))->not->toContain('wrong-guess');
+});
+
+test('B1 correct confirmations never count: five in a minute do not lock the sixth', function () {
+    $this->actingAs(User::factory()->create(['password' => 'correct-horse-battery']));
+
+    foreach (range(1, PasswordGuesses::PER_MINUTE + 1) as $attempt) {
+        $this->postJson(route('password.confirm.store'), ['password' => 'correct-horse-battery'])->assertCreated();
+    }
+});
+
+test('after twenty wrong passwords in an hour the login is told to wait minutes, and sign-in still works', function () {
+    $user = User::factory()->create(['password' => 'correct-horse-battery']);
+    $this->actingAs($user);
+
+    foreach (range(1, PasswordGuesses::PER_HOUR) as $attempt) {
+        $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.'.intdiv($attempt, PasswordGuesses::PER_MINUTE)])
+            ->postJson(route('password.confirm.store'), ['password' => 'wrong-'.$attempt])->assertUnprocessable();
+    }
+
+    $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.9'])
+        ->postJson(route('password.confirm.store'), ['password' => 'correct-horse-battery'])
+        ->assertTooManyRequests()
+        ->assertJsonPath('message', fn (string $message): bool => (bool) preg_match('/^Too many wrong passwords\. Try again in \d+ minutes\.$/', $message));
+
+    auth()->logout();
+    $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.9'])
+        ->post(route('login.store'), ['email' => $user->email, 'password' => 'correct-horse-battery'])->assertSessionHasNoErrors();
+    $this->assertAuthenticatedAs($user);
+});
+
+test('B6 account deletion counts wrong passwords against the same budget and keeps the account', function () {
+    $user = User::factory()->create(['password' => 'correct-horse-battery']);
+    $this->actingAs($user);
+
+    foreach (range(1, PasswordGuesses::PER_MINUTE) as $attempt) {
+        $this->deleteJson(route('profile.destroy'), ['password' => 'wrong-'.$attempt])->assertUnprocessable();
+    }
+
+    $this->deleteJson(route('profile.destroy'), ['password' => 'correct-horse-battery'])->assertTooManyRequests();
+    $this->from(route('profile.edit'))->delete(route('profile.destroy'), ['password' => 'correct-horse-battery'])
+        ->assertSessionHasErrors('password');
+    expect($user->fresh())->not->toBeNull();
+});
+
+test('wrong current passwords on a password change use up step-up too, so no route is a cheaper oracle', function () {
+    $user = User::factory()->create(['password' => 'correct-horse-battery']);
+    $this->actingAs($user);
+
+    foreach (range(1, PasswordGuesses::PER_MINUTE) as $attempt) {
+        $this->from(route('security.edit'))->put(route('user-password.update'), [
+            'current_password' => 'wrong-'.$attempt, 'password' => 'New-Password-123!', 'password_confirmation' => 'New-Password-123!',
+        ])->assertSessionHasErrors('current_password');
+    }
+
+    $this->from(route('security.edit'))->put(route('user-password.update'), [
+        'current_password' => 'correct-horse-battery', 'password' => 'New-Password-123!', 'password_confirmation' => 'New-Password-123!',
+    ])->assertSessionHasErrors('current_password');
+    expect(session('errors')->first('current_password'))->toStartWith('Too many password attempts.')
+        ->and(Hash::check('correct-horse-battery', $user->fresh()->password))->toBeTrue();
+
+    $this->postJson(route('password.confirm.store'), ['password' => 'correct-horse-battery'])->assertTooManyRequests();
 });

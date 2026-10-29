@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Actions\Fortify\CreateNewUser;
+use App\Actions\Fortify\PasswordGuesses;
 use App\Actions\Fortify\RefuseExpiredPassword;
 use App\Actions\Fortify\RememberValidatedLogin;
 use App\Actions\Fortify\ResetUserPassword;
@@ -22,7 +23,6 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
-use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Laravel\Fortify\Actions\CanonicalizeUsername;
 use Laravel\Fortify\Actions\EnsureLoginIsNotThrottled;
@@ -35,13 +35,9 @@ use Laravel\Fortify\Contracts\SuccessfulPasswordResetLinkRequestResponse;
 use Laravel\Fortify\Events\ValidTwoFactorAuthenticationCodeProvided;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
-use Symfony\Component\HttpFoundation\Response;
 
 class FortifyServiceProvider extends ServiceProvider
 {
-    /** Password confirmations (step-up) per login and IP per minute; the sign-in form allows the same. */
-    public const CONFIRM_ATTEMPTS_PER_MINUTE = 5;
-
     /**
      * Register any application services.
      */
@@ -85,14 +81,20 @@ class FortifyServiceProvider extends ServiceProvider
             PrepareAuthenticatedSession::class,
         ]));
 
-        // Fortify's own confirm check, then the one-time password expiry (#60): an expired one confirms nothing.
+        // The login's wrong-password budget first (PasswordGuesses), then Fortify's own confirm check, then the
+        // one-time password expiry (#60): an expired one confirms nothing.
         Fortify::confirmPasswordsUsing(function ($user, ?string $password = null): bool {
+            if ($user instanceof User) {
+                PasswordGuesses::ensureAllowed($user, request(), 'password');
+            }
+
             $valid = app(StatefulGuard::class)->validate([Fortify::username() => $user->{Fortify::username()}, 'password' => $password]);
 
             if ($valid) {
                 RefuseExpiredPassword::check($user, 'confirm_password', field: 'password');
             } elseif ($user instanceof User) {
-                // Who and from where, never the guess; the confirm-password limiter bounds how many rows this writes.
+                PasswordGuesses::failed($user, request());
+                // Who and from where, never the guess; PasswordGuesses bounds how many rows this writes.
                 app(ActivityLogger::class)->log('Password confirmation failed', $user, event: 'auth.confirm_password_failed', actor: $user);
             }
 
@@ -186,16 +188,9 @@ class FortifyServiceProvider extends ServiceProvider
         // that sends mail (POST /forgot-password) keeps its per-address limit.
         RateLimiter::for('password-reset', fn (Request $request): Limit => Limit::perMinute(5)->by('reset-ip|'.$request->ip()));
 
-        // POST /user/confirm-password: one correct guess passes every password.recent step-up, so a stolen session gets
-        // the same guess budget as the sign-in form (security review 2026-10-29, M1).
-        RateLimiter::for('confirm-password', fn (Request $request): Limit => Limit::perMinute(self::CONFIRM_ATTEMPTS_PER_MINUTE)
-            ->by('confirm-password|'.$request->user()?->getAuthIdentifier().'|'.$request->ip())
-            ->response(fn (Request $request, array $headers): Response => $this->confirmThrottled($request, $headers)));
-
         // Fortify registers these routes without a limiter of their own.
         $this->app->booted(function (): void {
             Route::getRoutes()->refreshNameLookups();
-            Route::getRoutes()->getByName('password.confirm.store')?->middleware('throttle:confirm-password');
             Route::getRoutes()->getByName('password.email')?->middleware('throttle:password-reset-link');
             Route::getRoutes()->getByName('register.store')?->middleware('throttle:register');
             Route::getRoutes()->getByName('password.update')?->middleware('throttle:password-reset');
@@ -206,23 +201,6 @@ class FortifyServiceProvider extends ServiceProvider
                 ($request->input('credential.id') ?: $request->session()->getId()).'|'.$request->ip(),
             );
         });
-    }
-
-    /**
-     * A throttled confirm: 429 with the message on the password field for the step-up dialog (JSON); the full-page
-     * form gets the same message as a validation error on its password field.
-     *
-     * @param  array<string, int|string>  $headers
-     */
-    private function confirmThrottled(Request $request, array $headers): Response
-    {
-        $message = __('Too many password attempts. Try again in :seconds seconds.', ['seconds' => $headers['Retry-After'] ?? 60]);
-
-        if ($request->wantsJson()) {
-            return response()->json(['message' => $message, 'errors' => ['password' => [$message]]], Response::HTTP_TOO_MANY_REQUESTS, $headers);
-        }
-
-        throw ValidationException::withMessages(['password' => $message]);
     }
 
     /**

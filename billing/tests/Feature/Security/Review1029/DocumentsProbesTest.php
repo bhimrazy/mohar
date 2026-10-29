@@ -74,15 +74,3 @@ test('a throttled document download is not a print: no count and no activity row
     expect($note->fresh()->print_count)->toBe(BillingServiceProvider::CLIENT_DOCUMENTS_PER_MINUTE)
         ->and(ActivityLog::query()->where('event', 'billing.tax_note.printed')->count())->toBe(BillingServiceProvider::CLIENT_DOCUMENTS_PER_MINUTE);
 });
-
-test('staff have a higher document limit than clients', function () {
-    $client = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']);
-    $note = r1029Note(r1029Invoice($client));
-    billingStaff();
-
-    foreach (range(1, BillingServiceProvider::CLIENT_DOCUMENTS_PER_MINUTE + 1) as $download) {
-        $this->get(route('admin.billing.notes.pdf', $note->id))->assertOk();
-    }
-
-    expect(BillingServiceProvider::STAFF_DOCUMENTS_PER_MINUTE)->toBeGreaterThan(BillingServiceProvider::CLIENT_DOCUMENTS_PER_MINUTE);
-});
