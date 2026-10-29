@@ -14,12 +14,13 @@
 # expand-only (docs/architecture.md): the old colour keeps serving against the new schema until the switch, and
 # after it for a rollback.
 #
-# After a successful deploy, older images of the same repository are removed; the live and previous colours' images
-# stay (a rollback needs them), and an image a container still uses is skipped. DEPLOY_PRUNE_IMAGES=0 keeps them all.
+# After a successful deploy, the app images this project deployed earlier (listed in DEPLOY_STATE_DIR/images) are
+# removed, except the live and previous colours' images (a rollback needs them). Nothing else is touched: not other
+# projects' images, not images the project never deployed, not build cache. An image a container still uses stays.
 #
 # Settings: DEPLOY_ENV_FILE (deploy/.env), DEPLOY_PROJECT (mohar), DEPLOY_STATE_DIR (deploy/state: the live
 # colour and images, and the upstream file Caddy imports). DEPLOY_SKIP_MIGRATION_CHECK=1 skips the migration
-# check when you have reviewed a finding. DEPLOY_COMPOSE_OVERRIDE names an extra compose file merged over
+# check when you have reviewed a finding. DEPLOY_PRUNE_IMAGES=0 keeps every earlier image. DEPLOY_COMPOSE_OVERRIDE names an extra compose file merged over
 # compose.prod.yaml, e.g. deploy/compose.secrets.example.yaml copied and filled in to read APP_KEY from Docker
 # secrets (billing/docs/devops/key-rotation.md).
 set -euo pipefail
@@ -156,19 +157,28 @@ move_workers() {
     fi
 }
 
-# Remove the app images of earlier releases: every image of $1's repository except the two colours' images. Best
-# effort, never fatal: an image in use or already gone is only reported. Build cache is left alone.
+# docker with a time limit where `timeout` exists (not on stock macOS).
+dk() { if command -v timeout >/dev/null 2>&1; then timeout 60 docker "$@"; else docker "$@"; fi; }
+
+# Remove the images this project deployed before, except the two colours' images. $1 is the image just deployed and
+# is recorded first. Best effort, never fatal; when a colour's image cannot be inspected nothing is removed.
 prune_images() {
-    local repo="${1%@*}" keep=" " ref id tag digest target
-    case "${repo##*/}" in *:*) repo="${repo%:*}" ;; esac
+    local list="$DEPLOY_STATE_DIR/images" keep=" " ref id kept=() 
+    grep -qxF -- "$1" "$list" 2>/dev/null || printf '%s\n' "$1" >> "$list"
     for ref in "$IMAGE_BLUE" "$IMAGE_GREEN"; do
-        id="$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null)" && keep="$keep$id "
+        [ -n "$ref" ] || continue
+        id="$(dk image inspect --format '{{.Id}}' "$ref" 2>/dev/null)" && [ -n "$id" ] \
+            || { say "warning: cannot inspect $ref; no old images removed"; return 0; }
+        keep="$keep$id "
     done
-    while read -r id tag digest; do
-        case "$keep" in *" $id "*) continue ;; esac
-        if [ "$tag" != '<none>' ]; then target="$repo:$tag"; elif [ "$digest" != '<none>' ]; then target="$repo@$digest"; else continue; fi
-        docker image rm "$target" >/dev/null 2>&1 && say "removed old image $target" || say "warning: could not remove $target (in use?)"
-    done < <(docker image ls --no-trunc --digests --format '{{.ID}} {{.Tag}} {{.Digest}}' "$repo" 2>/dev/null || true)
+    while IFS= read -r ref; do
+        [ -n "$ref" ] || continue
+        if id="$(dk image inspect --format '{{.Id}}' "$ref" 2>/dev/null)" && [ -n "$id" ]; then
+            case "$keep" in *" $id "*) kept+=("$ref"); continue ;; esac
+            if dk image rm "$ref" >/dev/null 2>&1; then say "removed old image $ref"; else say "warning: could not remove $ref (in use?)"; kept+=("$ref"); fi
+        fi
+    done < "$list"
+    printf '%s\n' ${kept[@]+"${kept[@]}"} > "$list.tmp" && mv "$list.tmp" "$list"
 }
 
 cmd_deploy() {

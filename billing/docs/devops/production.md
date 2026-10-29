@@ -182,9 +182,11 @@ The script, step by step:
    automation worker waits for it, up to an hour** (their 3,660 s stop grace); traffic has already switched, and both
    colours' pools keep working the queues meanwhile. Check Admin → Automation before deploying.
 7. Records the live and previous colour and their images in `deploy/state/deploy.env`.
-8. Removes the app images of earlier releases, keeping the live and previous colours' images (a rollback needs them).
-   An image a container still uses is skipped with a warning, and a failure never fails the deploy. Build cache is not
-   touched (`docker builder prune` is yours to run). `DEPLOY_PRUNE_IMAGES=0` keeps every image.
+8. Removes the app images this project deployed earlier, which `deploy/state/images` lists. The live and previous
+   colours' images stay (a rollback needs them), and so does anything an earlier deploy did not record: other
+   projects' images, other tags of `mohar-app` and `mohar-app:smoke`. An image a container still uses is kept and
+   tried again next time, nothing is removed if a colour's image cannot be inspected, and a failure never fails the
+   deploy. Build cache is not touched (`docker builder prune` is yours to run). `DEPLOY_PRUNE_IMAGES=0` keeps every image.
 
 Back up the database before an update that contains migrations, and read the changelog's upgrade notes. While both
 colours run, the host needs more memory: see Sizing.
