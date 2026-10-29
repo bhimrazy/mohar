@@ -41,14 +41,14 @@ gateway.
 
 ## 2. Boundaries with the existing specs
 
-| Topic                                          | Decision here                                                                                                                                                        |
-| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `migration.md` §5.2 says invoices of every status are imported, with a reconciliation | Narrowed: **open** invoices only (§4). Paid history is a separate decision (Q1) because a paid numbered invoice is a tax document |
-| `migration.md` §5.2 says imported invoices are updatable before cutover as an exception to immutability | Kept for open invoices that are not yet numbered. A numbered invoice is never rewritten (§6.3)                                 |
-| `migration.md` §6 delta and cutover               | Applies to the API source. A CSV run has no cutover: its baselines are applied when the run is applied (§9)                                                       |
-| `client-import.md` §6.4 currency                   | An invoice's currency must equal its client's. A mismatch is a row error, never a conversion (§6.4)                                                                |
-| `client-import.md` §6.12 opening credit           | The client's imported credit balance is already net of credit applied to open invoices; this import never posts to the ledger (§6.5)                              |
-| ADR 0019 capabilities                              | `PreparesChunk` and `MatchesExisting` move from direction to built here, their first consumers (§14)                                                              |
+| Topic                                                                                                   | Decision here                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `migration.md` §5.2 says invoices of every status are imported, with a reconciliation                   | Narrowed: **open** invoices only (§4). Paid history is a separate decision (Q1) because a paid numbered invoice is a tax document                |
+| `migration.md` §5.2 says imported invoices are updatable before cutover as an exception to immutability | Kept for open invoices that are not yet numbered. A numbered invoice is never rewritten (§6.3)                                                   |
+| `migration.md` §6 delta and cutover                                                                     | Applies to the API source. A CSV run has no cutover: its baselines are applied when the run is applied (§9)                                      |
+| `client-import.md` §6.4 currency                                                                        | An invoice's currency must equal its client's. A mismatch is a row error, never a conversion (§6.4)                                              |
+| `client-import.md` §6.12 opening credit                                                                 | The client's imported credit balance is already net of credit applied to open invoices; this import never posts to the ledger (§6.5)             |
+| ADR 0019 capabilities                                                                                   | `PreparesChunk`, `MatchesExisting`, `DeclaresValueMaps` and `targetIds` are accepted here, with soft `after:` ordering (§13, ADR 0019 amendment) |
 
 ## 3. Where the data comes from
 
@@ -110,14 +110,14 @@ publicly; this spec assumes they are not available.
 
 ## 4. Which invoices are imported
 
-| Source status                         | Result                                                                                                                                                                  |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unpaid                                | `unpaid` (overdue is derived from the due date, never stored)                                                                                                           |
-| Payment Pending                       | `unpaid`, with a warning and an admin note "Payment was pending at <source> on <date>; check before collecting." The row needs a decision: import, or skip (default skip) |
-| Collections                           | `collections`                                                                                                                                                           |
-| Draft                                 | Off by default (option "Include drafts"); when on, `draft` with no number; the source number is kept in `source_reference`                                                   |
-| Paid, Cancelled, Refunded             | Not imported. Counted per status in the review ("1,204 paid invoices were not imported")                                                                                |
-| Unknown or custom status              | Row error until mapped on the `status.invoice` value map                                                                                                                |
+| Source status             | Result                                                                                                                                                                    |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unpaid                    | `unpaid` (overdue is derived from the due date, never stored)                                                                                                             |
+| Payment Pending           | `unpaid`, with a warning and an admin note "Payment was pending at <source> on <date>; check before collecting." The row needs a decision: import, or skip (default skip) |
+| Collections               | `collections`                                                                                                                                                             |
+| Draft                     | Off by default (option "Include drafts"); when on, `draft` with no number; the source number is kept in `source_reference`                                                |
+| Paid, Cancelled, Refunded | Not imported. Counted per status in the review ("1,204 paid invoices were not imported")                                                                                  |
+| Unknown or custom status  | Row error until mapped on the `status.invoice` value map                                                                                                                  |
 
 The import never asks Mohar to calculate anything: lines, tax and totals are taken as recorded; `Invoicer::issue` is
 not used (`migration.md` §5.2). Every imported invoice stores `source_reference` (the number or id it had at the source),
@@ -129,16 +129,19 @@ Migration module tables from `client-import.md` §4 are reused (`migration_runs`
 `migration_records`, `migration_id_map` with entities `invoice`, `invoice_item`, `payment`, `domain`; `migration_issues`).
 What the owning modules add:
 
-**Billing** (`invoices`, additive and nullable): `imported_run_id`, `imported_at`, `source_reference` (string, 64). Source
-payments become ordinary `transactions` rows with `imported_run_id` and `type = payment` (or `refund` when `amountout >
-0`, linked by `refundid`), `gateway_txn_id` = the source transaction id or `import:<source id>` when empty (unique per
-gateway as today), `occurred_at` as the source date. Credit applied becomes one `invoice_adjustments` row
-(`reason = credit_applied`) flagged as imported, with **no credit ledger post** (§6.5). A reconciliation difference is one
-`manual` adjustment named "Migration reconciliation" (§6.6).
+**Billing** (`invoices`, additive and nullable): `migration_run_id` (unsigned, no foreign key, as on
+`client_marketing_consents`), `imported_at`, `source_reference` (string, 64: the number or id the invoice had at the
+source; it is the **only** place a foreign number is stored, §6.3). Source payments become ordinary `transactions` rows
+with `migration_run_id` and `type = payment` (or `refund` when `amountout > 0`, linked by `refundid`), `gateway_txn_id` =
+the source transaction id or `import:<source id>` when empty (unique per gateway as today), `occurred_at` as the source
+date. Credit applied becomes one `invoice_adjustments` row (`reason = credit_applied`) flagged as imported, with **no
+credit ledger post** (§6.5). A reconciliation difference is one `manual` adjustment named "Migration reconciliation" (§6.4).
 
-**Domains** (`domains`, additive): `imported_run_id`, `imported_at`, `origin` (`registered_here` default, `imported_registrar`,
-`client_registered`), and in `registrar_meta` an `import_claim` object `{order_id, customer_id, claimed_at}` that is
-**not** the linked order (§7.2). Nameservers and `epp_code` stay empty. `expiry_date` is nullable for `client_registered`.
+**Domains** (`domains`, additive): `migration_run_id`, `imported_at`, the existing `origin` column gains the value `import`
+(the `ClientOrigin::Import` precedent in Core), and in `registrar_meta` an `import_claim` object `{order_id, customer_id,
+claimed_at}` that is **not** the linked order (§7.2). Nameservers and `epp_code` stay empty. A domain "managed outside
+Mohar" is an imported domain with `registrar_key = null`, not a further origin value. `expiry_date` is already nullable;
+`next_due_date` and `next_invoice_date` stay NOT NULL and keep the source values.
 
 No new tables outside Migration's. All columns are nullable or defaulted, so the PRs need no data backfill.
 
@@ -170,29 +173,30 @@ never deleted.
 
 ### 6.3 Numbers and VAT mode (ADR 0024, `vat-register.md`)
 
-An invoice with a legal `number` is a fiscal document and is immutable. Imported open invoices therefore follow the
-install's numbering mode, read when the run is applied:
+An invoice with a legal `number` is a fiscal document and is immutable. **A foreign number never enters Mohar's own
+number columns.** `proforma_number` is unique and Mohar's proforma sequence allocates into it, so an imported `1043` could
+later collide with an organic proforma; and a numbered invoice with a `proforma_number` reads to the fiscal backfill as
+"numbered on payment" with no numbering payment, which puts it on the staff-review list and blocks enabling Nepal VAT
+mode. The source number lives only in `source_reference`, shown on the invoice as "Previously <source> <number>".
 
-| Install state                                                              | What the import writes                                                                                                                                                                 |
-| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Proforma mode on (`sequential_paid_numbering`) — always so with Nepal VAT mode enabled or scheduled | `proforma_number` = the source number, `number` = null, `numbered_at` = null, **issue date kept as at the source**. The invoice becomes a tax invoice only when Mohar settles it: next gap-free legal number, issue date set to the payment date, fiscal snapshot taken then (ADR 0024 §2) |
-| Proforma mode off, Nepal VAT mode never enabled | Default: the source number goes to `proforma_number` and Mohar assigns a new legal number from its own sequence at import. Option "Keep source numbers as legal numbers" (default off): the source number becomes `number`; it must be a valid format and not collide with an existing number, and the sequence moves past the highest imported numeric number afterwards (`migration.md` §5.2). The fiscal snapshot is left to the `billing:fiscal-snapshot` backfill, and the review warns that enabling Nepal VAT mode later is refused until that backfill has run |
+| Install state                                                                                   | What the import writes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Proforma mode on (`sequential_paid_numbering`), always with Nepal VAT mode enabled or scheduled | `proforma_number` allocated from Mohar's proforma sequence by the allocator `PublishInvoice` uses; `number` and `numbered_at` null; **issue date kept as at the source**. The invoice becomes a tax invoice only when Mohar settles it: next gap-free legal number, issue date set to the payment date, fiscal snapshot taken then (ADR 0024 §2)                                                                                                                                                                   |
+| Proforma mode off, Nepal VAT mode never enabled (legacy path)                                   | Mohar numbers the invoice **in the import transaction** from its own legal sequence, as publishing does, and writes `numbered_at` and the fiscal snapshot through `FiscalSnapshotCalculator` in the same transaction, so `FiscalBackfill::hasPending()` stays empty and enabling Nepal VAT mode later is not blocked. The source number is not offered as the legal number: it would write the fiscal sequence out of band and leave holes where paid invoices were not imported (decision of the CTO, 2026-10-29) |
 
 Rules:
 
-- With Nepal VAT mode enabled, the "keep numbers" option is not offered. The import cannot create a fiscal document: no
-  row it writes appears in the VAT register, and `fiscal_*` columns are null. **MUST**
-- The WHMCS number is never reused as a Mohar legal number in proforma mode; two systems cannot both hold the right to
-  issue number N in the same sequence. A paid invoice therefore carries both: the Mohar legal number and, in
-  `source_reference`, the old reference. **MUST**
+- No imported row appears in the VAT register before it is paid in proforma mode, and `fiscal_*` columns stay null until
+  numbering. On the legacy path the snapshot is written at import and the invoice is a fiscal document from then on. **MUST**
+- A paid invoice carries the Mohar legal number and, in `source_reference`, the old reference. **MUST**
 - A partial payment imported onto a proforma does not number it. It numbers only when the balance reaches zero in Mohar. The
-  tax point in the register is that final payment date; whether the host and its accountant accept this for money already
-  received under the old system is Q3 and Q4.
-- Enabling the Nepal VAT mode is not blocked by an import that used the default options. **MUST**
+  tax point in the register is that final payment date (accountant note, Q4).
+- Enabling the Nepal VAT mode is not blocked by an import. **MUST**
 - The line `tax_amount` per item stays null; the invoice-level tax is authoritative (`migration.md` §5.2).
-- `client_snapshot` is built from the client at import time (the API has no historic address). The `seller_snapshot` is the
-  seller at import time. Because both are rebuilt when a proforma is numbered, the document the client finally receives
-  shows the seller details of that day.
+- `client_snapshot` is built from the client at import time (the API has no historic address); `seller_snapshot` is the
+  seller at import time. On the proforma path both are rebuilt when the invoice is numbered, so the final document shows
+  the seller details of that day.
+- Both allocation and snapshot calls are Billing-internal; Migration calls neither (ADR 0024 amendment, §13).
 
 ### 6.4 Balance and payments
 
@@ -234,14 +238,15 @@ does not invoice the same period twice (§9).
 ### 7.1 Identity, TLD and status
 
 - `name` is lowercased and punycoded; `sld` and `tld` come from the longest matching configured `tlds.extension`. A name
-  whose TLD is not configured needs a decision: add the TLD first, or "create a retired TLD record" (no registration
-  or transfer terms, `allow_register=false`), the stub rule of `migration.md` §5.4 (Q7).
-- Domains are matched by name through the `MatchesExisting` capability, not only by id map: a name that already has a
-  non-terminal row in Mohar is an update of that row, or skip (default skip), never a second row (the unique-active-name
-  rule of `domains.md`). Two rows in one file for the same active name: both flagged, none imported.
+  whose TLD is not configured is a blocking issue: staff add the TLD first (default, Q7). The review may also offer
+  "create a retired TLD record" (no registration or transfer terms, `allow_register=false`), the stub rule of
+  `migration.md` §5.4; it is created **on apply only**, never in a dry run (ADR 0019).
+- Domains are matched by name through the `MatchesExisting` capability, which only proposes a target; the id map wins. A name
+  that already has a non-terminal row in Mohar is an update of that row, or skip (default skip), never a second row (the
+  unique-active-name rule of `domains.md`). Two rows in one file for the same active name: both flagged, none imported.
 - Status uses the map in `migration.md` §5.3. Dates `regdate`, `expirydate`, `nextduedate` are calendar dates.
-  `next_invoice_date` is `next_due_date` unless an open imported invoice has a line for this domain with that due date, in
-  which case it is advanced one term (§9).
+  `next_invoice_date` is `next_due_date` at import. When the invoices of the same run are applied, the Domains listener of §13
+  (item 4) records them and moves `next_invoice_date` past the period they cover (§9).
 - `period_years` from the term, `auto_renew = !donotrenew`, flags as given, `currency` = the client's currency.
 - `recurring_amount` and `first_payment_amount` keep the source figures (the client's agreed price) with a flag
   "imported price"; the review shows where they differ from Mohar's current TLD price, and a later bulk action reprices on demand (Q6).
@@ -271,6 +276,9 @@ Design: **the import records claims; verification promotes them.**
    claim; and the registrar's customer record, read at verification time, has a username (its login email) that
    equals the client's email in Mohar case-insensitively. The email match is the second proof that stops one client's claim from
    adopting another client's customer. An order that would verify only by trusting the claim is refused (Q2 asks the owner to approve this rule or choose the alternative below).
+   The driver must return the order's customer id and login email for a client with no recorded customer; the current
+   Link order lookup refuses such an order and returns neither. PR 4 therefore adds a driver capability or a trailing
+   defaulted field (§13, item 6). Domains, not the driver, decides with the email match.
 5. **Default-customer mode.** The claim's customer id is not needed; the order must belong to the default customer.
 6. **Rows without a claim** stay unlinked; the domains list shows "Registrar order not linked" with the existing Link
    order action, and the review counts them. A claim that another domain row already holds is a row error.
@@ -278,7 +286,7 @@ Design: **the import records claims; verification promotes them.**
 Alternative if the owner does not want claims: a staff-only path, where verification asks the reseller account to list
 orders of one customer and staff pick matches. Not recommended: it is the manual work this import exists to remove.
 
-Registrars without a Mohar driver: `origin = imported_registrar`, `registrar_key = null`, a visible "managed outside Mohar" badge; no sync, no renewal call, reminders
+Registrars without a Mohar driver: `registrar_key = null` on an imported domain, a visible "managed outside Mohar" badge; no sync, no renewal call, reminders
 and renewal invoices still follow `next_due_date` if `auto_renew` (staff renew by hand at the registrar and mark renewed, as for manual domains in `domains.md`).
 
 ### 7.3 Order ids from a supplementary file (API path)
@@ -289,20 +297,19 @@ only writes `import_claim`. Hosts that kept the ResellerClub order list can expo
 
 ### 7.4 Domains the client registered (`.np` and others)
 
-Per `registrars.md` §9 (owner decision 2026-10-20), Mohar sells no `.np` registration: the client registers at the
-registry and points names to the host's nameservers. Checkout creates no domain record for such a name. The import
-differs on purpose, because a migrating host has these names in WHMCS and staff look them up there.
+Per `registrars.md` §9 (owner decision 2026-10-20), Mohar sells no `.np` registration: the client registers at the registry
+and points names to the host's nameservers. The pattern already exists: `tlds.registered_by_client` drives
+`Domain::isRegisteredByClient()`, the renewal skip in `IssueRenewalInvoices`, the client-area guidance and the refusal of
+Link order. The import adds no second pattern.
 
-- A row is `client_registered` when its TLD is in `domains.self_registered_tlds` (the `.np` second levels by default), or its
-  registrar is mapped to "client registered".
-- Created as `origin = client_registered`, `registrar_key = null`, status `active` (or the mapped status), no
-  registrar order, no claim, `expiry_date` kept only if given (a `.com.np` has no expiry; the registry's reverification
-  is the client's concern), `next_due_date` and `next_invoice_date` null, `auto_renew` false, recurring amount zero.
-- Never in renewal invoicing, sync, expiry reminders, ICANN-style notices, or grace and redemption transitions; the state
-  machine refuses to move them. Staff may still set the status (for example cancelled).
-- Shown in the client area as "Registered by you at the registry; points to our nameservers" with the guide link
-  (`domains.self_registration_url`).
-- Whether these should be records at all, or stay only as the note on the service, is Q5; the assumption is records.
+- A row is self-registered when its TLD carries `registered_by_client`, or when its registrar is mapped to "client
+  registered", in which case the TLD must carry the flag too (otherwise the row is a blocking issue, since the skip reads
+  the TLD).
+- Created as an ordinary domain with `registrar_key = null`, no registrar order and no claim, the mapped status, and
+  `expiry_date` only if given. `next_due_date` and `next_invoice_date` keep the source values; the existing renewal skip makes
+  nulling them unnecessary.
+- Never in renewal invoicing, sync, registrar calls or Link order (existing behaviour). Staff may still cancel it.
+- Records already exist for these names in the product, so the former question about keeping them is closed.
 
 ## 8. Admin and client capabilities
 
@@ -322,17 +329,20 @@ The rules of `migration.md` §7 apply unchanged: `saveQuietly()`, no `App\Events
 notification, no driver or provider resolution (the arch test in `tests/Arch/ExtensionsTest.php` covers `App\Modules\*\Import`), automation pause on first
 commit. Specific to this phase:
 
-| Risk                                          | Mechanism                                                                                                                                                                                                                                         |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Invoice, receipt or "payment received" mail    | No `InvoiceIssued`, `InvoicePaid`, `PaymentReceived` events; PDFs are not generated at import; staff can send an invoice later by hand                                                                                                              |
-| Back-dated late fees and reminders             | The importer sets `late_fee_applied_at` and seeds `reminder_log` for every rule whose trigger date is before the baseline date. For a CSV run the baseline is the apply time (option "Start reminders from", default today); for the API it is the cutover. Invoices due after the baseline follow the normal rules |
-| Auto-capture of old invoices                   | No pay methods are imported, so nothing can be captured; `last_capture_attempt_at` is stamped at the baseline anyway                                                                                                                              |
-| Auto-cancel and suspension of services        | Services that depend on an overdue imported invoice get the grace window of `migration.md` §7 (`suspend_exempt_until`) through Services' own cutover, when services are imported                                                                |
-| Double renewal                                 | Linked renewal lines carry `period_start`; the domain's `next_invoice_date` is advanced past a due date that an open imported invoice covers (§7.1); `IssueRenewalInvoices` is blocked by `hasInvoiceForPeriod`. Domains without a linked invoice start at `next_due_date`; staff-visible `import_hold` applies to those more than 60 days overdue without an open invoice, as for services |
-| Registrar side effects                         | No call at import. Sync is off for imported domains until go-live (`migration.enable_domain_sync_after_cutover`); verification is an explicit staff action (§7.2)                                                                                   |
-| Affiliate commissions                          | None: `PaymentReceived` is not dispatched, and imported payments carry `imported_run_id`, which Affiliates must ignore (§13 contract note)                                                                                                         |
-| Domain expiry notices                          | `domain_reminders` are seeded for offsets already past at the baseline                                                                                                                                                                             |
-| Gateway subscriptions                          | Domains with a `subscriptionid` are counted in the report; the cutover runbook asks the host to cancel or keep them (`migration.md` §7)                                                                                                            |
+| Risk                                        | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Invoice, receipt or "payment received" mail | No `InvoiceIssued`, `InvoicePaid`, `PaymentReceived` events; PDFs are not generated at import; staff can send an invoice later by hand                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Back-dated late fees and reminders          | The importer sets `late_fee_applied_at` and seeds `reminder_log` for every rule whose trigger date is before the baseline date. For a CSV run the baseline is the apply time (option "Start reminders from", default today); for the API it is the cutover. Invoices due after the baseline follow the normal rules                                                                                                                                                                                                                                                                   |
+| Auto-capture of old invoices                | No pay methods are imported, so nothing can be captured; `last_capture_attempt_at` is stamped at the baseline anyway                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Auto-cancel and suspension of services      | Services that depend on an overdue imported invoice get the grace window of `migration.md` §7 (`suspend_exempt_until`) through Services' own cutover, when services are imported                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Double renewal                              | Imported domain lines are written as `RenewalInvoices` writes them (`BillableType::Domain`, `billable_id`, `period_start`, years). Domains' listener on `MigrationRunCompleted` adds `domain_invoices` rows for them and moves `next_invoice_date` past the covered period; `IssueRenewalInvoices` and the grace/redemption automation also skip an imported domain for which `Invoicer::hasOpenInvoiceFor` is true, which covers due-date mismatches. Domains without an invoice start at `next_due_date`; `import_hold` applies to those more than 60 days overdue, as for services |
+| Registrar side effects                      | No call at import. Sync is off for imported domains until go-live (`migration.enable_domain_sync_after_cutover`); verification is an explicit staff action (§7.2)                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Affiliate commissions                       | None: `PaymentReceived` is not dispatched, and Affiliates sees only that event                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Domain expiry notices                       | `domain_reminders` are seeded for offsets already past at the baseline                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Gateway subscriptions                       | Domains with a `subscriptionid` are counted in the report; the cutover runbook asks the host to cancel or keep them (`migration.md` §7)                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+
+Paying an imported renewal invoice for a domain that is still **unlinked** makes `RenewDomain` fail, so "Verify imported
+orders" (§7.2) is a go-live checklist step, and the domains list shows the unlinked count until it is done.
 
 ## 10. Permissions, step-up and audit
 
@@ -360,7 +370,7 @@ Within `migration.undo_days` (7), per entity in reverse order (payments, adjustm
 - Invoice for a closed client: imported, the client stays closed; the review shows it.
 - Client merged since (phase 1 map points to the survivor): resolved through the map.
 - Same invoice number twice in one file: both rows are errors; with an id column they are two invoices if ids differ and a warning.
-- A number that already exists in Mohar's legal sequence (option "keep numbers"): row error.
+- A source number that equals one of Mohar's numbers: no effect, since it is stored only in `source_reference`.
 - A source invoice whose items use a tax the operator mapped to "none" while `tax > 0`: blocked.
 - Domain with expiry in the past and status Active: imported as recorded with a warning; the state machine moves it to grace on its first run after go-live, so the run page recommends syncing statuses first.
 - Domain in Redemption/Transferred Away/Cancelled: imported with the status, never renewed, kept for history only when the option "Include inactive domains" is on (default on for Expired, off for Cancelled and Transferred Away).
@@ -369,28 +379,58 @@ Within `migration.undo_days` (7), per entity in reverse order (payments, adjustm
 - Currency decimals: NPR and INR 2, JPY 0; a fraction in a zero-decimal currency is a warning and is rounded.
 - 20 MB or 100,000-row limits are those of `client-import.md`; invoices are rows, so the limits fit one WHMCS install's open invoices.
 
-## 13. Events, integration and contract changes (ADR 0008, 0010, 0011, 0019)
+## 13. Events, integration and contract changes (ADR 0008, 0010, 0011, 0019, 0024)
 
-**Emitted:** only `MigrationRunCompleted`, `MigrationRunPaused`, `MigrationRunUndone` (`app/Events/Migration`), whose counts gain the entities `invoice`, `invoice_item`,
-`payment` and `domain`. **Consumed:** none. Notifications continues to ignore Migration events apart from staff summaries.
+**Emitted:** only `MigrationRunCompleted`, `MigrationRunPaused`, `MigrationRunUndone` (`app/Events/Migration`), whose counts
+gain the entities `invoice`, `invoice_item`, `payment` and `domain`. **Consumed:** Domains consumes `MigrationRunCompleted`
+(item 4); Notifications continues to ignore Migration events apart from staff summaries.
 
-Integration, each owning module through its own importer registered in `bootModule()` (Migration imports no module classes):
+Each owning module registers its importer in `bootModule()`; Migration imports no module classes:
 
-| Registry key | Module  | `dependsOn`                  | Notes                                                                                                   |
-| ------------ | ------- | ---------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `domain`     | Domains | `client`                     | Implements `RecordImporter`, `RevertsImport`, `MatchesExisting`, `PreparesChunk`                         |
-| `invoice`    | Billing | `client`, `domain`, `service` | Items and payments are `children` of the `ImportRecord`; implements `RevertsImport`, `PreparesChunk`     |
+| Registry key | Module  | Order                                                   | Capabilities                                                                             |
+| ------------ | ------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `domain`     | Domains | `dependsOn: ['client']`                                 | `RevertsImport`, `MatchesExisting`, `PreparesChunk`, `DeclaresValueMaps`                 |
+| `invoice`    | Billing | `dependsOn: ['client']`, `after: ['domain', 'service']` | `RevertsImport`, `PreparesChunk`, `DeclaresValueMaps`; items and payments are `children` |
 
-Proposed kernel changes (CTO decides, ADR 0010: all additive):
+Proposed kernel changes (CTO decides; ADR 0010: all additive; PR 0 lands after `kernel:api-snapshot` #513 and regenerates
+the snapshot, with a `kernel-changelog.d` fragment):
 
-1. **`MatchesExisting`** and **`PreparesChunk`** capability interfaces (ADR 0012 shape) land now with their first consumers (ADR 0019 direction); `ImportIdResolver::targetIds()` batch method.
-2. `ImportRecord::$children` keys `items` and `payments` are documented as a schema; no class change.
-3. A read contract from Domains to Billing, or a Billing-owned `InvoicedPeriods` read, so Domains `finalize()` can ask "does an open invoice cover this domain's due date?" without reading Billing tables. If `Invoicer`/`InvoiceQueries` already expose it, no change.
-4. A Core DTO for the verified order claim is **not** needed: `import_claim` lives in Domains' `registrar_meta`.
-5. Domains: new `origin` values and a nullable `expiry_date`/`next_due_date` for `client_registered`; the state machine and automation jobs skip that origin. Amends `domains.md` §2 and §3, and `registrars.md` §9 (checkout creates no record; import does).
-6. Billing: the Nepal VAT tax mapping must be callable by the importer (the same service the checkout uses to snapshot tax rules); and `imported_run_id` on payments is ignored by Affiliates and by the "payments received" reports' new-business counts.
-7. `Queues::IMPORTS` (already added by `client-import.md` A1) carries the new jobs.
-8. Registrars' Link order action is reused by the bulk action; it needs a batch entry point that takes a claimed id instead of one typed by staff. No driver contract change.
+1. **Soft ordering in `ImportRegistry`:** `register(..., after: [...])` orders an entity after those keys when they are
+   registered and ignores them when they are not. A hard `dependsOn` on `service` or `domain` would make `ordered()`
+   throw today (no `service` importer until phase 2b) and under `MODULES=` without Domains. A test runs an invoice import with
+   Domains filtered out.
+2. **`PreparesChunk::prepare(list<ImportRecord>, ImportContext): void`** (state scoped to the instance; the chunk job takes
+   one instance from `ImportRegistry::get()` per chunk), **`MatchesExisting::matchExisting(list<ImportRecord>,
+   ImportContext): array<string sourceId, int targetId>`** (batch; a proposal only, the id map wins), and
+   **`ImportIdResolver::targetIds(string $entity, list<string> $sourceIds): array<string,int>`**. Test doubles in
+   `OpeningBalanceImportTest` and `Pr283ReviewProbesTest` are updated.
+3. **`DeclaresValueMaps extends RecordImporter`**, `valueMaps(): array<string, list<array{value:string,label:string}>>`,
+   with `validate()` returning `ImportIssue`s for unmapped values. Migration's "Mappings required" step lists the targets
+   without reading other modules' tables. Every map here uses it: `status.invoice`, `tax_rule`, `registrar`, `tld`. No
+   Billing tax-rules contract is added for Migration; the invoice importer is Billing and calls `NepalVatMode::classify()` itself.
+4. **`InvoiceQueries::openLines(BillableType $type, list<int> $billableIds): list<array{invoice_id:int, billable_id:int,
+   period_start:?string}>`** on the existing contract (Billing implements it; Core keeps a null default). Domains
+   listens to `MigrationRunCompleted` when `counts` has `invoice`; for imported domains it writes `domain_invoices` rows
+   (`kind=renewal`, `status=open`) and moves `next_invoice_date`, with no mail and no events. Needed because imported invoices dispatch no
+   `InvoiceCreated`, so they would never reach Domains' projection that `HandleInvoicePaid` and the grace automation read.
+5. **Vocabulary:** entities `invoice` and `domain`; `ImportRecord::$children` keys `items` and `payments` documented as a
+   schema, no class change. Cross-source client resolution (§3.1) is a separate resolver method or documented fallback;
+   `targetId` keeps meaning one source (`SourceIds`).
+6. **PR 4 only:** the per-client rule needs the driver to report the order's owner. Either a new capability
+   `ReportsOrderOwner` on the driver, or a trailing defaulted `?RegistrarCustomer $owner = null` on `LinkedOrder` plus a
+   documented `lookupOrder` mode for "no customer recorded yet" (ADR 0010: no new parameter on a provider contract). Both
+   need a kernel changelog fragment and a ResellerClub simulator change. The bulk action also needs a batch entry point
+   that takes a claimed id.
+7. `Queues::IMPORTS` already exists.
+
+**ADR amendments to write:**
+
+- **ADR 0019 amendment (#512, PR 0):** accepts `PreparesChunk`, `MatchesExisting`, `DeclaresValueMaps` and `targetIds`; adds
+  soft `after:` ordering; adds the vocabulary for `invoice` and `domain`; states that an owning module may react to
+  `MigrationRunCompleted` to update its projections; states that reference data (a retired TLD) is created on apply only.
+- **ADR 0024 amendment:** imported invoices never carry a foreign number in `number` or `proforma_number`; a legacy-path import
+  is numbered with `numbered_at` and the snapshot written in the import transaction, so the backfill and the enable-time
+  refusals stay clean.
 
 ## 14. Performance and large files
 
@@ -411,19 +451,28 @@ The API source is bounded by the source (about 2 calls per open invoice and 1 pe
 
 Asked of the owner by the CTO before the money-touching parts are built. Each has an assumed default so work can start.
 
-1. **Q1 — Paid history.** Do hosts need paid, cancelled and refunded WHMCS invoices in Mohar? Assumed: no (they stay in WHMCS as read-only archive
-   or PDF export); importing them would need a historical-document flag so they never reach the VAT register. Recommendation: not in v1.
-2. **Q2 — #372, per-client ResellerClub mode.** Does the host run `per_client` (a ResellerClub customer per client) or the default customer? In per-client mode, may the
-   customer id from the host's file be recorded when the order verifies **and** the customer's login email equals the client's email (§7.2 step 4)? Assumed: yes. Alternative: a staff pick list; or run the whole host in default-customer mode.
-3. **Q3 — Nepal workflow, old invoice numbers.** Owner to confirm: WHMCS unpaid invoices were sent to clients as the bill; at cutover the host voids them in WHMCS without VAT being claimed on them, and the client then pays the Mohar copy, which gets
-   a new legal number on payment (D1 of `vat-register.md`). If the accountant has already reported VAT on the WHMCS invoices, the same supply would be counted twice.
-4. **Q4 — Part payments.** Owner to confirm: a client who has paid part of an invoice in WHMCS and the rest in Mohar gets the legal tax invoice dated on the final payment, for the full amount. The accountant should say whether VAT on the earlier part is reported in the WHMCS period.
-5. **Q5 — `.np` records.** Owner to confirm: client-registered domains are kept as records (not renewed, not billed, no expiry) so staff can see them. Or are they only useful as notes?
-6. **Q6 — Domain renewal price.** Keep each domain's agreed recurring price from the source, or move to Mohar's TLD price at import? Assumed: keep, with a flagged bulk reprice.
-7. **Q7 — Unknown TLDs.** For a source domain whose TLD Mohar does not sell, create a retired TLD record automatically, or block until staff add the TLD? Assumed: offer both as a decision.
-8. **Q8 — Samples.** Can the owner provide fake-data WHMCS exports of invoices, transactions and domains, and `GetInvoice` and `GetClientsDomains` responses, and say whether the ResellerClub module's order and customer ids are visible anywhere in WHMCS? They settle the **verify** items in §3. The free ResellerClub demo account (CEO review rec. 2) lets verification be proven live.
-9. **Q9 — Payment Pending and Draft.** Skip them by default? Assumed: Payment Pending needs staff decision per row; Draft excluded.
-10. **Q10 — Legacy numbering hosts.** For installs with proforma mode off and no Nepal VAT mode (India, global), is "keep source numbers" worth offering in v1, or always renumber? Assumed: offered, off by default. Technical sign-off from the principal architect on the backfill interaction (ADR 0024 §8).
+Each has an assumed default so work can start. "Blocks" says what a missing answer holds up.
+
+1. **Q1 — Paid history.** Do hosts need paid, cancelled and refunded WHMCS invoices in Mohar? Assumed: no (they stay in WHMCS as
+   archive or PDF export); importing them would need a historical-document flag so they never reach the VAT register.
+   Blocks: nothing. Recommendation: not in v1.
+2. **Q2 — #372, per-client ResellerClub mode.** Does the host run `per_client` or the default customer? In per-client mode, may the
+   customer id from the host's file be recorded when the order verifies **and** the customer's login email equals the client's email
+   (§7.2 step 4)? Assumed: yes. Alternative: a staff pick list, or run the host in default-customer mode. **Blocks PR 4 only.**
+3. **Q3 — Nepal workflow, old invoice numbers.** Owner to confirm: WHMCS unpaid invoices were sent to clients as the bill; at cutover the host voids them in
+   WHMCS without VAT being claimed on them, and the client pays the Mohar copy, which gets a new legal number on payment (D1 of `vat-register.md`).
+   If the accountant already reported VAT on the WHMCS invoices, the same supply is counted twice. Blocks: go-live, not the build; it changes the cutover
+   runbook only (the proforma default creates no fiscal document whatever the answer).
+4. **Q4 — Part payments.** Owner to confirm: a client who paid part in WHMCS and the rest in Mohar gets the legal tax invoice dated on the final payment, for the
+   full amount. The accountant should say whether VAT on the earlier part is reported in the WHMCS period. Blocks: nothing (accountant note).
+5. **Q5 — Closed.** Self-registered `.np` names already have records through `tlds.registered_by_client` (§7.4).
+6. **Q6 — Domain renewal price.** Keep each domain's agreed price from the source (assumed, with a flagged bulk reprice), or move to Mohar's TLD price? Blocks: nothing.
+7. **Q7 — Unknown TLDs.** CTO decision: block until staff add the TLD; "create a retired TLD" is an apply-only option. Blocks: nothing.
+8. **Q8 — Samples.** Can the owner provide fake-data WHMCS exports of invoices, transactions and domains, and `GetInvoice` and `GetClientsDomains` responses, and say whether the
+   ResellerClub order and customer ids are visible anywhere in WHMCS? Blocks: the mapping presets only (they are data); the build uses our own vocabulary. The free
+   ResellerClub demo account lets verification be proven live.
+9. **Q9 — Payment Pending and Draft.** Assumed: Payment Pending needs a staff decision per row; Draft excluded. Blocks: nothing.
+10. **Q10 — Closed (CTO, 2026-10-29).** "Keep source numbers as legal numbers" is dropped from v1; the legacy path always renumbers (§6.3).
 
 ## 17. Out of scope (v1)
 
@@ -435,17 +484,20 @@ reads; Blesta, HostBill or other API connectors; Excel files; payment batches; t
 
 Each PR stays under 1,500 changed lines including tests and fixtures. PR 0 is a kernel PR by the CTO session.
 
-| PR  | Phase | Contents                                                                                                           | Criteria |
-| --- | ----- | ------------------------------------------------------------------------------------------------------------------ | -------- |
-| 0   | 3     | Kernel: `MatchesExisting`, `PreparesChunk`, batch resolver, entity vocabulary, arch rules                          | 1–2      |
-| 1   | 3a    | Billing invoice importer: columns, mapping step incl. tax and status maps, rules §4 and §6.1–6.3, check and review  | 3–15     |
-| 2   | 3a    | Items and payments files, balance cross-check, reconciliation, automation baselines (§9), undo                     | 16–27    |
-| 3   | 3b    | Domains importer: TLD, status, matching, client-registered origin; `domains` columns and state-machine skips        | 28–37    |
-| 4   | 3b    | Registrar claims and **Verify imported orders** (reuses Link order), per-client customer rule                      | 38–45    |
-| 5   | 3c    | API connector actions `GetInvoices`, `GetInvoice`, `GetClientsDomains`, delta, supplementary claims file             | 46–50    |
-| 6   | 3     | Performance fixtures, load-test scenario, run report totals                                                         | 51–52    |
+| PR  | Phase | Contents                                                                                                                                                                                        | Criteria |
+| --- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| 0   | 3     | Kernel (after #513): `after:` ordering, `PreparesChunk`, `MatchesExisting`, `targetIds`, `DeclaresValueMaps`, `InvoiceQueries::openLines`, vocabulary, arch rules; ADR 0019 and 0024 amendments | 1–2      |
+| 0b  | 3     | Migration pipeline per entity: generalise `UploadClientFile`, `ClientColumns`, `ClientMatcher` to per-entity columns, runs by entity                                                            | 53, 56   |
+| 1   | 3a    | Billing invoice importer: headers, status and tax maps, §4 and §6.1–6.3 (proforma and legacy paths), check and review                                                                           | 3–15     |
+| 3   | 3b    | Domains importer: TLD (blocking if unknown), status, matching, `import` origin, self-registered handling; `domains` columns                                                                     | 28–37    |
+| 2   | 3a    | Items with domain links, payments, balance cross-check, reconciliation, baselines (§9), undo, and the Domains `MigrationRunCompleted` listener                                                  | 16–27    |
+| 4   | 3b    | Registrar claims, **Verify imported orders**, driver owner capability, per-client customer rule (needs Q2)                                                                                      | 38–45    |
+| 5   | 3c    | API connector actions `GetInvoices`, `GetInvoice`, `GetClientsDomains`, delta, supplementary claims file                                                                                        | 46–50    |
+| 6   | 3     | Performance fixtures, load-test scenario, run report totals                                                                                                                                     | 51–52    |
 
-Dependencies: client import PRs 3–5 (clients, id map, undo); #338's Link order action (merged); PR 4 needs the open owner answer Q2; PR 1 needs Q3 and Q10.
+Domains (PR 3) come before items (PR 2), or renewal lines cannot link.
+
+Dependencies: client import PRs 3–5 (clients, id map, undo); #338's Link order action (merged); PR 4 needs the owner's answer to Q2; no other PR waits on an owner answer (§16).
 
 ## 19. Acceptance criteria
 
@@ -454,7 +506,7 @@ MUST unless marked SHOULD.
 **Kernel and pipeline**
 
 1. `MatchesExisting` and `PreparesChunk` exist as optional interfaces; `RecordImporter` gains no method; an importer without them still works.
-2. The arch rule forbids `Mail`, `Event`, `Notification` facades, other modules' events and any driver or registrar contract in `App\Modules\*\Import` for the new importers.
+2. `ImportRegistry::ordered()` honours `after:` and ignores absent keys: an invoice import runs with Domains filtered out and with no `service` importer. The arch rule forbids `Mail`, `Event`, `Notification` facades, other modules' events and any driver or registrar contract in `App\Modules\*\Import` for the new importers.
 
 **Invoices — identity, status, money**
 
@@ -470,16 +522,16 @@ MUST unless marked SHOULD.
 12. Given an imported open invoice that has since been paid in Mohar, then a changed row is skipped with the reason and not overwritten.
 13. Given an invoice paid at the source in a later file, then it is reported and left unchanged (SHOULD show a count on the run page).
 14. Given a source id missing from a later API run, then it is marked missing and reported, never deleted.
-15. Given an invoice with `source_reference`, `imported_run_id` and `imported_at`, then the invoice page shows "Imported from <source>".
+15. Given an invoice with `source_reference`, `migration_run_id` and `imported_at`, then the invoice page shows "Imported from <source>".
 
 **Invoices — numbering and VAT**
 
-16. Given Nepal VAT mode enabled (or scheduled), then every imported invoice has `number` null, `numbered_at` null and `proforma_number` = the source number; the "keep source numbers" option is not shown.
+16. Given Nepal VAT mode enabled (or scheduled), then every imported invoice has `number` null, `numbered_at` null, a `proforma_number` allocated from Mohar's own sequence and the source number only in `source_reference`.
 17. Given an imported proforma invoice paid in full in Mohar, then it gets the next gap-free legal number, its issue date is the payment date, the fiscal snapshot is taken then, and `source_reference` is unchanged.
-18. Given imported open invoices, then the VAT register lists none of them before payment (detail, IRD and summary layouts).
+18. Given imported open invoices in proforma mode, then the VAT register lists none of them before payment (detail, IRD and summary layouts).
 19. Given a partial imported payment on a proforma, then the invoice stays unnumbered; given the remaining balance paid in Mohar, then it is numbered on that payment.
-20. Given proforma mode off and "keep numbers" on, when a number collides with an existing legal number, then the row is an error; when it does not, the sequence is moved past the highest imported number after the run.
-21. Given the default options, when Nepal VAT mode is enabled afterwards, then enabling is not refused because of the import.
+20. Given proforma mode off and Nepal VAT mode never enabled, then each imported invoice is numbered in the import transaction from Mohar's sequence with `numbered_at` and the fiscal snapshot written, `FiscalBackfill::hasPending()` is empty, and the source number is only in `source_reference`.
+21. Given an import on either path, when Nepal VAT mode is enabled afterwards, then enabling is not refused because of the import.
 22. Given a numbered imported invoice (legacy path), then no import ever modifies its frozen columns.
 
 **Invoices — balance, payments, credit**
@@ -492,14 +544,14 @@ MUST unless marked SHOULD.
 
 **Domains — identity and records**
 
-28. Given a name with no matching configured TLD, then the row needs a decision (add TLD or retired TLD record) and nothing is created before the choice.
+28. Given a name with no matching configured TLD, then the row is a blocking issue until staff add the TLD; if the apply-only "retired TLD" option is chosen, nothing is created in a dry run.
 29. Given a name that already has a non-terminal Mohar domain, then the row is an update-or-skip decision, never a second row; two rows for the same active name in one file are both flagged.
 30. Given a source status of Pending Registration, Grace, Redemption, Expired, Transferred Away or Cancelled, then the mapped status is stored and the state machine does not run at import.
-31. Given a domain with an open imported invoice line for its due date, then `next_invoice_date` is advanced one term and `IssueRenewalInvoices` creates nothing for that period.
+31. Given a domain with an open imported invoice line for its due date, when the run completes, then Domains has a `domain_invoices` row (`renewal`, `open`), `next_invoice_date` is past the period, and neither `IssueRenewalInvoices` nor the grace automation invoices it again.
 32. Given an imported domain, then contacts, nameservers, EPP code and lock state are empty and the first sync after go-live fills them; sync is not run at import.
-33. Given a source registrar with no mapping, then the run reports a blocking issue; given "none (managed by hand)", then the domain is `imported_registrar` with a "managed outside Mohar" badge and no registrar call is ever made for it.
-34. Given a `.np` second-level name, then it is stored as `client_registered`, with no registrar, order, renewal, sync, reminder or expiry, and the client area shows the registry guidance.
-35. Given a `client_registered` domain, then renewal invoicing, grace/redemption transitions and expiry reminders skip it (SHOULD: staff can still cancel it).
+33. Given a source registrar with no mapping, then the run reports a blocking issue; given "none (managed by hand)", then the domain has `registrar_key` null and `origin = import`, with a "managed outside Mohar" badge and no registrar call is ever made for it.
+34. Given a `.np` second-level name whose TLD has `registered_by_client`, then it is stored with `registrar_key` null, no order or claim, and the client area shows the registry guidance; given a registrar mapped to "client registered" on a TLD without the flag, then the row is a blocking issue.
+35. Given such a domain, then renewal invoicing, sync and Link order skip or refuse it through the existing rules (SHOULD: staff can still cancel it).
 36. Given recurring and first-payment amounts, then they are kept in the client's currency with the "imported price" flag and the review shows the difference from the current TLD price.
 37. Given a domain for a client in a different currency, then the row is an error.
 
