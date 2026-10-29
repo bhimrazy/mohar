@@ -135,3 +135,14 @@ test('the client page offers "Make owner" data only for verified logins', functi
     expect($logins['helper@example.com.np']['email_verified'])->toBeFalse()
         ->and($logins['ok@example.com.np']['email_verified'])->toBeTrue();
 });
+
+test('a merge still moves a login staff invited that nobody has used, with its invitation', function () {
+    voidingInvite($this->client);
+    $target = Client::factory()->withOwner()->create(['currency' => $this->client->currency]);
+
+    app(MergeClients::class)->handle($this->client, $target);
+
+    $invited = User::query()->where('email', 'helper@example.com.np')->sole();
+    expect($target->users()->whereKey($invited->id)->exists())->toBeTrue()
+        ->and(ClientInvitation::query()->sole()->client_id)->toBe($target->id);
+});
