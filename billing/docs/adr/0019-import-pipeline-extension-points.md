@@ -95,41 +95,58 @@ Accepted on merge of #259.
 Accepted on merge of #527, the kernel PR of `billing/docs/product/invoice-domain-import.md` (§13, PR 0; architecture
 review on #512). It decides the capabilities this ADR left as a direction.
 
-- **Accepted capabilities** (optional interfaces extending `RecordImporter`; an importer without them works as before):
+- **Accepted capabilities** (optional interfaces extending `RecordImporter`; an importer without them works as before).
+  No pipeline job calls them yet; PR 0b wires them in.
     - `PreparesChunk::prepare(list<ImportRecord> $records, ImportContext $context): void` loads what a chunk needs in
-      one go. Migration takes one instance from `ImportRegistry::get()` per chunk and calls `prepare()` once before
-      `validate()` or `upsert()` runs on any record of it. Prepared state lives on that instance only; `prepare()`
-      writes nothing, and `upsert()` re-reads under its lock what it writes.
+      one go. Prepared state lives on the instance only; `prepare()` writes nothing, and `upsert()` re-reads under its
+      lock what it writes. An importer is registered so that `ImportRegistry::get()` builds a new instance on each
+      call (a class not bound as a singleton, or a closure that constructs one); a test checks this for every
+      registered importer.
     - `MatchesExisting::matchExisting(list<ImportRecord>, ImportContext): array<string, int>`, batch, keyed by source id.
       A match is a proposal: Migration asks only for records the id map does not resolve (the id map wins), and update
-      or skip stays a Migration row decision.
+      or skip stays a Migration row decision. When two records propose the same target, both rows are a conflict for
+      staff, and the target is never updated twice in one run.
     - `DeclaresValueMaps::valueMaps(): array<string, list<array{value, label}>>` lists the targets of each value map
       (invoice statuses, tax rules, registrars, extensions), so Migration's mapping step shows them without reading
-      the owner's tables. A map key names the attribute it applies to (`status`, `items.tax_rule`). Migration replaces
-      mapped source values with the chosen target before `validate()` and `upsert()`, and `validate()` returns an
-      `ImportIssue` for a value that is not a listed target. No module adds a separate lookup contract for Migration.
-- **`ImportIdResolver::targetIds(string $entity, list<string> $sourceIds): array<string, int>`**, the batch form of
-  `targetId()`, for `prepare()`. `ImportIdResolver` is a service contract: only Migration implements it (`SourceIds`,
-  one query per 1,000 ids), so adding a method is compatible (ADR 0010).
+      the owner's tables. A map key is the path of the attribute it applies to (`status`, `items.tax_rule`); these
+      keys replace the map names first written in the spec (`status.invoice`). Keys are per entity, and Migration
+      stores the choices by entity and key. `validate()` returns an `ImportIssue` for a value that is not a listed
+      target. No module adds a separate lookup contract for Migration.
+    - **Per chunk, in this order:** Migration replaces mapped values, takes a new instance from `get()`, calls
+      `prepare()` once, then `matchExisting()`, then `validate()` or `upsert()` per record. Every one of these sees
+      mapped values only.
+- **`ImportIdResolver::targetIds(string $entity, list<string> $sourceIds): array<int|string, int>`**, the batch form of
+  `targetId()`, for `prepare()`. A numeric source id comes back as an int key, as PHP stores it, so callers look ids up
+  by the source id and never compare keys strictly. `ImportIdResolver` is a service contract: only Migration
+  implements it (`SourceIds`, one query per 1,000 ids), so adding a method is compatible (ADR 0010).
 - **Soft ordering.** `ImportRegistry::register(..., after: [...])` orders an entity after those entities when they are
   part of the same import and ignores them otherwise. It never adds an entity to `ordered()` and never makes one
   required, so `invoice` can name `after: ['domain', 'service']` and still run under `MODULES=` without Domains and
-  before a `service` importer exists. `dependsOn` stays the hard form; a cycle through either kind is refused. Undo's
-  reverse order follows `ordered()`, `after` included.
+  before a `service` importer exists. `dependsOn` stays the hard form. An `after` edge counts only while both of its
+  entities are in the import, so a cycle is refused when every entity on it is in the import; a cycle that needs an
+  `after` edge to an entity outside the import is no cycle for that import. Decision for undo (not built yet,
+  invoice-domain-import PR 2): its reverse order follows `ordered()`, `after` included.
 - **Vocabulary.** New entities `invoice` and `domain`. An invoice's lines and payments travel as
-  `ImportRecord::$children['items']` and `['payments']`, and are counted as the entities `invoice_item` and `payment`
-  in `MigrationRunCompleted::$counts`. Consumers ignore entity keys they do not know.
+  `ImportRecord::$children['items']` and `['payments']`. The parent's importer writes its children, and its `revert()`
+  takes them back. `invoice_item` and `payment` are reserved entity names: no importer registers them, and they may
+  appear as keys of `MigrationRunCompleted::$counts`. Consumers ignore entity keys they do not know.
 - **Owning modules may react to `MigrationRunCompleted`** to bring their own projections up to date, because imported
-  records dispatch no domain event (Domains links the open invoices of imported domains). Such a listener follows the
-  importers' rules: no mail or notification, no domain event, no driver call, and running it twice for a run changes
-  nothing. It finds the run's records through its own tables.
+  records dispatch no domain event (for example, Domains will link the open invoices of imported domains, PR 2). Such
+  a listener follows the importers' rules: no mail or notification, no domain event, no driver call, and running it
+  twice for a run changes nothing. It finds the run's records through its own tables.
 - **Reference data is created on apply only.** A decision that creates reference data (a retired extension for an
   unknown TLD) is carried out by `upsert()` only when the run applies; a dry run reports what it would create.
 - **Arch rule.** Besides kernel driver contracts and events, an importer in `App\Modules\*\Import` may not use any
-  module's `Drivers`, `Jobs`, `Mail` or `Notifications` namespace, the `Queue` facade, `GatewayRegistry` or the
-  integrations `DriverRegistry` (`tests/Arch/ExtensionsTest.php`).
-- Not in this amendment: `InvoiceQueries::openLines()` and a cross-source client key (spec §13 items 4 and 5) land with
-  their first consumers.
+  module's `Drivers`, `Jobs`, `Mail` or `Notifications` namespace; the `Bus`, `Event`, `Queue`, `Mail`,
+  `Notification` or `Http` facades; the `Illuminate\Contracts\Bus`, `Queue`, `Mail` or `Notifications` contracts; the HTTP client;
+  `dispatch()`, `dispatch_sync()` or `event()`; `GatewayRegistry`; or the integrations `DriverRegistry`
+  (`tests/Arch/ExtensionsTest.php`, with a refused probe importer for six of these routes).
+- **Moved to later PRs:** `InvoiceQueries::openLines()` and a cross-source client key (spec §13 items 4 and 5) go to
+  PR 2, and the ADR 0024 amendment to PR 1.
+- **Open question for PR 2: per-child outcomes and counts.** `upsert()` returns one `ImportOutcome`, and children
+  carry no source id of their own. PR 2 decides how child outcomes are reported, counted under `invoice_item` and
+  `payment`, and given id-map rows (the B2b addendum gives every written entity its own row), either through a
+  trailing defaulted field on `ImportOutcome` or a documented child `source_id`.
 
 ## Open questions
 
