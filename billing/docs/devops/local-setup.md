@@ -203,12 +203,15 @@ Every workstream works in its own git worktree, branched from `develop`:
 
 ```bash
 scripts/new-worktree.sh <module-slug>    # from the repo root
-# -> .worktrees/<slug>/billing on feature/<slug>, vendor + node_modules copied, .env copied,
+# -> .claude/worktrees/<slug>/billing on feature/<slug>, vendor + node_modules copied, .env copied,
 #    SQLite migrated and seeded, Wayfinder generated
 ```
 
-Run all commands inside `.worktrees/<slug>/billing`. Infrastructure (RustFS, PostgreSQL) is shared across
+Run all commands inside `.claude/worktrees/<slug>/billing`. Infrastructure (RustFS, PostgreSQL) is shared across
 worktrees; the SQLite file is per worktree. Rebase on `develop` and run `composer ci` before review.
+
+After the PR merges, `scripts/finish-workstream.sh <slug>` removes the worktree, the merged local branch and the
+slug's PostgreSQL databases (`--dry-run` to preview). `scripts/sweep-stale.sh` lists leftovers (dry run; `--apply` acts).
 
 ## Building `pdo_pgsql` for the local PHP 8.4.15
 

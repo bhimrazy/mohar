@@ -15,8 +15,8 @@ commands and the briefs.
   building; a minute of the owner's time saved days on `.np`.
 - Check the agent budget (load below 8, 2 GB free, disk below 85%) and the open-PR count (no new build at eight or
   more awaiting review).
-- `scripts/new-worktree.sh <slug>` creates `.worktrees/<slug>/billing` on `feature/<slug>` from a fresh
-  `origin/develop`. For an existing worktree: `git -C .worktrees/<slug> merge --ff-only origin/develop`; if
+- `scripts/new-worktree.sh <slug>` creates `.claude/worktrees/<slug>/billing` on `feature/<slug>` from a fresh
+  `origin/develop`. For an existing worktree: `git -C .claude/worktrees/<slug> merge --ff-only origin/develop`; if
   `package-lock.json` changed, the engineer runs `npm ci` first.
 
 ## 2. Brief the engineer
@@ -27,7 +27,7 @@ adds what the agent definition does not know:
 ```
 Module: <name>. Spec: billing/docs/product/<module>.md (implement v1 per its acceptance criteria;
 out-of-scope section stays out). Expected size: <lines>; split proposed if above 2,000.
-Worktree: $MOHAR_ROOT/.worktrees/<slug>/billing, branch feature/<slug>, at develop <sha>.
+Worktree: $MOHAR_ROOT/.claude/worktrees/<slug>/billing, branch feature/<slug>, at develop <sha>.
 Setup: <npm ci needed? migrate:fresh --seed, wayfinder:generate --with-form>.
 Dev server ports: <range, e.g. 8100-8199>; screenshots to billing/docs/screenshots/<module>/, and into the PR
 description with scripts/pr-screenshots.sh <pr> <image>... (hidden ref, not a branch).
@@ -44,7 +44,10 @@ Merge origin/develop (no rebase); squash only against a fixed SHA, never a movin
 
 ## 3. Review
 
-When the engineer reports a pushed, clean head, launch per the policy table (background, same model rule):
+When the engineer reports a pushed, clean head, launch per the policy table (background, same model rule). Tell every
+review or probe agent to create its scratch worktree under `.claude/worktrees/_review/<name>`, `touch .claude-in-use`
+in it, and before reporting remove the worktree (`git worktree remove`) and the test databases it made
+(`scripts/pg.sh --drop <slug>`). The `pg.sh` slug must be the worktree's directory name (`_review/<name>` → `<name>`):
 
 - Money, auth, permissions or migrations: `review-board` with "combined" in the brief (security threats and the
   tables in scope named), PR number, worktree, domain expertise, focus areas. One review.
@@ -66,7 +69,7 @@ Lows and non-money mediums become issues (`gh issue create` citing the review).
 ## 5. Merge (CTO)
 
 ```bash
-cd $MOHAR_ROOT/.worktrees/<slug>/billing && export XDEBUG_MODE=off && H=$MOHAR_ROOT/scripts/heavy.sh \
+cd $MOHAR_ROOT/.claude/worktrees/<slug>/billing && export XDEBUG_MODE=off && H=$MOHAR_ROOT/scripts/heavy.sh \
 && git fetch -q origin && git merge --no-edit origin/develop \
 && $H composer install -q && $H npm ci --silent && php artisan wayfinder:generate --with-form \
 && vendor/bin/pint --dirty --format agent && $H vendor/bin/phpstan analyse --memory-limit=1G \
@@ -80,7 +83,7 @@ gh pr comment <n> -b "CTO sign-off at <sha>: <each blocking item and its evidenc
 stacked=$(gh pr list --base feature/<slug> --json number --jq '.[].number'); [ -n "$stacked" ] && how=--merge || how=--squash
 for s in $stacked; do gh pr edit $s --base develop; done
 gh pr merge <n> $how --match-head-commit <sha> --delete-branch
-cd $MOHAR_ROOT && git pull --ff-only && git worktree remove .worktrees/<slug> && git branch -D feature/<slug>
+cd $MOHAR_ROOT && git pull --ff-only && scripts/finish-workstream.sh <slug>   # refuses unless the work is safe; then worktree, branch, test databases (--dry-run to preview)
 ```
 
 - Code conflicts in money or auth PRs go back to the engineer; docs and lockfile conflicts the CTO resolves (changelog fragments do not conflict)

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Create an isolated worktree for a workstream: scripts/new-worktree.sh <module-slug>
-# -> $MOHAR_ROOT/.worktrees/<slug> on branch feature/<slug> (from a freshly fetched origin/develop, not the
+# -> $MOHAR_ROOT/.claude/worktrees/<slug> on branch feature/<slug> (from a freshly fetched origin/develop, not the
 # local develop, which goes stale), dependencies ready.
 set -euo pipefail
 slug="$1"
 root="$(cd "$(dirname "$0")/.." && pwd)"
-wt="$root/.worktrees/$slug"
+# Always under the main checkout, also when this script runs from a worktree (vendor/ and node_modules come from $root).
+main="$(dirname "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir)")"
+wt="$main/.claude/worktrees/$slug"
 git -C "$root" fetch -q origin develop
 git -C "$root" worktree add -q --no-track -b "feature/$slug" "$wt" origin/develop
 cd "$wt/billing"

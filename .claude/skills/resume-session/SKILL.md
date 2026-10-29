@@ -25,6 +25,7 @@ description: Resume the Mohar build after a Claude Code restart, a context reset
      echo "$d $(git -C "$d" branch --show-current) ahead=$(git -C "$d" rev-list --count origin/develop..HEAD) dirty=$(git -C "$d" status --short | wc -l)"
    done
    gh pr list; gh issue list
+   scripts/sweep-stale.sh    # dry run: merged worktrees, idle _review trees, orphan databases; --apply removes trees
    ```
 
    For each open PR: `gh pr checks <n>` and `gh pr view <n> --comments` to see the latest review verdict.
@@ -49,7 +50,7 @@ description: Resume the Mohar build after a Claude Code restart, a context reset
    pdo_pgsql, Composer, Node with npm, Docker, `gh auth login`). Then in `billing/`:
    `composer install`, `npm ci`, `cp .env.example .env`, `php artisan key:generate`,
    `touch database/database.sqlite`, `php artisan migrate --seed`, `php artisan wayfinder:generate --with-form`. For each in-progress branch run
-   `git worktree add .worktrees/<slug> feature/<slug>` and set up `billing/` the same way (or copy
+   `git worktree add .claude/worktrees/<slug> feature/<slug>` and set up `billing/` the same way (or copy
    `vendor`, `node_modules` and `.env` as `scripts/new-worktree.sh` does).
 
 5. **Resume agents and background jobs.**
@@ -77,14 +78,14 @@ description: Resume the Mohar build after a Claude Code restart, a context reset
      # Codespace
      cd billing && XDEBUG_MODE=off DB_DATABASE=$PWD/database/preview.sqlite \
        APP_URL=https://$CODESPACE_NAME-8000.app.github.dev setsid nohup php artisan serve --host=0.0.0.0 \
-       --port=8000 --no-reload > $MOHAR_ROOT/.worktrees/_review/preview-8000.log 2>&1 < /dev/null &
+       --port=8000 --no-reload > $MOHAR_ROOT/.claude/worktrees/_review/preview-8000.log 2>&1 < /dev/null &
      # macOS (no setsid; localhost only)
      cd billing && (XDEBUG_MODE=off DB_DATABASE=$PWD/database/preview.sqlite APP_URL=http://localhost:8000 \
        nohup php artisan serve --host=127.0.0.1 --port=8000 --no-reload \
-       > $MOHAR_ROOT/.worktrees/_review/preview-8000.log 2>&1 < /dev/null &)
+       > $MOHAR_ROOT/.claude/worktrees/_review/preview-8000.log 2>&1 < /dev/null &)
      ```
 
-     Long-running watchers (such as `.worktrees/_review/merge-when-green.sh`) live in `.worktrees/_review/`, not
+     Long-running watchers (such as `.claude/worktrees/_review/merge-when-green.sh`) live in `.claude/worktrees/_review/`, not
      `/tmp`, which a reboot clears.
    - New device, or the id is unknown: launch a fresh agent of the right type from `.claude/agents/`
      with the brief template in the `run-workstream` skill, pointing at the existing branch, PR and

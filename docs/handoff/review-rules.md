@@ -14,9 +14,13 @@ checklist; this file holds what they have in common. The brief gives the PR numb
 - Heavy commands (`npm ci`, builds, phpstan, test suites) go through `$MOHAR_ROOT/scripts/heavy.sh` with
   `export XDEBUG_MODE=off`. Run targeted tests only; CI runs the full suite on SQLite and PostgreSQL.
 - PostgreSQL: use the shared server with your own database, `eval "$($MOHAR_ROOT/scripts/pg.sh <slug>)"`, then
-  the tests you need. Don't start private containers. Drop only your own database when done
-  (`docker exec mohar-pg dropdb -U billing --if-exists <db>`); `pg.sh --prune` is for the CTO, since it drops every idle
+  the tests you need. Don't start private containers. Drop only your own databases when done
+  (`$MOHAR_ROOT/scripts/pg.sh --drop <slug>`); `pg.sh --prune` is for the CTO, since it drops every idle
   test database on the shared server.
+- Scratch worktrees go under `$MOHAR_ROOT/.claude/worktrees/_review/<name>`. `touch .claude-in-use` in the tree
+  (`scripts/sweep-stale.sh` skips marked trees), and before reporting remove the worktree (`git worktree remove`) and
+  the databases you created. Use the worktree's directory name as the `pg.sh` slug (`_review/<name>` → `<name>`), so the sweep and
+  `--drop` can match databases to their owner; `--drop <slug>` can also drop idle databases of a longer slug with no worktree.
 - Dev servers on the port range in your brief; stop them by port PID (`ss -ltnp | grep :<port>`), never `pkill -f`.
 
 ## Verdict

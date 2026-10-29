@@ -140,6 +140,8 @@ half of what filled the disk and crashed the server (2026-10-23). It moved to a 
 limited by the Docker VM's memory (3.58 GiB on this Mac, `docker info`), which was smaller than the data could grow.
 With durability off, a killed container or a VM crash can corrupt the volume: if the server won't start, run
 `pg.sh --stop` and start it again.
+The container has `--shm-size=512m`: under Docker's 64 MB default the full suite fails with `SQLSTATE[53100] could not
+resize shared memory segment`. `pg.sh --drop <slug>` drops one slug's databases (`finish-workstream.sh` calls it).
 It has full fidelity and is already approved.
 
 ### 6. Testcontainers

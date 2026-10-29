@@ -220,8 +220,8 @@ Not in git; does not exist on a new device. On the Mac: Homebrew PHP 8.4.26 (upg
 Mailpit in `compose.yaml`; screenshots via `scripts/screenshot.mjs`. Not carried over: `rea/`, the Stripe CLI login,
 Composer auth and `~/.npmrc` (log in again locally). The codespace list below is history:
 
-- Worktrees in `.worktrees/` (recreate with `scripts/new-worktree.sh <slug>`, or `git worktree add .worktrees/<slug>
-  feature/<slug>` for an existing branch). `.worktrees/_review/`: screenshot and preview helpers.
+- Worktrees in `.claude/worktrees/` (recreate with `scripts/new-worktree.sh <slug>`, or `git worktree add .claude/worktrees/<slug>
+  feature/<slug>` for an existing branch). `.claude/worktrees/_review/`: screenshot and preview helpers.
 - The owner's preview on port 8000 (`database/preview.sqlite`, started by the `resume-session` skill).
 - `rea/`: the REA reverse-engineering toolkit, installed per user on 10-17; used once (10-21) to capture the eSewa
   UAT sandbox for #213; never pointed at WHMCS files (`CLAUDE.md`, Boundary).

@@ -36,7 +36,7 @@
 #      (--merge instead when another open PR is based on this branch)
 #      (--match-head-commit refuses the merge if anything was pushed after the gated head)
 #
-# Settings: GATE_REPO (owner/repo for gh; default from the origin remote), GATE_ROOT (default <main checkout>/.worktrees/.merge-gate), GATE_PROCESSES (default 2), MAIN_CHECKOUT
+# Settings: GATE_REPO (owner/repo for gh; default from the origin remote), GATE_ROOT (default <main checkout>/.claude/worktrees/.merge-gate), GATE_PROCESSES (default 2), MAIN_CHECKOUT
 # (default: the repository's main worktree), GATE_SCRIPTS (directory holding heavy.sh, pg.sh and linux.sh; default
 # this script's directory), GATE_CONTINUE=1 (run every step after a failure; the result is still FAIL).
 set -uo pipefail
@@ -54,7 +54,7 @@ main="${MAIN_CHECKOUT:-$(dirname "$common")}"
 gh_repo="${GATE_REPO:-$(git -C "$repo" remote get-url origin | sed -E 's#^(git@[^:]+:|ssh://git@[^/]+/|https?://[^/]+/)##; s#\.git$##')}"
 heavy="$scripts/heavy.sh"
 processes="${GATE_PROCESSES:-2}"
-root="${GATE_ROOT:-$main/.worktrees/.merge-gate}"
+root="${GATE_ROOT:-$main/.claude/worktrees/.merge-gate}"
 dir="$root/gate-$pr"
 logs="$root/gate-$pr.d"
 summary="$root/gate-$pr.log"
