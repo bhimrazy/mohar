@@ -58,8 +58,8 @@ class MergeClients
         $invitations = ClientInvitation::query()->where('client_id', $source->id)->whereNull('accepted_at')
             ->whereIn('user_id', $logins->modelKeys())->get()->keyBy('user_id');
 
-        return $logins->reject(fn (User $login): bool => ($invitation = $invitations->get($login->id)) !== null && ! $invitation->loginChanged($login))
-            ->map(fn (User $login): string => $login->email)->values()->all();
+        return array_values($logins->reject(fn (User $login): bool => ($invitation = $invitations->get($login->id)) !== null && ! $invitation->loginChanged($login))
+            ->map(fn (User $login): string => $login->email)->all());
     }
 
     /**
