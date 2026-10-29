@@ -2,6 +2,7 @@
 
 use App\Modules\Core\Support\KernelApiSnapshot;
 use App\Support\Kernel;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 
 beforeEach(function () {
@@ -12,8 +13,11 @@ beforeEach(function () {
 
 afterEach(fn () => File::deleteDirectory($this->dir));
 
+// This is the CI check (ADR 0010): on failure the message says how to regenerate the file and which fragment to add.
 test('the committed snapshot records the current kernel surface', function () {
-    $this->artisan('kernel:api-snapshot', ['--check' => true])->assertSuccessful();
+    $exitCode = Artisan::call('kernel:api-snapshot', ['--check' => true]);
+
+    expect($exitCode)->toBe(0, Artisan::output());
 
     expect(Kernel::API_VERSION)->toMatch('/^\d+\.\d+\.\d+$/');
 });

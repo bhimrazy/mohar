@@ -216,11 +216,6 @@ jobs:
               with:
                   node: 'true'
 
-            # ADR 0010: the committed kernel API snapshot must match the code. Reflection over the kernel folders only
-            # (well under a second); runs on the docs-only path too, since the snapshot is a docs file.
-            - name: Kernel API snapshot
-              run: php artisan kernel:api-snapshot --check
-
             - name: vp check (format + lint)
               run: npx vp check
 

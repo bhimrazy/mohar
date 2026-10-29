@@ -398,13 +398,11 @@ describe('changelog-check.sh', function () {
     });
 });
 
-it('runs the changelog and kernel snapshot checks in CI and in the local merge gate, which stands in for CI', function () {
+it('runs the changelog check in CI and in the local merge gate, which stands in for CI', function () {
     $root = dirname(__DIR__, 4);
     $ci = (string) file_get_contents("{$root}/.github/workflows/ci.yml");
     $gate = (string) file_get_contents("{$root}/scripts/merge-gate.sh");
 
     expect($ci)->toContain('../scripts/changelog-check.sh --marker-rev HEAD^2 HEAD^1 HEAD')
-        ->and($gate)->toContain('changelog-check.sh" --marker-rev HEAD^2 HEAD^1 HEAD')
-        ->and($ci)->toContain('php artisan kernel:api-snapshot --check')
-        ->and($gate)->toContain('php artisan kernel:api-snapshot --check');
+        ->and($gate)->toContain('changelog-check.sh" --marker-rev HEAD^2 HEAD^1 HEAD');
 });

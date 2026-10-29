@@ -126,7 +126,8 @@ No aliases are needed. ADR 0009's moves rely on this.
   `SettingDefinition`), `AbstractGatewayDriver`, `IdentifiesOccurrence` and the exceptions drivers throw now carry it.
 - The snapshot leaves out docblock types, documented array shapes, webhook payloads and merge-field keys. Those
   stay under review and the kernel changelog.
-- CI runs `kernel:api-snapshot --check` in the Checks job, and so does `scripts/merge-gate.sh`. It reflects over the
+- CI runs `kernel:api-snapshot --check` through a Pest test (`tests/Feature/Core/KernelApiSnapshotTest.php`), so
+  the SQLite shards and `scripts/merge-gate.sh` both run it, and a failure prints how to fix it. It reflects over the
   kernel folders only (well under a second) and never parses the whole app. `scripts/changelog-check.sh` fails a PR
   that changes `kernel-api.txt` without adding or editing a `kernel-changelog.d/` fragment.
 
