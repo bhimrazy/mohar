@@ -71,15 +71,10 @@ class PlatformClientLoginInvitations implements ClientLoginInvitations
     }
 
     /**
-     * A client login nobody has used: active, never signed in, no two-factor authentication, and its password never
-     * changed since the login was created (the random one it was created with, which nobody knows). The client
-     * import lists logins with the same rule in SQL (Migration's ImportInvitations::candidates()); a test checks both
-     * agree.
+     * Core's ClientInvitation::neverUsed(): the logins an invitation may be sent to.
      */
     public static function neverUsed(User $user): bool
     {
-        return ! $user->is_staff && $user->is_active && $user->last_login_at === null
-            && $user->two_factor_secret === null && $user->two_factor_confirmed_at === null
-            && ($user->password_changed_at === null || $user->created_at === null || $user->password_changed_at->lessThanOrEqualTo($user->created_at));
+        return ClientInvitation::neverUsed($user);
     }
 }

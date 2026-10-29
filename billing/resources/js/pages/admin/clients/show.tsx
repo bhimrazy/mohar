@@ -305,7 +305,7 @@ export default function ClientShow({
                                                   <KeyRound />
                                                   Edit permissions
                                               </DropdownMenuItem>
-                                              {login.invitation ? (
+                                              {login.can_invite ? (
                                                   <DropdownMenuItem
                                                       onSelect={() =>
                                                           setAccessEmail({
@@ -315,7 +315,9 @@ export default function ClientShow({
                                                       }
                                                   >
                                                       <Send />
-                                                      Send a new invitation
+                                                      {login.invitation
+                                                          ? 'Send a new invitation'
+                                                          : 'Send an invitation'}
                                                   </DropdownMenuItem>
                                               ) : (
                                                   <DropdownMenuItem
@@ -788,12 +790,14 @@ export default function ClientShow({
                     onOpenChange={(open) => !open && setAccessEmail(null)}
                     title={
                         accessEmail.kind === 'invitation'
-                            ? `Send a new invitation to ${accessEmail.login.email}?`
+                            ? `Send ${accessEmail.login.invitation ? 'a new' : 'an'} invitation to ${accessEmail.login.email}?`
                             : `Send a password reset to ${accessEmail.login.email}?`
                     }
                     description={
                         accessEmail.kind === 'invitation'
-                            ? 'The link in the earlier invitation stops working. The new one works once, for the number of days set for invitations.'
+                            ? accessEmail.login.invitation
+                                ? 'The link in the earlier invitation stops working. The new one works once, for the number of days set for invitations.'
+                                : 'Its link lets them choose a password once, for the number of days set for invitations.'
                             : 'They get the usual password reset email. Their current password keeps working until they choose a new one.'
                     }
                     confirmLabel={

@@ -31,7 +31,10 @@ class ManageClientLogins
 
     /**
      * Give an email address access to the account. Unknown addresses get a new login and the invitation email (its
-     * link sets the password); existing logins are told they have access. Staff logins cannot be attached.
+     * link sets the password). An existing login is attached only when it proved its email: one that signed up with
+     * the address and never verified it is refused, since holding it proves nothing about the mailbox (security
+     * review 2026-10-29, M2), and it may know its own password, so it is not sent an invitation either. Staff logins
+     * cannot be attached.
      *
      * @param  list<string>  $permissions
      *
@@ -51,6 +54,10 @@ class ManageClientLogins
         }
 
         $created = $user === null;
+
+        if (! $created && $user->email_verified_at === null) {
+            throw ValidationException::withMessages(['email' => __('This address belongs to a login that has not verified it, so it can\'t be added. Ask them to verify their email address, or to reset their password from the sign-in page, then add it again.')]);
+        }
 
         // A new login is invited with a one-time link: refuse before creating anything when no link could be mailed.
         if ($created && ($problem = AccountLinks::problem()) !== null) {
@@ -83,7 +90,7 @@ class ManageClientLogins
     }
 
     /**
-     * Sends a new invitation to a login that has not accepted one yet; the previous link stops working.
+     * Sends a new invitation to a never-used login that has not accepted one yet; the previous link stops working.
      *
      * @throws ValidationException
      */
@@ -91,11 +98,13 @@ class ManageClientLogins
     {
         $invitation = ClientInvitation::query()->where('client_id', $client->id)->where('user_id', $user->id)->first();
 
-        // An invitation only ever activates a never-used login. Anything else gets a password reset instead.
+        // An invitation only ever activates a never-used login: one with an open invitation, or (#443, after a send
+        // that failed) an unverified one with none. Anything else gets a password reset instead.
         $refusal = match (true) {
-            $invitation === null => __('This login has no open invitation (it may have been invited before invitations had their own link, or set its password already). Send a password reset instead.'),
-            $invitation->accepted_at !== null => __('This login has already accepted its invitation. Send a password reset instead.'),
-            $invitation->isVoid() => __('This login already has a password, two-factor authentication or a sign-in, so it can\'t be invited again. Send a password reset instead.'),
+            $client->status === 'closed' => __('This account is closed, so no invitation can be sent.'),
+            $invitation === null && ! ClientInvitation::invitableWithoutOne($user) => __('This login has no open invitation and may already have a password (it verified its email, signed in or set one). Send a password reset instead.'),
+            $invitation?->accepted_at !== null => __('This login has already accepted its invitation. Send a password reset instead.'),
+            $invitation?->isVoid() === true => __('This login already has a password, two-factor authentication or a sign-in, so it can\'t be invited again. Send a password reset instead.'),
             default => null,
         };
 
@@ -231,6 +240,10 @@ class ManageClientLogins
     {
         if ($user->is_staff) {
             throw ValidationException::withMessages(['user' => __('Staff logins cannot own client accounts.')]);
+        }
+
+        if ($user->email_verified_at === null) {
+            throw ValidationException::withMessages(['user' => __('Only a login that has verified its email address can own the account. An invited login verifies it by accepting the invitation.')]);
         }
 
         $previousOwners = $client->users()->wherePivot('is_owner', true)->get();

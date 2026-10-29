@@ -20,7 +20,8 @@ class ClientUserController extends Controller
     {
         $user = $logins->invite($client, $request->string('email')->toString(), $request->string('name')->toString(), $this->permissions($request));
         Inertia::flash('toast', $mail->undelivered(PlatformClientLoginInvitations::template(InvitationPurpose::LoginAdded))
-            ? ['type' => 'warning', 'message' => __(':email was added, but the invitation could not be sent because the mail server could not be reached. Once mail works, send a password reset from the login\'s menu.', ['email' => $user->email])]
+            ? ['type' => 'warning', 'message' => __(':email was added, but the invitation could not be sent because the mail server could not be reached. Once mail works, send the invitation again from the login\'s menu.', ['email' => $user->email])
+                .($mail->undelivered('auth.login_added') ? ' '.__('The notice to the account owner was not sent either.') : '')]
             : $mail->toast(['type' => 'success', 'message' => __(':email can now use this account.', ['email' => $user->email])]));
 
         return to_route('admin.clients.show', $client);

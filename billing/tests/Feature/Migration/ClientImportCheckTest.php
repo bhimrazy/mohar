@@ -150,9 +150,20 @@ test('the company check reads candidates a page at a time and still finds a matc
     $match = Client::query()->where('company_name', 'Web Studio 2100')->sole();
     $run = ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'new@web.example', company: 'WEB studio 2100 Pvt. Ltd.')]));
 
+    $candidateQueries = [];
+    DB::listen(function ($query) use (&$candidateQueries): void {
+        if (str_contains($query->sql, 'company_name') && str_contains(strtolower($query->sql), ' like ')) {
+            $candidateQueries[] = strtolower($query->sql);
+        }
+    });
+
     $row = checkedRows(ClientCsv::check($run, ['match_company' => true]))[1];
 
-    expect($row->decision)->toBe('needs_decision')->and($row->match_client_id)->toBe($match->id);
+    // Two columns, 2,000 rows per page: two pages for 2,101 candidates.
+    expect($row->decision)->toBe('needs_decision')->and($row->match_client_id)->toBe($match->id)
+        ->and($candidateQueries)->toHaveCount(2)
+        ->and($candidateQueries[0])->toStartWith('select "id", "company_name" from "clients"')
+        ->and($candidateQueries)->each->toContain('limit 2000');
 });
 
 test('a password column cannot be mapped to anything but Ignore', function () {

@@ -22,7 +22,7 @@ use Symfony\Component\Mailer\Exception\TransportException;
  */
 
 beforeEach(function () {
-    $this->client = Client::factory()->create(['company_name' => 'Himal Web']);
+    $this->client = Client::factory()->withOwner()->create(['company_name' => 'Himal Web', 'email' => 'owner@himalweb.com.np']);
     actingAsStaff(['core.clients.view', 'core.users.manage']);
     confirmPassword();
 });
@@ -76,15 +76,50 @@ test('adding a new login with the mail server down keeps the login, records no i
     $this->post(route('admin.platform.clients.users.store', $this->client), ['email' => 'helper@example.com.np', 'name' => 'Hari Helper', 'permissions' => ['billing']])
         ->assertRedirect(route('admin.clients.show', $this->client))
         ->assertInertiaFlash('toast.type', 'warning')
-        ->assertInertiaFlash('toast.message', 'helper@example.com.np was added, but the invitation could not be sent because the mail server could not be reached. Once mail works, send a password reset from the login\'s menu.');
+        ->assertInertiaFlash('toast.message', 'helper@example.com.np was added, but the invitation could not be sent because the mail server could not be reached. Once mail works, send the invitation again from the login\'s menu. The notice to the account owner was not sent either.');
 
     $user = User::query()->where('email', 'helper@example.com.np')->sole();
-    $failed = ActivityLog::query()->where('event', 'account.notice_failed')->sole();
+    $failed = ActivityLog::query()->where('event', 'account.notice_failed')->get()->keyBy('properties.notice');
     expect($this->client->users()->whereKey($user->id)->exists())->toBeTrue()
         ->and(ClientInvitation::query()->count())->toBe(0)
-        ->and($reported->getArrayCopy())->toBe(['smtp down'])
-        ->and($failed->client_id)->toBe($this->client->id)
-        ->and($failed->properties)->toMatchArray(['notice' => 'auth.user_invitation', 'recipient' => 'helper@example.com.np', 'reason' => TransportException::class]);
+        ->and($reported->getArrayCopy())->toBe(['smtp down', 'smtp down'])
+        ->and($failed['auth.user_invitation']->client_id)->toBe($this->client->id)
+        ->and($failed['auth.user_invitation']->properties)->toMatchArray(['recipient' => 'helper@example.com.np', 'reason' => TransportException::class])
+        ->and($failed['auth.login_added']->properties)->toMatchArray(['recipient' => 'owner@himalweb.com.np']);
+});
+
+test('once mail works, staff send the invitation again to the login whose first one failed', function () {
+    clientLoginMailDown();
+    $this->post(route('admin.platform.clients.users.store', $this->client), ['email' => 'helper@example.com.np', 'name' => 'Hari Helper', 'permissions' => ['billing']]);
+    $user = User::query()->where('email', 'helper@example.com.np')->sole();
+    $login = fn () => collect($this->get(route('admin.clients.show', $this->client))->viewData('page')['props']['users'])->firstWhere('id', $user->id);
+    expect($login())->toMatchArray(['invitation' => null, 'can_invite' => true]);
+
+    // Mail works again, in a later request (AccountMail is scoped to one).
+    app()->instance(Dispatcher::class, Notification::fake());
+    app()->forgetScopedInstances();
+    $this->post(route('admin.platform.clients.users.invitation', [$this->client, $user]))
+        ->assertSessionHasNoErrors()->assertInertiaFlash('toast.type', 'success');
+
+    Notification::assertSentTo($user, ClientInvitationNotification::class);
+    expect(ClientInvitation::query()->sole()->user_id)->toBe($user->id)
+        ->and($login()['invitation'])->toMatchArray(['state' => 'pending']);
+});
+
+test('a login without an invitation that verified its email or signed in gets a password reset, never an invitation', function () {
+    $verified = User::factory()->create(['email' => 'own@example.com.np']);
+    $signedIn = User::factory()->unverified()->create(['email' => 'used@example.com.np', 'last_login_at' => now()]);
+    foreach ([$verified, $signedIn] as $user) {
+        $this->client->users()->attach($user, ['is_owner' => false, 'permissions' => '[]']);
+    }
+    $logins = collect($this->get(route('admin.clients.show', $this->client))->viewData('page')['props']['users'])->keyBy('email');
+
+    expect($logins['own@example.com.np']['can_invite'])->toBeFalse()
+        ->and($logins['used@example.com.np']['can_invite'])->toBeFalse();
+    foreach ([$verified, $signedIn] as $user) {
+        $this->post(route('admin.platform.clients.users.invitation', [$this->client, $user]))->assertSessionHasErrors('user');
+    }
+    expect(ClientInvitation::query()->count())->toBe(0);
 });
 
 test('a new invitation with the mail server down leaves the earlier link working and warns', function () {

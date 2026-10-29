@@ -48,6 +48,30 @@ class ClientInvitation extends Model
         return hash('sha256', (string) $passwordHash);
     }
 
+    /**
+     * A client login nobody has used: active, never signed in, no two-factor authentication, and its password never
+     * changed since the login was created (the random one it was created with, which nobody knows). Only such a login
+     * may be sent an invitation. The client import lists logins with the same rule in SQL (Migration's
+     * ImportInvitations::candidates()); a test checks both agree. Needs is_staff, is_active, last_login_at, the
+     * two-factor columns, password_changed_at and created_at.
+     */
+    public static function neverUsed(User $user): bool
+    {
+        return ! $user->is_staff && $user->is_active && $user->last_login_at === null
+            && $user->two_factor_secret === null && $user->two_factor_confirmed_at === null
+            && ($user->password_changed_at === null || $user->created_at === null || $user->password_changed_at->lessThanOrEqualTo($user->created_at));
+    }
+
+    /**
+     * Whether staff may send a first invitation to a login that has none: never used, and its email not verified
+     * (a login staff created verifies it by accepting). A verified login may have been set up by its holder, so its
+     * password is never replaced by an invitation; it gets a password reset.
+     */
+    public static function invitableWithoutOne(User $user): bool
+    {
+        return $user->email_verified_at === null && self::neverUsed($user);
+    }
+
     public static function findByToken(#[\SensitiveParameter] string $token): ?self
     {
         return self::query()->with(['client', 'user'])->where('token_hash', self::hashToken($token))->first();

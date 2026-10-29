@@ -16,6 +16,8 @@ export type ClientLogin = {
     last_login_at: string | null;
     /** An invitation not accepted yet that still works for this login (none once the login was used). */
     invitation: { state: 'pending' | 'expired'; expires_at: string } | null;
+    /** Nobody has used the login: staff send it an invitation rather than a password reset. */
+    can_invite: boolean;
 };
 
 export const AREA_LABELS: Record<string, string> = {

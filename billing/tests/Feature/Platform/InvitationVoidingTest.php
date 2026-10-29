@@ -7,6 +7,7 @@ use App\Modules\Core\Models\ClientInvitation;
 use App\Modules\Core\Support\NullSystemMailer;
 use App\Modules\Platform\Actions\Clients\ManageClientLogins;
 use App\Modules\Platform\Notifications\ClientInvitationNotification;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -74,4 +75,31 @@ test('the client page shows Invited only while the invitation still works for it
     expect($invitation())->toBeNull();
 
     $this->get(route('admin.clients.show', $this->client))->assertInertia(fn (Assert $page) => $page->missing('users.0.password')->missing('users.0.two_factor_secret'));
+});
+
+test('ownership goes only to a login that verified its email address (M2)', function () {
+    voidingInvite($this->client);
+    $invited = User::query()->where('email', 'helper@example.com.np')->sole();
+    $verified = User::factory()->create(['email' => 'accounts@example.com.np']);
+    $this->client->users()->attach($verified, ['is_owner' => false, 'permissions' => '[]']);
+    actingAsStaff(['core.clients.view', 'core.users.manage']);
+    confirmPassword();
+
+    $this->post(route('admin.platform.clients.users.transfer', [$this->client, $invited]))->assertSessionHasErrors('user');
+    $this->post(route('admin.platform.clients.users.transfer', [$this->client, $verified]))->assertSessionHasNoErrors();
+
+    expect($this->client->users()->wherePivot('is_owner', true)->pluck('users.id')->all())->toBe([$verified->id]);
+});
+
+test('accepting an invitation ends every other session of the login', function () {
+    config(['session.driver' => 'database']);
+    $token = voidingInvite($this->client);
+    $user = User::query()->where('email', 'helper@example.com.np')->sole();
+    DB::table('sessions')->insert(['id' => str_repeat('a', 40), 'user_id' => $user->id, 'ip_address' => '203.0.113.9', 'user_agent' => 'other', 'payload' => base64_encode(serialize([])), 'last_activity' => now()->getTimestamp()]);
+    $remember = $user->remember_token;
+
+    voidingAccept($token)->assertSessionHasNoErrors();
+
+    expect(DB::table('sessions')->where('id', str_repeat('a', 40))->exists())->toBeFalse()
+        ->and($user->fresh()->remember_token)->not->toBe($remember);
 });
