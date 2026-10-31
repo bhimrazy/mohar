@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-25 (evening) by the CTO session, on the owner's Mac. Update this file whenever a PR merges, a workstream starts or
+Last updated: 2026-10-31 by the CTO session, on the owner's Mac. Update this file whenever a PR merges, a workstream starts or
 stops, or the owner makes a decision. Keep it short: merges older than the current day move to `billing/docs/progress.md`, and history goes in `history.md` and `docs/reviews/`.
 
 ## Summary
@@ -136,17 +136,35 @@ hand: #506, #203, #267, #158, #68, #354, #367, #431, #443, #97, #171.
 Rule since 10-29: every open kernel PR merges develop and runs `php artisan kernel:api-snapshot`; a re-review follows every
 fix round on money and auth PRs (CTO review).
 
-No agents running. No open PRs. Open follow-ups: #507 (a "succeeded" refund racing a failed report); #516 (test `objects`
-disk survives runs); #523 (password-guess budget not atomic, audit `client_id`, L3 step-up for provisioning secrets);
-#406 and #244 (re-pin caddy/composer after 10-29 18:13 UTC, k6 10-31, postgres 11-02, Node 11-04); #67, #70, #83 (P12a
-leftovers); #503 review leftovers (invoice-number search index, per-note resend cooldown, email-log link); #520 leftovers
-(pending-attach flow for unverified logins, mail send inside the first-invitation transaction); #511 leftover (rollback with
-mutable tags); a scheduled `check-dependency-age.mjs --all` job; `product-vision.md` claims to mark "planned" (AI,
-OpenTelemetry, p95 under 200 ms, i18n/WCAG). Owner decisions open: `symfony/mime` 8.1.10 and Node 24.22.1 cooldown
-exceptions; lift "simulators only" for eSewa and Khalti; Nepal SMS provider and panel order after cPanel; import spec Q2
-(ResellerClub per-client customer) blocks its PR 4.
-Next (from the 10-29 reviews): import PR 0 (ADR 0019 contracts), mail transport settings with test send, frontend i18n ADR,
-month-end reports pack, public API design.
+Merged 2026-10-30 and 2026-10-31: #525, #526 (research: ResellerClub customer mapping, Nepal SMS and panels), #528 (ADR 0028
+translations, Proposed), #529 (ADR 0029 public API and v1 spec), #530 (cooldown exceptions for `symfony/mime` 8.1.10 and
+Node 24.22.1), #531 (month-end reports spec), #527 (import PR 0: importer capabilities, soft ordering, ADR 0019 amendment),
+#533 (worktrees under `.claude/worktrees`, `scripts/finish-workstream.sh`, `scripts/sweep-stale.sh`, `pg.sh --drop`), #532
+(Admin → Settings → Mail server with test send, ADR 0015 relay profile), #534 (infra security review 10-31), #535 (security
+review 10-31: M1 passkey step-up, M2 support sender trust), #537 (M2: inbound mail attaches only through a proved address;
+guest `access_key` rotates on link), #536 (#523: atomic password-guess budget, sign-out at the cap, `client_id` on
+step-up failures, step-up for secret-bearing driver config changes), #545 (WHMCS 9.0/9.1 refresh note). Issues closed by
+hand: #523.
+
+In review: #538 (M1: own step-up key, `password.confirm` is step-up, in-place dialog after expiry, passkey-added mail;
+re-review and browser re-walk running), #539 (infra fixes: base-side policy scripts, waiver bound to the PR body, weekly
+audit, release gate, container hardening; third fix round). Running: capacity load test (50–500 VUs, small and medium,
+realistic think time), test-suite speed review, WHMCS docs and changelog coverage audit, whole-database architecture review.
+
+Open follow-ups: #540 (flaky `AwaitingQueueTest` on PostgreSQL), #541 (public form says the link was emailed when
+autoresponse is off), #542 (security notice at the guess cap), #544 (vacuous multi-needle `not->toContain`), #546 (staff
+security page in the client shell), #507, #516, #406 and #244 (re-pin caddy, composer, postgres, k6: upstream re-pushed
+their tags), #67, #70, #83, #503, #520 and #511 leftovers, `product-vision.md` "planned" markers.
+Owner actions open (after the 10-31 decisions in `requirements.md`): GitHub repository settings (the owner is turning on
+secret scanning and push protection; SHA pinning, protecting `main`, default branch `develop` and the `release`
+environment before images are published stay open); the accountant list `docs/handoff/accountant-questions.md`; whether
+the owner holds a Sparrow or Aakash account; a lawyer's review of the WHMCS licence before the importer and carry-over
+are marketed; business items (licence and NPR price, support model, security policy page, privacy terms, trademark
+search, a design-partner host). Closed 10-31: #530 rebuild (no live install), Docker cleanup, ADR 0028 and 0029
+questions, month-end questions other than Q11, SMS and panel order, importer card tokens, hosted tier (self-hosted
+first), live sandboxes for eSewa, Khalti and ResellerClub (public test credentials only).
+Rules since 10-31: scratch files and PR bodies are named after the PR (`pr<N>-body.md`); clean up with
+`scripts/finish-workstream.sh <slug>` at merge.
 
 Walkthrough: `docs-site` Overview and Get started → Walkthrough (12 steps, run against a seeded app). Before a demo
 start Mailpit (`docker compose up -d` in `billing/`) and `composer dev` (now includes the scheduler).
@@ -182,29 +200,30 @@ new issues; a PR merges when nothing blocks, except money, auth and data deletio
   discount label percentage; #481 screenshots show old labels, unchanged Quick links card; #482 shared default objects in
   `IdentifiesOccurrence`, a render failure fails all three mail attempts, no `kernel:api-snapshot` check yet (ADR 0010);
   #474 recorded-credit refund should name the payment; #471 target's ResellerClub customer wins on merge.
-- Owner decisions open from this wave: Nepali labels in the IRD CSV header (kernel change), accountant on whether the emailed
-  note PDF counts as a print, keeping both emails on a staff refund (kept for now).
+- Owner decisions open from this wave: Nepali labels in the IRD CSV header (kernel change) and whether the emailed note PDF
+  counts as a print (both on the accountant list), keeping both emails on a staff refund (kept for now).
 - Namecheap is merged but not enabled. Before enabling it: a sandbox check of the not-in-account error numbers (2016166, 2019166), the `.us`,
   `.ca` and `.eu` extension details and the transfer texts (simulator README "verify" list).
 
 ## Open owner questions
 
-- VAT (from #464, with an accountant): does the register keep every stretch the mode was on; does the note register's
-  Total exclude other tax; are foreign-tax-only documents "exempt".
-- Docker cleanup on the Mac (proposed 10-24, not run): build cache (~9.9 GB), dangling images (~1.4 GB),
-  `mohar-k286-php:local` (~1 GB). Keep `mohar-pg`, its volume and Mailpit; other projects' images untouched.
-- Nepali tax invoices: CBMS / electronic billing rules for VAT-registered hosts, and fiscal-year numbering (ask an
-  accountant).
+Decided on 2026-10-31 and recorded in `requirements.md` ("Decisions of 2026-10-31"): Q13 carry-over, card tokens, SMS,
+panel order, hosted tier, ADR 0028 and 0029, month-end, Docker cleanup, live sandboxes, release timing, Namecheap `.ca`
+and `.eu` (off until a sandbox check), bcrypt cost (stays 12 unless the load test shows saturation).
+
+- Accountant (list to forward: `docs/handoff/accountant-questions.md`): the three #464 register questions, CBMS and
+  fiscal-year numbering, D2, D6, A1 to A11, whether old WHMCS invoices were already reported (import Q3), whether an
+  emailed note PDF counts as a print, the Nepali labels in the IRD CSV header, month-end Q11.
+- Lawyer: the WHMCS licence terms against the importer and sign-in carry-over, before either is marketed.
+- Sparrow or Aakash: does the owner hold an account, and is a funded trial available for fixtures.
 - connectIPS merchant enrolment (weeks of lead time); a WHMCS dev licence or fake-data export for importer fixtures; a
   cPanel trial VPS.
-- Namecheap `.ca` and `.eu`: offered as built (a wrong detail name makes the registrar refuse the order, nothing is
-  bought), or kept off until a sandbox check.
 - Repository settings: Actions write for the token (re-running flaky jobs). Auto-merge and delete head branches are on
   (2026-10-23).
-- Five behaviours in #211 ("Owner to confirm"), now merged with the conservative choice; confirm or change.
-- Bcrypt cost against sign-in bursts on a 2 vCPU host: #433 measured a 1.3 to 1.8 s sign-in p50 when 28 users sign in at
-  once. Lowering the cost speeds sign-in and weakens stored hashes; a security trade-off for the owner.
-- Business: licence and price in NPR, support model, security policy page, trademark search.
+- Five behaviours in #211 ("Owner to confirm"), merged with the conservative choice; confirm or change. The five are not
+  listed in the handoff docs; read them in the #211 PR body.
+- Business: licence and price in NPR, support model, security policy page, privacy terms, trademark search, a
+  design-partner host (the CTO brings proposals).
 
 ## Open issues worth knowing
 

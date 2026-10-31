@@ -56,7 +56,7 @@ class ProductRequest extends FormRequest
             'product_group_id' => ['required', 'integer', Rule::exists('product_groups', 'id')],
             'type' => ['required', Rule::enum(ProductType::class)],
             'name' => ['required', 'string', 'max:150'],
-            'slug' => [...$this->slugRules(), Rule::unique('products', 'slug')->ignore($product?->id)],
+            'slug' => [...$this->slugRules(), Rule::unique('products', 'slug')->ignore($product?->id)->withoutTrashed()],
             'tagline' => ['nullable', 'string', 'max:255'],
             'short_description' => ['nullable', 'string', 'max:500'],
             'description' => ['nullable', 'string', 'max:10000'],

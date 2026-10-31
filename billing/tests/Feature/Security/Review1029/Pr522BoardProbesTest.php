@@ -21,14 +21,15 @@ test('P1 a login has an hourly failure budget across IPs: twenty wrong guesses, 
 
     foreach (range(1, 4) as $ip) {
         foreach (range(1, 5) as $i) {
+            // The twentieth uses the budget up and ends the session (#523).
             $this->withServerVariables(['REMOTE_ADDR' => "203.0.113.{$ip}"])
-                ->postJson(route('password.confirm.store'), ['password' => "wrong-{$ip}-{$i}"])->assertUnprocessable();
+                ->postJson(route('password.confirm.store'), ['password' => "wrong-{$ip}-{$i}"])->assertStatus($ip === 4 && $i === 5 ? 429 : 422);
         }
     }
 
     $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.50'])
-        ->postJson(route('password.confirm.store'), ['password' => 'correct-horse-battery'])->assertTooManyRequests();
-    expect(session('auth.password_confirmed_at'))->toBeNull();
+        ->postJson(route('password.confirm.store'), ['password' => 'correct-horse-battery'])->assertUnauthorized();
+    expect(session('auth.step_up_confirmed_at'))->toBeNull();
 });
 
 test('P2 correct confirmations do not use up the hourly failure budget', function () {

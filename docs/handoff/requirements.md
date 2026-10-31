@@ -99,7 +99,7 @@ Owner decisions on 2026-10-23 (the CTO's recommendation, or the cautious option 
 | Themes as a module: selectable in admin settings, customisable, extendable, with saved custom themes. Default Calm Fintech; presets Operator Pro, Hosting Warm, Enterprise Slate.                                                                                                               | 2026-10-17 | `billing/app/Modules/Themes`, `billing/docs/design/themes-module/` (PR #17)                                                                                                                       | Done        |
 | Importer invitations to migrated clients are sent only when staff choose to; default rate 100 an hour (was 500), editable in Settings, because Nepali hosts mostly send through cPanel/Exim SMTP or Google Workspace limits. A missing or invalid PAN in an import is a warning, never a block. | 2026-10-22 | `migration.invite_per_hour` (#255, rate default in #291); `TaxIdRules` notes are warning/info only                                                                                                | In progress |
 | Optional Bikram Sambat date beside the AD date on invoices (setting, off by default), so no date is missed. BS fiscal-year numbering still waits for an accountant.                                                                                                                             | 2026-10-22 | #207                                                                                                                                                                                              | In progress |
-| Payments for now are built and verified against simulators only: connectIPS, Fonepay and cards (NIC Asia Cybersource public spec) without bank enrolment or test accounts; live accounts later. India (Razorpay) waits.                                                                         | 2026-10-22 | #128 decisions comment; ADR 0016 simulators                                                                                                                                                       | Decided     |
+| Payments for now are built and verified against simulators only: connectIPS, Fonepay and cards (NIC Asia Cybersource public spec) without bank enrolment or test accounts; live accounts later. India (Razorpay) waits. Lifted 2026-10-31 for eSewa and Khalti test mode and the ResellerClub demo (see "Decisions of 2026-10-31").                                                                         | 2026-10-22 | #128 decisions comment; ADR 0016 simulators                                                                                                                                                       | Decided     |
 | No WHMCS dev licence or cPanel trial VPS for now: importer and panel work is verified with fixtures and simulators; real systems later.                                                                                                                                                         | 2026-10-22 | `tools/simulators`, importer fixtures                                                                                                                                                             | Decided     |
 | KYC identity photos are resized in the browser before upload, with a preview, to cut upload size and server cost; the server keeps its own checks.                                                                                                                                              | 2026-10-22 | #288 (after #286)                                                                                                                                                                                 | Planned     |
 | VAT register and credit notes (#327): an invoice becomes a tax invoice on payment (unpaid invoices are proforma); a credit note on a paid invoice defaults to account credit with refund one click away; register exports are CSV (detail and IRD layout) plus PDF, XLSX only when the IRD portal needs an upload; no CBMS now, data model kept CBMS-ready. Note numbering reset per fiscal year (D2), the FX rate and zero-rated exports (D6) and assumptions A1–A11 wait for the accountant. | 2026-10-22 | `billing/docs/product/vat-register.md` §14 | Decided |
@@ -132,6 +132,58 @@ installed), Billing PDF not on `BrandProvider`, branch protection and required c
 | CI minutes (owner, 2026-10-20): GitHub Actions is capped at 3,000 minutes a month with no paid overage. Drafts carry no `ci` label; engineers verify locally; the CTO runs CI once per PR at merge; smoke and load runs only by decision.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Repository visibility (owner, 2026-10-20): make the repository public when needed and private again afterwards; the name change is deferred. Licence: all rights reserved (`LICENSE`). `main` stays a minimal readme-and-licence page. Rules: operating-model.md, "Repository visibility and CI".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Docs site (owner, 2026-10-20): a standard, minimal docs site, not "AI slop" UI. Astro Starlight in `docs-site/`, kept in this repo; not published for now (GitHub Pages from this private repo would be public). The build can be deployed elsewhere later. How hosts get the code is decided later.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Client names (owner, 2026-10-31): clients never enter names or addresses in Devanagari; no transliteration at the registrar boundary is needed (drops item 1 of `docs/research/2026-10-31-whmcs-docs-coverage.md`). |
+| IRD e-invoicing (owner, 2026-10-31): submission to the IRD's electronic billing system is not required of hosts now and stays out of scope. Keep a note of the lifecycle (submitted as an immutable state, refusal as a business state) in `billing/docs/product/billing.md` for when it becomes mandatory. |
+| Exchange rates (owner, 2026-10-31): NPR rates sync from Nepal Rastra Bank (built, `platform-admin.md` §6.2), and staff can review before saving. "Fetch rates" opens a dialog showing current rate, fetched rate and change per currency; staff may edit any value and confirm (a fetched-then-edited rate is recorded as "NRB, edited"). Per currency: apply automatically (the scheduled fetch with the change hold) or fetch for review only (the daily fetch proposes, shown in Needs attention). The currency page lists the change history (when, who, old → new, source, reason; filter and CSV), and rates read "$1 = Rs 151.94". Planned; spec update in `platform-admin.md` §6.2. |
 
 Open brand items: the Billing invoice PDF does not use `BrandProvider` yet (no reference in
 `billing/app/Modules/Billing`), and no formal trademark search (USPTO, IP India, Nepal) has been done.
+
+## Decisions of 2026-10-31
+
+Owner decisions, then the CTO's calls made on the owner's instruction to decide with a product mindset.
+
+Owner:
+
+- **Sign-in carry-over (Q13).** Approved as the default for WHMCS 8.0+. The window is 90 days by default; the host may
+  set it shorter or longer, up to 180. Forwarding the typed password once is acceptable, and the import wizard tells
+  hosts to mention it in their privacy notice. For WHMCS 2FA accounts, the password plus a mailbox confirmation is
+  accepted, then 2FA re-enrolment is prompted. A lawyer reviews the WHMCS licence before the importer and carry-over are
+  marketed; the build continues. During the window the old WHMCS only answers password checks, and the cutover runbook
+  freezes WHMCS orders and sign-ups and does a final delta import. ADR 0012, 0015 and 0018 amendments (#555) are
+  Accepted. Spec: `client-import.md` §3.4 and Q13.
+- **Importer card tokens.** Not imported. Clients add a card again on their first payment.
+- **SMS.** Build the Sparrow and Aakash drivers together (`research-sms-and-panels.md` §1.5). Whether the owner holds an
+  account is still open.
+- **Panels after cPanel.** DirectAdmin, then Plesk, then HestiaCP/CyberPanel (§2.4). Webuzo is not chosen.
+- **Hosted tier.** Self-hosted first. Design so a hosted tier can be added later without a rewrite.
+- **GitHub settings.** The owner is turning on secret scanning and push protection. Protecting `main`, the default
+  branch and the `release` environment stay open.
+- **ADR 0028 (translations).** English only for now; build the mechanism (Option A, no new package). Who translates is
+  deferred. The PDF engine spike is deferred until Nepali documents are planned. Latin digits; Noto Sans Devanagari
+  when needed. Earlier decision stands: never Devanagari names. ADR 0028 is Accepted.
+- **#530 image rebuild.** No live install exists, so the item is closed.
+- **Docker cleanup.** Already clean (checked 10-31); closed.
+- **Live sandboxes.** The 22 Oct "simulators only" rule is lifted for eSewa test mode, Khalti test mode and the
+  ResellerClub demo, using public test credentials only. Other integrations stay on simulators.
+- **First release and the 4 GB VPS drill.** Later, nearer to launch.
+- **ADR 0029 packages.** `laravel/sanctum` and `dedoc/scramble` are approved under ADR 0007 (pinned, 7-day cooldown,
+  publisher check at install).
+- **Nepal VAT accountant.** The owner has one. The open questions are collected in `docs/handoff/accountant-questions.md`.
+
+CTO:
+
+- **ADR 0029** (`public-api.md` §8): token prefix `mhr_`, fixed; no WHMCS RPC shim in v1 (a compatibility package only
+  on demand); the storefront API is guest checkout only and hands existing clients to the web checkout; the API is in
+  every edition for now (revisit with pricing); v1 is kept 12 months after v2 GA; staff service accounts own
+  integration tokens, as a follow-up to API-1. ADR 0029 is Accepted with nothing deferred.
+- **Month-end** (`reports-month-end.md` §15): Q2, Q5, Q7, Q8, Q10 and Q12 accepted as written. Q9: the aging detail is a
+  sensitive export with the password step-up. Q11 goes to the accountant; the stated default stays.
+- **ResellerClub per-client mapping** (`invoice-domain-import.md` Q2): record the customer id only when the order
+  verifies and the customer's login email equals the client's email. The staff pick list stays the fallback. Import
+  PR 4 is unblocked.
+- **Smaller calls.** Namecheap `.ca` and `.eu` stay off until a sandbox check. bcrypt cost (#433) stays at the default
+  12 unless the load test shows sign-in bursts saturating. The IRD CSV Nepali labels and the emailed-PDF-as-print
+  question go to the accountant. The #211 behaviours stay open.
+- **Business** (licence and NPR price, support model, security policy page, privacy terms, trademark search, a
+  design-partner host): still open; the CTO will bring proposals.

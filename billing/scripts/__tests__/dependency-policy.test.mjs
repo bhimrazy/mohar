@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+    buildkitImages,
     composeImages,
+    composerAuditConfigChanges,
+    npmrcAuditConfigChanges,
     composerDistProblems,
     directPinProblems,
     digestBelongsToTag,
@@ -322,5 +325,141 @@ describe('isComposeFile', () => {
             'deploy/compose.dev.yaml',
             'loadtest/compose.loadtest.yaml',
         ]);
+    });
+});
+
+describe('buildkitImages', () => {
+    const pinned = `moby/buildkit:v0.34.0@${POSTGRES_INDEX}`;
+
+    it('reads an inline driver-opts value', () => {
+        expect(buildkitImages(`  driver-opts: image=${pinned}`)).toEqual([
+            pinned,
+        ]);
+        expect(
+            buildkitImages(`  driver-opts: 'image=moby/buildkit:latest'`),
+        ).toEqual(['moby/buildkit:latest']);
+    });
+
+    it('reads every image= line of a block scalar, and only that block', () => {
+        const workflow = [
+            '      with:',
+            '        driver-opts: |',
+            '          network=host',
+            `          image=${pinned} # pinned`,
+            '',
+            '          image=moby/buildkit:master',
+            '        install: true',
+            '        labels: org.opencontainers.image=x',
+        ].join('\n');
+
+        expect(buildkitImages(workflow)).toEqual([
+            pinned,
+            'moby/buildkit:master',
+        ]);
+    });
+
+    it('returns nothing without driver-opts', () => {
+        expect(
+            buildkitImages('    image: postgres:18\n    driver: docker'),
+        ).toEqual([]);
+    });
+});
+
+describe('composerAuditConfigChanges', () => {
+    const base = JSON.stringify({
+        config: { 'sort-packages': true, audit: { abandoned: 'report' } },
+        repositories: [{ type: 'path', url: '../tools/simulators' }],
+    });
+
+    it('names config.audit and repositories when they change, and nothing for other keys or a reordering', () => {
+        const muted = JSON.parse(base);
+        muted.config.audit.ignore = ['GHSA-1234'];
+        muted.repositories.push({ 'packagist.org': false });
+        const cosmetic = JSON.stringify({
+            repositories: [{ url: '../tools/simulators', type: 'path' }],
+            config: { audit: { abandoned: 'report' }, 'sort-packages': false },
+            description: 'x',
+        });
+
+        expect(composerAuditConfigChanges(base, JSON.stringify(muted))).toEqual(
+            ['config.audit', 'repositories'],
+        );
+        expect(composerAuditConfigChanges(base, cosmetic)).toEqual([]);
+        const policy = JSON.parse(base);
+        policy.config.policy = { advisories: { audit: 'ignore' } };
+        policy.config['disable-tls'] = true;
+        expect(
+            composerAuditConfigChanges(base, JSON.stringify(policy)),
+        ).toEqual(['config.disable-tls', 'config.policy']);
+        expect(composerAuditConfigChanges(base, '{not json')).toContain(
+            '(unparsable composer.json)',
+        );
+    });
+});
+
+describe('npmrcAuditConfigChanges', () => {
+    const base = 'save-exact=true\nmin-release-age=7\n';
+
+    it('names a registry, scoped registry, TLS, proxy or audit setting that is added, changed or removed', () => {
+        expect(
+            npmrcAuditConfigChanges(
+                base,
+                `${base}registry=https://npm.example.test/\n@acme:registry = https://x.test/\nstrict-ssl=false\naudit-level=critical\n`,
+            ),
+        ).toEqual(['@acme:registry', 'audit-level', 'registry', 'strict-ssl']);
+        expect(npmrcAuditConfigChanges(`${base}cafile=/a.pem\n`, base)).toEqual(
+            ['cafile'],
+        );
+    });
+
+    it('reads keys the way npm does (quotes, spaces, array suffix) and rejects any key outside the allowlist', () => {
+        expect(
+            npmrcAuditConfigChanges(
+                base,
+                `${base}"registry"=https://evil-quoted.invalid/\n  'omit' = dev\nuserconfig=./evil.ini\nglobalconfig=/tmp/g\nca[]=x\n[section]\nsomething-new=1\n`,
+            ),
+        ).toEqual([
+            '[section]',
+            'ca',
+            'globalconfig',
+            'omit',
+            'registry',
+            'something-new',
+            'userconfig',
+        ]);
+    });
+
+    it('ends a line at a lone CR, as npm does', () => {
+        expect(
+            npmrcAuditConfigChanges(
+                base,
+                'save-exact=true\rhttps-proxy=http://127.0.0.1:9/\rstrict-ssl=false\rmin-release-age=7\n',
+            ),
+        ).toEqual(['https-proxy', 'strict-ssl']);
+    });
+
+    it('allows the keys this project uses, and ignores comments', () => {
+        expect(
+            npmrcAuditConfigChanges(
+                base,
+                '# registry=https://evil.test/\nsave-exact=true\nmin-release-age=7\nfund=false\n',
+            ),
+        ).toEqual([]);
+        expect(npmrcAuditConfigChanges(null, null)).toEqual([]);
+    });
+});
+
+describe('CR-only line ends in compose files', () => {
+    it('still finds every image line, as a YAML parser would', () => {
+        expect(
+            composeImages(
+                'services:\r  a:\r    image: postgres:18\r  b:\r    image: caddy:2\r',
+            ).map((entry) => entry.image),
+        ).toEqual(['postgres:18', 'caddy:2']);
+        expect(
+            buildkitImages(
+                '  driver-opts: |\r    image=moby/buildkit:master\r',
+            ),
+        ).toEqual(['moby/buildkit:master']);
     });
 });

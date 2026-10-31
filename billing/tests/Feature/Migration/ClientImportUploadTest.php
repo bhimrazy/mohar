@@ -30,7 +30,7 @@ test('uploading needs the execute permission and a recent password; viewing need
     $this->post(route('admin.migration.imports.store'), ['file' => ClientCsv::file([ClientCsv::row('1', 'a@example.com')]), 'source_name' => 'Old', 'preset' => 'generic'])->assertForbidden();
 
     actingAsStaff(['migration.runs.view', 'migration.runs.execute']);
-    $this->withSession(['auth.password_confirmed_at' => 0])->post(route('admin.migration.imports.store'), ['file' => ClientCsv::file([ClientCsv::row('1', 'a@example.com')]), 'source_name' => 'Old', 'preset' => 'generic'])
+    $this->withSession(['auth.step_up_confirmed_at' => 0])->post(route('admin.migration.imports.store'), ['file' => ClientCsv::file([ClientCsv::row('1', 'a@example.com')]), 'source_name' => 'Old', 'preset' => 'generic'])
         ->assertSessionHasErrors('password_confirmation');
 
     actingAsStaff([]);

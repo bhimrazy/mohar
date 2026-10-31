@@ -1,0 +1,20 @@
+# What judges a change and what ships it: workflows and Dependabot, the scripts CI and the merge gate run, the
+# dependency policy and the deploy stack (infra security review 2026-10-31, M1). Enforced only when branch protection
+# requires code-owner reviews, a repository setting; until then GitHub only requests the review.
+# The last matching pattern wins, so keep the most specific lines last.
+
+/.github/ @bhimrazy
+/scripts/ @bhimrazy
+/billing/scripts/ @bhimrazy
+/deploy/ @bhimrazy
+
+# The dependency policy: its rules, its decision record, and the manifests and settings the audits read (a change to
+# composer.json's config.audit or repositories, or to a registry line in .npmrc, also fails CI without the
+# security-exception label).
+/billing/docs/devops/dependency-policy.md @bhimrazy
+/billing/docs/adr/0007-dependency-pinning-and-cooldown.md @bhimrazy
+/billing/composer.json @bhimrazy
+/billing/package.json @bhimrazy
+/billing/.npmrc @bhimrazy
+/docs-site/package.json @bhimrazy
+/docs-site/.npmrc @bhimrazy

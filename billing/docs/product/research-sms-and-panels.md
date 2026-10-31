@@ -92,6 +92,8 @@ Beside `SystemMailer` (parity review §6). Kernel change, so CTO and ADR 0008/00
 
 ### 1.5 Owner to confirm
 
+- Decided 2026-10-31: build the Sparrow and Aakash drivers together. Whether the owner holds an account with either is still open.
+
 - Which gateway does the owner already hold an account with, and is a funded trial available for fixture capture and a smoke test?
 - Assumed workflow: a Nepali host buys prepaid credits from one aggregator (Sparrow or Aakash), registers an alphanumeric sender ID during
   onboarding, and sends transactional SMS to NTC and Ncell numbers through it, with no per-operator registration by the host.
@@ -162,6 +164,8 @@ password for that panel, so it needs a minimum-version check and a warning.
 - Fixtures: only DirectAdmin, Proxmox and SolusVM publish machine-readable specs; others need hand-written fixtures and an owner smoke run, as with cPanel.
 
 ### 2.4 Owner to confirm
+
+- Decided 2026-10-31: after cPanel, build DirectAdmin, then Plesk, then HestiaCP/CyberPanel. Webuzo is not chosen. This replaces the order in §2.2 (Webuzo third).
 
 - Which panels do the owner's Nepali hosting customers actually run besides cPanel (DirectAdmin, Webuzo, Plesk, other)? This overrides the order above.
 - Assumed workflow: a Nepali host runs shared hosting on cPanel or DirectAdmin on a VPS or dedicated server abroad or in a Kathmandu data centre, resells VPS through a panel on its own hardware, and gives clients panel SSO from the client area.

@@ -11,8 +11,9 @@
 #      (no edits; stops on a conflict). Removed on exit, pass or fail. A PR already in develop gates develop itself.
 #      CI's change detection decides which steps run: a docs-only change takes the fast path (vp check, image sizes),
 #      the audits run only when a manifest, lockfile, .npmrc or workflow file changed.
-#   2. The policy checks before any dependency is installed or any PR code runs, as in CI: changelog fragments,
-#      postgres pin, lockfiles in sync, audits, dependency cooldown and pinning. The changelog check and the cooldown
+#   2. The policy checks before any dependency is installed or any PR code runs, in CI's order: changelog fragments,
+#      postgres pin, dependency cooldown and pinning, then lockfiles in sync and audits (no Composer scripts or
+#      plugins; npm on a copy of each lockfile). The changelog check and the cooldown
 #      checker are develop's copies, run against the PR's tree, so a PR cannot weaken the check that judges it.
 #   3. Dependencies: from the main checkout when composer.lock / package-lock.json equal its billing/ ones and its
 #      installed trees match those locks (vendor/ is copied, since links break Pest and the arch tests; node_modules/
@@ -234,23 +235,39 @@ setup_note="${head:0:8} into ${base:0:8}"
 [ "$code" = false ] && setup_note="$setup_note, docs-only fast path"
 row "$setup_name" PASS "$(seconds $(( $(date +%s) - setup_started )))" "$setup_note"
 
-# Security exceptions as CI reads them: the label, then the "Security-Exception:" lines of the PR body.
-if gh pr view "$pr" -R "$gh_repo" --json labels --jq '.labels[].name' | grep -qx security-exception; then
-    DEPENDENCY_AGE_EXCEPTIONS="$(gh pr view "$pr" -R "$gh_repo" --json body --jq .body | grep -iE '^[[:space:]]*Security-Exception:' || true)"
-    export DEPENDENCY_AGE_EXCEPTIONS
+# Security exceptions as CI reads them: with the label, the PR body's "Security-Exception:" lines, only while the body
+# is unchanged since the label was added. The script is develop's ($base), like the checker below, not this checkout's,
+# which may be any branch; before develop has it, this checkout's copy is used and the log says so.
+exceptions_script="$logs/security-exceptions.sh"
+if git -C "$dir" show "$base:scripts/security-exceptions.sh" > "$exceptions_script" 2> /dev/null; then
+    chmod +x "$exceptions_script"
+else
+    echo "develop has no scripts/security-exceptions.sh yet; using this checkout's copy" >> "$logs/00-setup.log"
+    cp "$repo/scripts/security-exceptions.sh" "$exceptions_script"
 fi
+if ! DEPENDENCY_AGE_EXCEPTIONS="$("$exceptions_script" "$pr" "$gh_repo" 2> "$logs/00-exceptions.log")"; then
+    printf '%-44s ' "security exceptions bound to the label"
+    row "security exceptions bound to the label" FAIL - "$(tail -1 "$logs/00-exceptions.log" | cut -c1-160)"
+    result=FAIL
+    DEPENDENCY_AGE_EXCEPTIONS=""
+    [ "${GATE_CONTINUE:-0}" = 1 ] || finish
+fi
+export DEPENDENCY_AGE_EXCEPTIONS
 
 # ---------------------------------------------------------------- policy, before install (CI's order)
-# No dependency is installed yet and these run no PR code: grep, composer validate/audit on the lock (no vendor/, so
-# no plugins or scripts), npm audit on the lockfile, and develop's dependency checker (Node built-ins only). It is
-# placed inside the PR's billing/ so its app root (its parent directory) is the PR tree, and removed afterwards.
+# No dependency is installed yet and these run no PR code, in CI's order: develop's changelog check and dependency
+# checker (git, awk and Node built-ins only) first, before any tool that reads the PR's config; then composer validate
+# and audit with --no-scripts --no-plugins (a pre-command-run script in the PR's composer.json would run otherwise),
+# and npm audit on a copy of each lockfile in an empty directory (no project .npmrc). The checker is placed inside the
+# PR's billing/ so its app root (its parent directory) is the PR tree, and removed before composer runs.
 policy_dir="$app/.merge-gate-policy"
 # CI's "Changelog fragments" step, with develop's copy of the scripts so a PR cannot weaken the check that judges it.
 # Not run for a PR already in develop (no merge commit) or before develop has the scripts.
 fragments=false
 if [ "$merged_already" = 0 ] && git -C "$dir" cat-file -e "$base:scripts/changelog-check.sh" 2> /dev/null; then
     fragments=true
-    mkdir -p "$policy_dir" && git -C "$dir" archive "$base" scripts/changelog-check.sh scripts/changelog-assemble.sh \
+    rm -rf "${policy_dir:?}" && mkdir -p "$policy_dir" \
+        && git -C "$dir" archive "$base" scripts/changelog-check.sh scripts/changelog-assemble.sh \
         | tar -x -C "$policy_dir" -f -
 fi
 when "$fragments" "changelog fragments" env BASE_REF=develop PR_NUMBER="$pr" \
@@ -262,17 +279,26 @@ when "$code" "postgres pin matches compose.yaml" bash -c '
     c=$(grep -Eo "$pattern" ../deploy/compose.prod.yaml 2>/dev/null | sort -u)
     echo "compose.yaml: ${a:-<none>}"; echo "ci.yml: ${b:-<none>}"; echo "compose.prod.yaml: ${c:-<none>}"
     [ -n "$a" ] && [ "$(wc -l <<< "$a")" -eq 1 ] && [ "$a" = "$b" ] && [ "$a" = "$c" ]'
-when "$policy" "lockfiles in sync" composer validate --no-check-publish
-when "$audit" "security audits" bash -c '
-    composer audit --locked && npm audit --audit-level=high --package-lock-only \
-        && (cd ../docs-site && npm audit --audit-level=high --package-lock-only)'
 if [ "$policy" = true ]; then
-    mkdir -p "$policy_dir" && git -C "$dir" archive "$base" billing/scripts | tar -x -C "$policy_dir" -f - \
-        && mv "$policy_dir"/billing/scripts/*.mjs "$policy_dir"/ && rm -rf "${policy_dir:?}/billing"
+    rm -rf "${policy_dir:?}" && mkdir -p "$policy_dir" && git -C "$dir" archive "$base" billing/scripts | tar -x -C "$policy_dir" -f - \
+        && cp -R "$policy_dir"/billing/scripts/. "$policy_dir"/ && rm -rf "${policy_dir:?}/billing"
 fi
-when "$policy" "dependency cooldown and pinning (develop's checker)" node "$policy_dir/check-dependency-age.mjs" \
+# A fresh cache outside the PR tree: a cached date skips the registry checks, so the PR must not supply one.
+rm -f "$logs/dependency-age-cache.json"
+when "$policy" "dependency cooldown and pinning (develop's checker)" env DEPENDENCY_AGE_CACHE="$logs/dependency-age-cache.json" \
+    node "$policy_dir/check-dependency-age.mjs" \
     "$([ "$dep_base" = --all ] && echo --all || echo "--base=$dep_base")"
 rm -rf "${policy_dir:?}"
+when "$policy" "lockfiles in sync" composer validate --no-check-publish --no-scripts --no-plugins
+when "$audit" "security audits" env AUDIT_TMP="$logs" bash -c '
+    npm_audit() {
+        local copy
+        copy="$(mktemp -d "$AUDIT_TMP/npm-audit.XXXXXX")" && cp "$1/package.json" "$1/package-lock.json" "$copy/" \
+            && (cd "$copy" && npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ \
+                --include=dev --strict-ssl=true --noproxy=registry.npmjs.org)
+        local rc=$?; rm -rf "$copy"; return "$rc"
+    }
+    composer audit --locked --abandoned=report --no-scripts --no-plugins && npm_audit . && npm_audit ../docs-site'
 
 # ---------------------------------------------------------------- dependencies (PR code may run from here on)
 setup_name="setup: dependencies, .env"

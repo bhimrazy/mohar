@@ -213,6 +213,11 @@ Imported payments are written without gateway calls, without `PaymentReceived` a
 `amountout` is a refund line; a payment with `amountin = 0` and `amountout = 0` is dropped with a note. The source
 `fees` are stored as the transaction fee and do not change the invoice.
 
+The database refuses values its CHECK constraints rule out on PostgreSQL (`billing.md` §2, #554), so the importer
+reports them as row errors at preview, before the chunk writes, never as a failed chunk: a negative source `fees`
+(verify: whether WHMCS writes a negative fee on a refund), and an open (not draft or cancelled) invoice whose total is
+below zero (verify: whether WHMCS allows one). **MUST**
+
 ### 6.5 Credit
 
 `credit` on the invoice (credit the client applied at the source) is stored as an imported `credit_applied` adjustment
@@ -275,7 +280,7 @@ Design: **the import records claims; verification promotes them.**
    client's `registrar_refs` customer only if all of these hold: the order verified; the order's customer id equals the
    claim; and the registrar's customer record, read at verification time, has a username (its login email) that
    equals the client's email in Mohar case-insensitively. The email match is the second proof that stops one client's claim from
-   adopting another client's customer. An order that would verify only by trusting the claim is refused (Q2 asks the owner to approve this rule or choose the alternative below).
+   adopting another client's customer. An order that would verify only by trusting the claim is refused (Q2, accepted 2026-10-31; the alternative below is the fallback).
    The driver must return the order's customer id and login email for a client with no recorded customer; the current
    Link order lookup refuses such an order and returns neither. PR 4 therefore adds a driver capability or a trailing
    defaulted field (§13, item 6). Domains, not the driver, decides with the email match.
@@ -462,10 +467,10 @@ Each has an assumed default so work can start. "Blocks" says what a missing answ
    Blocks: nothing. Recommendation: not in v1.
 2. **Q2 — #372, per-client ResellerClub mode.** Does the host run `per_client` or the default customer? In per-client mode, may the
    customer id from the host's file be recorded when the order verifies **and** the customer's login email equals the client's email
-   (§7.2 step 4)? Assumed: yes. Alternative: a staff pick list, or run the host in default-customer mode. **Blocks PR 4 only.**
+   (§7.2 step 4)? Assumed: yes. Alternative: a staff pick list, or run the host in default-customer mode. **Decided 2026-10-31 (CTO): the rule is accepted. The staff pick list stays the fallback. PR 4 is unblocked.**
 3. **Q3 — Nepal workflow, old invoice numbers.** Owner to confirm: WHMCS unpaid invoices were sent to clients as the bill; at cutover the host voids them in
    WHMCS without VAT being claimed on them, and the client pays the Mohar copy, which gets a new legal number on payment (D1 of `vat-register.md`).
-   If the accountant already reported VAT on the WHMCS invoices, the same supply is counted twice. Blocks: go-live, not the build; it changes the cutover
+   If the accountant already reported VAT on the WHMCS invoices, the same supply is counted twice. Also on `docs/handoff/accountant-questions.md`. Blocks: go-live, not the build; it changes the cutover
    runbook only (the proforma default creates no fiscal document whatever the answer).
 4. **Q4 — Part payments.** Owner to confirm: a client who paid part in WHMCS and the rest in Mohar gets the legal tax invoice dated on the final payment, for the
    full amount. The accountant should say whether VAT on the earlier part is reported in the WHMCS period. Blocks: nothing (accountant note).
@@ -501,7 +506,7 @@ Each PR stays under 1,500 changed lines including tests and fixtures. PR 0 is a 
 
 Domains (PR 3) come before items (PR 2), or renewal lines cannot link.
 
-Dependencies: client import PRs 3–5 (clients, id map, undo); #338's Link order action (merged); PR 4 needs the owner's answer to Q2; no other PR waits on an owner answer (§16).
+Dependencies: client import PRs 3–5 (clients, id map, undo); #338's Link order action (merged); PR 4's Q2 is answered (2026-10-31); no other PR waits on an owner answer (§16).
 
 ## 19. Acceptance criteria
 
@@ -597,7 +602,7 @@ WHMCS (read 2026-10-29): API reference pages GetInvoices https://developers.whmc
 https://developers.whmcs.com/api-reference/getinvoice/ · GetClientsDomains https://developers.whmcs.com/api-reference/getclientsdomains/
 · GetTransactions https://developers.whmcs.com/api-reference/gettransactions/. These pages list fields only through example JSON, so
 per-field semantics are marked **verify** above. Reports → Exports (invoices, transactions, domains) as read for `client-import.md`
-on 2026-10-20 (https://docs.whmcs.com/8-13/system/reports/); not re-read. Other products' importers as in `migration.md` §15 (read 2026-10-17 and 2026-10-20).
+on 2026-10-20 (https://docs.whmcs.com/8-13/system/reports/); not re-read. Other products' importers as in `migration.md` §15 (read 2026-10-17 and 2026-10-20). WHMCS table relations for invoice items, transactions and domains: Paymenter's WHMCS importer source (MIT, commit `f0ae9a1`, read 2026-10-31): https://github.com/Paymenter/Paymenter/blob/f0ae9a12b59da689e5ca6287a278852c4b0c6486/app/Console/Commands/ImportFromWhmcs.php — reads a restored WHMCS dump over SQL, so it names real tables, columns and joins (`tblclients`, `tblusers_clients`, `tblhosting`, `tblinvoiceitems.type`/`relid`, `tblpricing`, `tbltickets`/`tblticketreplies`). A design reference for table relations and status and cycle values; facts only, no code copied. Summary and ER diagram: `docs/research/2026-10-31-whmcs-schema-sources.md`.
 Regulation: Nepal VAT and IRD behaviour is taken from `vat-register.md` and ADR 0024; the IRD pages were not re-read for this note. India GST is not touched.
 ResellerClub behaviour comes from `registrars.md` (§5 `lookupOrder`, §9 `.np`) and from #335, #338, #365 and #372; no ResellerClub page was re-read today.
 Our code and specs: `client-import.md`, `migration.md`, `domains.md`, `registrars.md`, `vat-register.md`, `billing.md`, ADR 0008, 0013, 0019 (and addendum), 0023, 0024.

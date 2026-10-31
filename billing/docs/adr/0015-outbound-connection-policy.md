@@ -123,3 +123,38 @@ with the kernel guard. Infrastructure that staff set up uses the install policy.
 - No pinning. Symfony Mailer's socket stream resolves the name again, so DNS rebinding between check and connect
   remains possible. Accepted: the setting needs a sensitive permission and a recent password, and a person who can
   change it can already redirect all mail. Ports are not restricted.
+
+## Amendment (#555) — 2026-10-31, outbound calls made inside a user request (Accepted)
+
+Status: Accepted 2026-10-31 (owner approved `client-import.md` Q13), with ADR 0018 Amendment (#555) and `client-import.md` §3.4. The licence check (Q13(c)) gates marketing, not the build. It comes from the #555 design review
+(B4, M1). It is the first rule for a synchronous outbound call on a page that users wait on. Sign-in is already the
+slowest such page (`sizing.md`).
+
+- **No DNS in the request.**
+    - A scheduled health probe resolves and vets the destination through `resolve()`, and caches the vetted address
+      set for at most 5 minutes. The probe runs well inside that TTL (every minute for carry-over), so the cache does
+      not lapse between refreshes.
+    - The request connects to that set through `pinOptions()`.
+    - A cache miss fails the call; it is never a lookup.
+    - This keeps the unbounded resolver time noted in Amendment (#513) out of user requests.
+- **A deadline covering the whole call.** `connect_timeout` of at most 2 s and a total of at most 5 s, covering
+  connect, TLS and body. Because nothing is resolved, the total covers everything.
+- **Concurrency from the thread count.**
+    - At most `max(1, intdiv(php_threads, 4))` such calls run at once, install-wide, per kind of call.
+    - `php_threads` follows FrankenPHP's `num_threads` as the deploy sets it. When unset it defaults to 4, the small
+      profile, so it fails small.
+    - Over the cap, the call is skipped and the caller gives its ordinary failure.
+    - The same bound applies to requests held in a deliberate delay, such as a timing floor. A request takes its slot
+      in the delay before any outbound call. With no slot free it makes no call, so timing cannot tell callers apart.
+- **Transport.**
+    - HTTPS only (`CURLOPT_PROTOCOLS` and `CURLOPT_REDIR_PROTOCOLS`), TLS verification with the system CA bundle that
+      cannot be configured off, no redirects and no proxy.
+    - Responses are capped by size (64 KB unless the protocol needs more) and parsed fail-closed.
+    - When the call carries a user's secret, the TLS key is recorded at setup (trust on first use) and enforced with
+      `CURLOPT_PINNEDPUBLICKEY`, so a changed key aborts the connection before any request byte is sent.
+- **Hosts Mohar serves.** A destination whose normalised hostname (IDNA to ASCII, lower case, no trailing dot)
+  equals any host the install serves is refused when saved: `APP_URL` and the client, admin and storefront domains.
+- **Load test.** Each new caller of this kind adds a `loadtest/` scenario on the small profile, and `sizing.md`
+  records its budget.
+- **First caller:** WHMCS sign-in carry-over (`client-import.md` §3.4). It uses the install policy, because staff
+  enter the destination.

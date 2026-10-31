@@ -1,7 +1,8 @@
 <?php
 
 /*
- * scripts/finish-workstream.sh, scripts/sweep-stale.sh and scripts/pg.sh --drop in a throwaway repository, with stub
+ * scripts/finish-workstream.sh, scripts/sweep-stale.sh, scripts/pg.sh --drop, the worktree step of
+ * scripts/storage-cleanup.sh and the slug check of scripts/new-worktree.sh in a throwaway repository, with stub
  * `gh` and `docker` programs first on PATH: nothing here touches GitHub, Docker or the real repository.
  * The stub docker logs every call to $CCS_LOG and answers `psql` with the rows in $CCS_ROWS.
  */
@@ -24,7 +25,7 @@ function ccsSetup(): array
     $bin = "{$root}/bin";
     mkdir($bin, 0700, true);
     mkdir("{$main}/scripts", 0700, true);
-    foreach (['finish-workstream.sh', 'sweep-stale.sh', 'pg.sh'] as $script) {
+    foreach (['finish-workstream.sh', 'sweep-stale.sh', 'pg.sh', 'storage-cleanup.sh', 'new-worktree.sh'] as $script) {
         copy(__DIR__."/../../../../scripts/{$script}", "{$main}/scripts/{$script}");
         chmod("{$main}/scripts/{$script}", 0755);
     }
@@ -291,5 +292,51 @@ test('sweep lists orphan databases but drops them only with --apply --dbs', func
 
     $dbs = ccsRun($ctx, 'sweep-stale.sh', ['--apply', '--dbs'], $env);
     expect($dbs->getOutput())->toContain('dropped billing_test_rb_orphan')->and(file_get_contents($ctx['log']))->toContain('dropdb');
+    ccsCleanup($ctx);
+});
+
+test('storage cleanup keeps a merged worktree that is marked or recently active, and removes an idle one only with --apply', function () {
+    $ctx = ccsSetup();
+    $env = ['CCS_MERGED_LINES' => '42', 'CODESPACES' => false, 'STORAGE_DOCKER' => false, 'LOW_SPACE_GB' => '0'];
+    $paths = [];
+    foreach (['sc-marked', 'sc-active', 'sc-idle'] as $slug) {
+        $paths[$slug] = ccsWorktree($ctx, $slug, commit: true);
+        ccsGit($paths[$slug], 'push', '-q', 'origin', "feature/{$slug}");
+        ccsGit($paths[$slug], 'fetch', '-q', 'origin');
+    }
+    touch("{$paths['sc-marked']}/.claude-in-use");
+
+    // SWEEP_IDLE_HOURS=12: every tree was just created, so all three count as active.
+    $active = ccsRun($ctx, 'storage-cleanup.sh', ['--apply'], [...$env, 'SWEEP_IDLE_HOURS' => '12']);
+    $dry = ccsRun($ctx, 'storage-cleanup.sh', [], $env);
+
+    expect($active->getExitCode())->toBe(0, $active->getErrorOutput())
+        ->and($active->getOutput())->toContain("{$paths['sc-marked']}: keep (marked in use (.claude-in-use))")
+        ->and($active->getOutput())->toContain("{$paths['sc-idle']}: keep (active in the last 12 h)")
+        ->and(is_dir($paths['sc-idle']))->toBeTrue()
+        ->and($dry->getOutput())->toContain("{$paths['sc-marked']}: keep (marked in use (.claude-in-use))")
+        ->and($dry->getOutput())->toContain("{$paths['sc-idle']}: PR #42 merged, clean, pushed -> remove")
+        ->and(is_dir($paths['sc-idle']))->toBeTrue();
+
+    $apply = ccsRun($ctx, 'storage-cleanup.sh', ['--apply'], $env);
+
+    expect($apply->getExitCode())->toBe(0, $apply->getErrorOutput())
+        ->and(is_dir($paths['sc-idle']))->toBeFalse()
+        ->and(is_dir($paths['sc-active']))->toBeFalse()
+        ->and(is_dir($paths['sc-marked']))->toBeTrue();
+    ccsCleanup($ctx);
+});
+
+test('new-worktree refuses a slug that is not a plain name before touching git', function () {
+    $ctx = ccsSetup();
+
+    foreach (['', '../escape', '-x', 'a/b', 'a b'] as $slug) {
+        $run = ccsRun($ctx, 'new-worktree.sh', [$slug]);
+
+        expect($run->getExitCode())->toBe(2, "slug '{$slug}'")
+            ->and($run->getErrorOutput())->toContain('usage: scripts/new-worktree.sh <slug>');
+    }
+    expect(ccsGit($ctx['main'], 'worktree', 'list', '--porcelain'))->not->toContain('.claude/worktrees')
+        ->and(ccsGit($ctx['main'], 'branch', '--list', 'feature/*'))->toBe('');
     ccsCleanup($ctx);
 });

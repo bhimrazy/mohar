@@ -41,6 +41,11 @@ the WHMCS side.
   GetPayMethods, GetInvoices, GetInvoice, GetTransactions, GetCredits, GetQuotes, GetSupportDepartments, GetSupportStatuses, GetTickets,
   GetTicket, GetTicketNotes, GetTicketAttachment, GetAnnouncements, GetAffiliates`. Write actions, `DecryptPassword`, `GetClientPassword` and
   registrar-touching actions such as `DomainGetNameservers` are **never** called.
+- **Sign-in carry-over (proposed 2026-10-31, `client-import.md` §3.4, A9).** A second allowlist names only `ValidateLogin`.
+    - It is used only by the sign-in hook, under its own credential whose role grants that one action.
+    - That credential is a separate `EncryptedStorage` entry (ADR 0022) and is rotated on its own.
+    - It shares the source's one base URL. Changing the URL or either credential pauses carry-over (#555 review, B3).
+    - The read-only allowlist above is unchanged, and the importer's credential never calls `ValidateLogin`.
 - Pagination: `limitstart`/`limitnum` (default page size is 25 at the source; `migration.whmcs.page_size: 100`). Where `orderby` exists
   (`GetClients`, `GetInvoices`), use `orderby=id` with the action's own direction parameter (`sorting=ASC` for `GetClients`). After each pass, check that the number of unique ids matches `totalresults`.
   Offset paging over live data can skip rows; the id map plus delta runs make this harmless (§6). Endpoints with no documented paging
@@ -422,6 +427,7 @@ two-way sync after cutover; automatic redirects of old WHMCS URLs (COULD); other
   install only; CLI most reliable)
 - HostBill: https://hostbill.atlassian.net/wiki/x/lwDtgw (DB-based; tool on request; "no guarantee" with third-party modules)
 - Paymenter: https://paymenter.org/docs/guides/whmcs-importer (dump import into a temporary DB; wipes target; artisan command)
+- Paymenter's WHMCS importer source (MIT, commit `f0ae9a1`, read 2026-10-31): https://github.com/Paymenter/Paymenter/blob/f0ae9a12b59da689e5ca6287a278852c4b0c6486/app/Console/Commands/ImportFromWhmcs.php — reads a restored WHMCS dump over SQL, so it names real tables, columns and joins (`tblclients`, `tblusers_clients`, `tblhosting`, `tblinvoiceitems.type`/`relid`, `tblpricing`, `tbltickets`/`tblticketreplies`). A design reference for table relations and status and cycle values; facts only, no code copied. Summary and ER diagram: `docs/research/2026-10-31-whmcs-schema-sources.md`.
 - Upmind: https://docs.upmind.com/setup-and-configuration/importing-data/importing-from-whmcs.md (API-based; IP allow-list; mapping step;
   staged preview then commit; does not store hosting passwords)
 - FOSSBilling: no importer as of the June 2025 forum answer — https://forum.fossbilling.org/thread-329.html

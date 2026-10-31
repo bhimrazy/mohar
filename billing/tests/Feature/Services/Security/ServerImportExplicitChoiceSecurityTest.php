@@ -77,7 +77,7 @@ test('[S133E-4] the explicit choice needs the step-up and the select permission'
     $this->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['alpha'], 'include' => true, 'client_id' => $this->anna->id])->assertForbidden();
 
     actingAsStaff();
-    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp() - 100000]);
+    $this->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp() - 100000]);
     $this->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['alpha'], 'include' => true, 'client_id' => $this->anna->id])->assertRedirect();
     expect(ServerAccountImport::query()->sole()->selections)->toBeEmpty();
 });

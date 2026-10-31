@@ -116,7 +116,7 @@ test('confirm-password allows five guesses a minute per login and IP, then answe
         ->assertTooManyRequests()
         ->assertHeader('Retry-After')
         ->assertJsonPath('errors.password.0', fn (string $message): bool => str_starts_with($message, 'Too many password attempts. Try again in'));
-    expect(session('auth.password_confirmed_at'))->toBeNull();
+    expect(session('auth.step_up_confirmed_at'))->toBeNull();
 
     // Another login on the same IP keeps its own budget.
     $this->actingAs(User::factory()->create(['password' => 'other-login-password']))
@@ -134,7 +134,7 @@ test('the full-page confirm form shows the throttle message on its password fiel
         ->assertRedirect(route('password.confirm'))
         ->assertSessionHasErrors('password');
     expect(session('errors')->first('password'))->toStartWith('Too many password attempts. Try again in')
-        ->and(session('auth.password_confirmed_at'))->toBeNull();
+        ->and(session('auth.step_up_confirmed_at'))->toBeNull();
 });
 
 test('a failed password confirmation is in the activity log, without the guess', function () {
@@ -159,10 +159,15 @@ test('after twenty wrong passwords in an hour the login is told to wait minutes,
     $user = User::factory()->create(['password' => 'correct-horse-battery']);
     $this->actingAs($user);
 
-    foreach (range(1, PasswordGuesses::PER_HOUR) as $attempt) {
+    foreach (range(1, PasswordGuesses::PER_HOUR - 1) as $attempt) {
         $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.'.intdiv($attempt, PasswordGuesses::PER_MINUTE)])
             ->postJson(route('password.confirm.store'), ['password' => 'wrong-'.$attempt])->assertUnprocessable();
     }
+
+    // The twentieth uses the budget up and ends that session (#523); a new session is still refused.
+    $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.9'])
+        ->postJson(route('password.confirm.store'), ['password' => 'wrong-last'])->assertTooManyRequests();
+    $this->actingAs($user);
 
     $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.9'])
         ->postJson(route('password.confirm.store'), ['password' => 'correct-horse-battery'])

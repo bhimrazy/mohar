@@ -15,6 +15,7 @@ use App\Http\Responses\PasswordResetFailedResponse;
 use App\Http\Responses\PasswordResetLinkRequestedResponse;
 use App\Models\User;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\PasskeyAddedNotice;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Http\Request;
@@ -37,6 +38,7 @@ use Laravel\Fortify\Events\ValidTwoFactorAuthenticationCodeProvided;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
 use Laravel\Fortify\Http\Controllers\RegisteredUserController as FortifyRegisteredUserController;
+use Laravel\Passkeys\Events\PasskeyRegistered;
 
 class FortifyServiceProvider extends ServiceProvider
 {
@@ -85,25 +87,27 @@ class FortifyServiceProvider extends ServiceProvider
             PrepareAuthenticatedSession::class,
         ]));
 
-        // The login's wrong-password budget first (PasswordGuesses), then Fortify's own confirm check, then the
-        // one-time password expiry (#60): an expired one confirms nothing.
+        // The compare runs within the login's wrong-password budget (PasswordGuesses), then the one-time password
+        // expiry (#60): an expired one confirms nothing.
         Fortify::confirmPasswordsUsing(function ($user, ?string $password = null): bool {
-            if ($user instanceof User) {
-                PasswordGuesses::ensureAllowed($user, request(), 'password');
-            }
+            $compare = fn (): bool => app(StatefulGuard::class)->validate([Fortify::username() => $user->{Fortify::username()}, 'password' => $password]);
 
-            $valid = app(StatefulGuard::class)->validate([Fortify::username() => $user->{Fortify::username()}, 'password' => $password]);
+            $valid = $user instanceof User
+                ? PasswordGuesses::check($user, request(), 'password', $compare, function () use ($user): void {
+                    // Who and from where, never the guess; on the client account a client login acts for, so it
+                    // shows in that client's activity (#523). PasswordGuesses bounds how many rows this writes.
+                    app(ActivityLogger::class)->log('Password confirmation failed', $user, PasswordGuesses::activityClientId($user, request()), event: 'auth.confirm_password_failed', actor: $user);
+                })
+                : $compare();
 
             if ($valid) {
                 RefuseExpiredPassword::check($user, 'confirm_password', field: 'password');
-            } elseif ($user instanceof User) {
-                PasswordGuesses::failed($user, request());
-                // Who and from where, never the guess; PasswordGuesses bounds how many rows this writes.
-                app(ActivityLogger::class)->log('Password confirmation failed', $user, event: 'auth.confirm_password_failed', actor: $user);
             }
 
             return $valid;
         });
+
+        Event::listen(PasskeyRegistered::class, PasskeyAddedNotice::class);
 
         // A two-factor challenge started before the expiry and completed after it (#459): refused before the login.
         Event::listen(ValidTwoFactorAuthenticationCodeProvided::class, function (ValidTwoFactorAuthenticationCodeProvided $event): void {
@@ -148,7 +152,23 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::confirmPasswordView(fn (Request $request) => Inertia::render('auth/confirm-password', [
             'download' => RequireRecentPasswordConfirmation::confirmingDownload($request),
             'hasPassword' => (bool) $request->user()?->hasPassword(),
+            'back' => $this->confirmPageBack($request),
         ]));
+    }
+
+    /**
+     * Where the confirm page's way out leads: not to the page that sent the person here, which would only ask again,
+     * but to the settings for a settings page, and to the person's own dashboard otherwise (#538).
+     *
+     * @return array{url: string, label: string}
+     */
+    private function confirmPageBack(Request $request): array
+    {
+        $intended = (string) parse_url((string) $request->session()->get('url.intended', ''), PHP_URL_PATH);
+
+        return str_starts_with($intended, '/settings/')
+            ? ['url' => route('profile.edit'), 'label' => __('Back to settings')]
+            : ['url' => route('dashboard'), 'label' => __('Back to the dashboard')];
     }
 
     /**

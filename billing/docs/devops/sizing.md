@@ -17,7 +17,10 @@ Sources:
   differ only in `loadtest/label-runs.json`;
 - **per-page detail at light load and background work, and history:** the runner run of 2026-10-23,
   [actions/runs/40000321793](https://github.com/bhimrazy/mohar/actions/runs/40000321793), the `load-test` label on
-  PR #433 (commit `c5c0ffa`), with virtual users arriving over 20 s;
+  PR #433 (commit `c5c0ffa`, the PR's head `dbf92da5` merged into `develop`), with virtual users arriving over 20 s;
+- a re-run of 2026-10-31, [actions/runs/41200682198](https://github.com/bhimrazy/mohar/actions/runs/41200682198),
+  the `load-test` label on PR #552 (the database review's indexes, commit `f9fe390`), reported in "Re-run of
+  2026-10-31 (PR #552)" under History; the capacity verdicts rest on the PR #543 runs;
 - history, before PR #433 (every virtual user started in the same second, see "Where the small host runs out"): the
   runner run of 2026-10-23 on the PR #374 branch,
   [actions/runs/39944684180](https://github.com/bhimrazy/mohar/actions/runs/39944684180) (commit `3151b0d`), and the
@@ -35,19 +38,19 @@ Sources:
 [install.md](install.md), [deployment-options.md](deployment-options.md) and the docs site's requirements page.
 
 At 50,000 clients the small host (2 vCPU, 4 GB) stays comfortable (p95 of all requests under 1 s, under 1% errors)
-up to **about 15 requests per second**. That is **40 fast virtual users** (1–3 s per page), or **200 to 350 people
+up to **about 15 requests per second**. That is **20–40 fast virtual users** (1–3 s per page; 40 on two runners, 20 on a third), or **200 to 350 people
 signed in at once** who read each page for 10–30 s (measured). The medium host (4 vCPU, 8 GB) stays comfortable up to
 **50 fast virtual users, or 400 people at once** (measured on a runner whose 4 CPUs it shares with the load generator,
 so a lower bound). What runs out first is CPU, split about evenly between PHP and PostgreSQL; memory is not close to
 a limit (see "What limits first" and "Memory").
 
-| Host                                          | Clients      | What the measurements say                                                                                                                                                                                                                                   |
-| --------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Small: 2 vCPU, 4 GB** (the profile)         | under 2,000  | Enough, with a wide margin (inference). Every measurement below is at 50,000 clients, 25 times this volume.                                                                                                                                                 |
-| Small: 2 vCPU, 4 GB                           | 2,000–20,000 | Enough for the pages (inference from the 50,000-client runs, the larger data set). The billing day on the small profile did not finish in the 2026-10-31 runs (see "Background work").                                                                      |
-| Small: 2 vCPU, 4 GB (minimum and recommended) | 50,000       | Measured. Comfortable at 40 fast virtual users (15 req/s, p95 669 ms), past the limit at 50 (p95 1.6–2.6 s). With 10–30 s per page: comfortable at 200 people (and at 350 on a faster runner with slower arrivals), past the limit at 300 (see "Capacity"). |
-| Medium: 4 vCPU, 8 GB                          | 50,000       | Measured, as a lower bound. Comfortable at 50 fast virtual users (20 req/s, p95 315 ms) and at 400 people with 10–30 s per page (17 req/s, p95 353 ms); past the limit at 100 fast users and at 500 people. Billing day 3,059–3,078 s.                      |
-| Large: 8 vCPU, 16 GB                          | above 50,000 | Not measured. The large profile needs 8 vCPU and the standard GitHub runner has 4, so it needs a larger or self-hosted runner (`loadtest/README.md`).                                                                                                       |
+| Host                                          | Clients      | What the measurements say                                                                                                                                                                                                                                                                     |
+| --------------------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Small: 2 vCPU, 4 GB** (the profile)         | under 2,000  | Enough, with a wide margin (inference). Every measurement below is at 50,000 clients, 25 times this volume.                                                                                                                                                                                   |
+| Small: 2 vCPU, 4 GB                           | 2,000–20,000 | Enough for the pages (inference from the 50,000-client runs, the larger data set). The billing day on the small profile did not finish in the 2026-10-31 runs (see "Background work").                                                                                                        |
+| Small: 2 vCPU, 4 GB (minimum and recommended) | 50,000       | Measured. Comfortable at 40 fast virtual users (15 req/s, p95 669 ms), past the limit at 50 (p95 1.6–2.6 s); a third runner was past it at 40. With 10–30 s per page: comfortable at 200 people (and at 350 on a faster runner with slower arrivals), past the limit at 300 (see "Capacity"). |
+| Medium: 4 vCPU, 8 GB                          | 50,000       | Measured, as a lower bound. Comfortable at 50 fast virtual users (20 req/s, p95 315 ms) and at 400 people with 10–30 s per page (17 req/s, p95 353 ms); past the limit at 100 fast users and at 500 people. Billing day 3,059–3,078 s.                                                        |
+| Large: 8 vCPU, 16 GB                          | above 50,000 | Not measured. The large profile needs 8 vCPU and the standard GitHub runner has 4, so it needs a larger or self-hosted runner (`loadtest/README.md`).                                                                                                                                         |
 
 "Virtual users" are k6 virtual users; "people" are virtual users with 10–30 s per page (`loadtest/bin/run --think "10 30"`),
 closer to someone reading an invoice or a ticket. A fast virtual user sends 0.38–0.41 requests per second when the
@@ -90,7 +93,10 @@ medium 400%); "stack" is every container except k6, as a share of the cap. "Peop
 |           100 |                 700–1,000 |  16.1 | 3.8 s  | 4.9 s  | 5.8 s  |     0% |              97% |     94% |            90% | 41193623951, small-ramp     |
 
 **Saturation (measured):** last comfortable level 40 virtual users, first failing level 50, in both runs. Past 50
-the request rate stops growing (16 req/s at 100 users) and every page waits: p50 3.8 s on every scenario.
+the request rate stops growing (16 req/s at 100 users) and every page waits: p50 3.8 s on every scenario. 40 is close
+to the edge: PR #552's re-run the same day (run 41200682198, commit `f9fe390`, users arriving over 20 s, a different
+runner) had 40 users past the limit (p95 1.26 s at 15.1 req/s) and 20 as its highest comfortable level ("Re-run of
+2026-10-31 (PR #552)"). Plan on about 15 requests per second, not on 40 users.
 
 ### Small: 2 vCPU, 4 GB, people (10–30 s per page)
 
@@ -186,7 +192,7 @@ Past the knee the tail grows on every page at once, cheap ones included (the sto
 ### Background work in the 2026-10-31 runs
 
 - **Small: the billing day did not finish (measured).** In all four small runs `automation:run` stopped after two
-  of its tasks (it ran for 221.6 s in the one checked), and the summary printed 0.0 s because it adds up the tasks
+  of its tasks (as in PR #552's run 41200682198) (it ran for 221.6 s in the one checked), and the summary printed 0.0 s because it adds up the tasks
   that finished; PR #543 now records the exit code and says so. The medium scheduler needed 271–272 MB for the same
   billing day, and the small profile limits the scheduler to 256 MB (production gives it 512 MB), so the likely cause
   is the profile's memory limit (inferred, not confirmed: the exit code was not recorded yet).
@@ -270,6 +276,45 @@ not been separated; a second run of the same commit would show the runner's shar
 | Storefront p95       | 4.6 s                               | 2.9 s                               | 644 ms                              |
 | Admin dashboard p95  | 5.1 s                               | 3.2 s                               | 3.1 s                               |
 | req/s                | 17.7                                | 17.4                                | 16.4                                |
+
+#### Re-run of 2026-10-31 (PR #552)
+
+Run 41200682198: the same harness settings as the reference (small profile, large volume, users arriving over
+20 s), on commit `f9fe390`, PR #552 merged into `develop`. PR #552 adds the database review's indexes (open and
+cancelled invoices for the dashboard receivables, open invoices and live services by id for the billing day, the
+client invoice order, `jobs (queue, id)`). Seed: 50,000 clients, 100,000 services, 355,350 invoices, 900 MB.
+
+| Measure                        | 40000321793 (2026-10-23, `c5c0ffa`) | 41200682198 (2026-10-31, `f9fe390`) |
+| ------------------------------ | ----------------------------------- | ----------------------------------- |
+| All pages, 40 users: p50 / p95 | 120 ms / 704 ms (p99 1.5 s)         | 342 ms / 1.26 s (p99 1.65 s)        |
+| req/s at 40 users              | 16.4                                | 15.1                                |
+| Highest comfortable level      | 40 users                            | 20 users                            |
+| Admin dashboard, light         | 219 ms / 960 ms                     | 259 ms / 284 ms                     |
+| Admin dashboard, 40 users      | 828 ms / 3.1 s                      | 960 ms / 2.0 s                      |
+| Client dashboard, light        | 47 ms / 61 ms                       | 69 ms / 95 ms                       |
+| Client dashboard, 40 users     | 138 ms / 546 ms                     | 335 ms / 1.14 s                     |
+| Client invoices, light         | 44 ms / 55 ms                       | 58 ms / 76 ms                       |
+| Client invoices, 40 users      | 100 ms / 586 ms                     | 302 ms / 1.08 s                     |
+| Checkout, light p95            | 411 ms (one request)                | 665 ms / 727 ms                     |
+| Checkout, 40 users             | p95 2.1 s                           | 1.87 s / 3.06 s                     |
+| Receivables aggregate (mean)   | 486 ms                              | 494 ms (7 calls)                    |
+| Billing day (`automation:run`) | 539.3 s                             | not measured (see below)            |
+| App / PostgreSQL CPU, 40 users | 75% / 66% of one core               | 78% / 82% of one core               |
+
+These two runs cannot isolate what the indexes did. Pages the indexes do not touch are also slower: checkout,
+lightly loaded, went from 411 ms to 727 ms. The code moved on by eight days, and the runner may differ (see "Compared
+with the runs before PR #433"). The admin dashboard's light p95 of 284 ms is most likely #441 (`Cache::flexible`),
+which this runner had not measured before. The receivables aggregate costs the same as before: at this volume its
+paid-and-refunded branch matches about a third of the year's invoices and is read by a sequential scan, which
+PR #552 does not change. The branches PR #552 indexes went from 12.7 ms to 2.3 ms in its EXPLAIN (PR #552
+description).
+
+The billing day was not measured. The harness's `automation:run` recorded only `platform.exchange-rates` and
+`domains.renewals`, and its summary shows 0.0 s. Meanwhile the automation phase lasted 144 s and wrote 616 renewal
+invoices. PR #543's small-profile runs on `develop` (`e33b108`, run 41193623951) show the same; its medium-profile run
+completed a 3,059 s billing day. The small profile gives the scheduler container, where `automation:run` runs,
+256 MB, and the highest sample there was 234 MB, so the run may have been killed for memory. That has not been
+confirmed.
 
 <details><summary>History: the full tables of run 39472898451 (2026-10-21), before PR #433</summary>
 

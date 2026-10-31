@@ -64,7 +64,7 @@ test('probe: user on two accounts reveals only within the selected account', fun
     $sa = Service::factory()->onServer()->create(['client_id' => $a->id, 'password' => 'A-Secret']);
     $sb = Service::factory()->onServer()->create(['client_id' => $b->id, 'password' => 'B-Secret']);
     confirmPassword();
-    $this->withSession([ClientContext::SESSION_KEY => $b->id, 'auth.password_confirmed_at' => now()->getTimestamp()]);
+    $this->withSession([ClientContext::SESSION_KEY => $b->id, 'auth.step_up_confirmed_at' => now()->getTimestamp()]);
     $this->postJson(route('client.services.password.reveal', $sb->id))->assertForbidden();
     $this->postJson(route('client.services.password.reveal', $sa->id))->assertStatus(403);
     $this->withSession([ClientContext::SESSION_KEY => $a->id]);

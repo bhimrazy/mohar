@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UseFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\QueryException;
 
 /**
  * @property int $id
@@ -47,5 +48,33 @@ class TaxRule extends Model
     public function specificity(): int
     {
         return ($this->country !== null ? 4 : 0) + ($this->state !== null || $this->scope !== null ? 2 : 0);
+    }
+
+    /**
+     * Deletes the rule unless an invoice was calculated with it (`invoices.tax1_rule_id` or `tax2_rule_id`).
+     *
+     * @return int how many invoices use the rule; 0 when it was deleted
+     */
+    public function deleteUnlessUsed(): int
+    {
+        $used = Invoice::query()->where('tax1_rule_id', $this->id)->orWhere('tax2_rule_id', $this->id)->count();
+
+        if ($used > 0) {
+            return $used;
+        }
+
+        try {
+            // The foreign key also refuses an invoice calculated with the rule after the count; the savepoint keeps an
+            // outer PostgreSQL transaction usable after that refusal.
+            $this->getConnection()->transaction(fn () => $this->delete());
+        } catch (QueryException $exception) {
+            if (! str_starts_with((string) ($exception->errorInfo[0] ?? ''), '23')) {
+                throw $exception;
+            }
+
+            return 1;
+        }
+
+        return 0;
     }
 }

@@ -39,6 +39,8 @@ queries name their index and cap work per run; email ownership only from a verif
 tests through $MOHAR_ROOT/scripts/test.sh --changed, then --changed --pgsql (never hand-picked directories);
 phpstan, pint, tsc, vp check through scripts/heavy.sh.
 Draft PR, no `ci` label; `[skip ci]` on WIP commits, not on the final head.
+Scratch files (PR body, notes) are named after the PR or slug, e.g. $SCRATCH/pr<N>-body.md, never body.md; after
+any `gh pr create` or `gh pr edit --body-file`, check `gh pr view <N> --json body -q .body | head -3` is this PR's text.
 Merge origin/develop (no rebase); squash only against a fixed SHA, never a moving origin/develop.
 ```
 

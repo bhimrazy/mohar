@@ -150,3 +150,26 @@ by the event class, and the public webhook type is the second argument, `registe
 - The guard row is created by the module, never by Platform: the save only locks it. A row that reads the same as "unset"
   is fine; a JSON-null row would make `Settings::get()` return null instead of the config default and would skip the
   settings cache, so Platform does not write one. Reasons are remembered per request until `flush()`.
+
+## Amendment (#555) — 2026-10-31, kernel contracts that receive secrets are closed to packages (Accepted)
+
+Status: Accepted 2026-10-31 (owner approved `client-import.md` Q13), with ADR 0018 Amendment (#555). It comes from the #555 design review (B2).
+
+- **The rule.** A kernel contract with a method that receives a plaintext credential belongs to a separate class from
+  the extension points this ADR describes. Such credentials include a typed password, a one-time code and a recovery
+  code. The class has these rules:
+    - It has **exactly one first-party implementation**, in a named module, plus Core's null default. It is never a
+      registry, and its docblock says it is not an extension point.
+    - Every secret parameter carries `#[\SensitiveParameter]` on the interface and on every implementation.
+    - A secret crosses the boundary only after a secret-free method has said the implementation wants it, for
+      example `pending(User): bool` before `check(..., $password, ...)`. The kernel never hands every failed secret
+      to the implementation.
+- **Enforcement.**
+    - An Arch test lists the allowed implementer and the null class for each such contract. It fails on any other
+      class that implements it, in `app/` or a package's PSR-4 roots.
+    - At boot, the kernel checks that the bound class is one of the allowed two, and refuses to start otherwise. A
+      package therefore cannot rebind the contract.
+- **First case:** `App\Contracts\Auth\PendingPasswordCheck` (ADR 0018 Amendment (#555)), implemented in
+  `app/Modules/Migration`.
+- **Packages.** Packages keep every other extension point in this ADR. A package that needs a secret-receiving hook
+  asks for an ADR, as any new kernel surface does under ADR 0010.

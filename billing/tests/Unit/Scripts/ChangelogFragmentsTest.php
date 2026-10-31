@@ -360,6 +360,23 @@ describe('changelog-check.sh', function () {
         expect($run->getExitCode())->toBe(0)->and($run->getOutput())->toContain('release PR or back-merge from main');
     });
 
+    it('skips a back-merge only from this repository\'s main, and checks a fork\'s branch named main', function () {
+        $this->repo = clfRepo();
+        clfGit($this->repo, 'checkout', '-q', '-b', 'pr-head');
+        file_put_contents("{$this->repo}/billing/changelog.md", "\n- edited\n", FILE_APPEND);
+        clfGit($this->repo, 'add', '-A');
+        clfGit($this->repo, 'commit', '-q', '-m', 'edit');
+        $env = ['BASE_REF' => 'develop', 'HEAD_REF' => 'main', 'PR_NUMBER' => '500', 'REPOSITORY' => 'owner/mohar'];
+        $check = fn (array $more) => clfRun($this->repo, ['bash', clfScripts().'/changelog-check.sh', 'main', 'HEAD'], [...$env, ...$more]);
+
+        $own = $check(['HEAD_REPO' => 'owner/mohar']);
+        $fork = $check(['HEAD_REPO' => 'someone/mohar']);
+
+        expect($own->getExitCode())->toBe(0)->and($own->getOutput())->toContain('release PR or back-merge from main')
+            ->and($fork->getExitCode())->toBe(1)->and($fork->getOutput())->not->toContain('back-merge from main')
+            ->and($fork->getOutput())->toContain('billing/changelog.md');
+    });
+
     it('warns, without failing, when app or kernel code changes with no fragment', function () {
         $this->repo = clfRepo();
         clfGit($this->repo, 'checkout', '-q', '-b', 'feature/x');
@@ -416,6 +433,8 @@ it('runs the changelog check in CI and in the local merge gate, which stands in 
     $ci = (string) file_get_contents("{$root}/.github/workflows/ci.yml");
     $gate = (string) file_get_contents("{$root}/scripts/merge-gate.sh");
 
-    expect($ci)->toContain('../scripts/changelog-check.sh --marker-rev HEAD^2 HEAD^1 HEAD')
+    // Both run the base branch's copy (CI extracts it to .ci-policy/; see WorkflowPolicyTest).
+    expect($ci)->toContain('.ci-policy/changelog-check.sh --marker-rev HEAD^2 HEAD^1 HEAD')
+        ->and($ci)->toContain('HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}')
         ->and($gate)->toContain('changelog-check.sh" --marker-rev HEAD^2 HEAD^1 HEAD');
 });
