@@ -81,7 +81,7 @@ class ConfigOptionGroupController extends Controller
                 'type' => $option->type->value,
                 'values' => $option->values->map(fn (ConfigOptionValue $value): array => [
                     ...$value->only(['id', 'label', 'module_value', 'is_hidden', 'sort_order']),
-                    'prices' => $value->prices->map(fn (Price $price): array => $price->toMatrixRow())->values(),
+                    'prices' => array_map(fn (Price $price) => $price->toMatrixRow(), $value->prices->values()->all()),
                 ])->values(),
             ])->values(),
             'products' => $this->productChoices($optionGroup->products->modelKeys()),
