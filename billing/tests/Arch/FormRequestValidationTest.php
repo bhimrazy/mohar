@@ -7,7 +7,10 @@
  * module moves.
  */
 
-const INLINE_VALIDATION = '/->\s*validate(WithBag)?\s*\(|\bValidator\s*::\s*(make|validate)\s*\(|(?<![>:$\w])validator\s*\(/';
+const INLINE_VALIDATION = '/->\s*validate(WithBag|With)?\s*\(|\bValidator\s*::\s*(make|validate)\s*\(|(?<![>:$\w])validator\s*\(|\bapp\s*\(\s*[\'"]validator[\'"]\s*\)/';
+
+/** The Validator facade imported under another name: `use Illuminate\Support\Facades\Validator as V;`. */
+const VALIDATOR_ALIAS = '/^use\s+Illuminate\\\\Support\\\\Facades\\\\Validator\s+as\s+(\w+)\s*;/m';
 
 /** Inline validation calls left, as "file" => count. Lower an entry when a controller moves; never raise one. */
 const INLINE_VALIDATION_BASELINE = [
@@ -60,7 +63,7 @@ function inlineValidationCalls(): array
             }
         }
 
-        $hits = preg_match_all(INLINE_VALIDATION, $code);
+        $hits = inlineValidationHits($code);
 
         if ($hits > 0) {
             $found[substr($path, strlen($app) + 1)] = $hits;
@@ -70,6 +73,19 @@ function inlineValidationCalls(): array
     ksort($found);
 
     return $found;
+}
+
+function inlineValidationHits(string $code): int
+{
+    $hits = preg_match_all(INLINE_VALIDATION, $code);
+
+    if (preg_match_all(VALIDATOR_ALIAS, $code, $aliases) > 0) {
+        foreach ($aliases[1] as $alias) {
+            $hits += preg_match_all('/\b'.preg_quote($alias, '/').'\s*::\s*(make|validate)\s*\(/', $code);
+        }
+    }
+
+    return $hits;
 }
 
 test('controllers validate through Form Requests beyond the baseline', function () {
@@ -82,12 +98,20 @@ test('controllers validate through Form Requests beyond the baseline', function 
 });
 
 test('the scan sees each form of inline validation', function () {
-    foreach (['$request->validate([', '$request->validateWithBag(\'x\', [', 'Validator::make($data, [', 'validator($data, ['] as $code) {
-        expect(preg_match(INLINE_VALIDATION, $code))->toBe(1, $code);
+    foreach ([
+        '$request->validate([',
+        '$request->validateWithBag(\'x\', [',
+        '$this->validateWith($validator, $request);',
+        'Validator::make($data, [',
+        'validator($data, [',
+        "app('validator')->make(\$data, [",
+        "use Illuminate\\Support\\Facades\\Validator as Checks;\n\$v = Checks::make(\$data, [",
+    ] as $code) {
+        expect(inlineValidationHits($code))->toBe(1, $code);
     }
 
-    expect(preg_match(INLINE_VALIDATION, '$request->validated()'))->toBe(0)
-        ->and(preg_match(INLINE_VALIDATION, '$this->validator->check()'))->toBe(0);
+    expect(inlineValidationHits('$request->validated()'))->toBe(0)
+        ->and(inlineValidationHits('$this->validator->check()'))->toBe(0);
 });
 
 afterAll(fn () => releaseArchCache());

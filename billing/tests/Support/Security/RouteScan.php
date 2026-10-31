@@ -142,7 +142,7 @@ final class RouteScan
     public static function bodies(): array
     {
         return [
-            'admin.billing.invoices.bulk' => ['mark_paid' => ['action' => 'mark_paid', 'ids' => [1]], 'cancel' => ['action' => 'cancel', 'ids' => [1]]],
+            'admin.billing.invoices.bulk' => ['mark_paid' => ['action' => 'mark_paid', 'ids' => [1]], 'cancel' => ['action' => 'cancel', 'ids' => [1]], 'remind' => ['action' => 'remind', 'ids' => [1]]],
             'admin.orders.bulk' => ['accept' => ['action' => 'accept', 'ids' => [1]], 'cancel' => ['action' => 'cancel', 'ids' => [1]], 'delete' => ['action' => 'delete', 'ids' => [1]]],
             'admin.services.services.change' => ['change' => ['product_id' => 1, 'cycle' => 'monthly']],
             'admin.services.services.cancel' => ['cancel' => ['type' => 'end_of_period', 'reason' => 'Step-up scan']],

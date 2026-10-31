@@ -192,8 +192,12 @@ ALWAYS scope to `$context->id()` — never trust ids from the request without sc
 - A check that depends on the input (a bulk action's permission per `action`) reads it in `authorize()`, which runs
   before validation, so an unauthorized caller never sees validation errors.
 - `tests/Feature/Security/AdminPermissionSweepTest.php` calls every `admin.*` route as a staff member with no
-  permissions and expects 403 after a permission check. A new route that needs no permission goes in its `SWEEP_OPEN`
-  list with the reason.
+  permissions and expects a 403 that a denied permission caused: granted that permission, the route answers
+  differently. A route that needs no permission goes in its `SWEEP_OPEN` list with the reason; a route whose
+  `authorize()` picks the permission from the input gets one body per branch in `SWEEP_BODIES`.
+- The sweep proves only that no permission means no access. It cannot tell a wrong permission name from the right
+  one, and a dropped second condition (`a && b`) fails it only for the routes whose permissions its guard list pins.
+  Both stay review-checklist items.
 
 **Routes** — in `routes/web.php` of the module:
 
