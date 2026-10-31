@@ -96,7 +96,8 @@ class GatewayCallbackHandler
             'sha256' => hash('sha256', $request->getContent()),
         ];
 
-        if (! $this->gateways->has($gatewayKey) || ! $this->gateways->isActive($gatewayKey)) {
+        // An inactive gateway still settles what it started (ADR 0030 A1); the signature is checked against its stored credentials below.
+        if (! $this->gateways->settles($gatewayKey)) {
             return $this->outcome($gatewayKey, 404, 'gateway not active', $payload);
         }
 
