@@ -361,12 +361,12 @@ If you think this is a mistake, reply to this email.
 MD.$signOff),
 
     // ── Invoice ──────────────────────────────────────────────────────────────────────────────────
-    $client('invoice.created', 'invoice', 'Invoice created', 'Invoice {{ invoice.number }} from {{ company.name }}: {{ invoice.balance }} due {{ invoice.due_date | date }}', <<<'MD'
+    $client('invoice.created', 'invoice', 'Invoice created', 'Invoice {{ invoice.number }} from {{ company.name }}{% if invoice.balance_due %}: {{ invoice.balance }} due {{ invoice.due_date | date }}{% else %}: paid{% endif %}', <<<'MD'
 # Invoice {{ invoice.number }}
 
-Here's your new invoice. Please pay it by {{ invoice.due_date | date }} to keep your services running.
+{% if invoice.balance_due %}Here's your new invoice. Please pay it by {{ invoice.due_date | date }} to keep your services running.
 
-[Pay {{ invoice.balance }}]({{ invoice.url }})
+[Pay {{ invoice.balance }}]({{ invoice.url }}){% else %}Here's your new invoice. It's already paid, so there's nothing to do. Thank you.{% endif %}
 
 {% if invoice.pdf_attached %}A PDF copy of the invoice is attached.{% endif %}
 
@@ -992,7 +992,7 @@ $preheaders = [
     'service.cancellation_requested' => 'Changed your mind? Reply before the cancellation date.',
     'service.upgrade_completed' => 'The new resources are live now. Your next invoice shows the new price.',
     'service.terminated' => 'Reply if you\'d like help setting up again.',
-    'invoice.created' => 'Pay by {{ invoice.due_date | date }} to keep your services running.',
+    'invoice.created' => '{% if invoice.balance_due %}Pay by {{ invoice.due_date | date }} to keep your services running.{% else %}Already paid. Thank you.{% endif %}',
     'invoice.created_autocharge' => 'No action needed. We\'ll charge your saved payment method.',
     'invoice.payment_reminder' => 'A friendly reminder. Paying online takes a minute; reply if anything needs changing.',
     'invoice.overdue_first' => 'It was due on {{ invoice.due_date | date }}. Need more time? Reply and we\'ll work it out with you.',
