@@ -47,6 +47,7 @@ while IFS= read -r f; do
                     stan_files+=("${f#billing/}") ;;
             esac
             code=1 ;;
+        scripts/* | deploy/* | loadtest/* | .github/*) code=1 ;;
         billing/*.ts | billing/*.tsx | billing/*.js | billing/*.jsx | billing/*.mjs | billing/*.css | billing/*.json | billing/*.md)
             vp_files+=("${f#billing/}")
             case "$f" in billing/resources/js/* | billing/*.config.*) code=1 ;; esac ;;
