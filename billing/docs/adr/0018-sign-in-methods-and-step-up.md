@@ -220,7 +220,7 @@ except the section's non-secret settings as secret). JSON clients still get 423 
 422 validation response (form requests). First shipped for the middleware in #489, completed for the settings
 sections in #490.
 
-## Amendment (#554) — 2026-10-31, a pending password checked once at the source (Proposed)
+## Amendment (#555) — 2026-10-31, a pending password checked once at the source (Proposed)
 
 Status: Proposed, awaiting the owner's answer to `client-import.md` Q13. Research:
 `docs/research/2026-10-31-whmcs-login-migration.md`.

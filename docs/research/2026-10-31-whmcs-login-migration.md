@@ -6,7 +6,7 @@ ours. Nothing was run against a WHMCS install; we have none. Not legal advice: t
 
 The owner asked us to "analyze and get the best options, also look if we can avoid resetting passwords too". This note
 compares five ways to carry client sign-in from WHMCS to Mohar, recommends one, and proposes the spec and ADR changes.
-They are in the same PR: `client-import.md` §3.4, and ADR 0018 Amendment (#554).
+They are in the same PR: `client-import.md` §3.4, and ADR 0018 Amendment (#555).
 
 ## 0. Answer in short
 
@@ -456,7 +456,7 @@ enum PendingPasswordOutcome: string
   in §16, PRs 8b and 8c in §19, criteria 54–70 in §20, Q13 in §21, and the sources in §23.
 - `migration.md` §2.1: one note: a second allowlist, under its own credential, that names only `ValidateLogin`; the
   read-only allowlist is unchanged.
-- ADR 0018: Amendment (#554), Proposed: the hook, the mailbox confirmation, verification semantics, and what must not
+- ADR 0018: Amendment (#555), Proposed: the hook, the mailbox confirmation, verification semantics, and what must not
   be added.
 
 ## 7. Verify before relying on it (simulator assumptions until a real 8.x/9.x response is seen)

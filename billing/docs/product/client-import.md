@@ -107,7 +107,7 @@ the owner:
 ### 3.4 Sign-in carry-over through the WHMCS API (phase 2a.2, SHOULD; proposed 2026-10-31, Q13)
 
 Research and the comparison of options: `docs/research/2026-10-31-whmcs-login-migration.md`. Kernel hook: ADR 0018
-Amendment (#554).
+Amendment (#555).
 
 The goal is that returning clients sign in with their old email and password and never reset them. WHMCS documents
 `ValidateLogin`: it checks an email and password against a WHMCS user and returns `userid`, `twoFactorEnabled` and a
@@ -660,7 +660,7 @@ Platform owns invitations, so Migration reaches them through a contract.
 | C8  | Billing-internal: `CreditReason::Import` and the `billing.credit_balance` importer                                                                                                                                                                                                                                                                                                                                                      | §6.12                               |
 | C9  | Notifications template key `client.migration_invitation`                                                                                                                                                                                                                                                                                                                                                                                | Every mail has an editable template |
 | C10 | `clients.email_changed_at` shared with cPanel 3b-2 (#95)                                                                                                                                                                                                                                                                                                                                                                                | §6.2                                |
-| C11 | Kernel `App\Contracts\Auth\PendingPasswordCheck::check(User, string $password, Request): PendingPasswordOutcome` and `active(): bool`, enum `App\Enums\PendingPasswordOutcome` (NotApplicable, Verified, ConfirmByEmail, Rejected, Unavailable); Core null default with `bindIf`; called by the sign-in pipeline only after the local password check fails; failed sign-in time floor while `active()`; redaction keys `password2`, `passwordhash` (ADR 0018 Amendment (#554), ADR 0023) | §3.4; Fortify cannot import Migration |
+| C11 | Kernel `App\Contracts\Auth\PendingPasswordCheck::check(User, string $password, Request): PendingPasswordOutcome` and `active(): bool`, enum `App\Enums\PendingPasswordOutcome` (NotApplicable, Verified, ConfirmByEmail, Rejected, Unavailable); Core null default with `bindIf`; called by the sign-in pipeline only after the local password check fails; failed sign-in time floor while `active()`; redaction keys `password2`, `passwordhash` (ADR 0018 Amendment (#555), ADR 0023) | §3.4; Fortify cannot import Migration |
 | C12 | Notifications template key `client.migration_confirm_signin` (always sent)                                                                                                                                                                                                                                                                                                                                                             | §3.4 2FA path                       |
 
 ## 17. Edge cases
