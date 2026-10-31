@@ -569,6 +569,20 @@ additions from the per-action pages:
 | User data       | services (with addons, custom fields, configurable options), domains, invoices, payment link, headless payment session and confirm, pay methods (list, get, delete)                       | **Built** in the web app (`Billing/Actions/StartHostedPayment.php`, `HostedPaymentDriver::initiate`)                                                | P1       |
 | Admin           | admin session with 2FA, system status, client and user search, masquerade as a client or user                                                                                             | **Built** in the web app (`Platform/Services/Impersonation.php`, `Support/Search/GlobalSearch.php`)                                                 | P2       |
 
+### REST API v2: state token, rate limits and headless payments (9.1 guides, read 2026-10-31)
+
+Three guides added with 9.1 that earlier slices did not cite ([headless Stripe payments](https://developers.whmcs.com/rest-api/headless-stripe-payments),
+[stored payment methods](https://developers.whmcs.com/rest-api/stored-payment-methods),
+[rate limits](https://developers.whmcs.com/rest-api/rate-limits)).
+
+| Item                      | What WHMCS does                                                                                                                                                                                        | Mohar capability + pointer                                                                                       | API priority |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- | ------------ |
+| State token               | Every client-scoped call carries an `X-Api-State` header returned by the previous call; the front end must keep it across redirects                                                                    | **Missing**: no public API yet (`public-api.md` uses bearer tokens)                                              | P1           |
+| Headless checkout         | Checkout with `payment.mode=headless` returns `status` (paid, pending, action_required, not_required, failed) and a `next_action` (redirect or payment_session with provider, params, settlement, sdk) | **Missing** endpoint; the gateway contract has hosted initiation only (`Billing/Actions/StartHostedPayment.php`) | P1           |
+| Decline with saved method | A declined saved method returns normally with `failed` and a new session, not an error                                                                                                                 | **Missing**                                                                                                      | P1           |
+| Saved method removal      | 422 merchant setting off (does not clear), 409 passing condition (retry), 429 rate limited                                                                                                             | **Missing**; `PayMethodDisabled` event exists                                                                    | P2           |
+| Rate limits               | 30 calls per 5 minutes per IP and route on four payment endpoints; 429 with no retry header; other endpoints unlimited                                                                                 | **Missing**; `public-api.md` section 2 plans limits (add `Retry-After`, limit per token)                         | P1           |
+
 ## 12. Extension model
 
 ### 12.1 How each WHMCS extension type maps onto Mohar
