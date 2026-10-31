@@ -165,3 +165,6 @@ The CI budget per page is set when each test is added. A new N+1 query fails the
 - `ProvisionOrderItem` runs on `Queues::PROVISIONING` (the provider pool, `--timeout=200`), not `default`. Its
   timeout is 180 s; the order item lock lasts 200 s, below the 240 s `retry_after`. A job that finds the lock held is
   released for 60 s instead of ending (best-practices audit M3).
+- Out of tries, the job logs an activity entry on the order and dispatches `ProvisioningFailed`; the item stays
+  pending for a manual create. Jobs queued on `default` before the upgrade drain there (150 s timeout, below the 200 s
+  lock). On the `sync` queue a release does not re-run the job, so a busy item is skipped there, as before.

@@ -2,6 +2,7 @@
 
 use App\Data\Services\ProvisionResult;
 use App\Events\Services\ProvisioningFailed;
+use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Orders\Actions\AcceptOrder;
 use App\Modules\Orders\Enums\OrderItemStatus;
@@ -14,6 +15,7 @@ use App\Modules\Services\Models\ModuleQueueItem;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\Service;
 use App\Support\Queues;
+use Illuminate\Queue\MaxAttemptsExceededException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Tests\Fakes\Orders\OrdersFakes;
@@ -91,6 +93,23 @@ describe('with a faked service registry', function () {
 
         expect($result)->toBe(['failures' => [], 'queued' => []])
             ->and($this->fakes->services->provisioned)->toBe([]);
+    });
+
+    it('tells staff when the job runs out of tries and leaves the item pending for a manual create', function () {
+        Event::fake([ProvisioningFailed::class]);
+        $item = onOrderItem();
+
+        (new ProvisionOrderItem($item->id))->failed(new MaxAttemptsExceededException('ProvisionOrderItem has been attempted too many times.'));
+
+        expect($item->refresh()->status)->toBe(OrderItemStatus::Pending)
+            ->and(ActivityLog::query()->where('subject_id', $item->order_id)->value('description'))->toBe("Automatic setup of {$item->description} on order {$item->order->number} did not run");
+        Event::assertDispatched(ProvisioningFailed::class, fn (ProvisioningFailed $event) => $event->serviceId === $item->item_id
+            && $event->action === 'create' && ! $event->outcomeUnknown && str_contains($event->error, 'another process kept the item busy'));
+
+        // An item provisioned in the meantime needs nothing.
+        $done = onOrderItem(['status' => OrderItemStatus::Active]);
+        (new ProvisionOrderItem($done->id))->failed(new RuntimeException('x'));
+        Event::assertDispatchedTimes(ProvisioningFailed::class, 1);
     });
 
     it('runs on the provisioning queue and times out before the lock and the queue redelivery expire', function () {

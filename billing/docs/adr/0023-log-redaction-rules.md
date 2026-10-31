@@ -470,8 +470,11 @@ missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this s
 ## Amendment (#574) — 2026-10-31, declared keys read by both hosts
 
 - `ExecuteModuleCommand` and `RegistrarGateway` read `DeclaresSensitiveKeys` for the command or capability they run
-  (`Redactor::declaredKeys()`). The keys are masked by key in the command log. The values under them
-  (`Redactor::valuesUnder()`) are masked in the call's text: errors, failure items, activity and registrar messages.
+  (`Redactor::declaredKeys()`), before the driver is called. A driver whose `sensitiveKeys()` throws fails the command
+  then, with nothing sent. The keys are masked by key in the command log. The values under them
+  (`Redactor::valuesUnder()`: arrays, JSON string leaves, and what `redact()` masks by key in XML and `name=value`
+  text) are masked in the call's text (`maskDeclared()`): errors, failure items, activity and registrar messages. A
+  value under 8 bytes is matched only as a whole token. Past the node limit the text is withheld whole.
 - `RegistrarGateway::codeKeys()` stays as the host's built-in key for `epp` and `transfer`, in addition to declared keys,
   not replaced by them. Its values are not masked in text, so an EPP result code under `code` stays readable in messages.
 - Gateway payloads (`GatewayLogger`) do not read the capability yet.

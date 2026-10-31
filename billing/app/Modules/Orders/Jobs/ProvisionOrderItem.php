@@ -2,6 +2,10 @@
 
 namespace App\Modules\Orders\Jobs;
 
+use App\Events\Services\ProvisioningFailed;
+use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Orders\Enums\OrderItemStatus;
+use App\Modules\Orders\Enums\OrderItemType;
 use App\Modules\Orders\Enums\OrderStatus;
 use App\Modules\Orders\Exceptions\ItemBeingProvisioned;
 use App\Modules\Orders\Models\OrderItem;
@@ -9,6 +13,8 @@ use App\Modules\Orders\Services\ItemProvisioner;
 use App\Support\Queues;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\MaxAttemptsExceededException;
+use Throwable;
 
 /**
  * Runs "create" for a service ordered with auto-setup on order. Skips items that are no longer pending
@@ -19,6 +25,8 @@ use Illuminate\Foundation\Queue\Queueable;
  * - Running create twice is safe: Services refuses a create while an earlier attempt is unfinished or of unknown
  *   outcome (module_commands) and opens a "verify" item instead.
  * - timeout (180 s) < item lock TTL (200 s) < the queue's retry_after (240 s).
+ * - Out of tries, the item stays pending for staff to run create, with an activity entry and ProvisioningFailed (the
+ *   staff mail every provisioning failure sends), never silently.
  */
 class ProvisionOrderItem implements ShouldQueue
 {
@@ -54,6 +62,27 @@ class ProvisionOrderItem implements ShouldQueue
             $provisioner->provision($item->id);
         } catch (ItemBeingProvisioned) {
             $this->release(self::BUSY_RELEASE_SECONDS);
+        }
+    }
+
+    public function failed(?Throwable $exception): void
+    {
+        $item = OrderItem::query()->with('order')->find($this->orderItemId);
+
+        if ($item === null || $item->status !== OrderItemStatus::Pending) {
+            return;
+        }
+
+        // The class only: an exception message may carry provider text.
+        $reason = $exception instanceof MaxAttemptsExceededException
+            ? 'another process kept the item busy'
+            : ($exception === null ? 'the job did not finish' : class_basename($exception).': the job did not finish');
+        $error = "Automatic setup did not run ({$reason}); run create from the order.";
+
+        app(ActivityLogger::class)->log("Automatic setup of {$item->description} on order {$item->order->number} did not run", $item->order, $item->order->client_id, ['order_item_id' => $item->id, 'reason' => $reason]);
+
+        if ($item->item_type === OrderItemType::Service && $item->item_id !== null) {
+            ProvisioningFailed::dispatch($item->item_id, $item->order->client_id, 'create', $error);
         }
     }
 }

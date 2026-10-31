@@ -119,38 +119,50 @@ class RegistrarGateway
         $started = hrtime(true);
         $staffId ??= $this->currentStaffId();
         $config = $this->accounts->configFor($registrarKey, $account);
-        // Keys the driver declares secret in this call's payloads: masked by key in the log, and their values in its text.
-        $declared = Redactor::declaredKeys($driver, $capability);
+        $secrets = [...$config->secrets(), ...array_values(array_filter($secrets, fn (string $secret): bool => $secret !== ''))];
+
+        try {
+            // Keys the driver declares secret in this call's payloads: masked by key in the log, and their values in its
+            // text. Read before the call: a driver that cannot name them fails here, before anything is sent.
+            $declared = Redactor::declaredKeys($driver, $capability);
+        } catch (Throwable $exception) {
+            $error = $this->redactor->maskValues("The {$driver->name()} driver could not name its sensitive keys; nothing was sent: {$exception->getMessage()}", $secrets);
+            $this->record($registrarKey, $capability, $domain, $request, null, false, $error, $started, $staffId, $secrets, self::codeKeys($capability), null);
+
+            throw new RegistrarException($error, previous: $this->maskChain($exception, fn (string $text): string => $this->redactor->maskValues($text, $secrets)));
+        }
+
         $keys = [...self::codeKeys($capability), ...$declared];
-        $secrets = [
-            ...$config->secrets(),
-            ...array_values(array_filter($secrets, fn (string $secret): bool => $secret !== '')),
-            ...$this->redactor->valuesUnder($declared, $request),
-        ];
+        $values = $this->redactor->valuesUnder($declared, $request);
+        // By reference: the answer's values join the request's once the call returns.
+        $mask = function (string $text) use (&$values, $secrets): string {
+            return $this->redactor->maskDeclared($text, $values, $secrets);
+        };
 
         try {
             $answer = $call($driver, $config);
 
-            if ($declared !== []) {
-                $secrets = [...$secrets, ...$this->redactor->valuesUnder($declared, $this->normalise($answer) ?? [])];
+            if ($declared !== [] && $values !== null) {
+                $answerValues = $this->redactor->valuesUnder($declared, $this->normalise($answer) ?? []);
+                $values = $answerValues === null ? null : [...$values, ...$answerValues];
             }
 
-            $result = $this->maskResult($answer, $secrets);
+            $result = $this->maskResult($answer, $mask);
 
             if ($logSuccess) {
-                $this->record($registrarKey, $capability, $domain, $request, $this->normalise($result), true, null, $started, $staffId, $secrets, $keys);
+                $this->record($registrarKey, $capability, $domain, $request, $this->normalise($result), true, null, $started, $staffId, $secrets, $keys, $values);
             }
 
             return $result;
         } catch (RegistrarException $exception) {
-            $error = $this->redactor->maskValues($exception->getMessage(), $secrets);
-            $this->record($registrarKey, $capability, $domain, $request, null, false, $error, $started, $staffId, $secrets, $keys);
+            $error = $mask($exception->getMessage());
+            $this->record($registrarKey, $capability, $domain, $request, null, false, $error, $started, $staffId, $secrets, $keys, $values);
 
-            throw $this->maskChain($exception, $secrets);
+            throw $this->maskChain($exception, $mask);
         } catch (Throwable $exception) {
-            $error = $this->redactor->maskValues($exception->getMessage(), $secrets);
-            $this->record($registrarKey, $capability, $domain, $request, null, false, $error, $started, $staffId, $secrets, $keys);
-            $previous = $this->maskChain($exception, $secrets);
+            $error = $mask($exception->getMessage());
+            $this->record($registrarKey, $capability, $domain, $request, null, false, $error, $started, $staffId, $secrets, $keys, $values);
+            $previous = $this->maskChain($exception, $mask);
 
             if (in_array($capability, self::MUTATING, true)) {
                 throw new RegistrarTimeout("Unexpected registrar error; the {$capability} outcome is unknown: {$error}", $previous);
@@ -196,13 +208,13 @@ class RegistrarGateway
      * @template E of Throwable
      *
      * @param  E  $exception
-     * @param  list<string>  $secrets
+     * @param  Closure(string): string  $mask
      * @return E
      */
-    private function maskChain(Throwable $exception, array $secrets): Throwable
+    private function maskChain(Throwable $exception, Closure $mask): Throwable
     {
         for ($link = $exception, $hops = 0; $link !== null && $hops < 16; $link = $link->getPrevious(), $hops++) {
-            $masked = $this->redactor->maskValues($link->getMessage(), $secrets);
+            $masked = $mask($link->getMessage());
 
             if ($masked !== $link->getMessage()) {
                 (new ReflectionProperty($link instanceof Exception ? Exception::class : Error::class, 'message'))->setValue($link, $masked);
@@ -219,13 +231,11 @@ class RegistrarGateway
      * @template T
      *
      * @param  T  $result
-     * @param  list<string>  $secrets
+     * @param  Closure(string): string  $mask
      * @return T
      */
-    private function maskResult(mixed $result, array $secrets): mixed
+    private function maskResult(mixed $result, Closure $mask): mixed
     {
-        $mask = fn (string $text): string => $this->redactor->maskValues($text, $secrets);
-
         return match (true) {
             ($result instanceof RegistrarResult || $result instanceof SubmissionLookup) && $result->message !== null => $result->withMessage($mask($result->message)),
             $result instanceof TransferSyncResult && $result->reason !== null => $result->withReason($mask($result->reason)),
@@ -239,15 +249,16 @@ class RegistrarGateway
      * @param  array<string, mixed>|null  $response
      * @param  list<string>  $secrets
      * @param  list<string>  $sensitiveKeys  extra keys secret in this command's payloads
+     * @param  list<string>|null  $declaredValues  the values under the driver's declared keys (Redactor::valuesUnder())
      */
-    private function record(string $registrarKey, string $command, ?Domain $domain, array $request, ?array $response, bool $success, ?string $error, int|float $started, ?int $staffId, array $secrets = [], array $sensitiveKeys = []): void
+    private function record(string $registrarKey, string $command, ?Domain $domain, array $request, ?array $response, bool $success, ?string $error, int|float $started, ?int $staffId, array $secrets, array $sensitiveKeys, ?array $declaredValues): void
     {
         RegistrarCommandLog::query()->create([
             'domain_id' => $domain?->id,
             'registrar_key' => $registrarKey,
             'command' => $command,
-            'request' => $this->redactor->redact($request, $secrets, $sensitiveKeys),
-            'response' => $response === null ? null : $this->truncate($this->redactor->redact($response, $secrets, $sensitiveKeys)),
+            'request' => $this->redactor->redactDeclared($request, $declaredValues, $secrets, $sensitiveKeys),
+            'response' => $response === null ? null : $this->truncate($this->redactor->redactDeclared($response, $declaredValues, $secrets, $sensitiveKeys)),
             'success' => $success,
             'error' => $error === null ? null : $this->redactor->maskValues($error, $secrets),
             'duration_ms' => (int) ((hrtime(true) - $started) / 1_000_000),

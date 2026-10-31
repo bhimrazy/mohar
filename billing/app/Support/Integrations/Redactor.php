@@ -54,6 +54,9 @@ final class Redactor
     /** Exceptions behind the first one whose messages maskThrowable() masks; those further down are withheld. */
     private const MAX_PREVIOUS = 16;
 
+    /** A declared value at least this long is masked as a substring; a shorter one only as a whole token. */
+    private const DECLARED_SUBSTRING_BYTES = 8;
+
     /** A key is sensitive when it is exactly one of these. */
     private const SENSITIVE_KEYS = ['key', 'pw', 'pwd', 'dv', 'phpsessid'];
 
@@ -241,14 +244,18 @@ final class Redactor
     }
 
     /**
-     * The text of every scalar under one of $sensitiveKeys (exact, any case), nested arrays included, so the host can
-     * also mask those values by value in text the driver composed: a message or error that echoes them.
+     * The values a host masks by value for keys a driver declares (declaredKeys()): every scalar under one of
+     * $sensitiveKeys (exact, any case) in $payloads, nested arrays included, in a string leaf that is a JSON document,
+     * and whatever redact() masks by key in other string leaves (XML elements and attributes, `name=value` pairs).
+     *
+     * Null when the payloads cannot be read in full (more than the node limit, a masked span that cannot be located):
+     * the host then withholds the text whole (maskDeclared()), as redact() withholds what lies past its limit.
      *
      * @param  list<string>  $sensitiveKeys
      * @param  array<array-key, mixed>  ...$payloads
-     * @return list<string>
+     * @return list<string>|null
      */
-    public function valuesUnder(array $sensitiveKeys, array ...$payloads): array
+    public function valuesUnder(array $sensitiveKeys, array ...$payloads): ?array
     {
         if ($sensitiveKeys === []) {
             return [];
@@ -257,27 +264,175 @@ final class Redactor
         $keys = array_map('strtolower', $sensitiveKeys);
         $values = [];
         $nodes = 0;
-        $walk = function (array $payload, bool $under, int $depth) use (&$walk, &$values, &$nodes, $keys): void {
+
+        $walk = function (array $payload, bool $under, int $depth) use (&$walk, &$values, &$nodes, $keys, $sensitiveKeys): bool {
             foreach ($payload as $key => $value) {
-                if (++$nodes > self::MAX_NODES) {
-                    return;
+                if (++$nodes > self::MAX_NODES || $depth > self::MAX_DEPTH) {
+                    return false;
                 }
 
                 $hit = $under || (is_string($key) && in_array(strtolower($key), $keys, true));
 
-                if (is_array($value) && $depth < self::MAX_DEPTH) {
-                    $walk($value, $hit, $depth + 1);
-                } elseif ($hit && (is_string($value) || is_int($value) || is_float($value)) && (string) $value !== '') {
+                if (is_string($value) && strlen($value) > 1 && ($value[0] === '{' || $value[0] === '[')) {
+                    $decoded = json_decode($value, true);
+
+                    if (is_array($decoded)) {
+                        $value = $decoded;
+                    }
+                }
+
+                if (is_array($value)) {
+                    if (! $walk($value, $hit, $depth + 1)) {
+                        return false;
+                    }
+                } elseif ($hit && (is_string($value) || is_int($value) || is_float($value))) {
                     $values[] = (string) $value;
+                } elseif (is_string($value) && self::mentionsAny($value, $keys)) {
+                    $masked = $this->maskedSpans($value, $this->redact(['v' => $value], [], $sensitiveKeys)['v']);
+
+                    if ($masked === null) {
+                        return false;
+                    }
+
+                    array_push($values, ...$masked);
                 }
             }
+
+            return true;
         };
 
         foreach ($payloads as $payload) {
-            $walk($payload, false, 0);
+            if (! $walk($payload, false, 0)) {
+                return null;
+            }
         }
 
-        return array_values(array_unique($values));
+        return array_values(array_unique(array_filter($values, fn (string $value): bool => trim($value) !== '' && $value !== self::MASK)));
+    }
+
+    /**
+     * $text with declared values (valuesUnder()) and $secrets masked, as maskValues() does. A declared value shorter
+     * than DECLARED_SUBSTRING_BYTES is masked only as a whole token, so `1000` leaves `port 10000` readable. Null
+     * values (payloads not read in full) withhold the text whole.
+     *
+     * @param  list<string>|null  $values
+     * @param  list<string>  $secrets
+     */
+    public function maskDeclared(string $text, ?array $values, array $secrets = []): string
+    {
+        if ($values === null) {
+            return self::MASK;
+        }
+
+        [$long, $short] = self::splitDeclared($values);
+        $masked = $this->maskValues($text, [...$secrets, ...$long]);
+
+        foreach ($short as $value) {
+            $masked = (string) preg_replace('/(?<![A-Za-z0-9_])'.preg_quote($value, '/').'(?![A-Za-z0-9_])/i', self::MASK, $masked);
+        }
+
+        return $masked;
+    }
+
+    /**
+     * redact() for a payload of a call whose driver declares keys: masked by $sensitiveKeys, and by value with $secrets
+     * and the declared values long enough to match as substrings (short ones are masked by key).
+     *
+     * @param  array<array-key, mixed>  $payload
+     * @param  list<string>|null  $values
+     * @param  list<string>  $secrets
+     * @param  list<string>  $sensitiveKeys
+     * @return array<array-key, mixed>
+     */
+    public function redactDeclared(array $payload, ?array $values, array $secrets, array $sensitiveKeys): array
+    {
+        return $this->redact($payload, [...$secrets, ...self::splitDeclared($values ?? [])[0]], $sensitiveKeys);
+    }
+
+    /**
+     * @param  list<string>  $values
+     * @return array{list<string>, list<string>} values matched as substrings, values matched as whole tokens
+     */
+    private static function splitDeclared(array $values): array
+    {
+        $long = [];
+        $short = [];
+
+        foreach ($values as $value) {
+            $value = trim($value);
+
+            if ($value === '') {
+                continue;
+            }
+
+            if (strlen($value) >= self::DECLARED_SUBSTRING_BYTES) {
+                $long[] = $value;
+            } else {
+                $short[] = $value;
+            }
+        }
+
+        return [$long, $short];
+    }
+
+    /**
+     * @param  list<string>  $keys  lowercase
+     */
+    private static function mentionsAny(string $text, array $keys): bool
+    {
+        foreach ($keys as $key) {
+            if (stripos($text, $key) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The spans of $original that $masked replaced with MASK, or null when they cannot be located (another mask, a
+     * re-encoded document): the caller then fails closed.
+     *
+     * @return list<string>|null
+     */
+    private function maskedSpans(string $original, string $masked): ?array
+    {
+        if ($masked === $original) {
+            return [];
+        }
+
+        $pieces = explode(self::MASK, $masked);
+
+        if (! str_starts_with($original, $pieces[0])) {
+            return null;
+        }
+
+        $spans = [];
+        $at = strlen($pieces[0]);
+        $last = count($pieces) - 1;
+
+        for ($index = 1; $index <= $last; $index++) {
+            $piece = $pieces[$index];
+
+            if ($index === $last) {
+                $end = strlen($original) - strlen($piece);
+
+                if ($end < $at || ! str_ends_with($original, $piece)) {
+                    return null;
+                }
+            } else {
+                $end = $piece === '' ? $at : strpos($original, $piece, $at);
+
+                if ($end === false) {
+                    return null;
+                }
+            }
+
+            $spans[] = substr($original, $at, $end - $at);
+            $at = $end + strlen($piece);
+        }
+
+        return $spans;
     }
 
     /**

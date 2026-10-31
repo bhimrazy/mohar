@@ -194,9 +194,12 @@ class ExecuteModuleCommand
         $context = null;
         $driver = null;
         $target = null;
+        $declared = [];
 
         try {
             $driver = $this->drivers->get($driverKey);
+            // Before anything is sent: a driver that cannot name its secret keys fails the command here, never logs unmasked.
+            $declared = Redactor::declaredKeys($driver, $command->value);
             $server = $this->prepare($service, $command, $driver, $product?->serverGroupId, $driverKey);
             // What a create sends, recorded before the call: only an account matching it may later be adopted.
             $target = $command === ModuleCommandName::Create ? ['username' => $service->username, 'domain' => $service->domain, 'server_id' => $service->server_id] : null;
@@ -213,10 +216,10 @@ class ExecuteModuleCommand
             $result = DriverResult::fail($exception->getMessage());
         }
 
+        $secrets = $this->secrets($context, $args);
         // Keys the driver declares secret in this command's payloads: masked by key in the log, and their values in its text.
-        $declared = Redactor::declaredKeys($driver, $command->value);
-        $secrets = [...$this->secrets($context, $args), ...$this->redactor->valuesUnder($declared, $result->request, $result->response)];
-        $error = $result->success ? null : $this->redactor->maskValues((string) $result->message, $secrets);
+        $declaredValues = $this->redactor->valuesUnder($declared, $result->request, $result->response);
+        $error = $result->success ? null : $this->redactor->maskDeclared((string) $result->message, $declaredValues, $secrets);
         $outcome = $result->outcome();
 
         $attributes = [
@@ -228,8 +231,8 @@ class ExecuteModuleCommand
             },
             'error' => $error,
             // The recorded target goes last, so nothing a driver logs can overwrite it.
-            'request' => [...$this->redactor->redact($result->request, $secrets, $declared), ...($target === null ? [] : ['target' => $target])] ?: null,
-            'response' => $this->redactor->redact($result->response, $secrets, $declared) ?: null,
+            'request' => [...$this->redactor->redactDeclared($result->request, $declaredValues, $secrets, $declared), ...($target === null ? [] : ['target' => $target])] ?: null,
+            'response' => $this->redactor->redactDeclared($result->response, $declaredValues, $secrets, $declared) ?: null,
             'duration_ms' => (int) ((hrtime(true) - $started) / 1_000_000),
         ];
 
