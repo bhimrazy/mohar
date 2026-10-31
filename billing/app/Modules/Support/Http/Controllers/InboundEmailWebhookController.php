@@ -8,7 +8,7 @@ use App\Modules\Support\Drivers\Inbound\GenericDriver;
 use App\Modules\Support\Drivers\Inbound\InboundDriver;
 use App\Modules\Support\Enums\InboundEmailStatus;
 use App\Modules\Support\Services\AttachmentStore;
-use App\Modules\Support\Services\SupportSettings;
+use App\Modules\Support\Settings\SupportSettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Support\Services;
+namespace App\Modules\Support\Settings;
 
 use App\Modules\Core\Support\Settings;
 

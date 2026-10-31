@@ -1,0 +1,550 @@
+{
+    "permissions": {
+        "groups/Support/support.tickets.view": "View tickets (assigned departments)",
+        "groups/Support/support.tickets.reply": "Reply to tickets and add notes",
+        "groups/Support/support.tickets.manage": "Change status, priority, department, assignee; merge and bulk actions",
+        "groups/Support/support.tickets.open": "Open tickets on behalf of clients",
+        "groups/Support/support.tickets.delete": "Delete tickets",
+        "groups/Support/support.tickets.access_all": "Access tickets of all departments",
+        "groups/Support/support.tickets.edit_messages": "Edit and delete ticket messages",
+        "groups/Support/support.tickets.merge_cross_client": "Merge tickets of different clients",
+        "groups/Support/support.departments.manage": "Manage support departments",
+        "groups/Support/support.canned.manage": "Manage canned replies",
+        "groups/Support/support.kb.manage": "Manage the knowledge base",
+        "groups/Support/support.announcements.manage": "Manage announcements",
+        "groups/Support/support.network.manage": "Manage network status incidents",
+        "groups/Support/support.inbound.manage": "View the inbound email log and manage spam rules",
+        "groups/Support/support.settings.manage": "Manage support settings",
+        "groups/Support/support.inbound_webhook.manage": "Manage the inbound email webhook secret",
+        "sensitive/support.inbound_webhook.manage": "support.inbound_webhook.manage"
+    },
+    "settings": {
+        "sections/support/_meta": {
+            "title": "Support",
+            "permission": "support.settings.manage"
+        },
+        "sections/support/support.ticket_number_format": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.ticket_number_format",
+            "label": "Ticket number format",
+            "type": "string",
+            "help": "Tokens: %A A–Z, %a a–z, %n 0–9, %y %m %d date, %i id. Max 20 characters.",
+            "options": [],
+            "rules": ["max:20"],
+            "secret": false
+        },
+        "sections/support/support.auto_close_hours": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.auto_close_hours",
+            "label": "Auto-close idle tickets after (hours)",
+            "type": "integer",
+            "help": "0 turns auto-close off.",
+            "options": [],
+            "rules": ["min:0"],
+            "secret": false
+        },
+        "sections/support/support.auto_close_statuses": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.auto_close_statuses",
+            "label": "Statuses that auto-close",
+            "type": "multiselect",
+            "help": "Idle tickets in these statuses are closed after the hours above.",
+            "options": "Closure()",
+            "rules": [],
+            "secret": false
+        },
+        "sections/support/support.awaiting_reply_statuses": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.awaiting_reply_statuses",
+            "label": "Statuses awaiting a staff reply",
+            "type": "multiselect",
+            "help": "Tickets in these statuses count as waiting for staff.",
+            "options": "Closure()",
+            "rules": [],
+            "secret": false
+        },
+        "sections/support/support.attachment_extensions": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.attachment_extensions",
+            "label": "Client attachment types",
+            "type": "string",
+            "help": "Comma-separated extensions.",
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/support/support.staff_attachment_extensions": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.staff_attachment_extensions",
+            "label": "Staff attachment types",
+            "type": "string",
+            "help": "Comma-separated extensions.",
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/support/support.attachment_max_mb": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.attachment_max_mb",
+            "label": "Max attachment size (MB)",
+            "type": "integer",
+            "help": null,
+            "options": [],
+            "rules": ["min:1", "max:100"],
+            "secret": false
+        },
+        "sections/support/support.attachment_max_files": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.attachment_max_files",
+            "label": "Max attachments per message",
+            "type": "integer",
+            "help": null,
+            "options": [],
+            "rules": ["min:1", "max:20"],
+            "secret": false
+        },
+        "sections/support/support.prune_attachments_after_months": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.prune_attachments_after_months",
+            "label": "Delete files of tickets closed more than (months)",
+            "type": "integer",
+            "help": "0 keeps files forever.",
+            "options": [],
+            "rules": ["min:0"],
+            "secret": false
+        },
+        "sections/support/support.reply_ratings_enabled": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.reply_ratings_enabled",
+            "label": "Let clients rate staff replies",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/support/support.show_clients_only_to_guests": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.show_clients_only_to_guests",
+            "label": "Show clients-only departments to guests",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/support/support.network_status_requires_login": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.network_status_requires_login",
+            "label": "Network status requires login",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/support/support.inbound_max_per_sender": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.inbound_max_per_sender",
+            "label": "Max inbound emails per sender per 15 minutes",
+            "type": "integer",
+            "help": null,
+            "options": [],
+            "rules": ["min:1"],
+            "secret": false
+        },
+        "sections/support/support.allow_unverified_email_replies": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.allow_unverified_email_replies",
+            "label": "Accept email replies from unknown senders",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/support/support.prevent_email_reopen": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.prevent_email_reopen",
+            "label": "Email replies cannot reopen closed tickets",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/support/support.default_department_id": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.default_department_id",
+            "label": "Default department for unknown addresses",
+            "type": "select",
+            "help": "Email sent to an address no department uses opens a ticket here.",
+            "options": "Closure()",
+            "rules": [],
+            "secret": false
+        },
+        "sections/support/support.reply_marker": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.reply_marker",
+            "label": "Reply marker line",
+            "type": "string",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/support/support.auto_add_cc": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.auto_add_cc",
+            "label": "Add Cc addresses of inbound emails to the ticket",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/support_inbound/_meta": {
+            "title": "Inbound email webhook",
+            "permission": "support.inbound_webhook.manage"
+        },
+        "sections/support_inbound/support.inbound_secret": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "support.inbound_secret",
+            "label": "Inbound email webhook secret",
+            "type": "string",
+            "help": "HMAC-SHA256 secret for the X-Support-Signature header. Write-only: enter a new value to replace it.",
+            "options": [],
+            "rules": ["min:32"],
+            "secret": true
+        }
+    },
+    "navigation": {
+        "items/admin/admin.support.tickets.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Tickets",
+            "route": "admin.support.tickets.index",
+            "icon": "LifeBuoy",
+            "group": "Support",
+            "order": 10,
+            "permission": "support.tickets.view",
+            "activePattern": "admin.support.tickets.*",
+            "badge": "Closure(App\\Models\\User $user)"
+        },
+        "items/admin/admin.support.departments.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Departments",
+            "route": "admin.support.departments.index",
+            "icon": "Inbox",
+            "group": "Support",
+            "order": 20,
+            "permission": "support.departments.manage",
+            "activePattern": "admin.support.departments.*",
+            "badge": null
+        },
+        "items/admin/admin.support.canned-replies.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Canned replies",
+            "route": "admin.support.canned-replies.index",
+            "icon": "Mail",
+            "group": "Support",
+            "order": 30,
+            "permission": "support.canned.manage",
+            "activePattern": "admin.support.canned-replies.*",
+            "badge": null
+        },
+        "items/admin/admin.support.kb.articles.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Knowledge base",
+            "route": "admin.support.kb.articles.index",
+            "icon": "BookOpen",
+            "group": "Support",
+            "order": 40,
+            "permission": "support.kb.manage",
+            "activePattern": "admin.support.kb.*",
+            "badge": null
+        },
+        "items/admin/admin.support.announcements.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Announcements",
+            "route": "admin.support.announcements.index",
+            "icon": "Megaphone",
+            "group": "Support",
+            "order": 50,
+            "permission": "support.announcements.manage",
+            "activePattern": "admin.support.announcements.*",
+            "badge": null
+        },
+        "items/admin/admin.support.network.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Network status",
+            "route": "admin.support.network.index",
+            "icon": "Activity",
+            "group": "Support",
+            "order": 60,
+            "permission": "support.network.manage",
+            "activePattern": "admin.support.network.*",
+            "badge": null
+        },
+        "items/admin/admin.support.inbound.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Email piping",
+            "route": "admin.support.inbound.index",
+            "icon": "Webhook",
+            "group": "Support",
+            "order": 70,
+            "permission": "support.inbound.manage",
+            "activePattern": "admin.support.inbound.*",
+            "badge": null
+        },
+        "items/client/client.support.tickets.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Tickets",
+            "route": "client.support.tickets.index",
+            "icon": "LifeBuoy",
+            "group": "Support",
+            "order": 10,
+            "permission": null,
+            "activePattern": "client.support.tickets.*",
+            "badge": null
+        },
+        "items/client/support.kb.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Knowledge base",
+            "route": "support.kb.index",
+            "icon": "BookOpen",
+            "group": "Support",
+            "order": 20,
+            "permission": null,
+            "activePattern": "support.kb.*",
+            "badge": null
+        },
+        "items/client/support.announcements.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Announcements",
+            "route": "support.announcements.index",
+            "icon": "Megaphone",
+            "group": "Support",
+            "order": 30,
+            "permission": null,
+            "activePattern": "support.announcements.*",
+            "badge": null
+        },
+        "items/client/support.network.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Network status",
+            "route": "support.network.index",
+            "icon": "Activity",
+            "group": "Support",
+            "order": 40,
+            "permission": null,
+            "activePattern": "support.network.*",
+            "badge": null
+        },
+        "items/admin-client/admin.support.tickets.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Tickets",
+            "route": "admin.support.tickets.index",
+            "icon": "LifeBuoy",
+            "group": "General",
+            "order": 50,
+            "permission": "support.tickets.view",
+            "activePattern": null,
+            "badge": null
+        },
+        "items/admin-create/admin.support.tickets.create": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "New ticket",
+            "route": "admin.support.tickets.create",
+            "icon": "LifeBuoy",
+            "group": "General",
+            "order": 40,
+            "permission": "support.tickets.open",
+            "activePattern": null,
+            "badge": null
+        }
+    },
+    "search": {
+        "providers/support.tickets.view": {
+            "group": "Tickets",
+            "resolver": "Closure(string $term)",
+            "permission": "support.tickets.view"
+        },
+        "providers/support.kb.manage": {
+            "group": "Knowledge base",
+            "resolver": "Closure(string $term)",
+            "permission": "support.kb.manage"
+        }
+    },
+    "webhooks": {
+        "types/ticket.opened": {
+            "event": "App\\Events\\Support\\TicketOpened",
+            "entity": "ticket",
+            "idProperty": "ticketId"
+        },
+        "types/ticket.replied": {
+            "event": "App\\Events\\Support\\TicketReplied",
+            "entity": "ticket",
+            "idProperty": "ticketId"
+        },
+        "types/ticket.closed": {
+            "event": "App\\Events\\Support\\TicketClosed",
+            "entity": "ticket",
+            "idProperty": "ticketId"
+        }
+    },
+    "automation": {
+        "tasks/support.auto_close": {
+            "stage": 90,
+            "handler": "Closure(App\\Support\\CalendarDate $today)",
+            "label": "Close idle tickets",
+            "description": "Closes tickets that have waited on the customer longer than the auto-close period."
+        },
+        "tasks/support.purge_inbound_raw": {
+            "stage": 90,
+            "handler": "Closure(App\\Support\\CalendarDate $today)",
+            "label": "Purge raw inbound emails",
+            "description": "Deletes stored raw inbound email payloads older than the retention period."
+        },
+        "tasks/support.prune_attachments": {
+            "stage": 90,
+            "handler": "Closure(App\\Support\\CalendarDate $today)",
+            "label": "Delete old ticket attachments",
+            "description": "Deletes attachment files from tickets closed longer than the configured months (details stay)."
+        },
+        "takesCalendarDate/support.auto_close": true,
+        "takesCalendarDate/support.purge_inbound_raw": true,
+        "takesCalendarDate/support.prune_attachments": true,
+        "takesCarbonDate/support.auto_close": false,
+        "takesCarbonDate/support.purge_inbound_raw": false,
+        "takesCarbonDate/support.prune_attachments": false
+    },
+    "dashboard": {
+        "widgets/admin/support.open": {
+            "key": "support.open",
+            "type": "stat",
+            "size": "sm",
+            "deferred": false,
+            "mirrorsTodo": false,
+            "resolver": "Closure(App\\Models\\User $user)",
+            "permission": "support.tickets.view",
+            "order": 50
+        },
+        "widgets/admin/support.awaiting": {
+            "key": "support.awaiting",
+            "type": "stat",
+            "size": "sm",
+            "deferred": false,
+            "mirrorsTodo": true,
+            "resolver": "Closure(App\\Models\\User $user)",
+            "permission": "support.tickets.view",
+            "order": 51
+        },
+        "widgets/admin/support.mine": {
+            "key": "support.mine",
+            "type": "stat",
+            "size": "sm",
+            "deferred": false,
+            "mirrorsTodo": false,
+            "resolver": "Closure(App\\Models\\User $user)",
+            "permission": "support.tickets.view",
+            "order": 52
+        },
+        "widgets/admin/support.awaiting_list": {
+            "key": "support.awaiting_list",
+            "type": "list",
+            "size": "md",
+            "deferred": false,
+            "mirrorsTodo": false,
+            "resolver": "Closure(App\\Models\\User $user)",
+            "permission": "support.tickets.view",
+            "order": 53
+        },
+        "widgets/client/support.open": {
+            "key": "support.open",
+            "type": "stat",
+            "size": "sm",
+            "deferred": false,
+            "mirrorsTodo": false,
+            "resolver": "Closure(App\\Models\\User $user, App\\Modules\\Core\\Models\\Client $client)",
+            "permission": null,
+            "order": 60
+        },
+        "widgets/client/support.tickets": {
+            "key": "support.tickets",
+            "type": "list",
+            "size": "md",
+            "deferred": false,
+            "mirrorsTodo": false,
+            "resolver": "Closure(App\\Models\\User $user, App\\Modules\\Core\\Models\\Client $client)",
+            "permission": null,
+            "order": 30
+        },
+        "widgets/admin-client/support.count": {
+            "key": "support.count",
+            "type": "stat",
+            "size": "sm",
+            "deferred": false,
+            "mirrorsTodo": false,
+            "resolver": "Closure(App\\Models\\User $user, App\\Modules\\Core\\Models\\Client $client)",
+            "permission": "support.tickets.view",
+            "order": 23
+        },
+        "widgets/admin-client/support.recent": {
+            "key": "support.recent",
+            "type": "list",
+            "size": "md",
+            "deferred": false,
+            "mirrorsTodo": false,
+            "resolver": "Closure(App\\Models\\User $user, App\\Modules\\Core\\Models\\Client $client)",
+            "permission": "support.tickets.view",
+            "order": 33
+        },
+        "todos/admin/support.awaiting": {
+            "key": "support.awaiting",
+            "resolver": "Closure(App\\Models\\User $user)",
+            "permission": "support.tickets.view",
+            "order": 20
+        },
+        "todos/admin/support.unassigned": {
+            "key": "support.unassigned",
+            "resolver": "Closure(App\\Models\\User $user)",
+            "permission": "support.tickets.view",
+            "order": 21
+        },
+        "todos/admin/support.incidents": {
+            "key": "support.incidents",
+            "resolver": "Closure(App\\Models\\User $user)",
+            "permission": "support.network.manage",
+            "order": 22
+        }
+    },
+    "sitemap": {
+        "sources/support": "Closure()"
+    },
+    "currency_usage": [],
+    "merge_fields": {
+        "resolvers/ticket": "Closure(int $id)",
+        "resolvers/ticket_reply": "Closure(int $id)"
+    },
+    "reference_data": [],
+    "encrypted_storage": [],
+    "event_listeners": [],
+    "rate_limiters": {
+        "support-guest": {
+            "max": 6,
+            "decay": 60,
+            "key": "support-guest|203.0.113.9"
+        },
+        "support-inbound": {
+            "max": 120,
+            "decay": 60,
+            "key": "support-inbound|203.0.113.9"
+        },
+        "support-public": {
+            "max": 60,
+            "decay": 60,
+            "key": "support-public|203.0.113.9"
+        }
+    },
+    "web_middleware": []
+}

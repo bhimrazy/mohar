@@ -4,7 +4,7 @@ namespace App\Modules\Support\Actions;
 
 use App\Events\Support\TicketReplyRated;
 use App\Modules\Support\Models\TicketMessage;
-use App\Modules\Support\Services\SupportSettings;
+use App\Modules\Support\Settings\SupportSettings;
 use Illuminate\Validation\ValidationException;
 
 /**

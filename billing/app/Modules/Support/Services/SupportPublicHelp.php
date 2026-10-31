@@ -7,6 +7,7 @@ use App\Modules\Support\Enums\IncidentStatus;
 use App\Modules\Support\Models\Announcement;
 use App\Modules\Support\Models\KbArticle;
 use App\Modules\Support\Models\NetworkIncident;
+use App\Modules\Support\Settings\SupportSettings;
 
 /**
  * Public help content for marketing pages and the sitemap (PublicHelpDirectory). Private articles, unpublished or

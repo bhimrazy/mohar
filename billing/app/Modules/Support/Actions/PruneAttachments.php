@@ -4,7 +4,7 @@ namespace App\Modules\Support\Actions;
 
 use App\Modules\Support\Enums\TicketStatus;
 use App\Modules\Support\Models\TicketAttachment;
-use App\Modules\Support\Services\SupportSettings;
+use App\Modules\Support\Settings\SupportSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;

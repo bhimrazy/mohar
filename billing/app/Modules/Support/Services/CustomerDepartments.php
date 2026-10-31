@@ -3,6 +3,7 @@
 namespace App\Modules\Support\Services;
 
 use App\Modules\Support\Models\Department;
+use App\Modules\Support\Settings\SupportSettings;
 use Illuminate\Database\Eloquent\Collection;
 
 /**

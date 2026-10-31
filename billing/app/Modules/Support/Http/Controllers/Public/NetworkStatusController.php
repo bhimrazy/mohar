@@ -7,7 +7,7 @@ use App\Modules\Support\Enums\IncidentStatus;
 use App\Modules\Support\Models\NetworkIncident;
 use App\Modules\Support\Models\NetworkIncidentUpdate;
 use App\Modules\Support\Services\MarkdownRenderer;
-use App\Modules\Support\Services\SupportSettings;
+use App\Modules\Support\Settings\SupportSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
