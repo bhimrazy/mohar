@@ -3,10 +3,13 @@
 /**
  * Race helper (#523): one wrong step-up guess, in its own process, on the database cache store.
  *
- *   php password-guess-worker.php <label> wrong <database> <user id> <ip> <start at>
+ *   php password-guess-worker.php <label> wrong <database> <user id> <ip> <start at> <cache prefix>
  *
+ * <cache prefix> is the test's: a parallel run gives each test process its own (Laravel's TestCaches), which this
+ * process would not otherwise have.
  * Waits until <start at> (a Unix time with microseconds), so all workers count at once, then makes a guess whose
- * compare takes 500 ms and is wrong. Prints one JSON object: {label, outcome, compared, database, transaction_level}
+ * compare takes 500 ms and is wrong. Prints one JSON object: {label, outcome, compared, database, cache_prefix,
+ * transaction_level}
  * or {label, error}.
  * outcome: wrong (compared and refused as wrong), ended (compared, used the budget up and ended the session),
  * refused (over the budget, never compared).
@@ -19,12 +22,14 @@ use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
-[, $label, , $database, $userId, $ip, $startAt] = $argv;
+[, $label, , $database, $userId, $ip, $startAt, $cachePrefix] = $argv;
 $base = dirname(__DIR__, 4);
 
 // Before boot: the rate limiter is resolved while the providers register their limiters.
-putenv('CACHE_STORE=database');
-$_ENV['CACHE_STORE'] = $_SERVER['CACHE_STORE'] = 'database';
+foreach (['CACHE_STORE' => 'database', 'CACHE_PREFIX' => $cachePrefix] as $name => $value) {
+    putenv("{$name}={$value}");
+    $_ENV[$name] = $_SERVER[$name] = $value;
+}
 
 require $base.'/vendor/autoload.php';
 $app = require $base.'/bootstrap/app.php';
@@ -36,7 +41,7 @@ DB::purge($connection);
 
 $compared = false;
 $print = fn (array $result) => fwrite(STDOUT, (string) json_encode([
-    'label' => $label, ...$result, 'compared' => $compared, 'database' => DB::connection()->getDatabaseName(), 'transaction_level' => DB::transactionLevel(),
+    'label' => $label, ...$result, 'compared' => $compared, 'database' => DB::connection()->getDatabaseName(), 'cache_prefix' => config('cache.prefix'), 'transaction_level' => DB::transactionLevel(),
 ]));
 
 try {

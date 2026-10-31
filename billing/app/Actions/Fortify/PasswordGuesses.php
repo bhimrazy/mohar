@@ -51,18 +51,19 @@ final class PasswordGuesses
     {
         $hour = self::hourKey($user);
         $minute = self::minuteKey($user, $request);
-        $hourCount = self::count($hour, 3600);
-        $minuteCount = self::count($minute, 60);
+        [$hourCount, $hourWindow] = self::count($hour, 3600);
+        [$minuteCount, $minuteWindow] = self::count($minute, 60);
+        $counted = [$hour => $hourWindow, $minute => $minuteWindow];
 
         if ($hourCount > self::PER_HOUR || $minuteCount > self::PER_MINUTE) {
-            self::refund($hour, $minute);
+            self::refund($counted);
             [$key, $message] = $hourCount > self::PER_HOUR ? [$hour, self::hourMessage($hour)] : [$minute, self::minuteMessage($minute)];
 
             self::refuse($request, $field, $message, self::secondsLeft($key));
         }
 
         if ($compare()) {
-            self::refund($hour, $minute);
+            self::refund($counted);
 
             return true;
         }
@@ -105,20 +106,22 @@ final class PasswordGuesses
      * overwrites the counter with put() on a 0 -> 1 step, which loses a concurrent guess once a refund has brought
      * the counter back to 0 (#536 review, B1). The window is the separate timer key (the RateLimiter's layout); the
      * counter expires with it.
+     *
+     * @return array{0: int, 1: int} the count, and the end of the window it was counted in (the timer's value)
      */
-    private static function count(string $key, int $window): int
+    private static function count(string $key, int $window): array
     {
         $store = self::store();
         $now = now()->getTimestamp();
 
-        // The database store answers false when the counter expired between add and increment: count again.
+        // increment() answers false when the counter row is gone (deleted between add and increment): count again.
         for ($try = 0; $try < 2; $try++) {
             $store->add($key.':timer', $now + $window, $window);
             $store->add($key, 0, max(1, self::secondsLeft($key)));
             $count = $store->increment($key);
 
             if ($count !== false) {
-                return (int) $count;
+                return [(int) $count, (int) $store->get($key.':timer', 0)];
             }
         }
 
@@ -127,15 +130,24 @@ final class PasswordGuesses
     }
 
     /**
-     * Only an existing counter: a store that creates a missing key on decrement would keep it without an expiry.
+     * Takes a guess back from the window it was counted in only: once that window has ended, the counter may be the
+     * next window's, and a refund would lower it (#536 re-review).
+     *
+     * @param  array<string, int>  $counted  key => the end of the window the guess was counted in
      */
-    private static function refund(string ...$keys): void
+    private static function refund(array $counted): void
     {
         $store = self::store();
 
-        foreach ($keys as $key) {
-            if ($store->has($key)) {
-                $store->decrement($key);
+        foreach ($counted as $key => $window) {
+            if (! $store->has($key) || (int) $store->get($key.':timer', 0) !== $window) {
+                continue;
+            }
+
+            // A store that creates a missing key on decrement (Redis) does so without an expiry, if the counter
+            // expired just now: give it one, so it cannot outlive the window.
+            if ((int) $store->decrement($key) < 0) {
+                $store->touch($key, 1);
             }
         }
     }

@@ -2,9 +2,10 @@
 
 - **The hourly wrong-password budget holds under concurrent guesses (#523).** A step-up, password-change or
   account-deletion guess is counted, with the cache store's atomic add and increment, before the password is
-  compared, and refunded when it was not wrong. Parallel requests can no longer get past the 20-an-hour cap, also
-  after a correct password has brought the count back down. Guesses still being compared count, so under concurrency
-  the cap can be reached slightly early.
+  compared, and refunded when it was not wrong, only into the hour it was counted in. Parallel requests no longer get
+  past the 20-an-hour cap, also after a correct password has brought the count back down; the one remaining gap is a
+  refund that checks its hour in the same instant the hour ends. Guesses still being compared count, so under
+  concurrency the cap can be reached slightly early.
 - **The wrong password that uses up the hourly budget signs that session out (#523).** The step-up dialog and forms
   go to the sign-in page, which says why. Other sessions of the login stay signed in, but signing out resets the
   login's remember-me token, so "remember me" stops working on every device. Signing in again and "Forgot password"
