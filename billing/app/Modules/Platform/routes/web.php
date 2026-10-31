@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Platform\Http\Controllers\Admin\ActivityLogController;
 use App\Modules\Platform\Http\Controllers\Admin\AutomationController;
 use App\Modules\Platform\Http\Controllers\Admin\ClientContactController;
@@ -22,13 +21,11 @@ use App\Modules\Platform\Http\Controllers\Public\StaffInvitationController as Ac
 use Illuminate\Support\Facades\Route;
 
 Route::adminArea(fn () => Route::name('platform.')->group(function (): void {
-    $confirmPage = 'password.confirm:password.confirm,'.RequireRecentPasswordConfirmation::timeout();
-
     Route::get('search', SearchController::class)->middleware('throttle:60,1')->name('search');
 
     // Staff and roles are sensitive: pages ask for the password first, mutations require a recent confirmation.
     Route::get('staff', [StaffController::class, 'index'])->name('staff.index');
-    Route::middleware($confirmPage)->group(function (): void {
+    Route::middleware('password.confirm')->group(function (): void {
         Route::get('staff/create', [StaffController::class, 'create'])->name('staff.create');
         Route::get('staff/{staff}/edit', [StaffController::class, 'edit'])->name('staff.edit');
         Route::get('roles/create', [RoleController::class, 'create'])->name('roles.create');

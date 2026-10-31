@@ -1,7 +1,11 @@
 # Manual build of the production image (deploy/Dockerfile, target prod): always a downloadable OCI artifact with an
 # SBOM and provenance, a size report, and the release tarball for hosts without Docker (install.md, cpanel.md).
 # Pushing to GHCR is an option of the run: it copies the very OCI archive that was built, digest for digest.
-# Never part of the normal CI job; runs only from Actions -> Build image -> Run workflow (pushing to GHCR and drafting a release only from the default branch; the cache is scoped to the built ref).
+# Never part of the normal CI job; runs only from Actions -> Build image -> Run workflow. Pushing to GHCR and drafting a
+# release run only from main and only for merged code: a push builds main's head, a release a tag on main. Both jobs
+# name the `release` environment, which does not exist yet: GitHub creates a missing environment on first use with no
+# protection rules, so it adds nothing until the owner creates it with a main-only branch policy and a required
+# reviewer (an owner setting, billing/docs/devops/container-image.md). The cache is scoped to the built ref.
 name: Build image
 
 on:
@@ -21,7 +25,7 @@ on:
                 type: boolean
                 default: false
             release_tag:
-                description: Attach the release tarball to a draft GitHub release for this existing tag (must equal ref; default branch only)
+                description: Attach the release tarball to a draft GitHub release for this existing tag (must equal ref and be on main; runs from main only)
                 type: string
                 default: ''
             size_limit_mb:
@@ -51,6 +55,9 @@ jobs:
                   # A release is built from the tag itself, never from a branch of the same name.
                   ref: ${{ inputs.release_tag != '' && format('refs/tags/{0}', inputs.release_tag) || inputs.ref }}
                   persist-credentials: false
+                  # Full history (all branches) when publishing, for the check that the built commit is on main. A
+                  # string: the number 0 is falsy in an expression and would fall through to 1.
+                  fetch-depth: ${{ (inputs.push_to_ghcr || inputs.release_tag != '') && '0' || '1' }}
 
             - name: Revision
               id: meta
@@ -61,6 +68,24 @@ jobs:
                       echo "tag=${revision:0:12}"
                       echo "created=$(git show -s --format=%cI HEAD)"
                   } >> "$GITHUB_OUTPUT"
+
+            - name: Built commit is merged (GHCR push, release)
+              if: inputs.push_to_ghcr || inputs.release_tag != ''
+              env:
+                  RELEASE_TAG: ${{ inputs.release_tag }}
+              run: |
+                  # Only merged code is published under the project's name, whatever ref the run was given
+                  # (refs/pull/<n>/head included): a GHCR push builds main's head, a release a tag whose commit is on main.
+                  built="$(git rev-parse HEAD)"
+                  main="$(git rev-parse refs/remotes/origin/main)"
+                  if [ -n "$RELEASE_TAG" ]; then
+                      git merge-base --is-ancestor "$built" "$main" \
+                          || { echo "::error::tag $RELEASE_TAG ($built) is not on main ($main)"; exit 1; }
+                  elif [ "$built" != "$main" ]; then
+                      echo "::error::a GHCR push builds main's head ($main); this run built $built"
+                      exit 1
+                  fi
+                  echo "Built $built: on main ($main)"
 
             - name: Set up QEMU (arm64)
               if: contains(inputs.platforms, 'arm64')
@@ -179,9 +204,10 @@ jobs:
     push:
         name: Push to GHCR
         needs: build
-        # The Actions UI offers any branch that contains this file; only a run started from the default branch may
-        # hold `packages: write`.
-        if: inputs.push_to_ghcr && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        # The Actions UI offers any branch that contains this file; only a run started from main may hold
+        # `packages: write`. The `release` environment protects nothing until the owner creates it (see the top).
+        if: inputs.push_to_ghcr && github.ref == 'refs/heads/main'
+        environment: release
         runs-on: ubuntu-24.04
         timeout-minutes: 30
         permissions:
@@ -215,9 +241,10 @@ jobs:
     release:
         name: Draft release with the tarball
         needs: build
-        # Same guard as the GHCR push: only a run from the default branch may hold `contents: write`. The tag must be
-        # the ref that was built, so the assets are the tagged commit's.
-        if: inputs.release_tag != '' && inputs.release_tag == inputs.ref && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        # Same guards as the GHCR push: only a run from main may hold `contents: write`, and the environment protects
+        # nothing until the owner creates it. The tag must be the ref that was built, so the assets are the tagged commit's.
+        if: inputs.release_tag != '' && inputs.release_tag == inputs.ref && github.ref == 'refs/heads/main'
+        environment: release
         runs-on: ubuntu-24.04
         timeout-minutes: 15
         permissions:

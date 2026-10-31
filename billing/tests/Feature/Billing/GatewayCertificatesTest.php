@@ -233,7 +233,7 @@ test('staff who manage gateways are emailed before a certificate expires and whe
 });
 
 test('a step-up refusal never puts a submitted secret into the session: a certificate passphrase or a registrar key', function () {
-    $this->withSession(['auth.password_confirmed_at' => 0]);
+    $this->withSession(['auth.step_up_confirmed_at' => 0]);
 
     $this->put(route('admin.billing.gateways.update', 'fake_signing'), signingGatewayPayload([
         'file' => UploadedFile::fake()->createWithContent('CREDITOR.pfx', testPfx()), 'passphrase' => 'pfx-pass-123',

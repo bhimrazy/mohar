@@ -119,6 +119,7 @@ class SampleContext
                 'account' => 'Example Studio', 'email' => 'sam@example.test', 'actor' => 'Sam Rivera', 'section' => 'Security',
                 'changes' => 'Require two-step sign-in', 'old_email' => 'sam@example.test', 'new_email' => 'sam.rivera@example.test',
                 'run_by' => 'console: deploy@billing-1', 'expires_in' => '24 hours',
+                'added_at' => '31 Oct 2026, 2:05 PM', 'security_url' => url('/settings/security'),
             ],
             'tax_note' => [
                 // A Nepal VAT note (13%): notes exist only in Nepal VAT mode.

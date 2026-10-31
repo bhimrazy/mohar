@@ -68,9 +68,9 @@
             "pint --parallel --test"
         ],
         "deps:check": [
-            "@composer validate --no-check-publish",
-            "@composer audit --locked",
-            "npm audit --audit-level=high --package-lock-only",
+            "@composer validate --no-check-publish --no-scripts --no-plugins",
+            "@composer audit --locked --abandoned=report --no-scripts --no-plugins",
+            "npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ --include=dev --strict-ssl=true --noproxy=registry.npmjs.org",
             "node scripts/check-dependency-age.mjs"
         ],
         "ci": [

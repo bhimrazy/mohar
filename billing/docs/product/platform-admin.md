@@ -247,7 +247,7 @@ company name), so they are not repeated here.
 
 - Close (`core.clients.close`): status `closed`, `closed_at`; unpaid invoices → cancelled; services → cancelled **without** driver termination; domains auto-renew off; users can no longer select this account; emits existing `ClientClosed`. Optional checkbox "also run termination" **COULD**. **MUST**
 - Reopen: status → active; nothing else restored. **MUST**
-- Delete: only when the client has no invoices/transactions (otherwise close); removes users linked solely to that client when requested. **MUST**
+- Delete: only when the client has no invoices, transactions, credit ledger entries, payment attempts or payment batches (otherwise close); removes users linked solely to that client when requested. The database already refuses a delete over any of them (`RESTRICT`), so the action must check first and answer 422, never rely on a cascade. **MUST**
 - Merge (`core.clients.merge`): source → target, same currency required (block otherwise); preview of counts; one DB transaction moves services, addons, domains, invoices, quotes, transactions, credit ledger, orders, tickets, contacts, files, notes, affiliate referrals; source users become non-owner users of the target; source becomes `closed` with `merged_into_client_id` (tombstone; old URLs redirect); if both are affiliates, block unless one affiliate has no ledger entries. Emits `ClientMerged`. **MUST**
 - Auto-inactive job: clients older than 2 days with no active/suspended services, domains or addons → `inactive` (setting). **SHOULD**
 

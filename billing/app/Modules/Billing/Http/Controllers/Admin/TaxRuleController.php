@@ -88,8 +88,18 @@ class TaxRuleController extends Controller
             return back();
         }
 
+        $used = $taxRule->deleteUnlessUsed();
+
+        if ($used > 0) {
+            Inertia::flash('toast', ['type' => 'error', 'message' => trans_choice(
+                '{1} This rule was used to calculate an invoice, so it can\'t be deleted: the invoice keeps it as the record of its tax. To stop it applying to new invoices, add a rule for the same place with a higher priority or a later effective date.|[2,*] This rule was used to calculate :count invoices, so it can\'t be deleted: the invoices keep it as the record of their tax. To stop it applying to new invoices, add a rule for the same place with a higher priority or a later effective date.',
+                $used,
+            )]);
+
+            return back();
+        }
+
         $this->activity->log('Tax rule deleted', $taxRule, properties: ['rule' => $taxRule->only(['name', 'level', 'country', 'state', 'scope', 'rate'])]);
-        $taxRule->delete();
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Tax rule deleted.')]);
 
         return back();

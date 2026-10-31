@@ -74,7 +74,7 @@ test('every route behind a password confirmation refuses an expired one-time pas
         // Linked to a client account, so client-area routes reach the confirmation instead of redirecting staff away.
         $user->clients()->attach(Client::factory()->create(), ['is_owner' => true]);
         $this->flushSession();
-        $this->actingAs($user)->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
+        $this->actingAs($user)->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()]);
         $this->travel(2)->minutes();
 
         // Bindings are skipped (below), so a parameter needs only a value its route constraint accepts.

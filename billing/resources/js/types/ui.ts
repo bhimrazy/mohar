@@ -18,6 +18,9 @@ export type AuthLayoutProps = {
     name?: string;
     title?: string;
     description?: string;
+    /** The top-left way out; the storefront home when not given. */
+    backHref?: string;
+    backLabel?: string;
 };
 
 /** Company branding (Themes module → BrandAssets::brand()). */

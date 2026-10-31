@@ -206,11 +206,11 @@ test('probe: HTTP statuses and headers of an export through a real route', funct
 
     actingAsStaff(['reports.demo_secret.export']);
     $this->get('/pr352-export/demo_secret')->assertStatus(423);
-    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])->get('/pr352-export/demo_secret')->assertOk();
+    $this->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()])->get('/pr352-export/demo_secret')->assertOk();
 
     actingAsStaff(['reports.*']);
-    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])->get('/pr352-export/demo_secret')->assertForbidden();
+    $this->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()])->get('/pr352-export/demo_secret')->assertForbidden();
 
     actingAsStaff(['*']);
-    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])->get('/pr352-export/demo_secret')->assertOk();
+    $this->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()])->get('/pr352-export/demo_secret')->assertOk();
 });

@@ -213,6 +213,11 @@ Imported payments are written without gateway calls, without `PaymentReceived` a
 `amountout` is a refund line; a payment with `amountin = 0` and `amountout = 0` is dropped with a note. The source
 `fees` are stored as the transaction fee and do not change the invoice.
 
+The database refuses values its CHECK constraints rule out on PostgreSQL (`billing.md` §2, #554), so the importer
+reports them as row errors at preview, before the chunk writes, never as a failed chunk: a negative source `fees`
+(verify: whether WHMCS writes a negative fee on a refund), and an open (not draft or cancelled) invoice whose total is
+below zero (verify: whether WHMCS allows one). **MUST**
+
 ### 6.5 Credit
 
 `credit` on the invoice (credit the client applied at the source) is stored as an imported `credit_applied` adjustment
@@ -597,7 +602,7 @@ WHMCS (read 2026-10-29): API reference pages GetInvoices https://developers.whmc
 https://developers.whmcs.com/api-reference/getinvoice/ · GetClientsDomains https://developers.whmcs.com/api-reference/getclientsdomains/
 · GetTransactions https://developers.whmcs.com/api-reference/gettransactions/. These pages list fields only through example JSON, so
 per-field semantics are marked **verify** above. Reports → Exports (invoices, transactions, domains) as read for `client-import.md`
-on 2026-10-20 (https://docs.whmcs.com/8-13/system/reports/); not re-read. Other products' importers as in `migration.md` §15 (read 2026-10-17 and 2026-10-20).
+on 2026-10-20 (https://docs.whmcs.com/8-13/system/reports/); not re-read. Other products' importers as in `migration.md` §15 (read 2026-10-17 and 2026-10-20). WHMCS table relations for invoice items, transactions and domains: Paymenter's WHMCS importer source (MIT, commit `f0ae9a1`, read 2026-10-31): https://github.com/Paymenter/Paymenter/blob/f0ae9a12b59da689e5ca6287a278852c4b0c6486/app/Console/Commands/ImportFromWhmcs.php — reads a restored WHMCS dump over SQL, so it names real tables, columns and joins (`tblclients`, `tblusers_clients`, `tblhosting`, `tblinvoiceitems.type`/`relid`, `tblpricing`, `tbltickets`/`tblticketreplies`). A design reference for table relations and status and cycle values; facts only, no code copied. Summary and ER diagram: `docs/research/2026-10-31-whmcs-schema-sources.md`.
 Regulation: Nepal VAT and IRD behaviour is taken from `vat-register.md` and ADR 0024; the IRD pages were not re-read for this note. India GST is not touched.
 ResellerClub behaviour comes from `registrars.md` (§5 `lookupOrder`, §9 `.np`) and from #335, #338, #365 and #372; no ResellerClub page was re-read today.
 Our code and specs: `client-import.md`, `migration.md`, `domains.md`, `registrars.md`, `vat-register.md`, `billing.md`, ADR 0008, 0013, 0019 (and addendum), 0023, 0024.

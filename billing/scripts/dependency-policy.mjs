@@ -170,7 +170,7 @@ export function dockerfileImages(text) {
 
     // Parser directives (`# syntax=<frontend image>`) are only valid before the first instruction or comment;
     // BuildKit pulls the syntax frontend as an image, so it is checked like a FROM.
-    for (const line of text.split(/\r?\n/)) {
+    for (const line of text.split(/\r\n|\r|\n/)) {
         const directive = line.match(/^#\s*([a-z]+)\s*=\s*(\S+)\s*$/i);
         if (!directive) {
             break;
@@ -182,7 +182,7 @@ export function dockerfileImages(text) {
 
     const lines = text
         .replace(/\\[ \t]*\r?\n/g, ' ')
-        .split(/\r?\n/)
+        .split(/\r\n|\r|\n/)
         .map((line) => line.trim())
         .filter((line) => line !== '' && !line.startsWith('#'));
 
@@ -266,7 +266,7 @@ export function isDockerfile(path) {
  */
 export function composeImages(text) {
     const images = [];
-    for (const line of text.split(/\r?\n/)) {
+    for (const line of text.split(/\r\n|\r|\n/)) {
         const entry = line.match(/^\s*image:\s*(.*)$/);
         if (!entry) {
             continue;
@@ -285,6 +285,177 @@ export function composeImages(text) {
     }
 
     return images;
+}
+
+/**
+ * The BuildKit images a workflow sets through docker/setup-buildx-action's `driver-opts` (`image=<ref>`), which
+ * `composeImages` does not see. The input is newline-delimited (commas do not split it), inline or as a block scalar;
+ * every `image=` entry is returned so an unpinned or too-new BuildKit fails like any other image.
+ *
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function buildkitImages(text) {
+    const images = [];
+    const lines = text.split(/\r\n|\r|\n/);
+    for (let i = 0; i < lines.length; i++) {
+        const key = lines[i].match(/^(\s*)driver-opts:\s*(.*)$/);
+        if (!key) {
+            continue;
+        }
+        const entries = [];
+        if (/^[|>]/.test(key[2])) {
+            const indent = key[1].length;
+            while (
+                i + 1 < lines.length &&
+                (lines[i + 1].trim() === '' ||
+                    lines[i + 1].match(/^\s*/)[0].length > indent)
+            ) {
+                entries.push(lines[++i]);
+            }
+        } else {
+            entries.push(key[2]);
+        }
+        for (const entry of entries) {
+            const value = entry
+                .replace(/\s+#.*$/, '')
+                .trim()
+                .replace(/^(['"])(.*)\1$/, '$2');
+            if (value.startsWith('image=')) {
+                images.push(value.slice('image='.length));
+            }
+        }
+    }
+
+    return images;
+}
+
+/** JSON with object keys sorted, so a reordering alone is not a change. */
+function stableJson(value) {
+    if (Array.isArray(value)) {
+        return `[${value.map(stableJson).join(',')}]`;
+    }
+    if (value && typeof value === 'object') {
+        return `{${Object.keys(value)
+            .sort((a, b) => a.localeCompare(b))
+            .map((k) => `${JSON.stringify(k)}:${stableJson(value[k])}`)
+            .join(',')}}`;
+    }
+
+    return JSON.stringify(value ?? null);
+}
+
+/**
+ * The composer.json `config` keys a change may touch without review of the audit: what this project uses today. Any
+ * other config key (`audit`, `policy`, `disable-tls`, `secure-http`, `cafile`, ...) can change what `composer audit`
+ * reports or where it asks, so it is a policy change of its own.
+ */
+export const COMPOSER_CONFIG_ALLOWED = [
+    'allow-plugins',
+    'optimize-autoloader',
+    'preferred-install',
+    'sort-packages',
+];
+
+/**
+ * The composer.json settings that differ between two versions and are not on the allowlist: any `config.<key>` outside
+ * COMPOSER_CONFIG_ALLOWED, and `repositories` (e.g. `packagist.org: false` or a mirror). A change could silence the
+ * audit that judges it, so the check fails on these unless the PR is labelled.
+ *
+ * @param {string|null} baseText
+ * @param {string|null} headText
+ * @returns {string[]} the changed keys
+ */
+export function composerAuditConfigChanges(baseText, headText) {
+    const parse = (text) => {
+        try {
+            return JSON.parse(text ?? '{}') ?? {};
+        } catch {
+            return { unparsable: text };
+        }
+    };
+    const base = parse(baseText);
+    const head = parse(headText);
+    const changed = [];
+    const keys = new Set([
+        ...Object.keys(base.config ?? {}),
+        ...Object.keys(head.config ?? {}),
+    ]);
+    for (const name of [...keys].sort((a, b) => a.localeCompare(b))) {
+        if (
+            !COMPOSER_CONFIG_ALLOWED.includes(name) &&
+            stableJson(base.config?.[name]) !== stableJson(head.config?.[name])
+        ) {
+            changed.push(`config.${name}`);
+        }
+    }
+    if (stableJson(base.repositories) !== stableJson(head.repositories)) {
+        changed.push('repositories');
+    }
+    if ('unparsable' in head && !('unparsable' in base)) {
+        changed.push('(unparsable composer.json)');
+    }
+
+    return changed;
+}
+
+/**
+ * The .npmrc keys a change may touch: what this project's .npmrc files use today, plus two that only change output.
+ * Anything else (`registry`, `@scope:registry`, `omit`, `userconfig`, `globalconfig`, `ca[]`, proxies, auth, ...) can
+ * redirect `npm audit`, narrow it, or load another config file.
+ */
+export const NPMRC_ALLOWED = [
+    'engine-strict',
+    'fund',
+    'ignore-scripts',
+    'min-release-age',
+    'save-exact',
+];
+
+/**
+ * The .npmrc keys whose values differ between two versions of the file (a missing file has none) and are not on
+ * NPMRC_ALLOWED. Keys are read the way npm's ini parser reads them: lines end at any CR or LF, surrounding whitespace
+ * and quotes are dropped, and so is an array suffix (`ca[]`); a `[section]` line or a line without `=` is a key too.
+ *
+ * @param {string|null} baseText
+ * @param {string|null} headText
+ * @returns {string[]} the changed keys outside the allowlist
+ */
+export function npmrcAuditConfigChanges(baseText, headText) {
+    const normalise = (raw) =>
+        raw
+            .trim()
+            .replace(/^(['"])(.*)\1$/, '$2')
+            .trim()
+            .replace(/\[\]$/, '')
+            .toLowerCase();
+    const settings = (text) => {
+        const found = new Map();
+        // npm's ini parser splits on any run of CR and LF, so a CR alone ends a line too.
+        for (const line of (text ?? '').split(/[\r\n]+/)) {
+            const trimmed = line.trim();
+            if (trimmed === '' || /^[#;]/.test(trimmed)) {
+                continue;
+            }
+            const at = trimmed.indexOf('=');
+            const name = normalise(at === -1 ? trimmed : trimmed.slice(0, at));
+            const value = at === -1 ? '' : trimmed.slice(at + 1).trim();
+            found.set(name, [...(found.get(name) ?? []), value]);
+        }
+
+        return found;
+    };
+    const base = settings(baseText);
+    const head = settings(headText);
+    const names = new Set([...base.keys(), ...head.keys()]);
+
+    return [...names]
+        .filter(
+            (name) =>
+                !NPMRC_ALLOWED.includes(name) &&
+                stableJson(base.get(name)) !== stableJson(head.get(name)),
+        )
+        .sort((a, b) => a.localeCompare(b));
 }
 
 /**

@@ -10,6 +10,7 @@ import {
     CardHeader,
     CardTitle,
 } from '@/components/ui/card';
+import { useStepUpForm } from '@/hooks/use-step-up-form';
 import { regenerateRecoveryCodes } from '@/routes/two-factor';
 
 type Props = {
@@ -24,6 +25,7 @@ export default function TwoFactorRecoveryCodes({
     errors,
 }: Props) {
     const [codesAreVisible, setCodesAreVisible] = useState<boolean>(false);
+    const regenerateStepUp = useStepUpForm();
     const codesSectionRef = useRef<HTMLDivElement | null>(null);
     const canRegenerateCodes = recoveryCodesList.length > 0 && codesAreVisible;
 
@@ -82,6 +84,7 @@ export default function TwoFactorRecoveryCodes({
                     {canRegenerateCodes && (
                         <Form
                             {...regenerateRecoveryCodes.form()}
+                            {...regenerateStepUp}
                             options={{ preserveScroll: true }}
                             onSuccess={fetchRecoveryCodes}
                         >

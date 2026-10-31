@@ -3,7 +3,10 @@
 # -> $MOHAR_ROOT/.claude/worktrees/<slug> on branch feature/<slug> (from a freshly fetched origin/develop, not the
 # local develop, which goes stale), dependencies ready.
 set -euo pipefail
-slug="$1"
+slug="${1:-}"
+# finish-workstream.sh's rule: the slug becomes a directory, a branch and a database name.
+[[ "$slug" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
+    || { echo "usage: scripts/new-worktree.sh <slug> (letters, digits, '.', '_', '-'; starts with a letter or digit)" >&2; exit 2; }
 root="$(cd "$(dirname "$0")/.." && pwd)"
 # Always under the main checkout, also when this script runs from a worktree (vendor/ and node_modules come from $root).
 main="$(dirname "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir)")"
