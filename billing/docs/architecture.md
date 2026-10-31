@@ -17,12 +17,13 @@ app/
   Data/<Area>/             readonly DTOs passed through contracts
   Events/<Area>/           domain events (scalar payloads, ids not models)
   Enums/                   shared enums (BillingCycle, BillableType)
-  Support/                 Money, Modules base provider, Navigation, Dashboard registries
+  Support/<Area>/          Money, Modules base provider, Navigation, Dashboard registries; Null<Contract> fallbacks
   Http/Middleware/         kernel-owned, module-agnostic middleware (password.recent), aliased in bootstrap/app.php
+  Extensions/<Family>/<Name>/   first-party extensions: gateways, registrars, provisioning, rates (ADR 0030 §2)
   Modules/<Module>/
     <Module>ServiceProvider.php   extends App\Support\Modules\ModuleServiceProvider
     Config/<module>.php           defaults, merged as config('<module>.*')
-    Models/  Actions/  Services/  Drivers/  Jobs/  Listeners/  Policies/
+    Models/  Actions/  Services/  Queries/  Adapters/  Settings/  Support/  Drivers/  Jobs/  Listeners/
     Console/Commands/             auto-registered artisan commands (`<module>:<action>`; Core uses its area)
     Install/                      InstallsReferenceData implementations (reference data, every environment)
     Database/Migrations|Factories|Seeders/<Module>Seeder.php (demo data; DatabaseSeeder runs it outside production)
@@ -34,6 +35,56 @@ tests/Feature/<Module>/  tests/Unit/<Module>/            Pest tests
 
 Modules are discovered automatically (`App\Providers\ModulesServiceProvider`). `MODULES=Billing php artisan test`
 loads only Core + Billing.
+
+### Module building blocks
+
+A module's first-level folders come from this list and nothing else; `tests/Arch/ModuleFoldersTest.php` fails on any
+other. A new kind of folder needs a row here and an entry in that test in the same PR. Folders that exist today but
+are not on the list are a frozen baseline in the test, each with the code-structure PR (S-series) that removes it;
+the baseline only shrinks.
+
+| Folder        | Holds                                                                                                                                                                                                                            | May depend on                                       | Must not                                                                                                                   |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `Boot/`       | One class per registry (`Permissions`, `Settings`, `Navigation`, `Search`, `MergeFields`, `Webhooks`, `Reports`, `Automation`, `Listeners`), each with one `__invoke(Container $app)`, called from the provider's `bootModule()` | kernel registries                                   | bindings (those stay in `registerModule()`)                                                                                |
+| `Config/`     | `<module>.php` defaults                                                                                                                                                                                                          | none                                                | code                                                                                                                       |
+| `Models/`     | Eloquent models; factories wired with `#[UseFactory]`                                                                                                                                                                            | own Enums                                           | sibling models                                                                                                             |
+| `Enums/`      | module enums (statuses, types)                                                                                                                                                                                                   | none                                                | behaviour beyond labels and predicates                                                                                     |
+| `Data/`       | module-private DTOs; a shape another module needs goes to `app/Data`                                                                                                                                                             | kernel value objects                                | Eloquent models                                                                                                            |
+| `Actions/`    | one write use case per class, one public method `handle()`; transaction and event dispatch live here                                                                                                                             | Models, Services, Adapters, Settings, other Actions | rendering; sibling models; a second public method                                                                          |
+| `Services/`   | stateless collaborators with several verbs (`InvoiceSettlement`, `GatewayCharger`, `TaxNoteIssuer`); also the host that calls built-in drivers                                                                                   | Models, Adapters, Settings, Support                 | HTTP; a `Service` suffix                                                                                                   |
+| `Queries/`    | read models for pages, dashboards, summaries and exports (ADR 0020 hot paths); return arrays or DTOs                                                                                                                             | Models, Settings                                    | writes; dispatching events                                                                                                 |
+| `Adapters/`   | the module's typed access to a sibling's kernel contract, with `available()` first (`Services/Support/Billing.php` is the model)                                                                                                 | `App\Contracts`, `App\Data`                         | any `App\Modules\<Sibling>` class                                                                                          |
+| `Settings/`   | `<Module>Settings`: typed reader over `Settings::get('<module>.*')`                                                                                                                                                              | the kernel Settings contract                        | writes                                                                                                                     |
+| `Support/`    | pure domain helpers with no framework role: calculators, value objects, generators                                                                                                                                               | kernel value objects                                | the container, models, requests                                                                                            |
+| `Drivers/`    | built-in drivers only (ADR 0030 §1), one subfolder per family; implements a kernel driver contract, sees DTOs                                                                                                                    | kernel only                                         | models, the database, Core; hosts (a host is a Service)                                                                    |
+| `Jobs/`       | queued wrapper that calls one Action; queue name from `Queues::*`; `$timeout` below `retry_after`                                                                                                                                | Actions                                             | business logic of its own                                                                                                  |
+| `Listeners/`  | reacts to a kernel event by calling an Action; acts only on the `BillableType`s the module owns                                                                                                                                  | Actions, Adapters                                   | sibling models                                                                                                             |
+| `Rules/`      | validation rules                                                                                                                                                                                                                 | Models, Settings                                    | writes                                                                                                                     |
+| `Exceptions/` | module exceptions; no HTTP knowledge (the module registers a renderer)                                                                                                                                                           | none                                                | `render()` methods                                                                                                         |
+| `Mail/`       | mailables and Laravel notification classes (they are mail); `Notifications/` names only the module                                                                                                                               | Settings, Queries                                   | business logic                                                                                                             |
+| `Console/`    | `Commands/` named `<module>:<action>`                                                                                                                                                                                            | Actions                                             | business logic                                                                                                             |
+| `Install/`    | `InstallsReferenceData` implementations                                                                                                                                                                                          | Models                                              | demo data (that is a seeder)                                                                                               |
+| `Database/`   | `Migrations/`, `Factories/`, `Seeders/`                                                                                                                                                                                          | Models                                              | application code                                                                                                           |
+| `Http/`       | `Controllers/{Admin,Client,Public,Webhooks}`, `Requests/`, `Resources/`, `Middleware/`                                                                                                                                           | Actions, Queries, Requests, Resources               | other modules' tables; `DB::`; inline validation beyond trivial filters; business branching; over 150 lines per controller |
+| `Resources/`  | files that are not PHP classes: Blade views for PDFs and mail, data files such as theme presets                                                                                                                                  | none                                                | PHP classes                                                                                                                |
+| `routes/`     | `web.php`, `api.php`                                                                                                                                                                                                             | controllers                                         | logic                                                                                                                      |
+
+Naming:
+
+- Actions are verb phrases: `ApplyPayment`, `IssueInvoice`.
+- Services are noun phrases naming the collaborator: `InvoiceSettlement`, `TaxNoteIssuer`. There is no `Service`
+  suffix on any class; `InvoiceService` and `CreditLedgerService` are legacy names and are renamed when touched.
+- Queries end in what they return: `BillingDashboard`, `TaxNoteList`, `ServicesAdminClientSummary`.
+- Adapters are named after the sibling area: `Billing`, `Catalog`. Settings readers are `<Module>Settings`.
+- Boot classes are named after the registry: `Permissions`, `Navigation`.
+- The kernel's `Null<Contract>` fallbacks (what a contract resolves to when its module is absent) live beside the
+  contract's area in `app/Support/<Area>` and are bound in `AppServiceProvider`; a module never binds a `Null*` for a
+  sibling's contract.
+- Authorization is `$this->authorize('<permission>')` and route middleware, not `Policies/`; there is no `Policies/`
+  folder.
+- Extensions are not modules: a gateway, registrar, provisioning, fraud or rate driver that ships with the product
+  lives in `app/Extensions/<Family>/<Name>`, not under `app/Modules` (ADR 0030 §2 and Amendment (#565)). Until M1
+  and M2 move them, the `Payments*` modules and the drivers in `Domains/Drivers` and `Services/Drivers` stay as they are.
 
 ### Dependency rules (enforced in review)
 
@@ -176,10 +227,28 @@ through a renderer it registers (`callAfterResolving(ExceptionHandler::class, �
 the module's `Config/<module>.php`. Every tunable number in a spec becomes a setting with a default.
 
 **Authorization** — staff permissions are strings `module.area.action`, e.g. `billing.invoices.view`,
-`billing.invoices.manage`; roles grant them with `*` wildcards (`billing.*`). Use `$this->authorize('...')`
-in admin controllers or `->can('...')` route middleware. Client area: inject `ClientContext`, call
-`$context->authorize('billing')` (areas: billing, services, domains, support, profile, contacts) and ALWAYS
-scope queries to `$context->id()` — never trust ids from the request without scoping (IDOR tests required).
+`billing.invoices.manage`; roles grant them with `*` wildcards (`billing.*`). Client area: the check is
+`ClientContext::authorize('billing')` (areas: billing, services, domains, support, profile, contacts), and queries
+ALWAYS scope to `$context->id()` — never trust ids from the request without scoping (IDOR tests required).
+
+**Validation and authorization** — one place for each, so a missing check is visible in review (audit 2026-10-31, M1):
+
+- An action that takes input (a write, or a list's filters) takes a Form Request. Its `rules()` hold the validation
+  and its `authorize()` holds the check: `$this->user()?->hasPermission('...')` for staff,
+  `app(ClientContext::class)->authorize('<area>')` for the client area. The controller does not check again.
+- An action without input (show, destroy, a download) calls `$this->authorize('...')` (staff) or
+  `$context->authorize('<area>')` (client) as its first line.
+- No `$request->validate()`, `Validator::make()` or `validator()` in a controller. `tests/Arch/FormRequestValidationTest.php`
+  holds the controllers not yet moved at their current count; Billing has none left.
+- A check that depends on the input (a bulk action's permission per `action`) reads it in `authorize()`, which runs
+  before validation, so an unauthorized caller never sees validation errors.
+- `tests/Feature/Security/AdminPermissionSweepTest.php` calls every `admin.*` route as a staff member with no
+  permissions and expects a 403 that a denied permission caused: granted that permission, the route answers
+  differently. A route that needs no permission goes in its `SWEEP_OPEN` list with the reason; a route whose
+  `authorize()` picks the permission from the input gets one body per branch in `SWEEP_BODIES`.
+- The sweep proves only that no permission means no access. It cannot tell a wrong permission name from the right
+  one, and a dropped second condition (`a && b`) fails it only for the routes whose permissions its guard list pins.
+  Both stay review-checklist items.
 
 **Routes** — in `routes/web.php` of the module:
 

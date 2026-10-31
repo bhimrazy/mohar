@@ -7,12 +7,15 @@
     <testsuites>
         <testsuite name="Unit">
             <directory>tests/Unit</directory>
+            <directory>tests/Kernel/Unit</directory>
+            <directory>tests/Tooling</directory>
         </testsuite>
         <testsuite name="Arch">
             <directory>tests/Arch</directory>
         </testsuite>
         <testsuite name="Feature">
             <directory>tests/Feature</directory>
+            <directory>tests/Kernel/Feature</directory>
         </testsuite>
         <testsuite name="Extensions">
             <directory>tests/Extensions</directory>

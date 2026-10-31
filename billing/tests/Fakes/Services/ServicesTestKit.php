@@ -7,6 +7,8 @@ use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Catalog\PriceBook;
 use App\Modules\Services\Drivers\Provisioning\LogDriver;
+use Tests\Fakes\Billing\FakeInvoiceQueries;
+use Tests\Fakes\Billing\FakeInvoicer;
 
 /**
  * Binds in-memory fakes for the sibling contracts Services consumes.

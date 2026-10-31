@@ -22,7 +22,8 @@ class GatewayReturnController extends Controller
     public function __invoke(Request $request, string $gateway, GatewayManager $gateways, SettlePaymentAttempt $settle, PaymentReconciler $reconciler): RedirectResponse
     {
         $driver = $gateways->hosted($gateway);
-        abort_if($driver === null || ! $gateways->isActive($gateway), 404);
+        // A customer coming back after staff deactivated the gateway still lands on the settled invoice (ADR 0030 A1).
+        abort_if($driver === null || ! $gateways->settles($gateway), 404);
 
         $config = $gateways->config($gateway);
         $hint = $gateways->during($config, fn (): ReturnHint => $driver->parseReturn($config, $request));

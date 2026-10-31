@@ -3,8 +3,8 @@
 namespace App\Modules\Billing\Reports;
 
 /**
- * Sums of a register period in the register currency, in minor units: per document kind, per BS month, and the
- * documents the screen warns about (vat-register §6.3). Net VAT is the invoice VAT minus credit-note VAT plus
+ * Sums of a register period in the register currency, in minor units: per document kind, per BS month, the count of
+ * each kind, and the documents the screen warns about (vat-register §6.3). Net VAT is the invoice VAT minus credit-note VAT plus
  * debit-note VAT, exactly, because every amount is a signed snapshot or note value.
  */
 final class RegisterSummary
@@ -16,6 +16,9 @@ final class RegisterSummary
 
     /** @var array<string, array<string, int>> BS period key => figure => sum */
     public array $byMonth = [];
+
+    /** @var array<string, int> kind => documents in the period, every one counted (the return asks for these, Schedule 10) */
+    public array $counts = [];
 
     /** Nepal business buyers (a company name, country NP) without a PAN. */
     public int $withoutPan = 0;
@@ -30,6 +33,7 @@ final class RegisterSummary
     {
         foreach (array_keys(RegisterDocument::KINDS) as $kind) {
             $this->byKind[$kind] = array_fill_keys(self::FIGURES, 0);
+            $this->counts[$kind] = 0;
         }
     }
 

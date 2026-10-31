@@ -11,6 +11,8 @@ use App\Data\Billing\GatewayConfig;
 use App\Data\Integrations\SettingField;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
+use App\Modules\Billing\Models\PaymentAttempt;
+use App\Modules\Billing\Models\Transaction;
 use App\Support\Billing\SandboxPolicy;
 use App\Support\Integrations\RedactionScope;
 use App\Support\Integrations\RedactionSet;
@@ -186,6 +188,29 @@ class GatewayManager implements GatewayRegistry
     public function isActive(string $key): bool
     {
         return $this->has($key) && Gateway::query()->where('key', $key)->where('is_active', true)->exists();
+    }
+
+    /**
+     * Whether webhooks and customer returns for $key are still processed (ADR 0030 A1): deactivating a gateway stops
+     * new payments, not the settlement of ones it already started. An inactive gateway settles only while it has a
+     * payment attempt or a transaction here; one never used, with no saved row, or whose driver is gone is refused.
+     * Each EXISTS reads a unique index led by `gateway`.
+     */
+    public function settles(string $key): bool
+    {
+        if (! $this->has($key)) {
+            return false;
+        }
+
+        $active = Gateway::query()->where('key', $key)->value('is_active');
+
+        if ($active === null) {
+            return false;
+        }
+
+        return (bool) $active
+            || PaymentAttempt::query()->where('gateway', $key)->exists()
+            || Transaction::query()->where('gateway', $key)->exists();
     }
 
     public function supports(string $key, string $capability): bool

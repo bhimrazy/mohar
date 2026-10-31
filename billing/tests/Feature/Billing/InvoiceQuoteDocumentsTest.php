@@ -83,6 +83,15 @@ test('an invoice PDF is rendered in the message locale and cached per locale', f
         ->and(app()->getLocale())->toBe('en');
 });
 
+test('PDFs embed only the glyphs they use, so an invoice is not most of a megabyte of fonts (#566)', function () {
+    $pdf = app(InvoicePdf::class)->render(issueInvoice(pdfEmailClient(), [1_000_000]));
+
+    // With laravel-dompdf's default (subsetting off) the whole DejaVu Sans pair made every invoice about 858 KB.
+    expect(strlen($pdf))->toBeLessThan(200 * 1024)
+        ->and(preg_match('#/BaseFont\s*/[A-Z]{6}\+DejaVu#', $pdf))->toBe(1)
+        ->and($pdf)->toContain('/ToUnicode');
+});
+
 test('a draft invoice and an unknown invoice have no document', function () {
     $draft = issueInvoice(pdfEmailClient(), [1_000_000], status: 'draft');
 

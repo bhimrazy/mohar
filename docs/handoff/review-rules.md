@@ -45,6 +45,9 @@ A probe that reproduces a finding is pushed as a Pest test file to a branch `rev
 head, tests only) and named in the review. The engineer adopts it in the fix push; the re-check is then a diff read
 plus CI. Adopted probes do not count toward the PR size cap.
 
+An adopted probe is named by the behaviour it pins, never by a PR, round or reviewer (owner decision 2026-10-31):
+`InvoiceOverpaymentTest`, not `Pr536ProbesTest`. Put it in the behaviour's existing test file when one exists.
+
 ## Combined review
 
 When the brief says "combined", `review-board` applies the `security-reviewer` and `database-reviewer` checklists in
@@ -62,6 +65,6 @@ Recurring defect classes (found four days running; check them first):
 - confirm-then-apply flows that act on a snapshot without a digest and a re-read under lock;
 - scheduled or automation queries with no named index and no cap on work per run;
 - an email address treated as proof of ownership when it was not set by a verified owner login, staff, or an import;
-- deploy scripts changed without the `tests/Unit/Deploy` probes;
+- deploy scripts changed without the `tests/Tooling/Deploy` probes;
 - PostgreSQL-only failures (column lengths, time-zone displacement) in code tested only on SQLite;
 - a driver changed without its simulator and `tools/simulators/tests` following it.

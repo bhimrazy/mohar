@@ -146,8 +146,11 @@ medium host did about 1.3 times the comfortable request rate of the small one (2
 vCPU. A real 4 vCPU host, or an 8-CPU runner, has not been measured.
 
 At 100 fast users the knowledge base (12% of 104 requests) and announcements (19% of 108) answered with errors, which
-is why that level has 0.55% errors; the other pages had none. Which status they returned was not recorded (all
-virtual users share the load generator's single IP address, so a per-IP limit is the likely cause, not checked).
+is why that level has 0.55% errors; the other pages had none. They were the per-IP limit `support-public`, 60 a
+minute shared by both pages (#567, inferred: the run did not record statuses; 212 requests in the 3-minute level is
+about 71 a minute, which predicts about 15% refused, and a local burst from one IP was refused with 429 from the 61st
+request). So these errors are a harness artefact, not a sizing fact. The pages now have their own limit of 300 a
+minute, and the harness counts their 429s apart and lists each page's error statuses.
 
 ### Per page at the knee
 
@@ -200,7 +203,14 @@ Past the knee the tail grows on every page at once, cheap ones included (the sto
   profile's scheduler to 512 MB, as in production, and records the exit code.
 - **Medium: 3,059 s and 3,078 s (measured),** almost all of it renewals: 11,623 in 2,865–2,874 s, **4.0 per second**,
   against 24.8 per second on 2026-10-23 (small profile, commit `c5c0ffa`). The queue drain took 369–375 s for 12,572
-  jobs (34 per second, against 117.6). Not investigated; see "Not measured yet".
+  jobs (34 per second, against 117.6). **Cause (#566):** since #504 (2026-10-25, after the 10-23 run) every renewal
+  invoice's email renders the invoice PDF inside the renewal loop, to say whether it is attached. In the medium run the
+  scheduler was at 88% of a core for the whole billing day while PostgreSQL spent 40 s on all statements, about 3 ms a
+  renewal (measured, `docker-stats.ndjson` and `pg-top-automation.json`). Each PDF was 858 KB, because laravel-dompdf
+  embeds whole fonts by default, and the drain attached and logged it for every email. Locally on PostgreSQL (247
+  renewals, the same code with the setting off and on): the billing day's CPU went from 7–10 s to 37–39 s, and the
+  drain's from 2.1–2.6 s to 8.4–8.5 s. Font subsetting (23 KB a PDF) brings the drain back to 2.2–3.0 s and the billing
+  day to 30–34 s; the render in the loop is the rest, and moving it out is a separate change (#566).
 - **Invoice PDF (one process, measured):** p50 120–169 ms.
 
 ## History: small profile at 5–40 users, run 40000321793
@@ -473,9 +483,8 @@ of 49.7 s and a 546 s billing day at 20 renewals per second.
   would separate them.
 - **More PHP threads on the same cap,** which would show whether threads ever limit before CPU.
 - **The billing day on the small profile** (it did not finish in the 2026-10-31 runs, most likely the scheduler's
-  256 MB limit then in `loadtest/profiles/small.env`, now 512 MB; inferred until a run with the exit code confirms it), and **why medium's renewals ran at 4.0 per
-  second** against 24.8 on 2026-10-23 (#566).
-- **Which status the knowledge base and announcements returned** in the errors at 100 fast users on medium (#567).
+  256 MB limit then in `loadtest/profiles/small.env`, now 512 MB; inferred until a run with the exit code confirms it).
+- **The billing day with font-subset PDFs** on a runner (#566); measured locally only.
 - **Web load during the billing day**, provisioning against a control panel, and a Redis-backed stack
   (`loadtest/README.md`, "Not covered yet").
 

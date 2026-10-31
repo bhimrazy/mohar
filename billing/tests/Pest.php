@@ -27,7 +27,7 @@ use Tests\TestCase;
 
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
-    ->in('Feature');
+    ->in('Feature', 'Kernel/Feature');
 
 // A test browser keeps its session cookie: an unlock belongs to one session id (ReviewUnlocks::binding), and without a
 // cookie every test request would start a session with a new id.

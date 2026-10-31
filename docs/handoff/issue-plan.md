@@ -1,4 +1,152 @@
-# Issue triage, 2026-10-24
+# Wave plan, 2026-10-31
+
+This plan replaces the "Order" section of the 2026-10-24 triage below (that triage stays as history; its package IDs
+P1 to P18 are mostly merged). It interleaves four tracks so that no file moves twice:
+
+- **ADR 0030** extension model: #571, M1 to M8 (`billing/docs/adr/0030-extension-model.md`, A8 gives the order).
+- **Code structure** (#570): S0 to S8 (`docs/reviews/2026-10-31-code-structure.md` §6).
+- **Best-practices audit fixes** (#569): AF1 to AF9 (`docs/reviews/2026-10-31-best-practices.md`, "Proposed fix PRs").
+  AF numbers are the audit's PR numbers 1 to 9. "Finding M3" is the audit's M3, not ADR 0030's M3.
+- **Nepal VAT package** (NV1 to NV3, from `docs/research/2026-10-31-nepal-vat-ebilling.md`) and the load-test and
+  database follow-ups.
+
+Owner decisions that shape it (all 2026-10-31, `requirements.md`): ADR 0030 accepted; Platform merges into Core; an Auth
+module is extracted; the 130 PR-named tests are renamed by behaviour; `spatie/typescript-transformer` approved in
+principle, for later.
+
+## Reading the tables
+
+- **Track.** CTO = the CTO session makes it (kernel changes: `app/Contracts|Data|Events|Support`), one kernel PR at a
+  time, each rebasing on the last and regenerating `kernel-api.txt`. Eng = a `module-engineer` in its own worktree.
+  Docs = product-manager or architect.
+- **Loop.** **Strict** = the owner's money, auth and data-deletion loop (review board in combined mode, fix round,
+  `re-reviewer` at the final head), and here also every migration. **Normal** = one review board pass and merge when
+  nothing blocks. **Docs** = slop reviewer if needed.
+- **Parallel** says what can run beside it. "Quiet window" means no other open PR touches the same module or driver
+  folders (pure moves are reviewed with `git diff -M` and mix no edits).
+
+## Constraints that fix the order
+
+1. #571 before M5a (ADR 0030 A1) and first in A8's order; M3 follows it because M3 changes the gateway registry that the
+   settlement callers read.
+2. M3 before M1 before M2 before M4 (moves follow the kernel contract, A8). M4 before M5a before M6. M7 after M4. M5b
+   last of the lifecycle work, with its first consumer (AcmePanel in M7).
+3. S3 and S4 on Billing wait for M3; on Services and Domains wait for M2. **Platform gets no S3 or S4 of its own:** it
+   merges into Core (S8) after M2, and the merged Core gets one S3 and one S4.
+4. S2 (Core infrastructure to `app/Support`) runs after M2, so the moved gateway and driver files get their new
+   imports once. S2 comes before ADR 0031's snapshot change and before S7.
+5. ADR 0031 (Core public surface, AF2) is decided after S2 and S8, so it versions what is left in Core. M3 uses the
+   contracts that exist then and adds only the ones it needs (ADR 0030, "Relationship with ADR 0031").
+6. Per module the order is S3, then S4 (both edit the provider's `use` lines), then that module's AF5 conversion, then
+   S5. AF5 comes before S5 because after-commit is a correctness fix; S5 then splits code that already has it.
+7. S3 moves a class's unit test with it, so S1 never moves those; S1 per module renames Feature tests in place and
+   mirrors the rest. S1 on Payments, Extensions and driver tests waits for M1 (gateways) or M2 (cPanel, registrars,
+   ECB, NRB).
+8. S5 splits the multi-verb Actions (`RefundTransaction` has 12 public methods) that M5a gates (A1's settlement and
+   new-work lists). S5 lands on those before M5a, never beside it.
+9. AF9 (starter-kit removal) before S6 and S7: do not move dead files. S6 is one PR, right after a UI wave merges. M6
+   follows S6. ADR 0028's mechanism lands before S6 without converting pages; the page conversions follow S6.
+10. AF6 (stray-HTTP guard, probe naming rule) before S1.
+11. Money, tax and migration work is not moved while it is in flight: NV2 waits for Billing's S3, S4, AF5 and S5.
+
+## Waves
+
+| Wave | PR | Track | Loop | Parallel with | Waits for |
+| --- | --- | --- | --- | --- | --- |
+| **0 (in flight)** | #571 per-account disable stops stranding settlement (branch `feature/inactive-settlement`) | Eng | Strict (money) | AF3 | merges first; AF3 rebases on it (both touch `RegistrarGateway` and `ExecuteModuleCommand`) |
+| 0 | AF3 provisioning retry, sensitive keys, `Queues::*` (findings M3, M4, L2; `feature/audit-fixes-1`) | Eng | Normal, combined review (integrations, redaction) | #571 | — |
+| **1 Fence** | S0 module building blocks and folder rules in `architecture.md`; allowed-folders arch rule; review-rules line on renaming adopted probes | Docs | Docs | all of wave 1 | — (first, one day) |
+| 1 | AF4 admin permission sweep, Form Request rule, money-controller move (findings M1, M2) | Eng | **Strict** (auth, permissions) | AF6, AF8, AF9, NV1 | — |
+| 1 | AF6 stray-HTTP guard, operation budgets, probe naming rule (finding M5) | Eng | Normal, CTO verifies from the diff | AF4, AF9 | #558 (merged) |
+| 1 | AF8 pre-push gate installed by `new-worktree.sh` (finding M7) | Eng (devops) | Normal | any | — |
+| 1 | AF9 starter-kit removal, `useHttp`, money helpers, tokens, bundle budget (findings L1, L3 to L5, L7) | Eng | Normal, product reviewer for the auth pages | AF4, AF6 | — |
+| 1 | NV1 IRD register layout and counts, "copy of original" a MUST (see Nepal VAT package) | Eng | Normal, accountant check afterwards | AF4, AF6, AF9 | — |
+| **2 Gateways** | **M3** `GatewayDriverRegistry` (key, class), `settingsFields()` as `list<SettingField>`, `GatewayHttp` and minor-units helper, D3 imports removed, `GatewayConformance`, `GatewayManager` out of `Drivers/` | **CTO** | **Strict** (payments) | S0, AF6 test PRs | #571 merged |
+| 2 | **M1** loader and base provider, move Stripe, Razorpay, Cybersource, split Nepal into Esewa, Khalti, Connectips; arch scans cover `app/Extensions` | CTO (kernel part called out) + Eng | Normal, re-review at final head (payments), `git diff -M` | S1, S3/S4 on non-payment modules | M3; quiet window for payments |
+| 2 | AF1 request and job correlation (finding H2) | **CTO** | Normal, architect review | M1 moves | M3 (one kernel PR at a time) |
+| 2 | S1 per module: Kernel and Tooling folders, `Fakes` dedupe, dissolve `Security/Review*`, `Rr536`, `ReviewProbes`; then Billing (not Payments), Orders, Catalog, Notifications, Support, Core, Themes | Eng, test-only | Normal | M1, M3, S3 | AF6; Payments tests wait for M1 |
+| 2 | S3 then S4 on Orders, Notifications, Support; on Billing once M3 is in (Billing/Support/AfterCommit stays for AF5). Adds the registry snapshot test helper | Eng | Normal (S3/S4), snapshot test is the proof | M1, S1 | S0; Billing: M3 |
+| 2 | AF5 base: ADR 0011 after-commit, arch baseline (finding H3), then one PR per module right after that module's S3/S4 | **CTO**, then Eng | **Strict** for Billing and Services (money events), Normal elsewhere | S1 | kernel queue after AF1 |
+| 2 | DB1 CHECK constraints on `services.status` (#559) and `domains.status` (#560, settle `DomainStatus` first); enum-sync tests | Eng | **Strict** (migration), database reviewer | M1, S1 | — |
+| 2 | LT1 investigate #566 (medium renewals 4.0/s) and #567 (public KB and announcements errors at 100 VUs): record status codes first | Eng (devops, database) | Normal; the #566 fix is **Strict** | M1 | #566 fix lands before S5 on Billing |
+| **3 Drivers and kernel move** | **M2** move cPanel, ResellerClub, Namecheap, ECB, NRB to `app/Extensions` | Eng | Normal, `git diff -M`; quiet window | S1 (non-driver), AF5 modules | M1; no open Services, Domains or Platform PR |
+| 3 | **S2** Core infrastructure to `app/Support/{Database,Tooling}`, 17 `Null*` fallbacks to `Support/<Area>`; kernel fragment, snapshot | **CTO** | Normal, architect gate | S3/S4 Services and Domains | M2 (one import pass), S0 |
+| 3 | S3 then S4 on Services and Domains, then AF5 for each | Eng | S3/S4 Normal; AF5 for Services **Strict** | S2 rebases | M2 |
+| 3 | S1 on Services, Domains and driver tests | Eng, test-only | Normal | S2 | M2 |
+| 3 | DB2 drop redundant indexes and `jobs_queue_index` (#561) in one contract migration | Eng | **Strict** (migration) | any | a week of `idx_scan` data from the load-test database |
+| **4 Core, manifest, UI** | **S8** Platform merges into Core, then S3 and S4 on the merged Core (and its AF5) | Eng | Normal, registry snapshot test equal before and after; `git diff -M` | M4, S5 | M2, S2 |
+| 4 | AF2 ADR 0031 Core public surface, then the snapshot scope change | Docs (architect), then **CTO** | Docs, then Normal | M4 | S2, S8 |
+| 4 | **M4** manifest schema 1, `ExtensionCatalog`, `extensions:cache`, `extensions:list`, kernel constraint, Composer discovery | **CTO** | Normal, architect gate | S5, T1 | S4 on Billing, M1 |
+| 4 | S5 one verb per Action: Billing x3, Services x2, Catalog, Domains, Support, Migration (reviewed as code) | Eng | Normal; **Strict** for Billing refund and payment Actions | M4, T1 | S3 and AF5 of that module; the #566 fix |
+| 4 | T1 ADR 0028 translation mechanism (hook, message files, no page conversions) | Eng | Normal | S5, M4 | AF9 |
+| 4 | S6 frontend paths mirror modules; arch rule 8 | Eng | Normal, product reviewer | S5 | AF9, T1, a quiet UI window |
+| **5 Lifecycle** | **M5a** `extensions` table, install/upgrade/enable/disable, registry gating per A1, `ExtensionUsage`, backfill | Eng + CTO review | **Strict** (money and provisioning gating, migration) | S7, NV2 | #571, M3, M4, S5, S8 |
+| 5 | **M6** Admin Settings, Extensions page, permission, step-up, activity log | Eng | Normal, security checklist | S7 | M5a, S6 |
+| 5 | S7 Auth module (`Fortify` actions, `Auth` and `Settings` controllers, requests, concerns, notifications, `routes/settings.php`; `User` stays) | Eng | **Strict** (auth), product reviewer for sign-in | M5a, M6 | S2, AF2, AF9 |
+| 5 | NV2 tax invoice fields (see Nepal VAT package) | Eng | **Strict** (tax, numbering, migration) | M5a, S7 | accountant answers; Billing S3, S4, AF5, S5 |
+| **6 Author DX and tail** | **M7** `make:extension`, `extensions:check`, AcmePanel path package with a migration and an `upgrade()` | Eng + CTO | Normal | NV3, L3 | M4, M5a |
+| 6 | **M5b** per-extension migrations, lifecycle hooks, `extension:<id>` middleware, guarded listeners | Eng | **Strict** (uninstall, migrations) | NV3 | M7 (first consumer) |
+| 6 | NV3 invoice fields and bill reports, server-location check | Eng | Normal | M7 | owner's IRD route decision |
+| 6 | AF7 nightly coverage and mutation report on money paths | Eng (devops) | Normal | any | **owner approval** (CI policy, coverage driver pin; CI minutes cap) |
+| 6 | **M8+** fraud and notification-channel families, declared hosts, UI slots, verified list | per PR | per PR | — | M7 |
+| Later | L3 split `architecture.md` into an index and topic pages; L1 Payments module (only if Billing passes 300 files, after M3); L5 TypeScript types from Resources with `spatie/typescript-transformer` (ADR 0007, after AF9 and Resource-only props) | Docs / Eng | Normal | — | S0; M3; AF9 |
+
+Counting: wave 0 has 2 builders; wave 1 has 5 builders plus S0 docs; wave 2 lists more PRs than can run at once, so
+stagger them by the Waits-for column and never exceed 7 agents (the Mac's limit, `operating-model.md`).
+
+### What can run in parallel, in one line each
+
+- Wave 1 is fully parallel; none of it moves a file that M1 to M3 move.
+- In wave 2, M3 and AF1 and AF5-base are a CTO queue (one at a time); everything else runs beside them. M1 needs the
+  quiet window for payments, so no payment PR, including AF3 follow-ups, is open then.
+- In wave 3, M2 needs its own quiet window; S2 follows it; S3/S4 on Services and Domains follow M2.
+- In wave 4, M4 and S5 and T1 run side by side. S6 waits for a quiet UI window.
+- In wave 5, M5a, M6, S7 and NV2 touch different areas (Core gating, Core UI, Auth, Billing) and can overlap, except
+  that M6 starts after M5a and S7 and M5a both edit Core providers (merge one, rebase the other).
+
+## Nepal VAT package (NV)
+
+Source: `docs/research/2026-10-31-nepal-vat-ebilling.md` §14 and §15; questions: `docs/handoff/accountant-questions.md`.
+Spec to update with each PR: `billing/docs/product/vat-register.md`. Billing is the module; it is money and tax, so
+NV2 is strict.
+
+| PR | Scope | Waits on the accountant? |
+| --- | --- | --- |
+| **NV1** (wave 1) | (a) `ird` register layout: drop the goods, quantity and unit columns, use the export wording (निर्यात, not निकासी), add the total column (कुल जम्मा) (gap 4); the Nepali header labels may need a kernel change (#480), which the CTO session makes. (b) Register counts per period: sales invoices, credit notes, debit notes (gap 9, Schedule 10). (c) "Copy of original" on every reprint becomes a **MUST** in the spec and gets a test across download, print and email paths (A7, Procedure cl. 6(च)). | No for (a) to (c) as built from the primary text. If the accountant names a different post-2083 sales book format, the columns change in a follow-up. |
+| **NV2a** (wave 5) | On a tax invoice paid in a convertible foreign currency, print the NPR equivalent and the NRB rate of the transaction day, and snapshot it as the rate used (Rule 21, gap 5; D6). | Partly: the source and date are settled; buying, selling or mid rate (D6) and "payment day or invoice day" are open. Build with the existing rate-type setting; confirm before launch. |
+| **NV2b** (wave 5) | Per-BS-fiscal-year numbering in VAT mode for invoices and notes together: `{BS_FY}` in the format and the `bs_fiscal_year` reset on by default; refuse a format without it when reset is per year (gap 6; D2). Needs a migration for existing sequences. | Yes for notes (the Rules say only "running number"), confirm for invoices (Procedure cl. 6(ङ)). Do not change a live host's sequence before the answer. |
+| **NV2c** (wave 5) | BS date always shown on tax invoices and notes in VAT mode (optional today, #207) (A9, gap 7). | Yes (accountant question 1.5). |
+| **NV3** (wave 6) | Other Schedule 5 and 6 fields: transaction date beside the issue date, payment method on every tax invoice, amount in words (gap 7); cancelled-bills, corrected-records and audit-trail reports and a master bill view (gap 8); XLSX or XML export (gap 10); deploy check and docs warning that VAT mode on a server outside Nepal is non-compliant (gap 3, A10); a note on how CBMS would report debit notes (gap 11). | Partly: the report shapes follow the Procedure; the server-location warning waits on whether a VPS counts as "cloud". |
+
+Not in the package: the CBMS driver and the IRD software approval itself. The 2026-10-31 owner decision keeps CBMS out of
+scope; the research finds that approval is required at any size and CBMS is likely for a cloud-hosted install. That is
+the owner action "IRD software approval route" in `state.md`; NV3 and any CBMS work wait for it.
+
+## Load-test and database follow-ups (from #543, #552, #554)
+
+| Issue | What | Where in the waves |
+| --- | --- | --- |
+| #559, #560 | `services.status` and `domains.status` CHECK constraints | DB1, wave 2 |
+| #561 | drop redundant indexes (database review M9) and `jobs_queue_index` | DB2, wave 3, after a week of index stats |
+| #566 | medium host renews 4.0/s against 24.8/s on the small host a week earlier; billing day 3,059 s | LT1, wave 2 (investigate); the fix is strict and lands before S5 on Billing |
+| #567 | KB and announcements errors at 100 VUs on medium (a per-IP limit is the first guess) | LT1, wave 2 |
+
+Sizing to quote (`billing/docs/devops/sizing.md`, #543): the small host (2 vCPU, 4 GB) is comfortable to about 15 req/s,
+which is 200 to 350 people at once (10 to 30 s per page); the medium host (4 vCPU, 8 GB) about 400 people at once, a
+lower bound because the load generator shared its CPUs. The small host's billing day did not finish in the 10-31 runs.
+
+## Rules for the plan
+
+- A review follow-up goes into the open PR's fix round or a package above, not a new issue (unchanged).
+- Each PR lists "Closes" lines and the merge step closes issues by hand.
+- An owner-gated item (AF7, NV3, any CBMS work) stays out of a wave until the owner answers; the CTO re-plans when the
+  accountant's answers arrive.
+- Re-plan after wave 2: S1 and S3 numbers (130 files, 16 Actions) are from `develop` at `a5b803bf`.
+
+---
+
+# Issue triage, 2026-10-24 (history)
+
 
 Source: `gh issue list --state open` (108 at start, 107 after this triage, #443 arrived during it), 223 merged PRs into
 `develop`, `state.md` from `feature/handoff-1024` (#437), `operating-model.md`. Evidence checked with `git grep` on

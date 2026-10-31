@@ -8,12 +8,12 @@ use Tests\Fixtures\Redactor\DevelopRedactor;
 /**
  * The parity guard of #252 (RedactorParityTest): a deterministic corpus, and the rule for what develop masked by
  * over-redaction that the Redactor now leaves readable on purpose. The corpus is every string literal in the Redactor
- * test files (`tests/Unit/Support/Integrations/*Redactor*Test.php`, the parity test itself excluded) plus generated
+ * test files (`tests/Kernel/Unit/Integrations/*Redactor*Test.php`, the parity test itself excluded) plus generated
  * variants, so a probe folded into a themed file stays in it as long as the file name matches.
  */
 final class RedactorParity
 {
-    private const TEST_DIRECTORY = __DIR__.'/../../Unit/Support/Integrations';
+    private const TEST_DIRECTORY = __DIR__.'/../../Kernel/Unit/Integrations';
 
     /**
      * String literals from the Redactor test files that look like input (contain `=`, `:` or `<`).

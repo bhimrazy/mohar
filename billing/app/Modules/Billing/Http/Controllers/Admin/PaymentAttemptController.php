@@ -6,12 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
+use App\Modules\Billing\Http\Requests\Admin\PaymentAttemptListRequest;
+use App\Modules\Billing\Http\Requests\Admin\ResolvePaymentAttemptRequest;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Support\Money;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -20,16 +21,9 @@ use Inertia\Response;
  */
 class PaymentAttemptController extends Controller
 {
-    public function index(Request $request, GatewayManager $gateways): Response
+    public function index(PaymentAttemptListRequest $request, GatewayManager $gateways): Response
     {
-        $this->authorize('billing.payments.manage');
-        $filters = $request->validate([
-            'status' => ['nullable', Rule::enum(AttemptStatus::class)],
-            'gateway' => ['nullable', 'string', 'max:50'],
-            'late' => ['nullable', 'boolean'],
-            'review' => ['nullable', 'boolean'],
-            'check' => ['nullable', Rule::in([PaymentAttempt::CHECK_LATE, PaymentAttempt::CHECK_CREDIT, PaymentAttempt::CHECK_REFUND, PaymentAttempt::CHECK_PORTAL_REFUND])],
-        ]);
+        $filters = $request->validated();
 
         return Inertia::render('admin/billing/payment-attempts/index', [
             'attempts' => PaymentAttempt::query()
@@ -88,14 +82,9 @@ class PaymentAttemptController extends Controller
      * read there must match, and the provider's reference is booked once) or it was not (closed for good, the invoice
      * can be paid again). The audit entry is written by the action, inside its transaction.
      */
-    public function resolve(Request $request, PaymentAttempt $attempt, SettlePaymentAttempt $settle): RedirectResponse
+    public function resolve(ResolvePaymentAttemptRequest $request, PaymentAttempt $attempt, SettlePaymentAttempt $settle): RedirectResponse
     {
-        $this->authorize('billing.payments.manage');
-        $data = $request->validate([
-            'outcome' => ['required', 'in:paid,not_paid'],
-            'provider_reference' => ['required_if:outcome,paid', 'nullable', 'string', 'max:191'],
-            'amount' => ['required_if:outcome,paid', 'nullable', 'string', 'regex:/^\d{1,3}(,?\d{3}){0,3}(\.\d{1,2})?$/'],
-        ], ['amount.regex' => __('Enter the amount as the portal shows it, for example 1130.50.')]);
+        $data = $request->validated();
         $paid = $data['outcome'] === 'paid';
 
         $paid

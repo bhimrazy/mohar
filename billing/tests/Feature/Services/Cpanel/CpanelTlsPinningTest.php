@@ -6,6 +6,7 @@ use App\Modules\Services\Drivers\Provisioning\Cpanel\CpanelDriver;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\WhmClient;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\WhmFailure;
 use App\Support\Integrations\OutboundAddressGuard;
+use Illuminate\Support\Facades\Http;
 use Symfony\Component\Process\ExecutableFinder;
 use Symfony\Component\Process\InputStream;
 use Symfony\Component\Process\Process;
@@ -28,6 +29,8 @@ beforeEach(function () {
         $this->markTestSkipped('openssl is not installed.');
     }
 
+    // The one real request of the file: the pinned address is a local openssl server.
+    Http::allowStrayRequests(['https://'.Whm::HOST.':*']);
     config(['integrations.outbound.allow_loopback' => true]);
     Whm::bindGuard('127.0.0.1');
     $this->servers = [];

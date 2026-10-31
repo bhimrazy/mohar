@@ -114,19 +114,19 @@ test('the Kartik register lists the invoices and notes of the month from their s
         ->and(array_column($rows, 'bs_date'))->toBe(['2083-07-03', '2083-07-05', '2083-07-10', '2083-07-12'])
         ->and($rows[0]['ad_date']->format('Y-m-d'))->toBe('2026-10-20')
         ->and($rows[0])->toMatchArray(['buyer' => 'Everest Treks Pvt. Ltd.', 'pan' => '301234567', 'goods' => 'Web hosting + 1 more', 'quantity' => 2, 'unit' => 'service', 'reference' => null])
-        ->and(registerAmounts($rows[0]))->toBe(['total_sales' => 15_000, 'exempt' => 0, 'taxable' => 15_000, 'vat' => 1_950, 'export_value' => 0])
+        ->and(registerAmounts($rows[0]))->toBe(['total_sales' => 15_000, 'exempt' => 0, 'taxable' => 15_000, 'vat' => 1_950, 'export_value' => 0, 'total' => 16_950])
         ->and($rows[1]['pan'])->toBeNull()
-        ->and(registerAmounts($rows[1]))->toBe(['total_sales' => 14_000, 'exempt' => 4_000, 'taxable' => 10_000, 'vat' => 1_300, 'export_value' => 0])
+        ->and(registerAmounts($rows[1]))->toBe(['total_sales' => 14_000, 'exempt' => 4_000, 'taxable' => 10_000, 'vat' => 1_300, 'export_value' => 0, 'total' => 15_300])
         ->and($rows[2])->toMatchArray(['reference' => $a->number, 'reference_bs_date' => '2083-07-03'])
-        ->and(registerAmounts($rows[2]))->toBe(['total_sales' => -1_000, 'exempt' => 0, 'taxable' => -1_000, 'vat' => -130, 'export_value' => 0])
-        ->and(registerAmounts($rows[3]))->toBe(['total_sales' => 2_000, 'exempt' => 0, 'taxable' => 2_000, 'vat' => 260, 'export_value' => 0])
+        ->and(registerAmounts($rows[2]))->toBe(['total_sales' => -1_000, 'exempt' => 0, 'taxable' => -1_000, 'vat' => -130, 'export_value' => 0, 'total' => -1_130])
+        ->and(registerAmounts($rows[3]))->toBe(['total_sales' => 2_000, 'exempt' => 0, 'taxable' => 2_000, 'vat' => 260, 'export_value' => 0, 'total' => 2_260])
         ->and($rows[0]['total_sales']->currency)->toBe('NPR');
 
     $page = app(ReportViewer::class)->page('vat_register', app(ReportExporter::class)->query('vat_register', ['month' => '2083-07'], auth()->id()), 10);
     $totals = collect($page->totals)->keyBy('bs_date')->map(registerAmounts(...));
 
     expect($totals->keys()->all())->toBe(['Tax invoices', 'Credit notes', 'Debit notes', 'Net'])
-        ->and($totals['Net'])->toBe(['total_sales' => 30_000, 'exempt' => 4_000, 'taxable' => 26_000, 'vat' => 1_950 + 1_300 - 130 + 260, 'export_value' => 0])
+        ->and($totals['Net'])->toBe(['total_sales' => 30_000, 'exempt' => 4_000, 'taxable' => 26_000, 'vat' => 1_950 + 1_300 - 130 + 260, 'export_value' => 0, 'total' => 30_000 + 3_380])
         ->and($totals['Net']['vat'])->toBe($totals['Tax invoices']['vat'] + $totals['Credit notes']['vat'] + $totals['Debit notes']['vat']);
 
     // The Mangsir register holds only the later note, as a negative row (AC 37).
@@ -174,7 +174,7 @@ test('a USD invoice is converted with its stored rate, per document, and a full 
         ->and($rows[0])->toMatchArray(['currency' => 'USD', 'rate' => '134.250000'])
         ->and($rows[0]['original_amount']->amount)->toBe(10_001)
         ->and($rows[1]['total_sales']->amount)->toBe(-1_342_634)
-        ->and(registerAmounts($net))->toBe(['total_sales' => 0, 'exempt' => 0, 'taxable' => 0, 'vat' => 0, 'export_value' => 0]);
+        ->and(registerAmounts($net))->toBe(['total_sales' => 0, 'exempt' => 0, 'taxable' => 0, 'vat' => 0, 'export_value' => 0, 'total' => 0]);
 });
 
 test('the fiscal year runs from 1 Shrawan to the end of Asar and its view has 12 month rows (AC 39)', function () {
@@ -315,9 +315,11 @@ test('another tax is not VAT, and a document whose tax was never classified is l
 
     // The GST invoice is exempt sales of its whole value; its 18% is not VAT. The loose one is listed with blank amounts, out
     // of every total, and counted in the warning.
-    expect(registerAmounts($gst))->toMatchArray(['exempt' => 10_000, 'taxable' => 0, 'vat' => 0])
-        ->and(registerAmounts($loose))->toBe(['total_sales' => null, 'exempt' => null, 'taxable' => null, 'vat' => null, 'export_value' => null])
+    expect(registerAmounts($gst))->toMatchArray(['exempt' => 10_000, 'taxable' => 0, 'vat' => 0, 'total' => 10_000])
+        ->and(registerAmounts($loose))->toBe(['total_sales' => null, 'exempt' => null, 'taxable' => null, 'vat' => null, 'export_value' => null, 'total' => null])
         ->and($summary->unclassified)->toBe(1)
+        // Left out of the sums, still counted for the return.
+        ->and($summary->counts['invoice'])->toBe(count(array_filter($rows->all(), fn (array $row): bool => $row['type'] === 'Tax invoice')))
         ->and($summary->net()['taxable'])->toBe(collect(registerRows('vat_register', ['month' => '2083-07']))->sum(fn (array $row): int => $row['taxable']?->amount ?? 0));
 });
 
@@ -492,31 +494,51 @@ function registerExportUrl(array $query = []): string
     return route('admin.billing.vat-register.export', ['month' => '2083-07', ...$query]);
 }
 
-test('the IRD-layout CSV has the header rows, then the template columns in order with their Nepali headings, then ours (AC 44)', function () {
+test('the IRD-layout CSV has the header rows with the period\'s counts, then Schedule 9\'s 13 columns in order with their Nepali headings, then ours (AC 44)', function () {
     ['a' => $a] = kartikRegisterFixture();
     CarbonImmutable::setTestNow('2026-11-20 06:00:00');
     actingAsStaff(['reports.vat_register.export']);
     confirmPassword();
 
     $response = $this->get(registerExportUrl(['layout' => 'ird']))->assertOk();
-    $rows = registerCsv($response->streamedContent());
+    $csv = $response->streamedContent();
+    $rows = registerCsv($csv);
 
-    expect(array_slice($rows, 0, 4))->toBe([
+    expect(array_slice($rows, 0, 7))->toBe([
         ['Seller PAN', '609876543'],
         ['Seller name', 'Himal Hosting Pvt. Ltd.'],
         ['Fiscal year (BS)', '2083/84'],
         ['Tax period', 'Kartik 2083 (month 7)'],
-    ])->and($rows[4])->toBe([
-        'मिति', 'बीजक नम्बर', 'खरिदकर्ताको नाम', 'खरिदकर्ताको स्थायी लेखा नम्बर', 'वस्तु वा सेवाको नाम',
-        'वस्तु वा सेवाको परिमाण', 'वस्तु वा सेवाको परिमाण मापन गर्ने इकाइ', 'जम्मा बिक्री / निकासी (रु)',
+        ['Tax invoices issued', '2'],
+        ['Credit notes issued', '1'],
+        ['Debit notes issued', '1'],
+    ])->and($rows[7])->toBe([
+        // Goods, quantity and unit are gone (25th amendment, 2080); "निर्यात" replaces "निकासी" (26th, 2081).
+        'मिति', 'बीजक नम्बर', 'खरिदकर्ताको नाम', 'खरिदकर्ताको स्थायी लेखा नम्बर', 'जम्मा बिक्री/निर्यात मूल्य (रु)',
         'स्थानीय कर छुटको बिक्री मूल्य (रु)', 'करयोग्य बिक्री मूल्य (रु)', 'करयोग्य बिक्री कर (रु)',
-        'निकासी गरेको वस्तु वा सेवाको मूल्य (रु)', 'निकासी गरेको देश', 'निकासी प्रज्ञापनपत्र नम्बर', 'निकासी प्रज्ञापनपत्र मिति',
+        'निर्यात गरेको वस्तु वा सेवाको मूल्य (रु)', 'निर्यात गरेको देश', 'निर्यात प्रज्ञापनपत्र नम्बर', 'निर्यात प्रज्ञापनपत्र मिति', 'कुल जम्मा',
         'Date (AD)', 'Document', 'Reference invoice', 'Reference date (BS)', 'Document currency', 'Document amount', 'Rate',
-    ])->and($rows[5])->toBe(['2083-07-03', $a->number, 'Everest Treks Pvt. Ltd.', '301234567', 'Web hosting + 1 more', '2', 'service', '150.00', '0.00', '150.00', '19.50', '0.00', '', '', '', '2026-10-20', 'Tax invoice', '', '', '', '', ''])
-        ->and($rows[7])->toBe(['2083-07-10', 'CN-1', 'Everest Treks Pvt. Ltd.', '301234567', 'Web hosting + 1 more', '2', 'service', '-10.00', '0.00', '-10.00', '-1.30', '0.00', '', '', '', '2026-10-27', 'Credit note', $a->number, '2083-07-03', '', '', ''])
-        ->and(array_column(array_slice($rows, 9), 0))->toBe(['Tax invoices', 'Credit notes', 'Debit notes', 'Net'])
+    ])->and($rows[8])->toBe(['2083-07-03', $a->number, 'Everest Treks Pvt. Ltd.', '301234567', '150.00', '0.00', '150.00', '19.50', '0.00', '', '', '', '169.50', '2026-10-20', 'Tax invoice', '', '', '', '', ''])
+        ->and($rows[10])->toBe(['2083-07-10', 'CN-1', 'Everest Treks Pvt. Ltd.', '301234567', '-10.00', '0.00', '-10.00', '-1.30', '0.00', '', '', '', '-11.30', '2026-10-27', 'Credit note', $a->number, '2083-07-03', '', '', ''])
+        ->and(array_column(array_slice($rows, 12), 0))->toBe(['Tax invoices', 'Credit notes', 'Debit notes', 'Net'])
+        ->and(end($rows)[12])->toBe('333.80')
+        ->and($csv)->not->toContain('निकासी')->not->toContain('वस्तु वा सेवाको नाम')->not->toContain('परिमाण')
         ->and($response->headers->get('Content-Disposition'))->toContain('vat-register-ird-2083-07-kartik.csv')
         ->and(ActivityLog::query()->where('event', 'report.exported')->sole()->properties)->toMatchArray(['layout' => 'ird', 'format' => 'csv', 'rows' => 4]);
+});
+
+test('the counts of each kind cover the period only, include documents left out of the sums, and the note register counts notes only (Schedule 10)', function () {
+    kartikRegisterFixture();
+    $usd = Client::factory()->create(['country' => 'NP', 'currency' => 'USD']);
+    $unconverted = onRegisterDay('2026-10-23', fn () => issueInvoice($usd, [10_000]));
+    DB::table('invoices')->where('id', $unconverted->id)->update(['report_rate' => null]);
+    actingAsStaff(['reports.vat_register.view', 'reports.tax_note_register.view']);
+    $header = fn (string $key, string $month): array => app(ReportRegistry::class)->get($key)->headerBlock(app(ReportExporter::class)->query($key, ['month' => $month], auth()->id()));
+
+    expect(array_slice($header('vat_register', '2083-07'), 4))->toBe([['Tax invoices issued', '3'], ['Credit notes issued', '1'], ['Debit notes issued', '1']])
+        ->and(registerSummaryWith(null)->unconverted)->toBe(1)
+        ->and(array_slice($header('vat_register', '2083-08'), 4))->toBe([['Tax invoices issued', '0'], ['Credit notes issued', '1'], ['Debit notes issued', '0']])
+        ->and(array_slice($header('tax_note_register', '2083-07'), 4))->toBe([['Credit notes issued', '1'], ['Debit notes issued', '1']]);
 });
 
 test('the PDF prints the summary columns, which fit A4 landscape, with the header block and totals, for both registers', function (string $tab, string $key, array $columns, string $label) {
@@ -601,4 +623,78 @@ test('issuing a tax invoice and a note sends nothing to CBMS and leaves its stat
     Http::assertNothingSent();
     expect(TaxNote::query()->count())->toBe(3)
         ->and(TaxNote::query()->whereNotNull('cbms_status')->orWhereNotNull('cbms_reference')->exists())->toBeFalse();
+});
+
+/** @return array<string, int> kind label => listed rows */
+function registerListedByType(string $key, array $filters): array
+{
+    return collect(registerRows($key, $filters))->countBy('type')->sortKeys()->all();
+}
+
+/** @return array<string, int> */
+function registerHeaderCounts(string $key, array $filters): array
+{
+    $block = app(ReportRegistry::class)->get($key)->headerBlock(app(ReportExporter::class)->query($key, $filters, auth()->id()));
+
+    return collect(array_slice($block, 4))->mapWithKeys(fn (array $row): array => [$row[0] => (int) str_replace(',', '', $row[1])])->all();
+}
+
+test('the header counts equal the listed rows per kind, at BS month and fiscal-year edges in Nepal time', function () {
+    kartikRegisterFixture();
+    awkwardRateRegisterFixture();
+    unclassifiedRegisterFixture();
+    $usd = Client::factory()->create(['country' => 'NP', 'currency' => 'USD']);
+    $unconverted = onRegisterDay('2026-10-23', fn () => issueInvoice($usd, [10_000]));
+    DB::table('invoices')->where('id', $unconverted->id)->update(['report_rate' => null]);
+    $npr = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']);
+
+    // Kartik 2083 ends on 2026-11-16 AD. 23:50 in Nepal is 18:05 UTC (Kartik); 00:10 on the 17th is 18:25 UTC (Mangsir).
+    CarbonImmutable::setTestNow('2026-11-16 18:05:00');
+    $lastOfKartik = issueInvoice($npr, [1_000]);
+    CarbonImmutable::setTestNow('2026-11-16 18:25:00');
+    $firstOfMangsir = issueInvoice($npr, [1_000]);
+    registerNote(NoteRequest::creditAmount($lastOfKartik->id, 113, 'goodwill', 'Edge'));
+
+    // Fiscal-year edge: the last minute of Asar 2083 in Nepal time and the first of Shrawan.
+    $asarEnd = BikramSambat::toAd(2083, 3, BikramSambat::daysInMonth(2083, 3));
+    CarbonImmutable::setTestNow(CarbonImmutable::parse($asarEnd->format('Y-m-d').' 23:55:00', 'Asia/Kathmandu')->utc());
+    $lastOfFy = issueInvoice($npr, [1_000]);
+    CarbonImmutable::setTestNow(CarbonImmutable::parse($asarEnd->format('Y-m-d').' 23:55:00', 'Asia/Kathmandu')->addMinutes(10)->utc());
+    $firstOfFy = issueInvoice($npr, [1_000]);
+    CarbonImmutable::setTestNow('2026-12-01 06:00:00');
+    actingAsStaff(['reports.vat_register.view', 'reports.tax_note_register.view']);
+
+    expect($lastOfKartik->fresh()->bs_period)->toBe('2083-07')->and($firstOfMangsir->fresh()->bs_period)->toBe('2083-08')
+        ->and($lastOfFy->fresh()->bs_fiscal_year)->not->toBe($firstOfFy->fresh()->bs_fiscal_year);
+
+    foreach ([['month' => '2083-07'], ['month' => '2083-08'], ['month' => '2083-03'], ['month' => '2083-04'], ['year' => '2082.083'], ['year' => '2083.084']] as $filters) {
+        $listed = registerListedByType('vat_register', $filters);
+        $header = registerHeaderCounts('vat_register', $filters);
+
+        expect([$header['Tax invoices issued'], $header['Credit notes issued'], $header['Debit notes issued']])
+            ->toBe([$listed['Tax invoice'] ?? 0, $listed['Credit note'] ?? 0, $listed['Debit note'] ?? 0], json_encode($filters));
+
+        $notes = registerListedByType('tax_note_register', $filters);
+        expect(registerHeaderCounts('tax_note_register', $filters))->toBe(['Credit notes issued' => $notes['Credit note'] ?? 0, 'Debit notes issued' => $notes['Debit note'] ?? 0]);
+    }
+
+    // The year is the sum of its months.
+    $year = registerHeaderCounts('vat_register', ['year' => '2083.084']);
+    $months = collect(range(4, 15))->map(fn (int $m) => registerHeaderCounts('vat_register', ['month' => $m <= 12 ? sprintf('2083-%02d', $m) : sprintf('2084-%02d', $m - 12)]));
+    expect($year['Tax invoices issued'])->toBe($months->sum('Tax invoices issued'))
+        ->and($year['Credit notes issued'])->toBe($months->sum('Credit notes issued'))
+        ->and(registerHeaderCounts('vat_register', ['month' => '2083-03'])['Tax invoices issued'])->toBe(1)
+        ->and(registerHeaderCounts('vat_register', ['month' => '2083-04'])['Tax invoices issued'])->toBe(1);
+});
+
+test('the header counts are grouped like the register\'s rupees', function () {
+    actingAsStaff(['reports.vat_register.view']);
+    $summary = new RegisterSummary('NPR');
+    $summary->counts = ['invoice' => 123_456, 'credit' => 1_234, 'debit' => 0];
+    $documents = Mockery::mock(app(RegisterDocuments::class));
+    $documents->shouldReceive('summary')->andReturn($summary);
+    app()->instance(RegisterDocuments::class, $documents);
+
+    expect(array_slice(app(ReportRegistry::class)->get('vat_register')->headerBlock(app(ReportExporter::class)->query('vat_register', ['month' => '2083-07'], auth()->id())), 4))
+        ->toBe([['Tax invoices issued', '1,23,456'], ['Credit notes issued', '1,234'], ['Debit notes issued', '0']]);
 });

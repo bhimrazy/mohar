@@ -16,6 +16,7 @@ use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Fortify\Features;
 use LogicException;
@@ -92,6 +93,22 @@ abstract class TestCase extends BaseTestCase
         $this->forgetTrustedHostsAndProxies();
         $this->assumePatchedPhp();
         $this->shortenWaits();
+
+        if (! $this->allowsStrayHttp()) {
+            Http::preventStrayRequests();
+        }
+    }
+
+    /**
+     * An outbound request no Http::fake() answers throws instead of leaving the machine. Only tests that talk to real
+     * local processes opt out: the simulator harness (tests/Simulators, which overrides this) and the simulators' own
+     * suite (tools/simulators/tests). Do not opt out to silence a failing test; fake the request.
+     */
+    protected function allowsStrayHttp(): bool
+    {
+        $file = str_replace('\\', '/', property_exists(static::class, '__filename') ? (string) static::$__filename : '');
+
+        return str_contains($file, '/tools/simulators/tests/');
     }
 
     /**
@@ -151,16 +168,17 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
-     * tests/Unit and tests/Arch run only in the SQLite step of CI, not again on PostgreSQL (docs/devops/ci.md), so a
-     * test there must never touch the database. This fails one that does; move it to tests/Feature instead.
+     * tests/Unit, tests/Kernel/Unit, tests/Tooling and tests/Arch run only in the SQLite step of CI, not again on
+     * PostgreSQL (docs/devops/ci.md), so a test there
+     * must never touch the database. This fails one that does; move it to tests/Feature instead.
      */
     private function refuseDatabaseInDatabaseFreeSuites(): void
     {
-        if (preg_match('/(^|\\\\)Tests\\\\(Unit|Arch)\\\\/', static::class) !== 1) {
+        if (preg_match('/(^|\\\\)Tests\\\\(Unit|Arch|Tooling|Kernel\\\\Unit)\\\\/', static::class) !== 1) {
             return;
         }
 
-        $message = static::class.' is in a database-free suite (tests/Unit, tests/Arch), which CI does not run on PostgreSQL; move it to tests/Feature.';
+        $message = static::class.' is in a database-free suite (tests/Unit, tests/Kernel/Unit, tests/Tooling, tests/Arch), which CI does not run on PostgreSQL; move it to tests/Feature.';
         $databaseTraits = [RefreshDatabase::class, LazilyRefreshDatabase::class, DatabaseMigrations::class, DatabaseTransactions::class, DatabaseTruncation::class];
 
         if (array_intersect($databaseTraits, class_uses_recursive($this)) !== []) {

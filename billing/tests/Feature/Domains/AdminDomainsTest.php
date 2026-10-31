@@ -227,13 +227,13 @@ test('domains needing review are listed and forcing a status closes the review',
     expect($flagged->fresh())->needs_review->toBeFalse()->registrar_meta->toBeNull();
 });
 
-test('a disabled registrar is shown on the detail page and refuses sync', function () {
+test('a disabled registrar is shown on the detail page and still syncs its existing domains (ADR 0030 A1)', function () {
     actingAsStaff(['domains.*']);
     RegistrarAccount::query()->create(['key' => 'fake', 'is_active' => false]);
     $domain = Domain::factory()->create(['tld_id' => $this->com->id, 'registrar_key' => 'fake']);
 
     $this->get(route('admin.domains.show', $domain))->assertInertia(fn (Assert $page) => $page->where('registrar.active', false));
-    $this->post(route('admin.domains.command', [$domain, 'sync']))->assertSessionHasErrors('registrar');
+    $this->post(route('admin.domains.command', [$domain, 'sync']))->assertSessionHasNoErrors();
 
-    expect($this->registrar->calls)->toBe([]);
+    expect($this->registrar->commands())->toBe(['sync']);
 });

@@ -206,7 +206,7 @@ export default function GatewayEdit({
                             <ToggleRow
                                 id="is_active"
                                 title="Active"
-                                description="Payments and callbacks are accepted."
+                                description="New payments can start. When off, payments already started still settle through signed callbacks and client returns."
                                 checked={form.data.is_active}
                                 onChange={(value) =>
                                     form.setData('is_active', value)
@@ -290,7 +290,10 @@ export default function GatewayEdit({
                     </SectionCard>
 
                     {fields.length > 0 && (
-                        <SectionCard title="Settings">
+                        <SectionCard
+                            title="Settings"
+                            description="A secret left blank keeps the stored one. Enter a new value to replace it."
+                        >
                             <div className="grid gap-6">
                                 {fields.map((field) => {
                                     const id = `setting-${field.key}`;
@@ -448,7 +451,7 @@ export default function GatewayEdit({
                     {webhook_url && (
                         <SectionCard
                             title="Webhook"
-                            description="Configure this URL at the gateway. Callbacks are verified by signature."
+                            description="Configure this URL at the gateway. Callbacks are verified with the stored secret, also while the gateway is inactive. To stop them, for example after a secret leaks, create a new secret at the provider and enter it under Settings."
                         >
                             <code className="block rounded-md bg-muted px-3 py-2 text-sm break-all">
                                 {webhook_url}

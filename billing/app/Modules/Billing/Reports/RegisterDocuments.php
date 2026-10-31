@@ -80,7 +80,8 @@ class RegisterDocuments
     }
 
     /**
-     * Totals of every document in the period, per kind and per BS month, and the counts the screen warns about.
+     * Totals of every document in the period, per kind and per BS month, the count of each kind, and the counts the
+     * screen warns about.
      * Kept for the request, because the screen and its totals footer read the same period.
      *
      * Each table is summed on its own through its period index, never through the sorted union. A document whose
@@ -162,6 +163,14 @@ class RegisterDocuments
                         $export ? 0 : self::convert($sign * (int) $row->exempt, $rate),
                         self::convert($sign * (int) $row->tax, $rate));
                 });
+        }
+
+        // Every document counts, also one left out of the sums for a missing rate or unclassified tax.
+        $counts = $notes ? $this->base($table, $period)->groupBy('tax_notes.kind')->selectRaw('tax_notes.kind, count(*) as documents')->pluck('documents', 'kind')->all()
+            : ['invoice' => $this->base($table, $period)->count()];
+
+        foreach ($counts as $documentKind => $count) {
+            $summary->counts[(string) $documentKind] += (int) $count;
         }
 
         $summary->unconverted += $this->base($table, $period)->where("{$table}.currency", '<>', $currency)->where($noRate)->count();

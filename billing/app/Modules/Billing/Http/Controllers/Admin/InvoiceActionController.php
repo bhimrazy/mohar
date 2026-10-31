@@ -17,6 +17,10 @@ use App\Modules\Billing\Data\PaymentData;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Http\Requests\Admin\AmountRequest;
+use App\Modules\Billing\Http\Requests\Admin\BulkInvoiceRequest;
+use App\Modules\Billing\Http\Requests\Admin\CancelInvoiceLinesRequest;
+use App\Modules\Billing\Http\Requests\Admin\CancelInvoiceRequest;
+use App\Modules\Billing\Http\Requests\Admin\CaptureInvoiceRequest;
 use App\Modules\Billing\Http\Requests\Admin\RecordPaymentRequest;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PayMethod;
@@ -25,7 +29,6 @@ use App\Modules\Core\Support\ActivityLogger;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -45,11 +48,9 @@ class InvoiceActionController extends Controller
         return $this->done(__('Invoice :number published.', ['number' => $invoice->displayNumber()]));
     }
 
-    public function cancel(Request $request, Invoice $invoice, CancelInvoice $cancel): RedirectResponse
+    public function cancel(CancelInvoiceRequest $request, Invoice $invoice, CancelInvoice $cancel): RedirectResponse
     {
-        $this->authorize('billing.invoices.manage');
-        $note = $request->validate(['note' => ['nullable', 'string', 'max:500']])['note'] ?? null;
-        $cancel->handle($invoice, $request->user()?->id, $note);
+        $cancel->handle($invoice, $request->user()?->id, $request->validated('note'));
         $this->activity->log('Invoice cancelled', $invoice, $invoice->client_id);
 
         return $this->done(__('Invoice :number cancelled.', ['number' => $invoice->displayNumber()]));
@@ -107,11 +108,9 @@ class InvoiceActionController extends Controller
         return $this->done(__('Invoice :number marked as paid.', ['number' => $invoice->displayNumber()]));
     }
 
-    public function capture(Request $request, Invoice $invoice, CaptureInvoice $capture): RedirectResponse
+    public function capture(CaptureInvoiceRequest $request, Invoice $invoice, CaptureInvoice $capture): RedirectResponse
     {
-        $this->authorize('billing.payments.manage');
-        $data = $request->validate(['pay_method_id' => ['required', 'integer']]);
-        $method = PayMethod::query()->where('client_id', $invoice->client_id)->usable()->whereKey($data['pay_method_id'])->firstOrFail();
+        $method = PayMethod::query()->where('client_id', $invoice->client_id)->usable()->whereKey($request->validated('pay_method_id'))->firstOrFail();
 
         $result = $capture->handle($invoice, $method->gateway, $method->token, $method, $request->user()?->id);
         $this->activity->log('Capture attempted', $invoice, $invoice->client_id, ['pay_method' => $method->id, 'result' => $result->status]);
@@ -125,10 +124,9 @@ class InvoiceActionController extends Controller
             : __('Payment captured for invoice :number.', ['number' => $invoice->displayNumber()]));
     }
 
-    public function cancelLines(Request $request, Invoice $invoice, CancelInvoiceItems $cancel): RedirectResponse
+    public function cancelLines(CancelInvoiceLinesRequest $request, Invoice $invoice, CancelInvoiceItems $cancel): RedirectResponse
     {
-        $this->authorize('billing.invoices.manage');
-        $data = $request->validate(['items' => ['required', 'array', 'min:1'], 'items.*' => ['integer'], 'note' => ['nullable', 'string', 'max:500']]);
+        $data = $request->validated();
         $cancel->handle($invoice, array_values(array_map('intval', $data['items'])), $request->user()?->id, $data['note'] ?? null);
         $this->activity->log('Invoice lines cancelled', $invoice, $invoice->client_id, ['items' => $data['items']]);
 
@@ -161,16 +159,9 @@ class InvoiceActionController extends Controller
     /**
      * Bulk mark paid / cancel / send reminder from the invoice list.
      */
-    public function bulk(Request $request, MarkInvoicePaid $markPaid, CancelInvoice $cancel): RedirectResponse
+    public function bulk(BulkInvoiceRequest $request, MarkInvoicePaid $markPaid, CancelInvoice $cancel): RedirectResponse
     {
-        $data = $request->validate([
-            'action' => ['required', Rule::in(['mark_paid', 'cancel', 'remind'])],
-            'ids' => ['required', 'array', 'min:1', 'max:100'],
-            'ids.*' => ['integer'],
-        ]);
-
-        $this->authorize($data['action'] === 'mark_paid' ? 'billing.payments.manage' : 'billing.invoices.manage');
-
+        $data = $request->validated();
         $done = 0;
         $skipped = [];
 

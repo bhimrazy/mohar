@@ -90,12 +90,25 @@ one's; 4 in the Codespace). Every process gets its own SQLite in-memory database
 `billing_test_test_<n>` PostgreSQL database, migrates it once and runs each test in a transaction, so it is
 reliable and nothing migrates or seeds the base database first.
 
-The Unit and Arch suites never touch the database, so they run only in the SQLite step: `composer test:pgsql`
+The Unit and Arch suites never touch the database, so they run only in the SQLite step (the Unit suite also holds
+`tests/Kernel/Unit` and `tests/Tooling`; `tests/Kernel/Feature` belongs to the Feature suite): `composer test:pgsql`
 passes `--exclude-testsuite=Unit,Arch` (explicit paths still run whatever they name). Most tests there extend
 `PHPUnit\Framework\TestCase`, which boots no application and cannot reach the database. For the few bound to
 `Tests\TestCase` (one file today), the test case fails a test in `tests/Unit` or `tests/Arch` that uses a database
 trait or runs a query (`tests/Unit/TestHarness/DatabaseFreeSuiteGuardTest.php`); such a test belongs in
 `tests/Feature`.
+
+**Test hygiene guards.**
+
+- `tests/TestCase` calls `Http::preventStrayRequests()` in `setUp()`: a request no `Http::fake()` answers throws. Fake it in the
+  test. The only opt-outs are `allowsStrayHttp()`: true for the simulators' own suite (`tools/simulators/tests`) and overridden to true by the
+  simulator harness (`tests/Simulators/SimulatorHarness`); both talk to real local processes; a test that merely fails the guard is not a reason to use it. A test that sends one real request
+  to a local listener allows just that URL with `Http::allowStrayRequests(['https://host:*'])`.
+- Performance tests of the redactor assert a complexity budget, not a duration: the CPU time at one size against the CPU time at a
+  smaller size (`RedactorTiming::bestCpuPair`), plus peak memory. A fixed number of seconds fails on a loaded machine.
+- Test file names (`tests/Arch/TestNamingTest.php`): a new test file may not start with `Pr<digits>` or contain `Round<digit>`;
+  name it for the behaviour. Existing files are listed in `tests/Arch/baselines/probe-test-names.txt`, which may only shrink:
+  a renamed file's line is removed in the same commit, and the test fails on a line whose file is gone.
 
 A seed that takes tens of seconds is seeded once per worker, not in every test:
 `$this->useSeededDatabase('<name>', fn () => $this->seed(...))` in `beforeEach` creates and seeds a separate database
@@ -116,7 +129,7 @@ the `SessionGuard` timebox (`auth.timebox_duration` 0 instead of Laravel's 200 m
 `attempt()`, so password confirmation and step-up, while Fortify's sign-in form keeps its own fixed 200 ms), the delay
 between lookup retries (0 ms, same number of attempts: Guzzle's MockHandler sleeps for the delay under `Http::fake`)
 and the mail test send's timeouts (`platform.mail_test.*`, 2 s and 4 s instead of 10 s and 20 s)
-(`tests/Feature/TestHarness/ShortenedWaitsTest.php`, `tests/Feature/ReviewProbes/Pr558TimeboxProbeTest.php`). On a host other than Linux the simulator suite
+(`tests/Feature/TestHarness/ShortenedWaitsTest.php`, `tests/Feature/Auth/AuthTimeboxFloorTest.php`). On a host other than Linux the simulator suite
 (`tools/simulators/tests`, which needs `setsid` and `/proc`) is skipped with that reason instead of erroring;
 `scripts/test.sh` runs it through `scripts/linux.sh`, and `tools/simulators/tests/HostTest.php` fails on a Linux host
 without them.
