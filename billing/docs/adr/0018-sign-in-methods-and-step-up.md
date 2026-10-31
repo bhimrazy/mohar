@@ -258,9 +258,9 @@ not count as step-up; this restores §4 rather than changing it.
   The passkey's name is left out of the mail, since whoever added it chose it.
 - Counting a passkey assertion as step-up still needs its own amendment and an owner decision.
 
-## Amendment (#555) — 2026-10-31, a pending password checked once at the source (Proposed)
+## Amendment (#555) — 2026-10-31, a pending password checked once at the source (Accepted)
 
-Status: Proposed, awaiting the owner's answer to `client-import.md` Q13. Research:
+Status: Accepted 2026-10-31: the owner approved `client-import.md` Q13 (default window 90 days, at most 180; forwarding the typed password once is acceptable; password plus mailbox confirmation for former 2FA accounts). The licence review (Q13(c)) gates marketing, not the build. Research:
 `docs/research/2026-10-31-whmcs-login-migration.md`. The #555 design review findings (B2, B5, M3, M6, M7) are folded
 in. Companion amendments: ADR 0012 (#555), for contracts that receive secrets, and ADR 0015 (#555), for outbound calls
 inside a request.

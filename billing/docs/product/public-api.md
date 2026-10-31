@@ -282,16 +282,17 @@ Reviews:
   or sign-in.
 - **The review board alone:** the other endpoint PRs.
 
-## 8. Open questions for the owner
+## 8. Decisions on the open questions (2026-10-31)
 
-1. Approve `laravel/sanctum` (first-party) under ADR 0007, or have us build our own token table?
-2. Approve `dedoc/scramble` for OpenAPI generation, or have us write a small generator of our own?
-3. The token prefix. It is shown to integrators and used by secret scanners, so it should not follow the configurable
-   brand. Options: a neutral fixed string, or the product key.
-4. Confirm there is no WHMCS RPC shim in v1, and say whether a compatibility package should go on the roadmap.
-5. Confirm a storefront API that does guest checkout only and hands existing clients off to the web checkout, with no
-   password sign-in over the API.
-6. Is the API available in every edition and licence? This depends on the licence and price model decision.
-7. The support window: is v1 kept for 12 months after v2 is generally available?
-8. Should staff "service accounts" (no interactive login) own integration tokens, so that tokens do not depend on one
-   person's employment? We recommend this as a follow-up to API-1.
+The owner approved the two packages. The CTO decided the rest under the owner's instruction to decide with a product mindset.
+
+1. **Sanctum: approved** under ADR 0007 (pinned, 7-day cooldown, publisher check at install).
+2. **Scramble: approved** (`dedoc/scramble`), same conditions.
+3. **Token prefix: `mhr_`**, fixed and neutral. It does not follow the configurable brand, so secret scanners keep working.
+4. **No WHMCS RPC shim in v1.** A compatibility package is built only on demand.
+5. **The storefront API does guest checkout only** and hands existing clients to the web checkout. No password sign-in over the API.
+6. **The API is in every edition for now.** Revisit with the pricing decision.
+7. **v1 is kept for 12 months after v2 is generally available.**
+8. **Staff service accounts own integration tokens**, as a follow-up to API-1.
+
+Nothing in this section is still open.
