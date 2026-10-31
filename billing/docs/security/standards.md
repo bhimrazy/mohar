@@ -36,7 +36,10 @@ and get the security reviewer's sign-off.
   password must have been confirmed within `auth.step_up_seconds` (default 900, set by `AUTH_STEP_UP_SECONDS`
   within 60 to 3600; ADR 0018 §4;
   `App\Http\Middleware\RequireRecentPasswordConfirmation`, aliased in `bootstrap/app.php` so it resolves with
-  any set of modules). Pages that edit
+  any set of modules). A form that saves secrets together with ordinary settings, where the permission is not
+  sensitive, asks for step-up instead when a secret value is entered or settings holding a stored secret change
+  (product and add-on provisioning settings, `ValidatesDriverBinding`; security review 2026-10-29, L3), with
+  `RequireRecentPasswordConfirmation::refusal()`, after `authorize()`. Pages that edit
   sensitive data use `password.confirm`. The UI wraps sensitive buttons in `useSensitiveAction()`, which asks for the
   password and retries.
 - Seeded roles list their permissions explicitly. Seeders update existing system roles; they don't only

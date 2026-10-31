@@ -31,6 +31,17 @@ class ClientContext
         $this->access = [];
     }
 
+    /**
+     * The account a login acts for: the selected one while it is linked and open, otherwise the oldest linked open
+     * one (a deterministic default); null when none is.
+     */
+    public function select(User $user, mixed $selected): ?Client
+    {
+        $clients = $user->clients()->where('status', '!=', 'closed');
+
+        return ($selected ? (clone $clients)->whereKey($selected)->first() : null) ?? $clients->orderBy('clients.id')->first();
+    }
+
     public function client(): Client
     {
         if ($this->client === null) {

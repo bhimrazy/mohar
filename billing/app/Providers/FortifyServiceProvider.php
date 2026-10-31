@@ -85,21 +85,21 @@ class FortifyServiceProvider extends ServiceProvider
             PrepareAuthenticatedSession::class,
         ]));
 
-        // The login's wrong-password budget first (PasswordGuesses), then Fortify's own confirm check, then the
-        // one-time password expiry (#60): an expired one confirms nothing.
+        // The compare runs within the login's wrong-password budget (PasswordGuesses), then the one-time password
+        // expiry (#60): an expired one confirms nothing.
         Fortify::confirmPasswordsUsing(function ($user, ?string $password = null): bool {
-            if ($user instanceof User) {
-                PasswordGuesses::ensureAllowed($user, request(), 'password');
-            }
+            $compare = fn (): bool => app(StatefulGuard::class)->validate([Fortify::username() => $user->{Fortify::username()}, 'password' => $password]);
 
-            $valid = app(StatefulGuard::class)->validate([Fortify::username() => $user->{Fortify::username()}, 'password' => $password]);
+            $valid = $user instanceof User
+                ? PasswordGuesses::check($user, request(), 'password', $compare, function () use ($user): void {
+                    // Who and from where, never the guess; on the client account a client login acts for, so it
+                    // shows in that client's activity (#523). PasswordGuesses bounds how many rows this writes.
+                    app(ActivityLogger::class)->log('Password confirmation failed', $user, PasswordGuesses::activityClientId($user, request()), event: 'auth.confirm_password_failed', actor: $user);
+                })
+                : $compare();
 
             if ($valid) {
                 RefuseExpiredPassword::check($user, 'confirm_password', field: 'password');
-            } elseif ($user instanceof User) {
-                PasswordGuesses::failed($user, request());
-                // Who and from where, never the guess; PasswordGuesses bounds how many rows this writes.
-                app(ActivityLogger::class)->log('Password confirmation failed', $user, event: 'auth.confirm_password_failed', actor: $user);
             }
 
             return $valid;
