@@ -58,6 +58,7 @@ use App\Modules\Notifications\Data\EmailRequest;
 use App\Modules\Notifications\Data\Recipient;
 use App\Modules\Notifications\Enums\EmailCategory;
 use App\Modules\Notifications\Enums\StaffCategory;
+use App\Modules\Notifications\Jobs\ComposeEventEmails;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Services\MergeContext;
@@ -146,6 +147,34 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
      * an exception is reported and never reaches the request or automation run that raised the event.
      */
     public function handle(object $event): void
+    {
+        if (self::composesInWorker($event)) {
+            $this->safely(fn () => ComposeEventEmails::dispatch($event)->afterCommit());
+
+            return;
+        }
+
+        $this->compose($event);
+    }
+
+    /**
+     * Invoice events whose email attaches the invoice PDF. Their emails are composed by ComposeEventEmails on the
+     * notifications queue (#566), so the PDF render and the "attached" wording never run in the raising process
+     * (a renewal run or a request).
+     */
+    public static function composesInWorker(object $event): bool
+    {
+        return match (true) {
+            $event instanceof InvoiceCreated => $event->notify,
+            $event instanceof PaymentReceived => $event->invoiceId !== null,
+            default => $event instanceof InvoicePaymentReminder || $event instanceof InvoiceModified,
+        };
+    }
+
+    /**
+     * Composes and logs the event's emails in this process: from handle(), or from ComposeEventEmails in a worker.
+     */
+    public function compose(object $event): void
     {
         try {
             // Resolvers and templates build links (route(), url()): root them at APP_URL, never the request's Host.

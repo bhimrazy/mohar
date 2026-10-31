@@ -13,6 +13,7 @@ use App\Modules\Notifications\Jobs\SendEmailMessage;
 use App\Modules\Notifications\Mail\TemplatedMail;
 use App\Modules\Notifications\Models\EmailMessage;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 
@@ -182,6 +183,20 @@ test('a PDF that cannot be rendered is reported; the mail goes without it and wi
 
     Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => $mail->document === null);
     expect($message->fresh()->status)->toBe(EmailStatus::Sent);
+});
+
+test('a render that fails while the worker composes the email: no claim, no attachment, one send attempt (#566)', function () {
+    Exceptions::fake();
+    $this->partialMock(InvoicePdf::class, fn ($mock) => $mock->shouldReceive('ensure')->andThrow(new RuntimeException('render failed')));
+
+    $invoice = issueInvoice(pdfEmailClient(), [1_000_000]);
+    $message = EmailMessage::query()->where('template_key', 'invoice.created')->where('related_id', $invoice->id)->sole();
+
+    Exceptions::assertReported(fn (RuntimeException $exception): bool => $exception->getMessage() === 'render failed');
+    Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => $mail->subjectLine === $message->subject && $mail->document === null);
+    expect($message->body_text)->not->toContain('attached')
+        ->and($message->status)->toBe(EmailStatus::Sent)
+        ->and($message->attempts)->toBe(1);
 });
 
 test('a converted quote line keeps its quantity, price and discount note when the item text is long', function () {
