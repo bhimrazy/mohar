@@ -4,7 +4,7 @@
  * ADR 0023 §5: a driver that implements DeclaresSensitiveKeys gets those keys masked in the host's command log, and
  * their values masked in the text the host stores and shows (errors, activity, staff messages). A payload it cannot
  * read in full is withheld whole, with its text. The string-body, markup, attribute, throwing-driver, node-limit and
- * short-value cases were adopted from the #574 review and re-review probes.
+ * short-value, exception-text and repeated-key cases were adopted from the #574 review and re-review probes.
  */
 
 use App\Contracts\Domains\Registrar\RegistrarDriver;
@@ -27,6 +27,7 @@ use App\Support\Domains\RegistrarDriverRegistry;
 use App\Support\Domains\RegistrarException;
 use App\Support\Integrations\Redactor;
 use App\Support\Services\ProvisioningDriverRegistry;
+use Illuminate\Support\Facades\Exceptions;
 use Tests\Fakes\Domains\FakeRegistrar;
 use Tests\Fakes\Domains\FakeRegistrarDriver;
 use Tests\Fakes\Services\ServicesTestKit;
@@ -361,4 +362,102 @@ test('declared values are matched by length: none under 4 bytes, whole tokens un
         ->and($redactor->maskDeclared('xAB12CD3y and AB12CD3', ['AB12CD3']))->toBe('xAB12CD3y and [redacted]')
         ->and($redactor->maskDeclared('xAB12CD34y', ['AB12CD34']))->toBe('x[redacted]y')
         ->and($redactor->redactDeclared(['note' => 'x4821y'], ['4821'], [], []))->toBe(['note' => 'x[redacted]y']);
+});
+
+test('a declared value a driver throws is masked in the stored rows and in what is reported to the application log', function (string $message, string $reported) {
+    Exceptions::fake();
+    declaringLogDriver(['ticket'], fn () => throw new RuntimeException($message));
+
+    suspendWithDeclaringDriver();
+
+    $messages = array_map(fn (Throwable $exception): string => $exception->getMessage(), Exceptions::reported());
+    expect(storedModuleText())->not->toContain(DECLARED_CODE)
+        ->and($messages)->toBe([$reported]);
+})->with([
+    'element' => ['Panel answered <ticket>'.DECLARED_CODE.'</ticket>', 'Panel answered <ticket>[redacted]</ticket>'],
+    'unreadable form (fail closed)' => ['Panel answered ticket: '.DECLARED_CODE, '[redacted]'],
+]);
+
+/**
+ * Calls the fake registrar's info, declaring `ticket`, with a driver that throws $exception; the messages of the thrown
+ * chain, top first.
+ *
+ * @return list<string>
+ */
+function registrarThrowChain(Throwable $exception): array
+{
+    $script = FakeRegistrar::install();
+    app(RegistrarDriverRegistry::class)->register('fake', fn (): RegistrarDriver => new class($script, 'fake') extends FakeRegistrarDriver implements DeclaresSensitiveKeys
+    {
+        public function sensitiveKeys(string $operation): array
+        {
+            return ['ticket'];
+        }
+    }, replace: true);
+
+    try {
+        app(RegistrarGateway::class)->call('fake', 'info', RegistrarDriver::class, fn (): never => throw $exception);
+    } catch (Throwable $thrown) {
+        $messages = [];
+
+        for ($link = $thrown; $link !== null; $link = $link->getPrevious()) {
+            $messages[] = $link->getMessage();
+        }
+
+        return $messages;
+    }
+
+    return [];
+}
+
+test('a declared value only in a previous exception of a registrar throw is masked in the whole thrown chain', function () {
+    $messages = registrarThrowChain(new RuntimeException('call failed', previous: new RuntimeException('<ticket>'.DECLARED_CODE.'</ticket> refused '.DECLARED_CODE)));
+
+    expect($messages)->toBe(['The registrar call failed: call failed', 'call failed', '<ticket>[redacted]</ticket> refused [redacted]'])
+        ->and(json_encode(RegistrarCommandLog::all()))->not->toContain(DECLARED_CODE);
+});
+
+test('a registrar exception chain longer than the host reads is withheld', function () {
+    $exception = new RuntimeException('<ticket>'.DECLARED_CODE.'</ticket>');
+
+    for ($link = 0; $link < 16; $link++) {
+        $exception = new RuntimeException("wrapped {$link}", previous: $exception);
+    }
+
+    $messages = registrarThrowChain($exception);
+
+    expect($messages)->toHaveCount(18)
+        ->and(array_values(array_unique(array_slice($messages, 1))))->toBe(['[redacted]'])
+        ->and(RegistrarCommandLog::query()->sole()->error)->toBe('[redacted]');
+});
+
+test('a declared key repeated in a JSON body is withheld for every value', function (string $body) {
+    declaringLogDriver(['ticket'], fn (): DriverResult => DriverResult::fail('Panel refused '.DECLARED_CODE, response: ['body' => $body]));
+
+    suspendWithDeclaringDriver();
+
+    expect(storedModuleText())->not->toContain(DECLARED_CODE)
+        ->and(ModuleCommand::query()->sole()->error)->toBe('[redacted]');
+})->with([
+    'same spelling' => ['{"ticket":"'.DECLARED_CODE.'","ticket":"BBBB-2222-yyyy"}'],
+    'escaped spelling' => ['{"ticket":"'.DECLARED_CODE.'","tick\\u0065t":"BBBB-2222-yyyy"}'],
+    'nested' => ['{"a":{"ticket":"'.DECLARED_CODE.'"},"a":{"ticket":"BBBB-2222-yyyy"}}'],
+]);
+
+test('a declared key nested once in a JSON body is masked, not withheld', function () {
+    declaringLogDriver(['ticket'], fn (): DriverResult => DriverResult::fail('Panel refused '.DECLARED_CODE, response: ['body' => '{"login":{"ticket":"'.DECLARED_CODE.'"},"other":{"ticket":"BBBB-2222-yyyy"}}']));
+
+    suspendWithDeclaringDriver();
+
+    expect(storedModuleText())->not->toContain(DECLARED_CODE)
+        ->and(ModuleCommand::query()->sole()->error)->toBe('Panel refused [redacted]');
+});
+
+test('a declared pair percent-encoded twice is masked', function () {
+    declaringLogDriver(['ticket'], fn (): DriverResult => DriverResult::fail('Panel refused '.DECLARED_CODE, response: ['body' => 'next=%2Fcb%253Fticket%253D'.DECLARED_CODE]));
+
+    suspendWithDeclaringDriver();
+
+    expect(storedModuleText())->not->toContain(DECLARED_CODE)
+        ->and(ModuleCommand::query()->sole()->error)->toBe('Panel refused [redacted]');
 });

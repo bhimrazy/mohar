@@ -5,9 +5,10 @@
       (`[]` when it declares none).
     - `valuesUnder(array $sensitiveKeys, array ...$payloads): ?array`: the values under those keys. They are read from
       arrays, JSON string leaves, and `<key>…</key>` elements or `key=…` pairs (unquoted or quoted) in other strings,
-      also after percent-decoding, with decoded forms.
-      Values under 4 bytes are left out. Returns `null` when a payload cannot be read in full (node limit, or a key
-      used as a name in any other form): the host withholds the payload and its text.
+      also after percent-decoding (repeated until stable, up to 6 passes), with decoded forms.
+      Values under 4 bytes are left out. Returns `null` when a payload cannot be read in full (node limit, a JSON
+      string that repeats a declared key, or a key used as a name in any other form): the host withholds the payload
+      and its text.
     - `maskDeclared(string $text, ?array $values, array $secrets = [])`: `maskValues()` plus every occurrence of a
       declared value. A value under 8 bytes is matched only as a whole token. With `null` values it returns
       `[redacted]`.
