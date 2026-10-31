@@ -27,15 +27,19 @@ with each other; **low** = one source, or sources that disagree. Government site
 `lawcommission.gov.np`) did not answer from our network on 2026-10-22, so no rule text was read first-hand (§17, "Not
 confirmed"). Rule numbers below are as the secondary sources give them.
 
+**Update 2026-10-31 (NV1).** The IRD texts were read first-hand in `docs/research/2026-10-31-nepal-vat-ebilling.md`
+(the research note; refs P1 to P11 there). It changes F2 (the sales book layout) and F7 (reprint marking), noted in
+their rows; §17a lists what was used.
+
 | #   | Fact                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Confidence                                      |
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
 | F1  | The VAT Rules (Rule 23(1)) require a sales book (बिक्री खाता) in a prescribed schedule, alongside the purchase book, copies of tax invoices, and all credit and debit notes. Records are kept six years (Rule 23(7)).                                                                                                                                                                                                                                                                                | medium (LookupTax; the template cites Rule 23)  |
-| F2  | The prescribed sales-book layout (IRD template, Rule 23(1)(ज)) has a header with the taxpayer's PAN, name, year and tax period, and these columns: date; invoice number; buyer name; buyer PAN; goods or service name; quantity; unit; total sales or export (Rs); locally exempt sales (Rs); taxable sales value (Rs) and tax (Rs); export value (Rs); export country; export declaration number; export declaration date.                                                                         | high (template read cell by cell)               |
+| F2  | The prescribed sales-book layout (IRD template, Rule 23(1)(ज)) has a header with the taxpayer's PAN, name, year and tax period, and these columns: date; invoice number; buyer name; buyer PAN; goods or service name; quantity; unit; total sales or export (Rs); locally exempt sales (Rs); taxable sales value (Rs) and tax (Rs); export value (Rs); export country; export declaration number; export declaration date. **Superseded (NV1):** Schedule 9 as of the 27th amendment has no goods, quantity or unit column (25th amendment, 2080), says "निर्यात" for "निकासी" (26th, 2081) and ends with "कुल जम्मा" (research note §12, P2). | high (template read cell by cell); primary for the change |
 | F3  | Credit and debit notes (Rule 20(1)) must be marked as such, carry a sequential number and issue date, name both parties with registration numbers, cite the related tax invoice's number and date, describe the goods or services and the reason, and state the amount and the tax credited or debited. Rule 20(2) asks for a monthly account of the notes.                                                                                                                                         | medium (two practitioner sources agree)         |
 | F4  | The VAT tax period is the BS month; the return (Schedule 10) is due within 25 days of the month's end; nil returns are required. Some small taxpayers may file four-monthly. The fiscal year runs 1 Shrawan to the end of Asar.                                                                                                                                                                                                                                                                     | medium (LookupTax and Common Law agree)         |
 | F5  | A note adjusts output VAT in the period the note is issued, not the period of the original invoice.                                                                                                                                                                                                                                                                                                                                                                                                 | low (one source)                                |
 | F6  | The tax invoice must say "Tax Invoice" (कर बीजक) and carry the seller's PAN, buyer's name, address and PAN, number, date, lines, taxable value, VAT and total. Practitioner guides show the date in BS.                                                                                                                                                                                                                                                                                             | medium (fields) / low (BS on the invoice)       |
-| F7  | Software billing rules (Electronic Billing Procedure 2074): data cannot be edited or deleted once entered, corrections are new entries, cancelled bills stay with a reason, returns go through credit notes, every record carries date, time and user, reprints are marked as copies with a print count, data exports to Excel or PDF.                                                                                                                                                              | low (one source)                                |
+| F7  | Software billing rules (Electronic Billing Procedure 2074): data cannot be edited or deleted once entered, corrections are new entries, cancelled bills stay with a reason, returns go through credit notes, every record carries date, time and user, reprints are marked as copies with a print count, data exports to Excel or PDF. **Confirmed (NV1):** a bill prints once; a reprint says "प्रतिलिपि" or "Copy of Original" with its print count, which is stored (Procedure cl. 6(च), research note §4, P3). | primary, high (since NV1) |
 | F8  | Real-time reporting to CBMS (Central Billing Monitoring System) is mandatory above an annual turnover of Rs 20 crore (IRD decision published about 17 April 2026). The FY 2083/84 budget announced Rs 10 crore; no IRD notice putting it into force was found. An older notice set Rs 5 crore for hotels, restaurants and internet service providers. Below the line, billing by software may need the tax office's permission, and cloud-hosted billing data may have to sit on a server in Nepal. | low (sources disagree on the current line)      |
 | F9  | CBMS takes one bill per post (fiscal year as `2083.084`, BS date `YYYY.MM.DD`, buyer PAN, total, taxable, VAT, exempt, export) and one credit note per post (`ref_invoice_number`, note number and date, reason, amounts). A third-party client reports that it rejects a duplicate bill number but accepts a duplicate credit note.                                                                                                                                                                | low (third-party client and a vendor guide)     |
 | F10 | India GST (later market): a credit note reduces output tax only if declared by 30 November after the financial year of the supply, or the annual return date if earlier (CGST s.34).                                                                                                                                                                                                                                                                                                                | medium (two commentaries agree)                 |
@@ -296,7 +300,10 @@ account credit the default settlement, Billing adds one:
 
 ### 6.2 Columns (on screen and in exports)
 
-Header block: seller PAN, seller legal name, BS fiscal year, tax period (BS month name and number, or the AD range).
+Header block: seller PAN, seller legal name, BS fiscal year, tax period (BS month name and number, or the AD range),
+then the period's count of tax invoices, credit notes and debit notes issued (the note register: notes only). The monthly
+return (Schedule 10) asks for these counts (research note §6). Every document in the period counts, also one left out
+of the sums for a missing rate or unclassified tax. **MUST** (NV1)
 
 | #   | Column                          | Source                                                                                   |
 | --- | ------------------------------- | ---------------------------------------------------------------------------------------- |
@@ -317,11 +324,14 @@ Header block: seller PAN, seller legal name, BS fiscal year, tax period (BS mont
 | 15  | Export value (Rs)               | value of documents with `supply_class = export`                                          |
 | 16  | Export country                  | buyer country for exports                                                                |
 | 17  | Export declaration no. and date | blank for services (A8)                                                                  |
-| 18  | Currency, amount, rate          | for documents not in the reporting currency: original currency, total and `report_rate`  |
+| 18  | Total (Rs)                      | total sales (11) + VAT (14); another tax is not in it (#464 Q2)                          |
+| 19  | Currency, amount, rate          | for documents not in the reporting currency: original currency, total and `report_rate`  |
 
-- Mapping to the prescribed columns (F2): 1, 4, 6, 7, 8, 9, 10, 11, 12, 13 and 14, 15, 16 are one template column
-  each; 17 covers two template columns (declaration number and date), which the IRD-layout export writes separately.
-  2, 3, 5 and 18 are our additions, placed after the template's columns in the IRD-layout export (§7). **MUST**
+- Mapping to Schedule 9 as of the 27th amendment (research note §12, P2; NV1): 1, 4, 6, 7, 11, 12, 13 and 14, 15,
+  16 and 18 (कुल जम्मा) are one Schedule column each; 17 covers two (declaration number and date), which the IRD-layout
+  export writes separately. 8, 9 and 10 (goods, quantity, unit) are no longer in the Schedule (25th amendment, 2080):
+  they stay in the detail layout only. 2, 3, 5 and 19 are our additions, placed after the Schedule's columns in the
+  IRD-layout export (§7). **MUST**
 - Money in rupees with two decimals; conversion per document with its stored `report_rate`, half-up, then summed.
   **MUST**
 
@@ -356,8 +366,12 @@ own.
 - **CSV, layout `detail`**: one row per document as §6.2, English headings, UTF-8 with BOM by default for these
   reports (Excel on Windows otherwise garbles Nepali names). Written by `SafeCsv`: the formula guard applies to text
   cells only, so a credit-note amount of `-1300.00` stays a number. **MUST**
-- **CSV, layout `ird`**: the prescribed columns in the prescribed order with the template's Nepali headings, the header
-  block as leading rows (PAN, name, year, period), then our extra columns. **MUST**
+- **CSV, layout `ird`**: the 13 columns of Schedule 9 as of the 27th amendment, in its order with its Nepali headings
+  ("निर्यात", not the earlier "निकासी", 26th amendment 2081), the header block as leading rows (PAN, name, year,
+  period, counts), then our extra columns (NV1). The header block's labels stay English: `ProvidesHeaderBlock` is not
+  told the layout, so Nepali labels there need a kernel change (CTO). The Economic Act 2083 took the format out of the
+  Rules and left it to the IRD; no later IRD format was found (research note §12, §16). If the accountant names one,
+  the columns change in a follow-up. **MUST**
 - **PDF**: the kernel report view (A4 landscape, header block, page and grand totals, "Printed by <staff> at <company
   time>", brand from `BrandProvider`). **MUST** It prints the `summary` layout (VAT PR 7): date (BS), number, type,
   buyer, PAN and the amounts, because the 21 detail columns do not fit an A4 landscape page; the CSVs keep every column.
@@ -411,8 +425,14 @@ Client area:
   or "automatic"), `billing.tax_note.emailed`, `billing.tax_note.printed` (with the new print count),
   `billing.nepal_vat.enabled` / `.changed`; exports are logged by the pipeline as `report.exported`. Viewing the
   register is not logged. **MUST**
-- Print marking: the first PDF download of an invoice or note is the original; later ones carry "Copy of original —
-  print n" in the header, in the mode (F7, assumption A7). Admin and client downloads both count. **SHOULD**
+- Print marking: the first PDF download of a tax invoice or note is the original; each later one carries "Copy of
+  original — print n" in the header, and the count is stored (`print_count`) and logged, in the mode. Admin and client
+  downloads both count; a HEAD request does not. Electronic Billing Procedure 2074 cl. 6(च) requires this of all
+  software billing (research note §4, P3; A7 confirmed). **MUST** (NV1; tested across every download path for tax
+  invoices, credit notes and debit notes in `tests/Feature/Billing/ReprintMarkingTest.php`)
+- An emailed PDF, and a resend, carry the cached original, unmarked, and are not counted as prints. The Procedure
+  speaks of printing only; whether an emailed original is the first print is open with the accountant (research note
+  §14, "Emailed PDF as print"). Change this only on the accountant's answer.
 - Retention: notes, invoices and their PDFs are never pruned by any cleanup job; the KYC 90-day deletion never touches
   billing documents. Six years minimum (assumption, F1; IRD text not read); nothing is pruned in any case. **MUST**
 
@@ -598,8 +618,10 @@ MUST:
     register, and periods before `enabled_from` are not offered.
 43. Given the register opened at 18:15:00 UTC on the last day of a BS month, then the default period is that month
     (now closed); at 18:14:59 UTC it is the month before.
-44. Given the IRD-layout CSV, then its columns are in the prescribed order with the template's Nepali headings,
-    declaration number and date in separate columns, and header rows with seller PAN, name, fiscal year and period.
+44. Given the IRD-layout CSV, then its columns are Schedule 9's 13 (27th amendment) in order with its Nepali
+    headings, without goods, quantity or unit, with "निर्यात" and never "निकासी", declaration number and date in
+    separate columns, "कुल जम्मा" last, and header rows with seller PAN, name, fiscal year, period and the counts of
+    tax invoices, credit notes and debit notes (NV1).
 45. Given a buyer named `=HYPERLINK(...)`, then the CSV cell starts with `'=`, while a credit-note amount
     `-1300.00` is written unprefixed; every export writes one `report.exported` entry with layout, format, filters and
     row count.
@@ -632,8 +654,10 @@ MUST:
 
 SHOULD:
 
-55. Given an invoice PDF downloaded twice in the mode, then the second copy says "Copy of original — print 2" and
-    `print_count` is 2.
+55. Given a tax invoice, credit note or debit note PDF downloaded three times in the mode, by staff or by the client,
+    then the first is the cached original, the second says "Copy of original — print 2", the third "print 3", and
+    `print_count` is 3; an email or resend afterwards attaches the original and leaves the count. A MUST since NV1
+    (§9), listed here to keep its number.
 56. Given a note issued with "Send to client" ticked, then the client gets the email with the PDF attached.
 57. Given staff with `billing.credit.refund` and `billing.refunds.manage` refund account credit through the gateway
     against an earlier payment, then a `credit_refunded` row is posted before the provider call (so `ApplyCredit`
@@ -680,7 +704,7 @@ whether software billing below the line needs the tax office's permission.
 - A5: A chargeback or reversed wallet payment does not change the VAT bill until the host decides the money is lost.
 - A6: Unpaid tax invoices written off keep their VAT (no bad-debt relief is claimed).
 - A7: Tax offices expect reprints of a computer bill to be marked "copy of original" with a count, even below the CBMS
-  line.
+  line. **Confirmed by the text (NV1):** Procedure cl. 6(च) requires it of all software billing (research note §4).
 - A8: Hosts selling to foreign clients have no export declaration number for services; those columns stay blank.
 - A9: Invoices with AD dates and an optional BS date beside them (owner decision 10-22) are acceptable to tax
   officers; the register itself always shows BS.
@@ -749,6 +773,21 @@ automatic downgrade credit notes from Services (HostBill does this; later); note
 - Whether the IRD portal expects an uploaded sales book (format and columns) with the monthly return.
 - The official CBMS API specification (we read a third-party client and a vendor guide).
 - CGST Rule 53(1A) particulars (India, not needed now).
+
+## 17a. Sources read 2026-10-31 (NV1)
+
+From `docs/research/2026-10-31-nepal-vat-ebilling.md`, which read the IRD texts first-hand (refs as there):
+
+- P2, VAT Rules 2053 with the 27th amendment, Schedule 9 (sales book) and its footnotes: the 25th amendment (2080)
+  removed goods name and quantity; the 26th (2081) replaced "निकासी" with "निर्यात"; the column list ends with
+  "कुल जम्मा". Research note §12. Used for F2, §6.2, §7, AC 44. NV1 did not re-read the PDF (no PDF text extractor on
+  the build machine), so the headings are as the research note gives them.
+- P2, Schedule 10 (the return): counts of sales invoices, credit notes and debit notes per period. Research note §6.
+  Used for the §6.2 header counts.
+- P3, Electronic Billing Procedure 2074, cl. 6(च): one print, reprints marked "प्रतिलिपि" or "Copy of Original" with the
+  count, which is stored. Research note §4. Used for F7, §9, A7, AC 55.
+- P8, Economic Act 2083 booklet: Schedule 9 left the Rules for an IRD-prescribed format, not found. Research note §12,
+  §16. Used for §7.
 
 ## 18. Build order
 
