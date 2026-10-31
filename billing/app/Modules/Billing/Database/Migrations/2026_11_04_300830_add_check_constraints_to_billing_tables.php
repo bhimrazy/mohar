@@ -105,7 +105,7 @@ return new class extends Migration
      */
     private function existing(string $table): array
     {
-        return DB::table('pg_constraint')->where('conrelid', DB::raw("to_regclass('{$table}')"))->where('contype', 'c')
+        return DB::table('pg_constraint')->whereRaw('conrelid = to_regclass(?)', [$table])->where('contype', 'c')
             ->whereIn('conname', array_keys(self::CHECKS[$table]))->pluck('convalidated', 'conname')->map(fn ($valid): bool => (bool) $valid)->all();
     }
 };
