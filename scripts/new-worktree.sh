@@ -22,5 +22,9 @@ export XDEBUG_MODE=off
 composer dump-autoload -q
 php artisan migrate:fresh --seed --no-interaction -q
 php artisan wayfinder:generate --with-form > /dev/null
-"$wt/scripts/install-hooks.sh" >/dev/null || echo "warning: pre-push gate not installed (run scripts/install-hooks.sh)" >&2
-echo "Worktree ready: $wt/billing (branch feature/$slug)"
+# The gate must be installed (retried inside install-hooks.sh); a worktree without it would push unchecked.
+"$wt/scripts/install-hooks.sh" >/dev/null \
+    || { echo "error: pre-push gate not installed in $wt; run scripts/install-hooks.sh there" >&2; exit 1; }
+hooks="$(git -C "$wt" config --worktree --get core.hooksPath || true)"
+[[ -n "$hooks" ]] || { echo "error: core.hooksPath is unset in $wt; run scripts/install-hooks.sh there" >&2; exit 1; }
+echo "Worktree ready: $wt/billing (branch feature/$slug, hooks: $hooks)"
