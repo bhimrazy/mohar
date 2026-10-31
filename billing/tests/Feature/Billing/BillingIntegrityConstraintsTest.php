@@ -32,6 +32,16 @@ it('refuses to delete a client with money history', function (Closure $history, 
         'created_at' => now(), 'updated_at' => now()]), 'payment_batches'],
 ]);
 
+test('a rule an invoice starts using between the count and the delete is kept, and the caller can go on', function () {
+    $rule = TaxRule::factory()->create();
+    $invoice = issueInvoice(billingClient());
+    // The invoice picks the rule after deleteUnlessUsed has counted none: the foreign key refuses the delete.
+    TaxRule::deleting(fn (TaxRule $deleting) => DB::table('invoices')->where('id', $invoice->id)->update(['tax1_rule_id' => $deleting->id]));
+
+    expect($rule->deleteUnlessUsed())->toBe(1)
+        ->and(TaxRule::query()->whereKey($rule->id)->exists())->toBeTrue();
+});
+
 test('staff are told why a tax rule an invoice was calculated with cannot be deleted', function () {
     $rule = TaxRule::factory()->create();
     $invoices = [issueInvoice(billingClient()), issueInvoice(billingClient())];
@@ -41,7 +51,7 @@ test('staff are told why a tax rule an invoice was calculated with cannot be del
     confirmPassword();
 
     $this->delete(route('admin.billing.tax-rules.destroy', $rule))->assertRedirect()
-        ->assertInertiaFlash('toast', ['type' => 'error', 'message' => 'This rule was used to calculate 2 invoices, so it can\'t be deleted: the invoices keep it as the record of their tax.']);
+        ->assertInertiaFlash('toast', ['type' => 'error', 'message' => 'This rule was used to calculate 2 invoices, so it can\'t be deleted: the invoices keep it as the record of their tax. To stop it applying to new invoices, add a rule for the same place with a higher priority or a later effective date.']);
 
     expect($rule->fresh())->not->toBeNull()
         ->and(DB::table('activity_log')->where('description', 'Tax rule deleted')->exists())->toBeFalse();
@@ -105,7 +115,7 @@ test('rows that break a check stop the migration by id, and the check is not lef
     $line = DB::table('invoice_items')->where('invoice_id', $invoice->id)->value('id');
     DB::table('invoice_items')->where('id', $line)->update(['quantity' => 0]);
 
-    expect(fn () => $migration->up())->toThrow(RuntimeException::class, "1 invoice_items rows break invoice_items_quantity_check (quantity > 0), ids {$line}.")
+    expect(fn () => $migration->up())->toThrow(RuntimeException::class, "invoice_items: 1 rows break invoice_items_quantity_check (quantity > 0), ids {$line}. The checks of this table not yet validated were removed again")
         ->and(DB::table('pg_constraint')->where('conname', 'invoice_items_quantity_check')->exists())->toBeFalse()
         ->and(DB::table('pg_constraint')->where('conname', 'tax_rules_rate_check')->value('convalidated'))->toBeTrue();
 })->skip($pgsqlOnly, 'The checks are PostgreSQL only');

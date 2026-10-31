@@ -18,8 +18,9 @@ use Illuminate\Support\Facades\DB;
  * A new enum case needs a migration that replaces its status check; BillingIntegrityConstraintsTest fails until then.
  *
  * PostgreSQL only. Each table's checks are added NOT VALID under one short lock, so new writes are checked at once;
- * then each is validated, which scans without blocking reads or writes. If existing rows break one, it is dropped
- * again and the migration stops naming them, rather than leaving a check that fails every later update of those rows.
+ * then each is validated, which scans without blocking reads or writes. If existing rows break any of a table's
+ * checks, every check of that table not yet validated is dropped again and the migration stops naming the rows,
+ * rather than leaving a check that fails every later update of those rows. Tables done before stay checked.
  * SQLite cannot add a CHECK to an existing table without a rebuild, so there this migration does nothing.
  */
 return new class extends Migration
@@ -65,22 +66,31 @@ return new class extends Migration
                 ))));
             }
 
-            foreach ($checks as $name => $condition) {
-                if ($this->existing($table)[$name] ?? false) {
-                    continue;
-                }
+            // NOT VALID checks are already enforced on new writes, so these counts are final.
+            $pending = array_keys(array_filter($this->existing($table), fn (bool $valid): bool => ! $valid));
+            $broken = [];
 
-                $violating = DB::table($table)->whereRaw("NOT ({$condition})");
+            foreach ($pending as $name) {
+                $violating = DB::table($table)->whereRaw('NOT ('.$checks[$name].')');
                 $count = (clone $violating)->count();
 
                 if ($count > 0) {
-                    $ids = $violating->orderBy('id')->limit(self::NAMED_IDS)->pluck('id')->implode(', ');
-                    // @compatible removes only the check this migration just added
-                    LockTimeout::run($table, fn () => DB::statement("ALTER TABLE {$table} DROP CONSTRAINT IF EXISTS {$name}"));
-
-                    throw new RuntimeException("{$count} {$table} rows break {$name} ({$condition}), ids {$ids}. Correct them and run the migration again.");
+                    $broken[] = "{$count} rows break {$name} ({$checks[$name]}), ids ".$violating->orderBy('id')->limit(self::NAMED_IDS)->pluck('id')->implode(', ');
                 }
+            }
 
+            if ($broken !== []) {
+                // @compatible removes only checks this migration added and never validated, all of the table's at once:
+                // one left behind NOT VALID would refuse every later update of the rows another check found
+                LockTimeout::run($table, fn () => DB::statement("ALTER TABLE {$table} ".implode(', ', array_map(
+                    fn (string $name): string => "DROP CONSTRAINT IF EXISTS {$name}",
+                    $pending,
+                ))));
+
+                throw new RuntimeException("{$table}: ".implode('; ', $broken).'. The checks of this table not yet validated were removed again; correct the rows and run the migration again.');
+            }
+
+            foreach ($pending as $name) {
                 LockTimeout::run($table, fn () => DB::statement("ALTER TABLE {$table} VALIDATE CONSTRAINT {$name}"));
             }
         }
