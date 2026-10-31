@@ -466,3 +466,34 @@ missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this s
 - **Known gaps** (replacing the list above). A suspended Fiber shares the outer node budget (fails closed). A CDATA
   section of the excluded kind after a value is as readable as before. `token: //x` read by the scan stays readable,
   as on develop. Consequences' last bullet (the emergency logger) no longer holds.
+
+## Amendment (#574) — 2026-10-31, declared keys read by both hosts
+
+- `ExecuteModuleCommand` and `RegistrarGateway` read `DeclaresSensitiveKeys` for the command or capability they run
+  (`Redactor::declaredKeys()`), before the driver is called. A driver whose `sensitiveKeys()` throws fails the command
+  then, with nothing sent.
+- The keys are masked by key in the command log.
+- The values under them are collected from structure only (`Redactor::valuesUnder()`). That means arrays, JSON string
+  leaves, and in other strings, also after percent-decoding, two forms. One is a `<key>…</key>` element without
+  attributes, with CDATA unwrapped. The other is a `key=…` pair, unquoted or in single or double quotes, which covers
+  attributes. Entity-decoded and percent-decoded forms of each value are added. The host also reads the driver's
+  message this way.
+- Every occurrence of a collected value is masked:
+    - in each stored payload string, by plain substring (`redactDeclared()`);
+    - in the call's text (`maskDeclared()`): errors, failure items, activity and registrar messages.
+- A value of 4 to 7 bytes is matched only as a whole token in text, and always in payloads. A value under 4 bytes is
+  covered by key masking only.
+- Fail closed: when a payload cannot be read in full, the payloads are stored as `{"withheld": "[redacted]"}` and the
+  text as `[redacted]`. Rule: when in doubt, withhold; over-withholding a log line is acceptable, a leak is not. That
+  happens:
+    - past the node or depth limit;
+    - when a string uses a declared key as a name in any other form (`ticket: X`, `<item key="ticket">`, JSON inside a
+      form field);
+    - when a capture is empty, nested, holds markup, a document or quotes, or sits in a declared element that carries
+      attributes.
+- Out of scope: base64 of a whole body. Neither this collection nor `redact()` can see a key inside it. Base64 of a
+  collected value in text is masked through `RedactionSet`.
+- `RegistrarGateway::codeKeys()` stays as the host's built-in key for `epp` and `transfer`, in addition to declared
+  keys, not replaced by them. Its values are not masked in text, so an EPP result code under `code` stays readable in
+  messages.
+- Gateway payloads (`GatewayLogger`) do not read the capability yet (#582).

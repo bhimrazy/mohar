@@ -2224,10 +2224,15 @@ App\Support\Integrations\Redactor final class
 App\Support\Integrations\Redactor const public CARD_MASK = '[redacted-pan]'
 App\Support\Integrations\Redactor const public EXCERPT_BYTES = 4096
 App\Support\Integrations\Redactor const public MASK = '[redacted]'
+App\Support\Integrations\Redactor method public static declaredKeys(?object $driver, string $operation): array
+App\Support\Integrations\Redactor doc method declaredKeys @return list<string>
 App\Support\Integrations\Redactor method public excerpt(string $raw, App\Support\Integrations\RedactionSet|array $secrets = [], int $limit = self::EXCERPT_BYTES): string
 App\Support\Integrations\Redactor doc method excerpt @param $secrets RedactionSet|list<string>
 App\Support\Integrations\Redactor method public isSensitiveKey(string|int $key, array $sensitiveKeys = []): bool
 App\Support\Integrations\Redactor doc method isSensitiveKey @param $sensitiveKeys list<string>
+App\Support\Integrations\Redactor method public maskDeclared(string $text, ?array $values, array $secrets = []): string
+App\Support\Integrations\Redactor doc method maskDeclared @param $values list<string>|null
+App\Support\Integrations\Redactor doc method maskDeclared @param $secrets list<string>
 App\Support\Integrations\Redactor method public maskThrowable(Throwable $exception, App\Support\Integrations\RedactionSet|array|null $secrets = null): Throwable
 App\Support\Integrations\Redactor doc method maskThrowable @template T of Throwable
 App\Support\Integrations\Redactor doc method maskThrowable @param $exception T
@@ -2240,11 +2245,21 @@ App\Support\Integrations\Redactor doc method redact @param $payload array<array-
 App\Support\Integrations\Redactor doc method redact @param $secrets RedactionSet|list<string>
 App\Support\Integrations\Redactor doc method redact @param $sensitiveKeys list<string>
 App\Support\Integrations\Redactor doc method redact @return array<array-key, mixed>
+App\Support\Integrations\Redactor method public redactDeclared(array $payload, ?array $values, array $secrets, array $sensitiveKeys): array
+App\Support\Integrations\Redactor doc method redactDeclared @param $payload array<array-key, mixed>
+App\Support\Integrations\Redactor doc method redactDeclared @param $values list<string>|null
+App\Support\Integrations\Redactor doc method redactDeclared @param $secrets list<string>
+App\Support\Integrations\Redactor doc method redactDeclared @param $sensitiveKeys list<string>
+App\Support\Integrations\Redactor doc method redactDeclared @return array<array-key, mixed>
 App\Support\Integrations\Redactor method public redactPayment(array $payload, int $depth = 0, App\Support\Integrations\RedactionSet|array $secrets = []): array
 App\Support\Integrations\Redactor doc method redactPayment @param $payload array<array-key, mixed>
 App\Support\Integrations\Redactor doc method redactPayment @param $secrets RedactionSet|list<string>
 App\Support\Integrations\Redactor doc method redactPayment @return array<array-key, mixed>
 App\Support\Integrations\Redactor method public scrubCardNumbers(string $value): string
+App\Support\Integrations\Redactor method public valuesUnder(array $sensitiveKeys, array ...$payloads): ?array
+App\Support\Integrations\Redactor doc method valuesUnder @param $sensitiveKeys list<string>
+App\Support\Integrations\Redactor doc method valuesUnder @param $payloads array<array-key, mixed>
+App\Support\Integrations\Redactor doc method valuesUnder @return list<string>|null
 App\Support\Integrations\SecretMinimumLength final readonly class implements Illuminate\Contracts\Validation\ValidationRule
 App\Support\Integrations\SecretMinimumLength method public __construct(App\Data\Integrations\SettingField $field)
 App\Support\Integrations\SecretMinimumLength method public validate(string $attribute, mixed $value, Closure $fail): void

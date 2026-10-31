@@ -2,6 +2,7 @@
 
 namespace App\Support\Integrations;
 
+use App\Contracts\Integrations\DeclaresSensitiveKeys;
 use Closure;
 use Error;
 use Exception;
@@ -52,6 +53,15 @@ final class Redactor
 
     /** Exceptions behind the first one whose messages maskThrowable() masks; those further down are withheld. */
     private const MAX_PREVIOUS = 16;
+
+    /** A declared value at least this long is masked as a substring in text; a shorter one only as a whole token. */
+    private const DECLARED_SUBSTRING_BYTES = 8;
+
+    /** Declared values shorter than this are not masked by value; key masking still covers them. */
+    private const DECLARED_MIN_BYTES = 4;
+
+    /** Percent-decoding passes readMarkup() reads before it fails closed. */
+    private const DECODE_PASSES = 6;
 
     /** A key is sensitive when it is exactly one of these. */
     private const SENSITIVE_KEYS = ['key', 'pw', 'pwd', 'dv', 'phpsessid'];
@@ -226,6 +236,288 @@ final class Redactor
     public function redact(array $payload, RedactionSet|array $secrets = [], array $sensitiveKeys = []): array
     {
         return $this->budgeted(fn (): array => $this->redactWith($payload, self::set($secrets), array_map('strtolower', $sensitiveKeys), 0));
+    }
+
+    /**
+     * The extra keys a driver declares secret in one operation's payloads (DeclaresSensitiveKeys, ADR 0023 §5), for
+     * the host to pass to redact() and valuesUnder(); [] for a driver that declares none.
+     *
+     * @return list<string>
+     */
+    public static function declaredKeys(?object $driver, string $operation): array
+    {
+        return $driver instanceof DeclaresSensitiveKeys ? array_values(array_filter($driver->sensitiveKeys($operation), is_string(...))) : [];
+    }
+
+    /**
+     * The values under keys a driver declares (declaredKeys()), for the host to mask by value in everything it stores.
+     * Read from structure only: arrays, JSON string leaves, and in other strings `<key>value</key>` elements (CDATA
+     * unwrapped, entities decoded) and `key=value` pairs (also percent-decoded, until stable). Values under
+     * DECLARED_MIN_BYTES are left out; key masking still covers them.
+     *
+     * Null (fail closed: the host withholds the payloads and the text whole) when a payload cannot be read in full:
+     * past the node or depth limit, a JSON string that repeats a declared key, or a string that uses a declared key as
+     * a name in any other form (`ticket: X`, `<item key="ticket">`, a nested element).
+     *
+     * @param  list<string>  $sensitiveKeys
+     * @param  array<array-key, mixed>  ...$payloads
+     * @return list<string>|null
+     */
+    public function valuesUnder(array $sensitiveKeys, array ...$payloads): ?array
+    {
+        if ($sensitiveKeys === []) {
+            return [];
+        }
+
+        $keys = array_values(array_unique(array_map('strtolower', $sensitiveKeys)));
+        $values = [];
+        $nodes = 0;
+
+        $walk = function (array $payload, bool $under, int $depth) use (&$walk, &$values, &$nodes, $keys): bool {
+            foreach ($payload as $key => $value) {
+                if (++$nodes > self::MAX_NODES || $depth > self::MAX_DEPTH) {
+                    return false;
+                }
+
+                $hit = $under || (is_string($key) && in_array(strtolower($key), $keys, true));
+
+                if (is_object($value)) {
+                    $value = json_decode((string) json_encode($value), true);
+                } elseif (is_string($value)) {
+                    $document = self::jsonDocument($value);
+
+                    // json_decode() keeps only the last value of a repeated key: the earlier ones would go unread.
+                    if ($document !== null && self::repeatsKey($value, $document, $keys)) {
+                        return false;
+                    }
+
+                    $value = $document ?? $value;
+                }
+
+                if (is_array($value)) {
+                    if (! $walk($value, $hit, $depth + 1)) {
+                        return false;
+                    }
+                } elseif ($hit) {
+                    if (is_string($value) || is_int($value) || is_float($value)) {
+                        $values[] = (string) $value;
+                    }
+                } elseif (is_string($value) && ! self::readMarkup($value, $keys, $values)) {
+                    return false;
+                }
+            }
+
+            return true;
+        };
+
+        foreach ($payloads as $payload) {
+            if (! $walk($payload, false, 0)) {
+                return null;
+            }
+        }
+
+        $values = array_map('trim', $values);
+
+        return array_values(array_unique(array_filter($values, fn (string $value): bool => strlen($value) >= self::DECLARED_MIN_BYTES && $value !== self::MASK)));
+    }
+
+    /**
+     * $text with $secrets and the declared values (valuesUnder()) masked. A declared value under
+     * DECLARED_SUBSTRING_BYTES is masked only as a whole token, so `1000` leaves `port 10000` readable. Null values
+     * (a payload not read in full) withhold the text whole.
+     *
+     * @param  list<string>|null  $values
+     * @param  list<string>  $secrets
+     */
+    public function maskDeclared(string $text, ?array $values, array $secrets = []): string
+    {
+        if ($values === null) {
+            return self::MASK;
+        }
+
+        $long = array_values(array_filter($values, fn (string $value): bool => strlen($value) >= self::DECLARED_SUBSTRING_BYTES));
+        $masked = $this->maskValues($text, [...$secrets, ...$long]);
+
+        foreach (array_diff($values, $long) as $value) {
+            $masked = (string) preg_replace('/(?<![A-Za-z0-9_])'.preg_quote($value, '/').'(?![A-Za-z0-9_])/i', self::MASK, $masked);
+        }
+
+        return $masked;
+    }
+
+    /**
+     * redact() for a payload of a call whose driver declares keys: masked by $sensitiveKeys, and by value with $secrets
+     * and every declared value, short ones included. Null values (a payload not read in full) withhold the payload
+     * whole.
+     *
+     * @param  array<array-key, mixed>  $payload
+     * @param  list<string>|null  $values
+     * @param  list<string>  $secrets
+     * @param  list<string>  $sensitiveKeys
+     * @return array<array-key, mixed>
+     */
+    public function redactDeclared(array $payload, ?array $values, array $secrets, array $sensitiveKeys): array
+    {
+        if ($values === null) {
+            return $payload === [] ? [] : ['withheld' => self::MASK];
+        }
+
+        // The values as secrets: every occurrence, any case, also encoded, in every string and number.
+        return $this->redact($payload, [...$secrets, ...$values], $sensitiveKeys);
+    }
+
+    /**
+     * @return array<array-key, mixed>|null
+     */
+    private static function jsonDocument(string $value): ?array
+    {
+        $trimmed = ltrim($value);
+
+        if ($trimmed === '' || ($trimmed[0] !== '{' && $trimmed[0] !== '[')) {
+            return null;
+        }
+
+        $decoded = json_decode($trimmed, true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * Whether the raw JSON $text names a declared key more often than its decoded $document holds it (a repeated key).
+     * Object keys are the strings followed by `:`, unescaped before they are compared. Each match consumes one whole
+     * string (possessively, so the scan stays linear and never restarts inside a string); a regex error fails closed.
+     *
+     * @param  array<array-key, mixed>  $document
+     * @param  list<string>  $keys  lowercase
+     */
+    private static function repeatsKey(string $text, array $document, array $keys): bool
+    {
+        if (preg_match_all('/"((?:[^"\\\\]++|\\\\.)*+)"(\s*+:)?/s', $text, $strings) === false) {
+            return true;
+        }
+
+        $raw = 0;
+
+        foreach ($strings[1] as $index => $name) {
+            $raw += (int) ($strings[2][$index] !== '' && in_array(strtolower((string) json_decode('"'.$name.'"')), $keys, true));
+        }
+
+        $held = 0;
+        $count = function (array $node) use (&$count, &$held, $keys): void {
+            foreach ($node as $key => $value) {
+                $held += (int) (is_string($key) && in_array(strtolower($key), $keys, true));
+
+                if (is_array($value)) {
+                    $count($value);
+                }
+            }
+        };
+        $count($document);
+
+        return $raw > $held;
+    }
+
+    /**
+     * Adds the values of `<key>…</key>` elements and `key=…` pairs (unquoted, or in single or double quotes, as in an
+     * attribute) in $text, and in each of its percent-decoded forms, to $values. False, so the caller fails closed, when either
+     * form uses a declared key as a name anywhere else, or a capture is empty, nested, carries attributes on the
+     * declared element, or holds markup or a document. When in doubt this fails closed: over-withholding a log line is
+     * acceptable, a leak is not.
+     *
+     * @param  list<string>  $keys  lowercase
+     * @param  list<string>  $values
+     */
+    private static function readMarkup(string $text, array $keys, array &$values): bool
+    {
+        if (! self::readText($text, $keys, $values)) {
+            return false;
+        }
+
+        // Percent-decoded until stable (a pair encoded twice in a nested URL); still changing after the last pass fails closed.
+        for ($pass = 0; str_contains($text, '%'); $pass++) {
+            $decoded = rawurldecode($text);
+
+            if ($decoded === $text) {
+                return true;
+            }
+
+            if ($pass === self::DECODE_PASSES || ! self::readText($decoded, $keys, $values)) {
+                return false;
+            }
+
+            $text = $decoded;
+        }
+
+        return true;
+    }
+
+    /**
+     * @param  list<string>  $keys  lowercase
+     * @param  list<string>  $values
+     */
+    private static function readText(string $text, array $keys, array &$values): bool
+    {
+        foreach ($keys as $key) {
+            $name = preg_quote($key, '/');
+            // The key used as a name: after markup or a separator, or before `=`, `:`, `>` or `]` (prose is not a use).
+            $mentions = preg_match_all('/(?<![A-Za-z0-9_])(?:(?<=[<\/"\'\[&?;:])'.$name.'|'.$name.'(?=\s*["\']?\s*[=:>\]]))(?![A-Za-z0-9_])/i', $text);
+
+            if ($mentions === 0) {
+                continue;
+            }
+
+            $prefix = '(?:[A-Za-z_][\w.\-]*:)?';
+            $elements = preg_match_all('/<'.$prefix.$name.'(\s[^<>]*)?>(.*?)<\/'.$prefix.$name.'\s*>/is', $text, $element);
+            $pairs = preg_match_all('/(?<![A-Za-z0-9_.\-\[\]])'.$name.'\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^&;\s"\'<>]+))/i', $text, $pair);
+
+            if ($mentions === false || $elements === false || $pairs === false || $mentions !== 2 * $elements + $pairs) {
+                return false;
+            }
+
+            foreach ($element[2] as $index => $content) {
+                if (trim($element[1][$index]) !== '') {
+                    return false;
+                }
+
+                // A nested element or markup left after CDATA is refused by addCapture().
+                if (preg_match('/^\s*<!\[CDATA\[(.*)\]\]>\s*$/s', $content, $cdata) === 1) {
+                    $content = $cdata[1];
+                }
+
+                if (! self::addCapture($content, $values)) {
+                    return false;
+                }
+            }
+
+            foreach (array_keys($pair[0]) as $index) {
+                if (! self::addCapture($pair[1][$index].$pair[2][$index].$pair[3][$index], $values)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Adds a captured value with its entity- and percent-decoded forms. False when the value is empty or, decoded,
+     * holds markup, a document or quotes: it cannot be masked as one value.
+     *
+     * @param  list<string>  $values
+     */
+    private static function addCapture(string $raw, array &$values): bool
+    {
+        $forms = array_values(array_unique([$raw, html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8'), rawurldecode($raw), urldecode($raw)]));
+
+        foreach ($forms as $form) {
+            if (trim($form) === '' || strpbrk($form, '<>{}[]"\'') !== false) {
+                return false;
+            }
+        }
+
+        array_push($values, ...$forms);
+
+        return true;
     }
 
     /**

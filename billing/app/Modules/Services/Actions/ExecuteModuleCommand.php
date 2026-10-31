@@ -194,27 +194,33 @@ class ExecuteModuleCommand
         $context = null;
         $driver = null;
         $target = null;
+        $declared = [];
 
         try {
             $driver = $this->drivers->get($driverKey);
+            // Before anything is sent: a driver that cannot name its secret keys fails the command here, never logs unmasked.
+            $declared = Redactor::declaredKeys($driver, $command->value);
             $server = $this->prepare($service, $command, $driver, $product?->serverGroupId, $driverKey);
             // What a create sends, recorded before the call: only an account matching it may later be adopted.
             $target = $command === ModuleCommandName::Create ? ['username' => $service->username, 'domain' => $service->domain, 'server_id' => $service->server_id] : null;
             $context = $this->snapshots->context($service, $server, $product, $driver, $deadline, $target === null ? null : $this->unknownAttemptAt($service));
             $log = $this->startLog($service, $driverKey, $command, $initiator, $attempt, $target);
-            $result = $this->callDriver($driver, $context, $command, $args);
+            $result = $this->callDriver($driver, $context, $command, $args, $declared);
         } catch (RetryableProvisioningException $exception) {
             $result = DriverResult::fail($exception->getMessage(), retryable: true);
         } catch (NoServerCapacity $exception) {
             ServerCapacityExhausted::dispatch($service->id, $service->product_id, $product?->serverGroupId);
             $result = DriverResult::fail($exception->getMessage());
         } catch (Throwable $exception) {
-            report(new \RuntimeException($this->redactor->maskValues($exception->getMessage(), $this->secrets($context, $args))));
+            report(new \RuntimeException($this->maskThrown($exception, $declared, $this->secrets($context, $args))));
             $result = DriverResult::fail($exception->getMessage());
         }
 
         $secrets = $this->secrets($context, $args);
-        $error = $result->success ? null : $this->redactor->maskValues((string) $result->message, $secrets);
+        // Keys the driver declares secret in this command's payloads: masked by key in the log, and their values (read from
+        // the payloads and the message's own markup) in its text.
+        $declaredValues = $this->redactor->valuesUnder($declared, $result->request, $result->response, ['message' => (string) $result->message]);
+        $error = $result->success ? null : $this->redactor->maskDeclared((string) $result->message, $declaredValues, $secrets);
         $outcome = $result->outcome();
 
         $attributes = [
@@ -226,8 +232,8 @@ class ExecuteModuleCommand
             },
             'error' => $error,
             // The recorded target goes last, so nothing a driver logs can overwrite it.
-            'request' => [...$this->redactor->redact($result->request, $secrets), ...($target === null ? [] : ['target' => $target])] ?: null,
-            'response' => $this->redactor->redact($result->response, $secrets) ?: null,
+            'request' => [...$this->redactor->redactDeclared($result->request, $declaredValues, $secrets, $declared), ...($target === null ? [] : ['target' => $target])] ?: null,
+            'response' => $this->redactor->redactDeclared($result->response, $declaredValues, $secrets, $declared) ?: null,
             'duration_ms' => (int) ((hrtime(true) - $started) / 1_000_000),
         ];
 
@@ -436,21 +442,36 @@ class ExecuteModuleCommand
      * before the call (server selection, snapshot building) stay rejected.
      *
      * @param  array<string, mixed>  $args
+     * @param  list<string>  $declared
      *
      * @throws RetryableProvisioningException
      */
-    private function callDriver(ProvisioningDriver $driver, ProvisioningContext $context, ModuleCommandName $command, array $args): DriverResult
+    private function callDriver(ProvisioningDriver $driver, ProvisioningContext $context, ModuleCommandName $command, array $args, array $declared): DriverResult
     {
         try {
             return $this->call($driver, $context, $command, $args);
         } catch (RetryableProvisioningException $exception) {
             throw $exception;
         } catch (Throwable $exception) {
-            $message = $this->redactor->maskValues($exception->getMessage(), $this->secrets($context, $args));
+            $message = $this->maskThrown($exception, $declared, $this->secrets($context, $args));
             report(new \RuntimeException($message));
 
             return DriverResult::unknown("The {$driver->name()} driver failed during the call: {$message}");
         }
+    }
+
+    /**
+     * The exception's message with secrets and the declared values in its own markup masked, for the application log
+     * (withheld whole when it cannot be read in full).
+     *
+     * @param  list<string>  $declared
+     * @param  list<string>  $secrets
+     */
+    private function maskThrown(Throwable $exception, array $declared, array $secrets): string
+    {
+        $message = $exception->getMessage();
+
+        return $this->redactor->maskDeclared($message, $this->redactor->valuesUnder($declared, ['message' => $message]), $secrets);
     }
 
     /**
