@@ -136,7 +136,7 @@ Endpoint `POST /api/inbound/email/{provider}` (normalised driver per provider, e
 3. Rate limit: more than `support.inbound_max_per_sender: 10` messages from one sender in 15 minutes → drop.
 4. Spam rules (case-insensitive) → drop.
 5. Match existing ticket: `In-Reply-To`/`References` against stored `email_message_id`s, else subject token `[#{number}]`. Merged → target ticket.
-6. Sender authorisation for replies: requester, CC, any user or contact of the ticket's client. Otherwise store as `blocked` (staff can import from the ticket view); `support.allow_unverified_email_replies: false` — when true, import anyway with an "unverified sender" badge.
+6. Sender authorisation for replies: requester, CC, any verified login or contact of the ticket's client, or its account email when vouched for (see "Proved addresses" below). Otherwise store as `blocked` (staff can import from the ticket view); `support.allow_unverified_email_replies: false` — when true, import anyway with an "unverified sender" badge.
 7. Closed ticket: if `support.prevent_email_reopen: false` → reopen as `customer_reply`; else send `ticket.closed_bounce` and stop.
 8. New ticket: department by recipient address (To/Cc/Delivered-To); unknown address → `support.default_department_id`. `replies_only_by_email` → bounce `ticket.replies_only_bounce`; `clients_only` and unknown sender → bounce `ticket.unregistered_bounce`.
 9. Strip quoted history above the marker `support.reply_marker: '--- Reply above this line ---'` and common client quote headers; keep raw MIME for 30 days.
@@ -232,11 +232,16 @@ billable items from tickets, ticket feedback surveys on close, ticket splitting,
   there is no `ticket_statuses` table and no custom statuses in v1.
 - **Related service** is validated with `Contracts\Services\ClientServiceDirectory::belongsToClient()` and offered
   from `forClient()`; with the Core null directory no service can be linked and the picker is hidden.
+- **Proved addresses** (security review 2026-10-31, M2): an address links mail or a public form to an account only
+  when it is an account email set by staff or an import (`EmailSource::isVouched()`), the email of a login with
+  `email_verified_at` set (owner or sub-user), or a contact (entered by staff or an import). An account email the
+  client typed in counts only through a login of that client that verified it. Any other address is an unknown
+  sender: a guest ticket, a `clients_only` bounce, or a `blocked` reply.
 - **Guest email matching a client** (§4.1): the ticket is attached to that client but flagged
   `is_unverified_requester` for staff, and the submitter only gets a confirmation page — the access link is emailed.
 - **Inbound reply verification** (§6.6): a reply is verified only when it is threaded (In-Reply-To/References) on a
   Message-ID **we generated for that ticket** (`email_message_id_generated`) **and** the sender exactly matches the
-  requester, a CC, the client owner, a client login or a contact. The webhook HMAC only authenticates the relay, so
+  requester, a CC, the client's vouched account email, a verified client login or a contact. The webhook HMAC only authenticates the relay, so
   From and authentication headers inside the payload are never trusted; the `generic` driver never sets a verdict.
   A provider-specific driver may supply one only from structured fields of its own signed payload (documented in that
   driver). Everything else is held back (`blocked`) for staff import with the "unverified sender" badge.
