@@ -140,12 +140,14 @@ describe('concurrent guesses in separate processes (PostgreSQL)', function () {
         $workers = [];
 
         foreach (range(1, 6) as $worker) {
-            $workers["w{$worker}"] = [DB::connection()->getDatabaseName(), (string) $user->id, '203.0.113.'.$worker, $startAt];
+            $workers["w{$worker}"] = ['wrong', DB::connection()->getDatabaseName(), (string) $user->id, '203.0.113.'.$worker, $startAt];
         }
 
         $outcomes = collect(passwordGuessRaceWorkers($workers))->countBy('outcome')->all();
 
         // The third compared guess is the twentieth wrong one: it ends its session.
-        expect($outcomes)->toEqual(['wrong' => 2, 'ended' => 1, 'refused' => 3]);
+        app('cache')->forgetDriver('database');
+        expect($outcomes)->toEqual(['wrong' => 2, 'ended' => 1, 'refused' => 3])
+            ->and((new CacheRateLimiter(app('cache')->store('database')))->attempts('password-guess|'.$user->id))->toBe(PasswordGuesses::PER_HOUR);
     });
 });

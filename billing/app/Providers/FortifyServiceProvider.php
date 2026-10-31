@@ -92,8 +92,8 @@ class FortifyServiceProvider extends ServiceProvider
 
             $valid = $user instanceof User
                 ? PasswordGuesses::check($user, request(), 'password', $compare, function () use ($user): void {
-                    // Who and from where, never the guess; on the client account a client login acts for, so its
-                    // owner sees it (#523). PasswordGuesses bounds how many rows this writes.
+                    // Who and from where, never the guess; on the client account a client login acts for, so it
+                    // shows in that client's activity (#523). PasswordGuesses bounds how many rows this writes.
                     app(ActivityLogger::class)->log('Password confirmation failed', $user, PasswordGuesses::activityClientId($user, request()), event: 'auth.confirm_password_failed', actor: $user);
                 })
                 : $compare();
