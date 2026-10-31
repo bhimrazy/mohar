@@ -364,8 +364,9 @@ export default function DomainShow({
                         <AlertTriangle />
                         <AlertTitle>{registrar.name} is disabled</AlertTitle>
                         <AlertDescription>
-                            Registrar commands for this domain are refused until
-                            the registrar is enabled again.
+                            New registrar commands for this domain are refused
+                            until the registrar is enabled again. Sync and
+                            checks on commands already sent still run.
                         </AlertDescription>
                     </Alert>
                 )}
