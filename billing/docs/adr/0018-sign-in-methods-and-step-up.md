@@ -257,3 +257,92 @@ not count as step-up; this restores §4 rather than changing it.
   (`auth.passkey_added` or `staff.passkey_added`, always sent; `LoginEmailNotice` when the template system is absent).
   The passkey's name is left out of the mail, since whoever added it chose it.
 - Counting a passkey assertion as step-up still needs its own amendment and an owner decision.
+
+## Amendment (#555) — 2026-10-31, a pending password checked once at the source (Proposed)
+
+Status: Proposed, awaiting the owner's answer to `client-import.md` Q13. Research:
+`docs/research/2026-10-31-whmcs-login-migration.md`. The #555 design review findings (B2, B5, M3, M6, M7) are folded
+in. Companion amendments: ADR 0012 (#555), for contracts that receive secrets, and ADR 0015 (#555), for outbound calls
+inside a request.
+
+- **What it is for.** An imported login has a placeholder password that nobody knows (`client-import.md` §6.9).
+  Sign-in carry-over (§3.4) checks that login's first password sign-in once against the system it came from. On
+  success the typed password becomes the login's own hash. This extends the **password** method. It is not a new
+  sign-in method, so nothing is registered in `SignInMethods` (§1).
+- **The contract.** `App\Contracts\Auth\PendingPasswordCheck` has three methods:
+    - `active(): bool`: whether any source may answer now, so the failure floor applies;
+    - `pending(User $user): bool`: whether this login has an open carry-over. It receives no secret;
+    - `check(User $user, #[\SensitiveParameter] string $password, string $ip): PendingPasswordOutcome`.
+
+    The outcome is the closed enum `App\Enums\PendingPasswordOutcome`: NotApplicable, Verified, ConfirmByEmail,
+    Rejected, Unavailable. Its docblock says it is closed (ADR 0010).
+    - `active()` and `pending()` are hot-path reads (ADR 0020): cached, never remote, never throwing.
+    - Core binds a null implementation with `bindIf`: both reads false. Migration binds the one real implementation.
+      ADR 0012 Amendment (#555) closes the contract to packages: an Arch test and a boot check allow exactly that
+      implementation and the null one.
+    - `#[\SensitiveParameter]` is on the interface and on every implementation, because PHP does not inherit it.
+
+- **Where it is called (M7).** Only from `Fortify::authenticateUsing`, which both pipeline shapes use, with 2FA on or
+  off. The kernel calls it only when all of these hold:
+    - the local hash check failed for an existing login;
+    - the login is not staff (staff never have a placeholder password, §5);
+    - `SignInGate::refusal()` returned null, so a disabled, closed or locked login causes no outbound call;
+    - `pending()` is true;
+    - the guess budget allows it.
+
+    The call happens inside the `login` limiter and outside any transaction. The kernel wraps `check()` and maps any
+    `Throwable` to Unavailable. It logs a fixed sentence and the exception class only.
+
+- **Outcomes.**
+    - **Verified:** the implementation has stored the new hash by compare-and-set against the placeholder. The
+      pipeline continues as for a local match: refusals, the 2FA challenge, session regeneration.
+    - **Rejected:** a failed sign-in. Fortify's `Failed` event fires and the lockout counts it (§2).
+    - **Unavailable:** the ordinary failure message, **without** `Failed`, so a source outage locks nobody out (M3).
+    - **NotApplicable:** the ordinary failure.
+    - **Over the budget, over the cap, or no floor slot:** no call is made; the guess is refunded and `Failed` does
+      not fire.
+    - Fortify fires `Failed` whenever the `authenticateUsing` callback returns null. So for Unavailable and the
+      no-call cases, the callback throws the ordinary failure itself.
+    - **ConfirmByEmail:** no session (below).
+    - Every refusal uses the ordinary failure text. None says "try again" or anything else that would set imported
+      logins apart.
+- **Not step-up.** `confirmPasswordsUsing`, `password.recent` and `password.confirm` never call it (§4). A signed-in
+  login already has a local password.
+- **ConfirmByEmail (B5).** The source said the password is right, but the account had a second factor there, which
+  we cannot check.
+    - A single-use link goes to the login's own address, bound to the browser.
+    - A GET shows a confirm page. A POST with CSRF consumes the link.
+    - On the POST, everything is checked again, then the held hash is stored and the email verified. The sign-in
+      completes **only through `CompleteSignIn::for($request, $user, 'password')`** (§3).
+    - The route pair `login.carry-over.show` and `login.carry-over.confirm` is the one route this amendment allows.
+    - This is a sign-in proof for an account in transit, like the social sign-in emailed link (SS-17). It is not a
+      step-up mechanism, so §4's "no emailed link" rule stands.
+- **Verification.** A carry-over does not set `email_verified_at`, because knowing a password does not prove the
+  mailbox. The ConfirmByEmail path does set it. The 2026-10-21 addendum still holds: verified 30 days ago bounds the
+  last email change, and a carry-over never changes the email.
+- **Enumeration.** While `active()` is true, a failed password sign-in answers no sooner than a floor taken from the
+  measured remote p95. The number of requests waiting in the floor is bounded, and a sign-in takes its floor slot
+  before any remote call. With no slot free, every email answers at once and no call is made. The message is the
+  same for every failure.
+- **Secrets (M6).**
+    - The implementation runs the call inside `RedactionScope::during()` with a `RedactionSet` of the password and the
+      API secret.
+    - It never reports an HTTP-client exception.
+    - It uses no HTTP-client events.
+    - It keeps the password out of request attributes, the session and old input.
+    - ADR 0023 needs no new keys: `password2` and `passwordhash` already match its `password` rule.
+- **Must not be added.**
+    - A second implementer, including any third-party package (ADR 0012 Amendment (#555)).
+    - Any other sign-in route or controller for imported logins than the confirmation pair above.
+    - A "migration" entry in `SignInMethods`.
+    - A per-carry-over domain event.
+    - A generic external-password-provider registry.
+    - Any column on `users`; the state, including the placeholder, lives in the Migration module's table.
+    - Any call from step-up.
+- **Consequences.**
+    - It is a kernel PR by the CTO (`client-import.md` PR 8a). It lands after this ADR's PR 0 (`SignInGate`,
+      `CompleteSignIn`), or brings those two forward.
+    - It adds a `kernel-changelog.d` fragment and regenerates `kernel-api.txt`.
+    - The atomic guess counting is extracted from `PasswordGuesses`, so there is one implementation of it.
+      Carry-over uses its own key prefix, so it never uses up the step-up budget.
+    - Contract evolution follows ADR 0010. The enum is closed, so a new outcome needs an amendment.
