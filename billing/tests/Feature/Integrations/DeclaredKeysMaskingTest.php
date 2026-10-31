@@ -492,15 +492,13 @@ test('a declared value thrown before the driver call is masked in what is report
 });
 
 test('a JSON body is withheld when the repeated-key scan cannot run', function () {
-    $jit = ini_get('pcre.jit');
+    // Only the backtrack limit: a pattern compiled with pcre.jit=0 stays in the regex cache without JIT for later tests.
     $limit = ini_get('pcre.backtrack_limit');
-    ini_set('pcre.jit', '0');
     ini_set('pcre.backtrack_limit', '1');
 
     try {
         $values = app(Redactor::class)->valuesUnder(['ticket'], ['body' => '{"ticket":"'.DECLARED_CODE.'","ticket":"BBBB-2222-yyyy"}']);
     } finally {
-        ini_set('pcre.jit', (string) $jit);
         ini_set('pcre.backtrack_limit', (string) $limit);
     }
 
