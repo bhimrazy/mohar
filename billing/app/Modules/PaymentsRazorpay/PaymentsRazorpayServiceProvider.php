@@ -2,8 +2,8 @@
 
 namespace App\Modules\PaymentsRazorpay;
 
-use App\Contracts\Billing\GatewayRegistry;
 use App\Modules\PaymentsRazorpay\Drivers\RazorpayDriver;
+use App\Support\Billing\GatewayDriverRegistry;
 use App\Support\Modules\ModuleServiceProvider;
 
 /**
@@ -18,11 +18,15 @@ class PaymentsRazorpayServiceProvider extends ModuleServiceProvider
         return 'payments_razorpay';
     }
 
+    protected function registerModule(): void
+    {
+        // One instance per process, as when drivers were registered as instances.
+        $this->app->singleton(RazorpayDriver::class);
+    }
+
     protected function bootModule(): void
     {
-        // Fires for every new registry instance (also when Billing rebuilds it), and at once if one exists already.
-        $this->callAfterResolving(GatewayRegistry::class, function (GatewayRegistry $registry): void {
-            $registry->register($this->app->make(RazorpayDriver::class));
-        });
+        $drivers = $this->app->make(GatewayDriverRegistry::class);
+        $drivers->register(RazorpayDriver::KEY, RazorpayDriver::class);
     }
 }

@@ -4,11 +4,11 @@ namespace App\Modules\Billing\Actions;
 
 use App\Contracts\Billing\CancelsHostedPayment;
 use App\Enums\HostedSessionCancel;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Services\GatewayLogger;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Billing\Support\PaymentInProgress;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;

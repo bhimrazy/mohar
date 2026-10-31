@@ -18,6 +18,8 @@ use App\Data\Billing\ReturnHint;
 use App\Data\Integrations\ConnectionCheck;
 use App\Data\Integrations\Endpoint;
 use App\Data\Integrations\IntegrationLogo;
+use App\Data\Integrations\SettingField;
+use App\Enums\FieldType;
 use App\Modules\PaymentsNepal\Support\ProviderException;
 use App\Modules\PaymentsNepal\Support\ProviderHttp;
 use App\Support\Billing\AbstractGatewayDriver;
@@ -91,13 +93,26 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
         return ['NPR'];
     }
 
+    /**
+     * @return list<SettingField>
+     */
     public function settingsFields(): array
     {
         return [
-            ['key' => 'sandbox', 'label' => 'Sandbox mode', 'type' => 'boolean', 'default' => true,
-                'help' => 'Uses dev.khalti.com with the key from test-admin.khalti.com; no real money moves. Not available in production.'],
-            ['key' => 'secret_key', 'label' => 'Secret key', 'type' => 'secret', 'required' => true,
-                'help' => 'Merchant dashboard → Keys → "Live secret key" (admin.khalti.com; in sandbox mode, the one from test-admin.khalti.com).'],
+            new SettingField(
+                key: 'sandbox',
+                label: 'Sandbox mode',
+                type: FieldType::Boolean,
+                help: 'Uses dev.khalti.com with the key from test-admin.khalti.com; no real money moves. Not available in production.',
+                default: true,
+            ),
+            new SettingField(
+                key: 'secret_key',
+                label: 'Secret key',
+                type: FieldType::Secret,
+                required: true,
+                help: 'Merchant dashboard → Keys → "Live secret key" (admin.khalti.com; in sandbox mode, the one from test-admin.khalti.com).',
+            ),
         ];
     }
 
@@ -234,7 +249,7 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
 
         try {
             $api = ProviderHttp::endpoint($gateway, 'khalti.api');
-            $response = $this->http->lookup($attempt->interactive)
+            $response = $this->http->lookup($gateway, $attempt->interactive)
                 ->withOptions($api->options)
                 ->withHeaders(['Authorization' => 'Key '.self::secret($gateway)])
                 ->asJson()
@@ -374,7 +389,7 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
 
     private function client(GatewayConfig $gateway, Endpoint $endpoint): PendingRequest
     {
-        return $this->http->request()->withOptions($endpoint->options)->asJson()->withHeaders(['Authorization' => 'Key '.self::secret($gateway)]);
+        return $this->http->request($gateway)->withOptions($endpoint->options)->asJson()->withHeaders(['Authorization' => 'Key '.self::secret($gateway)]);
     }
 
     /**

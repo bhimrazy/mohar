@@ -14,7 +14,7 @@
 use App\Data\Billing\LookupResult;
 use App\Models\User;
 use App\Modules\Billing\Actions\RefundTransaction;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;

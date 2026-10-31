@@ -2,8 +2,8 @@
 
 namespace App\Modules\Billing\Http\Requests\Admin;
 
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Http\Requests\MoneyInput;
+use App\Modules\Billing\Services\GatewayManager;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 

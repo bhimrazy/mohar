@@ -6,7 +6,7 @@
  * involved.
  */
 
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Services\GatewayLogger;
 use App\Modules\Core\Models\ActivityLog;

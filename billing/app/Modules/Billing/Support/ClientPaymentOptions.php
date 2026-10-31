@@ -3,7 +3,6 @@
 namespace App\Modules\Billing\Support;
 
 use App\Contracts\Billing\GatewayDriver;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Http\Requests\Client\PayInvoiceRequest;
 use App\Modules\Billing\Http\Resources\PayMethodResource;
@@ -12,6 +11,7 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\GatewayCharger;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Core\Models\Client;
 use App\Support\Currencies\Decimal;
 use App\Support\Currencies\MoneyFormatter;

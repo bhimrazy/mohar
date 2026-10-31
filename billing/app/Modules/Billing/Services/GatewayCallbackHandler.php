@@ -13,7 +13,6 @@ use App\Modules\Billing\Actions\RefundAccountCredit;
 use App\Modules\Billing\Actions\RefundTransaction;
 use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Data\PaymentData;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Enums\InvoiceStatus;

@@ -13,7 +13,6 @@ use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Billing\TaxIdRules;
 use App\Contracts\Core\CompanyClock;
 use App\Contracts\Notifications\MergeFieldRegistry;
-use App\Data\Integrations\SettingField;
 use App\Enums\BillableType;
 use App\Events\Billing\CreditNoteIssued;
 use App\Events\Billing\DebitNoteIssued;
@@ -33,7 +32,6 @@ use App\Models\User;
 use App\Modules\Billing\Actions\CheckGatewayCredentials;
 use App\Modules\Billing\Actions\PruneGatewayLog;
 use App\Modules\Billing\Drivers\Gateways\BankTransferDriver;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\ManualDriver;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\InvoiceStatus;
@@ -59,6 +57,7 @@ use App\Modules\Billing\Services\BillingDirectory;
 use App\Modules\Billing\Services\BillingDocumentAttachments;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\DocumentNumbers;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Billing\Services\InvoiceService;
 use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Billing\Services\PaymentReconciler;
@@ -74,6 +73,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\RetentionRunDate;
 use App\Support\Automation\Automation;
+use App\Support\Billing\GatewayDriverRegistry;
 use App\Support\CalendarDate;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
@@ -128,15 +128,15 @@ class BillingServiceProvider extends ModuleServiceProvider
         $this->app->bind(BillingDocuments::class, BillingDocumentAttachments::class);
 
         $this->app->singleton(GatewayRegistry::class, fn (): GatewayManager => $this->app->make(GatewayManager::class));
-        $this->app->singleton(GatewayManager::class, function (): GatewayManager {
-            $manager = new GatewayManager;
-            $manager->register(new BankTransferDriver);
-            $manager->register(new ManualDriver);
+        $this->app->singleton(GatewayManager::class);
+        // The built-in drivers register when the kernel registry is first built, before any extension's boot() can
+        // add to it, so they list first, as they always have.
+        $this->callAfterResolving(GatewayDriverRegistry::class, function (GatewayDriverRegistry $drivers): void {
+            $drivers->register('bank_transfer', BankTransferDriver::class);
+            $drivers->register('manual', ManualDriver::class);
             if (SandboxCardDriver::enabled()) {
-                $manager->register(new SandboxCardDriver);
+                $drivers->register(SandboxCardDriver::KEY, SandboxCardDriver::class);
             }
-
-            return $manager;
         });
     }
 
@@ -168,7 +168,7 @@ class BillingServiceProvider extends ModuleServiceProvider
 
             foreach (Gateway::query()->orderBy('key')->get() as $gateway) {
                 if ($gateways->has($gateway->key)) {
-                    yield ['owner' => $gateway->display_name, 'fields' => array_map(SettingField::fromArray(...), $gateways->driver($gateway->key)->settingsFields()), 'values' => fn (): array => $gateway->config ?? []];
+                    yield ['owner' => $gateway->display_name, 'fields' => $gateways->fields($gateway->key), 'values' => fn (): array => $gateway->config ?? []];
                 }
             }
         });

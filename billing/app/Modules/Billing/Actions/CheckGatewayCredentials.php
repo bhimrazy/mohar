@@ -8,12 +8,13 @@ use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Events\Billing\GatewayCredentialExpired;
 use App\Events\Billing\GatewayCredentialExpiring;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Models\Gateway;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Billing\Support\AfterCommit;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Models\IntegrationCredential;
 use App\Modules\Core\Support\DateFormats;
+use App\Support\Billing\GatewayDriverRegistry;
 use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
@@ -219,7 +220,7 @@ class CheckGatewayCredentials
      */
     private function certificateFields(GatewayDriver $driver): array
     {
-        return array_values(array_filter(array_map(SettingField::fromArray(...), $driver->settingsFields()), fn (SettingField $field): bool => $field->type === FieldType::Certificate));
+        return array_values(array_filter(GatewayDriverRegistry::fieldsOf($driver), fn (SettingField $field): bool => $field->type === FieldType::Certificate));
     }
 
     /**

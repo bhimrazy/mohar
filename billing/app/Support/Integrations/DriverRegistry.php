@@ -97,6 +97,16 @@ abstract class DriverRegistry
     }
 
     /**
+     * Whether new work may start on $key (ADR 0030 A1): a new payment, order, charge, module command or registration.
+     * Callers that finish or verify an existing record use get() instead, which answers for every registered key.
+     * Until extensions can be disabled (ADR 0030 M5a) this is has().
+     */
+    public function enabled(string $key): bool
+    {
+        return $this->has($key);
+    }
+
+    /**
      * Whether anything is registered as $key, usable or not.
      */
     public function isRegistered(string $key): bool

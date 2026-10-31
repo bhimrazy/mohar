@@ -389,7 +389,7 @@ ES-09, ES-10 and ES-19 to ES-22 use status and form bodies captured from eSewa U
 | KH-22 | an Initiated payment stays pending until Khalti reports an outcome                                                                                     | PG-08                             |
 | KH-23 | the payer mobile number from the return is masked to its last three digits                                                                             | PG-33                             |
 
-`CS` = `tests/Feature/PaymentsNepal/CheckoutStatesTest.php`, `NA` = `tests/Unit/PaymentsNepal/NprAmountTest.php`
+`CS` = `tests/Feature/PaymentsNepal/CheckoutStatesTest.php`, `NA` = `tests/Unit/Support/MinorUnitsTest.php`
 
 | Code  | Test name                                                                                                                                           | Cases               |
 | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |

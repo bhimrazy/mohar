@@ -3,13 +3,13 @@
 use App\Modules\Billing\Actions\CaptureInvoice;
 use App\Modules\Billing\Actions\ManagePayMethods;
 use App\Modules\Billing\Actions\StartHostedPayment;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 

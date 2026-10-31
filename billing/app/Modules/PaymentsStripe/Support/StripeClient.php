@@ -4,21 +4,15 @@ namespace App\Modules\PaymentsStripe\Support;
 
 use App\Data\Billing\GatewayConfig;
 use App\Data\Integrations\Endpoint;
-use App\Modules\Core\Support\Settings;
+use App\Support\Billing\GatewayHttp;
 use App\Support\Billing\SandboxPolicy;
-use App\Support\Integrations\Endpoints;
-use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
-use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\Http;
-use Throwable;
 
 /**
  * Outbound calls to the Stripe REST API (docs/product/payments-stripe.md §8): pinned host and Stripe-Version, bearer
- * secret key checked against the gateway's mode, TLS verification on (the Http client default), a short connect
- * timeout, the billing.gateways.http_timeout_seconds total timeout, an Idempotency-Key on every POST, and retries
- * on background lookups only.
+ * secret key checked against the gateway's mode, an Idempotency-Key on every POST, and GatewayHttp's timeouts and
+ * lookup retries.
  *
  * The base URL and its request options come from Endpoints (`stripe.api`), in one call per request: the configured
  * host unchanged, or an override from the environment in development, verified and pinned through the outbound guard.
@@ -28,8 +22,6 @@ final class StripeClient
     public const TEST = 'test';
 
     public const LIVE = 'live';
-
-    public function __construct(private Settings $settings) {}
 
     /**
      * Test or live mode. Test mode where test money is not allowed (production) is a configuration error: it never
@@ -145,56 +137,34 @@ final class StripeClient
 
     private function request(GatewayConfig $gateway): PendingRequest
     {
-        $timeout = $this->settings->get('billing.gateways.http_timeout_seconds', 15);
-
-        return $this->base($gateway, self::intConfig('http.connect_timeout_seconds', 5), is_numeric($timeout) ? max(3, (int) $timeout) : 15);
+        return $this->authenticated($gateway, self::http()->request($gateway));
     }
 
     private function interactive(GatewayConfig $gateway): PendingRequest
     {
-        return $this->base($gateway, self::intConfig('http.interactive_connect_timeout_seconds', 3), self::intConfig('http.interactive_timeout_seconds', 6));
+        return $this->authenticated($gateway, self::http()->interactive());
     }
 
     private function retrying(GatewayConfig $gateway): PendingRequest
     {
-        $delays = config('payments_stripe.http.lookup_retry_delays_ms', [300, 900]);
-        $delays = is_array($delays) ? array_values(array_map(fn (mixed $delay): int => is_numeric($delay) ? (int) $delay : 0, $delays)) : [];
-
-        return $this->request($gateway)->retry(
-            $delays === [] ? 1 : $delays,
-            0,
-            fn (Throwable $exception): bool => $exception instanceof ConnectionException
-                || ($exception instanceof RequestException && $exception->response->serverError()),
-            throw: false,
-        );
+        return $this->authenticated($gateway, self::http()->lookup($gateway));
     }
 
-    private function base(GatewayConfig $gateway, int $connectTimeout, int $timeout): PendingRequest
+    private function authenticated(GatewayConfig $gateway, PendingRequest $request): PendingRequest
     {
         $version = config('payments_stripe.api_version');
 
-        return Http::withToken(self::secretKey($gateway))
-            ->withHeaders(['Stripe-Version' => is_string($version) ? $version : ''])
-            ->acceptJson()
-            ->connectTimeout(max(1, $connectTimeout))
-            ->timeout(max(2, $timeout));
+        return $request->withToken(self::secretKey($gateway))->withHeaders(['Stripe-Version' => is_string($version) ? $version : '']);
+    }
+
+    private static function http(): GatewayHttp
+    {
+        return GatewayHttp::for('payments_stripe.http');
     }
 
     private function endpoint(): Endpoint
     {
-        $base = config('payments_stripe.api');
-
-        if (! is_string($base) || ! str_starts_with($base, 'https://')) {
-            throw new StripeException('payments_stripe.api is not configured.');
-        }
-
-        return Endpoints::for('stripe.api', $base);
-    }
-
-    private static function intConfig(string $key, int $default): int
-    {
-        $value = config('payments_stripe.'.$key, $default);
-
-        return is_numeric($value) ? (int) $value : $default;
+        return GatewayHttp::endpoint('stripe.api', config('payments_stripe.api'))
+            ?? throw new StripeException('payments_stripe.api is not configured.');
     }
 }

@@ -6,7 +6,8 @@ use App\Contracts\Billing\GatewayDriver;
 use App\Contracts\Integrations\ValidatesSettings;
 use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
+use App\Modules\Billing\Services\GatewayManager;
+use App\Support\Billing\GatewayDriverRegistry;
 use App\Support\Integrations\CertificateBundle;
 use App\Support\Integrations\CertificateRefused;
 use App\Support\Integrations\KeepsSecretsOutOfOldInput;
@@ -136,7 +137,7 @@ class GatewayRequest extends FormRequest
     {
         $driver = $this->driver();
 
-        return $driver !== null ? array_map(SettingField::fromArray(...), $driver->settingsFields()) : [];
+        return $driver !== null ? GatewayDriverRegistry::fieldsOf($driver) : [];
     }
 
     private function driver(): ?GatewayDriver

@@ -3,7 +3,7 @@
 use App\Data\Billing\ChargeResult;
 use App\Data\Billing\RefundRequest;
 use App\Modules\Billing\Actions\RefundTransaction;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Enums\TransactionStatus;

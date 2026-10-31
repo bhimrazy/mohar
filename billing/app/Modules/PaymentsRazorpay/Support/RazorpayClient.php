@@ -4,28 +4,21 @@ namespace App\Modules\PaymentsRazorpay\Support;
 
 use App\Data\Billing\GatewayConfig;
 use App\Data\Integrations\Endpoint;
-use App\Modules\Core\Support\Settings;
+use App\Support\Billing\GatewayHttp;
 use App\Support\Billing\SandboxPolicy;
-use App\Support\Integrations\Endpoints;
-use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
-use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\Http;
-use Throwable;
 
 /**
  * Outbound calls to the Razorpay REST API (razorpay.com/docs/api): the pinned host for the gateway's mode through
- * Endpoints (`razorpay.api`), HTTP Basic with the key id and secret checked against that mode, JSON bodies, TLS
- * verification on (the Http client default), short timeouts, and retries on background lookups only.
+ * Endpoints (`razorpay.api`), HTTP Basic with the key id and secret checked against that mode, JSON bodies, and
+ * GatewayHttp's timeouts and lookup retries.
  */
 final class RazorpayClient
 {
     public const TEST = 'test';
 
     public const LIVE = 'live';
-
-    public function __construct(private Settings $settings) {}
 
     /**
      * Test or live mode. Test mode where test money is not allowed (production) is a configuration error: it never
@@ -135,49 +128,35 @@ final class RazorpayClient
 
     private function request(GatewayConfig $gateway): PendingRequest
     {
-        $timeout = $this->settings->get('billing.gateways.http_timeout_seconds', 15);
-
-        return $this->base($gateway, self::intConfig('http.connect_timeout_seconds', 5), is_numeric($timeout) ? max(3, (int) $timeout) : 15);
+        return $this->authenticated($gateway, self::http()->request($gateway));
     }
 
     private function interactive(GatewayConfig $gateway): PendingRequest
     {
-        return $this->base($gateway, self::intConfig('http.interactive_connect_timeout_seconds', 3), self::intConfig('http.interactive_timeout_seconds', 6));
+        return $this->authenticated($gateway, self::http()->interactive());
     }
 
     private function retrying(GatewayConfig $gateway): PendingRequest
     {
-        $delays = config('payments_razorpay.http.lookup_retry_delays_ms', [300, 900]);
-        $delays = is_array($delays) ? array_values(array_map(fn (mixed $delay): int => is_numeric($delay) ? (int) $delay : 0, $delays)) : [];
-
-        return $this->request($gateway)->retry(
-            $delays === [] ? 1 : $delays,
-            0,
-            fn (Throwable $exception): bool => $exception instanceof ConnectionException
-                || ($exception instanceof RequestException && $exception->response->serverError()),
-            throw: false,
-        );
+        return $this->authenticated($gateway, self::http()->lookup($gateway));
     }
 
-    private function base(GatewayConfig $gateway, int $connectTimeout, int $timeout): PendingRequest
+    private function authenticated(GatewayConfig $gateway, PendingRequest $request): PendingRequest
     {
         [$id, $secret] = self::credentials($gateway);
 
-        return Http::withBasicAuth($id, $secret)
-            ->acceptJson()
-            ->connectTimeout(max(1, $connectTimeout))
-            ->timeout(max(2, $timeout));
+        return $request->withBasicAuth($id, $secret);
+    }
+
+    private static function http(): GatewayHttp
+    {
+        return GatewayHttp::for('payments_razorpay.http');
     }
 
     private static function endpoint(GatewayConfig $gateway): Endpoint
     {
-        $base = config('payments_razorpay.api.'.(self::mode($gateway) === self::LIVE ? 'live' : 'sandbox'));
-
-        if (! is_string($base) || ! str_starts_with($base, 'https://')) {
-            throw new RazorpayException('payments_razorpay.api is not configured.');
-        }
-
-        return Endpoints::for('razorpay.api', $base);
+        return GatewayHttp::endpoint('razorpay.api', config('payments_razorpay.api.'.(self::mode($gateway) === self::LIVE ? 'live' : 'sandbox')))
+            ?? throw new RazorpayException('payments_razorpay.api is not configured.');
     }
 
     public static function intConfig(string $key, int $default): int

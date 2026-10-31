@@ -10,11 +10,12 @@ use App\Data\Billing\ChargeRequest;
 use App\Data\Billing\ChargeResult;
 use App\Data\Billing\GatewayConfig;
 use App\Data\Billing\RefundRequest;
+use App\Data\Integrations\SettingField;
 use Illuminate\Http\Request;
 
 /**
  * Payment gateway driver. Drivers may live in any module (e.g. app/Modules/PaymentsNepal) and register with
- * GatewayRegistry. They receive DTOs only and never touch Billing models. Billing calls a method only when the
+ * App\Support\Billing\GatewayDriverRegistry. They receive DTOs only and never touch Billing models. Billing calls a method only when the
  * driver declares the matching capability; extend App\Support\Billing\AbstractGatewayDriver for defaults.
  */
 interface GatewayDriver extends IntegrationDriver
@@ -41,7 +42,7 @@ interface GatewayDriver extends IntegrationDriver
 
     public const STORED_METHODS = 'stored_methods';
 
-    /** Unique key, [a-z_]{1,50}; also the gateways.key and the callback/return URL segment. */
+    /** Unique key, [a-z0-9_]{1,50}; also the gateways.key and the callback/return URL segment. */
     public function key(): string;
 
     public function name(): string;
@@ -62,12 +63,12 @@ interface GatewayDriver extends IntegrationDriver
     public function currencies(): ?array;
 
     /**
-     * Staff-configurable settings. Types: string, text, secret (single line), secret_text (multi-line, e.g. PEM),
-     * boolean (e.g. sandbox toggle), select (with options), certificate (a .pfx/.p12 upload; the driver reads the PEM
-     * private key as the setting and its metadata through GatewayConfig::certificate()). Secrets are write-only in the
-     * admin UI.
+     * Staff-configurable settings, as SettingField (ADR 0009). Secret, SecretText and Certificate values are
+     * write-only in the admin UI; a Certificate is a .pfx/.p12 upload whose PEM private key is the setting and whose
+     * metadata the driver reads through GatewayConfig::certificate(). The older array shape (`type`, `label`, `help`,
+     * `options`, `required`, `default`) is still read through SettingField::fromArray(), deprecated.
      *
-     * @return list<array{key: string, label: string, type: 'string'|'text'|'secret'|'secret_text'|'certificate'|'boolean'|'select', help?: string, options?: array<string, string>, required?: bool, default?: string|bool}>
+     * @return list<SettingField|array{key: string, label: string, type?: string, help?: string, options?: array<string, string>, required?: bool, default?: string|bool}>
      */
     public function settingsFields(): array;
 

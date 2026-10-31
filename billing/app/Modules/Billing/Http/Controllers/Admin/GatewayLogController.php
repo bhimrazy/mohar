@@ -3,9 +3,9 @@
 namespace App\Modules\Billing\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Http\Requests\Admin\GatewayLogListRequest;
 use App\Modules\Billing\Models\GatewayLog;
+use App\Modules\Billing\Services\GatewayManager;
 use Inertia\Inertia;
 use Inertia\Response;
 

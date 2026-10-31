@@ -47,7 +47,7 @@ function importerForbidden(): array
         'Illuminate\Contracts\Mail', 'Illuminate\Contracts\Notifications', 'Illuminate\Http\Client', 'Illuminate\Support\Facades\Http',
         'Illuminate\Support\Facades\Event', 'Illuminate\Support\Facades\Bus', 'Illuminate\Support\Facades\Queue', 'Illuminate\Support\Facades\Mail', 'Illuminate\Support\Facades\Notification', 'App\Contracts\Notifications\SystemMailer',
         'App\Contracts\Auth\AuthMailer', 'App\Contracts\Integrations\IntegrationDriver', 'App\Contracts\Services\Provisioning',
-        'App\Contracts\Billing\GatewayDriver', 'App\Contracts\Billing\HostedPaymentDriver', 'App\Contracts\Billing\GatewayRegistry', 'App\Support\Services\ProvisioningDriverRegistry',
+        'App\Contracts\Billing\GatewayDriver', 'App\Contracts\Billing\HostedPaymentDriver', 'App\Contracts\Billing\GatewayRegistry', 'App\Support\Billing\GatewayDriverRegistry', 'App\Support\Services\ProvisioningDriverRegistry',
         'App\Contracts\Domains\Registrar', 'App\Support\Domains\RegistrarDriverRegistry', 'App\Support\Integrations\DriverRegistry',
         ...array_map(fn (string $area): string => 'App\\Events\\'.basename($area), array_filter(glob($app.'/Events/*', GLOB_ONLYDIR) ?: [], fn (string $area): bool => basename($area) !== 'Migration')),
         // No GLOB_BRACE: musl builds do not define it.

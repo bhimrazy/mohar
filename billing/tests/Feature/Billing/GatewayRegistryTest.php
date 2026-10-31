@@ -23,7 +23,7 @@ test('the registry refuses a reserved or malformed key and keeps the drivers it 
         ->and(array_keys($registry->drivers()))->toBe($before);
 })->with([
     ['import', 'The gateway key [import] is reserved'],
-    ['Import', 'must be 1 to 50 lowercase letters'],
-    [' import', 'must be 1 to 50 lowercase letters'],
-    ['', 'must be 1 to 50 lowercase letters'],
+    ['Import', 'use 1 to 50 lowercase letters, digits or underscores'],
+    [' import', 'use 1 to 50 lowercase letters, digits or underscores'],
+    ['', 'use 1 to 50 lowercase letters, digits or underscores'],
 ]);

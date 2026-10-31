@@ -3,7 +3,7 @@
 use App\Events\Billing\InvoicePaid;
 use App\Modules\Billing\Actions\ConfigureGateway;
 use App\Modules\Billing\Actions\StartHostedPayment;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\BillingException;

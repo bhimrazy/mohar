@@ -50,7 +50,7 @@ App\Contracts\Billing\GatewayDriver method name(): string
 App\Contracts\Billing\GatewayDriver method parseCallback(App\Data\Billing\GatewayConfig $gateway, Illuminate\Http\Request $request): App\Data\Billing\CallbackEvent|App\Data\Billing\CallbackRejection
 App\Contracts\Billing\GatewayDriver method refund(App\Data\Billing\GatewayConfig $gateway, App\Data\Billing\RefundRequest $request): App\Data\Billing\ChargeResult
 App\Contracts\Billing\GatewayDriver method settingsFields(): array
-App\Contracts\Billing\GatewayDriver doc method settingsFields @return list<array{key: string, label: string, type: 'string'|'text'|'secret'|'secret_text'|'certificate'|'boolean'|'select', help?: string, options?: array<string, string>, required?: bool, default?: string|bool}>
+App\Contracts\Billing\GatewayDriver doc method settingsFields @return list<SettingField>
 App\Contracts\Billing\GatewayDriver method supports(string $capability): bool
 App\Contracts\Billing\GatewayDriver method tokenDetails(App\Data\Billing\GatewayConfig $gateway, string $token): ?App\Data\Billing\CardToken
 App\Contracts\Billing\GatewayRegistry interface
@@ -58,7 +58,7 @@ App\Contracts\Billing\GatewayRegistry method driver(string $key): App\Contracts\
 App\Contracts\Billing\GatewayRegistry method drivers(): array
 App\Contracts\Billing\GatewayRegistry doc method drivers @return array<string, GatewayDriver>
 App\Contracts\Billing\GatewayRegistry method has(string $key): bool
-App\Contracts\Billing\GatewayRegistry method register(App\Contracts\Billing\GatewayDriver $driver): void
+App\Contracts\Billing\GatewayRegistry method register(App\Contracts\Billing\GatewayDriver $driver): void @deprecated
 App\Contracts\Billing\GatewayRegistry doc method register @throws LogicException
 App\Contracts\Billing\HostedPaymentDriver interface extends App\Contracts\Billing\GatewayDriver, App\Contracts\Integrations\IntegrationDriver
 App\Contracts\Billing\HostedPaymentDriver method attemptTtl(App\Data\Billing\GatewayConfig $gateway): Carbon\CarbonInterval
@@ -488,13 +488,15 @@ App\Data\Billing\FormPost property public readonly ?string $providerRef
 App\Data\Billing\FormPost method public __construct(string $action, array $fields, ?string $providerRef = null, ?Carbon\CarbonImmutable $expiresAt = null)
 App\Data\Billing\FormPost doc method __construct @param $fields array<string, string>
 App\Data\Billing\GatewayConfig final readonly class
+App\Data\Billing\GatewayConfig const public DEFAULT_HTTP_TIMEOUT_SECONDS = 15
 App\Data\Billing\GatewayConfig property public readonly ?string $convertToCurrency
 App\Data\Billing\GatewayConfig property public readonly string $displayName
+App\Data\Billing\GatewayConfig property public readonly int $httpTimeoutSeconds
 App\Data\Billing\GatewayConfig property public readonly string $key
 App\Data\Billing\GatewayConfig property public readonly bool $sandbox
 App\Data\Billing\GatewayConfig property public readonly array $secretSettingKeys
 App\Data\Billing\GatewayConfig property public readonly array $settings
-App\Data\Billing\GatewayConfig method public __construct(string $key, string $displayName, array $settings = [], bool $sandbox = false, ?string $convertToCurrency = null, array $secretSettingKeys = [])
+App\Data\Billing\GatewayConfig method public __construct(string $key, string $displayName, array $settings = [], bool $sandbox = false, ?string $convertToCurrency = null, array $secretSettingKeys = [], int $httpTimeoutSeconds = self::DEFAULT_HTTP_TIMEOUT_SECONDS)
 App\Data\Billing\GatewayConfig doc method __construct @param $settings array<string, mixed>
 App\Data\Billing\GatewayConfig doc method __construct @param $secretSettingKeys list<string>
 App\Data\Billing\GatewayConfig method public certificate(string $key): ?App\Data\Integrations\CertificateInfo
@@ -1999,8 +2001,38 @@ App\Support\Billing\AbstractGatewayDriver method public instructions(App\Data\Bi
 App\Support\Billing\AbstractGatewayDriver method public parseCallback(App\Data\Billing\GatewayConfig $gateway, Illuminate\Http\Request $request): App\Data\Billing\CallbackEvent|App\Data\Billing\CallbackRejection
 App\Support\Billing\AbstractGatewayDriver method public refund(App\Data\Billing\GatewayConfig $gateway, App\Data\Billing\RefundRequest $request): App\Data\Billing\ChargeResult
 App\Support\Billing\AbstractGatewayDriver method public settingsFields(): array
+App\Support\Billing\AbstractGatewayDriver doc method settingsFields @return list<SettingField>
 App\Support\Billing\AbstractGatewayDriver method public supports(string $capability): bool
 App\Support\Billing\AbstractGatewayDriver method public tokenDetails(App\Data\Billing\GatewayConfig $gateway, string $token): ?App\Data\Billing\CardToken
+App\Support\Billing\GatewayConformance final class
+App\Support\Billing\GatewayConformance method public static assertDriver(string $key): void
+App\Support\Billing\GatewayConformanceFailure final class extends AssertionError
+App\Support\Billing\GatewayDriverRegistry final class extends App\Support\Integrations\DriverRegistry
+App\Support\Billing\GatewayDriverRegistry doc class @extends DriverRegistry<GatewayDriver>
+App\Support\Billing\GatewayDriverRegistry const public CANCEL_HOSTED = 'cancel_hosted'
+App\Support\Billing\GatewayDriverRegistry const public HOSTED = 'hosted'
+App\Support\Billing\GatewayDriverRegistry const public LOGO = 'logo'
+App\Support\Billing\GatewayDriverRegistry const public MANUAL_REFUND_NOTE = 'manual_refund_note'
+App\Support\Billing\GatewayDriverRegistry const public REFUND_LOOKUP = 'refund_lookup'
+App\Support\Billing\GatewayDriverRegistry const public RESERVED_KEYS = ["import"]
+App\Support\Billing\GatewayDriverRegistry const public RESUME_HOSTED = 'resume_hosted'
+App\Support\Billing\GatewayDriverRegistry const public TEST_CONNECTION = 'test_connection'
+App\Support\Billing\GatewayDriverRegistry const public VALIDATES_SETTINGS = 'validates_settings'
+App\Support\Billing\GatewayDriverRegistry method public capabilities(): array
+App\Support\Billing\GatewayDriverRegistry method public fields(string $key): array
+App\Support\Billing\GatewayDriverRegistry doc method fields @return list<SettingField>
+App\Support\Billing\GatewayDriverRegistry method public static fieldsOf(App\Contracts\Billing\GatewayDriver $driver): array
+App\Support\Billing\GatewayDriverRegistry doc method fieldsOf @return list<SettingField>
+App\Support\Billing\GatewayDriverRegistry method public register(string $key, Closure|string $driver, bool $replace = false): void
+App\Support\Billing\GatewayDriverRegistry doc method register @param $driver class-string<GatewayDriver>|Closure(Container): GatewayDriver
+App\Support\Billing\GatewayDriverRegistry doc method register @throws LogicException
+App\Support\Billing\GatewayHttp final class
+App\Support\Billing\GatewayHttp method public static endpoint(string $key, mixed $url): ?App\Data\Integrations\Endpoint
+App\Support\Billing\GatewayHttp method public static for(string $config): self
+App\Support\Billing\GatewayHttp method public interactive(): Illuminate\Http\Client\PendingRequest
+App\Support\Billing\GatewayHttp method public lookup(App\Data\Billing\GatewayConfig $gateway): Illuminate\Http\Client\PendingRequest
+App\Support\Billing\GatewayHttp method public request(App\Data\Billing\GatewayConfig $gateway): Illuminate\Http\Client\PendingRequest
+App\Support\Billing\GatewayHttp method public static retryable(Throwable $exception): bool
 App\Support\Billing\InvoiceNotCancellable final class extends DomainException
 App\Support\CalendarDate final readonly class implements JsonSerializable, Stringable
 App\Support\CalendarDate property public readonly int $day
@@ -2160,6 +2192,7 @@ App\Support\Integrations\DriverRegistry method public capabilitiesOf(string $key
 App\Support\Integrations\DriverRegistry doc method capabilitiesOf @return list<string>
 App\Support\Integrations\DriverRegistry method protected abstract contract(): string
 App\Support\Integrations\DriverRegistry doc method contract @return class-string<TDriver>
+App\Support\Integrations\DriverRegistry method public enabled(string $key): bool
 App\Support\Integrations\DriverRegistry method public forgetTransientFailures(): void
 App\Support\Integrations\DriverRegistry method public get(string $key): App\Contracts\Integrations\IntegrationDriver
 App\Support\Integrations\DriverRegistry doc method get @return TDriver
@@ -2273,6 +2306,11 @@ App\Support\Migration\ImportRegistry method public register(string $key, Closure
 App\Support\Migration\ImportRegistry doc method register @param $importer class-string<RecordImporter>|Closure(Container): RecordImporter
 App\Support\Migration\ImportRegistry doc method register @param $dependsOn list<string>
 App\Support\Migration\ImportRegistry doc method register @param $after list<string>
+App\Support\MinorUnits final class
+App\Support\MinorUnits method public static decimals(string $currency): int
+App\Support\MinorUnits method public static fromDecimal(mixed $value, int $decimals): ?int
+App\Support\MinorUnits method public static rescale(int $amount, int $from, int $to): ?int
+App\Support\MinorUnits method public static toDecimal(int $amount, int $decimals): string
 App\Support\Money final readonly class implements JsonSerializable
 App\Support\Money property public readonly int $amount
 App\Support\Money property public readonly string $currency

@@ -4,11 +4,11 @@ namespace App\Modules\Billing\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\SettlePaymentAttempt;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Http\Requests\Admin\PaymentAttemptListRequest;
 use App\Modules\Billing\Http\Requests\Admin\ResolvePaymentAttemptRequest;
 use App\Modules\Billing\Models\PaymentAttempt;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Support\Money;
 use Illuminate\Http\RedirectResponse;

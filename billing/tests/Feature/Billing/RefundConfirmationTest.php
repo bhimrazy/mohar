@@ -7,7 +7,6 @@ use App\Data\Billing\GatewayConfig;
 use App\Data\Billing\RefundRequest;
 use App\Events\Billing\PaymentReversed;
 use App\Modules\Billing\Actions\RefundTransaction;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\RefundMode;
@@ -16,6 +15,7 @@ use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\GatewayAmounts;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Core\Models\ActivityLog;
 use Illuminate\Support\Facades\Event;
 

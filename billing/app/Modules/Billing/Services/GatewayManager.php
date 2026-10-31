@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Billing\Drivers\Gateways;
+namespace App\Modules\Billing\Services;
 
 use App\Contracts\Billing\DescribesManualRefund;
 use App\Contracts\Billing\GatewayDriver;
@@ -13,65 +13,74 @@ use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Core\Support\Settings;
+use App\Support\Billing\GatewayDriverRegistry;
 use App\Support\Billing\SandboxPolicy;
 use App\Support\Integrations\RedactionScope;
 use App\Support\Integrations\RedactionSet;
 use Closure;
 use Illuminate\Database\Eloquent\Collection;
-use LogicException;
 
 /**
- * Registry of gateway drivers (Billing's own and those registered by extension modules) and their configuration.
+ * Billing's host for gateway drivers: their configuration rows, the DTO they receive, and the questions Billing asks
+ * about them. The drivers themselves live in the kernel's GatewayDriverRegistry (ADR 0012, ADR 0030 M3); the
+ * GatewayRegistry methods are kept for packages written before it.
  */
 class GatewayManager implements GatewayRegistry
 {
+    public function __construct(private GatewayDriverRegistry $drivers, private Settings $settings) {}
+
     /**
-     * Keys no driver may take: `import` marks imported opening-balance entries in credit_ledger.gateway (every entry
-     * before #263, and beside the idempotency key until #284), so a driver's provider references must never share it.
+     * @deprecated since kernel 0.x M3; register a class with GatewayDriverRegistry::register($key, $class) instead.
+     * Kept as an adapter with its old semantics: the instance is used as is, and a key registered again is replaced.
      */
-    public const RESERVED_KEYS = ['import'];
-
-    /** The gateways.key and credit_ledger.gateway columns hold 50 characters. */
-    private const KEY_PATTERN = '/^[a-z0-9_]{1,50}$/';
-
-    /** @var array<string, GatewayDriver> */
-    private array $drivers = [];
-
     public function register(GatewayDriver $driver): void
     {
-        $key = $driver->key();
-
-        if (preg_match(self::KEY_PATTERN, $key) !== 1) {
-            throw new LogicException("The gateway key [{$key}] must be 1 to 50 lowercase letters, digits or underscores.");
-        }
-
-        if (in_array($key, self::RESERVED_KEYS, true)) {
-            throw new LogicException("The gateway key [{$key}] is reserved; give the driver another key.");
-        }
-
-        $this->drivers[$key] = $driver;
+        $this->drivers->register($driver->key(), fn (): GatewayDriver => $driver, replace: true);
     }
 
     public function drivers(): array
     {
-        return $this->drivers;
+        return $this->drivers->all();
     }
 
     public function has(string $key): bool
     {
-        return isset($this->drivers[$key]);
+        return $this->drivers->has($key);
+    }
+
+    /**
+     * Whether new payments may start on $key (ADR 0030 A1). Settlement of existing ones asks settles().
+     */
+    public function enabled(string $key): bool
+    {
+        return $this->drivers->enabled($key);
     }
 
     public function driver(string $key): GatewayDriver
     {
-        return $this->drivers[$key] ?? throw new BillingException(__('Unknown payment gateway [:key].', ['key' => $key]));
+        if (! $this->drivers->isRegistered($key)) {
+            throw new BillingException(__('Unknown payment gateway [:key].', ['key' => $key]));
+        }
+
+        return $this->drivers->get($key);
     }
 
     public function hosted(string $key): ?HostedPaymentDriver
     {
-        $driver = $this->drivers[$key] ?? null;
+        $driver = $this->resolved($key);
 
         return $driver instanceof HostedPaymentDriver ? $driver : null;
+    }
+
+    /**
+     * The driver's staff settings.
+     *
+     * @return list<SettingField>
+     */
+    public function fields(string $key): array
+    {
+        return GatewayDriverRegistry::fieldsOf($this->driver($key));
     }
 
     /**
@@ -85,7 +94,7 @@ class GatewayManager implements GatewayRegistry
             'display_name' => $driver->name(),
             'is_active' => false,
             'show_on_order_form' => $key !== 'manual',
-            'sort_order' => array_search($key, array_keys($this->drivers), true) ?: 0,
+            'sort_order' => array_search($key, $this->drivers->keys(), true) ?: 0,
         ]);
     }
 
@@ -120,7 +129,16 @@ class GatewayManager implements GatewayRegistry
             sandbox: filter_var($settings['sandbox'] ?? false, FILTER_VALIDATE_BOOLEAN),
             convertToCurrency: $gateway->convert_to_currency,
             secretSettingKeys: $this->secretSettingKeys($gateway->key),
+            httpTimeoutSeconds: $this->httpTimeoutSeconds(),
         );
+    }
+
+    /** At least 3 seconds; the default when the setting is not a number. */
+    private function httpTimeoutSeconds(): int
+    {
+        $timeout = $this->settings->get('billing.gateways.http_timeout_seconds', GatewayConfig::DEFAULT_HTTP_TIMEOUT_SECONDS);
+
+        return is_numeric($timeout) ? max(3, (int) $timeout) : GatewayConfig::DEFAULT_HTTP_TIMEOUT_SECONDS;
     }
 
     /**
@@ -128,7 +146,7 @@ class GatewayManager implements GatewayRegistry
      */
     private function secretSettingKeys(string $key): array
     {
-        $fields = $this->has($key) ? array_map(SettingField::fromArray(...), $this->driver($key)->settingsFields()) : [];
+        $fields = $this->has($key) ? $this->fields($key) : [];
 
         return array_values(array_map(fn (SettingField $field): string => $field->key, array_filter($fields, fn (SettingField $field): bool => $field->isSecret())));
     }
@@ -140,7 +158,7 @@ class GatewayManager implements GatewayRegistry
      */
     public function logo(string $key): ?array
     {
-        $driver = $this->drivers[$key] ?? null;
+        $driver = $this->resolved($key);
 
         return $driver instanceof ProvidesLogo ? $driver->logo()?->toArray() : null;
     }
@@ -150,7 +168,7 @@ class GatewayManager implements GatewayRegistry
      */
     public function manualRefundNote(string $key): ?string
     {
-        $driver = $this->drivers[$key] ?? null;
+        $driver = $this->resolved($key);
 
         return $driver instanceof DescribesManualRefund && ! $driver->supports(GatewayDriver::REFUND) ? $driver->manualRefundNote() : null;
     }
@@ -177,7 +195,7 @@ class GatewayManager implements GatewayRegistry
         return Gateway::query()
             ->where('is_active', true)
             ->where('show_on_order_form', true)
-            ->whereIn('key', array_keys($this->drivers))
+            ->whereIn('key', $this->drivers->keys())
             ->orderBy('sort_order')
             ->orderBy('id')
             ->get()
@@ -198,7 +216,7 @@ class GatewayManager implements GatewayRegistry
      */
     public function settles(string $key): bool
     {
-        if (! $this->has($key)) {
+        if (! $this->drivers->isRegistered($key)) {
             return false;
         }
 
@@ -216,5 +234,11 @@ class GatewayManager implements GatewayRegistry
     public function supports(string $key, string $capability): bool
     {
         return $this->has($key) && $this->driver($key)->supports($capability);
+    }
+
+    /** The driver for $key, or null when none is registered or it cannot be used. */
+    private function resolved(string $key): ?GatewayDriver
+    {
+        return $this->drivers->has($key) ? $this->drivers->get($key) : null;
     }
 }

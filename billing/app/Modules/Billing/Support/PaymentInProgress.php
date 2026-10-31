@@ -4,11 +4,11 @@ namespace App\Modules\Billing\Support;
 
 use App\Contracts\Billing\CancelsHostedPayment;
 use App\Contracts\Billing\ResumesHostedPayment;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
+use App\Modules\Billing\Services\GatewayManager;
 
 /**
  * A hosted payment the customer started and we haven't confirmed yet. It stays visible on the invoice (client and

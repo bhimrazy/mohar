@@ -2,7 +2,6 @@
 
 namespace App\Modules\Billing\Services;
 
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Models\GatewayLog;
 use App\Support\Integrations\RedactionScope;
 use App\Support\Integrations\RedactionSet;

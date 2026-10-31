@@ -19,6 +19,8 @@ use App\Data\Billing\RedirectInstruction;
 use App\Data\Billing\RefundRequest;
 use App\Data\Billing\ReturnHint;
 use App\Data\Integrations\ConnectionCheck;
+use App\Data\Integrations\SettingField;
+use App\Enums\FieldType;
 use App\Enums\HostedSessionCancel;
 use App\Modules\PaymentsRazorpay\Support\RazorpayClient;
 use App\Modules\PaymentsRazorpay\Support\RazorpayException;
@@ -87,17 +89,39 @@ final class RazorpayDriver extends AbstractGatewayDriver implements CancelsHoste
         return ['INR'];
     }
 
+    /**
+     * @return list<SettingField>
+     */
     public function settingsFields(): array
     {
         return [
-            ['key' => 'sandbox', 'label' => 'Test mode', 'type' => 'boolean', 'default' => true,
-                'help' => 'Uses your Razorpay test mode keys (rzp_test_…); no real money moves. Not available in production.'],
-            ['key' => 'key_id', 'label' => 'Key id', 'type' => 'string', 'required' => true,
-                'help' => 'Razorpay Dashboard → Account & Settings → API keys. Test and live keys are separate.'],
-            ['key' => 'key_secret', 'label' => 'Key secret', 'type' => 'secret', 'required' => true,
-                'help' => 'Shown once when the key is generated. Payments must be captured automatically (the dashboard\'s payment capture setting).'],
-            ['key' => 'webhook_secret', 'label' => 'Webhook secret', 'type' => 'secret', 'required' => true,
-                'help' => 'Add a webhook for the URL below with the events '.self::WEBHOOK_EVENTS.', and a secret of its own (not the key secret). Paste that secret here.'],
+            new SettingField(
+                key: 'sandbox',
+                label: 'Test mode',
+                type: FieldType::Boolean,
+                help: 'Uses your Razorpay test mode keys (rzp_test_…); no real money moves. Not available in production.',
+                default: true,
+            ),
+            new SettingField(
+                key: 'key_id',
+                label: 'Key id',
+                required: true,
+                help: 'Razorpay Dashboard → Account & Settings → API keys. Test and live keys are separate.',
+            ),
+            new SettingField(
+                key: 'key_secret',
+                label: 'Key secret',
+                type: FieldType::Secret,
+                required: true,
+                help: 'Shown once when the key is generated. Payments must be captured automatically (the dashboard\'s payment capture setting).',
+            ),
+            new SettingField(
+                key: 'webhook_secret',
+                label: 'Webhook secret',
+                type: FieldType::Secret,
+                required: true,
+                help: 'Add a webhook for the URL below with the events '.self::WEBHOOK_EVENTS.', and a secret of its own (not the key secret). Paste that secret here.',
+            ),
         ];
     }
 

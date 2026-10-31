@@ -4,26 +4,19 @@ namespace App\Modules\PaymentsNepal\Support;
 
 use App\Data\Billing\GatewayConfig;
 use App\Data\Integrations\Endpoint;
-use App\Modules\Core\Support\Settings;
+use App\Support\Billing\GatewayHttp;
 use App\Support\Billing\SandboxPolicy;
-use App\Support\Integrations\Endpoints;
-use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
-use Illuminate\Http\Client\RequestException;
-use Illuminate\Support\Facades\Http;
-use Throwable;
 
 /**
- * Outbound HTTP for the Nepal drivers: pinned hosts per mode, TLS verification on (the Http client default),
- * a short connect timeout, the billing.gateways.http_timeout_seconds total timeout, and retries on lookups only.
+ * Outbound HTTP for the Nepal drivers: pinned hosts per mode, and GatewayHttp's timeouts and lookup retries
+ * (`payments_nepal.http`).
  */
 final class ProviderHttp
 {
     public const SANDBOX = 'sandbox';
 
     public const LIVE = 'live';
-
-    public function __construct(private Settings $settings) {}
 
     /**
      * Endpoint mode for a gateway. Sandbox mode where test money is not allowed (production) is a configuration
@@ -50,13 +43,8 @@ final class ProviderHttp
      */
     public static function endpoint(GatewayConfig $gateway, string $key): Endpoint
     {
-        $url = config('payments_nepal.'.$key.'.'.self::mode($gateway));
-
-        if (! is_string($url) || ! str_starts_with($url, 'https://')) {
-            throw new ProviderException("Endpoint payments_nepal.{$key} is not configured.");
-        }
-
-        return Endpoints::for($key, $url);
+        return GatewayHttp::endpoint($key, config('payments_nepal.'.$key.'.'.self::mode($gateway)))
+            ?? throw new ProviderException("Endpoint payments_nepal.{$key} is not configured.");
     }
 
     /** An integer from payments_nepal config, e.g. intConfig('khalti.min_amount', 1000); the default when not numeric. */
@@ -68,50 +56,25 @@ final class ProviderHttp
     }
 
     /** Single-shot request (initiate, refund, connection test): never retried, so nothing is sent twice. */
-    public function request(): PendingRequest
+    public function request(GatewayConfig $gateway): PendingRequest
     {
-        $connect = config('payments_nepal.http.connect_timeout_seconds', 5);
-        $timeout = $this->settings->get('billing.gateways.http_timeout_seconds', 15);
-
-        return Http::acceptJson()
-            ->connectTimeout(is_numeric($connect) ? max(1, (int) $connect) : 5)
-            ->timeout(is_numeric($timeout) ? max(3, (int) $timeout) : 15);
+        return self::http()->request($gateway);
     }
 
     /**
-     * A lookup while the customer's browser waits (the return route): one try with a short timeout, so a slow
-     * provider costs seconds, not a minute. An inconclusive answer is left to the poller.
+     * A status lookup. While the customer's browser waits (the return route, $interactive) it is one quick try, and an
+     * inconclusive answer is left to the poller. In the background (poller, staff "check now") it is retried on
+     * connection errors and 5xx. Never throws for HTTP error statuses (Khalti answers Expired/User canceled with HTTP
+     * 400 and a normal body); connection failures still throw.
      */
-    public function interactiveLookup(): PendingRequest
+    public function lookup(GatewayConfig $gateway, bool $interactive = false): PendingRequest
     {
-        $connect = config('payments_nepal.http.interactive_connect_timeout_seconds', 3);
-        $timeout = config('payments_nepal.http.interactive_timeout_seconds', 6);
-
-        return Http::acceptJson()
-            ->connectTimeout(is_numeric($connect) ? max(1, (int) $connect) : 3)
-            ->timeout(is_numeric($timeout) ? max(2, (int) $timeout) : 6);
+        return $interactive ? self::http()->interactive() : self::http()->lookup($gateway);
     }
 
-    /**
-     * Background status lookup (poller, staff "check now"): safe to repeat, so retried on connection errors and 5xx. Never throws for HTTP error statuses
-     * (Khalti answers Expired/User canceled with HTTP 400 and a normal body); connection failures still throw.
-     */
-    public function lookup(bool $interactive = false): PendingRequest
+    private static function http(): GatewayHttp
     {
-        if ($interactive) {
-            return $this->interactiveLookup();
-        }
-
-        $delays = config('payments_nepal.http.lookup_retry_delays_ms', [300, 900]);
-        $delays = is_array($delays) ? array_values(array_map(fn (mixed $delay): int => is_numeric($delay) ? (int) $delay : 0, $delays)) : [];
-
-        return $this->request()->retry(
-            $delays === [] ? 1 : $delays,
-            0,
-            fn (Throwable $exception): bool => $exception instanceof ConnectionException
-                || ($exception instanceof RequestException && $exception->response->serverError()),
-            throw: false,
-        );
+        return GatewayHttp::for('payments_nepal.http');
     }
 
     /**

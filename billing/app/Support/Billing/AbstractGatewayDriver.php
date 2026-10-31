@@ -10,6 +10,7 @@ use App\Data\Billing\ChargeRequest;
 use App\Data\Billing\ChargeResult;
 use App\Data\Billing\GatewayConfig;
 use App\Data\Billing\RefundRequest;
+use App\Data\Integrations\SettingField;
 use BadMethodCallException;
 use Illuminate\Http\Request;
 
@@ -36,6 +37,9 @@ abstract class AbstractGatewayDriver implements GatewayDriver
         return null;
     }
 
+    /**
+     * @return list<SettingField>
+     */
     public function settingsFields(): array
     {
         return [];

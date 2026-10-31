@@ -6,6 +6,7 @@ use App\Http\Middleware\RequirePasswordUnlessExpired;
 use App\Models\User;
 use App\Modules\Core\Support\AccountLinks;
 use App\Support\Automation\Automation;
+use App\Support\Billing\GatewayDriverRegistry;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Clients\ClientMergeRegistry;
 use App\Support\Currencies\ExchangeRateSources;
@@ -80,6 +81,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(ExchangeRateSources::class);
         $this->app->singleton(PriceConverters::class);
         $this->app->singleton(ProvisioningDriverRegistry::class);
+        $this->app->singleton(GatewayDriverRegistry::class);
         $this->app->singleton(RegistrarDriverRegistry::class);
         $this->app->singleton(SitemapRegistry::class);
         $this->app->singleton(Endpoints::class);
@@ -98,7 +100,7 @@ class AppServiceProvider extends ServiceProvider
     {
         // A driver that could not be built is retried by the next request or queued job, never in a loop within one.
         $forgetDriverFailures = function (): void {
-            foreach ([RegistrarDriverRegistry::class, ProvisioningDriverRegistry::class] as $registry) {
+            foreach ([GatewayDriverRegistry::class, RegistrarDriverRegistry::class, ProvisioningDriverRegistry::class] as $registry) {
                 if ($this->app->resolved($registry)) {
                     $this->app->make($registry)->forgetTransientFailures();
                 }

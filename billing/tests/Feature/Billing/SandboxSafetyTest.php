@@ -4,13 +4,14 @@ use App\Contracts\Billing\GatewayRegistry;
 use App\Modules\Billing\Actions\ConfigureGateway;
 use App\Modules\Billing\BillingServiceProvider;
 use App\Modules\Billing\Database\Seeders\BillingSeeder;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Services\GatewayLogger;
+use App\Modules\Billing\Services\GatewayManager;
+use App\Support\Billing\GatewayDriverRegistry;
 use App\Support\Integrations\CertificateBundle;
 use App\Support\Permissions\PermissionRegistry;
 
@@ -31,6 +32,8 @@ test('the sandbox gateway is disabled in production unless explicitly forced', f
 
 test('a disabled sandbox is not registered and cannot be activated', function () {
     config(['billing_sandbox.enabled' => false]);
+    // A fresh kernel registry holds only what registers on its creation: Billing's built-in drivers.
+    app()->forgetInstance(GatewayDriverRegistry::class);
     app()->forgetInstance(GatewayManager::class);
     app()->forgetInstance(GatewayRegistry::class);
 

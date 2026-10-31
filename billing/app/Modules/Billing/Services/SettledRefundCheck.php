@@ -5,7 +5,6 @@ namespace App\Modules\Billing\Services;
 use App\Contracts\Billing\GatewayDriver;
 use App\Contracts\Billing\HostedPaymentDriver;
 use App\Data\Billing\LookupResult;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Enums\TransactionStatus;

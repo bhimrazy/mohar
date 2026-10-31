@@ -17,10 +17,12 @@ use App\Data\Billing\PaymentIntent;
 use App\Data\Billing\ReturnHint;
 use App\Data\Integrations\ConnectionCheck;
 use App\Data\Integrations\IntegrationLogo;
-use App\Modules\PaymentsNepal\Support\NprAmount;
+use App\Data\Integrations\SettingField;
+use App\Enums\FieldType;
 use App\Modules\PaymentsNepal\Support\ProviderException;
 use App\Modules\PaymentsNepal\Support\ProviderHttp;
 use App\Support\Billing\AbstractGatewayDriver;
+use App\Support\MinorUnits;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterval;
 use Illuminate\Http\Client\ConnectionException;
@@ -91,21 +93,51 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
         return __('connectIPS has no refund API and payments can\'t be reversed: refund the customer by bank transfer from your own account, then record the refund on the invoice.');
     }
 
+    /**
+     * @return list<SettingField>
+     */
     public function settingsFields(): array
     {
         return [
-            ['key' => 'sandbox', 'label' => 'Sandbox mode', 'type' => 'boolean', 'default' => true,
-                'help' => 'Uses connectIPS UAT; no real money moves. Not available in production. "Test connection" looks up a made-up transaction and moves no money.'],
-            ['key' => 'merchant_id', 'label' => 'Merchant ID', 'type' => 'string', 'required' => true,
-                'help' => 'Emailed by NCHL after your bank enrols you as a creditor. Digits only.'],
-            ['key' => 'app_id', 'label' => 'App ID', 'type' => 'string', 'required' => true,
-                'help' => 'Issued by NCHL, one per settlement bank account (up to 15 characters).'],
-            ['key' => 'app_name', 'label' => 'App name', 'type' => 'string', 'required' => true,
-                'help' => 'Exactly as NCHL registered the app (up to 30 characters).'],
-            ['key' => 'app_password', 'label' => 'App password', 'type' => 'secret', 'required' => true,
-                'help' => 'Emailed by NCHL with the app ID; used to check payment status.'],
-            ['key' => 'signing_key', 'label' => 'Signing certificate', 'type' => 'certificate', 'required' => true,
-                'help' => 'The .pfx file NCHL issues (CREDITOR.pfx) and its passphrase. Only the private key is kept, encrypted.'],
+            new SettingField(
+                key: 'sandbox',
+                label: 'Sandbox mode',
+                type: FieldType::Boolean,
+                help: 'Uses connectIPS UAT; no real money moves. Not available in production. "Test connection" looks up a made-up transaction and moves no money.',
+                default: true,
+            ),
+            new SettingField(
+                key: 'merchant_id',
+                label: 'Merchant ID',
+                required: true,
+                help: 'Emailed by NCHL after your bank enrols you as a creditor. Digits only.',
+            ),
+            new SettingField(
+                key: 'app_id',
+                label: 'App ID',
+                required: true,
+                help: 'Issued by NCHL, one per settlement bank account (up to 15 characters).',
+            ),
+            new SettingField(
+                key: 'app_name',
+                label: 'App name',
+                required: true,
+                help: 'Exactly as NCHL registered the app (up to 30 characters).',
+            ),
+            new SettingField(
+                key: 'app_password',
+                label: 'App password',
+                type: FieldType::Secret,
+                required: true,
+                help: 'Emailed by NCHL with the app ID; used to check payment status.',
+            ),
+            new SettingField(
+                key: 'signing_key',
+                label: 'Signing certificate',
+                type: FieldType::Certificate,
+                required: true,
+                help: 'The .pfx file NCHL issues (CREDITOR.pfx) and its passphrase. Only the private key is kept, encrypted.',
+            ),
         ];
     }
 
@@ -361,7 +393,7 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
             providerTxnId: $extra['nchl_txn_id'] ?? (string) $attempt->providerRef,
             amount: $attempt->amount->amount,
             currency: 'NPR',
-            fee: $liability === 'MN' ? (NprAmount::toPaisa($body['chargeAmt'] ?? null) ?? 0) : 0,
+            fee: $liability === 'MN' ? (MinorUnits::fromDecimal($body['chargeAmt'] ?? null, 2) ?? 0) : 0,
             payerRef: $extra['debit_bank_code'] ?? null,
             raw: [...$raw, ...$extra],
         );
@@ -377,7 +409,7 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
     private function call(GatewayConfig $gateway, array $credentials, string $operation, string $txnId, string $paisa, bool $interactive, bool $single = false): Response
     {
         $endpoint = ProviderHttp::endpoint($gateway, 'connectips.api');
-        $request = $single ? $this->http->request() : $this->http->lookup($interactive);
+        $request = $single ? $this->http->request($gateway) : $this->http->lookup($gateway, $interactive);
 
         return $request->withOptions($endpoint->options)
             ->withBasicAuth($credentials['app_id'], $credentials['app_password'])
@@ -432,9 +464,9 @@ final class ConnectipsDriver extends AbstractGatewayDriver implements Connection
     {
         return match (true) {
             is_int($amount) => $amount,
-            is_float($amount) => NprAmount::toPaisa($amount),
+            is_float($amount) => MinorUnits::fromDecimal($amount, 2),
             is_string($amount) && preg_match('/^\d{1,15}$/', trim($amount)) === 1 => (int) trim($amount),
-            is_string($amount) && preg_match('/^\d{1,13}\.\d{1,6}$/', trim($amount)) === 1 => NprAmount::toPaisa(trim($amount)),
+            is_string($amount) && preg_match('/^\d{1,13}\.\d{1,6}$/', trim($amount)) === 1 => MinorUnits::fromDecimal(trim($amount), 2),
             default => null,
         };
     }

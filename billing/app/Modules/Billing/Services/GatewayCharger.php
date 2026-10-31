@@ -6,7 +6,6 @@ use App\Contracts\Billing\GatewayDriver;
 use App\Contracts\Billing\HostedPaymentDriver;
 use App\Data\Billing\ChargeRequest;
 use App\Data\Billing\ChargeResult;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\UnsupportedCapabilityException;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;

@@ -4,14 +4,11 @@ namespace App\Modules\PaymentsCybersource\Support;
 
 use App\Data\Billing\GatewayConfig;
 use App\Data\Integrations\Endpoint;
+use App\Support\Billing\GatewayHttp;
 use App\Support\Billing\SandboxPolicy;
-use App\Support\Integrations\Endpoints;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
-use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\Http;
-use Throwable;
 
 /**
  * Cybersource REST calls authenticated with HTTP Signature: HmacSHA256, keyed with the decoded shared secret, over
@@ -44,13 +41,8 @@ final class CybersourceRest
     /** Pinned endpoint for the gateway's mode: `pay` (the hosted form) or `rest`. */
     public static function endpoint(GatewayConfig $gateway, string $key): Endpoint
     {
-        $url = config('payments_cybersource.'.$key.'.'.self::mode($gateway));
-
-        if (! is_string($url) || ! str_starts_with($url, 'https://')) {
-            throw new CybersourceException("Endpoint payments_cybersource.{$key} is not configured.");
-        }
-
-        return Endpoints::for('cybersource.'.$key, $url);
+        return GatewayHttp::endpoint('cybersource.'.$key, config('payments_cybersource.'.$key.'.'.self::mode($gateway)))
+            ?? throw new CybersourceException("Endpoint payments_cybersource.{$key} is not configured.");
     }
 
     /**
@@ -69,7 +61,7 @@ final class CybersourceRest
         $json = $body === null ? '' : (string) json_encode($body, JSON_UNESCAPED_SLASHES);
         $headers = self::signedHeaders($method, $url, $json, $merchantId, $keyId, $secret);
 
-        $request = $this->client($interactive, $retry && ! $interactive)->withOptions($endpoint->options)->withHeaders($headers);
+        $request = $this->client($gateway, $interactive, $retry && ! $interactive)->withOptions($endpoint->options)->withHeaders($headers);
 
         return $method === 'GET'
             ? $request->get($url)
@@ -140,28 +132,15 @@ final class CybersourceRest
         return implode(': ', $parts);
     }
 
-    private function client(bool $interactive, bool $retry): PendingRequest
+    /** Its own `http.timeout_seconds` replaces the staff timeout (GatewayHttp). */
+    private function client(GatewayConfig $gateway, bool $interactive, bool $retry): PendingRequest
     {
-        $prefix = $interactive ? 'interactive_' : '';
-        $connect = config("payments_cybersource.http.{$prefix}connect_timeout_seconds", 5);
-        $timeout = config("payments_cybersource.http.{$prefix}timeout_seconds", 15);
-        $request = Http::acceptJson()
-            ->connectTimeout(is_numeric($connect) ? max(1, (int) $connect) : 5)
-            ->timeout(is_numeric($timeout) ? max(2, (int) $timeout) : 15);
+        $http = GatewayHttp::for('payments_cybersource.http');
 
-        if (! $retry) {
-            return $request;
-        }
-
-        $delays = config('payments_cybersource.http.lookup_retry_delays_ms', [300, 900]);
-        $delays = is_array($delays) ? array_values(array_map(fn (mixed $delay): int => is_numeric($delay) ? (int) $delay : 0, $delays)) : [];
-
-        return $request->retry(
-            $delays === [] ? 1 : $delays,
-            0,
-            fn (Throwable $exception): bool => $exception instanceof ConnectionException
-                || ($exception instanceof RequestException && $exception->response->serverError()),
-            throw: false,
-        );
+        return match (true) {
+            $interactive => $http->interactive(),
+            $retry => $http->lookup($gateway),
+            default => $http->request($gateway),
+        };
     }
 }
