@@ -8,6 +8,7 @@ use App\Data\Currencies\CurrencyDisplay;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\DateFormats;
 use App\Support\Countries;
+use App\Support\Localization\Catalogue;
 use App\Support\Navigation\Navigation;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -62,6 +63,10 @@ class HandleInertiaRequests extends Middleware
                 : [],
             'currentClientId' => fn (): ?int => $request->session()->get(ClientContext::SESSION_KEY),
             'dateFormat' => fn (): string => DateFormats::current(),
+            'locale' => fn (): string => str_replace('_', '-', app()->getLocale()),
+            // Sent once per locale and catalogue version, then reused by the browser across visits (ADR 0028).
+            'translations' => Inertia::once(fn (): array => Catalogue::messages(app()->getLocale()))
+                ->as('i18n:'.app()->getLocale().':'.Catalogue::version(app()->getLocale())),
             'countries' => Inertia::once(fn (): array => Countries::CODES),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
