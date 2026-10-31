@@ -155,9 +155,14 @@ Open follow-ups: #540 (flaky `AwaitingQueueTest` on PostgreSQL), #541 (public fo
 autoresponse is off), #542 (security notice at the guess cap), #544 (vacuous multi-needle `not->toContain`), #546 (staff
 security page in the client shell), #507, #516, #406 and #244 (re-pin caddy, composer, postgres, k6: upstream re-pushed
 their tags), #67, #70, #83, #503, #520 and #511 leftovers, `product-vision.md` "planned" markers.
-Owner actions open: GitHub repository settings (secret scanning and push protection, SHA pinning, protect `main`, default
-branch `develop`; the `release` environment before images are published); production rebuild for #530; ADR 0028 and 0029
-questions; month-end Q2, Q5, Q7–Q12; SMS provider; panel order; importer card tokens (CTO: do not import); a hosted tier.
+Owner actions open (after the 10-31 decisions in `requirements.md`): GitHub repository settings (the owner is turning on
+secret scanning and push protection; SHA pinning, protecting `main`, default branch `develop` and the `release`
+environment before images are published stay open); the accountant list `docs/handoff/accountant-questions.md`; whether
+the owner holds a Sparrow or Aakash account; a lawyer's review of the WHMCS licence before the importer and carry-over
+are marketed; business items (licence and NPR price, support model, security policy page, privacy terms, trademark
+search, a design-partner host). Closed 10-31: #530 rebuild (no live install), Docker cleanup, ADR 0028 and 0029
+questions, month-end questions other than Q11, SMS and panel order, importer card tokens, hosted tier (self-hosted
+first), live sandboxes for eSewa, Khalti and ResellerClub (public test credentials only).
 Rules since 10-31: scratch files and PR bodies are named after the PR (`pr<N>-body.md`); clean up with
 `scripts/finish-workstream.sh <slug>` at merge.
 
@@ -195,29 +200,30 @@ new issues; a PR merges when nothing blocks, except money, auth and data deletio
   discount label percentage; #481 screenshots show old labels, unchanged Quick links card; #482 shared default objects in
   `IdentifiesOccurrence`, a render failure fails all three mail attempts, no `kernel:api-snapshot` check yet (ADR 0010);
   #474 recorded-credit refund should name the payment; #471 target's ResellerClub customer wins on merge.
-- Owner decisions open from this wave: Nepali labels in the IRD CSV header (kernel change), accountant on whether the emailed
-  note PDF counts as a print, keeping both emails on a staff refund (kept for now).
+- Owner decisions open from this wave: Nepali labels in the IRD CSV header (kernel change) and whether the emailed note PDF
+  counts as a print (both on the accountant list), keeping both emails on a staff refund (kept for now).
 - Namecheap is merged but not enabled. Before enabling it: a sandbox check of the not-in-account error numbers (2016166, 2019166), the `.us`,
   `.ca` and `.eu` extension details and the transfer texts (simulator README "verify" list).
 
 ## Open owner questions
 
-- VAT (from #464, with an accountant): does the register keep every stretch the mode was on; does the note register's
-  Total exclude other tax; are foreign-tax-only documents "exempt".
-- Docker cleanup on the Mac (proposed 10-24, not run): build cache (~9.9 GB), dangling images (~1.4 GB),
-  `mohar-k286-php:local` (~1 GB). Keep `mohar-pg`, its volume and Mailpit; other projects' images untouched.
-- Nepali tax invoices: CBMS / electronic billing rules for VAT-registered hosts, and fiscal-year numbering (ask an
-  accountant).
+Decided on 2026-10-31 and recorded in `requirements.md` ("Decisions of 2026-10-31"): Q13 carry-over, card tokens, SMS,
+panel order, hosted tier, ADR 0028 and 0029, month-end, Docker cleanup, live sandboxes, release timing, Namecheap `.ca`
+and `.eu` (off until a sandbox check), bcrypt cost (stays 12 unless the load test shows saturation).
+
+- Accountant (list to forward: `docs/handoff/accountant-questions.md`): the three #464 register questions, CBMS and
+  fiscal-year numbering, D2, D6, A1 to A11, whether old WHMCS invoices were already reported (import Q3), whether an
+  emailed note PDF counts as a print, the Nepali labels in the IRD CSV header, month-end Q11.
+- Lawyer: the WHMCS licence terms against the importer and sign-in carry-over, before either is marketed.
+- Sparrow or Aakash: does the owner hold an account, and is a funded trial available for fixtures.
 - connectIPS merchant enrolment (weeks of lead time); a WHMCS dev licence or fake-data export for importer fixtures; a
   cPanel trial VPS.
-- Namecheap `.ca` and `.eu`: offered as built (a wrong detail name makes the registrar refuse the order, nothing is
-  bought), or kept off until a sandbox check.
 - Repository settings: Actions write for the token (re-running flaky jobs). Auto-merge and delete head branches are on
   (2026-10-23).
-- Five behaviours in #211 ("Owner to confirm"), now merged with the conservative choice; confirm or change.
-- Bcrypt cost against sign-in bursts on a 2 vCPU host: #433 measured a 1.3 to 1.8 s sign-in p50 when 28 users sign in at
-  once. Lowering the cost speeds sign-in and weakens stored hashes; a security trade-off for the owner.
-- Business: licence and price in NPR, support model, security policy page, trademark search.
+- Five behaviours in #211 ("Owner to confirm"), merged with the conservative choice; confirm or change. The five are not
+  listed in the handoff docs; read them in the #211 PR body.
+- Business: licence and price in NPR, support model, security policy page, privacy terms, trademark search, a
+  design-partner host (the CTO brings proposals).
 
 ## Open issues worth knowing
 

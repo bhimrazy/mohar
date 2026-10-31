@@ -151,9 +151,9 @@ by the event class, and the public webhook type is the second argument, `registe
   is fine; a JSON-null row would make `Settings::get()` return null instead of the config default and would skip the
   settings cache, so Platform does not write one. Reasons are remembered per request until `flush()`.
 
-## Amendment (#555) — 2026-10-31, kernel contracts that receive secrets are closed to packages (Proposed)
+## Amendment (#555) — 2026-10-31, kernel contracts that receive secrets are closed to packages (Accepted)
 
-Status: Proposed, with ADR 0018 Amendment (#555). It comes from the #555 design review (B2).
+Status: Accepted 2026-10-31 (owner approved `client-import.md` Q13), with ADR 0018 Amendment (#555). It comes from the #555 design review (B2).
 
 - **The rule.** A kernel contract with a method that receives a plaintext credential belongs to a separate class from
   the extension points this ADR describes. Such credentials include a typed password, a one-time code and a recovery

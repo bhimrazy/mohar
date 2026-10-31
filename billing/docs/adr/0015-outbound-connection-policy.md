@@ -124,9 +124,9 @@ with the kernel guard. Infrastructure that staff set up uses the install policy.
   remains possible. Accepted: the setting needs a sensitive permission and a recent password, and a person who can
   change it can already redirect all mail. Ports are not restricted.
 
-## Amendment (#555) — 2026-10-31, outbound calls made inside a user request (Proposed)
+## Amendment (#555) — 2026-10-31, outbound calls made inside a user request (Accepted)
 
-Status: Proposed, with ADR 0018 Amendment (#555) and `client-import.md` §3.4. It comes from the #555 design review
+Status: Accepted 2026-10-31 (owner approved `client-import.md` Q13), with ADR 0018 Amendment (#555) and `client-import.md` §3.4. The licence check (Q13(c)) gates marketing, not the build. It comes from the #555 design review
 (B4, M1). It is the first rule for a synchronous outbound call on a page that users wait on. Sign-in is already the
 slowest such page (`sizing.md`).
 

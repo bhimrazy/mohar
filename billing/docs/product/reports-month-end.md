@@ -105,8 +105,8 @@ Where we do better, in one line each:
   rows); an aging detail export above the cap is refused with "narrow the filters", as the registers are. Queued
   exports arrive with the Reports module's own PR (ADR 0025, deferred) and need no change here.
 - **Sensitive?** These exports carry client names and amounts but no PAN, bank or card data. They are **not**
-  `HasSensitiveExport`; no step-up. CTO to confirm (§15, Q9): `outstanding_aging` detail lists who owes what, which a
-  host may treat as sensitive. If decided so, it is one marker interface on that class.
+  `HasSensitiveExport`, except `outstanding_aging` detail, which lists who owes what: decided 2026-10-31 (§15, Q9) to be
+  a sensitive export with the password step-up. It is one marker interface on that class.
 - Screen routes are rate-limited per user (60/min, like `billing-registers`). Viewing is not logged; each export
   writes one `report.exported` entry.
 
@@ -661,7 +661,11 @@ Decided by the owner on 2026-10-29:
 - **Q6 (decided 2026-10-29): rates (D6).** Income stays native-currency only. No conversion, no converted column and
   no stored rate until the owner decides the rate rule.
 
-Still open (assumed workflow, owner to confirm; nothing is built on the open ones until answered):
+Accepted by the CTO on 2026-10-31 (the assumed workflows below stand): Q2, Q5, Q7, Q8, Q10 and Q12. Q9 is decided
+(the aging detail is a sensitive export with the password step-up). Q11 goes to the accountant list
+(`docs/handoff/accountant-questions.md`); the stated default stays.
+
+Assumed workflows:
 
 - Q2 (gateway payouts): eSewa and Khalti pay out to the host's bank a day or two later, net of their fee. Staff
   reconcile by payment date, Mohar records the gateway fee on the transaction, and the host does not need
@@ -672,8 +676,8 @@ Still open (assumed workflow, owner to confirm; nothing is built on the open one
   in VAT mode (A4); the accountant checks the refund list against the credit-note register each month.
 - Q8 (credit as liability): Prepaid credit is a customer advance in the books (not income, not a VAT sale; A3), and
   the accountant wants the closing balance per month.
-- Q9 (confidentiality): The aging detail (client names and amounts owed) may go to the accountant by email or USB
-  without extra confirmation; if not, we mark it sensitive and require the password step-up.
+- Q9 (confidentiality, decided 2026-10-31): The aging detail lists client names and amounts owed, so it is a sensitive
+  export and needs the password step-up.
 - Q10 (refund to credit and gateway income): A refund moved to the client's credit is not reported as money returned
   by the gateway. (CTO to check the code path; owner to confirm the reporting.)
 - Q11 (income ex VAT): The owner wants cash income as received (VAT included) in this pack; the VAT register
