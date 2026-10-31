@@ -69,9 +69,7 @@ class ExtensionsServiceProvider extends ServiceProvider
         return array_values(array_filter(self::availableExtensions(), fn (string $extension): bool => in_array($extension, $only, true)));
     }
 
-    /**
-     * @return class-string
-     */
+    /** The provider class an extension folder must hold; it may not exist. */
     public static function providerClass(string $extension): string
     {
         [$family, $name] = explode('/', $extension, 2);
