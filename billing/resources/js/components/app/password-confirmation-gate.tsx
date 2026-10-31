@@ -1,4 +1,4 @@
-import { router, usePage } from '@inertiajs/react';
+import { router, useHttp, usePage } from '@inertiajs/react';
 import type { FormEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import ConfirmablePasswordController from '@/actions/Laravel/Fortify/Http/Controllers/ConfirmablePasswordController';
@@ -15,11 +15,9 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
-import {
-    SetPasswordButton,
-    xsrfToken,
-} from '@/components/app/set-password-button';
+import { SetPasswordButton } from '@/components/app/set-password-button';
 import { STEP_UP_DOWNLOAD_EVENT } from '@/components/app/step-up-download-link';
+import { httpFailure } from '@/lib/http-error';
 import {
     inertiaStepUpRefusal,
     replacePending,
@@ -56,6 +54,7 @@ export function PasswordConfirmationGate() {
     const [password, setPassword] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [processing, setProcessing] = useState(false);
+    const { post, transform } = useHttp({ password: '' });
 
     useEffect(() => {
         const offBefore = router.on('before', (event) => {
@@ -167,47 +166,14 @@ export function PasswordConfirmationGate() {
         setError(null);
 
         try {
-            const response = await fetch(
+            transform(() => ({ password }));
+            const confirmed = await post(
                 ConfirmablePasswordController.store.url(),
-                {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: {
-                        Accept: 'application/json',
-                        'Content-Type': 'application/json',
-                        'X-Requested-With': 'XMLHttpRequest',
-                        'X-XSRF-TOKEN': xsrfToken(),
-                    },
-                    body: JSON.stringify({ password }),
-                },
             );
 
-            if (!response.ok) {
-                // A 429 carries the wait ("Try again in n seconds").
-                const throttled =
-                    response.status === 429
-                        ? ((await response.json().catch(() => null)) as {
-                              message?: string;
-                              signed_out?: boolean;
-                              redirect?: string;
-                          } | null)
-                        : null;
-
-                // The last allowed wrong password ended the session: sign-in shows why.
-                if (throttled?.signed_out && throttled.redirect) {
-                    window.location.assign(throttled.redirect);
-
-                    return;
-                }
-
-                setError(
-                    response.status === 422
-                        ? 'The password is incorrect.'
-                        : response.status === 429
-                          ? (throttled?.message ??
-                            'Too many password attempts. Try again in a minute.')
-                          : 'Could not confirm your password. Try again.',
-                );
+            // A 422 resolves with no value (the password is wrong).
+            if (confirmed === undefined) {
+                setError('The password is incorrect.');
 
                 return;
             }
@@ -232,10 +198,32 @@ export function PasswordConfirmationGate() {
                 data: visit.data as Record<string, string>,
                 preserveScroll: true,
             });
-        } catch {
-            setError(
-                'Could not confirm your password. Check your connection and try again.',
-            );
+        } catch (caught) {
+            const failure = httpFailure(caught);
+
+            // A 429 carries the wait ("Try again in n seconds").
+            if (failure?.status === 429) {
+                const { message, signed_out, redirect } = failure.body;
+
+                // The last allowed wrong password ended the session: sign-in shows why.
+                if (signed_out && typeof redirect === 'string') {
+                    window.location.assign(redirect);
+
+                    return;
+                }
+
+                setError(
+                    typeof message === 'string'
+                        ? message
+                        : 'Too many password attempts. Try again in a minute.',
+                );
+            } else {
+                setError(
+                    failure
+                        ? 'Could not confirm your password. Try again.'
+                        : 'Could not confirm your password. Check your connection and try again.',
+                );
+            }
         } finally {
             setProcessing(false);
         }

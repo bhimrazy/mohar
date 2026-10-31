@@ -1,4 +1,4 @@
-import { parseMoneyInput } from '@/lib/money';
+import { fromMinor, parseMoneyInput } from '@/lib/money';
 
 /**
  * Strictly parse a non-negative money input ("1,250.5" → "1250.50") for forms that post decimal
@@ -11,5 +11,5 @@ export function decimalAmount(input: string): string | null {
         return null;
     }
 
-    return (minor / 100).toFixed(2);
+    return fromMinor(minor).toFixed(2);
 }

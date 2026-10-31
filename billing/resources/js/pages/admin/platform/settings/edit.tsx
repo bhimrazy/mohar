@@ -24,7 +24,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
-import { labelWithCurrency, parseMoneyInput } from '@/lib/money';
+import { fromMinor, labelWithCurrency, parseMoneyInput } from '@/lib/money';
 import { cn } from '@/lib/utils';
 
 /** Settings whose option list is long enough to need a search box. */
@@ -157,7 +157,7 @@ export default function SettingsEdit({ sections, section, mailTest }: Props) {
 
                 return [
                     field.key,
-                    minor === null ? value : (minor / 100).toFixed(2),
+                    minor === null ? value : fromMinor(minor).toFixed(2),
                 ];
             }),
         );

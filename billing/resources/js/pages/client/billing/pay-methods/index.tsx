@@ -11,7 +11,7 @@ import { PageHeader } from '@/components/app/page-header';
 import { StatusBadge } from '@/components/app/status-badge';
 import {
     CardFields,
-    tokenizeCard,
+    useTokenizeCard,
     useCardForm,
 } from '@/components/billing/card-form';
 import type { PayMethod } from '@/components/billing/types';
@@ -48,6 +48,7 @@ function AddCardDialog({
     const [processing, setProcessing] = useState(false);
     const [serverError, setServerError] = useState<string | undefined>();
     const card = useCardForm();
+    const tokenizeCard = useTokenizeCard();
 
     const submit = async (event: React.FormEvent) => {
         event.preventDefault();
