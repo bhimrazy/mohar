@@ -242,7 +242,7 @@ Cache the configuration, routes, views, events and translation catalogues (`i18n
 php artisan optimize
 ```
 
-With a cached configuration, `.env` is read only by `php artisan optimize`: run it again after editing `.env`. Without the optimize step the translation catalogue is read from `lang/*.json` once per PHP process; with it, from `bootstrap/cache/i18n.php`, which `optimize:clear` removes.
+With a cached configuration, `.env` is read only by `php artisan optimize`: run it again after editing `.env`. Without the optimize step the translation catalogue is read from `lang/*.json` once per request (once per worker under Octane or `queue:work`: restart workers after editing `lang/`); with it, from `bootstrap/cache/i18n.php`, which `optimize:clear` removes.
 
 ## 6. Scheduler and queue workers
 

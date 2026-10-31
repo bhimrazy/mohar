@@ -59,14 +59,18 @@
         "locale": "en",
         "line": ":name has :count item|:name has :count items",
         "count": 2,
-        "replace": { "name": "Asha" },
+        "replace": {
+            "name": "Asha"
+        },
         "expected": "Asha has 2 items"
     },
     {
         "locale": "en",
         "line": ":Name owns :count item|:NAME owns :count items",
         "count": 2,
-        "replace": { "name": "asha" },
+        "replace": {
+            "name": "asha"
+        },
         "expected": "ASHA owns 2 items"
     },
     {
@@ -103,5 +107,21 @@
         "count": 2,
         "replace": {},
         "expected": "many"
+    },
+    {
+        "locale": "en",
+        "line": "[Draft] one item|[Draft] :count items",
+        "count": 3,
+        "replace": {},
+        "expected": "[Draft] 3 items"
+    },
+    {
+        "locale": "en",
+        "line": "{1} :count thing|[2,*] :count things",
+        "count": 3,
+        "replace": {
+            "count": "three"
+        },
+        "expected": "three things"
     }
 ]

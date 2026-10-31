@@ -1,0 +1,27 @@
+[
+    {
+        "line": "Ticket :subject by :name",
+        "replace": { "subject": "Price :name?", "name": "Ram" },
+        "expected": "Ticket Price :name? by Ram"
+    },
+    {
+        "line": "Subject: :subject",
+        "replace": { "subject": "see :brand docs" },
+        "expected": "Subject: see :brand docs"
+    },
+    {
+        "line": "Hi :nAME",
+        "replace": { "name": "asha" },
+        "expected": "Hi :nAME"
+    },
+    {
+        "line": ":name :Name :NAME",
+        "replace": { "name": "asha" },
+        "expected": "asha Asha ASHA"
+    },
+    {
+        "line": ":count of :counter",
+        "replace": { "count": 1, "counter": "x" },
+        "expected": "1 of x"
+    }
+]

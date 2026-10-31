@@ -102,7 +102,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->commands([CacheCatalogueCommand::class, ClearCatalogueCommand::class]);
-        $this->optimizes(optimize: 'i18n:cache', clear: 'i18n:clear');
+        $this->optimizes(optimize: 'i18n:cache', clear: 'i18n:clear', key: 'i18n');
 
         // A driver that could not be built is retried by the next request or queued job, never in a loop within one.
         $forgetDriverFailures = function (): void {

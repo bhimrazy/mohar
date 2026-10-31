@@ -9,8 +9,11 @@ use Illuminate\Translation\FileLoader;
  * register, merged by Laravel's translation loader. Shared with React as the `translations` Inertia prop.
  *
  * `php artisan optimize` writes every locale, with a version hash of its content, to `bootstrap/cache/i18n.php`
- * (`i18n:cache`) and `optimize:clear` removes it. Without that file the catalogue is read once per process, so
- * a request never serves an entry that predates the files.
+ * (`i18n:cache`) and `optimize:clear` removes it. Without that file the catalogue is read from `lang/` once per
+ * request in classic PHP, and once per worker in a long-running worker (Octane, queue:work): restart workers after
+ * changing `lang/`.
+ *
+ * Internal to the app (not `@api`): modules contribute through `Resources/lang`, not through this class.
  */
 final class Catalogue
 {

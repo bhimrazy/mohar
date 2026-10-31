@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it } from 'vitest';
+import replacements from '../../../../tests/Fixtures/i18n/replacements.json';
 import plurals from '../../../../tests/Fixtures/i18n/plurals.json';
 import {
     applySharedTranslations,
@@ -79,7 +80,30 @@ describe('applySharedTranslations', () => {
     });
 });
 
+describe('lookups', () => {
+    it('never returns an inherited property', () => {
+        expect(t('constructor')).toBe('constructor');
+        expect(tChoice('toString|many', 1)).toBe('toString');
+    });
+
+    it('treats an empty array catalogue as empty', () => {
+        applySharedTranslations({ locale: 'en', translations: [] });
+
+        expect(t('Total')).toBe('Total');
+    });
+});
+
 describe('Trans', () => {
+    it('lets values.brand win over the shared brand', () => {
+        configureTranslations('en', {}, 'Acme');
+
+        expect(
+            renderToStaticMarkup(
+                <Trans k="By :brand" values={{ brand: <b>X</b> }} />,
+            ),
+        ).toBe('By <b>X</b>');
+    });
+
     it('puts elements into their placeholders and escapes the translation', () => {
         configureTranslations('en', {
             'Read the :terms before you pay.': 'पढ्नुहोस् :terms <b>x</b>',
@@ -103,5 +127,15 @@ describe('Trans', () => {
                 <Trans k="See :link now" values={{ link: <i>here</i> }} />,
             ),
         ).toBe('See <i>here</i> now');
+    });
+});
+
+describe('t matches the PHP replacement fixture', () => {
+    it.each(replacements)('$line', (row) => {
+        configureTranslations('en', {});
+
+        expect(t(row.line, row.replace as unknown as Replacements)).toBe(
+            row.expected,
+        );
     });
 });

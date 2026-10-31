@@ -24,7 +24,7 @@ declare module '@inertiajs/core' {
             dateFormat: string;
             /** BCP 47 tag of the request locale, for example `ne-NP`. */
             locale: string;
-            /** Catalogue for the locale (ADR 0028); `{}` for English, omitted on visits after the first. */
+            /** Catalogue for the locale (ADR 0028); empty for English. Inertia reuses a once prop across visits; pages still receive it. */
             translations?: Record<string, string>;
             /** ISO 3166-1 alpha-2 codes a country can be chosen from (sent once per visit). */
             countries: string[];

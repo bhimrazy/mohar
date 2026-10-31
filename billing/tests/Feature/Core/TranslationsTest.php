@@ -2,6 +2,7 @@
 
 use App\Support\Localization\Catalogue;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\ServiceProvider;
 use Inertia\Testing\AssertableInertia as Assert;
 
 function catalogueDirectory(array $files): string
@@ -87,7 +88,7 @@ test('trans_choice gives the results in the shared plural fixture', function () 
     }
 });
 
-test('optimize caches the catalogue, serves it from the cache file and optimize:clear drops it', function () {
+test('i18n:cache serves the catalogue from the cache file and i18n:clear drops it', function () {
     $directory = catalogueDirectory(['ne' => ['Total' => 'जम्मा']]);
     app('translator')->addJsonPath($directory);
 
@@ -101,10 +102,23 @@ test('optimize caches the catalogue, serves it from the cache file and optimize:
     Catalogue::flush();
     expect(Catalogue::version('ne'))->toBe($cached)->and(Catalogue::messages('ne'))->toBe(['Total' => 'जम्मा']);
 
-    // ... and `optimize` rebuilds it with the new version.
-    Artisan::call('optimize');
+    // ... and rebuilding gives the new version.
+    Artisan::call('i18n:cache');
     expect(Catalogue::version('ne'))->not->toBe($cached)->and(Catalogue::messages('ne'))->toBe(['Total' => 'कुल']);
 
-    Artisan::call('optimize:clear');
+    Artisan::call('i18n:clear');
     expect(Catalogue::cachePath())->not->toBeFile();
+});
+
+test('optimize and optimize:clear are wired to the catalogue commands', function () {
+    expect(ServiceProvider::$optimizeCommands)->toHaveKey('i18n', 'i18n:cache')
+        ->and(ServiceProvider::$optimizeClearCommands)->toHaveKey('i18n', 'i18n:clear');
+});
+
+test('__() gives the results in the shared replacement fixture', function () {
+    $cases = json_decode(file_get_contents(base_path('tests/Fixtures/i18n/replacements.json')), true, flags: JSON_THROW_ON_ERROR);
+
+    foreach ($cases as $case) {
+        expect(__($case['line'], $case['replace']))->toBe($case['expected'], $case['line']);
+    }
 });

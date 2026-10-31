@@ -10,7 +10,7 @@ let locale = 'en';
 let messages: Record<string, string> = {};
 let brand = '';
 
-/** Sets the active catalogue. English sends `{}`. */
+/** Sets the active catalogue. */
 export function configureTranslations(
     nextLocale: string,
     nextMessages: Record<string, string>,
@@ -27,14 +27,20 @@ export function configureTranslations(
  */
 export function applySharedTranslations(props: Record<string, unknown>): void {
     const nextLocale = typeof props.locale === 'string' ? props.locale : locale;
-    const sent =
-        typeof props.translations === 'object' && props.translations !== null
-            ? (props.translations as Record<string, string>)
-            : null;
+    const sent = props.translations;
+    // PHP encodes an empty catalogue as `[]`.
+    const catalogue =
+        typeof sent === 'object' && sent !== null
+            ? Array.isArray(sent)
+                ? {}
+                : (sent as Record<string, string>)
+            : nextLocale === locale
+              ? messages
+              : {};
 
     configureTranslations(
         nextLocale,
-        sent ?? (nextLocale === locale ? messages : {}),
+        catalogue,
         typeof props.name === 'string' ? props.name : brand,
     );
 }
@@ -43,44 +49,55 @@ function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function withBrand(replace: Replacements): Replacements {
-    return brand && replace.brand === undefined
-        ? { ...replace, brand }
-        : replace;
+function lookup(key: string): string {
+    return Object.hasOwn(messages, key) ? messages[key] : key;
 }
 
+/** Longest name first, like PHP's strtr(), so `:termsLink` wins over `:terms`. */
+function alternation(names: string[]): RegExp {
+    return new RegExp(
+        names
+            .sort((a, b) => b.length - a.length)
+            .map(escapeRegExp)
+            .join('|'),
+        'g',
+    );
+}
+
+function ucfirst(value: string): string {
+    return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+/**
+ * Mirrors Illuminate\Translation\Translator::makeReplacements(): `:key`, `:Key` and `:KEY` entries, then one
+ * case-sensitive strtr pass over the original line, so inserted text is never replaced again. `:brand` is added
+ * only when the caller did not pass it.
+ */
 function applyReplacements(line: string, replace: Replacements): string {
-    const full = withBrand(replace);
+    const given =
+        brand && replace.brand === undefined ? { ...replace, brand } : replace;
+    const table = new Map<string, string>();
 
-    // Longest first so ":counter" is not eaten by ":count".
-    return Object.keys(full)
-        .sort((a, b) => b.length - a.length)
-        .reduce((text, name) => {
-            const value = String(full[name]);
-            const pattern = new RegExp(`:${escapeRegExp(name)}`, 'gi');
+    for (const [key, raw] of Object.entries(given)) {
+        const value = String(raw);
 
-            return text.replace(pattern, (match) => {
-                if (
-                    match.slice(1) === name.toUpperCase() &&
-                    name !== name.toUpperCase()
-                ) {
-                    return value.toUpperCase();
-                }
+        table.set(`:${ucfirst(key)}`, ucfirst(value));
+        table.set(`:${key.toUpperCase()}`, value.toUpperCase());
+        table.set(`:${key}`, value);
+    }
 
-                if (
-                    match[1] === match[1].toUpperCase() &&
-                    match[1] !== match[1].toLowerCase()
-                ) {
-                    return value.charAt(0).toUpperCase() + value.slice(1);
-                }
+    if (table.size === 0) {
+        return line;
+    }
 
-                return value;
-            });
-        }, line);
+    return line.replace(
+        alternation([...table.keys()]),
+        (match) => table.get(match) ?? match,
+    );
 }
 
 export function t(key: string, replace: Replacements = {}): string {
-    return applyReplacements(messages[key] ?? key, replace);
+    return applyReplacements(lookup(key), replace);
 }
 
 /** Marks a key for extraction and returns it untranslated. */
@@ -88,27 +105,40 @@ export function tKey(key: string): string {
     return key;
 }
 
-const EXPLICIT = /^[{[]([^[\]{}]*)[}\]]([\s\S]*)$/;
+// Mirrors Illuminate\Translation\MessageSelector: the same condition character class, applied to untrimmed segments.
+const EXPLICIT = /^[{[]([-?\d|*,.]*)[}\]]([\s\S]*)/;
+const CONDITION_PREFIX = /^[{[][-?\d|*,.]*[}\]]/;
 
-function inRange(count: number, condition: string): boolean {
-    const [from, to] = condition.split(',');
+/** Mirrors MessageSelector::extractFromString(). */
+function explicitMatch(part: string, count: number): string | null {
+    const match = EXPLICIT.exec(part);
 
-    if (to === undefined) {
-        return Number(from) === count;
+    if (!match) {
+        return null;
     }
 
-    if (to === '*') {
-        return count >= Number(from);
+    const [, condition, value] = match;
+
+    if (condition.includes(',')) {
+        const [from, to] = condition.split(',', 2);
+
+        if (to === '*' && count >= Number(from)) {
+            return value;
+        }
+
+        if (from === '*' && count <= Number(to)) {
+            return value;
+        }
+
+        if (count >= Number(from) && count <= Number(to)) {
+            return value;
+        }
     }
 
-    if (from === '*') {
-        return count <= Number(to);
-    }
-
-    return count >= Number(from) && count <= Number(to);
+    return condition !== '' && Number(condition) === count ? value : null;
 }
 
-/** Laravel's MessageSelector index: one/other, with 0 counting as singular in hi. */
+/** Mirrors MessageSelector::getPluralIndex() for one/other locales; `hi` counts 0 as singular. */
 function pluralIndex(count: number, rulesLocale: string): number {
     if (rulesLocale.toLowerCase().startsWith('hi')) {
         return count === 0 || count === 1 ? 0 : 1;
@@ -117,32 +147,31 @@ function pluralIndex(count: number, rulesLocale: string): number {
     return new Intl.PluralRules(rulesLocale).select(count) === 'one' ? 0 : 1;
 }
 
+/** Mirrors Translator::choice() and MessageSelector::choose(). */
 export function tChoice(
     key: string,
     count: number,
     replace: Replacements = {},
 ): string {
-    const translated = key in messages;
-    const parts = (messages[key] ?? key).split('|').map((part) => part.trim());
-    const withCount = { ...replace, count };
+    const translated = Object.hasOwn(messages, key);
+    const segments = lookup(key).split('|');
+    const withCount = { count, ...replace };
 
-    for (const part of parts) {
-        const match = EXPLICIT.exec(part);
+    for (const part of segments) {
+        const value = explicitMatch(part, count);
 
-        if (match && inRange(count, match[1])) {
-            return applyReplacements(match[2].trim(), withCount);
+        if (value !== null) {
+            return applyReplacements(value.trim(), withCount);
         }
     }
 
-    if (parts.length === 1) {
-        return applyReplacements(parts[0], withCount);
-    }
-
-    const plain = parts.map((part) => EXPLICIT.exec(part)?.[2].trim() ?? part);
+    const plain = segments.map((part) => part.replace(CONDITION_PREFIX, ''));
     // Like Laravel, an untranslated key is pluralised with the English rules.
+    const index = pluralIndex(count, translated ? locale : 'en');
     const chosen =
-        plain[pluralIndex(count, translated ? locale : 'en')] ??
-        plain[plain.length - 1];
+        plain.length === 1 || plain[index] === undefined
+            ? plain[0]
+            : plain[index];
 
     return applyReplacements(chosen, withCount);
 }
@@ -154,20 +183,24 @@ type TransProps = {
 
 /** Translates a sentence that contains elements: `values` entries replace their `:name` placeholders. */
 export function Trans({ k, values = {} }: TransProps) {
-    const line = applyReplacements(messages[k] ?? k, {});
-    const names = Object.keys(values);
+    const line = lookup(k);
+    const all: Record<string, ReactNode> =
+        brand && values.brand === undefined ? { ...values, brand } : values;
+    const names = Object.keys(all);
 
     if (names.length === 0) {
         return <>{line}</>;
     }
 
-    const pattern = new RegExp(`:(${names.map(escapeRegExp).join('|')})`, 'g');
+    const pattern = alternation(names.map((name) => `:${name}`));
     const nodes: ReactNode[] = [];
     let last = 0;
 
     for (const match of line.matchAll(pattern)) {
         nodes.push(line.slice(last, match.index));
-        nodes.push(<Fragment key={match.index}>{values[match[1]]}</Fragment>);
+        nodes.push(
+            <Fragment key={match.index}>{all[match[0].slice(1)]}</Fragment>,
+        );
         last = match.index + match[0].length;
     }
 

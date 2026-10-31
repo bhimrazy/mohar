@@ -44,6 +44,10 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
+        // Read once: the once-prop key and the catalogue must come from the same locale. SetLocale (ADR 0028 §4) has
+        // to run before this middleware in the web group.
+        $locale = app()->getLocale();
+
         return [
             ...parent::share($request),
             'name' => fn (): string => app(BrandProvider::class)->brand()->name,
@@ -63,10 +67,10 @@ class HandleInertiaRequests extends Middleware
                 : [],
             'currentClientId' => fn (): ?int => $request->session()->get(ClientContext::SESSION_KEY),
             'dateFormat' => fn (): string => DateFormats::current(),
-            'locale' => fn (): string => str_replace('_', '-', app()->getLocale()),
+            'locale' => str_replace('_', '-', $locale),
             // Sent once per locale and catalogue version, then reused by the browser across visits (ADR 0028).
-            'translations' => Inertia::once(fn (): array => Catalogue::messages(app()->getLocale()))
-                ->as('i18n:'.app()->getLocale().':'.Catalogue::version(app()->getLocale())),
+            'translations' => Inertia::once(fn (): object => (object) Catalogue::messages($locale))
+                ->as('i18n:'.$locale.':'.Catalogue::version($locale)),
             'countries' => Inertia::once(fn (): array => Countries::CODES),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];

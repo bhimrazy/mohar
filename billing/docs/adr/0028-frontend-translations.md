@@ -282,3 +282,22 @@ Decided by the owner on 2026-10-31:
 5. **Who translates and reviews Nepali**, and any translation platform: deferred.
 
 Earlier owner decision, unchanged: clients never enter names in Devanagari.
+
+## Amendment (#606) — 2026-11-01, the mechanism lands before PR 0's other parts
+
+- **Split of PR 0.** #606 ships only the React helper, the `locale` and `translations` props, the catalogue cache and
+  module `Resources/lang` loading. `Locales`, `SetLocale`, `users.locale`, `config/localization.php`, `i18n-check.mjs`,
+  the `// i18n: pending` markers, `formatNumber` and locale-aware month names follow in later PRs.
+- **Paths.** The helper is `resources/js/lib/i18n.tsx` (it holds `<Trans>`, so JSX), and the shared fixtures are
+  `billing/tests/Fixtures/i18n/plurals.json` and `replacements.json` (the tracked directory is `Fixtures`). Both
+  fixtures run in Pest and Vitest; the JS mirrors `Translator::makeReplacements` and `MessageSelector` exactly (one
+  case-sensitive pass, longest name first, `:Name` and `:NAME` variants, Laravel's condition character class).
+- **Catalogue delivery.** `php artisan optimize` runs `i18n:cache`, which writes every locale and its content-hash
+  version to `bootstrap/cache/i18n.php`; `optimize:clear` removes it. The once-prop key is `i18n:{locale}:{version}`.
+  Without the file the catalogue is read from `lang/` once per request (once per worker in a long-running worker).
+  English sends an empty object, plus any context keys in `en.json`.
+- **Ordering rule.** `SetLocale` runs in the web group before `HandleInertiaRequests` and reads the client account
+  from the session (`ClientContext::SESSION_KEY`), because `share()` reads the locale once and builds the once-prop
+  key from it.
+- **Deferred.** The used-keys payload filter (§3) ships with `i18n-check.mjs`, not at the 100 KB threshold: Devanagari
+  is escaped to `\uXXXX` in the page JSON and a third of the catalogue (mail, PDF, validation) is never rendered by React.
