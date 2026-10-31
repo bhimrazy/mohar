@@ -18,6 +18,8 @@ use App\Support\Integrations\Endpoints;
 use App\Support\Integrations\RedactionScope;
 use App\Support\Integrations\Redactor;
 use App\Support\Integrations\StoredSecrets;
+use App\Support\Localization\CacheCatalogueCommand;
+use App\Support\Localization\ClearCatalogueCommand;
 use App\Support\Logging\RedactingFailedJobProvider;
 use App\Support\Logging\RedactingLogManager;
 use App\Support\Migration\ImportRegistry;
@@ -99,6 +101,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->commands([CacheCatalogueCommand::class, ClearCatalogueCommand::class]);
+        $this->optimizes(optimize: 'i18n:cache', clear: 'i18n:clear');
+
         // A driver that could not be built is retried by the next request or queued job, never in a loop within one.
         $forgetDriverFailures = function (): void {
             foreach ([RegistrarDriverRegistry::class, ProvisioningDriverRegistry::class] as $registry) {

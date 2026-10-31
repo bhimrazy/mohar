@@ -1,7 +1,7 @@
 <?php
 
 use App\Support\Localization\Catalogue;
-use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Artisan;
 use Inertia\Testing\AssertableInertia as Assert;
 
 function catalogueDirectory(array $files): string
@@ -16,8 +16,13 @@ function catalogueDirectory(array $files): string
     return $directory;
 }
 
+afterEach(function () {
+    @unlink(Catalogue::cachePath());
+    Catalogue::flush();
+});
+
 beforeEach(function () {
-    Cache::flush();
+    Catalogue::flush();
     actingAsStaff(['*']);
 });
 
@@ -55,7 +60,7 @@ test('the version changes only when the catalogue content changes', function () 
     $before = Catalogue::version('ne');
     expect(Catalogue::version('ne'))->toBe($before);
 
-    Cache::flush();
+    Catalogue::flush();
     app('translator')->addJsonPath(catalogueDirectory(['ne' => ['A' => 'ख']]));
     expect(Catalogue::version('ne'))->not->toBe($before);
 });
@@ -80,4 +85,26 @@ test('trans_choice gives the results in the shared plural fixture', function () 
         expect(trans_choice($case['line'], $case['count'], $case['replace'], $case['locale']))
             ->toBe($case['expected'], "{$case['locale']} {$case['line']} {$case['count']}");
     }
+});
+
+test('optimize caches the catalogue, serves it from the cache file and optimize:clear drops it', function () {
+    $directory = catalogueDirectory(['ne' => ['Total' => 'जम्मा']]);
+    app('translator')->addJsonPath($directory);
+
+    Artisan::call('i18n:cache');
+    expect(Catalogue::cachePath())->toBeFile();
+    $cached = Catalogue::version('ne');
+
+    // Changing the file alone does not change what the cache serves ...
+    file_put_contents($directory.'/ne.json', json_encode(['Total' => 'कुल'], JSON_UNESCAPED_UNICODE));
+    app('translator')->setLoaded([]);
+    Catalogue::flush();
+    expect(Catalogue::version('ne'))->toBe($cached)->and(Catalogue::messages('ne'))->toBe(['Total' => 'जम्मा']);
+
+    // ... and `optimize` rebuilds it with the new version.
+    Artisan::call('optimize');
+    expect(Catalogue::version('ne'))->not->toBe($cached)->and(Catalogue::messages('ne'))->toBe(['Total' => 'कुल']);
+
+    Artisan::call('optimize:clear');
+    expect(Catalogue::cachePath())->not->toBeFile();
 });

@@ -236,13 +236,13 @@ Point the document root at `billing/public` and send every request that is not a
 Laravel nginx configuration). Serve HTTPS only. If a load balancer or reverse proxy terminates TLS, configure trusted
 proxies as described in [local-setup.md](local-setup.md#reverse-proxies-and-trustproxies).
 
-Cache the configuration, routes, views and events after every deploy:
+Cache the configuration, routes, views, events and translation catalogues (`i18n:cache`) after every deploy:
 
 ```bash
 php artisan optimize
 ```
 
-With a cached configuration, `.env` is read only by `php artisan optimize`: run it again after editing `.env`.
+With a cached configuration, `.env` is read only by `php artisan optimize`: run it again after editing `.env`. Without the optimize step the translation catalogue is read from `lang/*.json` once per PHP process; with it, from `bootstrap/cache/i18n.php`, which `optimize:clear` removes.
 
 ## 6. Scheduler and queue workers
 
