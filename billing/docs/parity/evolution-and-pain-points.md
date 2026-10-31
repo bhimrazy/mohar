@@ -45,7 +45,7 @@ Priority: **P0** = needed to win switchers, **P1** = expected soon after launch,
 
 ## 2. Recent WHMCS features and Mohar status
 
-GA dates come from each version's release-notes page. 9.1 was in beta when this was written; by 2026-10-31 its notes page calls it general availability (page edited 2026-10-20), see `docs/research/2026-10-31-whmcs-refresh.md`.
+GA dates come from each version's release-notes page. 9.1 was in beta when this was written; its notes page now lists beta 2026-09-30 and general availability 2026-10-20, see `docs/research/2026-10-31-whmcs-refresh.md`.
 
 | Version                                                                                 | Feature (our words)                                                                                                                               | Mohar status + pointer                                                                                                                                                                                                                                                                                                         | Priority             |
 | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- |

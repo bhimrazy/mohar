@@ -23,17 +23,17 @@ the competitor field.
 
 | Version | Date | One line | Source |
 | --- | --- | --- | --- |
-| 9.1.0 | Beta 2026-09-30; GA page last edited 2026-10-20 (exact GA day not stated) | Credit and debit notes with an invoice-immutability setting, unattended maintenance updates, Stripe Dynamic Payments migration, mandatory MarketConnect account, PHP 8.4, Iris admin preview, password history, REST v2 payment endpoints. End of life expected 2027-09-30 | [9.1 notes](https://docs.whmcs.com/releases/9-1/9-1-release-notes/), [9.1 change log](https://docs.whmcs.com/releases/9-1/9-1-change-log/) (2026-10-31) |
-| 9.0.0 | RC 2025-12-16, GA 2026-01-20 | Nexus cart, immutable non-draft invoices, VAT format checks for 29 countries, Peppol addon (Belgium, invite only), PHP 8.2 minimum. LTS, end of life 2026-12-31 | [9.0 notes](https://docs.whmcs.com/releases/9-0/9-0-release-notes/), [index](https://docs.whmcs.com/releases/) (2026-10-31) |
-| 9.0.1 | not stated | Cart and error fixes; billing notes left out of income reports | [9.0 change log](https://docs.whmcs.com/releases/9-0/9-0-change-log/) (2026-10-31) |
-| 9.0.2 | not stated | Cancelled services renewed in error, fixed; late-fee and OAuth fixes; one undisclosed security fix | same |
-| 9.0.3 | not stated | Setup tasks, sessions, PHP health checks; Stripe Dynamic Payments gateway module added | same |
-| 9.0.4 | not stated | Single security patch, one CVE listed (id as printed on the page) | same |
-| 9.0.5 | not stated | 16 undisclosed security fixes; stronger encryption of stored sensitive data; Asiapay, Gate2shop, Inpay and Paypoint gateways dropped | same |
-| 9.0.6 | not stated | Password reset and logout hardening; viewing client files now needs the "View Clients Summary" permission | same |
-| 9.0.7 | not stated | Cron over HTTP limited by IP allow list; 5 undisclosed security fixes; GoCardless callback encryption changed; Hipchat module removed | same |
-| 9.0.8 | not stated | Plesk suspend, unsuspend and password change; two CVEs listed (ids as printed) | same |
-| 9.0.9 | 2026-09-24 | MarketConnect caching; Plesk XML protocol 1.6.9.1 | [9.0 notes](https://docs.whmcs.com/releases/9-0/9-0-release-notes/), [feed](https://installatron.com/updatefeed/whmcs_9_0_9) (2026-10-31) |
+| 9.1.0 | Beta 2026-09-30, GA 2026-10-20 | Credit and debit notes with an invoice-immutability setting, unattended maintenance updates, Stripe Dynamic Payments migration, mandatory MarketConnect account, PHP 8.4, Iris admin preview, password history, REST v2 payment endpoints. End of life expected 2027-09-30 | [9.1 notes](https://docs.whmcs.com/releases/9-1/9-1-release-notes/), [9.1 change log](https://docs.whmcs.com/releases/9-1/9-1-change-log/) (2026-10-31) |
+| 9.0.0 | GA 2026-01-20 (RC 2025-12-16 per the 9.0 notes version history) | Nexus cart, immutable non-draft invoices, VAT format checks for 29 countries, Peppol addon (Belgium, invite only), PHP 8.2 minimum. LTS, anticipated end of life 2026-12-31 | [9.0 notes](https://docs.whmcs.com/releases/9-0/9-0-release-notes/), [index](https://docs.whmcs.com/releases/) (2026-10-31) |
+| 9.0.1 | 2026-02-05 | Cart and error fixes; billing notes left out of income reports | [9.0 change log](https://docs.whmcs.com/releases/9-0/9-0-change-log/) (2026-10-31) |
+| 9.0.2 | 2026-03-17 | Cancelled services renewed in error, fixed; late-fee and OAuth fixes; one undisclosed security fix | same |
+| 9.0.3 | 2026-03-31 | Setup tasks, sessions, PHP health checks; Stripe Dynamic Payments gateway module added | same |
+| 9.0.4 | 2026-05-12 | Single security patch, one CVE listed (id as printed on the page) | same |
+| 9.0.5 | 2026-06-10 | 16 undisclosed security fixes; stronger encryption of stored sensitive data; Asiapay, Gate2shop, Inpay and Paypoint gateways dropped | same |
+| 9.0.6 | 2026-07-08 | Password reset and logout hardening; viewing client files now needs the "View Clients Summary" permission | same |
+| 9.0.7 | 2026-08-25 | Cron over HTTP limited by IP allow list; 5 undisclosed security fixes; GoCardless callback encryption changed; Hipchat module removed | same |
+| 9.0.8 | 2026-09-03 | Plesk suspend, unsuspend and password change; two CVEs listed (ids as printed) | same |
+| 9.0.9 | 2026-09-24 | MarketConnect caching; Plesk XML protocol 1.6.9.1 | [9.0 notes](https://docs.whmcs.com/releases/9-0/9-0-release-notes/) (2026-10-31) |
 | 8.13 | 2025-04-07 | LTS; still listed, end date not shown | [index](https://docs.whmcs.com/releases/) |
 | 8.12 | 2024-12-04 | End of life 2026-01-31 | [index](https://docs.whmcs.com/releases/) |
 
@@ -75,9 +75,8 @@ checked on a CVE database.
 
 ### 1.4 New features by theme
 
-- **AI.** Namespinning (AI domain suggestions inside the Nexus cart) in 9.0 and a MarketConnect "Nova" AI site
-  builder on the pricing page. No AI in 9.1 notes. Blesta sells an AI addon at $5.95 and $14.95 a month. Sources:
-  [9.0 notes](https://docs.whmcs.com/releases/9-0/9-0-release-notes/), [pricing](https://www.whmcs.com/pricing/), [Blesta pricing](https://www.blesta.com/pricing/).
+- **AI.** Namespinning (AI domain suggestions inside the Nexus cart) in 9.0. No AI in 9.1 notes. Blesta sells an AI addon at $5.95 and $14.95 a month. Sources:
+  [9.0 notes](https://docs.whmcs.com/releases/9-0/9-0-release-notes/), [Blesta pricing](https://www.blesta.com/pricing/).
 - **Client theme and cart.** Nexus theme and cart (9.0); Nexus now shows service and addon upgrades (9.1). The Iris
   admin theme is a preview in 9.1 and is meant to become the default later, no date.
   [9.1 highlights](https://docs.whmcs.com/releases/9-1/9-1-release-highlights/).
@@ -118,8 +117,8 @@ developer changelog URL I guessed returned 404.
 | Hosts feel migrating thousands of clients hurts more than paying; an importer to Blesta was called glitchy | [LowEndSpirit 6888](https://lowendspirit.com/discussion/6888/whmcs-replacement-which-billing-panel), [LowEndTalk 170856](https://www.lowendtalk.com/discussion/170856/blesta-migration-from-whmcs) | No. Supports making our importer dry-run and reversible |
 | Mandatory MarketConnect and upsell | [9.1 notes](https://docs.whmcs.com/releases/9-1/9-1-release-notes/), [community 291673](https://whmcs.community/topic/291673-buyer-beware-with-marketconnect) | Yes (row "Vendor upsell"). I found no forum thread reacting to the 9.1 change yet |
 | Upgrade breakage and encoded third-party modules at 9.0 | [ModulesGarden](https://www.modulesgarden.com/blog/?p=13357), [SolusVM](https://support.solusvm.com/hc/en-us/articles/29115181845655-Is-the-WHMCS-module-for-SolsuVM-compatible-with-PHP-8-2-on-WHMCS-server) | Yes (row "Upgrades break add-ons") |
-| Nepal gateways: Khalti publishes an official WHMCS module; eSewa has only a community module last touched July 2023 | [Khalti docs](https://docs.khalti.com/plugins/whmcs), [GitHub topic](https://github.com/topics/esewa-gateway) | No. A concrete switching argument: first-party eSewa and Khalti drivers |
-| Competitors ship security releases monthly: FOSSBilling 0.8.7 to 0.8.9 (Sep to Oct 2026), Paymenter 1.5.7 to 1.5.9 (Jul to Oct 2026), Blesta owned licence still $350 to $1,495 | [FOSSBilling](https://github.com/FOSSBilling/FOSSBilling/releases), [Paymenter](https://github.com/paymenter/paymenter/releases), [Blesta](https://www.blesta.com/pricing/) | Blesta price: yes. Others: no |
+| Nepal gateways: Khalti documents a WHMCS module that is installed by hand; eSewa has a community module, `surazdott/esewa-whmcs-module`, updated 2026-09-10 (its README says callback signature checks and duplicate-payment protection still need work) | [Khalti docs](https://docs.khalti.com/plugins/whmcs), [GitHub topic](https://github.com/topics/esewa-gateway), [module README](https://github.com/surazdott/esewa-whmcs-module) | No. Both gateways have only third-party WHMCS modules, so a host maintains them itself; maintained drivers in the product are a switching argument |
+| Competitors ship security releases every few weeks: FOSSBilling 0.8.7 (Sep 1), 0.8.8 (Oct 3), 0.8.9 (Oct 23); Paymenter 1.5.7 (Jul 25), 1.5.8 (Aug 20), 1.5.9 (Oct 2), Blesta owned licence still $350 to $1,495 | [FOSSBilling](https://github.com/FOSSBilling/FOSSBilling/releases), [Paymenter](https://github.com/paymenter/paymenter/releases), [Blesta](https://www.blesta.com/pricing/) | Blesta price: yes. Others: no |
 | WHMCS Cloud at $9.99 for 25 clients lowers the entry bar for tiny hosts but forbids custom modules | [pricing](https://www.whmcs.com/pricing/) | No |
 
 No public Reddit page surfaced in search, so Reddit is not represented. WebHostingTalk threads could not be located
@@ -135,16 +134,16 @@ by search either. I found no Nepal-specific page on WHMCS licensing or on Nepali
 | Legacy Stripe modules deprecated for Dynamic Payments | `client-import.md`: map `stripe`, `stripeach`, `stripesepa` and `stripe_dynamic` (name unconfirmed) to the one Stripe driver; stored-card tokens do not move without Stripe-side migration, so import them only if the owner's Stripe account is the same |
 | Removed gateways (CashU, TrustCommerce, Asiapay, Gate2shop, Inpay, Paypoint) | Importer: treat as unsupported with a clear message |
 | Domain grace and redemption fee setting removed; renewals reissued with fees | Domain import spec: expect cancelled-and-reissued renewal invoices in 9.0+ data; do not read them as errors |
-| REST v2 payment sessions and `supports_headless_payment_session` | Parity review row "REST API v2 with headless cart": still Missing. Suggest adding a spec note to `api.md` and `payments` on payment sessions and payment links (we have invoice payment links to check) |
+| REST v2 payment sessions and `supports_headless_payment_session` | Parity review row "REST API v2 with headless cart": still Missing. Suggest adding a spec note to `public-api.md` and `payments-stripe.md` on payment sessions and payment links (we have invoice payment links to check) |
 | Legacy API unchanged (162 actions, no billing-note action) | `client-import.md` read-only action list stays valid. Credit notes cannot be read through the API, so imported history has only the invoice and transaction rows. Document this limit |
 | 9.0.5 stronger encryption of stored sensitive data; `EncryptPassword` and `DecryptPassword` actions remain | Importer must never request decrypted card or server passwords; say so in the spec |
 | Password history (4) and 12-character minimum | Parity row stays Worse (we have length rules only). Suggest a spec line in the auth spec |
 | Unattended maintenance updates | Parity row "Upgrade command with backup and rollback" stays Worse |
 | Cloud tier ($9.99 to $75) and active-client definition | Pricing decision (owner). Our commercial model is still open; worth citing in the next CEO review |
 | Peppol addon Belgium only; no Nepal or India items | None. E-invoicing parity row stays "Same" |
-| Nova AI builder, Namespinning | Parity row "Domain suggestions": unchanged, still Worse. The AI module spec should list name suggestions as a candidate |
+| Namespinning | Parity row "Domain suggestions": unchanged, still Worse. The AI module spec should list name suggestions as a candidate |
 | Iris admin theme preview | None; parity review item 12 already mentions it |
-| Competitor release cadence | None; but note for the CEO review that FOSSBilling and Paymenter ship security releases about monthly |
+| Competitor release cadence | None; but note for the CEO review that FOSSBilling and Paymenter ship security releases every few weeks |
 
 ### Suggested spec changes (not made)
 
@@ -152,10 +151,12 @@ by search either. I found no Nepal-specific page on WHMCS licensing or on Nepali
 2. `client-import.md`: state that credit and debit notes are not available through the legacy API and that encrypted
    fields are never requested.
 3. Domain import spec: 9.0+ grace and redemption fees appear as reissued renewal invoices.
-4. Auth spec: password history and a letter-plus-number rule.
-5. Payments or API spec: payment sessions and a gateway capability flag for headless payment, modelled on the WHMCS
+4. `platform-admin.md` (password rules): password history and a letter-plus-number rule.
+5. `public-api.md` and `payments-gateways-expansion.md`: payment sessions and a gateway capability flag for headless payment, modelled on the WHMCS
    idea but in our own terms.
-6. A Khalti and eSewa driver note that the first-party WHMCS offering is thin (eSewa) or manual (Khalti).
+6. `payments-nepal.md`: note that WHMCS has only third-party Khalti and eSewa modules (the eSewa one lists callback
+   verification as unfinished), so a host maintains them alone. We would maintain our own drivers; that is the argument,
+   not that WHMCS lacks them.
 
 ## 5. Owner to confirm
 
@@ -165,7 +166,6 @@ by search either. I found no Nepal-specific page on WHMCS licensing or on Nepali
 
 ## 6. Could not confirm from an official source
 
-- Exact GA day of 9.1.0, and the release dates of 9.0.1 to 9.0.8 (the docs list none; 9.0.9 is dated 2026-09-24).
 - Whether any 9.1.x patch exists; none is listed.
 - The CVE ids on the 9.0.4 and 9.0.8 lines were not checked against a CVE database.
 - Which countries the Peppol addon supports beyond Belgium; no official page found.
