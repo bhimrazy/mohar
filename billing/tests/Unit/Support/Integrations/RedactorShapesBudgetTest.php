@@ -27,13 +27,17 @@ function redactorMaskedValueShapes(): array
     ];
 }
 
-test('a 1 MB adversarial input is masked in under 2 s with bounded memory', function (Closure $unit) {
+test('a 1 MB adversarial input is masked in linear time with bounded memory', function (Closure $unit) {
+    $small = RedactorTiming::input(128 * 1024, $unit);
     $large = RedactorTiming::input(1024 * 1024, $unit);
+    [$smallSeconds, $largeSeconds] = RedactorTiming::bestCpuPair($small, $large, fn (string $text) => (new Redactor)->maskValues($text, ['hunter22']));
 
     memory_reset_peak_usage();
     $before = memory_get_usage();
+    (new Redactor)->maskValues($large, ['hunter22']);
 
-    expect(RedactorTiming::bestSeconds($large, 3, ['hunter22']))->toBeLessThan(2.0)
+    // Eight times the input: about 8x when linear, about 64x when quadratic. A ratio, so machine load cancels out.
+    expect($largeSeconds)->toBeLessThan(max(0.5, $smallSeconds * 24))
         ->and(memory_get_peak_usage() - $before)->toBeLessThan(24 * 1024 * 1024);
 })->with([
     'colon-joined labels' => [fn (): string => 'a:'],
@@ -132,35 +136,29 @@ test('B2: masking a long colon-joined provider string uses bounded memory', func
     expect(memory_get_peak_usage() - $before)->toBeLessThan(4 * 1024 * 1024);
 });
 
-test('B2: an 84 KB provider string is masked in well under a second and a few MB', function () {
+test('B2: an 84 KB provider string is masked in linear time and a few MB', function () {
     $raw = 'Response: '.str_repeat('<domain:name>x</domain:name>', 3000);
     memory_reset_peak_usage();
     $before = memory_get_usage();
-    $started = hrtime(true);
 
     $masked = (new Redactor)->maskValues($raw, []);
+    $quarter = 'Response: '.str_repeat('<domain:name>x</domain:name>', 750);
 
-    expect((hrtime(true) - $started) / 1e9)->toBeLessThan(0.5)
+    // Four times the input: about 4x when linear, about 16x when quadratic.
+    [$small, $large] = RedactorTiming::bestCpuPair($quarter, $raw, fn (string $text) => (new Redactor)->maskValues($text, []));
+
+    expect($large)->toBeLessThan(max(0.25, $small * 10))
         ->and(memory_get_peak_usage() - $before)->toBeLessThan(4 * 1024 * 1024)
         ->and($masked)->toBe($raw)
         ->and((new Redactor)->maskValues(str_repeat('a:', 8000).' api-key=K123', []))->not->toContain('K123');
 });
 
-test('B1: unclosed secret elements with distinct names stay linear (1 MB under 2 s, at most 10x of 256 KB)', function (Closure $unit) {
-    $redactor = new Redactor;
+test('B1: unclosed secret elements with distinct names stay linear (at most 10x the CPU time of 256 KB)', function (Closure $unit) {
     $small = RedactorTiming::input(256 * 1024, $unit);
     $large = RedactorTiming::input(1024 * 1024, $unit);
+    [$smallSeconds, $largeSeconds] = RedactorTiming::bestCpuPair($small, $large, fn (string $text) => (new Redactor)->maskValues($text, []));
 
-    $started = hrtime(true);
-    $redactor->maskValues($small, []);
-    $smallSeconds = (hrtime(true) - $started) / 1e9;
-
-    $started = hrtime(true);
-    $redactor->maskValues($large, []);
-    $largeSeconds = (hrtime(true) - $started) / 1e9;
-
-    expect($largeSeconds)->toBeLessThan(2.0)
-        ->and($largeSeconds)->toBeLessThan(max(0.05, $smallSeconds * 10));
+    expect($largeSeconds)->toBeLessThan(max(0.25, $smallSeconds * 10));
 })->with([
     // Measured at 52a463b6 (XDEBUG_MODE=off): 1 MB takes 22 s, 45 s and 10 s; 256 KB takes 1.5 s, 2.7 s and 0.6 s.
     'secret-named elements' => [fn (int $i): string => '<password'.base_convert((string) $i, 10, 36).'>x'],
