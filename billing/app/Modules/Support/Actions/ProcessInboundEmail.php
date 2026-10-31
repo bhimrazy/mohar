@@ -227,8 +227,8 @@ class ProcessInboundEmail
 
     /**
      * A reply is verified only when (a) it is threaded on one of OUR Message-IDs for this ticket and
-     * (b) the sender exactly matches the ticket's requester, CC, client owner, login or contact (spec
-     * §6.6). A provider verdict may only stand in for (a) when a provider-specific driver reads it from
+     * (b) the sender exactly matches the ticket's requester, CC, the client's vouched account email, a
+     * verified client login or a contact (spec §6.6). A provider verdict may only stand in for (a) when a provider-specific driver reads it from
      * structured fields of its own signed payload; the generic driver never sets one. Anything else is
      * held back for staff (or imported with the "unverified sender" badge when that setting is on).
      */
