@@ -10,6 +10,7 @@
 use App\Contracts\Domains\Registrar\RegistrarDriver;
 use App\Contracts\Integrations\DeclaresSensitiveKeys;
 use App\Data\Domains\Registrar\RegistrarResult;
+use App\Data\Services\Provisioning\DriverMetadata;
 use App\Data\Services\Provisioning\DriverResult;
 use App\Data\Services\Provisioning\ProvisioningContext;
 use App\Modules\Core\Models\ActivityLog;
@@ -460,4 +461,48 @@ test('a declared pair percent-encoded twice is masked', function () {
 
     expect(storedModuleText())->not->toContain(DECLARED_CODE)
         ->and(ModuleCommand::query()->sole()->error)->toBe('Panel refused [redacted]');
+});
+
+test('a declared value thrown before the driver call is masked in what is reported to the application log', function () {
+    Exceptions::fake();
+    Currency::factory()->create(['code' => 'NPR']);
+    ServicesTestKit::bind();
+    // Throws once the keys are read: when the call context is built, outside callDriver().
+    app(ProvisioningDriverRegistry::class)->register('log', fn (): LogDriver => new class extends LogDriver implements DeclaresSensitiveKeys
+    {
+        private bool $keysRead = false;
+
+        public function sensitiveKeys(string $operation): array
+        {
+            $this->keysRead = true;
+
+            return ['ticket'];
+        }
+
+        public function metadata(): DriverMetadata
+        {
+            return $this->keysRead ? throw new RuntimeException('Panel answered <ticket>'.DECLARED_CODE.'</ticket>') : parent::metadata();
+        }
+    }, replace: true);
+
+    suspendWithDeclaringDriver();
+
+    expect(array_map(fn (Throwable $exception): string => $exception->getMessage(), Exceptions::reported()))->toBe(['Panel answered <ticket>[redacted]</ticket>'])
+        ->and(storedModuleText())->not->toContain(DECLARED_CODE);
+});
+
+test('a JSON body is withheld when the repeated-key scan cannot run', function () {
+    $jit = ini_get('pcre.jit');
+    $limit = ini_get('pcre.backtrack_limit');
+    ini_set('pcre.jit', '0');
+    ini_set('pcre.backtrack_limit', '1');
+
+    try {
+        $values = app(Redactor::class)->valuesUnder(['ticket'], ['body' => '{"ticket":"'.DECLARED_CODE.'","ticket":"BBBB-2222-yyyy"}']);
+    } finally {
+        ini_set('pcre.jit', (string) $jit);
+        ini_set('pcre.backtrack_limit', (string) $limit);
+    }
+
+    expect($values)->toBeNull();
 });
