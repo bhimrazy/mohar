@@ -56,6 +56,23 @@ test('an ALTER behind an open transaction gives up after its retries and names t
         ->and(DB::selectOne("select current_setting('lock_timeout') as value")->value)->toBe('0');
 })->skip(fn () => DB::connection()->getDriverName() !== 'pgsql', 'lock_timeout exists on PostgreSQL only');
 
+test('a DDL that also locks another table names the sessions in the way on either table', function () {
+    Sleep::fake();
+    $blocker = lockTimeoutSession('pgsql_lock_blocker');
+    $blocker->beginTransaction();
+    $blocker->select('select count(*) from clients');
+    $pid = (int) $blocker->selectOne('select pg_backend_pid() as pid')->pid;
+
+    try {
+        // Dropping a foreign key locks the referenced table as well; here the blocker holds only that one.
+        expect(fn () => LockTimeout::run('automation_runs', fn () => DB::statement('LOCK TABLE automation_runs, clients IN ACCESS EXCLUSIVE MODE'), timeout: '200ms', attempts: 1, alsoLocks: ['clients']))
+            ->toThrow(RuntimeException::class, "DDL on table automation_runs (which also locks clients) did not get its lock within 200ms in 1 attempts, so it stopped instead of waiting on (a waiting ALTER holds up every later read and write of the table). In the way: sessions holding a lock on automation_runs or clients: pid {$pid} (idle in transaction for");
+    } finally {
+        $blocker->rollBack();
+        DB::purge('pgsql_lock_blocker');
+    }
+})->skip(fn () => DB::connection()->getDriverName() !== 'pgsql', 'lock_timeout exists on PostgreSQL only');
+
 test('a concurrent index build behind a lock gives up, restores the session timeout and leaves no invalid index', function () {
     Sleep::fake();
     config(['database.migrations.concurrent_lock_timeout' => '200ms']);

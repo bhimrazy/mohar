@@ -213,6 +213,11 @@ Imported payments are written without gateway calls, without `PaymentReceived` a
 `amountout` is a refund line; a payment with `amountin = 0` and `amountout = 0` is dropped with a note. The source
 `fees` are stored as the transaction fee and do not change the invoice.
 
+The database refuses values its CHECK constraints rule out on PostgreSQL (`billing.md` §2, #554), so the importer
+reports them as row errors at preview, before the chunk writes, never as a failed chunk: a negative source `fees`
+(verify: whether WHMCS writes a negative fee on a refund), and an open (not draft or cancelled) invoice whose total is
+below zero (verify: whether WHMCS allows one). **MUST**
+
 ### 6.5 Credit
 
 `credit` on the invoice (credit the client applied at the source) is stored as an imported `credit_applied` adjustment

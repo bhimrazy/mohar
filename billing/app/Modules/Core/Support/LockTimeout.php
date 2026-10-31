@@ -45,9 +45,11 @@ final class LockTimeout
      * @param  Closure(): TResult  $ddl  the statement(s); run again from the start on each attempt
      * @param  string|null  $timeout  a PostgreSQL duration in ms or s, such as "500ms" or "3s"; default
      *                                `database.migrations.lock_timeout` (DB_MIGRATION_LOCK_TIMEOUT, 3s)
+     * @param  list<string>  $alsoLocks  other tables the DDL locks (dropping a foreign key locks the referenced table),
+     *                                   whose lock holders the failure message names too
      * @return TResult
      */
-    public static function run(string $table, Closure $ddl, ?string $timeout = null, int $attempts = self::ATTEMPTS, bool $transaction = true): mixed
+    public static function run(string $table, Closure $ddl, ?string $timeout = null, int $attempts = self::ATTEMPTS, bool $transaction = true, array $alsoLocks = []): mixed
     {
         $connection = DB::connection();
 
@@ -75,7 +77,7 @@ final class LockTimeout
                 }
 
                 if ($attempt >= $attempts) {
-                    throw new RuntimeException(self::failure($table, $timeout, $attempts), 0, $exception);
+                    throw new RuntimeException(self::failure($table, $alsoLocks, $timeout, $attempts), 0, $exception);
                 }
 
                 $wait = self::BACKOFF_MS * 2 ** ($attempt - 1);
@@ -135,22 +137,26 @@ final class LockTimeout
     }
 
     /**
-     * Who was in the way: the sessions holding a lock on the table, or, when none does (a concurrent index build
-     * also waits for every older transaction), the oldest open transactions. No query text: it may carry personal data.
+     * Who was in the way: the sessions holding a lock on the table (or one it also locks), or, when none does (a
+     * concurrent index build also waits for every older transaction), the oldest open transactions. No query text: it
+     * may carry personal data.
+     *
+     * @param  list<string>  $alsoLocks
      */
-    private static function failure(string $table, string $timeout, int $attempts): string
+    private static function failure(string $table, array $alsoLocks, string $timeout, int $attempts): string
     {
+        $tables = [$table, ...$alsoLocks];
         $sessions = DB::select(
             "select a.pid, a.state, a.application_name, string_agg(distinct l.mode, '/') as modes,
                 coalesce(extract(epoch from (now() - a.xact_start))::bigint, 0) as seconds
              from pg_locks l join pg_stat_activity a on a.pid = l.pid
              where l.locktype = 'relation' and l.database = (select oid from pg_database where datname = current_database())
-               and l.relation = to_regclass(?) and l.granted and l.pid <> pg_backend_pid()
+               and l.relation in (".implode(', ', array_fill(0, count($tables), 'to_regclass(?)')).') and l.granted and l.pid <> pg_backend_pid()
              group by a.pid, a.state, a.application_name, a.xact_start
-             order by a.xact_start nulls last limit 5",
-            [DB::connection()->getTablePrefix().$table],
+             order by a.xact_start nulls last limit 5',
+            array_map(fn (string $name): string => DB::connection()->getTablePrefix().$name, $tables),
         );
-        $label = "sessions holding a lock on {$table}";
+        $label = 'sessions holding a lock on '.implode(' or ', $tables);
 
         if ($sessions === []) {
             $sessions = DB::select(
@@ -172,10 +178,10 @@ final class LockTimeout
         ), $sessions);
 
         return sprintf(
-            'DDL on table %s did not get its lock within %s in %d attempts, so it stopped instead of waiting on (a waiting '
+            'DDL on table %s%s did not get its lock within %s in %d attempts, so it stopped instead of waiting on (a waiting '
             .'ALTER holds up every later read and write of the table). In the way: %s. Let that transaction finish (or end '
             .'it with pg_terminate_backend(pid)) and run the migration again.',
-            $table, $timeout, $attempts, $label.': '.($described === [] ? 'none found' : implode('; ', $described)),
+            $table, $alsoLocks === [] ? '' : ' (which also locks '.implode(', ', $alsoLocks).')', $timeout, $attempts, $label.': '.($described === [] ? 'none found' : implode('; ', $described)),
         );
     }
 }

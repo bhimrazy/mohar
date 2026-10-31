@@ -68,6 +68,8 @@ amount, taxable (bool), tax_amount (cached), period_start, period_end, sort_orde
 `id, client_id, currency, amount (signed), balance_after, reason (overpayment|add_funds|refund_to_credit|applied_to_invoice|manual|downgrade|reversal), invoice_id, transaction_id, description, staff_id, gateway, external_ref, idempotency_key, created_at`
 
 - Client balance = latest `balance_after` (row-locked append). Negative balance allowed only via reversal. **MUST**
+- Money history is never deleted with its client: `credit_ledger`, `payment_attempts` and `payment_batches` refer to their client with `ON DELETE RESTRICT`, as `invoices` and `transactions` do, so deleting a client row with any of them is refused by the database (database review 2026-10-31, H1). `pay_methods` cascades: a token is not history. **MUST**
+- Database checks (PostgreSQL): invoice and transaction `status` within their enums; an invoice `total` below 0 only on a draft or cancelled draft; `amount_paid`, `credit_applied`, `amount_in`, `amount_out` and `fee` never below 0; line `quantity` at least 1; tax rule `rate` from 0 to 100. A new status value comes with a migration that replaces the check. **MUST**
 - Credit applied automatically (renewals, `applyCredit`) is the amount read under the client lock: credit spent concurrently lowers it, and with none left the invoice is issued unpaid (#192). **MUST**
 - Once-only keys: `gateway` + `external_ref` (unique together) name a provider movement only (a refund or dispute id). A posting Mohar makes itself (an import's opening balance, later automation credits) carries `idempotency_key` instead, unique, prefixed with the poster's name (`import:run:<run>:client:<client>`). The poster reads the key under the client lock before posting; the unique index stops a writer that did not. `import` is a reserved gateway key: opening balances also carry it with `external_ref` `run:…` until the contract step (#284). (#263) **MUST**
 
@@ -132,6 +134,7 @@ amount, taxable (bool), tax_amount (cached), period_start, period_end, sort_orde
 - Exemptions: client `tax_exempt` → no tax, `tax_exempt_reason=exempt`. **MUST**
 - EU VAT (`billing.vat.enabled: false`, `billing.vat.home_country`): B2B customer in another EU country with a **validated** VAT ID → 0% with `reverse_charge` note on invoice; home-country B2B still charged; B2C charged at destination-country rate (rules seeded per EU country). Format validation **MUST**; live VIES validation at checkout/profile save with result cached 30 days **SHOULD**; `billing.vat.auto_exempt_on_valid_id: true`.
 - Tax rates/names are **snapshotted** on the invoice; changing a rule never alters issued invoices. Rate changes = new rule with effective date (`effective_from`, SHOULD).
+- A rule an invoice was calculated with (`invoices.tax1_rule_id`, `tax2_rule_id`) cannot be deleted: staff see how many invoices use it, and a foreign key (`RESTRICT`) backs the refusal. **MUST**
 - Discounts (negative lines) reduce the taxable base of their taxable parent. **MUST**
 
 ## 6. Gateways (driver contract)
