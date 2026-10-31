@@ -8,8 +8,8 @@ use App\Modules\Domains\Models\Tld;
 use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Fakes\Billing\FakeInvoicer;
 use Tests\Fakes\Domains\DomainFixtures;
-use Tests\Fakes\Domains\FakeInvoicer;
 
 beforeEach(function () {
     [$this->user, $this->client] = actingAsClient();

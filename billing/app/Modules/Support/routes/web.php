@@ -91,7 +91,10 @@ Route::middleware(['throttle:support-public', NoReferrer::class])->group(functio
         Route::post('{number}/messages/{message}/rating', [GuestTicketController::class, 'rate'])->name('rate');
         Route::get('{number}/attachments/{attachment}', [GuestTicketController::class, 'attachment'])->name('attachments.show');
     });
+});
 
+// Read-only pages, often opened by many customers behind one ISP or office NAT address (#567): a looser limit.
+Route::middleware(['throttle:support-public-read', NoReferrer::class])->group(function (): void {
     Route::prefix('knowledgebase')->name('support.kb.')->group(function (): void {
         Route::get('/', [KnowledgebaseController::class, 'index'])->name('index');
         Route::get('category/{slug}', [KnowledgebaseController::class, 'category'])->name('category');

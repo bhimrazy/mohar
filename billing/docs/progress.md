@@ -64,8 +64,15 @@ Living status board. Each workstream updates its row when it opens a PR for revi
     - Reviews and decisions: extension model review and ADR 0030 Accepted (#565); best-practices audit, 78/100 (#569);
       code structure review, 63/100 (#570); Nepal VAT and e-billing research (#564); owner and CTO decisions (#562);
       WHMCS login migration (#555).
-- Opened: #571 (an inactive gateway or registrar account strands in-flight work), in a fix on
-  `feature/inactive-settlement`; audit fix PR 3 (provisioning retry, sensitive keys) on `feature/audit-fixes-1`.
+    - Late evening (wave 1 and load-test fixes): inactive gateways and registrars settle work in flight (#575, closes
+      #571); IRD sales book to the current Schedule 9 (NV1, #576); admin permission sweep and Billing validation in Form
+      Requests (AF4, #577); stray-HTTP guard and redaction budgets (AF6, #578); pre-push gate per worktree (AF8, #579);
+      on-order provisioning retries while the item lock is held (M3 of the audit, #583); status CHECK constraints on
+      services, add-ons and domains (DB1, #585, closes #559 and #560); tests mirror the module layout (S1 part 1,
+      #589); module folder rules (S0, #573). Load-test causes found: #566 PDFs rendered in the renewal loop with whole
+      fonts embedded, subsetting fixed in #592 (858 KB to 23 KB an invoice), the render moves to the notifications
+      queue next; #567 the KB and status pages shared the guest ticket limit, own limit of 300/min in #591.
+- In review: audit fix PR 3 (#574, declared sensitive keys masked in module and registrar errors), strict loop, round 4.
 - Planned: the wave plan in `docs/handoff/issue-plan.md` (ADR 0030 order, the S-series, audit fix PRs 1 to 9 and the
   Nepal VAT package).
 

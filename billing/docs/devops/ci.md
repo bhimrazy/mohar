@@ -90,7 +90,8 @@ one's; 4 in the Codespace). Every process gets its own SQLite in-memory database
 `billing_test_test_<n>` PostgreSQL database, migrates it once and runs each test in a transaction, so it is
 reliable and nothing migrates or seeds the base database first.
 
-The Unit and Arch suites never touch the database, so they run only in the SQLite step: `composer test:pgsql`
+The Unit and Arch suites never touch the database, so they run only in the SQLite step (the Unit suite also holds
+`tests/Kernel/Unit` and `tests/Tooling`; `tests/Kernel/Feature` belongs to the Feature suite): `composer test:pgsql`
 passes `--exclude-testsuite=Unit,Arch` (explicit paths still run whatever they name). Most tests there extend
 `PHPUnit\Framework\TestCase`, which boots no application and cannot reach the database. For the few bound to
 `Tests\TestCase` (one file today), the test case fails a test in `tests/Unit` or `tests/Arch` that uses a database
@@ -128,7 +129,7 @@ the `SessionGuard` timebox (`auth.timebox_duration` 0 instead of Laravel's 200 m
 `attempt()`, so password confirmation and step-up, while Fortify's sign-in form keeps its own fixed 200 ms), the delay
 between lookup retries (0 ms, same number of attempts: Guzzle's MockHandler sleeps for the delay under `Http::fake`)
 and the mail test send's timeouts (`platform.mail_test.*`, 2 s and 4 s instead of 10 s and 20 s)
-(`tests/Feature/TestHarness/ShortenedWaitsTest.php`, `tests/Feature/ReviewProbes/Pr558TimeboxProbeTest.php`). On a host other than Linux the simulator suite
+(`tests/Feature/TestHarness/ShortenedWaitsTest.php`, `tests/Feature/Auth/AuthTimeboxFloorTest.php`). On a host other than Linux the simulator suite
 (`tools/simulators/tests`, which needs `setsid` and `/proc`) is skipped with that reason instead of erroring;
 `scripts/test.sh` runs it through `scripts/linux.sh`, and `tools/simulators/tests/HostTest.php` fails on a Linux host
 without them.

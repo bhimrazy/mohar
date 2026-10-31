@@ -134,8 +134,10 @@ then signs in once. Before issue #205 they all started together, and that burst 
 most of the multi-second p95 the runner reported for the dashboards, the store and sign-in (`sizing.md`).
 
 Each request is tagged with its page, so the summary has p50, p95 and p99 per page. Errors are non-2xx answers (or
-non-redirects for forms). Answers of 429 from a rate limiter are counted separately: all virtual users share the
-load generator's single IP address, which a real crowd would not.
+non-redirects for forms), and the summary's page tables list them by class (429, 4xx, 5xx, none for no answer).
+Answers of 429 from a rate limiter on the pages marked `limited` (the JSON endpoints, and the anonymous knowledge base
+and announcements) are counted separately, not as errors: all virtual users share the load generator's single IP
+address, which a real crowd would not.
 
 ## Profiles (`profiles/`)
 

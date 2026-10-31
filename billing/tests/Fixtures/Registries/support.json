@@ -544,6 +544,11 @@
             "max": 60,
             "decay": 60,
             "key": "support-public|203.0.113.9"
+        },
+        "support-public-read": {
+            "max": 300,
+            "decay": 60,
+            "key": "support-public-read|203.0.113.9"
         }
     },
     "web_middleware": []

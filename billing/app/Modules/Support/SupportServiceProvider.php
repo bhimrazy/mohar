@@ -23,6 +23,14 @@ use Illuminate\Console\Scheduling\Schedule;
 
 class SupportServiceProvider extends ModuleServiceProvider
 {
+    /**
+     * Knowledge base, announcements and network status, per IP address. A carrier-grade or office NAT puts many
+     * customers on one address, and an outage sends them all to the status page at once; 60 a minute, shared with the
+     * guest ticket pages, refused the load test's one IP at about 70 page views a minute (#567). 5 a second still
+     * stops a single scraper from taking a large share of a small host.
+     */
+    public const PUBLIC_READS_PER_MINUTE = 300;
+
     public function moduleKey(): string
     {
         return 'support';
