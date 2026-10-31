@@ -46,16 +46,8 @@
                 "lookup",
                 "stored_methods"
             ],
-            "interfaces": [
-                "hosted",
-                "cancel_hosted",
-                "resume_hosted"
-            ],
-            "currencies": [
-                "USD",
-                "INR",
-                "NPR"
-            ],
+            "interfaces": ["hosted", "cancel_hosted", "resume_hosted"],
+            "currencies": ["USD", "INR", "NPR"],
             "fields": [
                 {
                     "key": "checkout_mode",
@@ -106,14 +98,8 @@
                 "refund",
                 "partial_refund"
             ],
-            "interfaces": [
-                "hosted",
-                "test_connection",
-                "refund_lookup"
-            ],
-            "currencies": [
-                "NPR"
-            ],
+            "interfaces": ["hosted", "test_connection", "refund_lookup"],
+            "currencies": ["NPR"],
             "fields": [
                 {
                     "key": "sandbox",
@@ -198,20 +184,14 @@
             "position": 4,
             "class": "KhaltiDriver",
             "name": "Khalti",
-            "capabilities": [
-                "redirect",
-                "lookup",
-                "refund"
-            ],
+            "capabilities": ["redirect", "lookup", "refund"],
             "interfaces": [
                 "hosted",
                 "test_connection",
                 "logo",
                 "resume_hosted"
             ],
-            "currencies": [
-                "NPR"
-            ],
+            "currencies": ["NPR"],
             "fields": [
                 {
                     "key": "sandbox",
@@ -241,18 +221,9 @@
             "position": 5,
             "class": "EsewaDriver",
             "name": "eSewa",
-            "capabilities": [
-                "redirect",
-                "lookup"
-            ],
-            "interfaces": [
-                "hosted",
-                "test_connection",
-                "logo"
-            ],
-            "currencies": [
-                "NPR"
-            ],
+            "capabilities": ["redirect", "lookup"],
+            "interfaces": ["hosted", "test_connection", "logo"],
+            "currencies": ["NPR"],
             "fields": [
                 {
                     "key": "sandbox",
@@ -293,10 +264,7 @@
             "position": 6,
             "class": "ConnectipsDriver",
             "name": "connectIPS",
-            "capabilities": [
-                "redirect",
-                "lookup"
-            ],
+            "capabilities": ["redirect", "lookup"],
             "interfaces": [
                 "hosted",
                 "test_connection",
@@ -304,9 +272,7 @@
                 "manual_refund_note",
                 "validates_settings"
             ],
-            "currencies": [
-                "NPR"
-            ],
+            "currencies": ["NPR"],
             "fields": [
                 {
                     "key": "sandbox",
@@ -394,9 +360,7 @@
                 "cancel_hosted",
                 "resume_hosted"
             ],
-            "currencies": [
-                "INR"
-            ],
+            "currencies": ["INR"],
             "fields": [
                 {
                     "key": "sandbox",
@@ -646,10 +610,7 @@
             ]
         }
     },
-    "commands": [
-        "payments:razorpay-smoke",
-        "payments:stripe-smoke"
-    ],
+    "commands": ["payments:razorpay-smoke", "payments:stripe-smoke"],
     "registries": {
         "permissions": [],
         "settings": [],
