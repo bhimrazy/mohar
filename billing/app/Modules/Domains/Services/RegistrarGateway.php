@@ -155,11 +155,13 @@ class RegistrarGateway
 
             return $result;
         } catch (RegistrarException $exception) {
+            $values = $this->withValuesIn($values, $declared, $exception);
             $error = $mask($exception->getMessage());
             $this->record($registrarKey, $capability, $domain, $request, null, false, $error, $started, $staffId, $secrets, $keys, $values);
 
             throw $this->maskChain($exception, $mask);
         } catch (Throwable $exception) {
+            $values = $this->withValuesIn($values, $declared, $exception);
             $error = $mask($exception->getMessage());
             $this->record($registrarKey, $capability, $domain, $request, null, false, $error, $started, $staffId, $secrets, $keys, $values);
             $previous = $this->maskChain($exception, $mask);
@@ -170,6 +172,25 @@ class RegistrarGateway
 
             throw new RegistrarException('The registrar call failed: '.$error, retryable: true, previous: $previous);
         }
+    }
+
+    /**
+     * $values plus the declared values in the markup of the exception's message (a driver may throw the answer it got);
+     * null stays null (withheld).
+     *
+     * @param  list<string>|null  $values
+     * @param  list<string>  $declared
+     * @return list<string>|null
+     */
+    private function withValuesIn(?array $values, array $declared, Throwable $exception): ?array
+    {
+        if ($values === null || $declared === []) {
+            return $values;
+        }
+
+        $found = $this->redactor->valuesUnder($declared, ['message' => $exception->getMessage()]);
+
+        return $found === null ? null : [...$values, ...$found];
     }
 
     /**

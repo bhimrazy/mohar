@@ -217,8 +217,9 @@ class ExecuteModuleCommand
         }
 
         $secrets = $this->secrets($context, $args);
-        // Keys the driver declares secret in this command's payloads: masked by key in the log, and their values in its text.
-        $declaredValues = $this->redactor->valuesUnder($declared, $result->request, $result->response);
+        // Keys the driver declares secret in this command's payloads: masked by key in the log, and their values (read from
+        // the payloads and the message's own markup) in its text.
+        $declaredValues = $this->redactor->valuesUnder($declared, $result->request, $result->response, ['message' => (string) $result->message]);
         $error = $result->success ? null : $this->redactor->maskDeclared((string) $result->message, $declaredValues, $secrets);
         $outcome = $result->outcome();
 

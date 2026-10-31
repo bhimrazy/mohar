@@ -326,7 +326,7 @@ final class Redactor
         }
 
         $long = array_values(array_filter($values, fn (string $value): bool => strlen($value) >= self::DECLARED_SUBSTRING_BYTES));
-        $masked = str_ireplace($long, self::MASK, $this->maskValues($text, [...$secrets, ...$long]));
+        $masked = $this->maskValues($text, [...$secrets, ...$long]);
 
         foreach (array_diff($values, $long) as $value) {
             $masked = (string) preg_replace('/(?<![A-Za-z0-9_])'.preg_quote($value, '/').'(?![A-Za-z0-9_])/i', self::MASK, $masked);
@@ -336,9 +336,9 @@ final class Redactor
     }
 
     /**
-     * redact() for a payload of a call whose driver declares keys: masked by $sensitiveKeys and $secrets, then every
-     * occurrence of a declared value, short ones included, replaced in every string. Null values (a payload not read
-     * in full) withhold the payload whole.
+     * redact() for a payload of a call whose driver declares keys: masked by $sensitiveKeys, and by value with $secrets
+     * and every declared value, short ones included. Null values (a payload not read in full) withhold the payload
+     * whole.
      *
      * @param  array<array-key, mixed>  $payload
      * @param  list<string>|null  $values
@@ -352,17 +352,8 @@ final class Redactor
             return $payload === [] ? [] : ['withheld' => self::MASK];
         }
 
-        $redacted = $this->redact($payload, [...$secrets, ...$values], $sensitiveKeys);
-
-        if ($values !== []) {
-            array_walk_recursive($redacted, function (mixed &$leaf) use ($values): void {
-                if (is_string($leaf)) {
-                    $leaf = str_ireplace($values, self::MASK, $leaf);
-                }
-            });
-        }
-
-        return $redacted;
+        // The values as secrets: every occurrence, any case, also encoded, in every string and number.
+        return $this->redact($payload, [...$secrets, ...$values], $sensitiveKeys);
     }
 
     /**
@@ -382,13 +373,27 @@ final class Redactor
     }
 
     /**
-     * Adds the values of `<key>…</key>` elements and `key=…` pairs in $text to $values. False when $text uses a
-     * declared key as a name anywhere else, so the caller fails closed.
+     * Adds the values of `<key>…</key>` elements and `key=…` pairs (unquoted, or in single or double quotes, as in an
+     * attribute) in $text, and in its percent-decoded form, to $values. False, so the caller fails closed, when either
+     * form uses a declared key as a name anywhere else, or a capture is empty, nested, carries attributes on the
+     * declared element, or holds markup or a document. When in doubt this fails closed: over-withholding a log line is
+     * acceptable, a leak is not.
      *
      * @param  list<string>  $keys  lowercase
      * @param  list<string>  $values
      */
     private static function readMarkup(string $text, array $keys, array &$values): bool
+    {
+        $decoded = str_contains($text, '%') ? rawurldecode($text) : $text;
+
+        return self::readText($text, $keys, $values) && ($decoded === $text || self::readText($decoded, $keys, $values));
+    }
+
+    /**
+     * @param  list<string>  $keys  lowercase
+     * @param  list<string>  $values
+     */
+    private static function readText(string $text, array $keys, array &$values): bool
     {
         foreach ($keys as $key) {
             $name = preg_quote($key, '/');
@@ -400,27 +405,55 @@ final class Redactor
             }
 
             $prefix = '(?:[A-Za-z_][\w.\-]*:)?';
-            $elements = preg_match_all('/<'.$prefix.$name.'(?:\s[^<>]*)?>(.*?)<\/'.$prefix.$name.'\s*>/is', $text, $element);
-            $pairs = preg_match_all('/(?<![A-Za-z0-9_.\-\[\]])'.$name.'=([^&;\s"\'<>]*)/i', $text, $pair);
+            $elements = preg_match_all('/<'.$prefix.$name.'(\s[^<>]*)?>(.*?)<\/'.$prefix.$name.'\s*>/is', $text, $element);
+            $pairs = preg_match_all('/(?<![A-Za-z0-9_.\-\[\]])'.$name.'\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^&;\s"\'<>]+))/i', $text, $pair);
 
             if ($mentions === false || $elements === false || $pairs === false || $mentions !== 2 * $elements + $pairs) {
                 return false;
             }
 
-            foreach ($element[1] as $content) {
-                if (preg_match('/^\s*<!\[CDATA\[(.*)\]\]>\s*$/s', $content, $cdata) === 1) {
-                    $content = $cdata[1];
-                } elseif (str_contains($content, '<')) {
+            foreach ($element[2] as $index => $content) {
+                if (trim($element[1][$index]) !== '') {
                     return false;
                 }
 
-                array_push($values, $content, html_entity_decode($content, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                // A nested element or markup left after CDATA is refused by addCapture().
+                if (preg_match('/^\s*<!\[CDATA\[(.*)\]\]>\s*$/s', $content, $cdata) === 1) {
+                    $content = $cdata[1];
+                }
+
+                if (! self::addCapture($content, $values)) {
+                    return false;
+                }
             }
 
-            foreach ($pair[1] as $raw) {
-                array_push($values, $raw, rawurldecode($raw), urldecode($raw));
+            foreach (array_keys($pair[0]) as $index) {
+                if (! self::addCapture($pair[1][$index].$pair[2][$index].$pair[3][$index], $values)) {
+                    return false;
+                }
             }
         }
+
+        return true;
+    }
+
+    /**
+     * Adds a captured value with its entity- and percent-decoded forms. False when the value is empty or, decoded,
+     * holds markup, a document or quotes: it cannot be masked as one value.
+     *
+     * @param  list<string>  $values
+     */
+    private static function addCapture(string $raw, array &$values): bool
+    {
+        $forms = array_values(array_unique([$raw, html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8'), rawurldecode($raw), urldecode($raw)]));
+
+        foreach ($forms as $form) {
+            if (trim($form) === '' || strpbrk($form, '<>{}[]"\'') !== false) {
+                return false;
+            }
+        }
+
+        array_push($values, ...$forms);
 
         return true;
     }

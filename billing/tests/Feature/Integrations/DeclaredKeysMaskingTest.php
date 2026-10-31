@@ -3,8 +3,8 @@
 /*
  * ADR 0023 §5: a driver that implements DeclaresSensitiveKeys gets those keys masked in the host's command log, and
  * their values masked in the text the host stores and shows (errors, activity, staff messages). A payload it cannot
- * read in full is withheld whole, with its text. The string-body, markup, throwing-driver, node-limit and short-value
- * cases were adopted from the #574 review and re-review probes.
+ * read in full is withheld whole, with its text. The string-body, markup, attribute, throwing-driver, node-limit and
+ * short-value cases were adopted from the #574 review and re-review probes.
  */
 
 use App\Contracts\Domains\Registrar\RegistrarDriver;
@@ -286,4 +286,79 @@ test('a percent-encoded declared value is masked where the driver echoes it deco
 
     expect(storedModuleText())->not->toContain('ab+cd\\/ef99812QWER==')
         ->and(ModuleCommand::query()->value('error'))->toBe('Panel refused [redacted]');
+});
+
+test('a declared value in a quoted attribute or quoted pair is masked in every stored text and the outcome', function (string $body) {
+    declaringLogDriver(['ticket'], fn (): DriverResult => DriverResult::fail('Panel refused '.DECLARED_CODE, response: ['body' => $body]));
+
+    $service = Service::factory()->onServer()->create();
+    $outcome = app(ExecuteModuleCommand::class)->handle($service->id, ModuleCommandName::Suspend, ['reason' => 'overdue']);
+
+    expect(storedModuleText())->not->toContain(DECLARED_CODE)
+        ->and((string) $outcome->message)->toBe('Panel refused [redacted]');
+})->with([
+    'double-quoted attribute' => ['<item ticket="'.DECLARED_CODE.'"/>'],
+    'single-quoted attribute' => ["<item ticket='".DECLARED_CODE."'/>"],
+    'quoted pair in a log line' => ['refused ticket="'.DECLARED_CODE.'" retry=0'],
+]);
+
+test('a body the host cannot read as one value per declared key is withheld whole with its text', function (string $body) {
+    declaringLogDriver(['ticket'], fn (): DriverResult => DriverResult::fail('Panel refused '.DECLARED_CODE, response: ['body' => $body]));
+
+    suspendWithDeclaringDriver();
+
+    expect(storedModuleText())->not->toContain(DECLARED_CODE)
+        ->and(ModuleCommand::query()->sole()->response)->toBe(['withheld' => '[redacted]'])
+        ->and(ModuleCommand::query()->value('error'))->toBe('[redacted]');
+})->with([
+    'attribute on the declared element' => ['<ticket value="'.DECLARED_CODE.'"></ticket>'],
+    'attribute on a filled declared element' => ['<ticket value="'.DECLARED_CODE.'">pending</ticket>'],
+    'percent-encoded JSON in a form field' => ['payload='.rawurlencode((string) json_encode(['ticket' => DECLARED_CODE]))],
+    'nested element' => ['<ticket><code>'.DECLARED_CODE.'</code></ticket>'],
+    'empty pair' => ['ticket=&next='.DECLARED_CODE],
+    'empty quoted pair' => ['ticket="" next="'.DECLARED_CODE.'"'],
+    'self-closing element' => ['<ticket/>'.DECLARED_CODE],
+]);
+
+test('a declared element is read with its namespace prefix, entities and any case', function (string $body, string $message) {
+    declaringLogDriver(['ticket'], fn (): DriverResult => DriverResult::fail('Panel refused '.$message, response: ['body' => $body]));
+
+    suspendWithDeclaringDriver();
+
+    expect(ModuleCommand::query()->value('error'))->toBe('Panel refused [redacted]')
+        ->and(storedModuleText())->not->toContain($message);
+})->with([
+    'namespace prefix' => ['<epp:ticket>'.DECLARED_CODE.'</epp:ticket>', DECLARED_CODE],
+    'entity in the value' => ['<ticket>ab&amp;cd-99812</ticket>', 'ab&cd-99812'],
+    'upper-case echo' => ['<ticket>zxcv-99812-qwer</ticket>', 'ZXCV-99812-QWER'],
+]);
+
+test('a declared value only in the driver message markup is masked', function () {
+    declaringLogDriver(['ticket'], fn (): DriverResult => DriverResult::fail('Panel answered <ticket>'.DECLARED_CODE.'</ticket>, then refused '.DECLARED_CODE));
+
+    suspendWithDeclaringDriver();
+
+    expect(storedModuleText())->not->toContain(DECLARED_CODE);
+});
+
+test('a declared value under 4 bytes is masked by key only', function () {
+    declaringLogDriver(['pin'], fn (): DriverResult => DriverResult::fail('PIN 482 rejected', request: ['pin' => '482'], response: ['echo' => 'PIN 482']));
+
+    suspendWithDeclaringDriver();
+
+    $log = ModuleCommand::query()->sole();
+    expect($log->request)->toBe(['pin' => '[redacted]'])
+        ->and($log->response)->toBe(['echo' => 'PIN 482'])
+        ->and($log->error)->toBe('PIN 482 rejected');
+});
+
+test('declared values are matched by length: none under 4 bytes, whole tokens under 8, substrings from 8', function () {
+    $redactor = app(Redactor::class);
+
+    expect($redactor->valuesUnder(['pin'], ['pin' => '482']))->toBe([])
+        ->and($redactor->valuesUnder(['pin'], ['pin' => '4821']))->toBe(['4821'])
+        ->and($redactor->maskDeclared('x4821y and 4821', ['4821']))->toBe('x4821y and [redacted]')
+        ->and($redactor->maskDeclared('xAB12CD3y and AB12CD3', ['AB12CD3']))->toBe('xAB12CD3y and [redacted]')
+        ->and($redactor->maskDeclared('xAB12CD34y', ['AB12CD34']))->toBe('x[redacted]y')
+        ->and($redactor->redactDeclared(['note' => 'x4821y'], ['4821'], [], []))->toBe(['note' => 'x[redacted]y']);
 });
