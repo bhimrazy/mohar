@@ -3,6 +3,8 @@
 - Status: Accepted · 2026-10-31 (owner decisions on Q1-Q3, Q5 and Q6; CTO calls on Q4 and Q7; see "Decisions of
   2026-10-31") · Owner: Principal architect. Proposed 2026-10-31 in #565. The number is fixed at 0030; the "Core public
   surface" ADR proposed by the best-practices audit (#569) takes 0031 (see "Relationship with ADR 0031").
+  Amended the same day by "Amendment (#565)" after the independent review; where they differ, the amendment wins, and
+  the text above it is what the owner approved.
 - Review and research: `docs/reviews/2026-10-31-extension-model.md` (current state with evidence, WHMCS, FOSSBilling,
   Paymenter, Blesta, HostBill and Laravel-ecosystem models, option scoring).
 - Amends: ADR 0001 (modules), 0009 (driver placement), 0010 (package compatibility), 0012 (registries).
@@ -262,3 +264,193 @@ takes number 0031 and aligns with this boundary:
 - Third parties get a compatibility check, lifecycle hooks, migrations, a scaffold and a check command. They do not get
   a sandbox, and the docs say so.
 - Business modules stay as they are, and `MODULES` keeps its test role.
+
+## Amendment (#565) — 2026-10-31, independent review
+
+From the independent principal review of #565
+(https://github.com/bhimrazy/mohar/pull/565#pullrequestreview-5723218564, Approve with changes). The owner's
+decisions (Q1-Q7) stand. This amendment changes how the design is built. Where it says so, it supersedes §2-§4, §6,
+§7 and the migration plan; the sections above stay as approved.
+
+### A1. One disable semantic (B1; supersedes the "Disable" bullet of §4)
+
+- **The rule, at both levels.** An extension can be disabled, and so can one of its accounts (`gateways.is_active`,
+  `registrar_accounts.is_active`, a server). Disabled means no new attempt, order, charge, module command,
+  registration or transfer starts. Everything that finishes or verifies an existing record keeps running, webhooks
+  included.
+- **Today's per-account disable breaks this rule.** Three sites refuse settlement for an inactive account:
+    - `Billing/Services/GatewayCallbackHandler.php:99` answers a webhook with 404 "gateway not active";
+    - `Billing/Http/Controllers/Public/GatewayReturnController.php:25` aborts the customer's return with 404;
+    - `Domains/Services/RegistrarGateway.php:72` refuses every call for an inactive account, reconcile included.
+
+    Only the reconciler's lookup keeps running (`Billing/Actions/SettlePaymentAttempt.php:87-96`). Fixing those three
+    sites is its own PR, issue #571, landing **before M5a**. It carries one test per family that disables the account
+    mid-attempt and then settles.
+
+- **Registry API.** This replaces the "`includeDisabled` path":
+
+    | Method                        | Disabled drivers | Callers                                                                    |
+    | ----------------------------- | ---------------- | -------------------------------------------------------------------------- |
+    | `get(key)`                    | returned         | settlement; total for every registered key, throws only for an unknown one |
+    | `has(key)`, `keys()`, `all()` | excluded         | listing, pickers, "may this be configured"                                 |
+    | `enabled(key): bool`          | false            | new-work gates, called before `get()`                                      |
+
+    Today some settlement callers gate on `has()` and some new-work callers use `get()`. Each moves to its column.
+
+- **Settlement callers.** These must keep working while their extension or account is disabled. The list is reviewed
+  when it changes, as ADR 0023's host list is:
+    - **Billing:**
+        - the webhook (`GatewayCallbackHandler`);
+        - the return (`GatewayReturnController`);
+        - `SettlePaymentAttempt` and `PaymentReconciler` (`billing:reconcile-payments`, `billing.payment_reconciliation`);
+        - `SettledRefundCheck` (`billing.gateway_refund_check`);
+        - refund lookups (`LooksUpRefunds`);
+        - `CancelsHostedPayment` for an open session.
+    - **Services:**
+        - `VerifyUnknownOutcomes` (`ReconcilesCommands`), which moves from `has()` (`:110`) to `get()`;
+        - `SyncUsage` (`:31`) for existing services.
+    - **Domains:**
+        - `findSubmission` in `PerformRenewal` and `SubmitToRegistrar`;
+        - `SyncDomain`, and `info` for existing domains.
+- **New-work gates.** These check `enabled()`:
+    - `GatewayCharger` (`:34`), checkout and the pay-method pickers;
+    - `ExecuteModuleCommand` before `get()` (`:199`), which today runs a create on a hidden driver;
+    - `FetchServerAccounts` (`:59`), because an import is new work;
+    - `RegistrarGateway::call` for register, transfer and renew;
+    - the order forms, through `TldAttributes`.
+
+### A2. Uninstall, purge and money (B2; supersedes the "Uninstall" bullet of §4)
+
+- **`App\Support\Extensions\ExtensionUsage`** is an aggregating registry in the ADR 0012 addendum shape:
+  `register('billing', fn (array $driverKeys): int => …)`.
+    - Each module counts its own rows: Billing counts `transactions`, `credit_ledger` and `payment_attempts`;
+      Services counts services and servers; Domains counts domains and accounts.
+    - Uninstall asks this registry, because Core cannot read those tables, and refuses on any non-zero answer.
+    - A siblings-absent test proves it answers 0 with `MODULES=Core`.
+- **Purge** deletes only the tables the extension's own migrations created. It never deletes a host module's rows, and
+  never money or fiscal records: `transactions`, `credit_ledger`, fiscal snapshots and notes (ADR 0024) are kept for
+  the life of the install, whichever extension produced them.
+- **A gateway that ever took a payment ends as "disabled".** Uninstall is for an extension that was never used.
+
+### A3. Kernel constraint (H1; supersedes §3 `kernel` and the §7 0010 matcher note)
+
+- **`version: "self"` extensions skip the kernel check.** They are the app, and the test suite is their compatibility
+  proof. The example in §3 would have failed anyway: `^0.1` breaks at the first `0.2.0`, and ADR 0010 Amendment (#513)
+  bumps the minor at every pre-1.0 release.
+- **Third-party manifests before 1.0** use an explicit range or `~0.N.0`. The docs say that a kernel minor may break
+  them.
+- **A failed constraint:**
+    - before 1.0, "warned, booted", and third-party packages are unsupported;
+    - from 1.0, "incompatible, not booted".
+- **The matcher is a small kernel class**, `App\Support\Extensions\KernelConstraint`:
+    - it handles `^`, `~`, `>=`/`<` ranges and `||`, with Composer's pre-1.0 caret rule;
+    - it has unit tests;
+    - `composer/semver` is not promoted to production.
+
+### A4. Shared gateway helpers are family-wide (H3; supersedes M1b and the kernel names in the §2 Nepal bullet)
+
+Q5 stands: eSewa, Khalti and connectIPS are separate extensions. Their shared code becomes family-neutral kernel
+helpers, built in M3. All four gateway extensions adopt them, which removes review D3 everywhere at once:
+
+- `App\Support\Billing\GatewayHttp` holds the connect and total timeouts from `GatewayConfig`, `Endpoints` pinning
+  and the lookup retry policy. It replaces `ProviderHttp` and the HTTP setup in `StripeClient` and `RazorpayClient`.
+- A minor-units decimal formatter beside `App\Support\Money` reads exponents through `CurrencyDirectory`. It replaces
+  `NprAmount` and the exponent handling in `StripeAmount`.
+
+`ProviderException` stays per extension, because each provider's error shape differs. There is no
+`App\Support\Billing\Nepal`.
+
+### A5. Mediums
+
+1. **Owner attribution.** The base `ExtensionServiceProvider` opens a registration scope,
+   `ExtensionScope::during($id, fn)`, around its `register()` and `boot()`. Every kernel registry reads it, and a
+   registration outside any scope is "core". `provides` can then be checked without a fourth positional parameter
+   (ADR 0010).
+2. **Laravel discovery.**
+    - A `mohar-extension` package lists no `extra.laravel.providers`. `extensions:check` fails one that does, and
+      `extensions:cache` warns.
+    - A package that is also `type: composer-plugin` is refused.
+    - The catalogue reads `vendor/composer/installed.json`. When `bootstrap/cache/extensions.php` is absent, it falls
+      back to a scan, as `packages.php` does.
+    - The image build runs `optimize`, so the read-only container has the cache.
+3. **Existing installs.**
+    - A missing row means installed and enabled for a `version: "self"` extension, and discovered only for a package.
+    - `app:install` writes rows for bundled extensions, and an M5a data migration backfills running installs.
+    - The deploy steps (`docs/devops/production.md`, the cPanel upgrade) run `extensions:upgrade --all` after
+      `migrate`, so `self` extensions never show "Upgrade pending".
+4. **Migrations.**
+    - Uninstall uses reset-by-path semantics: every migration that ran from a file under the extension's path, across
+      batches, rather than `migrate:rollback`.
+    - Extension migrations run in the normal `migrate` pass by timestamp, may reference Core tables only, and are
+      linted by `deploy:check-migrations`.
+5. **`MODULES`.** `MODULES=Core` loads no extension, and a non-empty `MODULES` loads only the extensions it names. The
+   `tests/Extensions` subset tests (`AcmePanelWithoutServicesTest` expects only `['acme_panel']`) keep holding after
+   M2.
+6. **Conformance kits first.** `extensions:check` needs a kernel kit for each driver family.
+    - Today only `ReportConformance` is a kernel kit. `ProvisioningDriverContract` and `RegistrarDriverContract` sit in
+      `tests/Support`, and gateways have none.
+    - M3 adds `App\Support\Billing\GatewayConformance`.
+    - Before `extensions:check` ships, M7 promotes `App\Support\Services\ProvisioningConformance` and
+      `App\Support\Domains\RegistrarConformance`, free of PHPUnit per ADR 0009 Amendment (#515).
+7. **Key ownership.** ADR 0012 Amendment (#405)'s policy for `WebhookEvents` now covers every registry:
+    - a package may not replace a key owned by core or by another extension (`replace: true` throws across owners);
+    - `PermissionRegistry::register()` (`PermissionRegistry.php:35`) gains a duplicate check;
+    - permission, setting and navigation keys registered inside an extension scope start with the extension's prefix.
+8. **`network` is advisory.** The page labels it "declares that it calls" and never presents it as a security
+   control. When enforcement comes, the list is derived from the extension's `Endpoints::for()` keys (ADR 0016) rather
+   than typed twice.
+
+### A6. Lows and the webhook invariant
+
+- **Webhook invariant.** An extension registers no public or unauthenticated route. The host family owns the callback
+  and return endpoints (`billing/webhooks/{gateway}` and `billing/gateways/{gateway}/return`, keyed by driver key). A
+  URL therefore never changes when an extension moves, is disabled or is replaced. M1 adds a test that pins both URLs
+  for every bundled gateway.
+- **One key grammar.** Both routes allow `[a-z_]{1,50}` (`Billing/routes/web.php:131,138`), which excludes the digits
+  that driver keys allow (`[a-z0-9_]{1,50}`). M1 switches both routes to the registry's pattern through one constant.
+- **Family names are plural everywhere:** folder, id and `provides.family`. The families are `gateways`,
+  `provisioning`, `registrars`, `fraud`, `notifications`, `mail`, `exchange_rates`, `importers`, `reports`, `widgets`,
+  `themes` and `addons`.
+- **Trust by location.** `app/Extensions` is first-party. Everything found through Composer is third-party, including
+  a later `mohar/*` package and any `path` repository, until a verified list exists.
+- **`tests/Extensions` becomes `tests/Isolation`** in M1 (`git mv` only), so that "Extensions" means extension code.
+- **No worker mode.** FrankenPHP runs in classic mode (`docs/devops/container-image.md:53`), so per-request
+  memoisation holds. Octane worker mode is out of scope.
+
+### A7. Scope of M5 (H2)
+
+- **M5a:**
+    - the `extensions` table and `ExtensionState`;
+    - the `install`, `upgrade`, `enable` and `disable` commands, recording the version;
+    - registry gating per A1;
+    - `ExtensionUsage` with the uninstall refusal;
+    - events, the backfill and the deploy step.
+- **M5b:**
+    - per-extension migrations (reset-by-path);
+    - the `install()`, `upgrade()` and `uninstall()` hooks;
+    - the `extension:<id>` route middleware, guarded listeners and automation skipping.
+
+No bundled extension needs anything in M5b, so M5b lands with its first consumer: the M7 AcmePanel package. That
+package gains a migration and an `upgrade()` to prove each mechanism, following ADR 0019's "decided when the first
+consumer lands". M6 needs only M5a.
+
+### A8. Order (H4; supersedes the migration plan's order) and interleaving with #570
+
+The code-structure review (#570, `docs/reviews/2026-10-31-code-structure.md`) runs its S-series alongside this plan.
+The order below moves no file twice.
+
+| Step | PR                                                                                                                                                                                                                                                                                                                                            | Interleaving with #570                                                                                                                                                       |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | #571: per-account disable stops stranding (A1)                                                                                                                                                                                                                                                                                                | independent; must land before M5a                                                                                                                                            |
+| 1    | **M3** kernel: `GatewayDriverRegistry` (key, class) with the deprecated instance adapter; `settingsFields(): list<SettingField>`; `ExchangeRateSources`/`PriceConverters` take (key, class); `GatewayHttp` and the minor-units formatter; D3 removed in all four gateways; `GatewayConformance`; `GatewayManager` leaves `Drivers/` (#570 M5) | S0 may land first. S2 (Core infrastructure to `app/Support`) touches different files, but both are kernel PRs: merge one at a time and regenerate `kernel-api.txt` on rebase |
+| 2    | **M1**: loader, base provider; move Stripe, Razorpay, Cybersource; split Nepal into Esewa, Khalti, Connectips; arch scans and `scripts/test.sh` cover `app/Extensions`; `MODULES` rule; webhook-URL test; route key pattern; `tests/Isolation`                                                                                                | S1 skips `tests/Feature/Payments*` and `tests/Extensions` until M1 lands, then mirrors them under `tests/Feature/Extensions/Gateways/*` and `tests/Isolation`                |
+| 3    | **M2**: cPanel, ResellerClub, Namecheap, ECB, NRB moved; each registers from its own provider                                                                                                                                                                                                                                                 | S3 and S4 on Services, Domains and Platform wait for M2, because both touch those providers and `Drivers/`. S3 and S4 on Billing wait for M3                                 |
+| 4    | **M4**: manifest schema 1 (plural families), catalogue, `extensions:cache`, `extensions:list`, registration scope, `KernelConstraint` with the `self` exemption, Composer discovery rule                                                                                                                                                      | after S4 on Billing where possible, so the scope wraps Boot classes rather than private methods                                                                              |
+| 5    | **M5a** (A7)                                                                                                                                                                                                                                                                                                                                  | —                                                                                                                                                                            |
+| 6    | **M6**: Extensions page                                                                                                                                                                                                                                                                                                                       | after S6 if that is in flight (page paths)                                                                                                                                   |
+| 7    | **M7**: `make:extension`; `extensions:check` over the promoted kits; AcmePanel as a path package with a migration and an `upgrade()`                                                                                                                                                                                                          | —                                                                                                                                                                            |
+| 8    | **M5b** (A7)                                                                                                                                                                                                                                                                                                                                  | —                                                                                                                                                                            |
+| 9    | **M8+** as in the plan                                                                                                                                                                                                                                                                                                                        | #570 L1 (a Payments module) comes only after M3, as #570 says                                                                                                                |
+
+Folders inside an extension (`Drivers/`, `Support/`, `Config/`) follow #570 §3.2 once S0 is in `architecture.md`. M1
+moves them as they are; by then M3 has already shrunk them.

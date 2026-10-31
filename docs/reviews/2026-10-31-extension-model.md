@@ -11,7 +11,9 @@ third-party ones as Composer packages, both through one manifest, one catalogue 
 with a runtime enable/disable state and an admin Extensions page. The decision is drafted as
 [ADR 0030](../../billing/docs/adr/0030-extension-model.md).
 
-**Outcome (2026-10-31):** ADR 0030 is Accepted. The owner approved the hybrid, Composer-only installs, the CLI for
+**Outcome (2026-10-31):** ADR 0030 is Accepted, then amended the same day by its `Amendment (#565)` after the
+independent review (one disable semantic, uninstall and purge rules, the pre-1.0 kernel check, family-wide gateway
+helpers, M5 split, order M3 → M1 → M2 → M4 → M5a → M6 → M7 → M5b). Owner decisions: the owner approved the hybrid, Composer-only installs, the CLI for
 install, upgrade and uninstall with enable and disable in admin, one extension per Nepal provider (shared helpers to the
 kernel), and a free verified list later with paid extensions out of scope for v1. The CTO decided schema-only
 third-party UI in v1 and kernel 1.0.0 with the first public release. The table in ADR 0030 "Decisions of 2026-10-31"
@@ -64,9 +66,15 @@ Amendment (#515)).
 | Fraud         | `orders.fraud.driver` (`Orders/Config/orders.php:47-49`) picks `none` or `rules`      | module-internal interface                                                                                                                                                                                                             |
 | Exchange rate | Platform registers the ECB and NRB sources (`Platform/Drivers/ExchangeRates`)         | `ExchangeRateSources::register(class)`                                                                                                                                                                                                |
 
-Settlement keeps running for an inactive gateway: `Billing/Services/PaymentReconciler.php` has no `is_active` filter
-(grep; not traced through every caller). That is the right behaviour and the rule any extension-level disable must keep ("disable stops new work,
-never strands old work").
+Settlement does **not** keep running for an inactive gateway or registrar account (corrected after the #565 review; the
+first version of this paragraph claimed it did from a grep of the reconciler alone). Traced:
+`Billing/Services/GatewayCallbackHandler.php:99` answers a webhook with 404 "gateway not active",
+`Billing/Http/Controllers/Public/GatewayReturnController.php:25` aborts the customer's return with 404, and
+`Domains/Services/RegistrarGateway.php:72` refuses every call for an inactive account, reconcile included. Only the
+reconciler's lookup (`Billing/Actions/SettlePaymentAttempt.php:87-96`) keeps going. A webhook for a payment completed a
+minute before staff switch a gateway off is therefore refused. The rule any disable must keep, at account and
+extension level alike, is "disable stops new work, never strands old work"; fixing the three sites is issue #571, ahead
+of ADR 0030 M5a (Amendment (#565) A1).
 
 **Module loading.** `app/Providers/ModulesServiceProvider.php:31-38` globs `app/Modules/*` one level deep and
 registers `App\Modules\<Name>\<Name>ServiceProvider`; `config/modules.php:8` (`MODULES`) narrows the set and is
@@ -298,7 +306,8 @@ billing/
         StripeServiceProvider.php           extends App\Support\Extensions\ExtensionServiceProvider
         Drivers/  Support/  Config/  Console/Commands/  Database/Migrations/ (only if needed)
       Gateways/Razorpay/  Gateways/Cybersource/  Gateways/Nepal/   (Khalti, eSewa, connectIPS; split per provider by the
-                                                                    owner's decision, ADR 0030 M1b)
+                                                                    owner's decision; shared helpers become
+                                                                    family-wide, Amendment (#565) A4)
       Provisioning/Cpanel/
       Registrars/ResellerClub/  Registrars/Namecheap/
       ExchangeRates/Ecb/  ExchangeRates/Nrb/
@@ -329,6 +338,10 @@ driver keys stay what they are (`stripe`, `khalti`, `cpanel`), so no stored data
 }
 ```
 
+_Revised by Amendment (#565) A3:_ `^0.1` would fail at the first `0.2.0`; `version: "self"` extensions skip the
+kernel check, and a small kernel `KernelConstraint` class replaces the `composer/semver` idea. Family names are plural
+(`"family": "gateways"`, A6).
+
 - `version` is a semver string for packages; `"self"` for first-party means "the app's version".
 - `kernel` is a Composer-style constraint checked against `Kernel::API_VERSION`. This replaces ADR 0010's
   `extra.mohar.api` key, so there is one place for metadata whether the extension is in-repo or a package.
@@ -357,8 +370,14 @@ Plus two unhealthy states: **incompatible** (kernel constraint fails; the provid
   answer 404 through an `extension:<id>` middleware, its automation tasks are skipped, its listeners are registered
   through a guarded helper. **Disable stops new work and never strands old work:** reconciliation, refund lookups,
   webhooks for existing attempts and provisioning reconcile keep using the driver.
+  _Revised by ADR 0030 Amendment (#565) A1:_ one semantic at account and extension level; `get()` stays total for
+  settlement callers, `has()`/`keys()` exclude disabled drivers, `enabled()` gates new work; the settlement callers are
+  listed by name.
 - Uninstall runs an optional `uninstall()` hook and rolls back the extension's own migrations, but refuses while any
   money, provisioning or domain record references its keys. Purging data is a separate, explicit, logged command.
+  _Revised by Amendment (#565) A2:_ references are counted through an `ExtensionUsage` registry each module answers;
+  purge touches only the extension's own tables, never money or fiscal records (ADR 0024); a gateway that took money
+  ends as disabled.
 
 ### 4.5 Admin UX
 
