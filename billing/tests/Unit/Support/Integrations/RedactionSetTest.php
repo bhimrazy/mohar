@@ -8,6 +8,7 @@
 use App\Support\Integrations\RedactionSet;
 use App\Support\Integrations\Redactor;
 use Tests\Support\Redaction\MatchForms;
+use Tests\Support\Redaction\RedactorTiming;
 
 const CORPUS_CREDENTIALS = [
     'ab1$', 'Kq9!mZ2', 'Pa55word', 'hunter22x', 'p&ss<w0rd>', 'abc/def+ghi=jk', 'Zx9-Lm2_Qr7+Ty4/', 'Hx7q-p9Lab3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY',
@@ -194,15 +195,16 @@ test('masking stays linear with a 16-value set, a multi-line key among them', fu
     memory_reset_peak_usage();
     $before = memory_get_usage();
 
-    $started = hrtime(true);
     $masked = (new Redactor)->maskValues($text, $set);
-    $maskSeconds = (hrtime(true) - $started) / 1e9;
-    $started = hrtime(true);
     $redacted = (new Redactor)->redact(['body' => $text], $set);
-    $redactSeconds = (hrtime(true) - $started) / 1e9;
 
-    expect($maskSeconds)->toBeLessThan(2.0)
-        ->and($redactSeconds)->toBeLessThan(2.0)
+    // Eight times the input: about 8x when linear, about 64x when quadratic. A ratio of CPU times, so load cancels out.
+    $quarter = substr($text, 0, intdiv(strlen($text), 8));
+    [$maskSmall, $maskLarge] = RedactorTiming::bestCpuPair($quarter, $text, fn (string $body) => (new Redactor)->maskValues($body, $set));
+    [$redactSmall, $redactLarge] = RedactorTiming::bestCpuPair($quarter, $text, fn (string $body) => (new Redactor)->redact(['body' => $body], $set));
+
+    expect($maskLarge)->toBeLessThan(max(0.5, $maskSmall * 24))
+        ->and($redactLarge)->toBeLessThan(max(0.5, $redactSmall * 24))
         ->and(memory_get_peak_usage() - $before)->toBeLessThan(64 * 1024 * 1024)
         ->and($masked)->not->toContain('secret-value-3')->not->toContain('981 234 5678')
         ->and($redacted['body'])->not->toContain('secret-value-3');
@@ -216,12 +218,13 @@ test('structured JSON bodies stay inside the budget: keys and numbers are checke
     ];
 
     foreach ($bodies as $shape => $json) {
-        $started = hrtime(true);
         $redacted = (new Redactor)->redact(['raw' => $json], $set);
-        $seconds = (hrtime(true) - $started) / 1e9;
+        $half = substr($json, 0, intdiv(strlen($json), 2));
+        [$small, $large] = RedactorTiming::bestCpuPair($half, $json, fn (string $body) => (new Redactor)->redact(['raw' => $body], $set));
 
+        // Twice the input: about 2x when linear, about 4x when quadratic; the floor absorbs noise on tiny timings.
         expect(strlen($json))->toBeGreaterThan(900_000, $shape)
-            ->and($seconds)->toBeLessThan(2.0, $shape)
+            ->and($large)->toBeLessThan(max(0.5, $small * 6), $shape)
             ->and($redacted['raw'])->toBe($json, $shape);
     }
 });
@@ -232,11 +235,10 @@ test('periodic text against an anchor makes one span, not one per byte', functio
     memory_reset_peak_usage();
     $before = memory_get_usage();
 
-    $started = hrtime(true);
     $masked = $set->mask($text);
-    $seconds = (hrtime(true) - $started) / 1e9;
+    [$small, $large] = RedactorTiming::bestCpuPair(substr($text, 0, 128 * 1024), $text, fn (string $body) => $set->mask($body));
 
     expect($masked)->toBe('[redacted]')
-        ->and($seconds)->toBeLessThan(2.0)
+        ->and($large)->toBeLessThan(max(0.5, $small * 24))
         ->and(memory_get_peak_usage() - $before)->toBeLessThan(16 * 1024 * 1024);
 });

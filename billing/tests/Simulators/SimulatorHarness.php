@@ -30,6 +30,12 @@ use RuntimeException;
  */
 trait SimulatorHarness
 {
+    /** The simulators are real local processes, so their tests are the one place a request is not faked (TestCase). */
+    protected function allowsStrayHttp(): bool
+    {
+        return true;
+    }
+
     public Scenario $whm;
 
     public Scenario $stripe;
