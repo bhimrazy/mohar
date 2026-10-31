@@ -85,6 +85,7 @@ describe('cart', function () {
     });
 
     it('shows tax and recurring totals in the cart', function () {
+        $this->travelTo('2026-03-10 06:00:00');
         $this->fakes->billing->taxRate = 10;
         $this->post(route('store.cart.products.store', 1), ['cycle' => 'monthly']);
 
@@ -93,7 +94,7 @@ describe('cart', function () {
                 ->where('cart.subtotal', 1500)
                 ->where('cart.tax_total', 150)
                 ->where('cart.total', 1650)
-                ->where('cart.recurring', [['cycle' => 'monthly', 'amount' => 1000]]));
+                ->where('cart.recurring', [['cycle' => 'monthly', 'amount' => 1000, 'from' => '2026-04-10']]));
     });
 
     it('validates the billing cycle against the catalog', function () {

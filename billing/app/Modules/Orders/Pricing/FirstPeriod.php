@@ -2,6 +2,7 @@
 
 namespace App\Modules\Orders\Pricing;
 
+use App\Enums\BillingCycle;
 use Carbon\CarbonImmutable;
 
 /**
@@ -16,7 +17,19 @@ final readonly class FirstPeriod
         public int $anchorDay,
         public int $amount,
         public bool $prorated,
+        public BillingCycle $cycle,
+        public int $chargeNextMonthDay = 32,
     ) {}
+
+    /**
+     * What another per-cycle price (a promotion's override price) costs for this same period, rounded the same way.
+     */
+    public function amountFor(int $recurring): int
+    {
+        return $this->prorated
+            ? Prorata::calculate($this->start, $recurring, $this->cycle, $this->anchorDay, $this->chargeNextMonthDay)['first_amount']
+            : $recurring;
+    }
 
     /**
      * @return array{start: string, end: string, prorated: bool}

@@ -106,9 +106,11 @@ final class PricedCart
     }
 
     /**
-     * Recurring charges per cycle after recurring promotions, e.g. [['cycle' => 'monthly', 'amount' => 1000]].
+     * Recurring charges per cycle and first renewal date after recurring promotions, e.g.
+     * [['cycle' => 'monthly', 'amount' => 1000, 'from' => '2026-02-01']]. `from` is the end of the first period (the
+     * prorata anchor or one cycle on); null for domains.
      *
-     * @return list<array{cycle: string, amount: int}>
+     * @return list<array{cycle: string, amount: int, from: ?string}>
      */
     public function recurringTotals(): array
     {
@@ -121,10 +123,12 @@ final class PricedCart
                 continue;
             }
 
-            $totals[$cycle] = ($totals[$cycle] ?? 0) + $line->renewalAfterDiscount();
+            $from = $line->firstPeriod?->end->toDateString();
+            $totals["{$cycle}|{$from}"] ??= ['cycle' => $cycle, 'amount' => 0, 'from' => $from];
+            $totals["{$cycle}|{$from}"]['amount'] += $line->renewalAfterDiscount();
         }
 
-        return array_map(fn (string $cycle, int $amount): array => ['cycle' => $cycle, 'amount' => $amount], array_keys($totals), $totals);
+        return array_values($totals);
     }
 
     /**

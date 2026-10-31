@@ -28,12 +28,12 @@ final class Prorata
         $start = CarbonImmutable::instance($orderDate)->startOfDay();
 
         if ($prorataDay === null) {
-            return new FirstPeriod($start, $cycle->advance($start, anchorDay: $start->day), $start->day, $recurring, prorated: false);
+            return new FirstPeriod($start, $cycle->advance($start, anchorDay: $start->day), $start->day, $recurring, prorated: false, cycle: $cycle);
         }
 
         $result = self::calculate($start, $recurring, $cycle, $prorataDay, $chargeNextMonthDay ?? 32);
 
-        return new FirstPeriod($start, $result['next_due_date'], $prorataDay, $result['first_amount'], prorated: ! $result['anchor']->equalTo($start));
+        return new FirstPeriod($start, $result['next_due_date'], $prorataDay, $result['first_amount'], ! $result['anchor']->equalTo($start), $cycle, $chargeNextMonthDay ?? 32);
     }
 
     /**

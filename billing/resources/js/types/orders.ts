@@ -57,7 +57,8 @@ export type PricedCart = {
     taxes: { name: string; rate: number; amount: number }[];
     tax_total: number;
     total: number;
-    recurring: { cycle: string; amount: number }[];
+    /** `from`: first renewal date (end of the first period); null for domains. */
+    recurring: { cycle: string; amount: number; from: string | null }[];
     has_errors: boolean;
     count: number;
 };

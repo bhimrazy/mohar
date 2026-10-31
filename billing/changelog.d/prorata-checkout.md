@@ -5,7 +5,8 @@
   order date (company time zone) to the product's prorata day, plus the next full cycle when ordered after the
   "charge next month" day (monthly) or always (longer cycles). A quarter, half-year or year is divided by its own
   length in days, not by one month. The service renews on the prorata day. The cart and checkout show the pro-rated
-  amount and its dates. Upgrade note: products without Prorata are unaffected; check that products with it on use the
+  amount and its dates, and the order summary shows when the full-price renewals start. A price-override promotion's
+  price is pro-rated the same way. Upgrade note: products without Prorata are unaffected; check that products with it on use the
   day you intend before the next order. Adds `order_items.period_start` and `period_end` (nullable dates).
 - **Addons with "Prorata with parent" follow their parent's prorata day (#607).** The addon's first period ends on
   the parent's anchor and is pro-rated the same way; without the setting an addon bills a full cycle from the order

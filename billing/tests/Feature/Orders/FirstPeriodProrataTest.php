@@ -131,14 +131,32 @@ it('discounts renewals of a pro-rated service on the renewal price', function ()
         ->toBe([38000, 342000, 31000, 31000]);
 });
 
+it('pro-rates a price-override promotion like the normal price, never above it', function (int $override, int $discount) {
+    Currency::query()->where('code', 'NPR')->update(['is_default' => true]); // the override price is entered in the default currency
+    $product = ($this->product)();
+    Promotion::factory()->priceOverride(number_format($override / 100, 2, '.', ''))->create(['code' => 'OVR', 'recurring' => true]);
+
+    // 01-10 to 02-01 is 22/31: the normal first amount is 310000 × 22/31 = 220000.
+    [$order, $line, $draft] = ($this->checkout)($product, '2026-01-10 06:00:00', promotion: 'OVR');
+
+    expect([$order->discount_total, $line->unitAmount - $order->discount_total, $draft->renewalDiscount])
+        ->toBe([$discount, 220000 - $discount, 310000 - $override])
+        ->and($line->unitAmount - $order->discount_total)->toBeLessThanOrEqual(220000);
+})->with([
+    'override 200000: 200000 × 22/31 = 141935.48 → 141935' => [200000, 78065],
+    'override 309999: 309999 × 22/31 = 219999.29 → 219999' => [309999, 1],
+]);
+
 it('shows the first period and its amount in the cart', function () {
     $product = ($this->product)();
     $this->travelTo('2026-01-10 06:00:00');
 
-    $line = app(CartPricer::class)->price([OrdersFakes::productItem($product->id)], 'NPR', client: $this->client)->toArray()['items'][0]['lines'][0];
+    $cart = app(CartPricer::class)->price([OrdersFakes::productItem($product->id)], 'NPR', client: $this->client)->toArray();
+    $line = $cart['items'][0]['lines'][0];
 
     expect([$line['recurring'], $line['renewal'], $line['due_today'], $line['first_period']])
-        ->toBe([220000, 310000, 220000, ['start' => '2026-01-10', 'end' => '2026-02-01', 'prorated' => true]]);
+        ->toBe([220000, 310000, 220000, ['start' => '2026-01-10', 'end' => '2026-02-01', 'prorated' => true]])
+        ->and($cart['recurring'])->toBe([['cycle' => 'monthly', 'amount' => 310000, 'from' => '2026-02-01']]);
 });
 
 it('re-issues a cancelled order invoice for the first period stored at checkout', function () {

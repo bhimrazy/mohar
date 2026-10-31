@@ -60,12 +60,15 @@ final class PricedLine
         return max(0, $this->renewal - ($this->recurringDiscount ? $this->renewalDiscount : 0));
     }
 
-    public function toDiscountTarget(): DiscountTarget
+    /**
+     * @param  int|null  $base  amount the discount is worked out on (default: the first amount)
+     */
+    public function toDiscountTarget(?int $base = null): DiscountTarget
     {
         return new DiscountTarget(
             key: $this->key,
             kind: $this->kind,
-            base: $this->recurring,
+            base: $base ?? $this->recurring,
             setup: $this->setup,
             productId: $this->productId,
             addonId: $this->addonId,

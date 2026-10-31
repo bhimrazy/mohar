@@ -92,7 +92,7 @@ pivot `addon_product` (applicable products).
     - Monthly: if `order_date.day > prorata_charge_next_month_day` (0 = always, 32 = never): first invoice = partial + one full cycle, `next_due_date = anchor + cycle`; else first invoice = partial, `next_due_date = anchor`. Longer cycles always add the full cycle.
     - Ordered on the anchor itself: no partial, one full cycle.
     - The first invoice line covers `[order_date, next_due_date)`; the service's `billing_anchor_day` is prorata_day (unclamped, so day 31 renews on each month's last day).
-    - A recurring promotion discounts the first amount; renewals get the same promotion worked out on the renewal price.
+    - A recurring promotion discounts the first amount; renewals get the same promotion worked out on the renewal price. A price-override promotion's price is pro-rated by the same fraction (override 200000 instead of 310000, ordered Jan 10: 200000 × 22/31 = 141935), so it never charges more than the pro-rated normal price.
     - Setup fee is charged in full, never prorated.
     - Signup-anniversary prorata (anchor = client signup day) is **COULD**.
 5. **Stock**: `reserveStock` decrements atomically (`UPDATE … SET stock_quantity = stock_quantity - 1 WHERE stock_quantity > 0`); 0 ⇒ product shows "out of stock" and cannot be added. Stock is restored when the order is cancelled/fraud **before** the service was ever activated. **MUST**

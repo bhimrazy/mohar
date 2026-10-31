@@ -14,6 +14,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Orders\Data\CartItem;
 use App\Modules\Orders\Enums\CartItemKind;
+use App\Modules\Orders\Enums\PromotionType;
 use App\Modules\Orders\Models\Promotion;
 use App\Modules\Orders\Services\CurrencyConverter;
 use App\Modules\Orders\Services\CustomFieldRules;
@@ -281,7 +282,12 @@ class CartPricer
 
         $amount = $promotion->type->isAmount() ? $this->converter->fromDefault($promotion->valueHundredths(), $cart->currency) : 0;
         $terms = PromotionTerms::fromPromotion($promotion, $amount);
-        $discounts = $this->promotions->discounts($terms, array_map(fn (PricedLine $line): DiscountTarget => $line->toDiscountTarget(), $lines));
+        // An override price is per cycle: on a pro-rated line it is compared with the cycle price and pro-rated below.
+        $override = $terms->type === PromotionType::PriceOverride;
+        $discounts = $this->promotions->discounts($terms, array_map(
+            fn (PricedLine $line): DiscountTarget => $line->toDiscountTarget($override && $line->firstPeriod?->prorated ? $line->renewal : null),
+            $lines,
+        ));
 
         if ($discounts === []) {
             $cart->promotionError = __('This promotion code does not apply to the items in your cart.');
@@ -295,9 +301,14 @@ class CartPricer
                 $line->setupDiscount = $discounts[$line->key]['setup_discount'];
                 $line->recurringDiscount = $promotion->recurring && $line->kind !== 'domain';
                 // A pro-rated first amount is not what renews: the renewal discount is worked out on the renewal price.
-                $line->renewalDiscount = $line->firstPeriod?->prorated
-                    ? $this->promotions->discountFor($terms, new DiscountTarget($line->key, $line->kind, $line->renewal))['discount']
-                    : $line->discount;
+                $line->renewalDiscount = $line->discount;
+
+                if ($line->firstPeriod?->prorated && $override) {
+                    // First amount = the override price pro-rated for the same period (never above the normal price).
+                    $line->discount = $line->recurring - $line->firstPeriod->amountFor($line->renewal - $line->renewalDiscount);
+                } elseif ($line->firstPeriod?->prorated) {
+                    $line->renewalDiscount = $this->promotions->discountFor($terms, new DiscountTarget($line->key, $line->kind, $line->renewal))['discount'];
+                }
             }
         }
     }
