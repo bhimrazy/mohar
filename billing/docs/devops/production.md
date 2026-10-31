@@ -14,18 +14,18 @@ The app's roles run once per colour (`blue`, `green`): `app-<colour>`, `worker-c
 Only the live colour's workers, automation worker and scheduler run; the previous colour's web container keeps
 running for a rollback until you `retire` it. `deploy/bin/deploy status` shows which colour is live.
 
-| Service                  | Image           | Command                                                                  | Limit (CPU / memory) | Stop grace |
-| ------------------------ | --------------- | ------------------------------------------------------------------------ | -------------------- | ---------- |
-| `caddy`                  | `caddy`         | edge proxy: TLS, HTTP→HTTPS, forwards to the live colour                 | 0.5 / 128 MB         | default    |
-| `app-<colour>`           | the app image   | FrankenPHP, classic mode                                                 | 1.0 / 512 MB         | 30 s       |
-| `worker-critical-…`      | the app image   | `queue:work --queue=payments,provisioning,registrar --timeout=200`       | 0.5 / 384 MB         | 210 s      |
-| `worker-notifications-…` | the app image   | `queue:work --queue=notifications,webhooks` (60 s job timeout)           | 0.5 / 384 MB         | 70 s       |
-| `worker-default-…`       | the app image   | `queue:work --queue=default,imports --timeout=150 --memory=256`          | 0.5 / 384 MB         | 160 s      |
-| `worker-automation-…`    | the app image   | `queue:work automation --queue=automation --tries=1 --timeout=3600`      | 0.5 / 384 MB         | 3,660 s    |
-| `scheduler-…`            | the app image   | `schedule:work` (exactly one, live colour)                               | 0.5 / 512 MB         | 3,660 s    |
-| `migrate`                | the app image   | one-shot: `migrate`, `objects:ensure-bucket`, `app:install` (idempotent) | 1.0 / 512 MB         | —          |
-| `postgres`               | `postgres`      | PostgreSQL 18                                                            | 1.0 / 1 GB           | 60 s       |
-| `rustfs`                 | `rustfs/rustfs` | S3-compatible object storage (console off)                               | 0.5 / 512 MB         | default    |
+| Service                  | Image           | Command                                                                    | Limit (CPU / memory) | Stop grace |
+| ------------------------ | --------------- | -------------------------------------------------------------------------- | -------------------- | ---------- |
+| `caddy`                  | `caddy`         | edge proxy: TLS, HTTP→HTTPS, forwards to the live colour                   | 0.5 / 128 MB         | default    |
+| `app-<colour>`           | the app image   | FrankenPHP, classic mode                                                   | 1.0 / 512 MB         | 30 s       |
+| `worker-critical-…`      | the app image   | `queue:work --queue=payments,provisioning,registrar --timeout=200`         | 0.5 / 384 MB         | 210 s      |
+| `worker-notifications-…` | the app image   | `queue:work --queue=notifications,webhooks,document-emails` (60 s timeout) | 0.5 / 384 MB         | 70 s       |
+| `worker-default-…`       | the app image   | `queue:work --queue=default,imports --timeout=150 --memory=256`            | 0.5 / 384 MB         | 160 s      |
+| `worker-automation-…`    | the app image   | `queue:work automation --queue=automation --tries=1 --timeout=3600`        | 0.5 / 384 MB         | 3,660 s    |
+| `scheduler-…`            | the app image   | `schedule:work` (exactly one, live colour)                                 | 0.5 / 512 MB         | 3,660 s    |
+| `migrate`                | the app image   | one-shot: `migrate`, `objects:ensure-bucket`, `app:install` (idempotent)   | 1.0 / 512 MB         | —          |
+| `postgres`               | `postgres`      | PostgreSQL 18                                                              | 1.0 / 1 GB           | 60 s       |
+| `rustfs`                 | `rustfs/rustfs` | S3-compatible object storage (console off)                                 | 0.5 / 512 MB         | default    |
 
 The workers run the four commands of `App\Support\Queues::workerCommands()`, which `app:install` prints and
 [install.md §6](install.md#6-scheduler-and-queue-workers) explains: the three ADR 0014 pools (with `--tries=3`) and
@@ -239,6 +239,17 @@ workers and the scheduler with the same drain, and keeps the other colour for a 
 rolled back: the expand-then-contract rule keeps the previous release working against the new schema. A release
 that broke that rule (a `@contract` or `@compatible` migration that was wrong) needs the database restored from the
 backup taken before the update.
+
+Invoice emails that carry the PDF are composed by `ComposeEventEmails` jobs on the `document-emails` queue (#566). A
+release from before that change has no such job class and its notifications pool does not read that queue. After a
+rollback past it, those jobs wait in the queue, and their emails go out once you roll forward. A job that an older
+worker did take fails into `failed_jobs`. After rolling forward, check for those and requeue them. The dedupe key
+stops an email that was already logged from being sent twice:
+
+```bash
+docker compose -f deploy/compose.prod.yaml exec scheduler-<colour> php artisan queue:failed
+docker compose -f deploy/compose.prod.yaml exec scheduler-<colour> php artisan queue:retry --queue=document-emails
+```
 
 ## Backups
 

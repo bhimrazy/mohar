@@ -211,6 +211,20 @@ Past the knee the tail grows on every page at once, cheap ones included (the sto
   renewals, the same code with the setting off and on): the billing day's CPU went from 7–10 s to 37–39 s, and the
   drain's from 2.1–2.6 s to 8.4–8.5 s. Font subsetting (23 KB a PDF) brings the drain back to 2.2–3.0 s and the billing
   day to 30–34 s; the render in the loop is the rest, and moving it out is a separate change (#566).
+- **Invoice emails after #600 (local, measured; medium day inferred).** The PDF-carrying invoice emails are composed
+  on the `document-emails` queue, read last by the notifications worker. Locally on PostgreSQL (2,000 services,
+  300 compose jobs, three runs on a shared Mac), `automation:run` used 3.1–5.8 s of CPU, against 29–35 s before #600.
+  The compose drain used 29.2–35.4 s, **about 100–120 ms of CPU per job**. The sends that follow used 2.7–3.3 s for 305.
+  For the medium billing day (11,623 renewals, about 13,600 compose jobs with the reminders and updated-invoice emails)
+  that is about 1,360–1,630 s of CPU. On the one notifications worker at its 0.5 CPU limit, this means **about 45–55
+  minutes after the run before the last invoice email is composed** (inferred, not run on a runner yet).
+    - **Why this is acceptable.** Nothing else waits: sign-in mail, ticket replies and webhooks are on `notifications`
+      and `webhooks`, which the worker reads first. Invoices are due days after they are issued.
+    - **Raising the worker count.** It divides the time by the number of workers, as long as they have CPU: two workers
+      take about 25 minutes. The production compose file has one notifications worker per colour and no replica
+      setting, so more workers means another worker service or a higher CPU limit.
+    - **Decision.** The default stays one worker. At 03:00 the host is otherwise idle, and a second worker would hold
+      CPU and memory all day for a burst that comes once a day.
 - **Invoice PDF (one process, measured):** p50 120–169 ms.
 
 ## History: small profile at 5–40 users, run 40000321793
