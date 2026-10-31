@@ -21,7 +21,7 @@ RULES = {
     'level_duration': r'[1-9][0-9]{0,2}[sm]',
     'warmup': r'[1-9][0-9]{0,2}[sm]',
     'start_spread': r'[0-9]{1,3}',
-    'think': r'[0-9]{1,2} [0-9]{1,3}',
+    'think': r'[1-9][0-9]? [1-9][0-9]{0,2}',  # seconds; a 0 s pause would make every user a tight loop
 }
 
 

@@ -24,7 +24,8 @@ stack cannot run there.
   whole-stack cap is skipped and the summary says so. `--think "10 30"` sets every pause between pages to 10–30 s
   (people who read each page); `--no-stop` runs every level even past saturation.
 
-Each run uploads an artifact named `load-test-<profile>-<volume>-<run id>`. It holds `summary.md` (also shown on the
+Each job uploads an artifact named `load-test-<name>-<volume>-<run id>`, where `<name>` is the run's `name` in
+`loadtest/label-runs.json` or, for a dispatch, the profile. It holds `summary.md` (also shown on the
 run page) and `summary.json`, plus the raw files: k6 summaries per level, `docker-stats.ndjson`, the slowest
 PostgreSQL queries, the PDF bench, the automation log and the queue drain. It never holds secrets: generated keys and
 passwords stay in a temporary directory that is deleted at the end. To compare several runs, download their
