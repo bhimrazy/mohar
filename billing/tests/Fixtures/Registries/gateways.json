@@ -1,0 +1,670 @@
+{
+    "gateways": {
+        "bank_transfer": {
+            "position": 0,
+            "class": "BankTransferDriver",
+            "name": "Bank transfer",
+            "capabilities": [],
+            "interfaces": [],
+            "currencies": null,
+            "fields": [
+                {
+                    "key": "instructions",
+                    "label": "Payment instructions",
+                    "type": "text",
+                    "required": false,
+                    "help": "Shown on unpaid invoices. {invoice} is replaced with the invoice number.",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                }
+            ]
+        },
+        "manual": {
+            "position": 1,
+            "class": "ManualDriver",
+            "name": "Manual payment",
+            "capabilities": [],
+            "interfaces": [],
+            "currencies": null,
+            "fields": []
+        },
+        "sandbox_card": {
+            "position": 2,
+            "class": "SandboxCardDriver",
+            "name": "Card (sandbox)",
+            "capabilities": [
+                "capture",
+                "tokenize",
+                "remote_input",
+                "refund",
+                "partial_refund",
+                "webhook",
+                "pending_settlement",
+                "redirect",
+                "lookup",
+                "stored_methods"
+            ],
+            "interfaces": [
+                "hosted",
+                "cancel_hosted",
+                "resume_hosted"
+            ],
+            "currencies": [
+                "USD",
+                "INR",
+                "NPR"
+            ],
+            "fields": [
+                {
+                    "key": "checkout_mode",
+                    "label": "Client checkout",
+                    "type": "select",
+                    "required": false,
+                    "help": null,
+                    "options": {
+                        "inline": "Card form on the invoice (tokenised)",
+                        "hosted": "Hosted payment page (redirect + lookup)"
+                    },
+                    "default": "inline",
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "webhook_secret",
+                    "label": "Webhook signing secret",
+                    "type": "secret",
+                    "required": false,
+                    "help": "Used to verify X-Sandbox-Signature on callbacks.",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "fee_percent",
+                    "label": "Simulated fee (%)",
+                    "type": "string",
+                    "required": false,
+                    "help": "Fee recorded on successful charges, e.g. 2.9",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                }
+            ]
+        },
+        "cybersource": {
+            "position": 3,
+            "class": "CybersourceDriver",
+            "name": "Cards (Cybersource, NIC Asia)",
+            "capabilities": [
+                "redirect",
+                "lookup",
+                "webhook",
+                "refund",
+                "partial_refund"
+            ],
+            "interfaces": [
+                "hosted",
+                "test_connection",
+                "refund_lookup"
+            ],
+            "currencies": [
+                "NPR"
+            ],
+            "fields": [
+                {
+                    "key": "sandbox",
+                    "label": "Test mode",
+                    "type": "boolean",
+                    "required": false,
+                    "help": "Uses Cybersource's test hosts (testsecureacceptance and apitest.cybersource.com); no real money moves. Not available in production.",
+                    "options": [],
+                    "default": true,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "merchant_id",
+                    "label": "Merchant ID",
+                    "type": "string",
+                    "required": true,
+                    "help": "Your Cybersource organisation ID, given by NIC Asia Bank with the service agreement.",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "profile_id",
+                    "label": "Secure Acceptance profile ID",
+                    "type": "string",
+                    "required": true,
+                    "help": "From the Business Center, Payment Configuration → Secure Acceptance. In the profile, set the customer response page to the return URL below and the merchant POST URL to the webhook URL below.",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "access_key",
+                    "label": "Profile access key",
+                    "type": "string",
+                    "required": true,
+                    "help": "Created with the profile's security key. It is sent in the payment form, so it is not a secret.",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "secret_key",
+                    "label": "Profile secret key",
+                    "type": "secret",
+                    "required": true,
+                    "help": "Created with the access key; signs the payment form and checks Cybersource's replies.",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "rest_key_id",
+                    "label": "REST key ID",
+                    "type": "string",
+                    "required": true,
+                    "help": "Business Center, Key Management: a REST shared secret key. Required: card payments are confirmed only through the REST API, so the gateway can't be activated without it.",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "rest_secret",
+                    "label": "REST shared secret",
+                    "type": "secret",
+                    "required": true,
+                    "help": "The base64 shared secret shown once when the REST key is created. Required: card payments are confirmed only through the REST API, so the gateway can't be activated without it.",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                }
+            ]
+        },
+        "khalti": {
+            "position": 4,
+            "class": "KhaltiDriver",
+            "name": "Khalti",
+            "capabilities": [
+                "redirect",
+                "lookup",
+                "refund"
+            ],
+            "interfaces": [
+                "hosted",
+                "test_connection",
+                "logo",
+                "resume_hosted"
+            ],
+            "currencies": [
+                "NPR"
+            ],
+            "fields": [
+                {
+                    "key": "sandbox",
+                    "label": "Sandbox mode",
+                    "type": "boolean",
+                    "required": false,
+                    "help": "Uses dev.khalti.com with the key from test-admin.khalti.com; no real money moves. Not available in production.",
+                    "options": [],
+                    "default": true,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "secret_key",
+                    "label": "Secret key",
+                    "type": "secret",
+                    "required": true,
+                    "help": "Merchant dashboard → Keys → \"Live secret key\" (admin.khalti.com; in sandbox mode, the one from test-admin.khalti.com).",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                }
+            ]
+        },
+        "esewa": {
+            "position": 5,
+            "class": "EsewaDriver",
+            "name": "eSewa",
+            "capabilities": [
+                "redirect",
+                "lookup"
+            ],
+            "interfaces": [
+                "hosted",
+                "test_connection",
+                "logo"
+            ],
+            "currencies": [
+                "NPR"
+            ],
+            "fields": [
+                {
+                    "key": "sandbox",
+                    "label": "Sandbox mode",
+                    "type": "boolean",
+                    "required": false,
+                    "help": "Uses eSewa UAT (rc-epay.esewa.com.np); no real money moves. Not available in production. \"Test connection\" books an unpaid Rs 10 eSewa session (in live mode too), which expires on its own.",
+                    "options": [],
+                    "default": true,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "product_code",
+                    "label": "Merchant (product) code",
+                    "type": "string",
+                    "required": true,
+                    "help": "Provided by eSewa. UAT: EPAYTEST.",
+                    "options": [],
+                    "default": "EPAYTEST",
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "secret_key",
+                    "label": "Secret key",
+                    "type": "secret",
+                    "required": true,
+                    "help": "Provided by eSewa for signing. UAT: the public test key from eSewa's developer docs.",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                }
+            ]
+        },
+        "connectips": {
+            "position": 6,
+            "class": "ConnectipsDriver",
+            "name": "connectIPS",
+            "capabilities": [
+                "redirect",
+                "lookup"
+            ],
+            "interfaces": [
+                "hosted",
+                "test_connection",
+                "logo",
+                "manual_refund_note",
+                "validates_settings"
+            ],
+            "currencies": [
+                "NPR"
+            ],
+            "fields": [
+                {
+                    "key": "sandbox",
+                    "label": "Sandbox mode",
+                    "type": "boolean",
+                    "required": false,
+                    "help": "Uses connectIPS UAT; no real money moves. Not available in production. \"Test connection\" looks up a made-up transaction and moves no money.",
+                    "options": [],
+                    "default": true,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "merchant_id",
+                    "label": "Merchant ID",
+                    "type": "string",
+                    "required": true,
+                    "help": "Emailed by NCHL after your bank enrols you as a creditor. Digits only.",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "app_id",
+                    "label": "App ID",
+                    "type": "string",
+                    "required": true,
+                    "help": "Issued by NCHL, one per settlement bank account (up to 15 characters).",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "app_name",
+                    "label": "App name",
+                    "type": "string",
+                    "required": true,
+                    "help": "Exactly as NCHL registered the app (up to 30 characters).",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "app_password",
+                    "label": "App password",
+                    "type": "secret",
+                    "required": true,
+                    "help": "Emailed by NCHL with the app ID; used to check payment status.",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "signing_key",
+                    "label": "Signing certificate",
+                    "type": "certificate",
+                    "required": true,
+                    "help": "The .pfx file NCHL issues (CREDITOR.pfx) and its passphrase. Only the private key is kept, encrypted.",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                }
+            ]
+        },
+        "razorpay": {
+            "position": 7,
+            "class": "RazorpayDriver",
+            "name": "Razorpay",
+            "capabilities": [
+                "redirect",
+                "lookup",
+                "refund",
+                "partial_refund",
+                "webhook"
+            ],
+            "interfaces": [
+                "hosted",
+                "test_connection",
+                "refund_lookup",
+                "cancel_hosted",
+                "resume_hosted"
+            ],
+            "currencies": [
+                "INR"
+            ],
+            "fields": [
+                {
+                    "key": "sandbox",
+                    "label": "Test mode",
+                    "type": "boolean",
+                    "required": false,
+                    "help": "Uses your Razorpay test mode keys (rzp_test_…); no real money moves. Not available in production.",
+                    "options": [],
+                    "default": true,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "key_id",
+                    "label": "Key id",
+                    "type": "string",
+                    "required": true,
+                    "help": "Razorpay Dashboard → Account & Settings → API keys. Test and live keys are separate.",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "key_secret",
+                    "label": "Key secret",
+                    "type": "secret",
+                    "required": true,
+                    "help": "Shown once when the key is generated. Payments must be captured automatically (the dashboard's payment capture setting).",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "webhook_secret",
+                    "label": "Webhook secret",
+                    "type": "secret",
+                    "required": true,
+                    "help": "Add a webhook for the URL below with the events payment_link.paid, payment_link.partially_paid, payment_link.expired, payment_link.cancelled, refund.processed, refund.failed, and a secret of its own (not the key secret). Paste that secret here.",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                }
+            ]
+        },
+        "stripe": {
+            "position": 8,
+            "class": "StripeDriver",
+            "name": "Stripe",
+            "capabilities": [
+                "redirect",
+                "lookup",
+                "refund",
+                "partial_refund",
+                "webhook"
+            ],
+            "interfaces": [
+                "hosted",
+                "test_connection",
+                "logo",
+                "refund_lookup",
+                "cancel_hosted",
+                "resume_hosted"
+            ],
+            "currencies": [
+                "USD",
+                "AED",
+                "AFN",
+                "ALL",
+                "AMD",
+                "ANG",
+                "AOA",
+                "ARS",
+                "AUD",
+                "AWG",
+                "AZN",
+                "BAM",
+                "BBD",
+                "BDT",
+                "BIF",
+                "BMD",
+                "BND",
+                "BOB",
+                "BRL",
+                "BSD",
+                "BWP",
+                "BYN",
+                "BZD",
+                "CAD",
+                "CDF",
+                "CHF",
+                "CLP",
+                "CNY",
+                "COP",
+                "CRC",
+                "CVE",
+                "CZK",
+                "DJF",
+                "DKK",
+                "DOP",
+                "DZD",
+                "EGP",
+                "ETB",
+                "EUR",
+                "FJD",
+                "FKP",
+                "GBP",
+                "GEL",
+                "GIP",
+                "GMD",
+                "GNF",
+                "GTQ",
+                "GYD",
+                "HKD",
+                "HNL",
+                "HTG",
+                "HUF",
+                "IDR",
+                "ILS",
+                "INR",
+                "ISK",
+                "JMD",
+                "JPY",
+                "KES",
+                "KGS",
+                "KHR",
+                "KMF",
+                "KRW",
+                "KYD",
+                "KZT",
+                "LAK",
+                "LBP",
+                "LKR",
+                "LRD",
+                "LSL",
+                "MAD",
+                "MDL",
+                "MGA",
+                "MKD",
+                "MMK",
+                "MNT",
+                "MOP",
+                "MUR",
+                "MVR",
+                "MWK",
+                "MXN",
+                "MYR",
+                "MZN",
+                "NAD",
+                "NGN",
+                "NIO",
+                "NOK",
+                "NPR",
+                "NZD",
+                "PAB",
+                "PEN",
+                "PGK",
+                "PHP",
+                "PKR",
+                "PLN",
+                "PYG",
+                "QAR",
+                "RON",
+                "RSD",
+                "RUB",
+                "RWF",
+                "SAR",
+                "SBD",
+                "SCR",
+                "SEK",
+                "SGD",
+                "SHP",
+                "SLE",
+                "SOS",
+                "SRD",
+                "STD",
+                "SZL",
+                "THB",
+                "TJS",
+                "TOP",
+                "TRY",
+                "TTD",
+                "TWD",
+                "TZS",
+                "UAH",
+                "UYU",
+                "UZS",
+                "VND",
+                "VUV",
+                "WST",
+                "XAF",
+                "XCD",
+                "XCG",
+                "XOF",
+                "XPF",
+                "YER",
+                "ZAR",
+                "ZMW"
+            ],
+            "fields": [
+                {
+                    "key": "sandbox",
+                    "label": "Test mode",
+                    "type": "boolean",
+                    "required": false,
+                    "help": "Uses your Stripe sandbox with test keys (sk_test_…); no real money moves. Not available in production.",
+                    "options": [],
+                    "default": true,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "secret_key",
+                    "label": "Secret key",
+                    "type": "secret",
+                    "required": true,
+                    "help": "Stripe Workbench → API keys. A restricted key (rk_…) needs write access to Checkout Sessions and Refunds and read access to PaymentIntents, Refunds and Disputes.",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "webhook_secret",
+                    "label": "Webhook signing secret",
+                    "type": "secret",
+                    "required": true,
+                    "help": "Create a snapshot event destination for the webhook URL below with: checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, checkout.session.expired, payment_intent.succeeded, refund.created, refund.updated, charge.dispute.created, charge.dispute.funds_withdrawn, charge.dispute.closed. Paste its whsec_… secret here.",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                },
+                {
+                    "key": "publishable_key",
+                    "label": "Publishable key",
+                    "type": "string",
+                    "required": false,
+                    "help": "Optional (pk_…). Checkout doesn't need it; \"Test connection\" checks that it belongs to the same mode as the secret key.",
+                    "options": [],
+                    "default": null,
+                    "optionsSource": null,
+                    "minLength": null
+                }
+            ]
+        }
+    },
+    "commands": [
+        "payments:razorpay-smoke",
+        "payments:stripe-smoke"
+    ],
+    "registries": {
+        "permissions": [],
+        "settings": [],
+        "navigation": [],
+        "search": [],
+        "webhooks": [],
+        "automation": [],
+        "dashboard": [],
+        "sitemap": [],
+        "currency_usage": [],
+        "merge_fields": [],
+        "reference_data": [],
+        "encrypted_storage": [],
+        "event_listeners": [],
+        "rate_limiters": [],
+        "web_middleware": []
+    }
+}
