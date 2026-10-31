@@ -75,12 +75,12 @@ it('respects the notify flag on InvoiceCreated', function () {
     Mail::assertNothingSent();
 });
 
-it('composes the invoice emails that carry the PDF on the notifications queue, and the rest in place (#566)', function (Closure $event, bool $queued, bool $loggedNow) {
+it('composes the invoice emails that carry the PDF on the document-emails queue, and the rest in place (#566)', function (Closure $event, bool $queued, bool $loggedNow) {
     Queue::fake();
 
     $this->listener->handle($event($this->client->id));
 
-    $queued ? Queue::assertPushedOn(Queues::NOTIFICATIONS, ComposeEventEmails::class) : Queue::assertNotPushed(ComposeEventEmails::class);
+    $queued ? Queue::assertPushedOn(Queues::DOCUMENT_EMAILS, ComposeEventEmails::class) : Queue::assertNotPushed(ComposeEventEmails::class);
     expect(EmailMessage::query()->exists())->toBe($loggedNow);
 })->with([
     'created' => [fn (int $client) => new InvoiceCreated(10, $client), true, false],

@@ -90,7 +90,7 @@ One image, four commands:
 | Service             | Command                                                                                | Replicas                                                                                        |
 | ------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `app`               | `frankenphp run`                                                                       | 1+                                                                                              |
-| `worker-*`          | `php artisan queue:work --queue=... --tries=3 --timeout=200 --max-time=3600`           | 1 per pool (ADR 0014: `payments,provisioning,registrar` / `notifications,webhooks` / `default`) |
+| `worker-*`          | `php artisan queue:work --queue=... --tries=3 --timeout=200 --max-time=3600`           | 1 per pool (ADR 0014: `payments,provisioning,registrar` / `notifications,webhooks,document-emails` / `default`) |
 | `worker-automation` | `php artisan queue:work automation --queue=automation --tries=1 --timeout=3600`        | exactly 1 (Run now; its own connection, `retry_after` 3,900 s, `install.md` §6)                 |
 | `scheduler`         | `php artisan schedule:work`                                                            | exactly 1                                                                                       |
 | `migrate`           | `php artisan migrate --isolated=1 --force && php artisan app:install --no-interaction` | one-shot                                                                                        |

@@ -2338,6 +2338,7 @@ App\Support\Queues const public AUTOMATION_TIMEOUT_SECONDS = 3600
 App\Support\Queues const public DEFAULT = 'default'
 App\Support\Queues const public DEFAULT_POOL_MEMORY_MB = 256
 App\Support\Queues const public DEFAULT_POOL_TIMEOUT_SECONDS = 150
+App\Support\Queues const public DOCUMENT_EMAILS = 'document-emails'
 App\Support\Queues const public IMPORTS = 'imports'
 App\Support\Queues const public IMPORT_JOB_TIMEOUT_SECONDS = 120
 App\Support\Queues const public NOTIFICATIONS = 'notifications'

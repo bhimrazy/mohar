@@ -100,7 +100,7 @@ release, as the user that runs PHP.
 
     ```bash
     php artisan queue:work --queue=payments,provisioning,registrar --tries=3 --timeout=200
-    php artisan queue:work --queue=notifications,webhooks --tries=3
+    php artisan queue:work --queue=notifications,webhooks,document-emails --tries=3
     php artisan queue:work --queue=default --tries=3
     php artisan queue:work automation --queue=automation --tries=1 --timeout=3600
     ```
@@ -119,7 +119,7 @@ release, as the user that runs PHP.
     [Service]
     User=www-data
     WorkingDirectory=/srv/billing/billing
-    ExecStart=/usr/bin/php artisan queue:work --queue=notifications,webhooks --tries=3 --max-time=3600
+    ExecStart=/usr/bin/php artisan queue:work --queue=notifications,webhooks,document-emails --tries=3 --max-time=3600
     Restart=always
 
     [Install]

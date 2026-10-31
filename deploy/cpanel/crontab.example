@@ -15,6 +15,6 @@
 # deploy/cpanel/simulate-cron runs exactly these lines.
 * * * * * cd "$HOME/billing" && /opt/cpanel/ea-php84/root/usr/bin/php artisan schedule:run >> storage/logs/cron.log 2>&1
 * * * * * cd "$HOME/billing" && flock -n storage/framework/cron-critical.lock /opt/cpanel/ea-php84/root/usr/bin/php artisan queue:work --queue=payments,provisioning,registrar --stop-when-empty --max-time=55 --tries=3 --timeout=200 >> storage/logs/cron.log 2>&1
-* * * * * cd "$HOME/billing" && flock -n storage/framework/cron-notifications.lock /opt/cpanel/ea-php84/root/usr/bin/php artisan queue:work --queue=notifications,webhooks --stop-when-empty --max-time=55 --tries=3 >> storage/logs/cron.log 2>&1
+* * * * * cd "$HOME/billing" && flock -n storage/framework/cron-notifications.lock /opt/cpanel/ea-php84/root/usr/bin/php artisan queue:work --queue=notifications,webhooks,document-emails --stop-when-empty --max-time=55 --tries=3 >> storage/logs/cron.log 2>&1
 * * * * * cd "$HOME/billing" && flock -n storage/framework/cron-default.lock /opt/cpanel/ea-php84/root/usr/bin/php artisan queue:work --queue=default,imports --stop-when-empty --max-time=55 --tries=3 --timeout=150 --memory=256 >> storage/logs/cron.log 2>&1
 * * * * * cd "$HOME/billing" && flock -n storage/framework/cron-automation.lock /opt/cpanel/ea-php84/root/usr/bin/php artisan queue:work automation --queue=automation --stop-when-empty --max-time=55 --tries=1 --timeout=3600 >> storage/logs/cron.log 2>&1

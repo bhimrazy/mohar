@@ -260,7 +260,7 @@ are in `App\Support\Queues` (ADR 0014):
 
 ```bash
 php artisan queue:work --queue=payments,provisioning,registrar --tries=3 --timeout=200
-php artisan queue:work --queue=notifications,webhooks --tries=3
+php artisan queue:work --queue=notifications,webhooks,document-emails --tries=3
 php artisan queue:work --queue=default,imports --tries=3 --timeout=150 --memory=256
 php artisan queue:work automation --queue=automation --tries=1 --timeout=3600
 ```
@@ -320,7 +320,7 @@ After=network.target
 [Service]
 User=www-data
 WorkingDirectory=/srv/billing/billing
-ExecStart=/usr/bin/php artisan queue:work --queue=notifications,webhooks --tries=3 --max-time=3600
+ExecStart=/usr/bin/php artisan queue:work --queue=notifications,webhooks,document-emails --tries=3 --max-time=3600
 Restart=always
 
 [Install]

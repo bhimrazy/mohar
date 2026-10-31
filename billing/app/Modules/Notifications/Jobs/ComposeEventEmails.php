@@ -25,7 +25,7 @@ class ComposeEventEmails implements ShouldQueue
     public function __construct(public object $event)
     {
         $this->tries = max(1, (int) config('notifications.mail_max_attempts', 3));
-        $this->onQueue(Queues::NOTIFICATIONS);
+        $this->onQueue(Queues::DOCUMENT_EMAILS);
     }
 
     /**

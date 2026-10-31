@@ -203,7 +203,7 @@ test('a renewal run does no PDF work: the worker composing the invoice email ren
     expect($renders)->toBe(0)
         ->and(Storage::disk('objects')->allFiles())->toBe([])
         ->and(EmailMessage::query()->count())->toBe(0);
-    Queue::assertPushedOn(Queues::NOTIFICATIONS, ComposeEventEmails::class);
+    Queue::assertPushedOn(Queues::DOCUMENT_EMAILS, ComposeEventEmails::class);
 
     composeQueuedEmails();
 

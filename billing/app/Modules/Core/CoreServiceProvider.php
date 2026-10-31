@@ -169,7 +169,7 @@ class CoreServiceProvider extends ModuleServiceProvider
 
         // One dev worker (composer dev) for every queue, in priority order, from the Queues constants (ADR 0014). The
         // automation connection keeps its own worker in Platform.
-        DevCommands::artisan('queue:listen --queue='.implode(',', [Queues::PAYMENTS, Queues::PROVISIONING, Queues::REGISTRAR, Queues::NOTIFICATIONS, Queues::WEBHOOKS, Queues::DEFAULT, Queues::IMPORTS]).' --tries=1 --timeout=0', 'queue');
+        DevCommands::artisan('queue:listen --queue='.implode(',', [Queues::PAYMENTS, Queues::PROVISIONING, Queues::REGISTRAR, Queues::NOTIFICATIONS, Queues::WEBHOOKS, Queues::DOCUMENT_EMAILS, Queues::DEFAULT, Queues::IMPORTS]).' --tries=1 --timeout=0', 'queue');
 
         // Client import (client-import spec §16): Core writes its own records for every import source.
         $imports = $this->app->make(ImportRegistry::class);

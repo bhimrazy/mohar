@@ -71,7 +71,7 @@ Run every command from the root of the repository.
    starts only while the scheduler is running. Start them in three more terminals when you need them:
 
     ```bash
-    docker compose -f deploy/compose.dev.yaml exec app php artisan queue:work --queue=payments,provisioning,registrar,notifications,webhooks,default,imports
+    docker compose -f deploy/compose.dev.yaml exec app php artisan queue:work --queue=payments,provisioning,registrar,notifications,webhooks,document-emails,default,imports
     docker compose -f deploy/compose.dev.yaml exec app php artisan queue:work automation --queue=automation
     docker compose -f deploy/compose.dev.yaml exec app php artisan schedule:work
     ```

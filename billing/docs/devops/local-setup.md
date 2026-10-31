@@ -108,14 +108,15 @@ release binary, check it against `actionlint_1.7.12_checksums.txt`, run it from 
   module). Standalone: `php artisan queue:work --queue=provisioning,default --tries=3`
   (`QUEUE_CONNECTION=database`; tests use `sync`).
 - `composer dev` also runs a second worker for the Notifications module's queues (`notifications` for
-  email sends, `webhooks` for outbound webhook deliveries). Standalone:
-  `php artisan queue:work --queue=notifications,webhooks`.
+  email sends, `webhooks` for outbound webhook deliveries, `document-emails` for composing the invoice emails that
+  carry the PDF, read last). Standalone:
+  `php artisan queue:work --queue=notifications,webhooks,document-emails`.
 - `composer dev` also runs a worker on the `automation` connection (registered by the Platform module) for
   **Run now** on Admin → Automation. Standalone: `php artisan queue:work automation --queue=automation --tries=1`.
   Those jobs run on their own connection because a run can outlast the pools' `retry_after` (`install.md` §6).
 - Production: run at least one worker that consumes `provisioning` (driver calls: create, suspend,
   terminate, change package/password), e.g. `php artisan queue:work --queue=provisioning,default`, and one
-  that consumes `notifications,webhooks` (email and webhook jobs set their own tries and backoff; webhook
+  that consumes `notifications,webhooks,document-emails` (email and webhook jobs set their own tries and backoff; webhook
   retries are re-dispatched every minute by `notifications:retry-webhooks` from the scheduler). Without it,
   emails stay `queued` in the email log and webhook deliveries stay `pending`.
   Module command jobs try once and time out after `services.module.job_timeout_seconds` (60 s), or the

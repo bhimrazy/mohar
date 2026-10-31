@@ -124,7 +124,7 @@ x-worker-notifications: &worker-notifications
             'php',
             'artisan',
             'queue:work',
-            '--queue=notifications,webhooks',
+            '--queue=notifications,webhooks,document-emails',
             '--tries=3',
             '--max-time=3600',
         ]
