@@ -252,7 +252,7 @@ test('Test connection accepts the merchant secret and names a wrong one', functi
     $driver = app(EsewaDriver::class);
 
     expect($driver->testConnection(esewaConfig())->ok)->toBeTrue()
-        ->and($driver->testConnection(esewaConfig('wrong-secret'))->message)->toContain('rejected the product code or secret key');
+        ->and($driver->testConnection(esewaConfig('wrong-secret'))->message)->toContain('rejected the secret key for product code');
 });
 
 test('refusals have the codes and wording eSewa UAT answered on 2026-10-31', function () {

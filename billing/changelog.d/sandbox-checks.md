@@ -1,5 +1,6 @@
 ### Fixed
 
-- **eSewa "Test connection" names an unknown product code.** eSewa answers a product code it doesn't know with
-  "Unable to fetch merchant key. Please try again later.", not the signature error, so the check used to say it refused
-  the test booking and to try again later. It now says eSewa doesn't know the product code. No settings change.
+- **eSewa "Test connection" says which credential is wrong.** A wrong secret key (eSewa's ES104) now names the secret
+  key for the product code, not "the product code or secret key". An unknown product code, which eSewa answers with
+  "Unable to fetch merchant key. Please try again later.", now shows that text with "Check the product code; if it is
+  right, eSewa may be unavailable, so try again later." instead of only "refused the test booking". No settings change.
