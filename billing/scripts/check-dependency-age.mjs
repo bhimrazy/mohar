@@ -7,7 +7,8 @@
  *   - npm packages       (billing/ and docs-site/ package-lock.json → registry.npmjs.org time[version]; direct
  *                         dependencies in their package.json must be exact versions)
  *   - GitHub Actions     (.github/**: `uses: owner/repo@<sha> # <tag>` → release date; SHA must match the tag)
- *   - Docker images      (billing/compose.yaml, workflow, deploy/*.yaml and loadtest/*.yaml `image:`; `# syntax=`,
+ *   - Docker images      (billing/compose.yaml, workflow, deploy/*.yaml and loadtest/*.yaml `image:`; setup-buildx's
+ *                         `driver-opts: image=`; `# syntax=`,
  *                         `FROM` and `--from=` of every Dockerfile/Containerfile → Docker Hub tag push date; digest
  *                         required)
  *   - Tools              (billing/.nvmrc → nodejs.org; setup-php `tools: composer:X` → GitHub release)
@@ -37,6 +38,7 @@ import {
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+    buildkitImages,
     composerDistProblems,
     directPinProblems,
     digestBelongsToTag,
@@ -165,6 +167,14 @@ function collect(read, listWorkflowFiles, listRepoFiles) {
             if (own) {
                 continue;
             }
+            items.push({
+                kind: 'image',
+                name: image.split('@')[0],
+                version: image.split('@')[1] ?? '',
+                file,
+            });
+        }
+        for (const image of buildkitImages(text)) {
             items.push({
                 kind: 'image',
                 name: image.split('@')[0],

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    buildkitImages,
     composeImages,
     composerDistProblems,
     directPinProblems,
@@ -322,5 +323,42 @@ describe('isComposeFile', () => {
             'deploy/compose.dev.yaml',
             'loadtest/compose.loadtest.yaml',
         ]);
+    });
+});
+
+describe('buildkitImages', () => {
+    const pinned = `moby/buildkit:v0.34.0@${POSTGRES_INDEX}`;
+
+    it('reads an inline driver-opts value', () => {
+        expect(buildkitImages(`  driver-opts: image=${pinned}`)).toEqual([
+            pinned,
+        ]);
+        expect(
+            buildkitImages(`  driver-opts: 'image=moby/buildkit:latest'`),
+        ).toEqual(['moby/buildkit:latest']);
+    });
+
+    it('reads every image= line of a block scalar, and only that block', () => {
+        const workflow = [
+            '      with:',
+            '        driver-opts: |',
+            '          network=host',
+            `          image=${pinned} # pinned`,
+            '',
+            '          image=moby/buildkit:master',
+            '        install: true',
+            '        labels: org.opencontainers.image=x',
+        ].join('\n');
+
+        expect(buildkitImages(workflow)).toEqual([
+            pinned,
+            'moby/buildkit:master',
+        ]);
+    });
+
+    it('returns nothing without driver-opts', () => {
+        expect(
+            buildkitImages('    image: postgres:18\n    driver: docker'),
+        ).toEqual([]);
     });
 });

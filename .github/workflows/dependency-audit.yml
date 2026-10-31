@@ -1,0 +1,74 @@
+# Weekly audit of develop's locked dependencies (infra security review 2026-10-31, M3): CI audits only a change to a
+# dependency file (owner decision 2026-10-21), so a new advisory against an unchanged lockfile, or a re-pushed image
+# tag, needs a run of its own. Nothing is installed: composer audit reads composer.lock, npm audit the lockfiles, and
+# the pinning checker uses Node built-ins only. A failure is the signal (GitHub notifies whoever last
+# changed the schedule); fix it in a PR into develop (dependency-policy.md, "Emergency security fixes").
+#
+# GitHub runs `schedule` and `workflow_dispatch` only for a workflow file on the default branch, `main`, which does not
+# carry this file yet; the job checks out develop explicitly, so a copy on main audits develop. After its first run a
+# dispatch can also name another branch (`gh workflow run dependency-audit.yml --ref <branch>`), which is then audited.
+name: Dependency audit
+
+on:
+    schedule:
+        - cron: '17 3 * * 1' # Mondays 03:17 UTC
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: dependency-audit-${{ github.ref }}
+    cancel-in-progress: false
+
+defaults:
+    run:
+        working-directory: billing
+
+jobs:
+    audit:
+        name: Audits and pins (locked, nothing installed)
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  # A scheduled run (always on main) audits develop; a dispatch from develop or another branch audits it.
+                  ref: ${{ (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main') && github.ref || 'develop' }}
+                  persist-credentials: false
+
+            - name: Set up PHP
+              uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+              with:
+                  php-version: '8.4'
+                  tools: composer:2.10.3
+                  coverage: none
+
+            - name: Set up Node
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version-file: billing/.nvmrc
+
+            # The three checks run even when one fails, so one run reports everything; the job fails if any did.
+            - name: composer audit
+              run: composer audit --locked
+
+            - name: npm audit (billing)
+              if: ${{ !cancelled() }}
+              run: npm audit --audit-level=high --package-lock-only
+
+            - name: npm audit (docs-site)
+              if: ${{ !cancelled() }}
+              working-directory: docs-site
+              run: npm audit --audit-level=high --package-lock-only
+
+            # Every item, not a diff, with no minimum age: the cooldown judges adopting a version, and what is merged
+            # was judged then (a security exception would otherwise fail here for 7 days). What remains is pinning and
+            # binding: exit 1 is a violation, exit 2 a pin that can no longer be proven, usually an image tag re-pushed
+            # upstream (often a security rebuild): re-pin to the tag's current digest in a PR.
+            - name: Pinning and binding (all items)
+              if: ${{ !cancelled() }}
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: node scripts/check-dependency-age.mjs --all --min-days=0

@@ -288,6 +288,49 @@ export function composeImages(text) {
 }
 
 /**
+ * The BuildKit images a workflow sets through docker/setup-buildx-action's `driver-opts` (`image=<ref>`), which
+ * `composeImages` does not see. The input is newline-delimited (commas do not split it), inline or as a block scalar;
+ * every `image=` entry is returned so an unpinned or too-new BuildKit fails like any other image.
+ *
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function buildkitImages(text) {
+    const images = [];
+    const lines = text.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+        const key = lines[i].match(/^(\s*)driver-opts:\s*(.*)$/);
+        if (!key) {
+            continue;
+        }
+        const entries = [];
+        if (/^[|>]/.test(key[2])) {
+            const indent = key[1].length;
+            while (
+                i + 1 < lines.length &&
+                (lines[i + 1].trim() === '' ||
+                    lines[i + 1].match(/^\s*/)[0].length > indent)
+            ) {
+                entries.push(lines[++i]);
+            }
+        } else {
+            entries.push(key[2]);
+        }
+        for (const entry of entries) {
+            const value = entry
+                .replace(/\s+#.*$/, '')
+                .trim()
+                .replace(/^(['"])(.*)\1$/, '$2');
+            if (value.startsWith('image=')) {
+                images.push(value.slice('image='.length));
+            }
+        }
+    }
+
+    return images;
+}
+
+/**
  * Direct dependencies of a package.json that are not pinned to one exact version (ADR 0007): ranges, tags, URLs and
  * workspaces. An `npm:<name>@<version>` alias passes when its version is exact.
  *

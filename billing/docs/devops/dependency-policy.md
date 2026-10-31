@@ -12,7 +12,7 @@ reach us. Decision record: [ADR 0007](../adr/0007-dependency-pinning-and-cooldow
 | Composer packages       | exact versions in `composer.json` (`"laravel/framework": "13.36.0"`), `composer.lock` is the source of truth                                            | `scripts/check-dependency-age.mjs` (packagist `time`)                                    |
 | npm packages            | exact versions in `package.json` (checked by the script for `billing/` and `docs-site/`), `save-exact=true`, `package-lock.json` is the source of truth | `.npmrc` `min-release-age=7` (native) + the script (registry `time`), for both lockfiles |
 | GitHub Actions          | full commit SHA + `# <tag>` comment on the same line; SHA must equal the tag                                                                            | the script (release date, tag → SHA)                                                     |
-| Docker images           | `<name>:<tag>@sha256:<digest>` (compose and workflow `services:`)                                                                                       | the script (Docker Hub push date)                                                        |
+| Docker images           | `<name>:<tag>@sha256:<digest>` (compose, workflow `services:`, setup-buildx `driver-opts: image=`)                                                      | the script (Docker Hub push date)                                                        |
 | Tools                   | `billing/.nvmrc` (Node), `tools: composer:<x.y.z>` in the setup action                                                                                  | the script (nodejs.org / GitHub release)                                                 |
 | Transitive dependencies | locked (ranges are allowed only below the direct level)                                                                                                 | the script (every locked package, not just direct ones)                                  |
 
@@ -30,7 +30,7 @@ packages with security advisories or flagged as malware, report (not fail) aband
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | npm 11.19 (Node 24.22.1) | `save-exact`; `min-release-age=<days>` (+ `min-release-age-exclude`) and `before=<date>` filter versions when **resolving** (`npm install`/`update`). `npm ci` installs the lock as-is and ignores them. |
 | Composer 2.10.3          | `config.policy` — `advisories.block` (default on), `malware.block` (default on), `abandoned`; `composer audit`. **No minimum release age**: `policy.minimum-release-age` is only a reserved name.        |
-| Dependabot               | `cooldown.default-days` (we use 14) for version updates; **security updates ignore the cooldown**.                                                                                                       |
+| Dependabot               | `cooldown.default-days` (we use 14) for version updates; **security updates ignore the cooldown**. Both work from the default branch only (see [Dependabot](#dependabot)).                               |
 | Renovate                 | has `minimumReleaseAge`, but we do not run Renovate — the script fills the gap.                                                                                                                          |
 
 ## The check
@@ -64,7 +64,15 @@ composer deps:check                                # composer validate + compose
   advisory against unchanged lockfiles surfaces on the next dependency change or a manual `composer deps:check`;
   there is no nightly run while `main`, the default branch, stays a landing page (owner, 2026-10-21). All **before**
   `composer install` / `npm ci`, so no
-  package code runs before the lockfiles pass. PR runs diff against the PR base, pushes against
+  package code runs before the lockfiles pass. On a PR the checker, `dependency-policy.mjs`, `changelog-check.sh` and
+  `security-exceptions.sh` are the **base branch's** copies (CI extracts them from `HEAD^1`, like
+  `scripts/merge-gate.sh`), so a PR cannot weaken the check that judges it; a change to them takes effect after it
+  merges. `.github/CODEOWNERS` asks the owner to review these files, the workflows and `deploy/`.
+- `.github/workflows/dependency-audit.yml` runs weekly (and on demand): both audits and
+  `check-dependency-age.mjs --all --min-days=0` on develop's lockfiles, nothing installed. The age is not re-judged
+  for merged items; a failure is a new advisory, a broken pin or an image tag re-pushed upstream (re-pin it).
+  Like every scheduled workflow it runs only once its file is on the default branch: until then this weekly signal
+  does not exist, and `composer deps:check` before a release stays the only audit of an unchanged lockfile. PR runs diff against the PR base, pushes against
   `github.event.before` (a new branch or an unreachable base checks `--all`). `composer ci` runs the same via
   `composer deps:check`.
 
@@ -80,9 +88,18 @@ composer deps:check                                # composer validate + compose
 4. Adding a **new** direct dependency still needs CTO approval (ARCHITECTURE: "do not change the application's
    dependencies without approval").
 
-Dependabot opens weekly PRs for actions, compose images, Composer and npm after its 14-day cooldown; they pass
-the check without intervention. The CI PostgreSQL `services:` image is not updated by Dependabot — bump
-it in the same PR as the compose.yaml update (CI fails on drift).
+## Dependabot
+
+`.github/dependabot.yml` asks for weekly PRs into `develop` for actions, compose images (`billing/`, `deploy/`,
+`loadtest/`, one PR per image across them), the `deploy/Dockerfile` base images, Composer and npm, after a 14-day
+cooldown; they pass the check without intervention. The CI PostgreSQL `services:` image is not updated by Dependabot —
+bump it in the same PR as the compose.yaml update (CI fails on drift).
+
+**None of this runs today.** Dependabot works from the default branch, and `main` (the landing page) carries neither
+this file nor the manifests; no Dependabot PR has ever been opened. Security updates also need Dependabot alerts and
+security updates turned on in the repository settings (both off), and they always target the default branch. Until
+`main` carries the code (the first release) or the default branch changes, both are owner decisions, the vulnerability
+signal is the weekly audit above once its file is on `main`, plus `composer deps:check` before a release.
 
 ## Emergency security fixes (cooldown exception)
 
@@ -97,9 +114,13 @@ A fix for a critical/high vulnerability may be adopted before it is 7 days old:
     ```
 
     Only those exact `name@version` items skip the cooldown; anything else that is too new still fails, so
-    fresh packages cannot ride along with a security bump. The job summary lists the waived items. Re-run the
-    job after editing the label or body (both are read at run time). Pinning/binding checks, lockfile sync and
-    the audits are **always enforced** whenever they run.
+    fresh packages cannot ride along with a security bump. The job summary lists the waived items. Pinning/binding
+    checks, lockfile sync and the audits are **always enforced** whenever they run.
+
+    The label approves the list as it stands: `scripts/security-exceptions.sh` (CI and the merge gate) fails when
+    the PR body was edited after the label was last added, so nobody can widen the list after the review. To change
+    it, edit the body, have a maintainer re-check the lines, remove and re-add the label, then re-run the job (the
+    label and the body are read at run time; adding a label other than `ci` does not start a run).
 
 3. The CTO approves the PR explicitly (review comment naming the advisory). Without that approval it is not merged.
 4. Locally: `DEPENDENCY_AGE_EXCEPTIONS='laravel/framework@13.36.1' composer deps:check`; npm needs
@@ -110,8 +131,8 @@ and engineer acts as, so the label, the body and the approval can all be set by 
 technical control needs a second identity (required review from a separate account, or a protected
 environment with required reviewers).
 
-Dependabot **security** updates bypass its cooldown, so they arrive as PRs that fail the check — handle them
-with the same label + `Security-Exception` lines + approval flow.
+Dependabot **security** updates, once they can arrive (see [Dependabot](#dependabot)), bypass its cooldown and fail
+the check — handle them with the same label + `Security-Exception` lines + approval flow.
 
 ## Open follow-ups
 

@@ -38,14 +38,21 @@ after `checks` passed, so they never install a lockfile the policy has not appro
 
 | #   | Step                                                                                                                                                                                                      |
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | checkout (depth 2 for PRs, full history for pushes) · docs-only detection · dependency diff base · changelog fragments (PRs only, also on the fast path)                                                  |
+| 1   | checkout (depth 2 for PRs, full history for pushes) · docs-only detection · dependency diff base · the base branch's policy scripts · changelog fragments (PRs only, also on the fast path)               |
 | 2   | setup-php · setup-node (toolchain only, no project dependencies)                                                                                                                                          |
 | 3   | postgres digest drift (ci.yml = compose.yaml = compose.prod.yaml)                                                                                                                                         |
 | 4   | `composer validate` on every code or dependency change · `composer audit --locked` · `npm audit --audit-level=high --package-lock-only` only when a manifest, lockfile, `.npmrc` or workflow file changed |
-| 5   | dependency cooldown + binding (`check-dependency-age.mjs`, PR base or `github.event.before`)                                                                                                              |
+| 5   | dependency cooldown + binding (`check-dependency-age.mjs`, PR base or `github.event.before`), waivers from `security-exceptions.sh`                                                                       |
 | 6   | install: Composer + npm from lockfiles (cached), `.env`, Wayfinder                                                                                                                                        |
 | 7   | `vp check` (format + lint) and image sizes — the only steps on docs-only PRs and pushes                                                                                                                   |
 | 8   | restore tool caches · Pint · tsc · Vitest (`npm test`) · PHPStan                                                                                                                                          |
+
+On a PR, steps 1 and 5 run the **base branch's** `changelog-check.sh`, `changelog-assemble.sh`,
+`security-exceptions.sh`, `check-dependency-age.mjs` and `dependency-policy.mjs` (extracted from `HEAD^1` into
+`billing/.ci-policy/`, removed before the install), against the PR's tree, as the local merge gate does: a PR cannot
+weaken the checks that judge it, and a change to them takes effect once merged. A script the base does not have yet
+comes from the PR, with a warning. `ci.yml` itself still comes from the PR (inherent to `pull_request`), so a change
+to it is a visible workflow diff; `.github/CODEOWNERS` requests the owner's review of it.
 
 **Test jobs.** `pest --shard=<n>/<total>` (in the installed Pest 5.3) gives each job a share of the test files, round-robin in file
 order, and each job runs its share with `--parallel`: SQLite in 2 shards (one worker per vCPU: 4 on the public-repository runner, every suite), PostgreSQL in
@@ -167,6 +174,14 @@ that was not created.
 - Validate with [actionlint](https://github.com/rhysd/actionlint) v1.7.12 from the repository root.
 - Keep `timeout-minutes` on every job so a hung run cannot burn minutes.
 
+## Scheduled dependency audit
+
+`dependency-audit.yml` runs on Mondays at 03:17 UTC and on demand: `composer audit --locked`, both `npm audit
+--package-lock-only` and `check-dependency-age.mjs --all --min-days=0` on develop, with nothing installed and
+`contents: read` only. It is the signal for an advisory against an unchanged lockfile, which CI no longer raises
+(audits run only on dependency changes, owner decision 2026-10-21). GitHub runs `schedule` and `workflow_dispatch`
+only for a file on the default branch, so it is dormant until `main` carries it (owner decision).
+
 ## Manual workflows
 
 Two more workflows build and run the production stack on a runner. Neither is part of CI. Each runs only when
@@ -194,7 +209,8 @@ changes with no changelog fragment, or the kernel surface changes with no kernel
 - The assemble commit is allowed to edit the changelogs: the PR head (`HEAD^2` of the merge commit) carries the trailer
   `Changelog-Assemble: yes`, and the diff only edits the two changelogs and deletes fragments. Keep that commit as the
   PR's last one; a later commit or a merge of `develop` drops the marker.
-- PRs into `main` are not checked (a release PR carries `develop`'s assembled changelog). PRs up to #396, opened before
+- PRs into `main` are not checked (a release PR carries `develop`'s assembled changelog), nor back-merges from this
+  repository's `main` (a fork's branch named `main` is checked: CI passes the head repository). PRs up to #396, opened before
   fragments, keep their direct edits with a warning (`LEGACY_MAX_PR` in the script; remove it once they have merged).
 - The local merge gate runs the same check with `develop`'s copy of both scripts.
 

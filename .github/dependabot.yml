@@ -1,6 +1,11 @@
 # Supply-chain rule (billing/docs/devops/dependency-policy.md): exact pins, nothing younger than 7 days —
 # enforced in CI by billing/scripts/check-dependency-age.mjs; Dependabot waits 14 days (cooldown below).
-# Security updates ignore the cooldown: label such PRs `security-exception` (CTO approval required).
+# Dependabot works from the default branch, and `main` (a landing page until the first release) carries neither
+# this file nor the manifests: until it does, no version-update PR arrives. Security updates need Dependabot alerts
+# and security updates enabled in the repository settings and always target the default branch, so none can arrive
+# either. When they do, such PRs skip the cooldown: label them `security-exception` (CTO approval required). Until
+# then the vulnerability signal is .github/workflows/dependency-audit.yml, which audits develop but, like every
+# scheduled workflow, runs only once its file is on the default branch.
 # Not covered: the `services:` image in .github/workflows/ci.yml — CI asserts it equals compose.yaml,
 # so bump it by hand in the same PR as Dependabot's compose.yaml update.
 version: 2
@@ -19,13 +24,22 @@ updates:
               patterns:
                   - '*'
 
+    # billing/compose.yaml (dev services), deploy/compose.prod.yaml (Caddy, PostgreSQL, RustFS) and
+    # loadtest/compose.loadtest.yaml (k6). One PR per image across the three: CI fails when the postgres pin differs
+    # between billing/ and deploy/.
     - package-ecosystem: docker-compose
-      directory: /billing
+      directories:
+          - /billing
+          - /deploy
+          - /loadtest
       target-branch: develop
       schedule:
           interval: weekly
       cooldown:
           default-days: 14
+      groups:
+          compose-images:
+              group-by: dependency-name
 
     # Base images in the FROM lines of deploy/Dockerfile (tag@digest). GitHub's docs do not say whether
     # COPY --from=<image> lines are updated too: check the composer image (only used that way) and the dev stage's
