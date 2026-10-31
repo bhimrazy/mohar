@@ -206,3 +206,10 @@ test('the load-test workflow takes its matrix from plan.py and keeps the label p
     preg_match_all('/matrix\.([a-z_]+)/', $workflow, $used);
     expect(array_values(array_diff(array_unique($used[1]), $keys[1])))->toBe([]);
 });
+
+test('a billing day that does not finish is reported, not summed to a short time', function () {
+    // Run 41198972155: on the small profile automation:run stopped after two tasks and the summary said "0.0 s".
+    expect(loadtestFile('loadtest/bin/run'))->toContain('|| automation_rc=$?')
+        ->and(loadtestFile('loadtest/bin/run'))->toContain('> "$results/automation-exit.json"')
+        ->and(loadtestFile('loadtest/bin/summarize.py'))->toContain("load(run / 'automation-exit.json', {})");
+});

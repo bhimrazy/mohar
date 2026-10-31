@@ -209,6 +209,7 @@ def summarize(run):
         'resources': usage,
         'pdf': load(run / 'pdf.json', {}),
         'automation': {
+            'exit_code': (load(run / 'automation-exit.json', {}) or {}).get('exit_code'),
             'seconds': round(automation_ms / 1000, 1),
             'tasks': sorted(({'task': t['task'], 'status': t['status'], 'seconds': round(int(t.get('duration_ms') or 0) / 1000, 2), 'summary': t.get('summary')} for t in tasks),
                             key=lambda t: -t['seconds']),
@@ -240,7 +241,7 @@ def markdown(s):
     lines = [
         f"## Load test: {meta.get('profile')} profile, {meta.get('volume')} volume ({meta.get('run')})",
         '',
-        f"Runner {meta.get('host_cpus')} CPU / {meta.get('host_memory_mb')} MB; profile {meta.get('profile_cpus')} vCPU / {meta.get('profile_memory')}; "
+        f"Runner {meta.get('host_cpus')} CPU ({meta.get('host_cpu_model') or 'model not recorded'}) / {meta.get('host_memory_mb')} MB; profile {meta.get('profile_cpus')} vCPU / {meta.get('profile_memory')}; "
         f"host cap: {meta.get('host_cap')}; PHP threads {meta.get('php_threads')}; virtual users arrive over {fmt(meta.get('start_spread_s'), ' s')}; "
         f"think time {meta.get('think') or 'per page (1–3 s mostly)'}; levels of {meta.get('level_duration')}; commit {meta.get('git_sha')}."
         + (' **The runner is smaller than this profile: these numbers are for the runner, not the profile.**' if meta.get('runner_smaller_than_profile') else ''),
@@ -283,6 +284,9 @@ def markdown(s):
         '### Background work', '',
         f"- Invoice PDF: {fmt(pdf.get('ms_p50'))} ms p50, {fmt(pdf.get('ms_p95'))} ms p95, {fmt(pdf.get('renders_per_second_one_process'))} renders/s per PHP process, "
         f"up to {fmt(pdf.get('peak_memory_mb_per_render_max'))} MB per render, {fmt(pdf.get('pdf_kb_avg'))} KB per file.",
+        *([f"- **`automation:run` exited with {automation['exit_code']} before it finished**"
+            + (' (killed: usually the scheduler container\'s memory limit)' if automation['exit_code'] == 137 else '')
+            + '. The billing-day figures below cover only the tasks it recorded.'] if automation.get('exit_code') else []),
         f"- Billing-day automation: {fmt(automation['seconds'])} s in total; slowest: "
         + ', '.join(f"{t['task']} {t['seconds']} s ({t['summary']})" for t in automation['tasks'][:4]) + '.',
         f"- Jobs it queued: {json.dumps(automation['jobs_queued'])}. Drain: {fmt(drain.get('jobs'))} jobs in {fmt(drain.get('seconds'))} s "

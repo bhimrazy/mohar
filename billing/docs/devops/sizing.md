@@ -3,13 +3,21 @@
 How much a single Docker host running the production stack ([production.md](production.md)) can serve, measured
 with the load-test harness in `loadtest/` (`loadtest/README.md`). Every number here comes from a posted run; the
 guide says where each one is from and what has not been measured yet. Hosts in Nepal are mostly small, so the
-small-host guidance comes first.
+small-host guidance comes first. Labels used below: **measured** (read from a run's artifact), **inferred**
+(worked out from measured numbers) and **not measured**.
 
 Sources:
 
-- **the reference:** the GitHub runner run of 2026-10-23,
+- **capacity (the reference for how many people a host serves):** two runs of 2026-10-31 on PR #543, the `load-test`
+  label running three jobs each from `loadtest/label-runs.json`:
+  [actions/runs/41193623951](https://github.com/bhimrazy/mohar/actions/runs/41193623951) (commit `e33b108`: small and
+  medium ramps, small with 10–30 s think time) and
+  [actions/runs/41198972155](https://github.com/bhimrazy/mohar/actions/runs/41198972155) (commit `450982e`: small at
+  10–50 users, small and medium with 10–30 s think time). Both commits are the PR's head merged into `develop` and
+  differ only in `loadtest/label-runs.json`;
+- **per-page detail at light load and background work, and history:** the runner run of 2026-10-23,
   [actions/runs/40000321793](https://github.com/bhimrazy/mohar/actions/runs/40000321793), the `load-test` label on
-  PR #433 (commit `c5c0ffa`, the PR's head `dbf92da5` merged into `develop`), with virtual users arriving over 20 s;
+  PR #433 (commit `c5c0ffa`), with virtual users arriving over 20 s;
 - history, before PR #433 (every virtual user started in the same second, see "Where the small host runs out"): the
   runner run of 2026-10-23 on the PR #374 branch,
   [actions/runs/39944684180](https://github.com/bhimrazy/mohar/actions/runs/39944684180) (commit `3151b0d`), and the
@@ -23,48 +31,177 @@ Sources:
 ## Short answer
 
 **Minimum and recommended: 2 vCPU and 4 GB**, for the whole production stack on one host
-([production.md](production.md)), up to the 50,000 clients measured. Memory is not what limits it (see "Memory"
-below); the tail latency at 40 active users is, and the first step when that matters is more vCPU (the medium
-profile, 4 vCPU and 8 GB, which has not been measured). Every doc states these numbers: production.md,
+([production.md](production.md)), up to the 50,000 clients measured. Every doc states these numbers: production.md,
 [install.md](install.md), [deployment-options.md](deployment-options.md) and the docs site's requirements page.
 
-| Host                                          | Clients      | What the measurements say                                                                                                                                                                                                    |
-| --------------------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Small: 2 vCPU, 4 GB** (the profile)         | under 2,000  | Enough, with a wide margin (inference). The small profile was measured at 50,000 clients, 25 times this volume, with 40 active users: median 120 ms per request, no errors.                                                  |
-| Small: 2 vCPU, 4 GB                           | 2,000–20,000 | Enough for the pages and the billing day (inference from the 50,000-client run, which is the larger data set). The tail at 40 active users (sign-in, dashboards) is the thing to watch; see "Where the small host runs out". |
-| Small: 2 vCPU, 4 GB (minimum and recommended) | 50,000       | Measured. At 40 active users: median 120 ms, p95 704 ms and p99 1.5 s over all pages, no errors; most pages have a p95 of 0.2–0.65 s, checkout 2.1 s and the admin dashboard 3.1 s; billing day 539 s.                       |
-| Medium: 4 vCPU, 8 GB                          | any          | Not measured. The next step when the small host's tail latency matters: 8 PHP threads instead of 4. It fits the public repository's runner and can be run from Actions.                                                      |
-| Large: 8 vCPU, 16 GB                          | above 50,000 | Not measured. The large profile needs 8 vCPU and the standard GitHub runner has 4, so it needs a larger or self-hosted runner (`loadtest/README.md`).                                                                        |
+At 50,000 clients the small host (2 vCPU, 4 GB) stays comfortable (p95 of all requests under 1 s, under 1% errors)
+up to **about 15 requests per second**. That is **40 fast virtual users** (1–3 s per page), or **200 to 350 people
+signed in at once** who read each page for 10–30 s (measured). The medium host (4 vCPU, 8 GB) stays comfortable up to
+**50 fast virtual users, or 400 people at once** (measured on a runner whose 4 CPUs it shares with the load generator,
+so a lower bound). What runs out first is CPU, split about evenly between PHP and PostgreSQL; memory is not close to
+a limit (see "What limits first" and "Memory").
 
-"Active users" are k6 virtual users: each one loads a page, waits 1–3 seconds, loads the next, so one virtual user is
-roughly one person clicking through the site. 40 virtual users produced 16.4 requests per second.
+| Host                                          | Clients      | What the measurements say                                                                                                                                                                                                                                   |
+| --------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Small: 2 vCPU, 4 GB** (the profile)         | under 2,000  | Enough, with a wide margin (inference). Every measurement below is at 50,000 clients, 25 times this volume.                                                                                                                                                 |
+| Small: 2 vCPU, 4 GB                           | 2,000–20,000 | Enough for the pages (inference from the 50,000-client runs, the larger data set). The billing day on the small profile did not finish in the 2026-10-31 runs (see "Background work").                                                                      |
+| Small: 2 vCPU, 4 GB (minimum and recommended) | 50,000       | Measured. Comfortable at 40 fast virtual users (15 req/s, p95 669 ms), past the limit at 50 (p95 1.6–2.6 s). With 10–30 s per page: comfortable at 200 people (and at 350 on a faster runner with slower arrivals), past the limit at 300 (see "Capacity"). |
+| Medium: 4 vCPU, 8 GB                          | 50,000       | Measured, as a lower bound. Comfortable at 50 fast virtual users (20 req/s, p95 315 ms) and at 400 people with 10–30 s per page (17 req/s, p95 353 ms); past the limit at 100 fast users and at 500 people. Billing day 3,059–3,078 s.                      |
+| Large: 8 vCPU, 16 GB                          | above 50,000 | Not measured. The large profile needs 8 vCPU and the standard GitHub runner has 4, so it needs a larger or self-hosted runner (`loadtest/README.md`).                                                                                                       |
+
+"Virtual users" are k6 virtual users; "people" are virtual users with 10–30 s per page (`loadtest/bin/run --think "10 30"`),
+closer to someone reading an invoice or a ticket. A fast virtual user sends 0.38–0.41 requests per second when the
+host is comfortable, a person 0.042–0.051 (measured), so **one fast virtual user is about 7–10 people** (inferred from
+those rates). The earlier estimate of 200–600 people for 40 virtual users narrows to **about 280–400 from the request
+rates, and 200–350 measured directly** on the small host.
 
 ## What was measured and how
 
-- **Host:** a GitHub-hosted `ubuntu-24.04` runner with 4 CPUs, 15,988 MB and Docker 28.0.4. The whole stack ran
-  inside a systemd slice capped at the **small profile: 2 vCPU and 4 GB**, with the profile's per-service limits
-  (`loadtest/profiles/small.env`): FrankenPHP with **4 PHP threads** behind Caddy, PostgreSQL with
-  `shared_buffers=256MB`. k6, the load generator, ran outside the cap.
-- **Data:** the large seed volume, **50,000 clients, 100,000 services and 359,045 invoices** with a year of payments
-  and tickets, seeded in 160 s; database size 883 MB; all seed invariants held. 25% of the recurring services renew on
-  the measured day, so the automation run is a billing day, not an average day.
-- **Web load:** four 2-minute levels of **5, 10, 20 and 40 virtual users** with the scenario mix in
-  `loadtest/README.md` (client area 50%, storefront 30%, admin 10%, JSON endpoints 10%). Each virtual user arrives at
-  a random moment in the first 20 s of a level (`--start-spread 20`, PR #433).
-- **Background work:** invoice PDFs from one process, the billing-day `automation:run` with the workers stopped, then
-  the queue drain once they start again.
-- **Code:** commit `c5c0ffa` (PR #433 on `develop` of 2026-10-23), which includes the one-check sign-in of #374. The
-  run took 25 minutes; artifact `load-test-small-large-40000321793`.
+- **Host:** GitHub-hosted `ubuntu-24.04` runners with 4 CPUs, 15,701–15,983 MB and Docker 28.0.4. Each run capped the
+  whole stack with a systemd slice at the profile's totals: **small, 2 vCPU and 4 GB** (FrankenPHP with **4 PHP
+  threads**, PostgreSQL `shared_buffers=256MB`), or **medium, 4 vCPU and 8 GB** (8 PHP threads, `shared_buffers=640MB`),
+  with the per-service limits of `loadtest/profiles/<profile>.env`. k6 ran outside the cap on the same runner. For
+  medium the cap is the whole runner, so k6 (4–7% of one core), Docker and the runner agent took from the same 4 CPUs.
+- **Data:** the large seed volume, **50,000 clients, 100,000 services and 355,350 invoices** with a year of payments
+  and tickets, seeded in 167–208 s; database 879 MB; all seed invariants held.
+- **Web load:** the scenario mix in `loadtest/README.md` (client area 50%, storefront 30%, admin 10%, JSON endpoints
+  10%), in steps of virtual users. Each level ran 3 minutes with users arriving over its first 60 s (fast ramps), or
+  5–6 minutes with users arriving over 120–240 s (10–30 s per page). The ramp stops one level after the first level
+  past the comfortable limit (`loadtest/bin/run`, PR #543).
+- **Comfortable** means p95 of all requests under 1 s and under 1% errors (`loadtest/bin/summarize.py`); the "fits"
+  verdicts use it. The product target for a page is p95 under 200 ms, reported per page.
 
-Two limits appear in the results. The harness calls a level "comfortable" when the p95 of all requests is under 1 s
-with under 1% errors (`loadtest/bin/summarize.py`); that is the line the "fits" verdicts below use. The product
-target for a page is p95 under 200 ms, and the per-page table says which pages meet it.
+## Capacity: where each host saturates
 
-## Results: small profile, 50,000 clients
+From runs 41193623951 and 41198972155 (2026-10-31). CPU is the level's average in % of one core (the small cap is 200%,
+medium 400%); "stack" is every container except k6, as a share of the cap. "People at once" is measured for the
+10–30 s rows and inferred for the fast rows (virtual users × 7–10, from the request rates above).
+
+### Small: 2 vCPU, 4 GB, fast virtual users (1–3 s per page)
+
+| Virtual users | People at once (inferred) | req/s | p50    | p95    | p99    | Errors | Stack CPU of cap | App CPU | PostgreSQL CPU | Run, job                    |
+| ------------: | ------------------------: | ----: | ------ | ------ | ------ | -----: | ---------------: | ------: | -------------: | --------------------------- |
+|            10 |                    70–100 |   3.9 | 51 ms  | 105 ms | 267 ms |     0% |              14% |     13% |            13% | 41198972155, small-ramp-low |
+|            20 |                   140–200 |   8.2 | 58 ms  | 198 ms | 421 ms |     0% |              34% |     31% |            30% | 41198972155, small-ramp-low |
+|            30 |                   210–300 |  12.1 | 68 ms  | 329 ms | 694 ms |     0% |              52% |     51% |            46% | 41198972155, small-ramp-low |
+|        **40** |               **280–400** |  15.0 | 135 ms | 669 ms | 1.5 s  |     0% |              75% |     75% |            66% | 41198972155, small-ramp-low |
+|            50 |                   350–500 |  17.0 | 413 ms | 1.6 s  | 2.4 s  |     0% |              83% |     85% |            72% | 41198972155, small-ramp-low |
+|            50 |                   350–500 |  13.9 | 808 ms | 2.6 s  | 3.8 s  |     0% |              82% |     76% |            77% | 41193623951, small-ramp     |
+|           100 |                 700–1,000 |  16.1 | 3.8 s  | 4.9 s  | 5.8 s  |     0% |              97% |     94% |            90% | 41193623951, small-ramp     |
+
+**Saturation (measured):** last comfortable level 40 virtual users, first failing level 50, in both runs. Past 50
+the request rate stops growing (16 req/s at 100 users) and every page waits: p50 3.8 s on every scenario.
+
+### Small: 2 vCPU, 4 GB, people (10–30 s per page)
+
+| People at once (measured) | req/s | p50    | p95    | p99    | Errors | Stack CPU of cap | App CPU | PostgreSQL CPU | Arrival | Run, job                          |
+| ------------------------: | ----: | ------ | ------ | ------ | -----: | ---------------: | ------: | -------------: | ------- | --------------------------------- |
+|                       100 |   5.1 | 55 ms  | 268 ms | 314 ms |     0% |              23% |     25% |            19% | 120 s   | 41193623951, small-realistic      |
+|                   **200** |  10.0 | 63 ms  | 308 ms | 596 ms |     0% |              44% |     52% |            33% | 120 s   | 41193623951, small-realistic      |
+|                       300 |  14.7 | 128 ms | 5.5 s  | 7.7 s  |  0.19% |              74% |     82% |            57% | 120 s   | 41193623951, small-realistic      |
+|                       400 |  17.6 | 3.0 s  | 7.0 s  | 8.8 s  |  1.67% |              94% |    108% |            71% | 120 s   | 41193623951, small-realistic      |
+|                       200 |   8.6 | 34 ms  | 226 ms | 264 ms |     0% |              24% |     29% |            16% | 240 s   | 41198972155, small-realistic-knee |
+|                       250 |  10.6 | 36 ms  | 226 ms | 314 ms |     0% |              30% |     36% |            21% | 240 s   | 41198972155, small-realistic-knee |
+|                       300 |  12.5 | 37 ms  | 229 ms | 351 ms |     0% |              39% |     45% |            27% | 240 s   | 41198972155, small-realistic-knee |
+|                   **350** |  14.6 | 39 ms  | 279 ms | 521 ms |     0% |              48% |     58% |            33% | 240 s   | 41198972155, small-realistic-knee |
+
+**Saturation (measured):** with arrivals over 120 s, last comfortable 200 people and first failing 300. With
+arrivals over 240 s on another runner, 350 people were still comfortable (the highest level that run had). The two
+differ in two ways at once, and neither has been separated:
+
+- **The runner.** The second runner needed about two thirds of the CPU for the same request rate (14.6 req/s at 48% of
+  the cap against 14.7 at 74%), and its medians were lower at every level. Runners of one label have different CPU
+  models; the harness records the model from PR #543 on, these runs did not.
+- **The arrival.** At 300 people over 120 s the stack was at 90–97% of the 2 vCPU cap from 60 s to 120 s into the level
+  (the sign-ins and first full pages), then at 60–85% of it for the rest; the p95 of 5.5 s came from that window, while
+  the p50 stayed at 128 ms.
+
+So the small host serves **200 people at once with a margin and about 350 when they do not all sign in within two
+minutes** (measured), the same **about 15 requests per second** as the 40 fast virtual users.
+
+### Medium: 4 vCPU, 8 GB
+
+| Virtual users or people | Think time | People at once         | req/s | p50    | p95    | p99    | Errors | Stack CPU of cap | App CPU | PostgreSQL CPU | Run, job                      |
+| ----------------------: | ---------- | ---------------------- | ----: | ------ | ------ | ------ | -----: | ---------------: | ------: | -------------: | ----------------------------- |
+|                  **50** | 1–3 s      | 350–500 (inferred)     |  20.1 | 102 ms | 315 ms | 655 ms |  0.02% |              56% |    103% |           104% | 41193623951, medium-ramp      |
+|                     100 | 1–3 s      | 700–1,000 (inferred)   |  28.9 | 944 ms | 1.7 s  | 2.2 s  |  0.55% |              85% |    164% |           158% | 41193623951, medium-ramp      |
+|                     150 | 1–3 s      | 1,050–1,500 (inferred) |  31.2 | 2.4 s  | 3.3 s  | 3.7 s  |  0.43% |              88% |    169% |           163% | 41193623951, medium-ramp      |
+|                     300 | 10–30 s    | 300 (measured)         |  13.2 | 81 ms  | 302 ms | 416 ms |     0% |              39% |     79% |            68% | 41198972155, medium-realistic |
+|                 **400** | 10–30 s    | **400 (measured)**     |  16.9 | 96 ms  | 353 ms | 585 ms |  0.06% |              50% |    103% |            88% | 41198972155, medium-realistic |
+|                     500 | 10–30 s    | 500 (measured)         |  20.6 | 168 ms | 1.8 s  | 2.4 s  |  0.24% |              66% |    137% |           113% | 41198972155, medium-realistic |
+|                     600 | 10–30 s    | 600 (measured)         |  24.9 | 606 ms | 2.5 s  | 2.9 s  |  0.35% |              77% |    163% |           129% | 41198972155, medium-realistic |
+
+**Saturation (measured):** fast virtual users, last comfortable 50 and first failing 100; people, last comfortable 400
+and first failing 500. At 500 people the level average was 66% of the cap, but from 150 s to 240 s into the level
+(the end of the 240 s arrival) the stack used 360–385% of its 400%. The 4 vCPU cap is the runner's whole CPU, which k6,
+Docker and the runner agent share, so medium had less than 4 CPUs (inferred) and **these are lower bounds**: the
+medium host did about 1.3 times the comfortable request rate of the small one (20 against 15 req/s) for twice the
+vCPU. A real 4 vCPU host, or an 8-CPU runner, has not been measured.
+
+At 100 fast users the knowledge base (12% of 104 requests) and announcements (19% of 108) answered with errors, which
+is why that level has 0.55% errors; the other pages had none. Which status they returned was not recorded (all
+virtual users share the load generator's single IP address, so a per-IP limit is the likely cause, not checked).
+
+### Per page at the knee
+
+p50 / p95 at the last comfortable and the first failing level. Checkout (12–47 requests a level) and the invoice PDF
+are the slowest pages at every level; the admin dashboard is next.
+
+| Page                | Small, 40 fast users | Small, 50 fast users | Small, 200 people (120 s) | Small, 300 people (120 s) | Medium, 50 fast users | Medium, 100 fast users | Medium, 400 people | Medium, 500 people |
+| ------------------- | -------------------- | -------------------- | ------------------------- | ------------------------- | --------------------- | ---------------------- | ------------------ | ------------------ |
+| Sign-in             | 345 ms / 804 ms      | 536 ms / 1.4 s       | 291 ms / 559 ms           | 525 ms / 7.7 s            | 296 ms / 441 ms       | 605 ms / 1.6 s         | 319 ms / 544 ms    | 412 ms / 2.1 s     |
+| Client dashboard    | 152 ms / 690 ms      | 466 ms / 1.7 s       | 69 ms / 213 ms            | 130 ms / 5.1 s            | 112 ms / 311 ms       | 990 ms / 1.6 s         | 108 ms / 285 ms    | 165 ms / 1.8 s     |
+| Client invoices     | 132 ms / 629 ms      | 428 ms / 1.5 s       | 59 ms / 232 ms            | 84 ms / 3.5 s             | 99 ms / 250 ms        | 946 ms / 1.5 s         | 90 ms / 249 ms     | 149 ms / 1.8 s     |
+| Store               | 100 ms / 577 ms      | 366 ms / 1.1 s       | 44 ms / 141 ms            | 75 ms / 4.3 s             | 76 ms / 183 ms        | 814 ms / 1.5 s         | 63 ms / 174 ms     | 105 ms / 1.8 s     |
+| Add to cart         | 175 ms / 685 ms      | 436 ms / 1.5 s       | 83 ms / 251 ms            | 197 ms / 5.5 s            | 129 ms / 316 ms       | 987 ms / 1.7 s         | 124 ms / 330 ms    | 236 ms / 1.6 s     |
+| Checkout            | 1.4 s / 2.7 s        | 1.9 s / 3.7 s        | 771 ms / 2.1 s            | 1.2 s / 2.1 s             | 1.1 s / 1.5 s         | 2.7 s / 3.5 s          | 1.2 s / 1.9 s      | 1.6 s / 3.1 s      |
+| Invoice PDF         | 545 ms / 876 ms      | 498 ms / 1.6 s       | 285 ms / 714 ms           | 634 ms / 7.3 s            | 374 ms / 586 ms       | 1.3 s / 2.2 s          | 374 ms / 689 ms    | 557 ms / 2.5 s     |
+| Admin dashboard     | 655 ms / 1.3 s       | 798 ms / 1.6 s       | 238 ms / 599 ms           | 442 ms / 6.5 s            | 462 ms / 810 ms       | 1.6 s / 2.2 s          | 370 ms / 794 ms    | 605 ms / 2.0 s     |
+| Admin services      | 216 ms / 768 ms      | 538 ms / 1.8 s       | 136 ms / 256 ms           | 330 ms / 2.3 s            | 226 ms / 426 ms       | 1.2 s / 1.9 s          | 242 ms / 501 ms    | 475 ms / 2.0 s     |
+| Admin search (JSON) | 202 ms / 679 ms      | 472 ms / 1.6 s       | 83 ms / 227 ms            | 170 ms / 6.3 s            | 130 ms / 316 ms       | 1.1 s / 1.7 s          | 131 ms / 303 ms    | 232 ms / 1.7 s     |
+
+Past the knee the tail grows on every page at once, cheap ones included (the store's p95 goes from 0.14–0.58 s to
+1.1–4.3 s): requests queue for CPU and PHP threads, not for one slow page.
+
+### What limits first
+
+- **CPU (measured).** At every knee the stack was at 75–83% of its CPU cap on average (small, fast users), or at the
+  cap for part of the level (people arriving), and the request rate stopped growing past it: small 16 req/s at 100
+  fast users at 97% of the cap, medium 31 req/s at 150 at 88%. The small host costs about 0.1 core-seconds per request
+  (1.5 cores for 15 req/s; inferred).
+- **PHP and PostgreSQL share it about evenly (measured).** At the small knee the app used 75% of one core and
+  PostgreSQL 66%; at the medium knee 103% and 104%, then 164% and 158%. Neither ran out alone.
+- **PHP threads (inferred, not separately measured).** Latency rose on every page at once while CPU neared the cap,
+  which is what queueing for 4 (or 8) threads on a busy CPU looks like. No level showed spare CPU with a growing
+  queue outside the arrival windows, so the thread count has not been seen to limit before CPU. A run with more
+  threads on the same cap would tell.
+- **PostgreSQL connections and memory (measured): not a limit.** No connection errors at any level (40 connections
+  on small, 60 on medium). PostgreSQL peaked at 344–352 MB (small) and 792–796 MB (medium) within 1,024 and 2,560 MB.
+  The heaviest web queries were the staff search (`lower(name) like`, 14–18 ms mean, the most calls), the invoice
+  number search (14 ms), the services product filter (`select distinct product_id`, 86–124 ms mean) and the admin
+  dashboard aggregates (0.6–1.0 s mean, a few calls).
+- **Memory (measured): not close.** The containers together peaked at 991–1,133 MB during the small web levels and
+  1,717–1,761 MB during the medium ones.
+
+### Background work in the 2026-10-31 runs
+
+- **Small: the billing day did not finish (measured).** In all four small runs `automation:run` stopped after two
+  of its tasks (it ran for 221.6 s in the one checked), and the summary printed 0.0 s because it adds up the tasks
+  that finished; PR #543 now records the exit code and says so. The medium scheduler needed 271–272 MB for the same
+  billing day, and the small profile limits the scheduler to 256 MB (production gives it 512 MB), so the likely cause
+  is the profile's memory limit (inferred, not confirmed: the exit code was not recorded yet).
+- **Medium: 3,059 s and 3,078 s (measured),** almost all of it renewals: 11,623 in 2,865–2,874 s, **4.0 per second**,
+  against 24.8 per second on 2026-10-23 (small profile, commit `c5c0ffa`). The queue drain took 369–375 s for 12,572
+  jobs (34 per second, against 117.6). Not investigated; see "Not measured yet".
+- **Invoice PDF (one process, measured):** p50 120–169 ms.
+
+## History: small profile at 5–40 users, run 40000321793
+
+The reference until 2026-10-31. Its 40-user level matches the newer runs (p95 704 ms against 669 ms).
 
 From run 40000321793 (2026-10-23, commit `c5c0ffa`, users arriving over 20 s).
 
-### Web load per level
+#### Web load per level
 
 | Virtual users | req/s | p50    | p95    | p99    | Errors |
 | ------------: | ----: | ------ | ------ | ------ | -----: |
@@ -77,7 +214,7 @@ No request errors, no 429 answers and no content errors at any level. 40 virtual
 under 1 s). During the 40-user level the app container averaged 75% of one core (peak 129%) and PostgreSQL 66%
 (peak 137%), together about 70% of the 2 vCPU cap on average.
 
-### Per page
+#### Per page
 
 "Light" is the 5-user level, the closest the harness has to a single request.
 
@@ -101,7 +238,7 @@ Above that are the admin dashboard (3.1 s), checkout (2.1 s, 12 requests), sign-
 (934 ms), the order confirmation (880 ms) and the sign-in form (817 ms). The admin dashboard is the outlier at every
 level (see "Where the small host runs out").
 
-### Background work
+#### Background work
 
 | Measure                           | Result                                                                                                    |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------- |
@@ -113,7 +250,7 @@ level (see "Where the small host runs out").
 | Slowest automation query          | the `email_messages` insert: 14,289 calls, 7.2 s in total                                                 |
 | Slowest web queries               | the admin dashboard's income, receivables and MRR aggregates: means of 493, 486 and 397 ms, 8–9 runs each |
 
-### Compared with the runs before PR #433
+#### Compared with the runs before PR #433
 
 Not like for like. Besides the arrival spread, the code moved on from `bf97103` to `c5c0ffa`, and the runner may
 differ: on the same seed volume the one-process PDF bench, which no web load touches, took 161 ms against 104 ms,
@@ -196,6 +333,7 @@ tested, not a measured floor**: nothing smaller was run, and no run came near th
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Runner, small profile, 50,000 clients, one colour (artifact `load-test-small-large-40000321793`, `docker-stats.ndjson`, 2,293 samples of single containers) | peak 928 MiB (queue drain, all 9 containers); 924 MiB at 40 users; 905 MiB in the PDF phase. The billing day (827 MiB) is partial: only 6 of the 9 containers ran                                                                          |
 | Earlier runner run, before PR #433 (artifact `load-test-small-large-39472898451`, 218 samples)                                                              | peak 857 MiB (PDF phase, only 2 samples had all 9 containers); 790 MiB at 40 users; 790 MiB during the queue drain. The billing day (764 MiB) is partial: only 6 of the 9 containers ran (the pools were stopped), so it is not comparable |
+| Runners of 2026-10-31 (runs 41193623951 and 41198972155), sum of each container's peak in a web level, 50,000 clients                                       | small: 991–1,133 MB; medium: 1,717–1,761 MB. Not one moment's total: each container's own peak, added up, so an upper estimate                                                                                                             |
 | Drill, full production stack, demo data (956 invoices), `deploy/bin/deploy` blue then green, VM of 3.6 GB (3,665 MB by `free -m`)                           | peak 691 MiB (total of the containers) with both colours' web containers and pools running, sampled every 3 s                                                                                                                              |
 
 Per service in run 40000321793, the highest value of any sample over all phases (MiB): PostgreSQL 347
@@ -212,12 +350,12 @@ deploy at the large volume, treat deploys on a 4 GB host with a database of that
 
 ## When to grow
 
-| Sign                                                                                                                                                           | What to do                                                                                                                                                        |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sign-in and dashboards have a multi-second p95 while the median is fine, in steady use                                                                         | More vCPU first, and the PHP thread count that goes with it: the medium profile (4 vCPU, 8 GB, 8 threads), not yet measured                                       |
-| Many people sign in at once (measured: 28 at once gave a sign-in p50 of 1.3–1.8 s and a dashboard and store p95 of 1.2–3.0 s, "Where the small host runs out") | The same: more vCPU and PHP threads if those bursts matter to you, otherwise accept a few slow seconds. The bcrypt cost is a security setting and stays unchanged |
-| Available memory under about 1 GB during a deploy (`free -m`; a guide, not a measurement)                                                                      | Run `deploy/bin/deploy retire` after each deploy, then move to the medium profile (4 vCPU, 8 GB)                                                                  |
-| Over 50,000 clients, or more than 40 people in the admin and client area at once                                                                               | Not measured; run the medium or large profile from Actions → Load test before sizing                                                                              |
+| Sign                                                                                                                                                           | What to do                                                                                                                                                         |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Sign-in and dashboards have a multi-second p95 while the median is fine, in steady use                                                                         | More vCPU first, and the PHP thread count that goes with it: the medium profile (4 vCPU, 8 GB, 8 threads), measured at 400 people at once against 200–350 on small |
+| Many people sign in at once (measured: 28 at once gave a sign-in p50 of 1.3–1.8 s and a dashboard and store p95 of 1.2–3.0 s, "Where the small host runs out") | The same: more vCPU and PHP threads if those bursts matter to you, otherwise accept a few slow seconds. The bcrypt cost is a security setting and stays unchanged  |
+| Available memory under about 1 GB during a deploy (`free -m`; a guide, not a measurement)                                                                      | Run `deploy/bin/deploy retire` after each deploy, then move to the medium profile (4 vCPU, 8 GB)                                                                   |
+| More than about 200 people signed in at once on the small host, or 400 on the medium one (measured, "Capacity"), or over 50,000 clients                        | Move up one profile; above medium, run the large profile on an 8-CPU runner before sizing (not measured)                                                           |
 
 ## Where the small host runs out
 
@@ -280,11 +418,17 @@ of 49.7 s and a 546 s billing day at 20 renewals per second.
 
 ## Not measured yet
 
-- **The medium profile** (4 vCPU, 8 GB, 8 PHP threads). It fits the public repository's standard runner
-  (4 CPUs, 16 GB); run it from Actions → Load test with `profile: medium`.
+- **The medium profile on a real 4 vCPU host.** It was measured on a 4-CPU runner that also ran k6, so its numbers are a
+  lower bound ("Capacity").
 - **The large profile** (8 vCPU, 16 GB). It needs a runner with 8 CPUs.
-- **Where the small profile saturates.** 40 users was still comfortable; a dispatch with `levels: "40 80 120"`
-  would find the limit.
+- **Whether runner speed or arrival speed moved the small host's limit** from 200–300 people (run 41193623951) to
+  more than 350 (run 41198972155). Recording the runner's CPU model (PR #543) and running both arrivals on one runner
+  would separate them.
+- **More PHP threads on the same cap,** which would show whether threads ever limit before CPU.
+- **The billing day on the small profile** (it did not finish in the 2026-10-31 runs; the scheduler's 256 MB
+  limit in `loadtest/profiles/small.env` is the likely cause, inferred), and **why medium's renewals ran at 4.0 per
+  second** against 24.8 on 2026-10-23.
+- **Which status the knowledge base and announcements returned** in the errors at 100 fast users on medium.
 - **Web load during the billing day**, provisioning against a control panel, and a Redis-backed stack
   (`loadtest/README.md`, "Not covered yet").
 

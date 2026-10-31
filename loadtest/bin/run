@@ -125,6 +125,8 @@ trap cleanup EXIT
 step "profile $profile, volume $volume"
 host_cpus="$(nproc)"
 host_memory_mb="$(awk '/MemTotal/ { printf "%d", $2 / 1024 }' /proc/meminfo)"
+# Runners of one label differ in CPU model, and so in per-request CPU: recorded so runs can be compared.
+host_cpu_model="$(awk -F': ' '/^model name/ { print $2; exit }' /proc/cpuinfo | tr -d '"')"
 set -a
 # shellcheck disable=SC1090
 . "$profile_file"
@@ -370,8 +372,12 @@ queues > "$results/queues-before.json"
 pg "SELECT pg_stat_statements_reset()" >/dev/null
 phase automation
 start=$(date +%s.%N)
-"${compose[@]}" exec -T scheduler-blue php artisan automation:run > "$results/automation.log" 2>&1 || note "automation reported a failed task (see automation.log)"
+automation_rc=0
+"${compose[@]}" exec -T scheduler-blue php artisan automation:run > "$results/automation.log" 2>&1 || automation_rc=$?
 end=$(date +%s.%N)
+# 137 is SIGKILL: on these caps, usually the scheduler container's memory limit. The summary reports it.
+printf '{"exit_code":%s}\n' "$automation_rc" > "$results/automation-exit.json"
+[ "$automation_rc" = 0 ] || note "automation:run exited with ${automation_rc} (see automation.log)"
 pg_top pg-top-automation.json
 pg "SELECT coalesce(json_agg(r ORDER BY r.id), '[]') FROM (SELECT id, task, status, duration_ms, summary FROM automation_runs) r" > "$results/automation-runs.json"
 queues > "$results/queues-after.json"
@@ -413,7 +419,7 @@ import json, sys
 json.dump({
     "run": "${run_id}", "project": "${project}", "profile": "${profile}", "volume": "${volume}", "levels": "${levels_run}".split(), "levels_planned": "${levels}".split(), "levels_skipped": "${levels_skipped}".split(),
     "level_duration": "${level_duration}", "start_spread_s": int("${start_spread}"), "think": "${think// /–}${think:+ s}" or None, "warmup": "${warmup}",
-    "host_cpus": ${host_cpus}, "host_memory_mb": ${host_memory_mb}, "profile_cpus": float("${PROFILE_CPUS}"), "profile_memory": "${PROFILE_MEMORY}",
+    "host_cpus": ${host_cpus}, "host_memory_mb": ${host_memory_mb}, "host_cpu_model": "${host_cpu_model}", "profile_cpus": float("${PROFILE_CPUS}"), "profile_memory": "${PROFILE_MEMORY}",
     "runner_smaller_than_profile": "${capped_by_host}" == "true", "cpu_limits_lowered": "${clamped[*]:-}".split(),
     "host_cap": "${host_cap}", "cgroup_driver": "${driver}", "php_threads": int("${PHP_THREADS}"),
     "git_sha": "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)",
