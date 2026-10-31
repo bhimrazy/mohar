@@ -207,6 +207,8 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
      * Invoice events whose email attaches the invoice PDF. Their emails are composed by ComposeEventEmails on the
      * notifications queue (#566), so the PDF render and the "attached" wording never run in the raising process
      * (a renewal run or a request).
+     *
+     * @phpstan-assert-if-true InvoiceCreated|InvoicePaymentReminder|PaymentReceived|InvoiceModified $event
      */
     public static function composesInWorker(object $event): bool
     {
