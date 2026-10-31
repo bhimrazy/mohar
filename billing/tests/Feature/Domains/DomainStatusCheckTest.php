@@ -25,7 +25,7 @@ it('refuses a domain status outside DomainStatus', function (string $status) {
 
 test('the status check lists exactly the DomainStatus cases, so a new case comes with a migration', function () {
     $definition = (string) DB::table('pg_constraint')->where('conname', 'domains_status_check')->where('convalidated', true)->value(DB::raw('pg_get_constraintdef(oid)'));
-    preg_match_all("/'([a-z_]+)'::/", $definition, $values);
+    preg_match_all("/'([^']*)'::/", $definition, $values);
 
     expect($values[1])->toEqualCanonicalizing(DomainStatus::values());
 })->skip($pgsqlOnly, 'The check is PostgreSQL only');
@@ -43,13 +43,6 @@ test('rows that break the check stop the migration by id, and the check is not l
     $migration->up();
 
     expect(DB::table('pg_constraint')->where('conname', 'domains_status_check')->value('convalidated'))->toBeTrue();
-})->skip($pgsqlOnly, 'The check is PostgreSQL only');
-
-test('the status check holds no value outside DomainStatus, whatever its spelling', function () {
-    $definition = (string) DB::table('pg_constraint')->where('conname', 'domains_status_check')->value(DB::raw('pg_get_constraintdef(oid)'));
-    preg_match_all("/'([^']*)'::/", $definition, $values);
-
-    expect($values[1])->toEqualCanonicalizing(DomainStatus::values());
 })->skip($pgsqlOnly, 'The check is PostgreSQL only');
 
 test('a check left NOT VALID by an interrupted run is dropped when rows break it, and validated once they are fixed', function () use ($migrationPath) {

@@ -26,7 +26,7 @@ it('refuses a service or addon status outside ServiceStatus', function (string $
 
 test('each status check lists exactly the ServiceStatus cases, so a new case comes with a migration', function (string $constraint) {
     $definition = (string) DB::table('pg_constraint')->where('conname', $constraint)->where('convalidated', true)->value(DB::raw('pg_get_constraintdef(oid)'));
-    preg_match_all("/'([a-z_]+)'::/", $definition, $values);
+    preg_match_all("/'([^']*)'::/", $definition, $values);
 
     expect($values[1])->toEqualCanonicalizing(ServiceStatus::values());
 })->with(['services_status_check', 'service_addons_status_check'])->skip($pgsqlOnly, 'The checks are PostgreSQL only');
@@ -47,13 +47,6 @@ test('rows that break a check stop the migration by id, and the check is not lef
     expect(DB::table('pg_constraint')->whereIn('conname', ['services_status_check', 'service_addons_status_check'])->pluck('convalidated', 'conname')->all())
         ->toEqual(['services_status_check' => true, 'service_addons_status_check' => true]);
 })->skip($pgsqlOnly, 'The checks are PostgreSQL only');
-
-test('each status check holds no value outside ServiceStatus, whatever its spelling', function (string $constraint) {
-    $definition = (string) DB::table('pg_constraint')->where('conname', $constraint)->value(DB::raw('pg_get_constraintdef(oid)'));
-    preg_match_all("/'([^']*)'::/", $definition, $values);
-
-    expect($values[1])->toEqualCanonicalizing(ServiceStatus::values());
-})->with(['services_status_check', 'service_addons_status_check'])->skip($pgsqlOnly, 'The checks are PostgreSQL only');
 
 test('a table whose rows pass keeps its validated check when a later table fails, and the re-run finishes the rest', function () use ($migrationPath) {
     $migration = require base_path($migrationPath);
