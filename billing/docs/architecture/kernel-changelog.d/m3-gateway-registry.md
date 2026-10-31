@@ -1,4 +1,4 @@
-### Gateway drivers register by key and class; family-wide gateway helpers (ADR 0030 M3)
+### Gateway drivers register by key and class; family-wide gateway helpers (ADR 0030 M3, #590)
 
 - New `App\Support\Billing\GatewayDriverRegistry` (`@api`, extends `DriverRegistry<GatewayDriver>`), bound in
   `AppServiceProvider`, so a package registers in its own `boot()` whether or not Billing is loaded:
