@@ -59,7 +59,9 @@ class GuestTicketController extends Controller
 
         $email = mb_strtolower($request->string('email')->toString());
         $name = $request->string('name')->toString();
+        // Attaching needs a proved address; keeping the link off screen needs only a registered one.
         $match = $requesters->match($email);
+        $registered = $match !== null || $requesters->isRegistered($email);
 
         $ticket = $open->handle(new TicketDraft(
             departmentId: $department->id,
@@ -72,10 +74,10 @@ class GuestTicketController extends Controller
             contactId: $match['contact_id'] ?? null,
             priority: $request->filled('priority') ? TicketPriority::from($request->string('priority')->toString()) : TicketPriority::Medium,
             files: $request->incomingFiles(),
-            unverifiedRequester: $match !== null,
+            unverifiedRequester: $registered,
         ));
 
-        if ($match !== null) {
+        if ($registered) {
             // The address belongs to a registered account: whoever submitted the form has not proven they
             // own it, so the access link is only sent to that mailbox (TicketOpened → Notifications).
             $request->session()->flash('support.submitted', ['number' => $ticket->number, 'email' => $this->maskEmail($email)]);
