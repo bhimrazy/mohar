@@ -20,6 +20,11 @@ import {
     xsrfToken,
 } from '@/components/app/set-password-button';
 import { STEP_UP_DOWNLOAD_EVENT } from '@/components/app/step-up-download-link';
+import {
+    STEP_UP_CALLER_RETRIES_HEADER,
+    STEP_UP_CONFIRM_EVENT,
+} from '@/lib/step-up';
+import type { StepUpConfirmDetail } from '@/lib/step-up';
 import type { HttpMethod } from '@/types/app';
 
 type PendingVisit = {
@@ -30,12 +35,17 @@ type PendingVisit = {
     download?: boolean;
     /** The login has no password: offer "Set a password" instead of the password field. */
     noPassword?: boolean;
+    /** The caller retries itself (requestStepUp): told the outcome instead of a replayed visit. */
+    resolve?: (confirmed: boolean) => void;
+    /** The visit's component retries itself (useStepUpForm), so its refusal is not replayed here. */
+    callerRetries?: boolean;
 };
 
 /**
  * Step-up authentication for sensitive actions. When the server answers a visit with a
- * "password_confirmation" error (the `password.recent` middleware), ask for the password,
- * confirm it with Fortify, then repeat the original request once.
+ * "password_confirmation" error (`password.recent`, or `password.confirm` for anything but a page load), ask for the
+ * password, confirm it with Fortify, then repeat the original request once. A caller that retries itself asks through
+ * `requestStepUp()` and is told whether the password was confirmed.
  */
 export function PasswordConfirmationGate() {
     const { auth } = usePage().props;
@@ -56,13 +66,17 @@ export function PasswordConfirmationGate() {
                     visit.data instanceof FormData
                         ? Object.fromEntries(visit.data.entries())
                         : (visit.data as Record<string, unknown>),
+                callerRetries: Boolean(
+                    visit.headers?.[STEP_UP_CALLER_RETRIES_HEADER],
+                ),
             };
         });
         const offError = router.on('error', (event) => {
             if (
                 event.detail.errors.password_confirmation &&
                 lastVisit.current &&
-                lastVisit.current.method !== 'get'
+                lastVisit.current.method !== 'get' &&
+                !lastVisit.current.callerRetries
             ) {
                 setPassword('');
                 setError(null);
@@ -90,12 +104,34 @@ export function PasswordConfirmationGate() {
                 noPassword,
             });
         };
+        const onConfirm = (event: Event) => {
+            event.preventDefault();
+            setPassword('');
+            setError(null);
+            const { noPassword, resolve } = (
+                event as CustomEvent<StepUpConfirmDetail>
+            ).detail;
+            setPending((previous) => {
+                // A second request while the dialog is open replaces the first, which is told it was not confirmed.
+                previous?.resolve?.(false);
+
+                return {
+                    url: '',
+                    method: 'get',
+                    data: {},
+                    noPassword,
+                    resolve,
+                };
+            });
+        };
         window.addEventListener(STEP_UP_DOWNLOAD_EVENT, onDownload);
+        window.addEventListener(STEP_UP_CONFIRM_EVENT, onConfirm);
 
         return () => {
             offBefore();
             offError();
             window.removeEventListener(STEP_UP_DOWNLOAD_EVENT, onDownload);
+            window.removeEventListener(STEP_UP_CONFIRM_EVENT, onConfirm);
         };
     }, []);
 
@@ -148,6 +184,12 @@ export function PasswordConfirmationGate() {
             const visit = pending;
             setPending(null);
 
+            if (visit.resolve) {
+                visit.resolve(true);
+
+                return;
+            }
+
             if (visit.download) {
                 window.location.assign(visit.url);
 
@@ -171,10 +213,15 @@ export function PasswordConfirmationGate() {
     // The server's answer wins; the page prop can be stale (a password set in another window).
     const noPassword = pending?.noPassword ?? !hasPassword;
 
+    const dismiss = () => {
+        pending?.resolve?.(false);
+        setPending(null);
+    };
+
     return (
         <Dialog
             open={pending !== null}
-            onOpenChange={(open) => !open && !processing && setPending(null)}
+            onOpenChange={(open) => !open && !processing && dismiss()}
         >
             <DialogContent className="sm:max-w-md">
                 {noPassword ? (
@@ -193,7 +240,7 @@ export function PasswordConfirmationGate() {
                             <Button
                                 type="button"
                                 variant="outline"
-                                onClick={() => setPending(null)}
+                                onClick={dismiss}
                             >
                                 Cancel
                             </Button>
@@ -228,7 +275,7 @@ export function PasswordConfirmationGate() {
                             <Button
                                 type="button"
                                 variant="outline"
-                                onClick={() => setPending(null)}
+                                onClick={dismiss}
                                 disabled={processing}
                             >
                                 Cancel

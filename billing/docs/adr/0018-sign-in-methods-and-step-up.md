@@ -69,9 +69,9 @@ No sign-in method counts as a second factor or as a password confirmation.
   `bootstrap/app.php`, and Billing's `ConfirmPasswordForAction` copy is deleted (#81).
 - The window is `auth.step_up_seconds`, read from `AUTH_STEP_UP_SECONDS` (default 900 when unset or empty; a whole
   number from 60 to 3600, and any other value fails when the configuration loads). It does not change
-  `password_timeout`.
+  `password_timeout` (which, since #538, opens no route: `password.confirm` uses this window too).
 - It is the only step-up mechanism. It reads `auth.password_confirmed_at`, which only Fortify's `confirm-password`
-  sets. No module adds another form of step-up, such as an emailed link, a provider re-authentication or a module
+  sets (superseded by #538: its own key, `auth.step_up_confirmed_at`). No module adds another form of step-up, such as an emailed link, a provider re-authentication or a module
   timestamp.
 - A passkey assertion may count later only by setting the same timestamp, and only through an amendment to this ADR.
 - A login without a password cannot pass step-up. The 423 or validation response tells the UI to offer "Set a
@@ -229,12 +229,19 @@ not count as step-up; this restores §4 rather than changing it.
 - **Own key.** Step-up reads `RequireRecentPasswordConfirmation::SESSION_KEY` (`auth.step_up_confirmed_at`), written
   only by `markConfirmed()` from `PasswordConfirmedResponse`, which Fortify sends only after the password matched.
   `auth.password_confirmed_at` stays Laravel's and Fortify's and gates nothing here. Every reader uses the new key:
-  `recentlyConfirmed()`, `ReviewUnlocks`, and the timestamp a queued `ReportExporter` export carries. Impersonation
-  drops both keys.
+  `recentlyConfirmed()` (and so `password.confirm` and the settings checks) and `ReviewUnlocks`. `ReportExporter`'s
+  docblock names it as the timestamp a queued export will carry; no caller passes one yet. Impersonation drops both
+  keys.
 - **`password.confirm` is step-up.** `RequirePasswordUnlessExpired`, bound in place of Laravel's `RequirePassword`,
   applies `recentlyConfirmed()`: a password confirmation within `auth.step_up_seconds`, never for a login without a
-  password. `auth.password_timeout` (3 hours) no longer opens anything. This covers Fortify's passkey registration and
-  removal, every two-factor route, the security page and the staff and role pages.
+  password. `auth.password_timeout` (3 hours) no longer opens any route. This covers Fortify's passkey registration and
+  removal, every two-factor route, the security page and the staff and role pages. Only a page load still goes to the
+  confirm page and back; JSON and Inertia form requests get `password.recent`'s answer (423, or the
+  `password_confirmation` error), so the confirm dialog asks in place. The two-factor setup and passkey registration
+  retry their own step after it (`withStepUp`, `useStepUpForm`, `ensureStepUp` in `resources/js`), so a setup that
+  runs past the window is not left half done. The route arguments (redirect route and timeout) are ignored.
+- **Unused vendor routes.** Fortify always registers `POST /passkeys/confirm` and `/user/confirmed-password-status`
+  and has no option to drop them; both read or write only Laravel's key. A test keeps the frontend from calling them.
 - **The confirm page has no passkey option**, since a passkey confirmation would not satisfy it. Passkey sign-in is
   unchanged.
 - **Notice:** adding a passkey writes `auth.passkey_added` to the activity log and mails the login

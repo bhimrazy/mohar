@@ -5,6 +5,7 @@ import Heading from '@/components/heading';
 import TwoFactorRecoveryCodes from '@/components/two-factor-recovery-codes';
 import TwoFactorSetupModal from '@/components/two-factor-setup-modal';
 import { Button } from '@/components/ui/button';
+import { useStepUpForm } from '@/hooks/use-step-up-form';
 import { useTwoFactorAuth } from '@/hooks/use-two-factor-auth';
 import { disable, enable } from '@/routes/two-factor';
 
@@ -30,6 +31,7 @@ export default function ManageTwoFactor(props: Props) {
         errors,
     } = useTwoFactorAuth();
     const [showSetupModal, setShowSetupModal] = useState<boolean>(false);
+    const enableStepUp = useStepUpForm();
     const prevTwoFactorEnabled = useRef(twoFactorEnabled);
 
     useEffect(() => {
@@ -97,6 +99,7 @@ export default function ManageTwoFactor(props: Props) {
                         ) : (
                             <Form
                                 {...enable.form()}
+                                {...enableStepUp}
                                 onSuccess={() => setShowSetupModal(true)}
                             >
                                 {({ processing }) => (

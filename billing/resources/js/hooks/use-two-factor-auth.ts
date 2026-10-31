@@ -1,5 +1,6 @@
 import { useHttp } from '@inertiajs/react';
 import { useCallback, useState } from 'react';
+import { withStepUp } from '@/lib/step-up';
 import { qrCode, recoveryCodes, secretKey } from '@/routes/two-factor';
 
 export type UseTwoFactorAuthReturn = {
@@ -48,7 +49,7 @@ export const useTwoFactorAuth = (): UseTwoFactorAuthReturn => {
 
     const fetchQrCode = useCallback(async (): Promise<void> => {
         try {
-            const { svg } = (await submit(qrCode())) as {
+            const { svg } = (await withStepUp(() => submit(qrCode()))) as {
                 svg: string;
                 url: string;
             };
@@ -62,7 +63,9 @@ export const useTwoFactorAuth = (): UseTwoFactorAuthReturn => {
 
     const fetchSetupKey = useCallback(async (): Promise<void> => {
         try {
-            const { secretKey: key } = (await submit(secretKey())) as {
+            const { secretKey: key } = (await withStepUp(() =>
+                submit(secretKey()),
+            )) as {
                 secretKey: string;
             };
 
@@ -76,7 +79,9 @@ export const useTwoFactorAuth = (): UseTwoFactorAuthReturn => {
     const fetchRecoveryCodes = useCallback(async (): Promise<void> => {
         try {
             setErrors([]);
-            const codes = (await submit(recoveryCodes())) as string[];
+            const codes = (await withStepUp(() =>
+                submit(recoveryCodes()),
+            )) as string[];
             setRecoveryCodesList(codes);
         } catch {
             setErrors((prev) => [...prev, 'Failed to fetch recovery codes']);
@@ -87,7 +92,9 @@ export const useTwoFactorAuth = (): UseTwoFactorAuthReturn => {
     const fetchSetupData = useCallback(async (): Promise<void> => {
         try {
             setErrors([]);
-            await Promise.all([fetchQrCode(), fetchSetupKey()]);
+            // One after the other: a step-up refusal on the first asks once, and the second then passes.
+            await fetchQrCode();
+            await fetchSetupKey();
         } catch {
             setQrCodeSvg(null);
             setManualSetupKey(null);

@@ -62,7 +62,7 @@ test('staff sign in as the account owner, see the banner, and actions are logged
 
 test('signing in as a client drops the staff member\'s password and passkey confirmations', function () {
     actingAsStaff(['core.clients.view', 'core.clients.impersonate']);
-    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp(), 'auth.step_up_confirmed_at' => now()->getTimestamp()]);
 
     impersonate($this->client);
 

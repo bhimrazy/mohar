@@ -79,10 +79,11 @@ test('S3 turning two-factor authentication off needs the step-up window', functi
     expect($user->fresh()->two_factor_secret)->not->toBeNull();
 });
 
-test('S4 completing the two-factor challenge does not count as a password confirmation (holds)', function () {
-    $user = User::factory()->create(['password' => 'correct-horse-battery']);
+test('S4 signing in through the two-factor challenge does not count as a password confirmation (holds)', function () {
+    $user = User::factory()->withTwoFactor()->create(['password' => 'correct-horse-battery']);
 
-    $this->post(route('login.store'), ['email' => $user->email, 'password' => 'correct-horse-battery']);
+    $this->post(route('login.store'), ['email' => $user->email, 'password' => 'correct-horse-battery'])->assertRedirect(route('two-factor.login'));
+    $this->post(route('two-factor.login.store'), ['recovery_code' => 'recovery-code-1']);
     $this->assertAuthenticatedAs($user);
 
     expect(session('auth.password_confirmed_at'))->toBeNull()

@@ -12,11 +12,11 @@ use Symfony\Component\HttpFoundation\Response;
  * Step-up authentication for sensitive mutations ("password.recent" middleware, ADR 0018 §4): the user must have
  * confirmed their password (Fortify confirm-password) within auth.step_up_seconds. The time is our own session key,
  * set only on that path (markConfirmed()): Laravel's auth.password_confirmed_at is also set by Fortify's passkey
- * confirmation, which is not step-up. It lives in the kernel and is aliased in bootstrap/app.php, so every module's sensitive
- * routes resolve whichever modules are installed (#81).
+ * confirmation, which is not step-up. It lives in the kernel and is aliased in bootstrap/app.php, so every module's
+ * sensitive routes resolve whichever modules are installed (#81).
  *
- * Laravel's own `password.confirm` (RequirePassword) is not reused: it reads a different timestamp window
- * (`auth.password_timeout`), and ADR 0018 §4 makes `auth.step_up_seconds` the one step-up window.
+ * Laravel's `password.confirm` is bound to RequirePasswordUnlessExpired, which applies the same rule and hands every
+ * request except a page load to this middleware (#538).
  *
  * Unlike Laravel's RequirePassword (which redirects, and so cannot resume a POST), this rejects the request:
  * JSON clients get 423, Inertia gets a "password_confirmation" validation error (redirected back without the old

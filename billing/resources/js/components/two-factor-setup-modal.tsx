@@ -1,3 +1,4 @@
+import type { FormComponentRef } from '@inertiajs/core';
 import { Form } from '@inertiajs/react';
 import { REGEXP_ONLY_DIGITS } from 'input-otp';
 import { Check, Copy, ScanLine } from 'lucide-react';
@@ -20,6 +21,7 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { useAppearance } from '@/hooks/use-appearance';
 import { useClipboard } from '@/hooks/use-clipboard';
+import { useStepUpForm } from '@/hooks/use-step-up-form';
 import { OTP_MAX_LENGTH } from '@/hooks/use-two-factor-auth';
 import { confirm } from '@/routes/two-factor';
 
@@ -138,6 +140,8 @@ function TwoFactorSetupStep({
     );
 }
 
+const resetForm = (form: FormComponentRef | null) => form?.reset();
+
 function TwoFactorVerificationStep({
     onClose,
     onBack,
@@ -147,6 +151,8 @@ function TwoFactorVerificationStep({
 }) {
     const [code, setCode] = useState<string>('');
     const pinInputContainerRef = useRef<HTMLDivElement>(null);
+    // A wrong code clears the input; a step-up refusal keeps it, so the confirm is sent again after the password.
+    const stepUp = useStepUpForm(resetForm);
 
     useEffect(() => {
         setTimeout(() => {
@@ -157,8 +163,8 @@ function TwoFactorVerificationStep({
     return (
         <Form
             {...confirm.form()}
+            {...stepUp}
             onSuccess={() => onClose()}
-            resetOnError
             resetOnSuccess
         >
             {({

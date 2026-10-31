@@ -5,9 +5,11 @@ use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Notifications\LoginEmailNotice;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Services\TemplateCatalog;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Notification;
 use Laravel\Passkeys\Events\PasskeyRegistered;
 use Laravel\Passkeys\Passkey;
+use Symfony\Component\Finder\SplFileInfo;
 
 /*
  * Security review 2026-10-31, M1: only a password confirmation is step-up (ADR 0018 §4), and Fortify's
@@ -87,4 +89,18 @@ test('without the template system the added passkey notice is a plain mail', fun
     PasskeyRegistered::dispatch($user, $passkey);
 
     Notification::assertSentTo($user, LoginEmailNotice::class, fn (LoginEmailNotice $notice): bool => $notice->subject === __('A passkey was added to your account'));
+});
+
+test('the frontend never calls the passkey confirmation or the confirmed-password status endpoints', function () {
+    // Fortify registers both and has no option to drop them: the first sets only Laravel's key, the second reports it.
+    // Neither is step-up, so no page may use them (#538). Wayfinder's generated actions/ and routes/ are left out.
+    $offenders = collect(File::allFiles(resource_path('js')))
+        ->reject(fn (SplFileInfo $file): bool => preg_match('#^(actions|routes|wayfinder)/#', $file->getRelativePathname()) === 1)
+        ->filter(fn (SplFileInfo $file): bool => preg_match('#PasskeyConfirmationController|ConfirmedPasswordStatusController|passkeys/confirm|confirmed-password-status'
+            .'|import\s*\{[^}]*\bconfirm(Options)?\b[^}]*\}\s*from\s*[\'"]@/routes/passkey[\'"]'
+            .'|import\s*\{[^}]*\bconfirmation\b[^}]*\}\s*from\s*[\'"]@/routes/password[\'"]#', $file->getContents()) === 1)
+        ->map(fn (SplFileInfo $file): string => $file->getRelativePathname())
+        ->values()->all();
+
+    expect($offenders)->toBe([]);
 });
