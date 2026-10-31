@@ -9,6 +9,7 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Data\Recipient;
 use App\Modules\Notifications\Support\MailDates;
 use App\Modules\Notifications\Support\SupportAddresses;
+use Closure;
 use Illuminate\Support\Facades\Route;
 use Throwable;
 
@@ -18,6 +19,8 @@ use Throwable;
  */
 class MergeContext
 {
+    private bool $strict = false;
+
     public function __construct(
         private MergeFieldRegistry $registry,
         private BrandProvider $brand,
@@ -109,9 +112,34 @@ class MergeContext
         try {
             return $this->registry->resolve($entity, $id);
         } catch (Throwable $exception) {
+            if ($this->strict) {
+                throw $exception;
+            }
+
             report($exception);
 
             return [];
+        }
+    }
+
+    /**
+     * Runs $callback with resolver failures thrown instead of reported as [], so a queued composer can retry a
+     * transient failure, or drop the email when its record is gone, rather than log one with blank fields.
+     *
+     * @template T
+     *
+     * @param  Closure(): T  $callback
+     * @return T
+     */
+    public function strictly(Closure $callback): mixed
+    {
+        $previous = $this->strict;
+        $this->strict = true;
+
+        try {
+            return $callback();
+        } finally {
+            $this->strict = $previous;
         }
     }
 

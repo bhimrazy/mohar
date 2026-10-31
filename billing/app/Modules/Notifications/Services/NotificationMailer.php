@@ -80,6 +80,10 @@ class NotificationMailer
             $existing = EmailMessage::query()->where('dedupe_key', $dedupeKey)->first();
 
             // A re-handled occurrence reports the message it already produced instead of sending again.
+            if ($existing !== null && $request->resumeQueued && $existing->status === EmailStatus::Queued && ! $existing->has_redactions) {
+                SendEmailMessage::dispatch($existing->id, null, $existing->attempts)->afterCommit();
+            }
+
             $created[] = $existing ?? $this->sendTo($template, $recipient, $request, $dedupeKey);
         }
 

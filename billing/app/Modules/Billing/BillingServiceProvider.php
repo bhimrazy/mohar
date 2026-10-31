@@ -605,6 +605,20 @@ class BillingServiceProvider extends ModuleServiceProvider
         });
         // One query each: the record and the client's language (the message's language). Kept out of the `invoice` entity, which webhooks share.
         $registry->register('invoice_mail', fn (int $id): array => $this->documentMail(Invoice::query()->select('invoices.*')->addSelect(['language' => Client::query()->select('language')->whereColumn('clients.id', 'invoices.client_id')])->findOrFail($id)));
+        // Mail-only: what is still due, read when an invoice event is raised (a receipt states its own payment's balance)
+        // and again when its email is composed in a worker (a reminder for a settled invoice is dropped). One query.
+        $registry->register('invoice_due', function (int $id): array {
+            $invoice = Invoice::query()->select(['id', 'client_id', 'status', 'balance', 'currency', 'due_date'])->findOrFail($id);
+
+            return [
+                'client_id' => $invoice->client_id,
+                'status' => $invoice->displayStatus(),
+                'balance' => app(MoneyFormatter::class)->format(Money::of($invoice->balance, $invoice->currency)),
+                'balance_minor' => $invoice->balance,
+                'balance_due' => $invoice->displayStatus() !== 'paid',
+                'payable' => $invoice->status->isPayable() && $invoice->balance > 0,
+            ];
+        });
         $registry->register('quote_mail', fn (int $id): array => $this->documentMail(Quote::query()->select('quotes.*')->addSelect(['language' => Client::query()->select('language')->whereColumn('clients.id', 'quotes.client_id')])->findOrFail($id)));
 
         $registry->register('quote', function (int $id): array {

@@ -72,6 +72,8 @@ use App\Support\Currencies\MoneyFormatter;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Throwable;
 
@@ -81,6 +83,12 @@ use Throwable;
  */
 class SendEventEmails implements ShouldHandleEventsAfterCommit
 {
+    /** In composeQueued(): failures are thrown for the job to retry, not reported. */
+    private bool $queued = false;
+
+    /** @var array<string, mixed> */
+    private array $invoiceAtEvent = [];
+
     public function __construct(
         private NotificationMailer $mailer,
         private RecipientResolver $recipients,
@@ -149,12 +157,50 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     public function handle(object $event): void
     {
         if (self::composesInWorker($event)) {
-            $this->safely(fn () => ComposeEventEmails::dispatch($event)->afterCommit());
+            // A receipt states what its own payment left due, read now, not what a later payment leaves when it is composed.
+            $this->safely(fn () => ComposeEventEmails::dispatch($event, $event instanceof PaymentReceived ? $this->context->resolve('invoice_due', $event->invoiceId) : [])->afterCommit());
 
             return;
         }
 
         $this->compose($event);
+    }
+
+    /**
+     * ComposeEventEmails' entry point, in a worker: the invoice may have changed since the event. An email whose
+     * invoice (or client) is gone, or a reminder for an invoice that is no longer payable, is dropped and logged. Any
+     * other failure is thrown, so the job retries; the dedupe key keeps a retry from logging or sending twice.
+     *
+     * @param  array<string, mixed>  $invoiceAtEvent  `invoice_due` as read when the event was raised (receipts)
+     */
+    public function composeQueued(InvoiceCreated|InvoicePaymentReminder|PaymentReceived|InvoiceModified $event, array $invoiceAtEvent = []): void
+    {
+        $this->queued = true;
+        $this->invoiceAtEvent = $invoiceAtEvent;
+
+        try {
+            $this->context->strictly(function () use ($event): void {
+                $due = $this->context->resolve('invoice_due', $event->invoiceId);
+
+                if ($due === [] || ($event instanceof InvoicePaymentReminder && ! ($due['payable'] ?? false))) {
+                    $this->dropQueued($event, $due === [] ? 'invoice not found' : 'invoice no longer payable');
+
+                    return;
+                }
+
+                $this->route($event);
+            });
+        } catch (ModelNotFoundException) {
+            $this->dropQueued($event, 'invoice or client not found');
+        } finally {
+            $this->queued = false;
+            $this->invoiceAtEvent = [];
+        }
+    }
+
+    private function dropQueued(object $event, string $reason): void
+    {
+        Log::info('Queued invoice email not composed.', ['event' => class_basename($event), 'invoice_id' => $event->invoiceId ?? null, 'reason' => $reason]);
     }
 
     /**
@@ -172,63 +218,68 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     }
 
     /**
-     * Composes and logs the event's emails in this process: from handle(), or from ComposeEventEmails in a worker.
+     * Composes and logs the event's emails in this process, reporting any failure.
      */
     public function compose(object $event): void
     {
         try {
-            // Resolvers and templates build links (route(), url()): root them at APP_URL, never the request's Host.
-            AccountLinks::withAppOrigin(fn () => match (true) {
-                $event instanceof ClientRegistered => $this->clientRegistered($event),
-                $event instanceof ClientUpdated => $this->clientUpdated($event),
-                $event instanceof OrderPlaced => $this->orderPlaced($event),
-                $event instanceof OrderMarkedFraud => $this->orderFraud($event),
-                $event instanceof ServiceActivated => $this->serviceActivated($event),
-                $event instanceof ProvisioningFailed => $this->provisioningFailed($event),
-                $event instanceof ServiceSuspended => $this->serviceSuspended($event),
-                $event instanceof ServiceUnsuspended => $this->serviceUnsuspended($event),
-                $event instanceof ServiceCancellationRequested => $this->cancellationRequested($event),
-                $event instanceof ServiceUpgraded => $this->serviceUpgraded($event),
-                $event instanceof ServiceTerminated => $this->serviceTerminated($event),
-                $event instanceof InvoiceCreated => $this->invoiceCreated($event),
-                $event instanceof InvoicePaymentReminder => $this->invoiceReminder($event),
-                $event instanceof PaymentReceived => $this->paymentReceived($event),
-                $event instanceof PaymentFailed => $this->paymentFailed($event),
-                $event instanceof InvoiceRefunded => $this->invoiceRefunded($event),
-                $event instanceof InvoiceModified => $this->invoiceModified($event),
-                $event instanceof CreditNoteIssued, $event instanceof DebitNoteIssued => $this->taxNoteIssued($event),
-                $event instanceof TaxNoteResendRequested => $this->taxNoteResendRequested($event),
-                $event instanceof QuoteSent => $this->quoteSent($event),
-                $event instanceof DomainRegistered => $this->domainRegistered($event),
-                $event instanceof DomainTransferInitiated => $this->domainTransferInitiated($event),
-                $event instanceof DomainTransferred => $this->domainTransferred($event),
-                $event instanceof DomainTransferFailed => $this->domainTransferFailed($event),
-                $event instanceof DomainRenewed => $this->domainRenewed($event),
-                $event instanceof DomainExpiryDigest => $this->domainExpiryDigest($event),
-                $event instanceof RegistrarActionFailed => $this->registrarActionFailed($event),
-                $event instanceof FreeDomainRenewalBlocked => $this->freeDomainRenewalBlocked($event),
-                $event instanceof DomainSyncReport => $this->domainSyncReport($event),
-                $event instanceof TicketOpened => $this->ticketOpened($event),
-                $event instanceof TicketReplied => $this->ticketReplied($event),
-                $event instanceof TicketAssigned => $this->ticketAssigned($event),
-                $event instanceof TicketNoteAdded => $this->ticketNoteAdded($event),
-                $event instanceof TicketDepartmentChanged => $this->ticketDepartmentChanged($event),
-                $event instanceof TicketClosed => $this->ticketClosed($event),
-                $event instanceof TicketAccessLinkReplaced => $this->ticketLinkReplaced($event),
-                $event instanceof DocumentDecided => $this->kycDocumentDecided($event),
-                $event instanceof InboundEmailBounced => $this->inboundBounced($event),
-                $event instanceof AffiliateActivated => $this->affiliateActivated($event),
-                $event instanceof AffiliateWithdrawalRequested => $this->affiliateWithdrawalRequested($event),
-                $event instanceof StaffLoginFailuresThreshold => $this->staffLoginFailures($event),
-                $event instanceof AutomationRunCompleted => $this->automationCompleted($event),
-                $event instanceof WebhookEndpointDisabled => $this->webhookEndpointDisabled($event),
-                $event instanceof GatewayCredentialExpiring => $this->gatewayCredentialExpiring($event),
-                $event instanceof GatewayCredentialExpired => $this->gatewayCredentialExpired($event),
-                default => null,
-            });
+            $this->route($event);
         } catch (Throwable $exception) {
             report($exception);
         }
+    }
+
+    private function route(object $event): void
+    {
+        // Resolvers and templates build links (route(), url()): root them at APP_URL, never the request's Host.
+        AccountLinks::withAppOrigin(fn () => match (true) {
+            $event instanceof ClientRegistered => $this->clientRegistered($event),
+            $event instanceof ClientUpdated => $this->clientUpdated($event),
+            $event instanceof OrderPlaced => $this->orderPlaced($event),
+            $event instanceof OrderMarkedFraud => $this->orderFraud($event),
+            $event instanceof ServiceActivated => $this->serviceActivated($event),
+            $event instanceof ProvisioningFailed => $this->provisioningFailed($event),
+            $event instanceof ServiceSuspended => $this->serviceSuspended($event),
+            $event instanceof ServiceUnsuspended => $this->serviceUnsuspended($event),
+            $event instanceof ServiceCancellationRequested => $this->cancellationRequested($event),
+            $event instanceof ServiceUpgraded => $this->serviceUpgraded($event),
+            $event instanceof ServiceTerminated => $this->serviceTerminated($event),
+            $event instanceof InvoiceCreated => $this->invoiceCreated($event),
+            $event instanceof InvoicePaymentReminder => $this->invoiceReminder($event),
+            $event instanceof PaymentReceived => $this->paymentReceived($event),
+            $event instanceof PaymentFailed => $this->paymentFailed($event),
+            $event instanceof InvoiceRefunded => $this->invoiceRefunded($event),
+            $event instanceof InvoiceModified => $this->invoiceModified($event),
+            $event instanceof CreditNoteIssued, $event instanceof DebitNoteIssued => $this->taxNoteIssued($event),
+            $event instanceof TaxNoteResendRequested => $this->taxNoteResendRequested($event),
+            $event instanceof QuoteSent => $this->quoteSent($event),
+            $event instanceof DomainRegistered => $this->domainRegistered($event),
+            $event instanceof DomainTransferInitiated => $this->domainTransferInitiated($event),
+            $event instanceof DomainTransferred => $this->domainTransferred($event),
+            $event instanceof DomainTransferFailed => $this->domainTransferFailed($event),
+            $event instanceof DomainRenewed => $this->domainRenewed($event),
+            $event instanceof DomainExpiryDigest => $this->domainExpiryDigest($event),
+            $event instanceof RegistrarActionFailed => $this->registrarActionFailed($event),
+            $event instanceof FreeDomainRenewalBlocked => $this->freeDomainRenewalBlocked($event),
+            $event instanceof DomainSyncReport => $this->domainSyncReport($event),
+            $event instanceof TicketOpened => $this->ticketOpened($event),
+            $event instanceof TicketReplied => $this->ticketReplied($event),
+            $event instanceof TicketAssigned => $this->ticketAssigned($event),
+            $event instanceof TicketNoteAdded => $this->ticketNoteAdded($event),
+            $event instanceof TicketDepartmentChanged => $this->ticketDepartmentChanged($event),
+            $event instanceof TicketClosed => $this->ticketClosed($event),
+            $event instanceof TicketAccessLinkReplaced => $this->ticketLinkReplaced($event),
+            $event instanceof DocumentDecided => $this->kycDocumentDecided($event),
+            $event instanceof InboundEmailBounced => $this->inboundBounced($event),
+            $event instanceof AffiliateActivated => $this->affiliateActivated($event),
+            $event instanceof AffiliateWithdrawalRequested => $this->affiliateWithdrawalRequested($event),
+            $event instanceof StaffLoginFailuresThreshold => $this->staffLoginFailures($event),
+            $event instanceof AutomationRunCompleted => $this->automationCompleted($event),
+            $event instanceof WebhookEndpointDisabled => $this->webhookEndpointDisabled($event),
+            $event instanceof GatewayCredentialExpiring => $this->gatewayCredentialExpiring($event),
+            $event instanceof GatewayCredentialExpired => $this->gatewayCredentialExpired($event),
+            default => null,
+        });
     }
 
     // ── Clients & orders ────────────────────────────────────────────────────────────────────────
@@ -381,8 +432,14 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         }
 
         $transaction = $this->context->resolve('transaction', $event->transactionId);
+        $context = $this->invoiceContext($event->invoiceId, true);
+
+        if (isset($context['invoice']) && $this->invoiceAtEvent !== []) {
+            $context['invoice'] = [...$context['invoice'], ...array_intersect_key($this->invoiceAtEvent, array_flip(['status', 'balance', 'balance_minor', 'balance_due']))];
+        }
+
         $this->clientMail('invoice.payment_confirmation', $event->clientId, EmailCategory::Invoice, [
-            ...$this->invoiceContext($event->invoiceId, true),
+            ...$context,
             'payment' => [
                 'amount' => app(MoneyFormatter::class)->amount($event->amount, $event->currency),
                 'date' => $transaction['date'] ?? MailDates::companyDate(),
@@ -793,7 +850,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
             return [];
         }
 
-        return $this->mailer->send(new EmailRequest($templateKey, $recipients, $context, EventKey::of($event), $clientId, $relatedType, $relatedId, carriesSecret: $carriesSecret));
+        return $this->mailer->send(new EmailRequest($templateKey, $recipients, $context, EventKey::of($event), $clientId, $relatedType, $relatedId, carriesSecret: $carriesSecret, resumeQueued: $this->queued));
     }
 
     /**
@@ -892,6 +949,10 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         try {
             $callback();
         } catch (Throwable $exception) {
+            if ($this->queued) {
+                throw $exception;
+            }
+
             report($exception);
         }
     }

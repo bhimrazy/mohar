@@ -13,6 +13,7 @@ use App\Modules\Notifications\Mail\TemplatedMail;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Services\TemplateCatalog;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
@@ -24,10 +25,15 @@ use Throwable;
 /**
  * Hands one logged message to the transport (spec §7): 3 attempts (1, 5, 30 minutes), then failed.
  * The payload is encrypted because it may carry the unredacted body (reset, verification and invitation links).
+ * Unique per message while queued or retrying, so a send queued again (a retried composer, a resend) never runs
+ * alongside the first; the queued-status check stops one that runs after it.
  */
-class SendEmailMessage implements ShouldBeEncrypted, ShouldQueue
+class SendEmailMessage implements ShouldBeEncrypted, ShouldBeUnique, ShouldQueue
 {
     use Queueable;
+
+    /** Longer than the three attempts and their backoff, so the lock outlives a slow retry but not a lost job. */
+    public int $uniqueFor = 3600;
 
     public int $tries;
 
@@ -45,6 +51,11 @@ class SendEmailMessage implements ShouldBeEncrypted, ShouldQueue
     ) {
         $this->tries = max(1, (int) config('notifications.mail_max_attempts', 3));
         $this->onQueue('notifications');
+    }
+
+    public function uniqueId(): string
+    {
+        return (string) $this->messageId;
     }
 
     /**
