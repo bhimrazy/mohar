@@ -375,7 +375,7 @@ class PlaceOrder
                     currency: $order->currency,
                     recurringAmount: $line->renewal,
                     firstPaymentAmount: $line->dueToday(),
-                    nextDueDate: $line->firstPeriod?->end ?? $today,
+                    nextDueDate: $line->firstPeriod->end ?? $today,
                     orderId: $order->id,
                     domain: $line->domain,
                     configOptions: $item->item->configOptions,
@@ -401,7 +401,7 @@ class PlaceOrder
                     cycle: $line->cycle ?? BillingCycle::Monthly,
                     recurringAmount: $line->renewal,
                     setupFee: $line->setup,
-                    nextDueDate: $line->firstPeriod?->end ?? $today,
+                    nextDueDate: $line->firstPeriod->end ?? $today,
                     orderId: $order->id,
                     billingAnchorDay: $line->firstPeriod?->anchorDay,
                 ));

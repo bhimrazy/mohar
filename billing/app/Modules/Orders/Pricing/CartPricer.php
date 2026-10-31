@@ -187,9 +187,11 @@ class CartPricer
      */
     private function firstPeriod(CarbonImmutable $orderDate, int $recurring, BillingCycle $cycle, ?ProductSummary $prorata): ?FirstPeriod
     {
-        $day = $prorata !== null && $prorata->prorata ? $prorata->prorataDay : null;
+        if ($prorata === null || ! $prorata->prorata) {
+            return Prorata::firstPeriod($orderDate, $recurring, $cycle);
+        }
 
-        return Prorata::firstPeriod($orderDate, $recurring, $cycle, $day, $day === null ? null : $prorata?->prorataChargeNextMonthDay);
+        return Prorata::firstPeriod($orderDate, $recurring, $cycle, $prorata->prorataDay, $prorata->prorataChargeNextMonthDay);
     }
 
     private function priceDomainItem(CartItem $item, string $currency, ?int $clientId): PricedItem
