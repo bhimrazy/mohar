@@ -1,8 +1,8 @@
 <?php
 
 use App\Enums\BillingCycle;
+use App\Modules\Orders\Pricing\Prorata;
 use App\Modules\Services\Support\Proration;
-use App\Support\Billing\Prorata;
 use Carbon\CarbonImmutable;
 
 function prorate(int $old, int $new, string $start, string $end, string $today): Proration

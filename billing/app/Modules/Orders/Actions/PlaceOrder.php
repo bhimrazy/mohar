@@ -257,10 +257,11 @@ class PlaceOrder
             $client = $locked;
         }
 
-        $cart = $this->pricer->price($data->items, $client->currency, $data->promotionCode, $client, $data->priceOverrides);
+        // One date for the first periods, the invoice and the services, also when checkout runs across midnight.
+        $today = $this->clock->today();
+        $cart = $this->pricer->price($data->items, $client->currency, $data->promotionCode, $client, $data->priceOverrides, $today);
         $this->assertCheckoutable($cart, $data);
 
-        $today = $this->clock->today();
         $hadActiveService = $this->eligibility->hasActiveService($client);
         $promotion = $cart->promotionApplied() ? $cart->promotion : null;
 
@@ -372,16 +373,17 @@ class PlaceOrder
                     productId: $product->id,
                     cycle: $cycle,
                     currency: $order->currency,
-                    recurringAmount: $line->recurring,
+                    recurringAmount: $line->renewal,
                     firstPaymentAmount: $line->dueToday(),
-                    nextDueDate: $today,
+                    nextDueDate: $line->firstPeriod->end ?? $today,
                     orderId: $order->id,
                     domain: $line->domain,
                     configOptions: $item->item->configOptions,
                     customFields: $item->item->customFields,
                     promotionId: $recurringPromo ? $promotion->id : null,
                     promotionCyclesRemaining: $recurringPromo && $promotion->recur_count > 0 ? $promotion->recur_count : null,
-                    renewalDiscount: $recurringPromo ? $line->discount : 0,
+                    renewalDiscount: $recurringPromo ? $line->renewalDiscount : 0,
+                    billingAnchorDay: $line->firstPeriod?->anchorDay,
                 ));
 
                 $serviceItem = $this->orderItem($order, OrderItemType::Service, $serviceId, $line, [
@@ -389,7 +391,7 @@ class PlaceOrder
                     'auto_setup' => $product->autoSetup,
                     'stock_reserved' => $product->stock !== null,
                     'promotion_cycles_remaining' => $recurringPromo && $promotion->recur_count > 0 ? $promotion->recur_count : null,
-                    'renewal_discount' => $recurringPromo ? $line->discount : 0,
+                    'renewal_discount' => $recurringPromo ? $line->renewalDiscount : 0,
                 ]);
                 $ids[$line->key] = $serviceId;
             } elseif ($line->kind === 'addon' && $serviceId !== null && $line->addonId !== null) {
@@ -397,10 +399,11 @@ class PlaceOrder
                     serviceId: $serviceId,
                     addonId: $line->addonId,
                     cycle: $line->cycle ?? BillingCycle::Monthly,
-                    recurringAmount: $line->recurring,
+                    recurringAmount: $line->renewal,
                     setupFee: $line->setup,
-                    nextDueDate: $today,
+                    nextDueDate: $line->firstPeriod->end ?? $today,
                     orderId: $order->id,
+                    billingAnchorDay: $line->firstPeriod?->anchorDay,
                 ));
 
                 $this->orderItem($order, OrderItemType::Addon, $addonId, $line, ['addon_id' => $line->addonId, 'parent_id' => $serviceItem?->id]);
@@ -468,6 +471,8 @@ class PlaceOrder
             'recurring_amount' => $line->renewal,
             'setup_fee' => $line->setup,
             'discount_amount' => $line->totalDiscount(),
+            'period_start' => $line->firstPeriod?->start,
+            'period_end' => $line->firstPeriod?->end,
             ...$attributes,
         ]);
     }

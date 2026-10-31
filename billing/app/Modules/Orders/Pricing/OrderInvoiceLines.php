@@ -12,7 +12,8 @@ use Carbon\CarbonImmutable;
 /**
  * Rebuilds the first invoice's lines from an order snapshot (used when an order whose invoice was
  * cancelled is set back to pending). Mirrors InvoiceLineBuilder: charge, setup fee and a negative
- * promotion line per discounted item; periods start on $today.
+ * promotion line per discounted item. A service or addon keeps the first period stored at checkout, which its
+ * amount and the service's dates were set for; items from before that was stored, and domains, start on $today.
  */
 class OrderInvoiceLines
 {
@@ -36,6 +37,7 @@ class OrderInvoiceLines
     private function linesFor(Order $order, OrderItem $item, CarbonImmutable $today): array
     {
         [$periodStart, $periodEnd] = match (true) {
+            $item->period_start !== null && $item->period_end !== null => [$item->period_start, $item->period_end],
             $item->item_type === OrderItemType::Domain => [$today, $today->addYearsNoOverflow($item->years)],
             $item->cycle !== null && $item->cycle->isRecurring() => [$today, $item->cycle->advance($today, anchorDay: $today->day)],
             default => [null, null],

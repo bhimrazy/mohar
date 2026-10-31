@@ -14,15 +14,18 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Orders\Data\CartItem;
 use App\Modules\Orders\Enums\CartItemKind;
+use App\Modules\Orders\Enums\PromotionType;
 use App\Modules\Orders\Models\Promotion;
 use App\Modules\Orders\Services\CurrencyConverter;
 use App\Modules\Orders\Services\CustomFieldRules;
 use App\Modules\Orders\Services\DomainGuard;
 use App\Modules\Orders\Services\TldAttributeInput;
+use Carbon\CarbonImmutable;
 
 /**
- * Re-quotes cart items through PriceBook/DomainPricing (the cart never trusts stored prices), applies
- * the promotion and previews tax through TaxCalculator.
+ * Re-quotes cart items through PriceBook/DomainPricing (the cart never trusts stored prices), works out each
+ * recurring line's first period (pro-rated when the product uses prorata, catalog.md §3.4), applies the promotion
+ * and previews tax through TaxCalculator.
  */
 class CartPricer
 {
@@ -45,26 +48,28 @@ class CartPricer
     /**
      * @param  list<CartItem>  $items
      * @param  array<string, int>  $priceOverrides  item key => recurring amount (staff orders)
+     * @param  CarbonImmutable|null  $orderDate  company-calendar date the first periods start on (default: today)
      */
-    public function price(array $items, string $currency, ?string $promotionCode = null, ?Client $client = null, array $priceOverrides = []): PricedCart
+    public function price(array $items, string $currency, ?string $promotionCode = null, ?Client $client = null, array $priceOverrides = [], ?CarbonImmutable $orderDate = null): PricedCart
     {
         $cart = new PricedCart(strtoupper($currency));
+        $orderDate ??= $this->clock->today();
 
         foreach ($items as $item) {
             $priced = $item->kind === CartItemKind::Product
-                ? $this->priceProduct($item, $cart->currency, $priceOverrides[$item->key] ?? null, $client?->id)
+                ? $this->priceProduct($item, $cart->currency, $priceOverrides[$item->key] ?? null, $client?->id, $orderDate)
                 : $this->priceDomainItem($item, $cart->currency, $client?->id);
             $priced->details = $this->tldAttributes->describe($item->domain(), $item->tldAttributes);
             $cart->items[] = $priced;
         }
 
         $this->applyPromotion($cart, $promotionCode, $client);
-        $this->applyTax($cart, $client);
+        $this->applyTax($cart, $client, $orderDate);
 
         return $cart;
     }
 
-    private function priceProduct(CartItem $item, string $currency, ?int $override, ?int $clientId): PricedItem
+    private function priceProduct(CartItem $item, string $currency, ?int $override, ?int $clientId, CarbonImmutable $orderDate): PricedItem
     {
         $product = $item->productId === null ? null : $this->priceBook->product($item->productId);
         $cycle = $item->cycle ?? BillingCycle::Monthly;
@@ -108,13 +113,14 @@ class CartPricer
 
         $recurring = $override ?? $quote->recurring;
         $description = $product->name.($item->domain() !== null ? ' - '.$item->domain() : '');
+        $firstPeriod = $this->firstPeriod($orderDate, $recurring, $cycle, $product);
 
         $priced->lines[] = new PricedLine(
             key: $item->key.':product',
             itemKey: $item->key,
             kind: 'product',
             description: $description,
-            recurring: $recurring,
+            recurring: $firstPeriod->amount ?? $recurring,
             setup: $quote->setup,
             renewal: $cycle->isRecurring() ? $recurring : 0,
             taxable: $product->taxable,
@@ -122,9 +128,10 @@ class CartPricer
             productId: $product->id,
             domain: $item->domain(),
             breakdown: $quote->breakdown,
+            firstPeriod: $firstPeriod,
         );
 
-        $this->priceAddons($priced, $item, $product->id, $cycle, $currency, $product->taxable);
+        $this->priceAddons($priced, $item, $product, $cycle, $currency, $orderDate);
 
         if (($action = $item->domainAction()) !== null && $item->domain() !== null) {
             $freeDomain = $product->freeDomain && $action === 'register' && in_array($cycle->value, $product->freeDomainCycles, true);
@@ -134,13 +141,19 @@ class CartPricer
         return $priced;
     }
 
-    private function priceAddons(PricedItem $priced, CartItem $item, int $productId, BillingCycle $cycle, string $currency, bool $taxable): void
+    /**
+     * Addons are priced in the parent's cycle. One with prorata_with_parent is pro-rated to the parent's anchor
+     * (catalog.md §2); any other starts its own cycle on the order date.
+     */
+    private function priceAddons(PricedItem $priced, CartItem $item, ProductSummary $product, BillingCycle $cycle, string $currency, CarbonImmutable $orderDate): void
     {
         if ($item->addonIds === []) {
             return;
         }
 
-        $names = array_column($this->priceBook->addonsFor($productId, $currency), 'name', 'id');
+        $addons = $this->priceBook->addonsFor($product->id, $currency);
+        $names = array_column($addons, 'name', 'id');
+        $withParent = array_column($addons, 'prorata_with_parent', 'id');
 
         foreach ($item->addonIds as $addonId) {
             $quote = $this->priceBook->addonQuote($addonId, $cycle, $currency);
@@ -151,20 +164,35 @@ class CartPricer
                 continue;
             }
 
+            $firstPeriod = $this->firstPeriod($orderDate, $quote->recurring, $cycle, ($withParent[$addonId] ?? false) ? $product : null);
+
             $priced->lines[] = new PricedLine(
                 key: "{$item->key}:addon:{$addonId}",
                 itemKey: $item->key,
                 kind: 'addon',
                 description: $names[$addonId],
-                recurring: $quote->recurring,
+                recurring: $firstPeriod->amount ?? $quote->recurring,
                 setup: $quote->setup,
                 renewal: $cycle->isRecurring() ? $quote->recurring : 0,
-                taxable: $taxable,
+                taxable: $product->taxable,
                 cycle: $cycle,
-                productId: $productId,
+                productId: $product->id,
                 addonId: $addonId,
+                firstPeriod: $firstPeriod,
             );
         }
+    }
+
+    /**
+     * First period of a recurring line, pro-rated to $prorata's anchor when that product has prorata on.
+     */
+    private function firstPeriod(CarbonImmutable $orderDate, int $recurring, BillingCycle $cycle, ?ProductSummary $prorata): ?FirstPeriod
+    {
+        if ($prorata === null || ! $prorata->prorata) {
+            return Prorata::firstPeriod($orderDate, $recurring, $cycle);
+        }
+
+        return Prorata::firstPeriod($orderDate, $recurring, $cycle, $prorata->prorataDay, $prorata->prorataChargeNextMonthDay);
     }
 
     private function priceDomainItem(CartItem $item, string $currency, ?int $clientId): PricedItem
@@ -254,7 +282,12 @@ class CartPricer
 
         $amount = $promotion->type->isAmount() ? $this->converter->fromDefault($promotion->valueHundredths(), $cart->currency) : 0;
         $terms = PromotionTerms::fromPromotion($promotion, $amount);
-        $discounts = $this->promotions->discounts($terms, array_map(fn (PricedLine $line): DiscountTarget => $line->toDiscountTarget(), $lines));
+        // An override price is per cycle: on a pro-rated line it is compared with the cycle price and pro-rated below.
+        $override = $terms->type === PromotionType::PriceOverride;
+        $discounts = $this->promotions->discounts($terms, array_map(
+            fn (PricedLine $line): DiscountTarget => $line->toDiscountTarget($override && $line->firstPeriod?->prorated ? $line->renewal : null),
+            $lines,
+        ));
 
         if ($discounts === []) {
             $cart->promotionError = __('This promotion code does not apply to the items in your cart.');
@@ -267,13 +300,22 @@ class CartPricer
                 $line->discount = $discounts[$line->key]['discount'];
                 $line->setupDiscount = $discounts[$line->key]['setup_discount'];
                 $line->recurringDiscount = $promotion->recurring && $line->kind !== 'domain';
+                // A pro-rated first amount is not what renews: the renewal discount is worked out on the renewal price.
+                $line->renewalDiscount = $line->discount;
+
+                if ($line->firstPeriod?->prorated && $override) {
+                    // First amount = the override price pro-rated for the same period (never above the normal price).
+                    $line->discount = $line->recurring - $line->firstPeriod->amountFor($line->renewal - $line->renewalDiscount);
+                } elseif ($line->firstPeriod?->prorated) {
+                    $line->renewalDiscount = $this->promotions->discountFor($terms, new DiscountTarget($line->key, $line->kind, $line->renewal))['discount'];
+                }
             }
         }
     }
 
-    private function applyTax(PricedCart $cart, ?Client $client): void
+    private function applyTax(PricedCart $cart, ?Client $client, CarbonImmutable $orderDate): void
     {
-        $lines = $this->invoiceLines->build($cart, $this->clock->today());
+        $lines = $this->invoiceLines->build($cart, $orderDate);
 
         if ($lines === []) {
             return;

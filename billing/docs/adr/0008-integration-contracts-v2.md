@@ -37,3 +37,13 @@ owning module implements and binds the real contract in its PR fix round.
 - Stock release on `OrderCancelled` / `OrderMarkedFraud` is owned by Catalog's listener (idempotent per order);
   Orders must not call `PriceBook::releaseStock()` for those events — it is for other callers (e.g. manual order edits).
 - Provisioning driver configuration (incl. fields drivers mark `secret`) is encrypted at rest by its owner.
+
+## Amendment (#607) — 2026-11-01, the first-period calculation moves to Orders
+
+- Supersedes "The prorata calculator moves to `App\Support\Billing\Prorata` (pure, shared)" above. Orders is the
+  only caller (catalog.md §3.4: "performed by Orders"), so the calculator lives in `App\Modules\Orders\Pricing\Prorata`
+  and the kernel class is removed. Change-plan proration stays in `Services/Support/Proration` (services.md §5).
+- Orders computes each new service's and addon's first period at checkout (amount, invoice period, anchor day, next
+  invoice date) and hands Services the result through `ServiceDraft` / `AddonDraft`: `nextDueDate` is the first
+  period's end and `billingAnchorDay` the renewal day. Services does not read prorata settings.
+- A longer cycle's partial divides by that cycle's length in days (docs/reviews/2026-11-01-prorata.md, decision 2).

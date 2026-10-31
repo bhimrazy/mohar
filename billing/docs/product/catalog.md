@@ -73,7 +73,7 @@ welcome_email_key, weight, allow_quantity, prorata_with_parent, auto_setup, prov
 pivot `addon_product` (applicable products).
 
 - Billing cycle choice on purchase: if the addon has a price for the parent's cycle, use it; otherwise use the addon's shortest enabled cycle. **MUST**
-- `prorata_with_parent`: first addon period ends on parent's `next_due_date` when cycles match; otherwise anniversary billing. **SHOULD**
+- `prorata_with_parent`: when the parent product uses prorata and the cycles match, the addon's first period ends on the parent's anchor and is pro-rated the same way (§3.4); otherwise anniversary billing from the order date. **SHOULD**
 - Visibility matrix: `show_on_order=false` hides it in new-order cart but still offered to existing services; `is_hidden` hides everywhere client-facing except direct link; `is_retired` hides for admins too. **MUST**
 
 ### product_upgrade_paths
@@ -85,10 +85,14 @@ pivot `addon_product` (applicable products).
 1. **Money** is integer minor units (`App\Support\Money`); no floats in persistence. Display formatting from currency. **MUST**
 2. **Price quote** (`PriceBook::quote`): `recurring = product.amount + Σ option values (unit × qty for quantity type)`; `setup = product.setup_fee + Σ option setup fees`. Client-group discount % (Core) applies to recurring and setup **after** options, rounded half-up per line. **MUST**
 3. **Free cycle**: `cycle=free` only valid when `payment_type=free`. **MUST**
-4. **Prorata (first period) calculation** — performed by Orders using Catalog settings. **SHOULD**
-    - `anchor = next occurrence of prorata_day after order_date` (day clamped to month length; for non-monthly cycles the anchor is the prorata_day of the month after order, then the full cycle is added from the anchor).
-    - `partial = round(recurring × days(order_date → anchor) / days(anchor − 1 month → anchor))` (actual calendar days).
-    - If `order_date.day > prorata_charge_next_month_day` (0 = always, 32 = never): first invoice = partial + one full cycle, `next_due_date = anchor + cycle`; else first invoice = partial, `next_due_date = anchor`.
+4. **Prorata (first period) calculation** — performed by Orders at checkout (`Orders/Pricing/Prorata`) using Catalog settings. **SHOULD**
+    - `order_date` is the company-calendar date (Nepal time by default) when the order is priced.
+    - `anchor = next occurrence of prorata_day on or after order_date` (day clamped to month length; for non-monthly cycles the anchor is the prorata_day of the month after order, then the full cycle is added from the anchor).
+    - `partial = round(recurring × days(order_date → anchor) / days(anchor − 1 cycle → anchor))`: actual calendar days, rounded half away from zero to the minor unit. The denominator is the length of the cycle that ends on the anchor, not one month, so a longer cycle is not charged per month. Example, annual 3650000 (NPR 36,500.00), prorata_day 1, ordered 2026-01-10: anchor 2026-02-01, partial = 3650000 × 22/365 = 220000, first invoice = 220000 + 3650000 = 3870000, `next_due_date` = 2027-02-01.
+    - Monthly: if `order_date.day > prorata_charge_next_month_day` (0 = always, 32 = never): first invoice = partial + one full cycle, `next_due_date = anchor + cycle`; else first invoice = partial, `next_due_date = anchor`. Longer cycles always add the full cycle.
+    - Ordered on the anchor itself: no partial, one full cycle.
+    - The first invoice line covers `[order_date, next_due_date)`; the service's `billing_anchor_day` is prorata_day (unclamped, so day 31 renews on each month's last day).
+    - A recurring promotion discounts the first amount; renewals get the same promotion worked out on the renewal price. A price-override promotion's price is pro-rated by the same fraction (override 200000 instead of 310000, ordered Jan 10: 200000 × 22/31 = 141935), so it never charges more than the pro-rated normal price.
     - Setup fee is charged in full, never prorated.
     - Signup-anniversary prorata (anchor = client signup day) is **COULD**.
 5. **Stock**: `reserveStock` decrements atomically (`UPDATE … SET stock_quantity = stock_quantity - 1 WHERE stock_quantity > 0`); 0 ⇒ product shows "out of stock" and cannot be added. Stock is restored when the order is cancelled/fraud **before** the service was ever activated. **MUST**
@@ -163,7 +167,7 @@ Settings (Catalog):
 11. Given an addon with monthly pricing and a monthly parent, then the addon cycle is monthly.
 12. Given upgrade path A→B and B retired, then `canUpgrade(A,B)` is false.
 13. Given prorata_day=1, charge_next_month_day=20, monthly 31.00, order on Jan 10, then first invoice = 31.00×22/31 = 22.00 and next_due_date = Feb 1.
-14. Same config, order on Jan 25, then first invoice = 31.00×7/31 + 31.00 = 38.00 and next_due_date = Mar 1.
+14. Same config, order on Jan 25, then first invoice = 31.00×7/31 + 31.00 = 38.00 and next_due_date = Mar 1. Annual 365.00 ordered on Jan 10: 365.00×22/365 + 365.00 = 387.00, next_due_date = Feb 1 next year.
 15. Given a product price change from 10 to 12, then existing services' recurring_amount stays 10.
 16. Given a hidden config option value used by a service, then the service still renews at that value's price.
 17. Given a dropdown custom field with regex, when an order submits a non-matching value, then validation fails with field error.

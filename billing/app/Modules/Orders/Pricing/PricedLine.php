@@ -6,7 +6,8 @@ use App\Enums\BillingCycle;
 
 /**
  * One chargeable unit of a cart item: the product itself, one of its addons, or a domain.
- * `recurring` is the first-period amount; `renewal` what later periods cost (before promotions).
+ * `recurring` is the first-period amount (pro-rated when the product uses prorata); `renewal` what later periods
+ * cost (before promotions); `firstPeriod` the dates the first amount covers, for recurring products and addons.
  */
 final class PricedLine
 {
@@ -31,9 +32,11 @@ final class PricedLine
         public readonly ?string $tld = null,
         public readonly ?string $domainAction = null,
         public readonly array $breakdown = [],
+        public readonly ?FirstPeriod $firstPeriod = null,
         public int $discount = 0,
         public int $setupDiscount = 0,
         public bool $recurringDiscount = false,
+        public int $renewalDiscount = 0,
     ) {}
 
     /**
@@ -54,15 +57,18 @@ final class PricedLine
      */
     public function renewalAfterDiscount(): int
     {
-        return max(0, $this->renewal - ($this->recurringDiscount ? $this->discount : 0));
+        return max(0, $this->renewal - ($this->recurringDiscount ? $this->renewalDiscount : 0));
     }
 
-    public function toDiscountTarget(): DiscountTarget
+    /**
+     * @param  int|null  $base  amount the discount is worked out on (default: the first amount)
+     */
+    public function toDiscountTarget(?int $base = null): DiscountTarget
     {
         return new DiscountTarget(
             key: $this->key,
             kind: $this->kind,
-            base: $this->recurring,
+            base: $base ?? $this->recurring,
             setup: $this->setup,
             productId: $this->productId,
             addonId: $this->addonId,
@@ -86,9 +92,11 @@ final class PricedLine
             'recurring' => $this->recurring,
             'setup' => $this->setup,
             'renewal' => $this->renewalAfterDiscount(),
+            'cycle_price' => $this->renewal,
             'discount' => $this->totalDiscount(),
             'due_today' => $this->dueToday(),
             'breakdown' => $this->breakdown,
+            'first_period' => $this->firstPeriod?->toArray(),
         ];
     }
 }

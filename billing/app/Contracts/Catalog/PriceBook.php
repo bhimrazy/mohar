@@ -69,9 +69,10 @@ interface PriceBook
     public function configOptionsFor(int $productId, string $currency): array;
 
     /**
-     * Addons that can be ordered with a product.
+     * Addons that can be ordered with a product. `prorata_with_parent` (absent = false): the addon's first period ends
+     * on the parent's prorata anchor (catalog.md §2).
      *
-     * @return list<array{id: int, name: string, description: ?string, pricing: list<array{cycle: string, recurring: int, setup: int}>}>
+     * @return list<array{id: int, name: string, description: ?string, prorata_with_parent?: bool, pricing: list<array{cycle: string, recurring: int, setup: int}>}>
      */
     public function addonsFor(int $productId, string $currency): array;
 

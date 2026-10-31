@@ -85,8 +85,9 @@ Example monthly, anchor 31: Jan 31 → Feb 28 (Feb 29 leap) → Mar 31 → Apr 3
 
 ### 4.2 Initial state at checkout
 
-`registration_date = today`; first period `[today|prorata start, first_period_end)`; `next_due_date = registration_date` (unpaid) and
-`next_invoice_date = first_period_end` because the order invoice covers the first period. **MUST**
+`registration_date = today`; first period `[today, first_period_end)`, where `first_period_end` is one cycle from today or the
+prorata anchor (catalog.md §3.4); `next_due_date = registration_date` (unpaid) and `next_invoice_date = first_period_end` because the
+order invoice covers the first period (Orders passes it as `ServiceDraft::$nextDueDate`, with `billingAnchorDay`). **MUST**
 
 ### 4.3 Renewal generation — job `services:generate-renewals` (daily, step 1 of pipeline)
 

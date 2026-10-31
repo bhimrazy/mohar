@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { DateTime } from '@/components/app/date';
 import { Money } from '@/components/app/money';
 import { Separator } from '@/components/ui/separator';
 import { cycleLabel } from '@/lib/billing-cycles';
@@ -124,10 +125,19 @@ export function OrderSummary({
                         <ul className="grid gap-1">
                             {cart.recurring.map((row) => (
                                 <li
-                                    key={row.cycle}
+                                    key={`${row.cycle}|${row.from ?? ''}`}
                                     className="flex justify-between gap-4"
                                 >
-                                    <span>{cycleLabel(row.cycle)}</span>
+                                    <span>
+                                        {cycleLabel(row.cycle)}
+                                        {row.from && (
+                                            <span className="text-muted-foreground">
+                                                {' '}
+                                                from{' '}
+                                                <DateTime value={row.from} />
+                                            </span>
+                                        )}
+                                    </span>
                                     <Money
                                         amount={row.amount}
                                         currency={currency}
