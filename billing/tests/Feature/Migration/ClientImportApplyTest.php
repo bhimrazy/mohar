@@ -59,7 +59,7 @@ test('confirming needs the execute permission, a recent password and the reviewe
     actingAsStaff(['migration.runs.view']);
     $this->post(route('admin.migration.imports.apply', $run), ['digest' => $run->review_digest])->assertForbidden();
     actingAsStaff(['migration.runs.view', 'migration.runs.execute']);
-    $this->withSession(['auth.password_confirmed_at' => 0])->post(route('admin.migration.imports.apply', $run), ['digest' => $run->review_digest])
+    $this->withSession(['auth.step_up_confirmed_at' => 0])->post(route('admin.migration.imports.apply', $run), ['digest' => $run->review_digest])
         ->assertSessionHasErrors('password_confirmation');
 
     confirmPassword();

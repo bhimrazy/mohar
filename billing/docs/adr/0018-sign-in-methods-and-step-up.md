@@ -69,9 +69,9 @@ No sign-in method counts as a second factor or as a password confirmation.
   `bootstrap/app.php`, and Billing's `ConfirmPasswordForAction` copy is deleted (#81).
 - The window is `auth.step_up_seconds`, read from `AUTH_STEP_UP_SECONDS` (default 900 when unset or empty; a whole
   number from 60 to 3600, and any other value fails when the configuration loads). It does not change
-  `password_timeout`.
+  `password_timeout` (which, since #538, opens no route: `password.confirm` uses this window too).
 - It is the only step-up mechanism. It reads `auth.password_confirmed_at`, which only Fortify's `confirm-password`
-  sets. No module adds another form of step-up, such as an emailed link, a provider re-authentication or a module
+  sets (superseded by #538: its own key, `auth.step_up_confirmed_at`). No module adds another form of step-up, such as an emailed link, a provider re-authentication or a module
   timestamp.
 - A passkey assertion may count later only by setting the same timestamp, and only through an amendment to this ADR.
 - A login without a password cannot pass step-up. The 423 or validation response tells the UI to offer "Set a
@@ -220,46 +220,121 @@ except the section's non-secret settings as secret). JSON clients still get 423 
 422 validation response (form requests). First shipped for the middleware in #489, completed for the settings
 sections in #490.
 
+## Amendment (#538) — 2026-10-31, step-up has its own session key, and password.confirm is step-up
+
+Security review 2026-10-31 (M1): Fortify's passkey confirmation (`POST /passkeys/confirm`) also sets
+`auth.password_confirmed_at`, so §4's "only Fortify's `confirm-password` sets it" no longer held. Passkeys still do
+not count as step-up; this restores §4 rather than changing it.
+
+- **Own key.** Step-up reads `RequireRecentPasswordConfirmation::SESSION_KEY` (`auth.step_up_confirmed_at`), written
+  only by `markConfirmed()` from `PasswordConfirmedResponse`, which Fortify sends only after the password matched.
+  `auth.password_confirmed_at` stays Laravel's and Fortify's and gates nothing here. Every reader uses the new key:
+  `recentlyConfirmed()` (and so `password.confirm` and the settings checks) and `ReviewUnlocks`. `ReportExporter`'s
+  docblock names it as the timestamp a queued export will carry; no caller passes one yet. Impersonation drops both
+  keys.
+- **`password.confirm` is step-up.** `RequirePasswordUnlessExpired`, bound in place of Laravel's `RequirePassword`,
+  applies `recentlyConfirmed()`: a password confirmation within `auth.step_up_seconds`, never for a login without a
+  password. `auth.password_timeout` (3 hours) no longer opens any route. This covers Fortify's passkey registration and
+  removal, every two-factor route, the security page and the staff and role pages. Only a page load still goes to the
+  confirm page and back. JSON requests get 423.
+- **A refused Inertia mutation is answered in place, never by a redirect.** `password.recent`, `password.confirm`
+  and `RequireRecentPasswordConfirmation::refusal()` answer it with a plain JSON 423 carrying `X-Step-Up-Required`
+  (and `code: password_not_set` for a login without a password). Inertia raises its `httpException` event; the
+  confirm dialog cancels it, asks for the password and sends the same visit again, so the form keeps its input and
+  callbacks. A redirect back would reload the page the form is on, which is itself gated (the security page) and, for
+  two-factor setup, lets Fortify drop an unconfirmed secret. No gated page or endpoint is ever served without a
+  recent confirmation, and a refusal changes no server state. The two-factor setup and passkey registration retry
+  their own step (`withStepUp`, `useStepUpForm`, `ensureStepUp` in `resources/js`). A plain form post without
+  JavaScript still goes back with the `password_confirmation` error. The route arguments (redirect route and timeout)
+  are ignored.
+- **The confirm page's way out** leads to Settings → Profile for a settings page, and to the dashboard otherwise.
+  The window it and the dialog name comes from `auth.step_up_seconds` (shared as `auth.step_up_minutes`).
+- **Unused vendor routes.** Fortify always registers `POST /passkeys/confirm` and `/user/confirmed-password-status`
+  and has no option to drop them; both read or write only Laravel's key. A test keeps the frontend from calling them.
+- **The confirm page has no passkey option**, since a passkey confirmation would not satisfy it. Passkey sign-in is
+  unchanged.
+- **Notice:** adding a passkey writes `auth.passkey_added` to the activity log and mails the login
+  (`auth.passkey_added` or `staff.passkey_added`, always sent; `LoginEmailNotice` when the template system is absent).
+  The passkey's name is left out of the mail, since whoever added it chose it.
+- Counting a passkey assertion as step-up still needs its own amendment and an owner decision.
+
 ## Amendment (#555) — 2026-10-31, a pending password checked once at the source (Proposed)
 
 Status: Proposed, awaiting the owner's answer to `client-import.md` Q13. Research:
-`docs/research/2026-10-31-whmcs-login-migration.md`.
+`docs/research/2026-10-31-whmcs-login-migration.md`. The #555 design review findings (B2, B5, M3, M6, M7) are folded
+in. Companion amendments: ADR 0012 (#555), for contracts that receive secrets, and ADR 0015 (#555), for outbound calls
+inside a request.
 
-- **What it is for.** An imported login has no password that anyone knows (`client-import.md` §6.9). Sign-in carry-over
-  (§3.4) lets that login's first password sign-in be checked once against the system it came from. On success the
-  typed password becomes the login's own hash. This extends the **password** method. It is not a new sign-in method,
-  so nothing is registered in `SignInMethods` (§1).
-- **One kernel hook.** The interface is `App\Contracts\Auth\PendingPasswordCheck`:
-  `check(User $user, string $password, Request $request): PendingPasswordOutcome` and `active(): bool`. The enum is
-  `App\Enums\PendingPasswordOutcome`: NotApplicable, Verified, ConfirmByEmail, Rejected, Unavailable.
-    - Core binds a null implementation with `bindIf`: NotApplicable, and `active()` false. Migration binds the real
-      one. It is a contract, not a registry, because there is one implementer.
-    - Only the password-validation step of the Fortify sign-in pipeline calls it, and only after the local hash check
-      failed for an existing login, inside the `login` limiter, outside any transaction.
-    - Verified means the implementer has already stored the new hash under a row lock. The pipeline then continues
-      exactly as for a local match: lockout and refusals, the 2FA challenge, session regeneration. When
-      `CompleteSignIn` (§3) exists, that path goes through it too.
-    - Rejected and Unavailable are ordinary failed sign-ins. They count towards the same lockout (§2).
-    - A pipeline test pins the position, as §3 pins Fortify's keys.
-- **Not step-up.** `confirmPasswordsUsing` and `password.recent` never call it (§4). A signed-in login already has a
-  local password.
-- **ConfirmByEmail.** The source said the password is right but the account had a second factor there, which we cannot
-  check. The login is not signed in. A single-use link goes to the login's own address, bound to the browser that
-  started the sign-in. Opening it stores the held hash, verifies the email and signs the login in through the normal
-  session steps. This is a sign-in proof for an account in transit, the same kind as the social sign-in emailed link
-  (SS-17). It is not a step-up mechanism, so §4's "no emailed link" rule is not affected.
+- **What it is for.** An imported login has a placeholder password that nobody knows (`client-import.md` §6.9).
+  Sign-in carry-over (§3.4) checks that login's first password sign-in once against the system it came from. On
+  success the typed password becomes the login's own hash. This extends the **password** method. It is not a new
+  sign-in method, so nothing is registered in `SignInMethods` (§1).
+- **The contract.** `App\Contracts\Auth\PendingPasswordCheck` has three methods:
+    - `active(): bool`: whether any source may answer now, so the failure floor applies;
+    - `pending(User $user): bool`: whether this login has an open carry-over. It receives no secret;
+    - `check(User $user, #[\SensitiveParameter] string $password, string $ip): PendingPasswordOutcome`.
+
+  The outcome is the closed enum `App\Enums\PendingPasswordOutcome`: NotApplicable, Verified, ConfirmByEmail,
+  Rejected, Unavailable. Its docblock says it is closed (ADR 0010).
+    - `active()` and `pending()` are hot-path reads (ADR 0020): cached, never remote, never throwing.
+    - Core binds a null implementation with `bindIf`: both reads false. Migration binds the one real implementation.
+      ADR 0012 Amendment (#555) closes the contract to packages: an Arch test and a boot check allow exactly that
+      implementation and the null one.
+    - `#[\SensitiveParameter]` is on the interface and on every implementation, because PHP does not inherit it.
+- **Where it is called (M7).** Only from `Fortify::authenticateUsing`, which both pipeline shapes use, with 2FA on or
+  off. The kernel calls it only when all of these hold:
+    - the local hash check failed for an existing login;
+    - the login is not staff (staff never have a placeholder password, §5);
+    - `SignInGate::refusal()` returned null, so a disabled, closed or locked login causes no outbound call;
+    - `pending()` is true;
+    - the guess budget allows it.
+
+  The call happens inside the `login` limiter and outside any transaction. The kernel wraps `check()` and maps any
+  `Throwable` to Unavailable. It logs a fixed sentence and the exception class only.
+- **Outcomes.**
+    - **Verified:** the implementation has stored the new hash by compare-and-set against the placeholder. The
+      pipeline continues as for a local match: refusals, the 2FA challenge, session regeneration.
+    - **Rejected:** a failed sign-in. Fortify's `Failed` event fires and the lockout counts it (§2).
+    - **Unavailable:** the ordinary failure message, **without** `Failed`, so a source outage locks nobody out (M3).
+    - **NotApplicable:** the ordinary failure.
+    - **ConfirmByEmail:** no session (below).
+    - Every refusal uses the ordinary failure text. None says "try again" or anything else that would set imported
+      logins apart.
+- **Not step-up.** `confirmPasswordsUsing`, `password.recent` and `password.confirm` never call it (§4). A signed-in
+  login already has a local password.
+- **ConfirmByEmail (B5).** The source said the password is right, but the account had a second factor there, which
+  we cannot check.
+    - A single-use link goes to the login's own address, bound to the browser.
+    - A GET shows a confirm page. A POST with CSRF consumes the link.
+    - On the POST, everything is checked again, then the held hash is stored and the email verified. The sign-in
+      completes **only through `CompleteSignIn::for($request, $user, 'password')`** (§3).
+    - The route pair `login.carry-over.show` and `login.carry-over.confirm` is the one route this amendment allows.
+    - This is a sign-in proof for an account in transit, like the social sign-in emailed link (SS-17). It is not a
+      step-up mechanism, so §4's "no emailed link" rule stands.
 - **Verification.** A carry-over does not set `email_verified_at`, because knowing a password does not prove the
-  mailbox. The ConfirmByEmail path does set it. The 2026-10-21 addendum (verified 30 days ago bounds the last email
-  change) still holds, because a carry-over never changes the email.
-- **Enumeration.** While `active()` is true, every failed password sign-in answers no sooner than a configured floor,
-  so the remote wait does not reveal which emails are imported. The message is the same for every failure.
+  mailbox. The ConfirmByEmail path does set it. The 2026-10-21 addendum still holds: verified 30 days ago bounds the
+  last email change, and a carry-over never changes the email.
+- **Enumeration.** While `active()` is true, a failed password sign-in answers no sooner than a floor taken from the
+  measured remote p95. The number of requests waiting in the floor is bounded. The message is the same for every
+  failure.
+- **Secrets (M6).**
+    - The implementation runs the call inside `RedactionScope::during()` with a `RedactionSet` of the password and the
+      API secret.
+    - It never reports an HTTP-client exception.
+    - It uses no HTTP-client events.
+    - It keeps the password out of request attributes, the session and old input.
+    - ADR 0023 needs no new keys: `password2` and `passwordhash` already match its `password` rule.
 - **Must not be added.**
-    - A second sign-in route or controller for imported logins.
+    - A second implementer, including any third-party package (ADR 0012 Amendment (#555)).
+    - Any other sign-in route or controller for imported logins than the confirmation pair above.
     - A "migration" entry in `SignInMethods`.
     - A per-carry-over domain event.
     - A generic external-password-provider registry.
-    - Any column on `users`; the state lives in the Migration module's table.
+    - Any column on `users`; the state, including the placeholder, lives in the Migration module's table.
     - Any call from step-up.
-- **Consequences.** It is a kernel PR by the CTO (`client-import.md` PR 8a), and it does not depend on the PR 0 listed
-  above. Contract evolution follows ADR 0010: the enum is closed, and a new outcome needs an amendment. Migration
-  adds the redaction keys `password2` and `passwordhash` under ADR 0023.
+- **Consequences.**
+    - It is a kernel PR by the CTO (`client-import.md` PR 8a). It lands after this ADR's PR 0 (`SignInGate`,
+      `CompleteSignIn`), or brings those two forward.
+    - It adds a `kernel-changelog.d` fragment and regenerates `kernel-api.txt`.
+    - The guess counting is extracted from `PasswordGuesses`, so there is one implementation of it.
+    - Contract evolution follows ADR 0010. The enum is closed, so a new outcome needs an amendment.

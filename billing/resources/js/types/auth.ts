@@ -13,6 +13,8 @@ export type User = {
 
 export type Auth = {
     user: User;
+    /** How long a password confirmation lasts (AUTH_STEP_UP_SECONDS), in whole minutes. */
+    step_up_minutes: number;
 };
 
 export type Passkey = {

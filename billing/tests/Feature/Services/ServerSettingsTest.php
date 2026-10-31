@@ -64,7 +64,7 @@ beforeEach(function () {
         }
     });
     actingAsStaff(['services.servers.view', 'services.servers.manage']);
-    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
+    $this->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()]);
 });
 
 function settingsServerPayload(array $settings): array
