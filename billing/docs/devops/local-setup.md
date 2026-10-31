@@ -204,11 +204,35 @@ Every workstream works in its own git worktree, branched from `develop`:
 ```bash
 scripts/new-worktree.sh <module-slug>    # from the repo root
 # -> .claude/worktrees/<slug>/billing on feature/<slug>, vendor + node_modules copied, .env copied,
-#    SQLite migrated and seeded, Wayfinder generated
+#    SQLite migrated and seeded, Wayfinder generated, pre-push gate installed
 ```
 
 Run all commands inside `.claude/worktrees/<slug>/billing`. Infrastructure (RustFS, PostgreSQL) is shared across
 worktrees; the SQLite file is per worktree. Rebase on `develop` and run `composer ci` before review.
+
+### Pre-push gate
+
+`new-worktree.sh` runs `scripts/install-hooks.sh`, which sets `core.hooksPath` for that worktree only
+(`git config --worktree`, with `extensions.worktreeConfig` on in the repository config; the global config is never
+touched). In an older worktree, run `scripts/install-hooks.sh` once. `git push` then runs `scripts/pre-push.sh` on what
+the branch changes against `origin/develop`, the fast checks that most CI failures came from:
+
+| Check       | Runs on                                                              |
+| ----------- | -------------------------------------------------------------------- |
+| `pint`      | changed PHP (`pint --test`)                                          |
+| `vp`        | changed frontend and Markdown files under `billing/` (`vp check`)    |
+| `changelog` | the whole diff (`scripts/changelog-check.sh`)                        |
+| `phpstan`   | changed PHP in the analysed paths (`phpstan.neon`)                   |
+| `tests`     | `scripts/test.sh --changed`                                          |
+
+A docs-only push runs only `vp` and `changelog`. When `test.sh` would run the whole suite (shared code such as Core or
+`app/Support` changed) the gate leaves the tests to CI; `PRE_PUSH_FULL=1 git push` runs them anyway. Pint, phpstan,
+`vp` and the tests go through `scripts/heavy.sh`. Every failing check is listed, then the push is refused.
+
+- Preview the plan: `scripts/pre-push.sh --dry-run`.
+- Skip single checks: `PRE_PUSH_SKIP=tests,phpstan git push`. `PRE_PUSH_BASE` replaces `origin/develop`.
+- Emergency bypass: `git push --no-verify`. CI still runs every check, so a bypassed push only costs a failed run.
+- Without `origin/develop` locally the gate prints a note and lets the push through (`git fetch origin develop`).
 
 After the PR merges, `scripts/finish-workstream.sh <slug>` removes the worktree, the merged local branch and the
 slug's PostgreSQL databases (`--dry-run` to preview). `scripts/sweep-stale.sh` lists leftovers (dry run; `--apply` acts).
