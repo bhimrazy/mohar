@@ -9,7 +9,13 @@ accident of history, not a decision: no ADR chose them, and the same kind of dri
 today. The recommendation is a hybrid (option d): first-party integrations bundled in one place grouped by family,
 third-party ones as Composer packages, both through one manifest, one catalogue and the registries we already have,
 with a runtime enable/disable state and an admin Extensions page. The decision is drafted as
-[ADR 0030](../../billing/docs/adr/0030-extension-model.md) (Proposed).
+[ADR 0030](../../billing/docs/adr/0030-extension-model.md).
+
+**Outcome (2026-10-31):** ADR 0030 is Accepted. The owner approved the hybrid, Composer-only installs, the CLI for
+install, upgrade and uninstall with enable and disable in admin, one extension per Nepal provider (shared helpers to the
+kernel), and a free verified list later with paid extensions out of scope for v1. The CTO decided schema-only
+third-party UI in v1 and kernel 1.0.0 with the first public release. The table in ADR 0030 "Decisions of 2026-10-31"
+is the record; §4 below is the recommendation as proposed and differs only on the Nepal split.
 
 Read at `develop` a5b803bf. Nothing was run besides `grep`, `ls` and file reads; no tests, no app.
 
@@ -50,13 +56,13 @@ Amendment (#515)).
 
 **Per-account enable (exists, per family).**
 
-| Family       | Where staff enable it                                         | State                                                                                                                                                   |
-| ------------ | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Gateway      | Admin → Billing → Gateways (`Billing/routes/web.php:74-78`)   | `gateways.is_active` default false, encrypted `config` (`Billing/Database/Migrations/2026_10_17_300001_create_billing_tables.php:35-44`); save needs `password.recent` |
-| Registrar    | Admin → Domains → Registrars (`Domains/routes/web.php:19-23`) | `registrar_accounts.is_active`, encrypted `settings`, `test_mode` (`Domains/Database/Migrations/2026_10_17_500001_create_domains_tables.php:51-58`); inactive until saved unless `StandaloneRegistrar` (ADR 0009 Amendment (#408) §4) |
-| Provisioning | Admin → Services → Servers (`Services/routes/web.php:19-24`), then a product's module | per server row and per product; no family-level switch                                                                                                  |
-| Fraud        | `orders.fraud.driver` (`Orders/Config/orders.php:47-49`) picks `none` or `rules` | module-internal interface                                                                                                                               |
-| Exchange rate | Platform registers the ECB and NRB sources (`Platform/Drivers/ExchangeRates`) | `ExchangeRateSources::register(class)`                                                                                                                  |
+| Family        | Where staff enable it                                                                 | State                                                                                                                                                                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Gateway       | Admin → Billing → Gateways (`Billing/routes/web.php:74-78`)                           | `gateways.is_active` default false, encrypted `config` (`Billing/Database/Migrations/2026_10_17_300001_create_billing_tables.php:35-44`); save needs `password.recent`                                                                |
+| Registrar     | Admin → Domains → Registrars (`Domains/routes/web.php:19-23`)                         | `registrar_accounts.is_active`, encrypted `settings`, `test_mode` (`Domains/Database/Migrations/2026_10_17_500001_create_domains_tables.php:51-58`); inactive until saved unless `StandaloneRegistrar` (ADR 0009 Amendment (#408) §4) |
+| Provisioning  | Admin → Services → Servers (`Services/routes/web.php:19-24`), then a product's module | per server row and per product; no family-level switch                                                                                                                                                                                |
+| Fraud         | `orders.fraud.driver` (`Orders/Config/orders.php:47-49`) picks `none` or `rules`      | module-internal interface                                                                                                                                                                                                             |
+| Exchange rate | Platform registers the ECB and NRB sources (`Platform/Drivers/ExchangeRates`)         | `ExchangeRateSources::register(class)`                                                                                                                                                                                                |
 
 Settlement keeps running for an inactive gateway: `Billing/Services/PaymentReconciler.php` has no `is_active` filter
 (grep; not traced through every caller). That is the right behaviour and the rule any extension-level disable must keep ("disable stops new work,
@@ -95,34 +101,34 @@ two different things under one word, and doing it for gateways only is inconsist
 
 ### 1.3 Drift found while reading
 
-| #   | Finding                                                                                                                                                                                                                                                                                                                                                                                             | Evidence                                                                                                                                                                                       |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | ADR 0012 "Alignment of existing registries" asked for a kernel `Support\Billing\GatewayDriverRegistry`. It was not built: gateways still register **instances** on a Billing-bound interface, so every gateway module needs `callAfterResolving()`.                                                                                                                                              | `app/Contracts/Billing/GatewayRegistry.php:12-27`; `Billing/BillingServiceProvider.php:130-136`; `PaymentsStripeServiceProvider.php:24-26` (same in the other three)                           |
-| D2  | Four registration styles for one concept: instance (`GatewayRegistry`), `register(key, class)` (`DriverRegistry`), `register(class)` (`ExchangeRateSources.php:27`, `PriceConverters.php:23`, also an ADR 0012 alignment item), `register(ThemePreset)` (`ThemeRegistry.php:22`).                                                                                                                 | as cited                                                                                                                                                                                       |
-| D3  | Gateway drivers read Core internals, so they could not ship as an outside package today: Stripe queries Core's `Currency` model from a driver although `Contracts\Currencies\CurrencyDirectory` exists; three clients read Billing's `billing.gateways.http_timeout_seconds` through Core `Settings`.                                                                                             | `PaymentsStripe/Support/StripeAmount.php:86`; `PaymentsStripe/Support/StripeClient.php:148`; `PaymentsRazorpay/Support/RazorpayClient.php:138`; `PaymentsNepal/Support/ProviderHttp.php:74` |
-| D4  | Gateway `settingsFields()` still returns arrays (known, ADR 0009 Consequences).                                                                                                                                                                                                                                                                                                                     | `app/Contracts/Billing/GatewayDriver.php:70-72`                                                                                                                                                |
-| D5  | ADR 0009 §6 lists `Orders\FraudCheckCompleted` with `App\Enums\FraudDecision` "moved from Orders". Neither exists; the enum is still `Modules/Orders/Enums/FraudDecision.php` and `app/Events/Orders` has no such event. Fraud and inbound mail remain module-internal (ADR 0009 §7 promised an addendum).                                                                                      | `ls app/Enums`, `ls app/Events/Orders`                                                                                                                                                         |
-| D6  | `architecture.md:273` reserves the migration block 75xxxx for PaymentsNepal, which has no migrations. Harmless, but the migration-number scheme has no rule for extensions.                                                                                                                                                                                                                         | `ls app/Modules/PaymentsNepal`                                                                                                                                                                 |
-| D7  | `tests/Arch/ArchitectureTest.php:19-22` `PLANNED_MODULES` lists `Affiliates` and `Ai` (not on disk) and omits `PaymentsCybersource` (the glob adds it). Any move must update this list in the same PR.                                                                                                                                                                                             | as cited                                                                                                                                                                                       |
-| D8  | ADR 0010's package compatibility rule exists only as text; `Kernel::API_VERSION` has no reader.                                                                                                                                                                                                                                                                                                    | `Kernel.php:16`; ADR 0010:63-66                                                                                                                                                                |
+| #   | Finding                                                                                                                                                                                                                                                                                                    | Evidence                                                                                                                                                                                    |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | ADR 0012 "Alignment of existing registries" asked for a kernel `Support\Billing\GatewayDriverRegistry`. It was not built: gateways still register **instances** on a Billing-bound interface, so every gateway module needs `callAfterResolving()`.                                                        | `app/Contracts/Billing/GatewayRegistry.php:12-27`; `Billing/BillingServiceProvider.php:130-136`; `PaymentsStripeServiceProvider.php:24-26` (same in the other three)                        |
+| D2  | Four registration styles for one concept: instance (`GatewayRegistry`), `register(key, class)` (`DriverRegistry`), `register(class)` (`ExchangeRateSources.php:27`, `PriceConverters.php:23`, also an ADR 0012 alignment item), `register(ThemePreset)` (`ThemeRegistry.php:22`).                          | as cited                                                                                                                                                                                    |
+| D3  | Gateway drivers read Core internals, so they could not ship as an outside package today: Stripe queries Core's `Currency` model from a driver although `Contracts\Currencies\CurrencyDirectory` exists; three clients read Billing's `billing.gateways.http_timeout_seconds` through Core `Settings`.      | `PaymentsStripe/Support/StripeAmount.php:86`; `PaymentsStripe/Support/StripeClient.php:148`; `PaymentsRazorpay/Support/RazorpayClient.php:138`; `PaymentsNepal/Support/ProviderHttp.php:74` |
+| D4  | Gateway `settingsFields()` still returns arrays (known, ADR 0009 Consequences).                                                                                                                                                                                                                            | `app/Contracts/Billing/GatewayDriver.php:70-72`                                                                                                                                             |
+| D5  | ADR 0009 §6 lists `Orders\FraudCheckCompleted` with `App\Enums\FraudDecision` "moved from Orders". Neither exists; the enum is still `Modules/Orders/Enums/FraudDecision.php` and `app/Events/Orders` has no such event. Fraud and inbound mail remain module-internal (ADR 0009 §7 promised an addendum). | `ls app/Enums`, `ls app/Events/Orders`                                                                                                                                                      |
+| D6  | `architecture.md:273` reserves the migration block 75xxxx for PaymentsNepal, which has no migrations. Harmless, but the migration-number scheme has no rule for extensions.                                                                                                                                | `ls app/Modules/PaymentsNepal`                                                                                                                                                              |
+| D7  | `tests/Arch/ArchitectureTest.php:19-22` `PLANNED_MODULES` lists `Affiliates` and `Ai` (not on disk) and omits `PaymentsCybersource` (the glob adds it). Any move must update this list in the same PR.                                                                                                     | as cited                                                                                                                                                                                    |
+| D8  | ADR 0010's package compatibility rule exists only as text; `Kernel::API_VERSION` has no reader.                                                                                                                                                                                                            | `Kernel.php:16`; ADR 0010:63-66                                                                                                                                                             |
 
 D1, D3 and D4 block "a third-party package can ship a gateway without editing core" more than any missing plugin
 feature does: a package written against today's gateway shape would break at the alignment.
 
 ### 1.4 What is missing compared with a real plugin model
 
-| Capability                        | Today                                                                                                                                                         | Gap                                                                                                                                       |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Discovery and installation        | Laravel package discovery would load any package's provider; `app/Modules/*` glob for ours.                                                                   | No manifest, no list of "extensions" distinct from libraries, no record of what is installed or which version.                           |
-| Enable/disable at runtime         | Per account (gateway, registrar, server). `MODULES` is an env var for tests.                                                                                  | No extension-level switch without a deploy; no kill switch for a misbehaving package.                                                    |
-| Per-extension migrations          | Module migrations always run with `migrate`.                                                                                                                  | No install-time migrations, no upgrade-from-version hook, no rule for numbering or for foreign keys into modules.                        |
-| Versioned API compatibility       | Kernel version and snapshot exist.                                                                                                                            | Nothing checks a package's constraint; an incompatible package boots and fails at first use.                                             |
-| Isolation and permissions         | Arch rules for our code; DTO-only driver inputs; secret-receiving contracts closed to packages (ADR 0012 Amendment (#555)); outbound guard (ADR 0015).        | Arch rules do not run over a package's code; no declared network hosts; no per-extension permission boundary (PHP has none in-process). |
-| Admin UI                          | Family pages (Gateways, Registrars, Servers).                                                                                                                 | No page listing installed extensions, their version, compatibility, health or source.                                                    |
-| Uninstall and data cleanup        | None.                                                                                                                                                         | No uninstall hook, no rule for what data may be dropped (money records never).                                                           |
-| Signing and trust                 | Composer lockfile, 7-day cooldown and approval (ADR 0007) for our dependencies.                                                                               | No stance for third-party extensions: who vouches for them, how a host tells first-party from third-party.                              |
-| Scaffold and test kit for authors | Conformance kits (ADR 0009 Amendment (#515)); `AcmePanel` fixture.                                                                                            | No `make:extension`, no `extensions:check` that runs our arch rules and kits over a package.                                             |
-| UI from a package                 | Schema-driven forms (`SettingField`), dashboard and navigation registries.                                                                                   | One Vite bundle; the release tarball ships built assets only (`docs/devops/cpanel.md` Install step 1), so a package cannot add React pages. UI slots are wave 4. |
+| Capability                        | Today                                                                                                                                                  | Gap                                                                                                                                                              |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Discovery and installation        | Laravel package discovery would load any package's provider; `app/Modules/*` glob for ours.                                                            | No manifest, no list of "extensions" distinct from libraries, no record of what is installed or which version.                                                   |
+| Enable/disable at runtime         | Per account (gateway, registrar, server). `MODULES` is an env var for tests.                                                                           | No extension-level switch without a deploy; no kill switch for a misbehaving package.                                                                            |
+| Per-extension migrations          | Module migrations always run with `migrate`.                                                                                                           | No install-time migrations, no upgrade-from-version hook, no rule for numbering or for foreign keys into modules.                                                |
+| Versioned API compatibility       | Kernel version and snapshot exist.                                                                                                                     | Nothing checks a package's constraint; an incompatible package boots and fails at first use.                                                                     |
+| Isolation and permissions         | Arch rules for our code; DTO-only driver inputs; secret-receiving contracts closed to packages (ADR 0012 Amendment (#555)); outbound guard (ADR 0015). | Arch rules do not run over a package's code; no declared network hosts; no per-extension permission boundary (PHP has none in-process).                          |
+| Admin UI                          | Family pages (Gateways, Registrars, Servers).                                                                                                          | No page listing installed extensions, their version, compatibility, health or source.                                                                            |
+| Uninstall and data cleanup        | None.                                                                                                                                                  | No uninstall hook, no rule for what data may be dropped (money records never).                                                                                   |
+| Signing and trust                 | Composer lockfile, 7-day cooldown and approval (ADR 0007) for our dependencies.                                                                        | No stance for third-party extensions: who vouches for them, how a host tells first-party from third-party.                                                       |
+| Scaffold and test kit for authors | Conformance kits (ADR 0009 Amendment (#515)); `AcmePanel` fixture.                                                                                     | No `make:extension`, no `extensions:check` that runs our arch rules and kits over a package.                                                                     |
+| UI from a package                 | Schema-driven forms (`SettingField`), dashboard and navigation registries.                                                                             | One Vite bundle; the release tarball ships built assets only (`docs/devops/cpanel.md` Install step 1), so a package cannot add React pages. UI slots are wave 4. |
 
 ## 2. Research
 
@@ -222,27 +228,27 @@ Public documentation only, described in our own words; no code or text copied. S
 
 ### 2.7 What to take
 
-| Take                                                                                      | From                     |
-| ----------------------------------------------------------------------------------------- | ------------------------ |
-| One manifest per extension with id, version, compatibility and what it provides           | FOSSBilling, nWidart     |
-| Composer as the only install channel, provider auto-discovery, path repos for local work  | Laravel, Statamic        |
-| Installed-version record plus upgrade-from-version hook; refuse downgrades                | Blesta, Paymenter        |
-| Host-run per-extension migrations, linted like ours                                       | Paymenter                |
-| Admin page listing extensions with enable/disable; per-account config stays where it is  | FOSSBilling, WHMCS       |
-| Per-role access to an extension's admin pages                                              | WHMCS (we have permissions already) |
-| Scaffold command that produces a passing skeleton                                          | Paymenter, Statamic, Filament |
-| A reviewed directory later, never a runtime downloader                                     | FOSSBilling              |
+| Take                                                                                     | From                                |
+| ---------------------------------------------------------------------------------------- | ----------------------------------- |
+| One manifest per extension with id, version, compatibility and what it provides          | FOSSBilling, nWidart                |
+| Composer as the only install channel, provider auto-discovery, path repos for local work | Laravel, Statamic                   |
+| Installed-version record plus upgrade-from-version hook; refuse downgrades               | Blesta, Paymenter                   |
+| Host-run per-extension migrations, linted like ours                                      | Paymenter                           |
+| Admin page listing extensions with enable/disable; per-account config stays where it is  | FOSSBilling, WHMCS                  |
+| Per-role access to an extension's admin pages                                            | WHMCS (we have permissions already) |
+| Scaffold command that produces a passing skeleton                                        | Paymenter, Statamic, Filament       |
+| A reviewed directory later, never a runtime downloader                                   | FOSSBilling                         |
 
 What not to take: folder drop-in into the web root, hooks loaded from a shared folder on every request, arrays in and
 out, drivers that touch core tables, call-by-name capabilities, deactivate-drops-tables as the default.
 
 ## 3. Options
 
-| Option                                                                                                                                                  | DX (us) | DX (3rd party) | Host UX | Security | Upgrade safety | Testability | Performance | Migration cost (5 = cheap) | Total |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------- | ------- | -------- | -------------- | ----------- | ----------- | -------------------------- | ----- |
-| (a) Today, cleaned up: keep `Modules/Payments*`, fix D1-D4, move nothing else                                                                         | 3       | 2              | 2       | 4        | 2              | 4           | 5           | 5                          | 27    |
-| (b) First-party drivers grouped by family, runtime enable/disable registry, admin Extensions page; no third-party lifecycle                            | 4       | 2              | 4       | 4        | 3              | 4           | 4           | 4                          | 29    |
-| (c) Full plugin system: every integration a Composer package (own repo), manifest, discovery, install/upgrade/uninstall, migrations, compat check       | 2       | 5              | 4       | 3        | 4              | 3           | 4           | 1                          | 26    |
+| Option                                                                                                                                                   | DX (us) | DX (3rd party) | Host UX | Security | Upgrade safety | Testability | Performance | Migration cost (5 = cheap) | Total |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------- | ------- | -------- | -------------- | ----------- | ----------- | -------------------------- | ----- |
+| (a) Today, cleaned up: keep `Modules/Payments*`, fix D1-D4, move nothing else                                                                            | 3       | 2              | 2       | 4        | 2              | 4           | 5           | 5                          | 27    |
+| (b) First-party drivers grouped by family, runtime enable/disable registry, admin Extensions page; no third-party lifecycle                              | 4       | 2              | 4       | 4        | 3              | 4           | 4           | 4                          | 29    |
+| (c) Full plugin system: every integration a Composer package (own repo), manifest, discovery, install/upgrade/uninstall, migrations, compat check        | 2       | 5              | 4       | 3        | 4              | 3           | 4           | 1                          | 26    |
 | (d) Hybrid: first-party bundled in-repo, grouped by family; third-party as Composer packages; one manifest, catalogue, lifecycle and registries for both | 4       | 4              | 4       | 4        | 4              | 5           | 4           | 3                          | 32    |
 
 Reasoning per criterion:
@@ -291,7 +297,8 @@ billing/
         extension.json
         StripeServiceProvider.php           extends App\Support\Extensions\ExtensionServiceProvider
         Drivers/  Support/  Config/  Console/Commands/  Database/Migrations/ (only if needed)
-      Gateways/Razorpay/  Gateways/Cybersource/  Gateways/Nepal/   (Khalti, eSewa, connectIPS)
+      Gateways/Razorpay/  Gateways/Cybersource/  Gateways/Nepal/   (Khalti, eSewa, connectIPS; split per provider by the
+                                                                    owner's decision, ADR 0030 M1b)
       Provisioning/Cpanel/
       Registrars/ResellerClub/  Registrars/Namecheap/
       ExchangeRates/Ecb/  ExchangeRates/Nrb/
@@ -308,17 +315,17 @@ driver keys stay what they are (`stripe`, `khalti`, `cpanel`), so no stored data
 
 ```json
 {
-  "schema": 1,
-  "id": "gateways.stripe",
-  "name": "Stripe",
-  "vendor": "Mohar",
-  "version": "self",
-  "kernel": "^0.1",
-  "provider": "App\\Extensions\\Gateways\\Stripe\\StripeServiceProvider",
-  "provides": [{ "family": "gateway", "key": "stripe" }],
-  "network": ["api.stripe.com", "checkout.stripe.com"],
-  "migrations": false,
-  "links": { "docs": "https://…", "support": "https://…" }
+    "schema": 1,
+    "id": "gateways.stripe",
+    "name": "Stripe",
+    "vendor": "Mohar",
+    "version": "self",
+    "kernel": "^0.1",
+    "provider": "App\\Extensions\\Gateways\\Stripe\\StripeServiceProvider",
+    "provides": [{ "family": "gateway", "key": "stripe" }],
+    "network": ["api.stripe.com", "checkout.stripe.com"],
+    "migrations": false,
+    "links": { "docs": "https://…", "support": "https://…" }
 }
 ```
 

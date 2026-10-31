@@ -1,6 +1,8 @@
 # ADR 0030 — Extension model: bundled and packaged extensions, one manifest, runtime enable
 
-- Status: Proposed · 2026-10-31 · Owner: Principal architect. The number may change if a sibling ADR merges first.
+- Status: Accepted · 2026-10-31 (owner decisions on Q1-Q3, Q5 and Q6; CTO calls on Q4 and Q7; see "Decisions of
+  2026-10-31") · Owner: Principal architect. Proposed 2026-10-31 in #565. The number is fixed at 0030; the "Core public
+  surface" ADR proposed by the best-practices audit (#569) takes 0031 (see "Relationship with ADR 0031").
 - Review and research: `docs/reviews/2026-10-31-extension-model.md` (current state with evidence, WHMCS, FOSSBilling,
   Paymenter, Blesta, HostBill and Laravel-ecosystem models, option scoring).
 - Amends: ADR 0001 (modules), 0009 (driver placement), 0010 (package compatibility), 0012 (registries).
@@ -63,6 +65,10 @@ Constraints that shape the answer:
   package never boots. Packages that use Laravel discovery anyway are ignored; `extensions:check` reports them.
 - `App\Support\Extensions\ExtensionCatalog` reads both sources. It is built by `extensions:cache`, which is registered
   with Laravel's `optimizes()` so `optimize` writes `bootstrap/cache/extensions.php`. Requests read only that file.
+- One extension per provider. The Nepal wallets become `Gateways/Esewa`, `Gateways/Khalti` and `Gateways/Connectips`;
+  the helpers they share today (`ProviderHttp`, `NprAmount`, `ProviderException` in `Modules/PaymentsNepal/Support`)
+  move to the kernel as `App\Support\Billing\Nepal\*`, marked `@api`, so a later Nepal gateway (Fonepay) or a package
+  uses the same code (migration PR M1b).
 - The extension id is `<family>.<name>` (`gateways.stripe`, matching `[a-z0-9_.]{3,60}`). Driver keys are unchanged
   (`stripe`, `khalti`, `cpanel`, `resellerclub`), so no stored data moves.
 
@@ -162,7 +168,8 @@ Settings → Extensions, behind permission `platform.extensions.manage`.
   (#515)) over the package's PSR-4 roots.
 - Third-party extensions contribute UI through schemas only: `SettingField`, Dashboard, Navigation, Reports, and UI
   slots later. No third-party JavaScript runs in the admin or the client area.
-- No signing in v1. A reviewed "verified" list is a later owner decision; it will never be a runtime download.
+- No signing in v1. A free, reviewed "verified" list comes later (owner, 2026-10-31); it is a list of packages and
+  checked versions, never a runtime download. Paid extensions (licences, editions) are out of scope for v1.
 
 ### 7. Changes to other ADRs (applied when each migration PR lands, as `## Amendment (#<pr>)`)
 
@@ -171,27 +178,29 @@ Settings → Extensions, behind permission `platform.extensions.manage`.
 - **0009:** first-party provider drivers live in `app/Extensions/<Family>/<Name>` and register from their own provider.
   Drivers read no Core internals: currency exponents come through `CurrencyDirectory`, and the gateway HTTP timeout
   through `GatewayConfig`.
-- **0010:** the manifest's `kernel` key replaces `"extra": {"mohar": {"api": …}}`, and the catalogue enforces it. The
-  first third-party package we document as supported triggers kernel `1.0.0`. The constraint matcher is either a small
+- **0010:** the manifest's `kernel` key replaces `"extra": {"mohar": {"api": …}}`, and the catalogue enforces it. Kernel
+  `1.0.0` ships with the first public release (CTO, 2026-10-31). Until then the kernel stays `0.x`: a breaking change
+  follows the ADR 0010 pre-1.0 window and needs a kernel changelog fragment and a minor bump at the next release. The constraint matcher is either a small
   kernel class or `composer/semver` promoted from dev to production; that promotion needs ADR 0007 approval.
 - **0012:** registries record the owning extension and hide disabled ones with a reason. Aligning the gateway,
   exchange-rate and price-converter registries becomes a prerequisite (migration PR M3).
 
 ## Migration plan (small PRs; moves first, behaviour unchanged)
 
-| PR  | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Behaviour change |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| M1  | Loader discovers `app/Extensions/*/*`; empty `ExtensionServiceProvider`; move `Modules/Payments{Stripe,Razorpay,Cybersource,Nepal}` to `Extensions/Gateways/{Stripe,Razorpay,Cybersource,Nepal}` (about 73 PHP files incl. tests); config keys (`payments_stripe` …) unchanged; arch rules for `App\Extensions` (no sibling-extension or module imports; the four Core imports in review D3 are a listed baseline that M3 deletes); `PLANNED_MODULES` fixed; `MODULES` also accepts `Gateways/Stripe`; docs updated. | none             |
-| M2  | Move cPanel to `Extensions/Provisioning/Cpanel`, ResellerClub and Namecheap to `Extensions/Registrars/*`, ECB and NRB to `Extensions/ExchangeRates/*`; registration moves from the host module's provider to the extension's; `tests/Extensions` subsets updated.                                                                                                                                                                                                                                                    | none             |
-| M3  | Kernel: `Support\Billing\GatewayDriverRegistry` (ADR 0012), `GatewayRegistry::register(instance)` kept as a deprecated adapter; gateways register `(key, class)`; `settingsFields()` → `list<SettingField>`; `ExchangeRateSources`/`PriceConverters` take `(key, class)`; D3 removed (CurrencyDirectory, timeout via `GatewayConfig`), Core baseline deleted from the arch rule. Kernel fragment and snapshot.                                                                                                       | none for users   |
-| M4  | Kernel: `extension.json` schema 1, `ExtensionManifest`, `ExtensionCatalog`, `extensions:cache` via `optimizes()`, `extensions:list`, kernel constraint check (incompatible = not booted, listed); manifests for every bundled extension. Composer `mohar-extension` discovery.                                                                                                                                                                                                                                       | none             |
-| M5  | Core `extensions` table, `ExtensionState`, `extensions:install                                                                                                                                                                                                                                                                                                                                                                                                                                                       | upgrade          | uninstall | enable | disable`, per-extension migrations, lifecycle hooks and events; registries record owners and hide disabled; `extension:<id>`middleware; guarded listeners;`app:install` installs bundled extensions; settlement paths keep disabled drivers. | new commands only; everything enabled by default |
-| M6  | Admin Settings → Extensions page, permission, step-up, activity log; health card links.                                                                                                                                                                                                                                                                                                                                                                                                                              | new page         |
-| M7  | Author DX: `make:extension <family> <name>` skeleton that passes its kit; `extensions:check`; `tests/Fixtures/Extensions/AcmePanel` becomes a Composer path package with `extension.json`, proving discover → install → enable → disable → uninstall with `MODULES=Core`; docs-site "Write an extension" page.                                                                                                                                                                                                       | none             |
-| M8+ | Later, each with its own decision: fraud and notification-channel families into the kernel (ADR 0009 §7, review D5), declared-host enforcement, UI slots, verified list.                                                                                                                                                                                                                                                                                                                                             | per PR           |
+| PR  | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Behaviour change                                 |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| M1  | Loader discovers `app/Extensions/*/*`; empty `ExtensionServiceProvider`; move `Modules/Payments{Stripe,Razorpay,Cybersource}` to `Extensions/Gateways/{Stripe,Razorpay,Cybersource}` with their tests; every arch scan and `scripts/test.sh` mapping over `app/Modules` also covers `app/Extensions`; config keys (`payments_stripe` …) unchanged; arch rules for `App\Extensions` (no sibling-extension or module imports; the four Core imports in review D3 are a listed baseline that M3 deletes); `PLANNED_MODULES` fixed; `MODULES` also accepts `Gateways/Stripe`; docs updated. | none                                             |
+| M1b | Kernel and move (CTO session or called out in the PR body): `ProviderHttp`, `NprAmount`, `ProviderException` to `App\Support\Billing\Nepal` (`@api`, kernel fragment and snapshot); `Modules/PaymentsNepal` split into `Extensions/Gateways/{Esewa,Khalti,Connectips}`, each with its own provider; config keys unchanged (the shared `http` block moves to `config/payments_nepal.php`, and each extension merges only its own provider subtree into `payments_nepal`).                                                                                                                | none                                             |
+| M2  | Move cPanel to `Extensions/Provisioning/Cpanel`, ResellerClub and Namecheap to `Extensions/Registrars/*`, ECB and NRB to `Extensions/ExchangeRates/*`; registration moves from the host module's provider to the extension's; `tests/Extensions` subsets updated.                                                                                                                                                                                                                                                                                                                       | none                                             |
+| M3  | Kernel: `Support\Billing\GatewayDriverRegistry` (ADR 0012), `GatewayRegistry::register(instance)` kept as a deprecated adapter; gateways register `(key, class)`; `settingsFields()` → `list<SettingField>`; `ExchangeRateSources`/`PriceConverters` take `(key, class)`; D3 removed (CurrencyDirectory, timeout via `GatewayConfig`), Core baseline deleted from the arch rule. Kernel fragment and snapshot.                                                                                                                                                                          | none for users                                   |
+| M4  | Kernel: `extension.json` schema 1, `ExtensionManifest`, `ExtensionCatalog`, `extensions:cache` via `optimizes()`, `extensions:list`, kernel constraint check (incompatible = not booted, listed); manifests for every bundled extension. Composer `mohar-extension` discovery.                                                                                                                                                                                                                                                                                                          | none                                             |
+| M5  | Core `extensions` table, `ExtensionState`, `extensions:install`, `upgrade`, `uninstall`, `enable` and `disable`, per-extension migrations, lifecycle hooks and events; registries record owners and hide disabled; `extension:<id>` middleware; guarded listeners; `app:install` installs bundled extensions; settlement paths keep disabled drivers.                                                                                                                                                                                                                                   | new commands only; everything enabled by default |
+| M6  | Admin Settings → Extensions page, permission, step-up, activity log; health card links.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | new page                                         |
+| M7  | Author DX: `make:extension <family> <name>` skeleton that passes its kit; `extensions:check`; `tests/Fixtures/Extensions/AcmePanel` becomes a Composer path package with `extension.json`, proving discover → install → enable → disable → uninstall with `MODULES=Core`; docs-site "Write an extension" page.                                                                                                                                                                                                                                                                          | none                                             |
+| M8+ | Later, each with its own decision: fraud and notification-channel families into the kernel (ADR 0009 §7, review D5), declared-host enforcement, UI slots, verified list.                                                                                                                                                                                                                                                                                                                                                                                                                | per PR                                           |
 
 M1 and M2 are pure moves (`git mv` plus namespace edits). They are reviewed with `git diff -M` and run when no
-payments or driver PR is open, to avoid rebase pain. M3 can run in parallel with M2. M4 depends on M1. M5 depends on
+payments or driver PR is open, to avoid rebase pain. M3 can run in parallel with M2. M1b follows M1. M4 depends on M1 and M1b. M5 depends on
 M3 and M4. M6 depends on M5. M7 can start after M4.
 
 ## Risks
@@ -210,26 +219,40 @@ M3 and M4. M6 depends on M5. M7 can start after M4.
   the page and in the docs, `extensions:check`, and the schema-only UI rule.
 - **Two discovery sources** (in-repo and Composer). Mitigation: one manifest, one catalogue, and the M7 fixture package
   proving the Composer path end to end.
-- **Freezing the kernel too early.** The first supported third-party package starts kernel 1.0 and freezes the
-  provider contracts. Mitigation: no third-party support is advertised until M3 has aligned the gateway family.
+- **Freezing the kernel too early.** Kernel 1.0 freezes the provider contracts. Mitigation: 1.0 waits for the first
+  public release, and no third-party support is advertised before M3 has aligned the gateway family.
+- **Silent loss of arch coverage.** Several arch scans glob `app/Modules` (`ArchitectureTest.php:130,156`,
+  `CompanyClockScanTest.php:54`, `ExtensionsTest.php:54`, `LogRedactionTest.php:120`, `WebhookEventsScanTest.php:18`);
+  code moved to `app/Extensions` would pass them by not being scanned. Mitigation: M1 extends each scan and adds a guard
+  that the scanned file count includes `app/Extensions`.
 - **Boot cost.** Mitigation: the catalogue is read from a cached PHP file, and the state is one cached read memoised
   per request. M5 records its cost against the `sizing.md` load-test profile.
 
-## Questions for the owner
+## Decisions of 2026-10-31
 
-1. Approve the hybrid: bundled first-party extensions in `app/Extensions/<Family>/<Name>`, with third-party extensions
-   as Composer packages? The alternative is splitting every integration into its own repository now (option c in the
-   review), which we advise against while the kernel is pre-1.0.
-2. Third-party code only through Composer, with no zip upload in admin? This means cPanel hosts need a terminal, which
-   they already need to install.
-3. In v1, should install, upgrade and uninstall be CLI only, with the admin page doing enable, disable and configure?
-4. Should third-party extensions be limited to schema-driven UI, with no custom React pages, until UI slots exist?
-5. Should the Nepal gateways stay one extension (Khalti, eSewa, connectIPS share their HTTP and amount helpers) or
-   become one extension per provider?
-6. Do we want a reviewed "verified extensions" list or marketplace later, and should paid third-party extensions
-   (licences, editions) be in scope at all?
-7. The kernel 1.0.0 trigger: the first supported third-party package, or the first tagged release, whichever comes
-   first (ADR 0010)? Or a fixed date?
+| #   | Question                                            | Decision                                                                                                                            | By    |
+| --- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| Q1  | Hybrid (option d) or one repository per integration | Hybrid approved: bundled first-party extensions in `app/Extensions/<Family>/<Name>`, third-party ones as Composer packages.         | Owner |
+| Q2  | Install channel                                     | Composer only. No zip upload and no download from admin.                                                                            | Owner |
+| Q3  | Where the lifecycle runs in v1                      | Install, upgrade and uninstall from the CLI; enable and disable on the admin Extensions page.                                       | Owner |
+| Q4  | Third-party UI                                      | Schema-only in v1 (settings fields, dashboard, navigation, reports; UI slots later). No third-party JavaScript.                     | CTO   |
+| Q5  | Nepal gateways                                      | One extension per provider: eSewa, Khalti and connectIPS. Shared helpers move to the kernel (`App\Support\Billing\Nepal`, M1b).     | Owner |
+| Q6  | Verified list, paid extensions                      | A free verified list later. Paid extensions are out of scope for v1.                                                                | Owner |
+| Q7  | Kernel 1.0.0 trigger                                | With the first public release. Until then `0.x`: breaking changes take a kernel changelog fragment and a version bump per ADR 0010. | CTO   |
+
+## Relationship with ADR 0031 (Core public surface, #569)
+
+The best-practices audit (#569) found modules import 47 Core classes and proposes an ADR on Core's public surface. It
+takes number 0031 and aligns with this boundary:
+
+- **Extensions import no `App\Modules\*` at all, Core included.** ADR 0031 governs what _modules_ may use from Core; it
+  does not widen what extensions may use.
+- **When an extension needs a Core service** (settings, currencies, the activity log), the answer is a kernel contract
+  in `app/Contracts` that Core implements, as `CurrencyDirectory` already is, not a Core class on an allow-list.
+- **One list:** a Core class that ADR 0031 makes public for modules and that extensions also need becomes a kernel
+  contract in the same PR, so the two ADRs never keep two allow-lists.
+- **Ordering:** M3 (which removes the gateway drivers' Core imports, review D3) should use the contracts ADR 0031
+  introduces where they exist, and add only the ones it needs where they do not.
 
 ## Consequences
 
