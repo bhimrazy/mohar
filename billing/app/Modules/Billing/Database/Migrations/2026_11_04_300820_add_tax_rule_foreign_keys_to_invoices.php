@@ -13,14 +13,18 @@ use Illuminate\Support\Facades\Schema;
  *
  * Invoices whose rule was deleted before this key existed are logged with their ids and left as they are: nulling
  * the id would switch them to name-and-rate matching, which is a classification change staff must decide on. On
- * PostgreSQL the key is added NOT VALID, which checks every new write and every rule delete; it is validated when
- * no such invoice exists, and otherwise stays NOT VALID until staff fix the ids and run the VALIDATE in the log.
- * SQLite rebuilds the table and does not check the rows it copies.
+ * PostgreSQL the key is added NOT VALID first, which checks every new write and every rule delete from then on, so the
+ * orphans counted after it are final; it is validated when there are none, and otherwise stays NOT VALID until staff
+ * fix the ids and run the VALIDATE in the log. Adding the keys takes SHARE ROW EXCLUSIVE on `tax_rules` (ACCESS
+ * EXCLUSIVE on a re-run, whose DROP removes the key's triggers there). SQLite rebuilds the table and does not check
+ * the rows it copies.
  *
  * No index on the two columns: a rule is deleted rarely, and the scan that the delete's check makes is cheaper than
  * two more indexes on every invoice write.
  *
- * @compatible the previous release writes only ids of existing rules, and its rule delete refuses the Nepal VAT rules
+ * @compatible the previous release writes only ids of existing rules; from this migration until traffic moves (and
+ * after a rollback) its rule delete gets a database refusal, a 500 instead of a message, for a rule an invoice uses,
+ * and nothing is deleted
  */
 return new class extends Migration
 {
@@ -33,9 +37,8 @@ return new class extends Migration
 
     public function up(): void
     {
-        $orphans = $this->logOrphans();
-
         if (DB::getDriverName() !== 'pgsql') {
+            $this->logOrphans();
             LockTimeout::run('invoices', fn () => $this->rebuildOnSqlite(add: true));
 
             return;
@@ -45,7 +48,8 @@ return new class extends Migration
         LockTimeout::run('invoices', fn () => DB::statement('ALTER TABLE invoices '.implode(', ', array_map(
             fn (string $column): string => "DROP CONSTRAINT IF EXISTS invoices_{$column}_foreign, ADD CONSTRAINT invoices_{$column}_foreign FOREIGN KEY ({$column}) REFERENCES tax_rules (id) ON DELETE RESTRICT NOT VALID",
             self::COLUMNS,
-        ))));
+        ))), alsoLocks: ['tax_rules']);
+        $orphans = $this->logOrphans();
 
         foreach (self::COLUMNS as $column) {
             if ($orphans[$column] === 0) {
@@ -62,7 +66,7 @@ return new class extends Migration
             return;
         }
 
-        LockTimeout::run('invoices', fn () => DB::statement('ALTER TABLE invoices DROP CONSTRAINT IF EXISTS invoices_tax1_rule_id_foreign, DROP CONSTRAINT IF EXISTS invoices_tax2_rule_id_foreign'));
+        LockTimeout::run('invoices', fn () => DB::statement('ALTER TABLE invoices DROP CONSTRAINT IF EXISTS invoices_tax1_rule_id_foreign, DROP CONSTRAINT IF EXISTS invoices_tax2_rule_id_foreign'), alsoLocks: ['tax_rules']);
     }
 
     /**

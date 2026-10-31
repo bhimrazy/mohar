@@ -11,8 +11,11 @@ use Illuminate\Support\Facades\Schema;
  * deleting the client row is refused while any exist instead of taking them along (ON DELETE CASCADE becomes
  * RESTRICT). `pay_methods` keeps its cascade: a stored token is not history.
  *
- * PostgreSQL: the key is swapped NOT VALID under a short lock, then validated, which scans the table without blocking
- * reads or writes. Every row already satisfies it (the old key was the same reference). SQLite rebuilds the table.
+ * PostgreSQL: the key is swapped NOT VALID, which holds ACCESS EXCLUSIVE on the table and on `clients` (dropping a
+ * key drops its triggers there) for the milliseconds of a catalogue change, once per table; each attempt waits at most
+ * the lock timeout, so client reads queue that long at worst. The validation that follows scans the table without
+ * blocking reads or writes (SHARE UPDATE EXCLUSIVE on it, ROW SHARE on `clients`). Every row already satisfies the
+ * key (the old one was the same reference). SQLite rebuilds the table.
  *
  * @compatible no code path deletes a client (CloseClient and MergeClients close it), so the previous release never
  * meets the stricter key; deploy:check-migrations reads a re-added key with RESTRICT as a tightening.
@@ -26,7 +29,7 @@ return new class extends Migration
     public function up(): void
     {
         foreach (self::TABLES as $table) {
-            LockTimeout::run($table, fn () => $this->rekey($table, 'restrict'));
+            LockTimeout::run($table, fn () => $this->rekey($table, 'restrict'), alsoLocks: ['clients']);
             $this->validate($table);
         }
     }
@@ -34,7 +37,7 @@ return new class extends Migration
     public function down(): void
     {
         foreach (self::TABLES as $table) {
-            LockTimeout::run($table, fn () => $this->rekey($table, 'cascade'));
+            LockTimeout::run($table, fn () => $this->rekey($table, 'cascade'), alsoLocks: ['clients']);
             $this->validate($table);
         }
     }
