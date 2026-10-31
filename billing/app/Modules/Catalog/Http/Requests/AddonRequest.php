@@ -24,6 +24,11 @@ class AddonRequest extends FormRequest
         return $this->user()?->hasPermission('catalog.addons.manage') ?? false;
     }
 
+    protected function prepareForValidation(): void
+    {
+        $this->ensureSecretEntryIsConfirmed();
+    }
+
     /**
      * @return array<string, ValidationRule|array<mixed>|string>
      */

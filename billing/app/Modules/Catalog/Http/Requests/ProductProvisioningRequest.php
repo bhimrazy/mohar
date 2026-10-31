@@ -22,6 +22,11 @@ class ProductProvisioningRequest extends FormRequest
         return $this->user()?->hasPermission('catalog.products.manage') ?? false;
     }
 
+    protected function prepareForValidation(): void
+    {
+        $this->ensureSecretEntryIsConfirmed();
+    }
+
     /**
      * @return array<string, ValidationRule|array<mixed>|string>
      */

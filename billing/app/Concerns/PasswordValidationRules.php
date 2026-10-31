@@ -40,10 +40,7 @@ trait PasswordValidationRules
                 return;
             }
 
-            PasswordGuesses::ensureAllowed($user, request(), $attribute);
-
-            if (! is_string($value) || ! Hash::check($value, (string) $user->getAuthPassword())) {
-                PasswordGuesses::failed($user, request());
+            if (! PasswordGuesses::check($user, request(), $attribute, fn (): bool => is_string($value) && Hash::check($value, (string) $user->getAuthPassword()))) {
                 $fail(__('validation.current_password'));
             }
         }, function (string $attribute, mixed $value, Closure $fail): void {

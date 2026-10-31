@@ -22,9 +22,7 @@ class ResolveClientContext
         $user = $request->user();
         abort_if($user === null, 401);
 
-        $clients = $user->clients()->where('status', '!=', 'closed');
-        $selected = $request->session()->get(ClientContext::SESSION_KEY);
-        $client = ($selected ? (clone $clients)->whereKey($selected)->first() : null) ?? $clients->orderBy('clients.id')->first(); // deterministic default: the oldest linked account
+        $client = $this->context->select($user, $request->session()->get(ClientContext::SESSION_KEY));
 
         if ($client === null) {
             return $user->is_staff ? redirect()->route('admin.dashboard') : abort(403, 'No client account is linked to this login.');

@@ -3,8 +3,10 @@
 namespace App\Modules\Catalog\Http\Requests\Concerns;
 
 use App\Contracts\Services\ProvisioningDrivers;
+use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Catalog\Services\DriverSecrets;
 use Closure;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Validator;
 
 /**
@@ -32,6 +34,34 @@ trait ValidatesDriverBinding
             'driver_config.*.key' => ['required', 'string', 'max:100', 'distinct', 'regex:/^[A-Za-z0-9_.-]+$/'],
             'driver_config.*.value' => ['nullable', 'string', 'max:2000'],
         ];
+    }
+
+    /**
+     * Entering a secret value needs a recent password confirmation (security review 2026-10-29, L3). Only then: the
+     * addon form saves its driver settings with everything else, and a blank secret keeps the stored one. Checked
+     * before validation, like the password.recent middleware.
+     *
+     * @throws ValidationException
+     */
+    protected function ensureSecretEntryIsConfirmed(): void
+    {
+        $submitted = $this->submittedDriverConfig();
+        $driver = (string) $this->input('provisioning_driver');
+        $secrets = app(DriverSecrets::class)->secretKeys($driver, $submitted);
+        $entered = array_filter($submitted, fn (string $value, int|string $key): bool => $value !== '' && in_array((string) $key, $secrets, true), ARRAY_FILTER_USE_BOTH);
+
+        if ($entered === [] || RequireRecentPasswordConfirmation::recentlyConfirmed($this)) {
+            return;
+        }
+
+        $refusal = ValidationException::withMessages([RequireRecentPasswordConfirmation::ERROR_KEY => __('Confirm your password to continue.')]);
+
+        // Back with the error only, never the old input, which holds the secret.
+        if (! $this->expectsJson()) {
+            $refusal->response = back()->withErrors($refusal->errors());
+        }
+
+        throw $refusal;
     }
 
     /**
