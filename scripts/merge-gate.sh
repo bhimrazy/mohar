@@ -273,9 +273,12 @@ when "$audit" "security audits" bash -c '
         && (cd ../docs-site && npm audit --audit-level=high --package-lock-only)'
 if [ "$policy" = true ]; then
     mkdir -p "$policy_dir" && git -C "$dir" archive "$base" billing/scripts | tar -x -C "$policy_dir" -f - \
-        && mv "$policy_dir"/billing/scripts/*.mjs "$policy_dir"/ && rm -rf "${policy_dir:?}/billing"
+        && cp -R "$policy_dir"/billing/scripts/. "$policy_dir"/ && rm -rf "${policy_dir:?}/billing"
 fi
-when "$policy" "dependency cooldown and pinning (develop's checker)" node "$policy_dir/check-dependency-age.mjs" \
+# A fresh cache outside the PR tree: a cached date skips the registry checks, so the PR must not supply one.
+rm -f "$logs/dependency-age-cache.json"
+when "$policy" "dependency cooldown and pinning (develop's checker)" env DEPENDENCY_AGE_CACHE="$logs/dependency-age-cache.json" \
+    node "$policy_dir/check-dependency-age.mjs" \
     "$([ "$dep_base" = --all ] && echo --all || echo "--base=$dep_base")"
 rm -rf "${policy_dir:?}"
 

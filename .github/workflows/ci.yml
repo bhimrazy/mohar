@@ -132,7 +132,9 @@ jobs:
             # A PR must not weaken the checks that judge it (scripts/merge-gate.sh does the same): on a PR the changelog,
             # waiver and dependency checkers are the base branch's copies (HEAD^1, the base side of the merge commit),
             # run against the PR's tree. They go inside billing/ so the dependency checker's app root (its parent
-            # directory) is the PR's billing/. Only a script the base does not have yet comes from the PR, with a warning.
+            # directory) is the PR's billing/. A script the base does not have yet comes from the PR, with a warning:
+            # the new ones while they are under review, and all of them on a PR into main (a landing page until the
+            # first release, so its tree has none).
             - name: Policy scripts from the base branch
               env:
                   EVENT: ${{ github.event_name }}
@@ -140,9 +142,15 @@ jobs:
                   rev=HEAD
                   if [ "$EVENT" = pull_request ]; then rev=HEAD^1; fi
                   rm -rf .ci-policy && mkdir -p .ci-policy
-                  # From the repository root: run in billing/, git archive would take paths relative to it.
-                  git -C .. archive "$rev" billing/scripts | tar -x -C .ci-policy -f -
-                  mv .ci-policy/billing/scripts/*.mjs .ci-policy/ && rm -rf .ci-policy/billing
+                  # The whole billing/scripts tree, so a module the checker imports from a subdirectory comes too.
+                  if git cat-file -e "$rev:billing/scripts/check-dependency-age.mjs" 2> /dev/null; then
+                      # From the repository root: run in billing/, git archive would take paths relative to it.
+                      git -C .. archive "$rev" billing/scripts | tar -x -C .ci-policy -f -
+                      cp -R .ci-policy/billing/scripts/. .ci-policy/ && rm -rf .ci-policy/billing
+                  else
+                      echo "::warning file=billing/scripts/check-dependency-age.mjs::the base branch has no billing/scripts yet; this run uses the PR's copies"
+                      cp -R scripts/. .ci-policy/
+                  fi
                   for f in changelog-check.sh changelog-assemble.sh security-exceptions.sh; do
                       if git cat-file -e "$rev:scripts/$f" 2> /dev/null; then
                           git show "$rev:scripts/$f" > ".ci-policy/$f"
@@ -223,6 +231,9 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   REPOSITORY: ${{ github.repository }}
                   BASE: ${{ steps.changes.outputs.base }}
+                  # Outside the PR tree and empty: a cached date skips the registry checks (the checker also ignores
+                  # its cache in Actions, once that copy is the base branch's).
+                  DEPENDENCY_AGE_CACHE: ${{ runner.temp }}/dependency-age-${{ github.run_id }}.json
               run: |
                   # Read at run time (re-runs pick it up): with the security-exception label, the "Security-Exception:
                   # name@version" lines of the PR body are waived, for the cooldown only, and only while the body is

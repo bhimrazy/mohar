@@ -2,12 +2,13 @@
 # scripts/security-exceptions.sh <pr-number> <owner/repo>   The cooldown waivers of a PR (ADR 0007), for CI and the
 # local merge gate.
 #
-# Without the `security-exception` label: prints nothing. With it: prints the PR body's "Security-Exception:" lines
-# (the format check-dependency-age.mjs reads from DEPENDENCY_AGE_EXCEPTIONS), but only when the body has not been
-# edited since the label was last added. A maintainer adds the label after reviewing the list; a later edit (by
-# anyone, including the PR author) fails here until a maintainer removes and re-adds the label. That binds the list
-# to the approval without a second source to keep in sync. The waivers are version-exact, so a new push cannot
-# reuse one for another version.
+# Without the `security-exception` label: prints nothing. With it: prints "Security-Exception-Label: security-exception"
+# (lets check-dependency-age.mjs accept a change to the audit settings) and the PR body's "Security-Exception:" lines
+# (the waivers it reads from DEPENDENCY_AGE_EXCEPTIONS), but only when the body has not been edited since the label
+# was last added; an edit in the same second counts as later. A maintainer adds the label after reviewing the list; a
+# later edit (by anyone, including the PR author) fails here until a maintainer removes and re-adds the label. The
+# waivers are version-exact, so a new push cannot reuse one for another version. What this cannot show is who added
+# the label: every agent shares one GitHub account (dependency-policy.md, "This is a process control").
 # Exit codes: 0 ok · 1 the body changed after the label · 2 usage or GitHub API error. Needs gh (GH_TOKEN in CI).
 set -euo pipefail
 
@@ -44,8 +45,9 @@ edited_at="$(sed -n 3p <<< "$snapshot")"
 [ "$present" = true ] || exit 0
 
 # ISO 8601 UTC timestamps from the same API compare as strings.
-if [ -z "$labelled_at" ] || { [ -n "$edited_at" ] && [[ "$edited_at" > "$labelled_at" ]]; }; then
-    echo "security-exceptions: the PR body was edited (${edited_at:-?}) after the $label label was added (${labelled_at:-not found}); a maintainer re-checks the Security-Exception lines, then removes and re-adds the label" >&2
+if [ -z "$labelled_at" ] || { [ -n "$edited_at" ] && ! [[ "$edited_at" < "$labelled_at" ]]; }; then
+    echo "security-exceptions: the PR body was edited (${edited_at:-?}) after, or in the same second as, the $label label was added (${labelled_at:-not found}); a maintainer re-checks the Security-Exception lines, then removes and re-adds the label" >&2
     exit 1
 fi
+echo "Security-Exception-Label: $label"
 sed -n '4,$p' <<< "$snapshot" | grep -iE '^[[:space:]]*Security-Exception:' || true

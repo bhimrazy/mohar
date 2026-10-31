@@ -44,8 +44,16 @@ composer deps:check                                # composer validate + compose
 ```
 
 - Pinning rules are checked offline for every item; ages are fetched only for changed items (or all with
-  `--all`). Publish dates are immutable and cached locally in `storage/framework/cache/dependency-age.json`
-  (CI does not persist it; a PR run only fetches its few changed items).
+  `--all`). Publish dates are immutable and cached locally in `storage/framework/cache/dependency-age.json`. A cached
+  date also skips the integrity, dist and SHA-to-tag checks made with that lookup, so the cache never comes from the
+  tree being judged: the checker ignores it in GitHub Actions and fails when the file is committed, and CI and the
+  merge gate point `DEPENDENCY_AGE_CACHE` at a fresh file outside the PR tree. A PR run only fetches its few changed
+  items.
+- The audits read their settings from the tree being judged, so a diff run (PRs, pushes) fails when
+  `billing/composer.json` changes `config.audit` or `repositories`, or any `.npmrc` changes a registry, proxy, TLS-trust,
+  auth or audit setting (`registry`, `@scope:registry`, `audit-level`, `strict-ssl`, `cafile`, …), unless the PR
+  carries the `security-exception` label. The error names the file and key. `.github/CODEOWNERS` also lists the
+  manifests and `.npmrc` files.
 - Every age is bound to what is actually installed: an action SHA must equal its tag; an image digest must be
   the tag's current multi-arch index digest (registry `Docker-Content-Digest`) or one of its platform digests
   (otherwise exit 2: its origin and age cannot be proven — re-pin); an npm `resolved` URL must be
@@ -118,18 +126,22 @@ A fix for a critical/high vulnerability may be adopted before it is 7 days old:
     checks, lockfile sync and the audits are **always enforced** whenever they run.
 
     The label approves the list as it stands: `scripts/security-exceptions.sh` (CI and the merge gate) fails when
-    the PR body was edited after the label was last added, so nobody can widen the list after the review. To change
-    it, edit the body, have a maintainer re-check the lines, remove and re-add the label, then re-run the job (the
-    label and the body are read at run time; adding a label other than `ci` does not start a run).
+    the PR body was edited after the label was last added, or in the same second, so nobody can widen the list
+    after the review. The approver re-reads the body **after** adding the label: an edit made between their reading
+    and their click would pass. To change the list, edit the body, have a maintainer re-check the lines, remove and
+    re-add the label, then re-run the job (the label and the body are read at run time; adding a label other than
+    `ci` does not start a run). The label also allows a change to the audit settings (above).
 
 3. The CTO approves the PR explicitly (review comment naming the advisory). Without that approval it is not merged.
 4. Locally: `DEPENDENCY_AGE_EXCEPTIONS='laravel/framework@13.36.1' composer deps:check`; npm needs
    `--min-release-age=0` (or `min-release-age-exclude`) for that one install.
 
 **This is a process control, not a technical one**: the repository has a single admin account that every agent
-and engineer acts as, so the label, the body and the approval can all be set by the PR author. Making it a
-technical control needs a second identity (required review from a separate account, or a protected
-environment with required reviewers).
+and engineer acts as, so the label, the body and the approval can all be set by the PR author. The binding above
+keeps an outsider (a fork author has no triage rights) from widening an approved list, but it cannot show who
+added the label. The real gate is the CTO's sign-off comment naming the advisory at the PR's head commit, checked
+before the merge (`gh pr merge --match-head-commit`). Making it a technical control needs a second identity
+(required review from a separate account, or a protected environment with required reviewers).
 
 Dependabot **security** updates, once they can arrive (see [Dependabot](#dependabot)), bypass its cooldown and fail
 the check — handle them with the same label + `Security-Exception` lines + approval flow.

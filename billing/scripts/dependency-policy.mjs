@@ -330,6 +330,90 @@ export function buildkitImages(text) {
     return images;
 }
 
+/** JSON with object keys sorted, so a reordering alone is not a change. */
+function stableJson(value) {
+    if (Array.isArray(value)) {
+        return `[${value.map(stableJson).join(',')}]`;
+    }
+    if (value && typeof value === 'object') {
+        return `{${Object.keys(value)
+            .sort((a, b) => a.localeCompare(b))
+            .map((k) => `${JSON.stringify(k)}:${stableJson(value[k])}`)
+            .join(',')}}`;
+    }
+
+    return JSON.stringify(value ?? null);
+}
+
+/**
+ * The composer.json keys that steer `composer audit` or where packages come from (`config.audit`: ignored advisories,
+ * abandoned handling; `repositories`: e.g. `packagist.org: false` or a mirror) and that differ between two versions.
+ * A change can silence the audit that judges it, so the check fails on these unless the PR is labelled.
+ *
+ * @param {string|null} baseText
+ * @param {string|null} headText
+ * @returns {string[]} the changed keys
+ */
+export function composerAuditConfigChanges(baseText, headText) {
+    const parse = (text) => {
+        try {
+            return JSON.parse(text ?? '{}') ?? {};
+        } catch {
+            return { unparsable: text };
+        }
+    };
+    const base = parse(baseText);
+    const head = parse(headText);
+    const changed = [];
+    if (stableJson(base.config?.audit) !== stableJson(head.config?.audit)) {
+        changed.push('config.audit');
+    }
+    if (stableJson(base.repositories) !== stableJson(head.repositories)) {
+        changed.push('repositories');
+    }
+    if ('unparsable' in head && !('unparsable' in base)) {
+        changed.push('(unparsable composer.json)');
+    }
+
+    return changed;
+}
+
+/**
+ * The .npmrc settings that steer where npm sends its requests (registries, scoped registries, proxies, TLS trust) or
+ * how `npm audit` judges, and that differ between two versions of the file (a missing file has none).
+ *
+ * @param {string|null} baseText
+ * @param {string|null} headText
+ * @returns {string[]} the changed setting names
+ */
+export function npmrcAuditConfigChanges(baseText, headText) {
+    const watched =
+        /^(registry|@[^:\s]+:registry|\/\/.+:(_authToken|_auth|username|_password|certfile|keyfile)|audit|audit-level|strict-ssl|ca|cafile|proxy|https-proxy|noproxy|replace-registry-host|omit|include)$/i;
+    const settings = (text) => {
+        const found = new Map();
+        for (const line of (text ?? '').split(/\r?\n/)) {
+            const entry = line.match(/^\s*([^#;=\s][^=]*?)\s*=\s*(.*?)\s*$/);
+            if (entry && watched.test(entry[1])) {
+                found.set(entry[1].toLowerCase(), [
+                    ...(found.get(entry[1].toLowerCase()) ?? []),
+                    entry[2],
+                ]);
+            }
+        }
+
+        return found;
+    };
+    const base = settings(baseText);
+    const head = settings(headText);
+    const names = new Set([...base.keys(), ...head.keys()]);
+
+    return [...names]
+        .filter(
+            (name) => stableJson(base.get(name)) !== stableJson(head.get(name)),
+        )
+        .sort((a, b) => a.localeCompare(b));
+}
+
 /**
  * Direct dependencies of a package.json that are not pinned to one exact version (ADR 0007): ranges, tags, URLs and
  * workspaces. An `npm:<name>@<version>` alias passes when its version is exact.

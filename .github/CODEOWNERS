@@ -8,8 +8,13 @@
 /billing/scripts/ @bhimrazy
 /deploy/ @bhimrazy
 
-# The dependency policy: its rules, its decision record and the install-time settings it relies on.
+# The dependency policy: its rules, its decision record, and the manifests and settings the audits read (a change to
+# composer.json's config.audit or repositories, or to a registry line in .npmrc, also fails CI without the
+# security-exception label).
 /billing/docs/devops/dependency-policy.md @bhimrazy
 /billing/docs/adr/0007-dependency-pinning-and-cooldown.md @bhimrazy
+/billing/composer.json @bhimrazy
+/billing/package.json @bhimrazy
 /billing/.npmrc @bhimrazy
+/docs-site/package.json @bhimrazy
 /docs-site/.npmrc @bhimrazy

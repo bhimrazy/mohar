@@ -51,7 +51,9 @@ On a PR, steps 1 and 5 run the **base branch's** `changelog-check.sh`, `changelo
 `security-exceptions.sh`, `check-dependency-age.mjs` and `dependency-policy.mjs` (extracted from `HEAD^1` into
 `billing/.ci-policy/`, removed before the install), against the PR's tree, as the local merge gate does: a PR cannot
 weaken the checks that judge it, and a change to them takes effect once merged. A script the base does not have yet
-comes from the PR, with a warning. `ci.yml` itself still comes from the PR (inherent to `pull_request`), so a change
+comes from the PR, with a warning; on a PR into `main` (no `billing/` until the first release) that is all of them.
+The checker never uses a dependency-age cache from the PR tree, and it fails a PR that changes the audits' own
+settings in `composer.json` or `.npmrc` without the `security-exception` label (dependency-policy.md). `ci.yml` itself still comes from the PR (inherent to `pull_request`), so a change
 to it is a visible workflow diff; `.github/CODEOWNERS` requests the owner's review of it.
 
 **Test jobs.** `pest --shard=<n>/<total>` (in the installed Pest 5.3) gives each job a share of the test files, round-robin in file

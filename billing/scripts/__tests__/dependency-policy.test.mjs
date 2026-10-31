@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
     buildkitImages,
     composeImages,
+    composerAuditConfigChanges,
+    npmrcAuditConfigChanges,
     composerDistProblems,
     directPinProblems,
     digestBelongsToTag,
@@ -360,5 +362,57 @@ describe('buildkitImages', () => {
         expect(
             buildkitImages('    image: postgres:18\n    driver: docker'),
         ).toEqual([]);
+    });
+});
+
+describe('composerAuditConfigChanges', () => {
+    const base = JSON.stringify({
+        config: { 'sort-packages': true, audit: { abandoned: 'report' } },
+        repositories: [{ type: 'path', url: '../tools/simulators' }],
+    });
+
+    it('names config.audit and repositories when they change, and nothing for other keys or a reordering', () => {
+        const muted = JSON.parse(base);
+        muted.config.audit.ignore = ['GHSA-1234'];
+        muted.repositories.push({ 'packagist.org': false });
+        const cosmetic = JSON.stringify({
+            repositories: [{ url: '../tools/simulators', type: 'path' }],
+            config: { audit: { abandoned: 'report' }, 'sort-packages': false },
+            description: 'x',
+        });
+
+        expect(composerAuditConfigChanges(base, JSON.stringify(muted))).toEqual(
+            ['config.audit', 'repositories'],
+        );
+        expect(composerAuditConfigChanges(base, cosmetic)).toEqual([]);
+        expect(composerAuditConfigChanges(base, '{not json')).toContain(
+            '(unparsable composer.json)',
+        );
+    });
+});
+
+describe('npmrcAuditConfigChanges', () => {
+    const base = 'save-exact=true\nmin-release-age=7\n';
+
+    it('names a registry, scoped registry, TLS, proxy or audit setting that is added, changed or removed', () => {
+        expect(
+            npmrcAuditConfigChanges(
+                base,
+                `${base}registry=https://npm.example.test/\n@acme:registry = https://x.test/\nstrict-ssl=false\naudit-level=critical\n`,
+            ),
+        ).toEqual(['@acme:registry', 'audit-level', 'registry', 'strict-ssl']);
+        expect(npmrcAuditConfigChanges(`${base}cafile=/a.pem\n`, base)).toEqual(
+            ['cafile'],
+        );
+    });
+
+    it('ignores comments and settings that do not steer the audit', () => {
+        expect(
+            npmrcAuditConfigChanges(
+                base,
+                '# registry=https://evil.test/\nsave-exact=true\nmin-release-age=7\nfund=false\n',
+            ),
+        ).toEqual([]);
+        expect(npmrcAuditConfigChanges(null, null)).toEqual([]);
     });
 });

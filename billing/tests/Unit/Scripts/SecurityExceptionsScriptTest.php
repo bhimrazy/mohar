@@ -60,11 +60,11 @@ it('prints nothing without the label, whatever the body says', function () {
     expect($run->getExitCode())->toBe(0)->and($run->getOutput())->toBe('');
 });
 
-it('prints the Security-Exception lines when the body was never edited or only before the label', function () {
+it('prints the label marker and the Security-Exception lines when the body was never edited or only before the label', function () {
     $never = sexRun(sexPr(['security-exception'], [['security-exception', '2026-10-31T10:00:00Z']], null, SEX_BODY));
     $before = sexRun(sexPr(['security-exception'], [['security-exception', '2026-10-31T10:00:00Z']], '2026-10-31T09:59:59Z', SEX_BODY));
 
-    $lines = "Security-Exception: symfony/mime@8.1.10\n  security-exception: left-pad@1.3.0\n";
+    $lines = "Security-Exception-Label: security-exception\nSecurity-Exception: symfony/mime@8.1.10\n  security-exception: left-pad@1.3.0\n";
     expect($never->getExitCode())->toBe(0, $never->getErrorOutput())->and($never->getOutput())->toBe($lines)
         ->and($before->getExitCode())->toBe(0)->and($before->getOutput())->toBe($lines);
 });
@@ -75,11 +75,14 @@ it('fails when the body was edited after the label, until the label is added aga
     // Removed and re-added after the edit: the latest labelled event counts, not the first or another label's.
     $relabelled = sexRun(sexPr(['security-exception'], [...$events, ['security-exception', '2026-10-31T09:00:00Z'], ['ci', '2026-10-31T09:30:00Z']], '2026-10-31T08:00:00Z', SEX_BODY));
     $otherLabelLater = sexRun(sexPr(['security-exception'], [...$events, ['ci', '2026-10-31T09:00:00Z']], '2026-10-31T08:00:00Z', SEX_BODY));
+    // An edit in the same second as the label cannot be shown to come before it.
+    $sameSecond = sexRun(sexPr(['security-exception'], $events, '2026-10-30T10:00:00Z', SEX_BODY));
 
     expect($edited->getExitCode())->toBe(1)->and($edited->getOutput())->toBe('')
-        ->and($edited->getErrorOutput())->toContain('edited (2026-10-31T08:00:00Z) after the security-exception label was added (2026-10-30T10:00:00Z)')
+        ->and($edited->getErrorOutput())->toContain('edited (2026-10-31T08:00:00Z) after, or in the same second as, the security-exception label was added (2026-10-30T10:00:00Z)')
         ->and($relabelled->getExitCode())->toBe(0)->and($relabelled->getOutput())->toContain('symfony/mime@8.1.10')
-        ->and($otherLabelLater->getExitCode())->toBe(1);
+        ->and($otherLabelLater->getExitCode())->toBe(1)
+        ->and($sameSecond->getExitCode())->toBe(1)->and($sameSecond->getOutput())->toBe('');
 });
 
 it('fails closed when the label is present but its event is not found, or GitHub cannot be read', function () {
