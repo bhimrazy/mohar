@@ -5,7 +5,10 @@
 #
 # Runs only when started by hand:
 # - Actions -> Load test -> Run workflow (available once this file is on the default branch), or
-# - adding the `load-test` label to a pull request: small profile, large volume (remove and re-add it to run again).
+# - adding the `load-test` label to a pull request: the runs in the PR's loadtest/label-runs.json (at most three;
+#   profile, levels, durations, arrival spread and think time), checked by loadtest/bin/plan.py. Remove and re-add
+#   the label to run again. Only people with triage access can add a label. The label path always uses the
+#   ubuntu-24.04 runner and --require-fit; the file cannot choose either.
 #
 # The standard Linux runner has 4 CPUs and 16 GB for a public repository (2 CPUs and 8 GB for a private one), which
 # fits the small and medium profiles. A profile larger than the runner is skipped unless `allow_smaller_runner` is
@@ -56,22 +59,57 @@ concurrency:
     cancel-in-progress: true
 
 jobs:
-    load:
-        name: Load test (${{ matrix.profile }})
+    plan:
+        name: Plan
         # A `labeled` event runs only when the label added is `load-test`.
         if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'load-test'
-        runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
-        timeout-minutes: 120
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        outputs:
+            runs: ${{ steps.plan.outputs.runs }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            - name: Plan
+              id: plan
+              env:
+                  EVENT: ${{ github.event_name }}
+                  INPUT_PROFILE: ${{ inputs.profile }}
+                  INPUT_VOLUME: ${{ inputs.volume }}
+                  INPUT_LEVELS: ${{ inputs.levels }}
+                  INPUT_LEVEL_DURATION: ${{ inputs.level_duration }}
+              run: |
+                  if [ "$EVENT" = workflow_dispatch ]; then
+                      runs="$(python3 loadtest/bin/plan.py --dispatch)"
+                  else
+                      runs="$(python3 loadtest/bin/plan.py --label loadtest/label-runs.json)"
+                  fi
+                  echo "$runs" | python3 -m json.tool
+                  echo "runs=$runs" >> "$GITHUB_OUTPUT"
+
+    load:
+        name: Load test (${{ matrix.name }})
+        needs: plan
+        # The runner comes from the dispatch input only; a pull request always gets the standard runner.
+        runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'ubuntu-24.04' }}
+        # A ramp of 8 levels of 5 minutes plus build, seed and background work stays near 70 minutes.
+        timeout-minutes: 150
         strategy:
             fail-fast: false
             matrix:
-                profile: ${{ fromJSON((inputs.profile || 'small') == 'all' && '["small","medium","large"]' || format('["{0}"]', inputs.profile || 'small')) }}
+                include: ${{ fromJSON(needs.plan.outputs.runs) }}
         env:
             PROFILE: ${{ matrix.profile }}
-            VOLUME: ${{ inputs.volume || 'large' }}
-            LEVELS: ${{ inputs.levels }}
-            LEVEL_DURATION: ${{ inputs.level_duration }}
-            ALLOW_SMALLER: ${{ inputs.allow_smaller_runner && '1' || '' }}
+            VOLUME: ${{ matrix.volume }}
+            LEVELS: ${{ matrix.levels }}
+            LEVEL_DURATION: ${{ matrix.level_duration }}
+            START_SPREAD: ${{ matrix.start_spread }}
+            WARMUP: ${{ matrix.warmup }}
+            THINK: ${{ matrix.think }}
+            ALLOW_SMALLER: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_smaller_runner && '1' || '' }}
         steps:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -92,6 +130,9 @@ jobs:
                   args=(--profile "$PROFILE" --volume "$VOLUME")
                   [ -n "$LEVELS" ] && args+=(--levels "$LEVELS")
                   [ -n "$LEVEL_DURATION" ] && args+=(--level-duration "$LEVEL_DURATION")
+                  [ -n "$START_SPREAD" ] && args+=(--start-spread "$START_SPREAD")
+                  [ -n "$WARMUP" ] && args+=(--warmup "$WARMUP")
+                  [ -n "$THINK" ] && args+=(--think "$THINK")
                   [ -z "$ALLOW_SMALLER" ] && args+=(--require-fit)
                   loadtest/bin/run "${args[@]}"
 
@@ -99,7 +140,7 @@ jobs:
               if: always()
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
               with:
-                  name: load-test-${{ matrix.profile }}-${{ inputs.volume || 'large' }}-${{ github.run_id }}
+                  name: load-test-${{ matrix.name }}-${{ matrix.volume }}-${{ github.run_id }}
                   path: ${{ runner.temp }}/loadtest
                   if-no-files-found: warn
                   retention-days: 30

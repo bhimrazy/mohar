@@ -136,3 +136,73 @@ test('every docs/devops page the load-test docs point at exists', function () {
         }
     }
 });
+
+test('the think-time override defaults to each page\'s own pauses, and bin/run passes it to k6', function () {
+    $lib = loadtestFile('loadtest/k6/lib.js');
+    $run = loadtestFile('loadtest/bin/run');
+
+    // Unset, every scenario keeps the ranges the earlier runs were measured with (1–3 s unless a page says otherwise).
+    expect($lib)->toContain('export function think(min = 1, max = 3) {')
+        ->and($lib)->toContain("parseFloat(__ENV.THINK_MIN || '')")
+        ->and($lib)->toContain("parseFloat(__ENV.THINK_MAX || '')")
+        ->and($run)->toContain('think=""')
+        ->and($run)->toContain('think_env=(-e THINK_MIN="${think% *}" -e THINK_MAX="${think#* }")')
+        ->and($run)->toContain('${think_env[@]+"${think_env[@]}"}');
+});
+
+test('bin/run stops one level past saturation by the same rule summarize.py reports', function () {
+    $run = loadtestFile('loadtest/bin/run');
+    $summarize = loadtestFile('loadtest/bin/summarize.py');
+
+    expect($summarize)->toContain('P95_LIMIT_MS = 1000')
+        ->and($summarize)->toContain('ERROR_LIMIT = 0.01')
+        ->and($summarize)->toContain('SATURATED = 3')
+        ->and($summarize)->toContain("'saturation': saturation(levels)");
+    // The exit code bin/run treats as "saturated" is the one --check-level returns.
+    expect($run)->toContain('python3 loadtest/bin/summarize.py --check-level "$results/k6-${vus}.json" || rc=$?')
+        ->and($run)->toContain('if [ "$rc" = 3 ] || [ "$past_limit" -ge 1 ]; then')
+        ->and($run)->toContain('[ "$stop_at_saturation" = 1 ] && [ "$past_limit" -ge 2 ]')
+        ->and($run)->toContain('"levels": "${levels_run}".split()');
+});
+
+test('the label runs are few, name real profiles and pass the plan rules', function () {
+    $plan = json_decode(loadtestFile('loadtest/label-runs.json'), true, flags: JSON_THROW_ON_ERROR);
+    $script = loadtestFile('loadtest/bin/plan.py');
+    preg_match('/^MAX_LABEL_RUNS = (\d+)$/m', $script, $max);
+    preg_match_all("/^    '([a-z_]+)': r'([^']+)',$/m", $script, $rules, PREG_SET_ORDER);
+    expect($rules)->not->toBeEmpty();
+
+    expect($plan['runs'])->toBeArray()->not->toBeEmpty()
+        ->and(count($plan['runs']))->toBeLessThanOrEqual((int) $max[1]);
+    $names = [];
+    foreach ($plan['runs'] as $run) {
+        expect(file_exists(LOADTEST_ROOT."/loadtest/profiles/{$run['profile']}.env"))->toBeTrue("no profile {$run['profile']}");
+        // The standard runner has 4 CPUs: large would be skipped by --require-fit, so a label run of it is wasted.
+        expect($run['profile'])->toBeIn(['small', 'medium']);
+        foreach ($rules as [, $key, $pattern]) {
+            if (isset($run[$key])) {
+                expect(preg_match('/^(?:'.$pattern.')$/', (string) $run[$key]))->toBe(1, "{$key} {$run[$key]}");
+            }
+        }
+        $names[] = $run['name'];
+    }
+    expect(array_unique($names))->toHaveCount(count($names));
+});
+
+test('the load-test workflow takes its matrix from plan.py and keeps the label path on the standard runner', function () {
+    $workflow = loadtestFile('.github/workflows/load-test.yml');
+    $script = loadtestFile('loadtest/bin/plan.py');
+
+    expect($workflow)->not->toContain('pull_request_target')
+        ->and($workflow)->toContain("permissions:\n    contents: read")
+        ->and($workflow)->toContain('python3 loadtest/bin/plan.py --label loadtest/label-runs.json')
+        ->and($workflow)->toContain("runs-on: \${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'ubuntu-24.04' }}")
+        ->and($workflow)->toContain("ALLOW_SMALLER: \${{ github.event_name == 'workflow_dispatch' && inputs.allow_smaller_runner && '1' || '' }}")
+        ->and(substr_count($workflow, 'uses: actions/checkout@'))->toBe(substr_count($workflow, 'persist-credentials: false'));
+
+    // Every matrix key the workflow reads is one plan.py emits.
+    preg_match("/out = \{(.*?)\*\*defaults\}/s", $script, $out);
+    preg_match_all("/'([a-z_]+)':/", $out[1] ?? '', $keys);
+    preg_match_all('/matrix\.([a-z_]+)/', $workflow, $used);
+    expect(array_values(array_diff(array_unique($used[1]), $keys[1])))->toBe([]);
+});

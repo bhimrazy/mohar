@@ -1,0 +1,29 @@
+{
+    "runs": [
+        {
+            "name": "small-ramp",
+            "profile": "small",
+            "levels": "50 100 150 200 250 300 400 500",
+            "level_duration": "3m",
+            "start_spread": 60,
+            "warmup": "90s"
+        },
+        {
+            "name": "medium-ramp",
+            "profile": "medium",
+            "levels": "50 100 150 200 250 300 400 500",
+            "level_duration": "3m",
+            "start_spread": 60,
+            "warmup": "90s"
+        },
+        {
+            "name": "small-realistic",
+            "profile": "small",
+            "levels": "100 200 300 400 500 600 800 1000",
+            "level_duration": "5m",
+            "start_spread": 120,
+            "warmup": "150s",
+            "think": "10 30"
+        }
+    ]
+}
