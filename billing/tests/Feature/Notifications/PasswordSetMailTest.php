@@ -4,7 +4,7 @@ use App\Models\User;
 use App\Modules\Notifications\Mail\TemplatedMail;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Models\EmailTemplate;
-use App\Modules\Notifications\Support\SecretTemplatePolicy;
+use App\Modules\Notifications\Services\SecretTemplatePolicy;
 use App\Notifications\SetPasswordNotification;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;

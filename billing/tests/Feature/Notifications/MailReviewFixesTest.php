@@ -25,7 +25,7 @@ use App\Modules\Notifications\Services\EmailComposer;
 use App\Modules\Notifications\Services\NotificationMailer;
 use App\Modules\Notifications\Services\RecipientResolver;
 use App\Modules\Notifications\Services\SampleContext;
-use App\Modules\Notifications\Support\SecretTemplatePolicy;
+use App\Modules\Notifications\Services\SecretTemplatePolicy;
 use App\Modules\Platform\Actions\Clients\ManageClientLogins;
 use App\Modules\Platform\Actions\Staff\InviteStaff;
 use App\Modules\Platform\Models\StaffInvitation;

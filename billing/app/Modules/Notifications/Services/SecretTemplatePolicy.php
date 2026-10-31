@@ -1,13 +1,12 @@
 <?php
 
-namespace App\Modules\Notifications\Support;
+namespace App\Modules\Notifications\Services;
 
 use App\Data\Notifications\SensitiveValue;
 use App\Modules\Core\Support\AccountLinks;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Rendering\TemplateEngine;
 use App\Modules\Notifications\Rendering\TemplateSyntaxError;
-use App\Modules\Notifications\Services\SampleContext;
 use App\Support\Integrations\RedactionSet;
 use Dom\Comment;
 use Dom\Element;

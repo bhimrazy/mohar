@@ -15,7 +15,7 @@ use App\Modules\Notifications\Services\EmailComposer;
 use App\Modules\Notifications\Services\MergeContext;
 use App\Modules\Notifications\Services\NotificationMailer;
 use App\Modules\Notifications\Services\RecipientResolver;
-use App\Modules\Notifications\Support\SecretTemplatePolicy;
+use App\Modules\Notifications\Services\SecretTemplatePolicy;
 use App\Modules\Notifications\Webhooks\WebhookPublisher;
 use App\Support\Dashboard\Dashboard;
 use Dom\HTMLDocument;
