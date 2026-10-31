@@ -15,6 +15,9 @@ export LC_ALL=C XDEBUG_MODE=off
 
 scripts="$(cd "$(dirname "$0")" && pwd)"
 top="$(git rev-parse --show-toplevel)"
+# Git runs hooks with GIT_DIR set, which makes `git rev-parse --show-toplevel` answer with the current directory
+# for the scripts below: drop the variables, they all work from the worktree.
+cd "$top" && unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX
 dry=0
 [ "${1:-}" = "--dry-run" ] && dry=1
 
