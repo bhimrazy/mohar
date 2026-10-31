@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\User;
 use Closure;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response;
@@ -18,9 +19,11 @@ use Symfony\Component\HttpFoundation\Response;
  * Laravel's `password.confirm` is bound to RequirePasswordUnlessExpired, which applies the same rule and hands every
  * request except a page load to this middleware (#538).
  *
- * Unlike Laravel's RequirePassword (which redirects, and so cannot resume a POST), this rejects the request:
- * JSON clients get 423, Inertia gets a "password_confirmation" validation error (redirected back without the old
- * input, so no submitted secret reaches the session) that the UI turns into a confirm-password dialog before retrying.
+ * Unlike Laravel's RequirePassword (which redirects, and so cannot resume a POST), this rejects the request with
+ * 423: JSON clients get it as it is, and an Inertia mutation gets it with REFUSAL_HEADER, which the confirm dialog
+ * catches (Inertia's httpException event) before sending the same visit again (#538). Nothing redirects, so the
+ * page the form is on is never loaded again without a recent confirmation, and no submitted secret reaches the
+ * session. A plain form post (no JavaScript) goes back with a "password_confirmation" error.
  *
  * Downloads (GET routes, #272) cannot use that dialog by themselves, so they have three paths, all of which keep the
  * rule that the file is never sent without a recent confirmation:
@@ -50,11 +53,8 @@ class RequireRecentPasswordConfirmation
     /** Session key holding the unix time of the last password confirmation; written only by markConfirmed(). */
     public const SESSION_KEY = 'auth.step_up_confirmed_at';
 
-    /** Session key holding the last page behind `password.confirm` this session loaded with a recent confirmation. */
-    public const PAGE_KEY = 'step_up.page';
-
-    /** Flashed with a refused mutation: the page it was sent from, which the redirect back returns to. */
-    public const REFUSED_ON_KEY = 'step_up.refused_on';
+    /** On the 423 answering an Inertia mutation, so the confirm dialog knows the refusal is step-up's. */
+    public const REFUSAL_HEADER = 'X-Step-Up-Required';
 
     /** Session key holding the file URL a download sent to the confirm page. */
     public const DOWNLOAD_KEY = 'step_up_download';
@@ -91,17 +91,20 @@ class RequireRecentPasswordConfirmation
     }
 
     /**
-     * The answer to an unconfirmed request: 423 for JSON clients; otherwise back with the error only, never the old
-     * input: this runs before any form request that keeps secrets out of the session, and the dialog replays the
-     * visit itself (security standards §6). Also for checks that need step-up only for some input (a form request).
+     * The answer to an unconfirmed request: 423 for JSON clients and for Inertia (with REFUSAL_HEADER), which the
+     * dialog handles in place; a plain form post goes back with the error only, never the old input: this runs before
+     * any form request that keeps secrets out of the session (security standards §6). Also for checks that need
+     * step-up only for some input (a form request).
      */
     public static function refusal(Request $request): Response
     {
-        if ($request->expectsJson() && ! $request->header('X-Inertia')) {
-            return self::locked($request);
+        if ($request->header('X-Inertia')) {
+            return self::lockedJson($request)->header(self::REFUSAL_HEADER, '1');
         }
 
-        $request->session()->flash(self::REFUSED_ON_KEY, url()->previous());
+        if ($request->expectsJson()) {
+            return self::locked($request);
+        }
 
         return back()->withErrors(
             self::hasNoPassword($request)
@@ -113,6 +116,14 @@ class RequireRecentPasswordConfirmation
     private static function hasNoPassword(Request $request): bool
     {
         return $request->user() !== null && ! $request->user()->hasPassword();
+    }
+
+    /** The 423 for an Inertia visit: a plain JSON body, never an Inertia page, so the client raises httpException. */
+    private static function lockedJson(Request $request): JsonResponse
+    {
+        return self::hasNoPassword($request)
+            ? response()->json(['message' => __('Your account has no password. Set a password to continue.'), 'code' => self::NO_PASSWORD_CODE], 423)
+            : response()->json(['message' => __('Password confirmation required.')], 423);
     }
 
     private static function locked(Request $request): Response
@@ -135,22 +146,6 @@ class RequireRecentPasswordConfirmation
         session()->put(self::DOWNLOAD_KEY, session('url.intended'));
 
         return $redirect;
-    }
-
-    /**
-     * Whether this Inertia page load is the redirect back after a refused mutation, to a page behind `password.confirm`
-     * that this session last loaded with a recent confirmation. It then renders with the error, so the dialog asks on
-     * the page and the step carries on (#538), instead of the confirm page replacing it. It shows nothing the session
-     * had not already been shown.
-     */
-    public static function returningToRefusedPage(Request $request): bool
-    {
-        $url = $request->fullUrl();
-
-        return $request->header('X-Inertia') !== null
-            && $request->isMethod('GET')
-            && $request->session()->get(self::REFUSED_ON_KEY) === $url
-            && $request->session()->get(self::PAGE_KEY) === $url;
     }
 
     /**

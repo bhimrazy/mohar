@@ -4,6 +4,7 @@ use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Models\User;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Notifications\LoginEmailNotice;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Services\TemplateCatalog;
 use Illuminate\Support\Facades\File;
@@ -11,6 +12,7 @@ use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Route;
 use Laravel\Passkeys\Events\PasskeyRegistered;
 use Laravel\Passkeys\Passkey;
+use PragmaRX\Google2FA\Google2FA;
 use Symfony\Component\Finder\SplFileInfo;
 
 /*
@@ -167,19 +169,24 @@ function staleSecurityPage(User $user): array
     return ['X-Inertia' => 'true', 'X-Inertia-Version' => $version, 'X-Requested-With' => 'XMLHttpRequest', 'Referer' => route('security.edit')];
 }
 
-test('a refused two-factor step lands back on the security page with the dialog error, never on the confirm page', function (string $method, string $route, bool $enabled) {
+test('a refused two-factor step is answered in place: a 423 the dialog catches, no redirect, nothing changed', function (string $method, string $route, bool $enabled) {
     $user = User::factory()->create(['password' => 'correct-horse-battery']);
     if ($enabled) {
         $user->forceFill(['two_factor_secret' => encrypt('JBSWY3DPEHPK3PXP'), 'two_factor_recovery_codes' => encrypt(json_encode(['a', 'b'])), 'two_factor_confirmed_at' => now()])->save();
     }
+    $before = $user->fresh()->only(['two_factor_secret', 'two_factor_recovery_codes', 'two_factor_confirmed_at']);
     $headers = staleSecurityPage($user);
 
-    $response = $this->withHeaders($headers)->followingRedirects()->call($method, route($route), $route === 'two-factor.confirm' ? ['code' => '123456'] : []);
+    // post()/delete() send the default headers; call() would not.
+    $data = $route === 'two-factor.confirm' ? ['code' => '123456'] : [];
+    $request = $this->withHeaders($headers)->followingRedirects();
+    $response = $method === 'DELETE' ? $request->delete(route($route), $data) : $request->post(route($route), $data);
 
-    $response->assertOk()->assertHeader('X-Inertia', 'true')
-        ->assertJsonPath('component', 'settings/security')
-        ->assertJsonPath('props.errors.'.RequireRecentPasswordConfirmation::ERROR_KEY, __('Confirm your password to continue.'));
-    expect($response->json('url'))->not->toContain('confirm-password');
+    $response->assertStatus(423)->assertHeader(RequireRecentPasswordConfirmation::REFUSAL_HEADER, '1')->assertHeaderMissing('X-Inertia')
+        ->assertExactJson(['message' => __('Password confirmation required.')]);
+    expect($response->headers->get('Location'))->toBeNull()
+        ->and(session('url.intended'))->toBeNull()
+        ->and($user->fresh()->only(['two_factor_secret', 'two_factor_recovery_codes', 'two_factor_confirmed_at']))->toEqual($before);
 })->with([
     'enable' => ['POST', 'two-factor.enable', false],
     'confirm the code' => ['POST', 'two-factor.confirm', false],
@@ -187,17 +194,32 @@ test('a refused two-factor step lands back on the security page with the dialog 
     'disable' => ['DELETE', 'two-factor.disable', true],
 ]);
 
-test('the refusal renders only the page this session last loaded with a password, and only once', function () {
+test('an unconfirmed two-factor secret survives a refused confirm, and the re-sent confirm finishes the setup', function () {
     $user = User::factory()->create(['password' => 'correct-horse-battery']);
     $headers = staleSecurityPage($user);
+    $this->postJson(route('password.confirm.store'), ['password' => 'correct-horse-battery'])->assertCreated();
+    $this->withHeaders($headers)->post(route('two-factor.enable'))->assertRedirect();
+    $secret = $user->fresh()->two_factor_secret;
+    $this->travel(16)->minutes();
 
-    // A visit claiming to come from another gated page gets the confirm page, as before.
-    $this->withHeaders([...$headers, 'Referer' => route('profile.edit')])->post(route('two-factor.enable'))->assertRedirect(route('profile.edit'));
-    $this->withHeaders($headers)->get(route('security.edit'))->assertRedirect(route('password.confirm'));
+    $code = (new Google2FA)->getCurrentOtp(decrypt($secret));
+    $this->withHeaders($headers)->post(route('two-factor.confirm'), ['code' => $code])->assertStatus(423);
+    expect($user->fresh()->two_factor_secret)->toBe($secret)->and($user->fresh()->two_factor_confirmed_at)->toBeNull();
 
-    // A plain page load (no Inertia) is never let through by the flash.
-    $this->withHeaders($headers)->post(route('two-factor.enable'))->assertRedirect(route('security.edit'));
-    $this->flushHeaders()->get(route('security.edit'))->assertRedirect(route('password.confirm'));
+    // The dialog: confirm the password, then the same visit again.
+    $this->postJson(route('password.confirm.store'), ['password' => 'correct-horse-battery'])->assertCreated();
+    $this->withHeaders($headers)->post(route('two-factor.confirm'), ['code' => $code])->assertSessionHasNoErrors();
+    expect($user->fresh()->two_factor_secret)->toBe($secret)->and($user->fresh()->two_factor_confirmed_at)->not->toBeNull();
+});
+
+test('a plain form post without JavaScript still goes back with the error, which a gated page turns into the confirm page', function () {
+    $user = User::factory()->create(['password' => 'correct-horse-battery']);
+    staleSecurityPage($user);
+
+    $this->from(route('security.edit'))->post(route('two-factor.enable'))
+        ->assertRedirect(route('security.edit'))->assertSessionHasErrors(RequireRecentPasswordConfirmation::ERROR_KEY);
+    $this->get(route('security.edit'))->assertRedirect(route('password.confirm'));
+    expect($user->fresh()->two_factor_secret)->toBeNull();
 });
 
 test('the confirm page leads back to the settings or the dashboard, and the configured window is shared', function () {
@@ -213,7 +235,7 @@ test('the confirm page leads back to the settings or the dashboard, and the conf
         ->assertInertia(fn ($page) => $page->where('back.url', route('dashboard')));
 });
 
-test('a refused staff edit lands back on the staff form with the dialog error', function () {
+test('a refused staff edit is answered in place with the step-up 423', function () {
     $admin = actingAsStaff();
     $admin->forceFill(['password' => 'correct-horse-battery'])->save();
     $staff = User::factory()->staff(['core.clients.view'])->create();
@@ -221,10 +243,20 @@ test('a refused staff edit lands back on the staff form with the dialog error', 
     $page = $this->get(route('admin.platform.staff.edit', $staff))->assertOk();
     $this->travel(16)->minutes();
 
-    $response = $this->withHeaders(['X-Inertia' => 'true', 'X-Inertia-Version' => (string) ($page->viewData('page')['version'] ?? ''), 'X-Requested-With' => 'XMLHttpRequest', 'Referer' => route('admin.platform.staff.edit', $staff)])
-        ->followingRedirects()->put(route('admin.platform.staff.update', $staff), ['name' => 'Changed']);
-
-    $response->assertOk()->assertJsonPath('component', $page->viewData('page')['component'])
-        ->assertJsonPath('props.errors.'.RequireRecentPasswordConfirmation::ERROR_KEY, __('Confirm your password to continue.'));
+    $this->withHeaders(['X-Inertia' => 'true', 'X-Inertia-Version' => (string) ($page->viewData('page')['version'] ?? ''), 'X-Requested-With' => 'XMLHttpRequest', 'Referer' => route('admin.platform.staff.edit', $staff)])
+        ->followingRedirects()->put(route('admin.platform.staff.update', $staff), ['name' => 'Changed'])
+        ->assertStatus(423)->assertHeader(RequireRecentPasswordConfirmation::REFUSAL_HEADER, '1');
     expect($staff->fresh()->name)->not->toBe('Changed');
+});
+
+test('the staff passkey mail is labelled as such and keeps an operator help link', function () {
+    app(TemplateCatalog::class)->install('en');
+    app(Settings::class)->set('notifications.support_url', 'https://help.example.com.np');
+    $user = User::factory()->create(['email' => 'ram@example.com.np', 'name' => 'Ram Thapa', 'is_staff' => true]);
+
+    PasskeyRegistered::dispatch($user, $user->passkeys()->create(['name' => 'Laptop', 'credential_id' => 'cred-9', 'credential' => []]));
+
+    $mail = EmailMessage::query()->where('template_key', 'staff.passkey_added')->sole();
+    expect($mail->body_html)->toContain('Passkey added')
+        ->and($mail->body_text)->toContain('https://help.example.com.np');
 });

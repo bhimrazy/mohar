@@ -13,25 +13,15 @@ use Illuminate\Auth\Middleware\RequirePassword;
  *
  * A page load (a safe, non-JSON request) still goes to the confirm page and back. Anything the page sends itself
  * (JSON, or an Inertia form) gets `password.recent`'s answer, a 423 or a `password_confirmation` error, so the
- * confirm dialog asks and the step is retried in place (#538). The redirect back from that refusal lands on this same
- * page, so it renders once with the error rather than going to the confirm page (returningToRefusedPage()). The route
- * arguments (redirect route and timeout) are not used: there is one confirm page and one window.
+ * confirm dialog asks and the step is retried in place (#538). A gated page is never rendered without a recent
+ * confirmation. The route arguments (redirect route and timeout) are not used: there is one confirm page and one
+ * window.
  */
 class RequirePasswordUnlessExpired extends RequirePassword
 {
     public function handle($request, Closure $next, $redirectToRoute = null, $passwordTimeoutSeconds = null)
     {
         if ($request->isMethodSafe() && ! $request->expectsJson()) {
-            if (RequireRecentPasswordConfirmation::recentlyConfirmed($request)) {
-                $request->session()->put(RequireRecentPasswordConfirmation::PAGE_KEY, $request->fullUrl());
-
-                return $next($request);
-            }
-
-            if (RequireRecentPasswordConfirmation::returningToRefusedPage($request)) {
-                return $next($request);
-            }
-
             return parent::handle($request, $next);
         }
 

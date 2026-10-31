@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     ensureStepUp,
+    inertiaStepUpRefusal,
     replacePending,
     requestStepUp,
     StepUpCancelled,
@@ -157,5 +158,39 @@ describe('replacePending', () => {
         expect(replacePending(null, same)).toBe(same);
         expect(replacePending(same, same)).toBe(same);
         expect(resolve).not.toHaveBeenCalled();
+    });
+});
+
+describe('inertiaStepUpRefusal', () => {
+    it('recognises the 423 with the step-up header, parsed or raw, and the no-password reason', () => {
+        const headers = { 'x-step-up-required': '1' };
+
+        expect(
+            inertiaStepUpRefusal({
+                status: 423,
+                headers,
+                data: { message: 'x' },
+            }),
+        ).toEqual({ noPassword: false });
+        expect(
+            inertiaStepUpRefusal({
+                status: 423,
+                headers,
+                data: JSON.stringify({ code: 'password_not_set' }),
+            }),
+        ).toEqual({ noPassword: true });
+    });
+
+    it('ignores a 423 without the header and any other status', () => {
+        expect(
+            inertiaStepUpRefusal({ status: 423, headers: {}, data: {} }),
+        ).toBeNull();
+        expect(
+            inertiaStepUpRefusal({
+                status: 403,
+                headers: { 'x-step-up-required': '1' },
+                data: {},
+            }),
+        ).toBeNull();
     });
 });

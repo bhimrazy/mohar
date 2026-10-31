@@ -279,6 +279,7 @@ final class MailFramer
             $key === 'staff.automation_summary' => data_get($context, 'automation.status') === 'failed' ? ['danger', self::text('Failed')] : ['success', self::text('Completed')],
             $key === 'staff.free_domain_renewal_blocked' || $key === 'staff.cancellation_request' => ['warning', self::text('Review')],
             $key === 'staff.provisioning_unknown' => ['warning', self::text('Checking')],
+            $key === 'staff.passkey_added' => ['warning', self::text('Passkey added')],
             $key === 'staff.gateway_credential_expiring' => ['warning', self::text('Expires soon')],
             str_starts_with($key, 'staff.ticket_') => ['info', self::text('Support')],
             $key === 'staff.order_new' => ['accent', self::text('New order')],

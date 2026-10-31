@@ -27,7 +27,7 @@ final readonly class MailFrame
         public array $facts = [],
         public ?string $reason = null,
         public bool $security = false,
-        /** Staff mail: the footer has no client help centre link. */
+        /** Staff mail: the footer does not fall back to the clients' ticket list as its help link. */
         public bool $staff = false,
     ) {}
 

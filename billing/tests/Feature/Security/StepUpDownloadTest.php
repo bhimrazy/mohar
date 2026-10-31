@@ -98,10 +98,12 @@ test('an Inertia or JSON request never receives the file in place', function () 
     $this->get($this->url, ['X-Inertia' => 'true'])->assertStatus(409)->assertHeader('X-Inertia-Location', $this->url);
 });
 
-test('a mutation without a recent password is still refused with the validation error the dialog reads', function () {
+test('a mutation without a recent password is still refused with the 423 the dialog reads', function () {
     $this->withSession(['auth.step_up_confirmed_at' => 0]);
 
-    $this->post(route('admin.migration.imports.accept', $this->run), [], ['X-Inertia' => 'true'])->assertSessionHasErrors('password_confirmation');
+    $this->post(route('admin.migration.imports.accept', $this->run), [], ['X-Inertia' => 'true'])
+        ->assertStatus(423)->assertHeader(RequireRecentPasswordConfirmation::REFUSAL_HEADER, '1');
+    $this->post(route('admin.migration.imports.accept', $this->run))->assertSessionHasErrors('password_confirmation');
 });
 
 test('every GET route behind step-up is a download this fix covers', function () {

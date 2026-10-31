@@ -23,11 +23,10 @@ test('R1 two-factor setup that crosses the 15-minute window asks for the passwor
     // useHttp() asks with Accept: application/json and gets password.recent's 423, which withStepUp() turns into the dialog.
     $this->getJson(route('two-factor.qr-code'))->assertStatus(423)->assertJsonPath('message', 'Password confirmation required.');
 
-    // The confirm form gets the gate's error back on the same page; nothing sends it to the confirm page.
+    // The confirm form gets the step-up 423 the dialog catches; nothing redirects, to the confirm page or anywhere.
     $code = (new Google2FA)->getCurrentOtp(decrypt($user->fresh()->two_factor_secret));
     $this->post(route('two-factor.confirm'), ['code' => $code], $inertia)
-        ->assertRedirect(route('security.edit'))
-        ->assertSessionHasErrors(RequireRecentPasswordConfirmation::ERROR_KEY);
+        ->assertStatus(423)->assertHeader(RequireRecentPasswordConfirmation::REFUSAL_HEADER, '1');
     expect(session('url.intended'))->toBeNull()
         ->and($user->fresh()->two_factor_confirmed_at)->toBeNull();
 
@@ -44,7 +43,8 @@ test('R1b a login without a password gets the set-a-password answer from passwor
 
     $this->getJson(route('passkey.registration-options'))->assertStatus(423)->assertJsonPath('code', RequireRecentPasswordConfirmation::NO_PASSWORD_CODE);
     $this->post(route('two-factor.enable'), [], ['X-Inertia' => 'true', 'X-Requested-With' => 'XMLHttpRequest', 'Referer' => route('security.edit')])
-        ->assertSessionHasErrors([RequireRecentPasswordConfirmation::REASON_KEY => RequireRecentPasswordConfirmation::NO_PASSWORD_CODE]);
+        ->assertStatus(423)->assertHeader(RequireRecentPasswordConfirmation::REFUSAL_HEADER, '1')
+        ->assertJsonPath('code', RequireRecentPasswordConfirmation::NO_PASSWORD_CODE);
 });
 
 test('R1c the passkey registration probe is answered by the middleware and never reaches the controller', function () {

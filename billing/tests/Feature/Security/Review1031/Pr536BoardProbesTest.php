@@ -147,7 +147,8 @@ test('P5: a passwordless staff login entering a secret is told to set a password
 
     $this->from(route('admin.catalog.products.edit', $product))->put(route('admin.catalog.products.provisioning.update', $product), [
         'provisioning_driver' => 'log', 'driver_config' => [['key' => 'plan', 'value' => 'pro'], ['key' => 'api_token', 'value' => 'tok-new']],
-    ], ['X-Inertia' => 'true'])->assertSessionHasErrors(['password_confirmation', RequireRecentPasswordConfirmation::REASON_KEY => RequireRecentPasswordConfirmation::NO_PASSWORD_CODE]);
+    ], ['X-Inertia' => 'true'])->assertStatus(423)->assertHeader(RequireRecentPasswordConfirmation::REFUSAL_HEADER, '1')
+        ->assertJsonPath('code', RequireRecentPasswordConfirmation::NO_PASSWORD_CODE);
 });
 
 /*

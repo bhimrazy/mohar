@@ -4,11 +4,37 @@
  */
 export const STEP_UP_CONFIRM_EVENT = 'step-up:confirm';
 
+/** Set by the server on the 423 that refuses an Inertia visit for step-up (`REFUSAL_HEADER`); lower case, as Inertia gives it. */
+export const STEP_UP_REFUSAL_HEADER = 'x-step-up-required';
+
 /**
- * Header on an Inertia form whose component retries after the dialog itself (`useStepUpForm`), so the gate does not
- * replay the visit as well. A replay would drop the form's callbacks, such as opening the next setup step.
+ * A step-up refusal of an Inertia visit (the `httpException` event's response), with whether the login has no
+ * password; null for any other error response.
  */
-export const STEP_UP_CALLER_RETRIES_HEADER = 'X-Step-Up-Caller-Retries';
+export function inertiaStepUpRefusal(response: {
+    status: number;
+    headers: Record<string, string | undefined>;
+    data: unknown;
+}): { noPassword: boolean } | null {
+    if (response.status !== 423 || !response.headers[STEP_UP_REFUSAL_HEADER]) {
+        return null;
+    }
+
+    let data = response.data;
+
+    if (typeof data === 'string') {
+        try {
+            data = JSON.parse(data);
+        } catch {
+            data = null;
+        }
+    }
+
+    return {
+        noPassword:
+            (data as { code?: string } | null)?.code === 'password_not_set',
+    };
+}
 
 export type StepUpConfirmDetail = {
     noPassword?: boolean;

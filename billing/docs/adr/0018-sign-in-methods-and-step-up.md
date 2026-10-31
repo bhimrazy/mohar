@@ -236,16 +236,17 @@ not count as step-up; this restores §4 rather than changing it.
   applies `recentlyConfirmed()`: a password confirmation within `auth.step_up_seconds`, never for a login without a
   password. `auth.password_timeout` (3 hours) no longer opens any route. This covers Fortify's passkey registration and
   removal, every two-factor route, the security page and the staff and role pages. Only a page load still goes to the
-  confirm page and back; JSON and Inertia form requests get `password.recent`'s answer (423, or the
-  `password_confirmation` error), so the confirm dialog asks in place. The two-factor setup and passkey registration
-  retry their own step after it (`withStepUp`, `useStepUpForm`, `ensureStepUp` in `resources/js`), so a setup that
-  runs past the window is not left half done. The route arguments (redirect route and timeout) are ignored.
-- **The refusal's redirect back renders the page.** A refused Inertia mutation redirects back to the page it came
-  from, which is itself behind `password.confirm` (the security page). That one Inertia GET is let through, so the page
-  renders with the error and the dialog asks there, but only when it is the URL flashed with the refusal and the
-  page this session last loaded with a recent confirmation (`RequireRecentPasswordConfirmation::PAGE_KEY`). It shows
-  nothing the session was not already shown. The same holds for the staff and role pages, whose `password.recent`
-  forms went to the confirm page before.
+  confirm page and back. JSON requests get 423.
+- **A refused Inertia mutation is answered in place, never by a redirect.** `password.recent`, `password.confirm`
+  and `RequireRecentPasswordConfirmation::refusal()` answer it with a plain JSON 423 carrying `X-Step-Up-Required`
+  (and `code: password_not_set` for a login without a password). Inertia raises its `httpException` event; the
+  confirm dialog cancels it, asks for the password and sends the same visit again, so the form keeps its input and
+  callbacks. A redirect back would reload the page the form is on, which is itself gated (the security page) and, for
+  two-factor setup, lets Fortify drop an unconfirmed secret. No gated page or endpoint is ever served without a
+  recent confirmation, and a refusal changes no server state. The two-factor setup and passkey registration retry
+  their own step (`withStepUp`, `useStepUpForm`, `ensureStepUp` in `resources/js`). A plain form post without
+  JavaScript still goes back with the `password_confirmation` error. The route arguments (redirect route and timeout)
+  are ignored.
 - **The confirm page's way out** leads to Settings → Profile for a settings page, and to the dashboard otherwise.
   The window it and the dialog name comes from `auth.step_up_seconds` (shared as `auth.step_up_minutes`).
 - **Unused vendor routes.** Fortify always registers `POST /passkeys/confirm` and `/user/confirmed-password-status`
