@@ -60,6 +60,16 @@ test('staff sign in as the account owner, see the banner, and actions are logged
     $this->assertDatabaseHas('activity_log', ['event' => 'impersonation.started', 'user_id' => $staff->id, 'client_id' => $this->client->id]);
 });
 
+test('signing in as a client drops the staff member\'s password and passkey confirmations', function () {
+    actingAsStaff(['core.clients.view', 'core.clients.impersonate']);
+    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
+
+    impersonate($this->client);
+
+    expect(session('auth.step_up_confirmed_at'))->toBeNull()
+        ->and(session('auth.password_confirmed_at'))->toBeNull();
+});
+
 test('while impersonating, password, email, 2FA and admin routes are blocked', function () {
     actingAsStaff(['core.clients.view', 'core.clients.impersonate']);
     impersonate($this->client);

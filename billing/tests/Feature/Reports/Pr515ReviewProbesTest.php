@@ -29,7 +29,7 @@ function probeRequestFor(?User $user, ?int $confirmedAt): void
     $request = Request::create('/admin/reports/demo');
     $request->setLaravelSession(app('session.store'));
     if ($confirmedAt !== null) {
-        $request->session()->put('auth.password_confirmed_at', $confirmedAt);
+        $request->session()->put('auth.step_up_confirmed_at', $confirmedAt);
     }
     app()->instance('request', $request);
     $request->setUserResolver(fn () => $user);

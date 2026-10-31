@@ -132,12 +132,12 @@ test('staff mark a reversal reviewed, which clears it from the to-do', function 
     $chargeback = Transaction::query()->where('type', 'chargeback')->sole();
 
     actingAsStaff(['billing.transactions.view']);
-    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])->post(route('admin.billing.transactions.reviewed', $chargeback))->assertForbidden();
+    $this->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()])->post(route('admin.billing.transactions.reviewed', $chargeback))->assertForbidden();
 
     $staff = billingStaff();
     $this->get(route('admin.billing.transactions.index', ['review' => 1]))->assertInertia(fn (Assert $page) => $page
         ->where('transactions.data', fn ($rows) => collect($rows)->pluck('to_review')->all() === [1_000]));
-    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])->post(route('admin.billing.transactions.reviewed', $chargeback))->assertRedirect();
+    $this->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()])->post(route('admin.billing.transactions.reviewed', $chargeback))->assertRedirect();
 
     expect($chargeback->fresh()->reviewed_at)->not->toBeNull()
         ->and(collect(app(Dashboard::class)->resolveTodos('admin', $staff))->firstWhere('key', 'billing.reversals_review'))->toBeNull();

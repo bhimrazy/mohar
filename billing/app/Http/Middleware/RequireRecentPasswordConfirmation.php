@@ -10,8 +10,9 @@ use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Step-up authentication for sensitive mutations ("password.recent" middleware, ADR 0018 §4): the user must have
- * confirmed their password (Fortify confirm-password, which sets auth.password_confirmed_at) within
- * auth.step_up_seconds. It lives in the kernel and is aliased in bootstrap/app.php, so every module's sensitive
+ * confirmed their password (Fortify confirm-password) within auth.step_up_seconds. The time is our own session key,
+ * set only on that path (markConfirmed()): Laravel's auth.password_confirmed_at is also set by Fortify's passkey
+ * confirmation, which is not step-up. It lives in the kernel and is aliased in bootstrap/app.php, so every module's sensitive
  * routes resolve whichever modules are installed (#81).
  *
  * Laravel's own `password.confirm` (RequirePassword) is not reused: it reads a different timestamp window
@@ -45,6 +46,9 @@ class RequireRecentPasswordConfirmation
     public const REASON_KEY = 'step_up_reason';
 
     public const PROBE_HEADER = 'X-Step-Up-Check';
+
+    /** Session key holding the unix time of the last password confirmation; written only by markConfirmed(). */
+    public const SESSION_KEY = 'auth.step_up_confirmed_at';
 
     /** Session key holding the file URL a download sent to the confirm page. */
     public const DOWNLOAD_KEY = 'step_up_download';
@@ -128,12 +132,20 @@ class RequireRecentPasswordConfirmation
     }
 
     /**
-     * A login without a password is never confirmed, whatever the session holds: a passkey confirmation or a
-     * stale timestamp must not stand in for a password it does not have (ADR 0018 §4).
+     * Records a password confirmation. Called only once the password matched (PasswordConfirmedResponse).
+     */
+    public static function markConfirmed(Request $request): void
+    {
+        $request->session()->put(self::SESSION_KEY, now()->getTimestamp());
+    }
+
+    /**
+     * A login without a password is never confirmed, whatever the session holds: a stale timestamp must not stand
+     * in for a password it does not have (ADR 0018 §4).
      */
     public static function recentlyConfirmed(Request $request): bool
     {
-        $confirmedAt = $request->hasSession() ? (int) $request->session()->get('auth.password_confirmed_at', 0) : 0;
+        $confirmedAt = $request->hasSession() ? (int) $request->session()->get(self::SESSION_KEY, 0) : 0;
 
         if ($request->user() !== null) {
             return self::confirmedFor($request->user(), $confirmedAt);

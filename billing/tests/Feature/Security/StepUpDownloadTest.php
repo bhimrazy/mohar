@@ -21,7 +21,7 @@ beforeEach(function () {
 });
 
 test('a plain download without a recent password goes to the confirm page and returns to the file after confirming', function () {
-    $this->withSession(['auth.password_confirmed_at' => 0]);
+    $this->withSession(['auth.step_up_confirmed_at' => 0]);
 
     $this->get($this->url)->assertRedirect(route('password.confirm'))
         ->assertInertiaFlash('toast.message', 'Confirm your password to download this file.');
@@ -33,7 +33,7 @@ test('a plain download without a recent password goes to the confirm page and re
 });
 
 test('a stale confirmation counts as none, and a wrong password does not unlock the file', function () {
-    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp() - config('auth.step_up_seconds') - 1]);
+    $this->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp() - config('auth.step_up_seconds') - 1]);
 
     $this->get($this->url)->assertRedirect(route('password.confirm'));
     $this->post(route('password.confirm.store'), ['password' => 'wrong'])->assertSessionHasErrors('password');
@@ -41,7 +41,7 @@ test('a stale confirmation counts as none, and a wrong password does not unlock 
 });
 
 test('the confirm page says it is for a download, and a dialog confirm forgets the remembered file', function () {
-    $this->withSession(['auth.password_confirmed_at' => 0]);
+    $this->withSession(['auth.step_up_confirmed_at' => 0]);
     $this->get($this->url)->assertRedirect(route('password.confirm'));
 
     $this->get(route('password.confirm'))->assertInertia(fn ($page) => $page->component('auth/confirm-password')->where('download', true));
@@ -51,7 +51,7 @@ test('the confirm page says it is for a download, and a dialog confirm forgets t
 });
 
 test('an abandoned download does not label a later confirm page for something else (#305)', function () {
-    $this->withSession(['auth.password_confirmed_at' => 0]);
+    $this->withSession(['auth.step_up_confirmed_at' => 0]);
     $this->get($this->url)->assertRedirect(route('password.confirm'));
 
     // The person leaves; later the security page asks for the password and remembers itself as the intended URL.
@@ -64,13 +64,13 @@ test('an abandoned download does not label a later confirm page for something el
 });
 
 test('the download label cannot be set without the download being the remembered URL (#305)', function () {
-    $this->withSession(['auth.password_confirmed_at' => 0, 'step_up_download' => true, 'url.intended' => route('security.edit')]);
+    $this->withSession(['auth.step_up_confirmed_at' => 0, 'step_up_download' => true, 'url.intended' => route('security.edit')]);
 
     $this->get(route('password.confirm'))->assertInertia(fn ($page) => $page->where('download', false));
 });
 
 test('a dialog confirm keeps a remembered page that is not the download (#305)', function () {
-    $this->withSession(['auth.password_confirmed_at' => 0]);
+    $this->withSession(['auth.step_up_confirmed_at' => 0]);
     $this->get(route('security.edit'))->assertRedirect(route('password.confirm'));
 
     $this->postJson(route('password.confirm.store'), ['password' => 'password'])->assertCreated();
@@ -78,7 +78,7 @@ test('a dialog confirm keeps a remembered page that is not the download (#305)',
 });
 
 test('a probe says whether the file may be fetched and never reaches the controller', function () {
-    $this->withSession(['auth.password_confirmed_at' => 0]);
+    $this->withSession(['auth.step_up_confirmed_at' => 0]);
     $this->get($this->url, ['X-Step-Up-Check' => '1'])->assertStatus(423);
 
     confirmPassword();
@@ -90,7 +90,7 @@ test('a probe says whether the file may be fetched and never reaches the control
 });
 
 test('an Inertia or JSON request never receives the file in place', function () {
-    $this->withSession(['auth.password_confirmed_at' => 0]);
+    $this->withSession(['auth.step_up_confirmed_at' => 0]);
     $this->getJson($this->url)->assertStatus(423);
     $this->get($this->url, ['X-Inertia' => 'true'])->assertStatus(409)->assertHeader('X-Inertia-Location', $this->url);
 
@@ -99,7 +99,7 @@ test('an Inertia or JSON request never receives the file in place', function () 
 });
 
 test('a mutation without a recent password is still refused with the validation error the dialog reads', function () {
-    $this->withSession(['auth.password_confirmed_at' => 0]);
+    $this->withSession(['auth.step_up_confirmed_at' => 0]);
 
     $this->post(route('admin.migration.imports.accept', $this->run), [], ['X-Inertia' => 'true'])->assertSessionHasErrors('password_confirmation');
 });

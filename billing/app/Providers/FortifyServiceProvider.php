@@ -15,6 +15,7 @@ use App\Http\Responses\PasswordResetFailedResponse;
 use App\Http\Responses\PasswordResetLinkRequestedResponse;
 use App\Models\User;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\PasskeyAddedNotice;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Http\Request;
@@ -37,6 +38,7 @@ use Laravel\Fortify\Events\ValidTwoFactorAuthenticationCodeProvided;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
 use Laravel\Fortify\Http\Controllers\RegisteredUserController as FortifyRegisteredUserController;
+use Laravel\Passkeys\Events\PasskeyRegistered;
 
 class FortifyServiceProvider extends ServiceProvider
 {
@@ -104,6 +106,8 @@ class FortifyServiceProvider extends ServiceProvider
 
             return $valid;
         });
+
+        Event::listen(PasskeyRegistered::class, PasskeyAddedNotice::class);
 
         // A two-factor challenge started before the expiry and completed after it (#459): refused before the login.
         Event::listen(ValidTwoFactorAuthenticationCodeProvided::class, function (ValidTwoFactorAuthenticationCodeProvided $event): void {

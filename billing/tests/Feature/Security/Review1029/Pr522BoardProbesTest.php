@@ -28,7 +28,7 @@ test('P1 a login has an hourly failure budget across IPs: twenty wrong guesses, 
 
     $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.50'])
         ->postJson(route('password.confirm.store'), ['password' => 'correct-horse-battery'])->assertTooManyRequests();
-    expect(session('auth.password_confirmed_at'))->toBeNull();
+    expect(session('auth.step_up_confirmed_at'))->toBeNull();
 });
 
 test('P2 correct confirmations do not use up the hourly failure budget', function () {

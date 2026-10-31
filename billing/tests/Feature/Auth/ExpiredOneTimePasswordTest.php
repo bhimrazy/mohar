@@ -58,7 +58,7 @@ test('a two-factor challenge started before the expiry is refused when completed
 
 test('step-up refuses an expired one-time password, even in a session confirmed before it expired (#459)', function () {
     $user = User::factory()->create(['password_expires_at' => now()->addMinute()]);
-    $this->actingAs($user)->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
+    $this->actingAs($user)->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()]);
     $body = ['name' => $user->name, 'email' => 'new-address@example.com.np'];
 
     $this->travel(2)->minutes();

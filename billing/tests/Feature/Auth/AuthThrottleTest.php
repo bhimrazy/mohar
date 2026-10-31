@@ -116,7 +116,7 @@ test('confirm-password allows five guesses a minute per login and IP, then answe
         ->assertTooManyRequests()
         ->assertHeader('Retry-After')
         ->assertJsonPath('errors.password.0', fn (string $message): bool => str_starts_with($message, 'Too many password attempts. Try again in'));
-    expect(session('auth.password_confirmed_at'))->toBeNull();
+    expect(session('auth.step_up_confirmed_at'))->toBeNull();
 
     // Another login on the same IP keeps its own budget.
     $this->actingAs(User::factory()->create(['password' => 'other-login-password']))
@@ -134,7 +134,7 @@ test('the full-page confirm form shows the throttle message on its password fiel
         ->assertRedirect(route('password.confirm'))
         ->assertSessionHasErrors('password');
     expect(session('errors')->first('password'))->toStartWith('Too many password attempts. Try again in')
-        ->and(session('auth.password_confirmed_at'))->toBeNull();
+        ->and(session('auth.step_up_confirmed_at'))->toBeNull();
 });
 
 test('a failed password confirmation is in the activity log, without the guess', function () {

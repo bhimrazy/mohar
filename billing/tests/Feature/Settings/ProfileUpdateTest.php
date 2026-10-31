@@ -27,7 +27,7 @@ class ProfileUpdateTest extends TestCase
 
         $response = $this
             ->actingAs($user)
-            ->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])
+            ->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()])
             ->patch(route('profile.update'), [
                 'name' => 'Test User',
                 'email' => 'test@example.com',

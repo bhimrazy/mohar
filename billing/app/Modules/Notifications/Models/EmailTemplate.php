@@ -98,6 +98,7 @@ class EmailTemplate extends Model
         'auth.password_reset', 'auth.password_set', 'auth.email_verification', 'staff.password_reset', 'auth.user_invitation', 'staff.invitation',
         'client.migration_invitation', 'auth.login_added', 'auth.access_granted', 'auth.owner_changed', 'auth.two_factor_reset', 'staff.two_factor_reset',
         'staff.email_changed', 'staff.password_reissued', 'staff.settings_changed', 'auth.email_changed', 'ticket.link_replaced',
+        'auth.passkey_added', 'staff.passkey_added',
     ];
 
     public function isAlwaysSent(): bool

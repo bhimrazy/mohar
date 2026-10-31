@@ -54,7 +54,7 @@ it('offers the new default for edited text, side by side, and keeps the edited t
     $this->actingAs($staff)->get(route('admin.notifications.templates.edit', $template))
         ->assertInertia(fn ($page) => $page->where('newDefault.status', 'changed')->where('newDefault.text.body', app(TemplateCatalog::class)->find('client.welcome')['body'])->where('translation.previous_text', null));
 
-    $this->actingAs($staff)->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])
+    $this->actingAs($staff)->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()])
         ->post(route('admin.notifications.templates.restore', $template))->assertRedirect();
 
     expect(welcomeText()->previous_text['body'])->toBe('Our own wording.')
@@ -93,6 +93,6 @@ it('does not let a view-only user use the new default', function () {
     seedEmailTemplates();
     $template = EmailTemplate::query()->where('key', 'client.welcome')->sole();
 
-    $this->actingAs(User::factory()->staff(['notifications.templates.view'])->create())->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])
+    $this->actingAs(User::factory()->staff(['notifications.templates.view'])->create())->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()])
         ->post(route('admin.notifications.templates.restore', $template))->assertForbidden();
 });

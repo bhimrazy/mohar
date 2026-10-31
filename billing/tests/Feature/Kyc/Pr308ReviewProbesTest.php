@@ -86,7 +86,7 @@ test('L: Show from a page whose unlock ended a moment ago (end not noticed yet) 
 
     $this->travel(16)->minutes();
     // The step-up is stamped with the travelled clock too (time() does not follow travel()).
-    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
+    $this->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()]);
     session()->save(); // the browser's session id is stable, so what the last request saved would win otherwise
     $this->post(route('admin.kyc.unlock', $this->client), ['generation' => $generation])->assertRedirect();
 

@@ -260,6 +260,7 @@ final class MailFramer
             'auth.user_invitation', 'client.migration_invitation' => ['accent', self::text('Invitation'), $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null],
             'auth.password_changed' => ['warning', self::text('Password changed'), $this->date(MailDates::companyDate())],
             'auth.new_login_alert' => ['warning', self::text('New login'), $this->date(MailDates::companyDate())],
+            'auth.passkey_added' => ['warning', self::text('Passkey added'), $this->date(MailDates::companyDate())],
             default => ['info', self::text('Account change'), $this->date(MailDates::companyDate())],
         };
 
@@ -284,7 +285,7 @@ final class MailFramer
             in_array($key, ['staff.password_reset', 'staff.invitation'], true) => ['accent', $key === 'staff.invitation' ? self::text('Invitation') : self::text('Reset requested')],
             default => ['info', self::text('Account change')],
         };
-        $security = in_array($key, ['staff.password_reset', 'staff.invitation', 'staff.login_failures', 'staff.two_factor_reset', 'staff.password_reissued', 'staff.email_changed', 'staff.settings_changed'], true);
+        $security = in_array($key, ['staff.password_reset', 'staff.invitation', 'staff.login_failures', 'staff.two_factor_reset', 'staff.password_reissued', 'staff.email_changed', 'staff.settings_changed', 'staff.passkey_added'], true);
 
         return new MailFrame(
             label: $security ? self::text('Account security') : self::text('Admin area'),

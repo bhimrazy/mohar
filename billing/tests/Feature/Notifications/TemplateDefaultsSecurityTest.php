@@ -16,7 +16,7 @@ it('does not let a module wildcard role use the new default', function () {
     seedEmailTemplates();
     $template = EmailTemplate::query()->where('key', 'auth.user_invitation')->sole();
 
-    $this->actingAs(User::factory()->staff(['notifications.*'])->create())->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])
+    $this->actingAs(User::factory()->staff(['notifications.*'])->create())->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()])
         ->post(route('admin.notifications.templates.restore', $template))->assertForbidden();
 });
 
@@ -36,7 +36,7 @@ it('ignores default_hash and previous_text sent with a template save', function 
     $before = $translation->only(['default_hash', 'previous_text']);
 
     $this->actingAs(User::factory()->staff(['notifications.templates.manage', 'notifications.templates.view'])->create())
-        ->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])
+        ->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()])
         ->put(route('admin.notifications.templates.update', $template), [
             'name' => $template->name, 'locale' => 'en', 'subject' => 'Edited', 'body' => 'Edited body.',
             'default_hash' => TemplateCatalog::hash(['subject' => 'Edited', 'preheader' => null, 'heading' => null, 'body' => 'Edited body.', 'action_label' => null]),
