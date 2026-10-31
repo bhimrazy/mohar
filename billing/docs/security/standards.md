@@ -36,8 +36,8 @@ and get the security reviewer's sign-off.
   password must have been confirmed within `auth.step_up_seconds` (default 900, set by `AUTH_STEP_UP_SECONDS`
   within 60 to 3600; ADR 0018 §4;
   `App\Http\Middleware\RequireRecentPasswordConfirmation`, aliased in `bootstrap/app.php` so it resolves with
-  any set of modules). Pages that edit
-  sensitive data use `password.confirm`. The UI wraps sensitive buttons in `useSensitiveAction()`, which asks for the
+  any set of modules). Only a password confirmation counts; a passkey confirmation does not (ADR 0018 amendment
+  #538). Pages that edit sensitive data use `password.confirm`, which applies the same rule and window. The UI wraps sensitive buttons in `useSensitiveAction()`, which asks for the
   password and retries.
 - Seeded roles list their permissions explicitly. Seeders update existing system roles; they don't only
   `firstOrCreate`.

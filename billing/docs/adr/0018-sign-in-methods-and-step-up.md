@@ -219,3 +219,25 @@ input without its secrets (`KeepsSecretsOutOfOldInput`; the platform settings re
 except the section's non-secret settings as secret). JSON clients still get 423 (middleware) or a
 422 validation response (form requests). First shipped for the middleware in #489, completed for the settings
 sections in #490.
+
+## Amendment (#538) — 2026-10-31, step-up has its own session key, and password.confirm is step-up
+
+Security review 2026-10-31 (M1): Fortify's passkey confirmation (`POST /passkeys/confirm`) also sets
+`auth.password_confirmed_at`, so §4's "only Fortify's `confirm-password` sets it" no longer held. Passkeys still do
+not count as step-up; this restores §4 rather than changing it.
+
+- **Own key.** Step-up reads `RequireRecentPasswordConfirmation::SESSION_KEY` (`auth.step_up_confirmed_at`), written
+  only by `markConfirmed()` from `PasswordConfirmedResponse`, which Fortify sends only after the password matched.
+  `auth.password_confirmed_at` stays Laravel's and Fortify's and gates nothing here. Every reader uses the new key:
+  `recentlyConfirmed()`, `ReviewUnlocks`, and the timestamp a queued `ReportExporter` export carries. Impersonation
+  drops both keys.
+- **`password.confirm` is step-up.** `RequirePasswordUnlessExpired`, bound in place of Laravel's `RequirePassword`,
+  applies `recentlyConfirmed()`: a password confirmation within `auth.step_up_seconds`, never for a login without a
+  password. `auth.password_timeout` (3 hours) no longer opens anything. This covers Fortify's passkey registration and
+  removal, every two-factor route, the security page and the staff and role pages.
+- **The confirm page has no passkey option**, since a passkey confirmation would not satisfy it. Passkey sign-in is
+  unchanged.
+- **Notice:** adding a passkey writes `auth.passkey_added` to the activity log and mails the login
+  (`auth.passkey_added` or `staff.passkey_added`, always sent; `LoginEmailNotice` when the template system is absent).
+  The passkey's name is left out of the mail, since whoever added it chose it.
+- Counting a passkey assertion as step-up still needs its own amendment and an owner decision.
