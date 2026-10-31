@@ -422,6 +422,7 @@ two-way sync after cutover; automatic redirects of old WHMCS URLs (COULD); other
   install only; CLI most reliable)
 - HostBill: https://hostbill.atlassian.net/wiki/x/lwDtgw (DB-based; tool on request; "no guarantee" with third-party modules)
 - Paymenter: https://paymenter.org/docs/guides/whmcs-importer (dump import into a temporary DB; wipes target; artisan command)
+- Paymenter's WHMCS importer source (MIT, commit `f0ae9a1`, read 2026-10-31): https://github.com/Paymenter/Paymenter/blob/f0ae9a12b59da689e5ca6287a278852c4b0c6486/app/Console/Commands/ImportFromWhmcs.php — reads a restored WHMCS dump over SQL, so it names real tables, columns and joins (`tblclients`, `tblusers_clients`, `tblhosting`, `tblinvoiceitems.type`/`relid`, `tblpricing`, `tbltickets`/`tblticketreplies`). A design reference for table relations and status and cycle values; facts only, no code copied. Summary and ER diagram: `docs/research/2026-10-31-whmcs-schema-sources.md`.
 - Upmind: https://docs.upmind.com/setup-and-configuration/importing-data/importing-from-whmcs.md (API-based; IP allow-list; mapping step;
   staged preview then commit; does not store hosting passwords)
 - FOSSBilling: no importer as of the June 2025 forum answer — https://forum.fossbilling.org/thread-329.html
