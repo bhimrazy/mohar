@@ -97,6 +97,17 @@ passes `--exclude-testsuite=Unit,Arch` (explicit paths still run whatever they n
 trait or runs a query (`tests/Unit/TestHarness/DatabaseFreeSuiteGuardTest.php`); such a test belongs in
 `tests/Feature`.
 
+**Test hygiene guards.**
+
+- `tests/TestCase` calls `Http::preventStrayRequests()` in `setUp()`: a request no `Http::fake()` answers throws. Fake it in the
+  test. The one opt-out is `allowsStrayHttp()`, which the simulator harness (`tests/Simulators/SimulatorHarness`, real local
+  processes) overrides to return true; a test that merely fails the guard is not a reason to use it.
+- Performance tests of the redactor assert a complexity budget, not a duration: the CPU time at one size against the CPU time at a
+  smaller size (`RedactorTiming::bestCpuPair`), plus peak memory. A fixed number of seconds fails on a loaded machine.
+- Test file names (`tests/Arch/TestNamingTest.php`): a new test file may not start with `Pr<digits>` or contain `Round<digit>`;
+  name it for the behaviour. Existing files are listed in `tests/Arch/baselines/probe-test-names.txt`, which may only shrink:
+  a renamed file's line is removed in the same commit, and the test fails on a line whose file is gone.
+
 A seed that takes tens of seconds is seeded once per worker, not in every test:
 `$this->useSeededDatabase('<name>', fn () => $this->seed(...))` in `beforeEach` creates and seeds a separate database
 the first time a worker asks for it (`<database>_<name>` on PostgreSQL, a temporary file on SQLite), then runs each

@@ -113,6 +113,8 @@ function sendPinned(string $listenIp, string $url, bool $deadProxy = false): str
 
     $port = (int) substr((string) strrchr((string) stream_socket_get_name($server, false), ':'), 1);
     $guard = new OutboundAddressGuard;
+    // The one real request of the file: it goes to the local listener above, whatever host the URL names.
+    Http::allowStrayRequests(['http://pinned.invalid*', 'http://elsewhere.invalid/*']);
 
     if ($deadProxy) {
         putenv('http_proxy=http://127.0.0.1:1');

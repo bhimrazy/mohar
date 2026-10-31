@@ -16,6 +16,7 @@ use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Fortify\Features;
 use LogicException;
@@ -92,6 +93,20 @@ abstract class TestCase extends BaseTestCase
         $this->forgetTrustedHostsAndProxies();
         $this->assumePatchedPhp();
         $this->shortenWaits();
+
+        if (! $this->allowsStrayHttp()) {
+            Http::preventStrayRequests();
+        }
+    }
+
+    /**
+     * An outbound request no Http::fake() answers throws instead of leaving the machine. Only a test that talks to a
+     * real local process opts out: the simulator harness (tests/Simulators) overrides this to return true. Do not
+     * override it to silence a failing test; fake the request.
+     */
+    protected function allowsStrayHttp(): bool
+    {
+        return false;
     }
 
     /**
