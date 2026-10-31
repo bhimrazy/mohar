@@ -22,9 +22,10 @@ printed page. Section and rule numbers are as they appear in the IRD texts; none
 1. **Any electronic invoice needs the tax office's approval first, at every size.** The VAT Act lets a taxpayer issue
    an electronic invoice only "with the Department's prior approval" (s.14क(1)). The Electronic Billing Procedure 2074
    adds that only software listed with the IRD may be used (cl. 3(क)) and that the taxpayer needs a permit from its
-   tax office (cl. 4(क)). The CBMS turnover lines decide who **must** bill electronically and report in real time.
-   They do not decide who **may** bill from software without permission. Mohar assumed below-the-line hosts could
-   bill from Mohar without any approval (vat-register §14, D5 note; A10). That is not what the text says. *Primary,
+   tax office (cl. 4(क)). The turnover lines decide who **must** bill electronically and, at Rs 20 crore, report to
+   CBMS. They do not decide who **may** bill from software without permission. The vat-register spec left this open
+   for the accountant ("whether software billing below the line needs the tax office's permission", §14 and §17), and
+   A10 leaned towards no approval below the line. The text answers it: approval is needed at every size. *Primary,
    high.*
 2. **A cloud-hosted billing system must report to CBMS in real time, whatever the turnover.** When the tax office
    grants the permit, it must make sure that anyone using a "Cloud Base Computing System" sends each bill to CBMS at
@@ -32,23 +33,25 @@ printed page. Section and rule numbers are as they appear in the IRD texts; none
    the IRD must have access, tenants' data must be kept apart, and a three-party agreement (Schedule 7) must be filed
    (cl. 7(ख)). An accountant or the tax office must say whether a self-hosted Mohar install on a VPS counts as
    "cloud". *Primary, high on the text; the classification is open.*
-3. **Software that lets bill data be edited or deleted costs the taxpayer Rs 5 lakh, approved or not**
-   (s.29(1)(छ२)). The maker, installer or operator of billing software that does not follow the Procedure faces the
-   same Rs 5 lakh (s.29(1)(छ३)). The Economic Act 2083 changed this to graded fines from Rs 1 lakh to Rs 5 lakh (IRD
-   booklet). Mohar's immutable tax invoices and notes are therefore a legal requirement, not a nicety. It also means
-   whoever distributes Mohar carries exposure as a software producer. *Primary, high.*
-4. **CBMS thresholds, from the IRD notices themselves:** Rs 5 crore a year for hotels, restaurants and **internet
-   service providers** (notice 2075/11/29, confirmed in force by the notice of 2079/02/20). Rs 10 crore for any
-   business, for mandatory e-billing from 2079/04/01 (notice 2079/02/20). Rs 20 crore for any business except banks
-   and financial institutions that do not invoice consumers, for e-billing **and** CBMS at issue (notice of
-   4 Baishakh 2083, IRD decision of 2082/12/27). *Primary, high on each notice. How the 2079 and 2083 lines relate is
-   unclear (§2).*
-5. **Bill numbers run in sequence within each fiscal year** for software billing (Procedure cl. 6(ङ) and 6(च), Schedule
-   5). CBMS identifies a bill by fiscal year plus number. This mostly settles the fiscal-year numbering question in
-   favour of a per-BS-fiscal-year sequence. *Primary, high for e-billing software.*
-6. **Foreign-currency invoices must show the NPR amount at the Nepal Rastra Bank rate of the transaction day**
-   (VAT Rule 21). That answers the source and the date in D6. The text does not say whether the buying, selling or mid
-   rate applies. Mohar's invoice PDF prints the invoice currency only. *Primary, high.*
+3. **Software that lets bill data be edited or deleted costs the taxpayer Rs 5 lakh, approved or not** (s.29(1)(छ२)).
+   The maker, installer or operator of billing software that does not follow the Procedure faces the same Rs 5 lakh
+   (s.29(1)(छ३)). The Economic Act 2083 graded the fines on taxpayers who issue electronic invoices (the छ२ case) from
+   Rs 1 lakh to Rs 5 lakh (IRD booklet). The booklet does not say whether छ३ changed. Mohar's immutable tax invoices
+   and notes are therefore a legal requirement, not a nicety. It also means whoever distributes Mohar carries exposure
+   as a software producer. *Primary, high.*
+4. **E-billing and CBMS thresholds, from the IRD notices themselves.** Two lines make electronic billing compulsory,
+   **without CBMS**: Rs 5 crore a year for hotels, restaurants, snack houses (चमेना गृह) and **internet service
+   providers** (notice 2075/11/29, confirmed in force by the notice of 2079/02/20); Rs 10 crore for any business from
+   2079/04/01 (notice 2079/02/20). Only the Rs 20 crore line, for any business except banks and financial institutions
+   that do not invoice consumers, adds **CBMS at the time of issue** (notice dated 2083/01/03, IRD decision of
+   2082/12/27). *Primary, high on each notice. How the 2079 and 2083 lines relate is unclear (§2).*
+5. **Bill numbers run in sequence within each fiscal year** for software billing (Procedure cl. 6(ङ) and 6(च),
+   Schedule 5). CBMS identifies a bill by fiscal year plus number. This mostly settles the fiscal-year numbering
+   question in favour of a per-BS-fiscal-year sequence. *Primary, high for e-billing software.*
+6. **When payment is received in convertible foreign currency, the tax invoice must show the NPR amount at the Nepal
+   Rastra Bank rate of the transaction day** (VAT Rule 21). That answers the source and the date in D6. The text does
+   not say whether the buying, selling or mid rate applies. Mohar's invoice PDF prints the invoice currency only.
+   *Primary, high.*
 7. **The sales book layout Mohar exports is out of date.** The 25th amendment of the VAT Rules (2080-02-15) removed
    the goods-name and quantity columns from Schedule 9. The 26th amendment (2081) replaced "निकासी" with "निर्यात"
    (export) in the headings. The Economic Act 2083 then removed the Schedule 9 format from the Rules, so the IRD now
@@ -78,7 +81,7 @@ Primary (IRD, `ird.gov.np` and its CDN `giwmscdnone.gov.np`):
 | P3 | Electronic Billing Procedure 2074, 4th amendment (विद्युतीय बीजक सम्बन्धी कार्यविधि, २०७४) | https://ird.gov.np/content/5490/tax-laws-16910453028/ | in force 2074/09/16; amended 2075/02/09, 2075/11/08, 2076/04/13, 2076/09/09 |
 | P4 | VAT Directive 2069, 3rd amendment 2080 (मूल्य अभिवृद्धि कर निर्देशिका) | https://ird.gov.np/content/9010/tax-laws-16834521109/ | 2080; predates the 2081 Schedule 2 |
 | P5 | Notice on e-billing, 2079/02/20 (विद्युतीय माध्यमबाट बीजक जारी गर्ने सम्बन्धी जरुरी सूचना) | https://ird.gov.np/content/8070/notice-16542603731/ | published 2079/02/20 |
-| P6 | Notice on e-billing and CBMS, 4 Baishakh 2083 | https://ird.gov.np/content/13488/cbms-notice-01-04/ | decision 2082/12/27 |
+| P6 | Notice on e-billing and CBMS, dated 2083/01/03 (3 Baishakh; the URL slug says 01-04) | https://ird.gov.np/content/13488/cbms-notice-01-04/ | decision 2082/12/27 |
 | P7 | CBMS API technical document | https://ird.gov.np/content/9052/cbmsapitechnicaldocumentfor/ | "Updated on October 14, 2022 (2079 Ashoj 28)" |
 | P8 | Economic Act 2083 information booklet (आर्थिक ऐन, २०८३ जानकारीमूलक पुस्तिका) | https://ird.gov.np/content/13632/economic-act--2083---information-booklet-on/ | 2083 |
 | P9 | Notice on issuing bills (विल/बीजक जारी गर्ने सम्बन्धी सूचना) | https://ird.gov.np/content/13574/notice-regarding-issuance-of-will-invoice-/ | undated, 2083 list |
@@ -120,16 +123,17 @@ Secondary:
 - Procedure cl. 4(ङ): for anyone using a "Cloud Base Computing System", and anyone the IRD names by notice, the tax
   office must make sure bill data reaches the CBMS central server at the moment of issue. *P3, primary, high.*
 - Notices on who **must** bill electronically:
-  - 2075/11/29 (cited in P5 as still in force): over Rs 5 crore a year for hotels, restaurants, cinema halls and
-    internet service providers (इण्टरनेट सेवा प्रदायक, ISP); over Rs 10 crore for department stores, marts, flooring
-    and furnishing. *P5, primary, high.*
+  - 2075/11/29 (cited in P5 as still in force): over Rs 5 crore a year for hotels, restaurants, snack houses
+    (चमेना गृह) and internet service providers (इण्टरनेट सेवा प्रदायक, ISP); over Rs 10 crore for department stores,
+    marts, flooring and furnishing; cinema halls in the Kathmandu Valley on the box-office system. E-billing only;
+    P5 says nothing about CBMS for these. *P5, primary, high.*
   - 2079/02/20, from 2079/04/01: any taxpayer with turnover over Rs 10 crore in FY 2077/78 or 2078/79, except banks and
     financial institutions that do not invoice consumers; all cinema halls on the box-office system. Others may bill
     electronically by choice **with a permit**. Taxpayers already holding a permit need not reapply. Only listed
     software may be used. *P5, primary, high.*
-  - 4 Baishakh 2083: every taxpayer with annual turnover over Rs 20 crore, except banks and financial institutions
-    that do not invoice consumers directly, must bill electronically and connect to CBMS at the time of issue. *P6,
-    primary, high.*
+  - 2083/01/03 (3 Baishakh): every taxpayer with annual turnover over Rs 20 crore, except banks and financial
+    institutions that do not invoice consumers directly, must bill electronically and connect to CBMS at the time of
+    issue. This is the only notice read that ties a turnover line to CBMS. *P6, primary, high.*
 - Economic Act 2083 (per P8): the IRD may provide a billing system to taxpayers for issuing electronic invoices.
   *P8, primary, high that the power was added; no system found.*
 
@@ -259,8 +263,8 @@ sales amount and tax.
 
 ## 8. Rate, exempt and zero-rated supplies, export of services
 
-- 13% single rate (Act s.7(1)). From 2083 the government may set lower rates by gazette notice (s.7(1क), per P8).
-  Schedule 1 supplies are exempt and Schedule 2 supplies are zero-rated (s.5(3), s.7(2)). *Primary, high.*
+- 13% single rate (Act s.7(1)). From 2083 the government may set more than one rate, none above 13%, by gazette
+  notice (P8; the booklet gives no section number). Schedule 1 supplies are exempt and Schedule 2 supplies are zero-rated (s.5(3), s.7(2)). *Primary, high.*
 - Registration: required above Rs 50 lakh a year for goods and Rs 30 lakh for services or mixed (Rule 6(1)).
   Voluntary registration is allowed (Rule 6(2)). *Primary, high.*
 - Schedule 2 item 2 (replaced by the Economic Act 2081), zero-rated: (क) a service a Nepal resident supplies to a
@@ -360,10 +364,10 @@ sales amount and tax.
 
 | Question | What the rules say | Confidence | Remaining question for the accountant | Mohar impact |
 | --- | --- | --- | --- | --- |
-| **CBMS** (D5) | Software billing needs prior approval at any size (s.14क(1); Procedure 3, 4). CBMS at issue is required above Rs 20 crore (P6), for ISPs above Rs 5 crore (P5), and for anyone on a cloud system (Procedure 4(ङ)). | primary, high (text); classification open | Is a hosting company an "ISP" for the Rs 5 crore line? Is a self-hosted Mohar on a VPS a "Cloud Base Computing System"? Does the 2079 Rs 10 crore e-billing line still stand? | Treat the CBMS driver as likely needed for real hosts. Build an IRD permit checklist (Schedule 3 samples) and the Schedule 7 agreement data. Revisit D5 with the owner. |
+| **CBMS** (D5) | Software billing needs prior approval at any size (s.14क(1); Procedure 3, 4). CBMS at issue is required above Rs 20 crore (P6) and for anyone on a cloud system (Procedure 4(ङ)). The Rs 5 crore line for ISPs (P5) makes e-billing compulsory, not CBMS. | primary, high (text); classification open | Is a hosting company an "ISP" for the Rs 5 crore line? Is a self-hosted Mohar on a VPS a "Cloud Base Computing System"? Does the 2079 Rs 10 crore e-billing line still stand? | Treat the CBMS driver as likely needed for real hosts. Build an IRD permit checklist (Schedule 3 samples) and the Schedule 7 agreement data. Revisit D5 with the owner. |
 | **D2** note numbering | Bills: sequential per fiscal year (Procedure 6(ङ)). Notes: "running number" (Rule 20(1)(क)); CBMS keys notes with `fiscal_year`. | primary, high (bills); medium (notes) | Should credit and debit notes also restart each BS fiscal year, and is the `CN-`/`DN-` prefix with the BS FY acceptable? | Turn on `{BS_FY}` and the `bs_fiscal_year` reset for invoices and notes together in VAT mode (vat-register §4.5, AC 58). |
 | **Fiscal-year numbering** (invoices) | As D2: sequential within each fiscal year; CBMS rejects a duplicate bill number within a fiscal year. | primary, high | Restart at 1 each Shrawan, or a running number with the fiscal year in the format? | Default the invoice format in VAT mode to a per-FY sequence; refuse a format without `{BS_FY}` when reset is per FY. |
-| **D6** currency rate | NRB rate on the transaction day; invoice shows the NPR equivalent (Rule 21). Export zero-rated under Schedule 2 item 2; current text has no foreign-currency condition. | primary, high (source and date); open (buy, sell or mid) | Which NRB rate (buying, selling, mid)? Is "transaction day" the payment day (D1) or the invoice date? Do online service exports need NRB certification to zero-rate, or only for refunds? | Snapshot the NRB rate of the numbering day as `report_rate`, using the rate type set in Settings. Print the NPR equivalent and rate on foreign-currency tax invoices. Mark an export through the 0% export rule only. |
+| **D6** currency rate | When paid in convertible foreign currency: NRB rate on the transaction day, and the invoice shows the NPR equivalent (Rule 21). Export zero-rated under Schedule 2 item 2; current text has no foreign-currency condition. | primary, high (source and date); open (buy, sell or mid) | Which NRB rate (buying, selling, mid)? Is "transaction day" the payment day (D1) or the invoice date? Do online service exports need NRB certification to zero-rate, or only for refunds? | Snapshot the NRB rate of the numbering day as `report_rate`, using the rate type set in Settings. Print the NPR equivalent and rate on tax invoices paid in foreign currency. Mark an export through the 0% export rule only. |
 | **A1** proforma then VAT bill | Issuing an invoice without supplying costs 50% of its value (s.29(1ग)). Time of supply includes "service provided" (s.6(2)(ग)). | primary, medium | Is a proforma acceptable for renewals where the service keeps running unpaid? | None if confirmed. Otherwise, an option to number on the service start date. |
 | **A2** typed totals, no upload | E-billing permit holders upload purchase and sales details with the return (Rule 25(2)). | primary, high | In what format does the portal take the upload today (after the 2083 removal of Schedule 9)? | An IRD upload export (XLSX or CSV) to the portal's format, once known; reopen D4. |
 | **A3** add-funds is a deposit | A deposit is not taxable until matched to a supply (s.12(8)). An advance for a specific supply is consideration (Directive §4.3). | primary, medium | Is a prepaid wallet top-up a deposit (s.12(8)) and not an advance? | None if confirmed. |
@@ -389,14 +393,14 @@ sales amount and tax.
    cl. 3, 4). Without one, a host billing from Mohar is in breach of s.14क(1), and the s.29 penalties can reach the
    software's maker as well. *Needs an owner decision: list Mohar with the IRD as its producer, or check whether each
    host may list it as a user (cl. 3(ख) covers only software from abroad without a distributor in Nepal).*
-2. **CBMS not built (D5).** It is likely needed for any cloud-hosted install (cl. 4(ङ)), for hosts over Rs 20 crore,
-   and possibly for ISPs over Rs 5 crore. The Schedule 3 application wants a materialised-view report synced to the
+2. **CBMS not built (D5).** It is likely needed for any cloud-hosted install (cl. 4(ङ)), and for hosts over Rs 20 crore.
+   ISPs over Rs 5 crore must bill electronically, but P5 does not require CBMS for them. The Schedule 3 application wants a materialised-view report synced to the
    CBMS test server.
 3. **Server location.** Nothing checks or warns that VAT mode needs the server in Nepal with an operator registered
    in Nepal (cl. 7).
 4. **Sales book layout out of date.** The `ird` export carries removed columns (goods, quantity, unit) and the old
    "निकासी" wording. The 2083 format, which the IRD now sets, is unknown.
-5. **Foreign-currency invoices** don't show the NPR equivalent and NRB rate (Rule 21).
+5. **Tax invoices paid in foreign currency** don't show the NPR equivalent and NRB rate (Rule 21).
 6. **Numbering per fiscal year** is not the default in VAT mode (Procedure 6(ङ); D2).
 7. **Invoice fields.** Schedule 5 and 6 fields Mohar does not print: a separate transaction date beside the issue
    date; payment method on every tax invoice (today only when a gateway is set); amount in words; a BS date that is
