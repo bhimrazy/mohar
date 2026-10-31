@@ -7,7 +7,6 @@ use App\Contracts\Services\ServiceRegistry;
 use App\Data\Services\ProvisionResult;
 use App\Modules\Orders\Enums\OrderItemStatus;
 use App\Modules\Orders\Enums\OrderItemType;
-use App\Modules\Orders\Exceptions\ItemBeingProvisioned;
 use App\Modules\Orders\Models\OrderItem;
 use Illuminate\Support\Facades\Cache;
 
@@ -18,25 +17,17 @@ use Illuminate\Support\Facades\Cache;
  */
 class ItemProvisioner
 {
-    /**
-     * Lock TTL: longer than any holder runs (the job's 180 s timeout, a page's synchronous create), shorter than the
-     * queue's 240 s retry_after, so a job redelivered after its worker died finds the lock already expired.
-     */
-    public const LOCK_SECONDS = 200;
-
     public function __construct(
         private ServiceRegistry $services,
         private DomainRegistry $domains,
     ) {}
 
     /**
-     * @return ProvisionResult|null null when the item was skipped (not pending or an addon)
-     *
-     * @throws ItemBeingProvisioned when another process holds the item's lock
+     * @return ProvisionResult|null null when the item was skipped (not pending, an addon, or being provisioned)
      */
     public function provision(int $orderItemId): ?ProvisionResult
     {
-        $result = Cache::lock(self::lockKey($orderItemId), self::LOCK_SECONDS)->get(function () use ($orderItemId): ?ProvisionResult {
+        $result = Cache::lock("orders.provision.item.{$orderItemId}", 300)->get(function () use ($orderItemId): ?ProvisionResult {
             $item = OrderItem::query()->find($orderItemId);
 
             if ($item === null || $item->item_id === null || $item->status !== OrderItemStatus::Pending || $item->item_type === OrderItemType::Addon) {
@@ -54,15 +45,6 @@ class ItemProvisioner
             return $result;
         });
 
-        if ($result === false) {
-            throw new ItemBeingProvisioned($orderItemId);
-        }
-
         return $result instanceof ProvisionResult ? $result : null;
-    }
-
-    public static function lockKey(int $orderItemId): string
-    {
-        return "orders.provision.item.{$orderItemId}";
     }
 }
