@@ -466,3 +466,12 @@ missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this s
 - **Known gaps** (replacing the list above). A suspended Fiber shares the outer node budget (fails closed). A CDATA
   section of the excluded kind after a value is as readable as before. `token: //x` read by the scan stays readable,
   as on develop. Consequences' last bullet (the emergency logger) no longer holds.
+
+## Amendment (#574) — 2026-10-31, declared keys read by both hosts
+
+- `ExecuteModuleCommand` and `RegistrarGateway` read `DeclaresSensitiveKeys` for the command or capability they run
+  (`Redactor::declaredKeys()`). The keys are masked by key in the command log. The values under them
+  (`Redactor::valuesUnder()`) are masked in the call's text: errors, failure items, activity and registrar messages.
+- `RegistrarGateway::codeKeys()` stays as the host's built-in key for `epp` and `transfer`, in addition to declared keys,
+  not replaced by them. Its values are not masked in text, so an EPP result code under `code` stays readable in messages.
+- Gateway payloads (`GatewayLogger`) do not read the capability yet.
