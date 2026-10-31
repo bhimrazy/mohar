@@ -435,7 +435,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         $context = $this->invoiceContext($event->invoiceId, true);
 
         if (isset($context['invoice']) && $this->invoiceAtEvent !== []) {
-            $context['invoice'] = [...$context['invoice'], ...array_intersect_key($this->invoiceAtEvent, array_flip(['status', 'balance', 'balance_minor', 'balance_due']))];
+            $context['invoice'] = [...$context['invoice'], ...array_intersect_key($this->invoiceAtEvent, array_flip(['status', 'balance', 'balance_minor', 'paid', 'balance_due']))];
         }
 
         $this->clientMail('invoice.payment_confirmation', $event->clientId, EmailCategory::Invoice, [

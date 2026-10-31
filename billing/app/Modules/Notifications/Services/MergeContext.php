@@ -154,7 +154,8 @@ class MergeContext
             return [];
         }
 
-        $invoice['balance_due'] = strtolower((string) ($invoice['status'] ?? '')) !== 'paid';
+        $invoice['paid'] = strtolower((string) ($invoice['status'] ?? '')) === 'paid';
+        $invoice['balance_due'] = ! $invoice['paid'];
 
         return ['invoice' => $invoice];
     }

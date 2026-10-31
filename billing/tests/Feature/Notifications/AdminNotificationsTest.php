@@ -51,7 +51,7 @@ it('lists templates and opens the editor with merge fields', function () {
     $this->get(route('admin.notifications.templates.edit', $template))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page->component('admin/notifications/templates/edit')
-            ->where('translation.subject', 'Invoice {{ invoice.number }} from {{ company.name }}: {{ invoice.balance }} due {{ invoice.due_date | date }}')
+            ->where('translation.subject', 'Invoice {{ invoice.number }} from {{ company.name }}{% if invoice.paid %}: paid{% else %}: {{ invoice.balance }} due {{ invoice.due_date | date }}{% endif %}')
             ->has('fields.invoice'));
 });
 

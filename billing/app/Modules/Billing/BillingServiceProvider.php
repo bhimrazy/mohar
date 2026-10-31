@@ -615,6 +615,7 @@ class BillingServiceProvider extends ModuleServiceProvider
                 'status' => $invoice->displayStatus(),
                 'balance' => app(MoneyFormatter::class)->format(Money::of($invoice->balance, $invoice->currency)),
                 'balance_minor' => $invoice->balance,
+                'paid' => $invoice->displayStatus() === 'paid',
                 'balance_due' => $invoice->displayStatus() !== 'paid',
                 'payable' => $invoice->status->isPayable() && $invoice->balance > 0,
             ];

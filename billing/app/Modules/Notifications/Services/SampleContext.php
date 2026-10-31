@@ -74,7 +74,7 @@ class SampleContext
                     ['description' => 'Starter Hosting — example.com', 'period_start' => $period[0], 'period_end' => $period[1], 'amount' => '$18.99'],
                     ['description' => 'Domain renewal — example.com', 'period_start' => $period[0], 'period_end' => $period[1], 'amount' => '$9.99'],
                 ],
-                'payment_gateway' => 'card', 'url' => url('/client/invoices/2101'), 'pdf_url' => url('/client/invoices/2101/pdf'), 'days_overdue' => 7, 'balance_due' => true, 'pdf_attached' => true,
+                'payment_gateway' => 'card', 'url' => url('/client/invoices/2101'), 'pdf_url' => url('/client/invoices/2101/pdf'), 'days_overdue' => 7, 'paid' => false, 'balance_due' => true, 'pdf_attached' => true,
             ],
             'payment' => ['amount' => '$10.00', 'date' => $today, 'reference' => 'TXN-58201', 'gateway' => 'card', 'failure_reason' => 'Card declined'],
             'refund' => ['amount' => '$28.98'],
