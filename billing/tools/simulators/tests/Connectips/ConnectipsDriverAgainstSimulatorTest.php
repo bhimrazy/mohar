@@ -2,7 +2,7 @@
 
 use App\Data\Billing\GatewayConfig;
 use App\Data\Integrations\CertificateInfo;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Models\CreditLedgerEntry;
