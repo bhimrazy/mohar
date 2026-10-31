@@ -130,6 +130,13 @@ it('fails a change to the audit settings of composer.json or .npmrc unless the P
     'config.audit' => ['billing/composer.json', fn (string $json) => json_encode([...json_decode($json, true), 'config' => ['sort-packages' => true, 'audit' => ['ignore' => ['GHSA-xxxx']]]]), 'billing/composer.json: config.audit'],
     'repositories' => ['billing/composer.json', fn (string $json) => json_encode([...json_decode($json, true), 'repositories' => ['packagist.org' => false]]), 'billing/composer.json: repositories'],
     '.npmrc registry' => ['billing/.npmrc', fn (string $rc) => $rc."registry=https://npm.example.test/\n", 'billing/.npmrc: registry'],
+    // Re-review of #539: npm's ini parser drops the quotes, so these are honoured; and userconfig loads another file.
+    '.npmrc quoted registry' => ['billing/.npmrc', fn (string $rc) => $rc."\"registry\"=https://evil-quoted.invalid/\n", 'billing/.npmrc: registry'],
+    '.npmrc quoted omit' => ['billing/.npmrc', fn (string $rc) => $rc."  'omit' = dev\n", 'billing/.npmrc: omit'],
+    '.npmrc userconfig' => ['billing/.npmrc', fn (string $rc) => $rc."userconfig=./evil.ini\n", 'billing/.npmrc: userconfig'],
+    '.npmrc ca[]' => ['billing/.npmrc', fn (string $rc) => $rc."ca[]=-----BEGIN CERTIFICATE-----\n", 'billing/.npmrc: ca'],
+    'composer config.policy' => ['billing/composer.json', fn (string $json) => json_encode([...json_decode($json, true), 'config' => ['sort-packages' => true, 'policy' => ['advisories' => ['audit' => 'ignore']]]]), 'billing/composer.json: config.policy'],
+    'composer config.disable-tls' => ['billing/composer.json', fn (string $json) => json_encode([...json_decode($json, true), 'config' => ['sort-packages' => true, 'disable-tls' => true]]), 'billing/composer.json: config.disable-tls'],
 ]);
 
 it('passes when composer.json and .npmrc change only elsewhere', function () {

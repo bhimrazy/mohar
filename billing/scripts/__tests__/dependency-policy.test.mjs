@@ -385,6 +385,12 @@ describe('composerAuditConfigChanges', () => {
             ['config.audit', 'repositories'],
         );
         expect(composerAuditConfigChanges(base, cosmetic)).toEqual([]);
+        const policy = JSON.parse(base);
+        policy.config.policy = { advisories: { audit: 'ignore' } };
+        policy.config['disable-tls'] = true;
+        expect(
+            composerAuditConfigChanges(base, JSON.stringify(policy)),
+        ).toEqual(['config.disable-tls', 'config.policy']);
         expect(composerAuditConfigChanges(base, '{not json')).toContain(
             '(unparsable composer.json)',
         );
@@ -406,7 +412,24 @@ describe('npmrcAuditConfigChanges', () => {
         );
     });
 
-    it('ignores comments and settings that do not steer the audit', () => {
+    it('reads keys the way npm does (quotes, spaces, array suffix) and rejects any key outside the allowlist', () => {
+        expect(
+            npmrcAuditConfigChanges(
+                base,
+                `${base}"registry"=https://evil-quoted.invalid/\n  'omit' = dev\nuserconfig=./evil.ini\nglobalconfig=/tmp/g\nca[]=x\n[section]\nsomething-new=1\n`,
+            ),
+        ).toEqual([
+            '[section]',
+            'ca',
+            'globalconfig',
+            'omit',
+            'registry',
+            'something-new',
+            'userconfig',
+        ]);
+    });
+
+    it('allows the keys this project uses, and ignores comments', () => {
         expect(
             npmrcAuditConfigChanges(
                 base,

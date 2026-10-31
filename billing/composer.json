@@ -69,8 +69,8 @@
         ],
         "deps:check": [
             "@composer validate --no-check-publish",
-            "@composer audit --locked",
-            "npm audit --audit-level=high --package-lock-only",
+            "@composer audit --locked --abandoned=report",
+            "npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ --include=dev",
             "node scripts/check-dependency-age.mjs"
         ],
         "ci": [

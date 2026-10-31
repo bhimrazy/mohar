@@ -346,9 +346,21 @@ function stableJson(value) {
 }
 
 /**
- * The composer.json keys that steer `composer audit` or where packages come from (`config.audit`: ignored advisories,
- * abandoned handling; `repositories`: e.g. `packagist.org: false` or a mirror) and that differ between two versions.
- * A change can silence the audit that judges it, so the check fails on these unless the PR is labelled.
+ * The composer.json `config` keys a change may touch without review of the audit: what this project uses today. Any
+ * other config key (`audit`, `policy`, `disable-tls`, `secure-http`, `cafile`, ...) can change what `composer audit`
+ * reports or where it asks, so it is a policy change of its own.
+ */
+export const COMPOSER_CONFIG_ALLOWED = [
+    'allow-plugins',
+    'optimize-autoloader',
+    'preferred-install',
+    'sort-packages',
+];
+
+/**
+ * The composer.json settings that differ between two versions and are not on the allowlist: any `config.<key>` outside
+ * COMPOSER_CONFIG_ALLOWED, and `repositories` (e.g. `packagist.org: false` or a mirror). A change could silence the
+ * audit that judges it, so the check fails on these unless the PR is labelled.
  *
  * @param {string|null} baseText
  * @param {string|null} headText
@@ -365,8 +377,17 @@ export function composerAuditConfigChanges(baseText, headText) {
     const base = parse(baseText);
     const head = parse(headText);
     const changed = [];
-    if (stableJson(base.config?.audit) !== stableJson(head.config?.audit)) {
-        changed.push('config.audit');
+    const keys = new Set([
+        ...Object.keys(base.config ?? {}),
+        ...Object.keys(head.config ?? {}),
+    ]);
+    for (const name of [...keys].sort((a, b) => a.localeCompare(b))) {
+        if (
+            !COMPOSER_CONFIG_ALLOWED.includes(name) &&
+            stableJson(base.config?.[name]) !== stableJson(head.config?.[name])
+        ) {
+            changed.push(`config.${name}`);
+        }
     }
     if (stableJson(base.repositories) !== stableJson(head.repositories)) {
         changed.push('repositories');
@@ -379,26 +400,46 @@ export function composerAuditConfigChanges(baseText, headText) {
 }
 
 /**
- * The .npmrc settings that steer where npm sends its requests (registries, scoped registries, proxies, TLS trust) or
- * how `npm audit` judges, and that differ between two versions of the file (a missing file has none).
+ * The .npmrc keys a change may touch: what this project's .npmrc files use today, plus two that only change output.
+ * Anything else (`registry`, `@scope:registry`, `omit`, `userconfig`, `globalconfig`, `ca[]`, proxies, auth, ...) can
+ * redirect `npm audit`, narrow it, or load another config file.
+ */
+export const NPMRC_ALLOWED = [
+    'engine-strict',
+    'fund',
+    'ignore-scripts',
+    'min-release-age',
+    'save-exact',
+];
+
+/**
+ * The .npmrc keys whose values differ between two versions of the file (a missing file has none) and are not on
+ * NPMRC_ALLOWED. Keys are read the way npm's ini parser reads them: surrounding whitespace and quotes are dropped, and
+ * so is an array suffix (`ca[]`); a `[section]` line or a line without `=` is a key too.
  *
  * @param {string|null} baseText
  * @param {string|null} headText
- * @returns {string[]} the changed setting names
+ * @returns {string[]} the changed keys outside the allowlist
  */
 export function npmrcAuditConfigChanges(baseText, headText) {
-    const watched =
-        /^(registry|@[^:\s]+:registry|\/\/.+:(_authToken|_auth|username|_password|certfile|keyfile)|audit|audit-level|strict-ssl|ca|cafile|proxy|https-proxy|noproxy|replace-registry-host|omit|include)$/i;
+    const normalise = (raw) =>
+        raw
+            .trim()
+            .replace(/^(['"])(.*)\1$/, '$2')
+            .trim()
+            .replace(/\[\]$/, '')
+            .toLowerCase();
     const settings = (text) => {
         const found = new Map();
         for (const line of (text ?? '').split(/\r?\n/)) {
-            const entry = line.match(/^\s*([^#;=\s][^=]*?)\s*=\s*(.*?)\s*$/);
-            if (entry && watched.test(entry[1])) {
-                found.set(entry[1].toLowerCase(), [
-                    ...(found.get(entry[1].toLowerCase()) ?? []),
-                    entry[2],
-                ]);
+            const trimmed = line.trim();
+            if (trimmed === '' || /^[#;]/.test(trimmed)) {
+                continue;
             }
+            const at = trimmed.indexOf('=');
+            const name = normalise(at === -1 ? trimmed : trimmed.slice(0, at));
+            const value = at === -1 ? '' : trimmed.slice(at + 1).trim();
+            found.set(name, [...(found.get(name) ?? []), value]);
         }
 
         return found;
@@ -409,7 +450,9 @@ export function npmrcAuditConfigChanges(baseText, headText) {
 
     return [...names]
         .filter(
-            (name) => stableJson(base.get(name)) !== stableJson(head.get(name)),
+            (name) =>
+                !NPMRC_ALLOWED.includes(name) &&
+                stableJson(base.get(name)) !== stableJson(head.get(name)),
         )
         .sort((a, b) => a.localeCompare(b));
 }

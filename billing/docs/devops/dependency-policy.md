@@ -49,11 +49,24 @@ composer deps:check                                # composer validate + compose
   tree being judged: the checker ignores it in GitHub Actions and fails when the file is committed, and CI and the
   merge gate point `DEPENDENCY_AGE_CACHE` at a fresh file outside the PR tree. A PR run only fetches its few changed
   items.
-- The audits read their settings from the tree being judged, so a diff run (PRs, pushes) fails when
-  `billing/composer.json` changes `config.audit` or `repositories`, or any `.npmrc` changes a registry, proxy, TLS-trust,
-  auth or audit setting (`registry`, `@scope:registry`, `audit-level`, `strict-ssl`, `cafile`, …), unless the PR
-  carries the `security-exception` label. The error names the file and key. `.github/CODEOWNERS` also lists the
-  manifests and `.npmrc` files.
+- The audits read their settings from the tree being judged, so they are pinned twice:
+    - On the command line, which beats the project files: `npm audit … --registry=https://registry.npmjs.org/
+      --include=dev` and `composer audit --locked --abandoned=report` (CI, the weekly audit, the merge gate,
+      `composer deps:check`).
+    - By an allowlist (`dependency-policy.mjs`). A diff run fails when a change touches any `.npmrc` key other than
+      `save-exact`, `min-release-age`, `ignore-scripts`, `engine-strict` and `fund`. Keys are read the way npm reads
+      them, so `"registry"=`, `'omit' = dev`, `ca[]=` and `userconfig=` (which loads another file) all count. It also
+      fails when `billing/composer.json` changes `repositories` or any `config` key other than `allow-plugins`,
+      `optimize-autoloader`, `preferred-install` and `sort-packages` (`config.audit`, `config.policy`,
+      `config.disable-tls`, …). The error names the file and key. Adding a key to the allowlist is a change to
+      `dependency-policy.mjs`, which only takes effect once it is on develop.
+    - The `security-exception` label allows such a change. `.github/CODEOWNERS` also lists the manifests and `.npmrc`
+      files.
+- A push run (develop or main) is judged like the PR it merged: CI looks up the PR whose merge or squash commit is
+  the pushed commit and reads that PR's label and waivers through `security-exceptions.sh`. An approved waiver or
+  setting change therefore does not turn the branch red after the merge (the #530 push did). A push that no merged PR
+  produced has no waivers. Only the head commit's PR counts, so a push carrying several merged PRs is judged with the
+  last one's waivers.
 - Every age is bound to what is actually installed: an action SHA must equal its tag; an image digest must be
   the tag's current multi-arch index digest (registry `Docker-Content-Digest`) or one of its platform digests
   (otherwise exit 2: its origin and age cannot be proven — re-pin); an npm `resolved` URL must be
@@ -135,6 +148,15 @@ A fix for a critical/high vulnerability may be adopted before it is 7 days old:
 3. The CTO approves the PR explicitly (review comment naming the advisory). Without that approval it is not merged.
 4. Locally: `DEPENDENCY_AGE_EXCEPTIONS='laravel/framework@13.36.1' composer deps:check`; npm needs
    `--min-release-age=0` (or `min-release-age-exclude`) for that one install.
+
+Two limits of the label, accepted for now:
+
+- **One label approves both kinds of exception.** A PR labelled for a cooldown waiver may also change an audit setting
+  outside the allowlist, and CI only warns. The reviewer who adds the label checks the diff of `composer.json` and
+  every `.npmrc` as well as the `Security-Exception` lines; the warning annotation names each such change.
+- **A PR into `main` is judged by its own scripts.** `main` has no `billing/scripts` until the first release, so CI
+  falls back to the PR's copies, with a warning. A release PR carries develop's merged code, so these are develop's
+  scripts unless the release branch changed them; read such a change before merging a release.
 
 **This is a process control, not a technical one**: the repository has a single admin account that every agent
 and engineer acts as, so the label, the body and the approval can all be set by the PR author. The binding above

@@ -299,8 +299,10 @@ if (!checkAll) {
     );
     candidates = headItems.filter((item) => !baseKeys.has(key(item)));
 
-    // The audits read composer.json and .npmrc from the tree being judged, so a change to how they judge or where
-    // they ask is a policy change of its own: it needs the security-exception label.
+    // The audits read composer.json and .npmrc from the tree being judged, so a change to a setting outside the
+    // allowlists (dependency-policy.mjs) is a policy change of its own: it needs the security-exception label. This
+    // module stays on node: built-ins only: CI runs it from billing/, where a bare import would resolve from the PR's
+    // node_modules.
     const read = (rev, path) =>
         rev === null
             ? existsSync(join(repoRoot, path))
@@ -344,7 +346,7 @@ if (!checkAll) {
             );
         } else {
             violations.push(
-                `${change} changed: it steers composer audit / npm audit or where packages come from, so it needs the security-exception label (dependency-policy.md)`,
+                `${change} changed: it is not on the allowlist of settings a change may touch without review (it can redirect, narrow or silence composer audit / npm audit), so it needs the security-exception label (dependency-policy.md)`,
             );
         }
     }

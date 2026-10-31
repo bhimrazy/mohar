@@ -36,24 +36,25 @@ policy failure fails the run in about a minute. The policy runs **before** anyth
 e.g. Composer's `package:discover` hook, executes before the lockfiles pass), and the test and build jobs start only
 after `checks` passed, so they never install a lockfile the policy has not approved:
 
-| #   | Step                                                                                                                                                                                                      |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | checkout (depth 2 for PRs, full history for pushes) · docs-only detection · dependency diff base · the base branch's policy scripts · changelog fragments (PRs only, also on the fast path)               |
-| 2   | setup-php · setup-node (toolchain only, no project dependencies)                                                                                                                                          |
-| 3   | postgres digest drift (ci.yml = compose.yaml = compose.prod.yaml)                                                                                                                                         |
-| 4   | `composer validate` on every code or dependency change · `composer audit --locked` · `npm audit --audit-level=high --package-lock-only` only when a manifest, lockfile, `.npmrc` or workflow file changed |
-| 5   | dependency cooldown + binding (`check-dependency-age.mjs`, PR base or `github.event.before`), waivers from `security-exceptions.sh`                                                                       |
-| 6   | install: Composer + npm from lockfiles (cached), `.env`, Wayfinder                                                                                                                                        |
-| 7   | `vp check` (format + lint) and image sizes — the only steps on docs-only PRs and pushes                                                                                                                   |
-| 8   | restore tool caches · Pint · tsc · Vitest (`npm test`) · PHPStan                                                                                                                                          |
+| #   | Step                                                                                                                                                                                                                                                                              |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | checkout (depth 2 for PRs, full history for pushes) · docs-only detection · dependency diff base · the base branch's policy scripts · changelog fragments (PRs only, also on the fast path)                                                                                       |
+| 2   | setup-php · setup-node (toolchain only, no project dependencies)                                                                                                                                                                                                                  |
+| 3   | postgres digest drift (ci.yml = compose.yaml = compose.prod.yaml)                                                                                                                                                                                                                 |
+| 4   | `composer validate` on every code or dependency change · `composer audit --locked --abandoned=report` · `npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ --include=dev` only when a manifest, lockfile, `.npmrc` or workflow file changed |
+| 5   | dependency cooldown + binding (`check-dependency-age.mjs`, PR base or `github.event.before`), waivers from `security-exceptions.sh`                                                                                                                                               |
+| 6   | install: Composer + npm from lockfiles (cached), `.env`, Wayfinder                                                                                                                                                                                                                |
+| 7   | `vp check` (format + lint) and image sizes — the only steps on docs-only PRs and pushes                                                                                                                                                                                           |
+| 8   | restore tool caches · Pint · tsc · Vitest (`npm test`) · PHPStan                                                                                                                                                                                                                  |
 
 On a PR, steps 1 and 5 run the **base branch's** `changelog-check.sh`, `changelog-assemble.sh`,
 `security-exceptions.sh`, `check-dependency-age.mjs` and `dependency-policy.mjs` (extracted from `HEAD^1` into
 `billing/.ci-policy/`, removed before the install), against the PR's tree, as the local merge gate does: a PR cannot
 weaken the checks that judge it, and a change to them takes effect once merged. A script the base does not have yet
 comes from the PR, with a warning; on a PR into `main` (no `billing/` until the first release) that is all of them.
-The checker never uses a dependency-age cache from the PR tree, and it fails a PR that changes the audits' own
-settings in `composer.json` or `.npmrc` without the `security-exception` label (dependency-policy.md). `ci.yml` itself still comes from the PR (inherent to `pull_request`), so a change
+The checker never uses a dependency-age cache from the PR tree, and it fails a PR that changes a `composer.json` or
+`.npmrc` setting outside its allowlist without the `security-exception` label (dependency-policy.md). A push run uses
+the label and waivers of the PR it merged, so an approved change does not turn the branch red. `ci.yml` itself still comes from the PR (inherent to `pull_request`), so a change
 to it is a visible workflow diff; `.github/CODEOWNERS` requests the owner's review of it.
 
 **Test jobs.** `pest --shard=<n>/<total>` (in the installed Pest 5.3) gives each job a share of the test files, round-robin in file

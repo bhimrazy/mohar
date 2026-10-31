@@ -52,16 +52,16 @@ jobs:
 
             # The three checks run even when one fails, so one run reports everything; the job fails if any did.
             - name: composer audit
-              run: composer audit --locked
+              run: composer audit --locked --abandoned=report
 
             - name: npm audit (billing)
               if: ${{ !cancelled() }}
-              run: npm audit --audit-level=high --package-lock-only
+              run: npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ --include=dev
 
             - name: npm audit (docs-site)
               if: ${{ !cancelled() }}
               working-directory: docs-site
-              run: npm audit --audit-level=high --package-lock-only
+              run: npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ --include=dev
 
             # Every item, not a diff, with no minimum age: the cooldown judges adopting a version, and what is merged
             # was judged then (a security exception would otherwise fail here for 7 days). What remains is pinning and

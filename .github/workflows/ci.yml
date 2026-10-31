@@ -213,14 +213,16 @@ jobs:
               if: steps.changes.outputs.code == 'true' || steps.changes.outputs.deps == 'true'
               run: composer validate --no-check-publish
 
-            # Only when a manifest, lockfile, .npmrc or workflow file changed (detect step above).
+            # Only when a manifest, lockfile, .npmrc or workflow file changed (detect step above). The registry, the
+            # dependency types and the abandoned-package rule are given on the command line, which beats the PR's
+            # .npmrc and composer.json; the checker below fails on any other audit setting a PR changes.
             - name: Security audits (before install)
               if: steps.changes.outputs.audit == 'true'
               run: |
-                  composer audit --locked
-                  npm audit --audit-level=high --package-lock-only
+                  composer audit --locked --abandoned=report
+                  npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ --include=dev
                   # The documentation site's lockfile (docs-site/), audited without installing it.
-                  (cd ../docs-site && npm audit --audit-level=high --package-lock-only)
+                  (cd ../docs-site && npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ --include=dev)
 
             - name: Dependency cooldown and pinning (before install)
               if: steps.changes.outputs.code == 'true' || steps.changes.outputs.deps == 'true'
@@ -230,6 +232,7 @@ jobs:
                   EVENT: ${{ github.event_name }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   REPOSITORY: ${{ github.repository }}
+                  SHA: ${{ github.sha }}
                   BASE: ${{ steps.changes.outputs.base }}
                   # Outside the PR tree and empty: a cached date skips the registry checks (the checker also ignores
                   # its cache in Actions, once that copy is the base branch's).
@@ -238,7 +241,14 @@ jobs:
                   # Read at run time (re-runs pick it up): with the security-exception label, the "Security-Exception:
                   # name@version" lines of the PR body are waived, for the cooldown only, and only while the body is
                   # unchanged since the label was added (scripts/security-exceptions.sh fails otherwise).
-                  if [ "$EVENT" = pull_request ]; then
+                  # A push of a merged PR (its merge or squash commit) is judged with that PR's label and waivers, so a
+                  # change approved on the PR does not turn the branch red after the merge. Any other push has none.
+                  if [ "$EVENT" = push ]; then
+                      PR_NUMBER=$(gh api "repos/$REPOSITORY/commits/$SHA/pulls" \
+                          --jq "[.[] | select(.merged_at != null and .merge_commit_sha == \"$SHA\")][0].number // empty")
+                      echo "merged PR for $SHA: ${PR_NUMBER:-<none>}"
+                  fi
+                  if [ -n "$PR_NUMBER" ]; then
                       DEPENDENCY_AGE_EXCEPTIONS=$(.ci-policy/security-exceptions.sh "$PR_NUMBER" "$REPOSITORY")
                       export DEPENDENCY_AGE_EXCEPTIONS
                       echo "security exceptions: ${DEPENDENCY_AGE_EXCEPTIONS:-<none>}"

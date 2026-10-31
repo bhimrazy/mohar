@@ -75,6 +75,33 @@ test('CI runs the base branch\'s changelog, waiver and dependency checkers on th
         ->and($at('Remove the policy scripts'))->toBeLessThan($at('Install dependencies'));
 });
 
+test('every audit names its registry, dependency types and abandoned rule on the command line', function () {
+    $files = ['.github/workflows/ci.yml', '.github/workflows/dependency-audit.yml', 'scripts/merge-gate.sh', 'billing/composer.json'];
+    foreach ($files as $file) {
+        $text = (string) file_get_contents(wfRoot()."/{$file}");
+        preg_match_all('/npm audit\b[^\n"\')]*/', $text, $npm);
+        preg_match_all('/composer audit\b[^\n"&]*/', $text, $composer);
+        $npm = array_filter($npm[0], fn (string $call) => str_contains($call, '--package-lock-only'));
+        $composer = array_filter($composer[0], fn (string $call) => str_contains($call, '--locked'));
+
+        expect($npm)->not->toBeEmpty($file)->and($composer)->not->toBeEmpty($file);
+        foreach ($npm as $call) {
+            expect(str_contains($call, '--registry=https://registry.npmjs.org/ --include=dev'))->toBeTrue("{$file}: {$call}");
+        }
+        foreach ($composer as $call) {
+            expect(str_contains($call, '--abandoned=report'))->toBeTrue("{$file}: {$call}");
+        }
+    }
+});
+
+test('a push run takes the waivers of the PR it merged, and only of that PR', function () {
+    $raw = (string) file_get_contents(wfRoot().'/.github/workflows/ci.yml');
+
+    expect($raw)->toContain('PR_NUMBER=$(gh api "repos/$REPOSITORY/commits/$SHA/pulls"')
+        ->and($raw)->toContain('select(.merged_at != null and .merge_commit_sha == \"$SHA\")')
+        ->and($raw)->toContain('SHA: ${{ github.sha }}');
+});
+
 test('the merge gate reads waivers through the same script as CI', function () {
     $gate = (string) file_get_contents(wfRoot().'/scripts/merge-gate.sh');
 

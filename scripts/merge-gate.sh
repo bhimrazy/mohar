@@ -269,8 +269,8 @@ when "$code" "postgres pin matches compose.yaml" bash -c '
     [ -n "$a" ] && [ "$(wc -l <<< "$a")" -eq 1 ] && [ "$a" = "$b" ] && [ "$a" = "$c" ]'
 when "$policy" "lockfiles in sync" composer validate --no-check-publish
 when "$audit" "security audits" bash -c '
-    composer audit --locked && npm audit --audit-level=high --package-lock-only \
-        && (cd ../docs-site && npm audit --audit-level=high --package-lock-only)'
+    composer audit --locked --abandoned=report && npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ --include=dev \
+        && (cd ../docs-site && npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ --include=dev)'
 if [ "$policy" = true ]; then
     mkdir -p "$policy_dir" && git -C "$dir" archive "$base" billing/scripts | tar -x -C "$policy_dir" -f - \
         && cp -R "$policy_dir"/billing/scripts/. "$policy_dir"/ && rm -rf "${policy_dir:?}/billing"
