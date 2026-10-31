@@ -57,6 +57,8 @@ final class MigrationLint
 
     private const UNLOCKED_INDEX = 'builds an index with allowLocking, which blocks writes while it builds';
 
+    private const CONTROL = '/^(?:foreach|for|while|if|elseif|else(?:\s+if)?|try|catch|finally|do|switch)\b/i';
+
     private const RAW_CALL = '/\b(?:statement|unprepared)\s*\(/i';
 
     /**
@@ -350,6 +352,18 @@ final class MigrationLint
 
             $current ??= ['text' => '', 'line' => $token->line, 'comments' => array_splice($pending, 0)];
             $current['text'] .= $token->text;
+
+            // A control structure's block is split into its own statements, so a tag before one statement in a loop or
+            // branch does not excuse its siblings. The header (`foreach (...)`) stays a statement of its own.
+            if ($token->text === '{' && $depth === 0 && preg_match(self::CONTROL, $current['text']) === 1) {
+                $end = self::close($tokens, $i);
+                $statements[] = $current;
+                $statements = array_merge($statements, self::statements(array_slice($tokens, $i + 1, $end - $i - 1)));
+                $current = null;
+                $i = $end;
+
+                continue;
+            }
 
             $depth += match ($token->text) {
                 '(', '[', '{', '${' => 1,
