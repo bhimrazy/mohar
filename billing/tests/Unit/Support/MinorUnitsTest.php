@@ -70,3 +70,12 @@ test('minor units match the converters they replaced, for NPR and Stripe amounts
         ->and(MinorUnits::rescale(150_050, 2, 0))->toBeNull()
         ->and(MinorUnits::rescale(1500, 0, 2))->toBe(150_000);
 });
+
+test('a negative amount or decimals beyond an integer are refused', function () {
+    expect(MinorUnits::rescale(-5, 0, 2))->toBeNull()
+        ->and(MinorUnits::rescale(-500, 2, 0))->toBeNull()
+        ->and(MinorUnits::rescale(1, 0, 19))->toBeNull()
+        ->and(MinorUnits::fromDecimal('1', 19))->toBeNull()
+        ->and(MinorUnits::fromDecimal('1', MinorUnits::MAX_DECIMALS))->toBe(10 ** 18)
+        ->and(fn () => MinorUnits::toDecimal(1, 19))->toThrow(InvalidArgumentException::class);
+});
