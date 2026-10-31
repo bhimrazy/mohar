@@ -146,8 +146,11 @@ medium host did about 1.3 times the comfortable request rate of the small one (2
 vCPU. A real 4 vCPU host, or an 8-CPU runner, has not been measured.
 
 At 100 fast users the knowledge base (12% of 104 requests) and announcements (19% of 108) answered with errors, which
-is why that level has 0.55% errors; the other pages had none. Which status they returned was not recorded (all
-virtual users share the load generator's single IP address, so a per-IP limit is the likely cause, not checked).
+is why that level has 0.55% errors; the other pages had none. They were the per-IP limit `support-public`, 60 a
+minute shared by both pages (#567, inferred: the run did not record statuses; 212 requests in the 3-minute level is
+about 71 a minute, which predicts about 15% refused, and a local burst from one IP was refused with 429 from the 61st
+request). So these errors are a harness artefact, not a sizing fact. The pages now have their own limit of 300 a
+minute, and the harness counts their 429s apart and lists each page's error statuses.
 
 ### Per page at the knee
 
@@ -482,7 +485,6 @@ of 49.7 s and a 546 s billing day at 20 renewals per second.
 - **The billing day on the small profile** (it did not finish in the 2026-10-31 runs, most likely the scheduler's
   256 MB limit then in `loadtest/profiles/small.env`, now 512 MB; inferred until a run with the exit code confirms it).
 - **The billing day with font-subset PDFs** on a runner (#566); measured locally only.
-- **Which status the knowledge base and announcements returned** in the errors at 100 fast users on medium (#567).
 - **Web load during the billing day**, provisioning against a control panel, and a Redis-backed stack
   (`loadtest/README.md`, "Not covered yet").
 

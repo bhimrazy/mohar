@@ -7,6 +7,7 @@
 // bin/summarize.py turns into the per-page latency table.
 import { sleep } from 'k6';
 import exec from 'k6/execution';
+import { STATUS_CLASSES } from './lib.js';
 import { client as clientScenario } from './scenarios/client.js';
 import { storefront as storefrontScenario } from './scenarios/storefront.js';
 import { admin as adminScenario } from './scenarios/admin.js';
@@ -94,6 +95,9 @@ for (const page of PAGES) {
     thresholds[`http_req_failed{page:${page}}`] = ['rate>=0'];
     thresholds[`content_errors{page:${page}}`] = ['count>=0'];
     thresholds[`http_reqs{page:${page}}`] = ['count>=0'];
+    for (const statusClass of STATUS_CLASSES) {
+        thresholds[`status_${statusClass}{page:${page}}`] = ['count>=0'];
+    }
 }
 for (const name of Object.keys(MIX)) {
     thresholds[`http_req_duration{scenario:${name}}`] = ['max>=0'];
