@@ -155,7 +155,7 @@ A fix for a critical/high vulnerability may be adopted before it is 7 days old:
 4. Locally: `DEPENDENCY_AGE_EXCEPTIONS='laravel/framework@13.36.1' composer deps:check`; npm needs
    `--min-release-age=0` (or `min-release-age-exclude`) for that one install.
 
-Two limits of the label, accepted for now:
+Limits accepted for now:
 
 - **One label approves both kinds of exception.** A PR labelled for a cooldown waiver may also change an audit setting
   outside the allowlist, and CI only warns. The reviewer who adds the label checks the diff of `composer.json` and
@@ -163,6 +163,11 @@ Two limits of the label, accepted for now:
 - **A PR into `main` is judged by its own scripts.** `main` has no `billing/scripts` until the first release, so CI
   falls back to the PR's copies, with a warning. A release PR carries develop's merged code, so these are develop's
   scripts unless the release branch changed them; read such a change before merging a release.
+- **The PR's `billing/.nvmrc` picks the Node (and npm) that run the base checker and `npm audit`.** setup-node
+  installs it before the checker runs. The checker accepts only an exact release listed on nodejs.org that has cleared
+  the cooldown, and a change shows as a tool item in the check; Node older than 18 has no `fetch`, so the checker
+  fails closed. No official release is known to make a check pass falsely. Pinning the policy steps to the base
+  branch's `.nvmrc` would remove the PR's choice entirely, at the cost of a second Node setup.
 
 **This is a process control, not a technical one**: the repository has a single admin account that every agent
 and engineer acts as, so the label, the body and the approval can all be set by the PR author. The binding above

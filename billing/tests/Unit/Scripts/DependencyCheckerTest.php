@@ -152,3 +152,18 @@ it('passes when composer.json and .npmrc change only elsewhere', function () {
     expect($run->getExitCode())->toBe(0, $run->getOutput().$run->getErrorOutput())
         ->and($run->getOutput())->toContain('Dependency policy: OK');
 });
+
+it('checks a file whose name git would quote in a newline-separated listing', function () {
+    $this->repo = dckRepo();
+    // core.quotePath (on by default) prints this name as "deploy/compose.\303\251.yaml" without -z.
+    dckWrite($this->repo, "deploy/compose.\u{e9}.yaml", "services:\n    web:\n        image: nginx:latest\n");
+    dckGit($this->repo, 'add', '-A');
+    dckGit($this->repo, 'commit', '-q', '-m', 'unpinned image under an unusual name');
+
+    $run = dckCheck($this->repo);
+
+    // 1 offline (pinning), 2 online (the registry also cannot prove the undigested tag); the old listing gave 0.
+    expect($run->getExitCode())->toBeIn([1, 2])
+        ->and($run->getOutput().$run->getErrorOutput())
+        ->toContain("deploy/compose.\u{e9}.yaml: image nginx:latest must be pinned as <name>:<tag>@sha256:<digest>");
+});

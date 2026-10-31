@@ -235,9 +235,17 @@ setup_note="${head:0:8} into ${base:0:8}"
 [ "$code" = false ] && setup_note="$setup_note, docs-only fast path"
 row "$setup_name" PASS "$(seconds $(( $(date +%s) - setup_started )))" "$setup_note"
 
-# Security exceptions as CI reads them (this checkout's copy, which is develop's): with the label, the PR body's
-# "Security-Exception:" lines, only while the body is unchanged since the label was added.
-if ! DEPENDENCY_AGE_EXCEPTIONS="$("$repo/scripts/security-exceptions.sh" "$pr" "$gh_repo" 2> "$logs/00-exceptions.log")"; then
+# Security exceptions as CI reads them: with the label, the PR body's "Security-Exception:" lines, only while the body
+# is unchanged since the label was added. The script is develop's ($base), like the checker below, not this checkout's,
+# which may be any branch; before develop has it, this checkout's copy is used and the log says so.
+exceptions_script="$logs/security-exceptions.sh"
+if git -C "$dir" show "$base:scripts/security-exceptions.sh" > "$exceptions_script" 2> /dev/null; then
+    chmod +x "$exceptions_script"
+else
+    echo "develop has no scripts/security-exceptions.sh yet; using this checkout's copy" >> "$logs/00-setup.log"
+    cp "$repo/scripts/security-exceptions.sh" "$exceptions_script"
+fi
+if ! DEPENDENCY_AGE_EXCEPTIONS="$("$exceptions_script" "$pr" "$gh_repo" 2> "$logs/00-exceptions.log")"; then
     printf '%-44s ' "security exceptions bound to the label"
     row "security exceptions bound to the label" FAIL - "$(tail -1 "$logs/00-exceptions.log" | cut -c1-160)"
     result=FAIL
@@ -258,7 +266,8 @@ policy_dir="$app/.merge-gate-policy"
 fragments=false
 if [ "$merged_already" = 0 ] && git -C "$dir" cat-file -e "$base:scripts/changelog-check.sh" 2> /dev/null; then
     fragments=true
-    mkdir -p "$policy_dir" && git -C "$dir" archive "$base" scripts/changelog-check.sh scripts/changelog-assemble.sh \
+    rm -rf "${policy_dir:?}" && mkdir -p "$policy_dir" \
+        && git -C "$dir" archive "$base" scripts/changelog-check.sh scripts/changelog-assemble.sh \
         | tar -x -C "$policy_dir" -f -
 fi
 when "$fragments" "changelog fragments" env BASE_REF=develop PR_NUMBER="$pr" \
@@ -271,7 +280,7 @@ when "$code" "postgres pin matches compose.yaml" bash -c '
     echo "compose.yaml: ${a:-<none>}"; echo "ci.yml: ${b:-<none>}"; echo "compose.prod.yaml: ${c:-<none>}"
     [ -n "$a" ] && [ "$(wc -l <<< "$a")" -eq 1 ] && [ "$a" = "$b" ] && [ "$a" = "$c" ]'
 if [ "$policy" = true ]; then
-    mkdir -p "$policy_dir" && git -C "$dir" archive "$base" billing/scripts | tar -x -C "$policy_dir" -f - \
+    rm -rf "${policy_dir:?}" && mkdir -p "$policy_dir" && git -C "$dir" archive "$base" billing/scripts | tar -x -C "$policy_dir" -f - \
         && cp -R "$policy_dir"/billing/scripts/. "$policy_dir"/ && rm -rf "${policy_dir:?}/billing"
 fi
 # A fresh cache outside the PR tree: a cached date skips the registry checks, so the PR must not supply one.

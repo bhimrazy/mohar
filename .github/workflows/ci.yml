@@ -183,12 +183,13 @@ jobs:
                   extensions: gd, pdo_sqlite, pdo_pgsql, pgsql
                   coverage: none
 
+            # No `cache: npm` here: a cache restore extracts into the workspace, and an entry in the PR's own cache
+            # scope could overwrite billing/.ci-policy/ before the checker runs. Nothing is restored before the policy
+            # checks and the audits; npm ci in the install step runs without a cache.
             - name: Set up Node
               uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
                   node-version-file: billing/.nvmrc
-                  cache: npm
-                  cache-dependency-path: billing/package-lock.json
 
             - name: Postgres image matches compose.yaml
               if: steps.changes.outputs.code == 'true'

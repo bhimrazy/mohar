@@ -255,6 +255,8 @@ function collect(read, listWorkflowFiles, listRepoFiles) {
 const key = (item) =>
     `${item.kind}|${item.name}|${item.version}|${item.ref ?? ''}`;
 
+// Git listings are NUL-separated (-z): a newline-separated listing quotes unusual names ("a\"b.yml"), which would then
+// not match the file on disk and drop out of the check.
 const headItems = collect(
     (path) =>
         existsSync(join(repoRoot, path))
@@ -269,11 +271,17 @@ const headItems = collect(
     () =>
         (
             git(
-                ['ls-files', '--cached', '--others', '--exclude-standard'],
+                [
+                    'ls-files',
+                    '-z',
+                    '--cached',
+                    '--others',
+                    '--exclude-standard',
+                ],
                 repoRoot,
             ) ?? ''
         )
-            .split('\n')
+            .split('\0')
             .filter(Boolean),
 );
 
@@ -283,12 +291,15 @@ if (!checkAll) {
     const base = resolveBase();
     baseLabel = `changes since ${base}`;
     const baseFiles =
-        git(['ls-tree', '-r', '--name-only', base, '--', '.github'], repoRoot)
-            ?.split('\n')
+        git(
+            ['ls-tree', '-r', '-z', '--name-only', base, '--', '.github'],
+            repoRoot,
+        )
+            ?.split('\0')
             .filter(Boolean) ?? [];
     const baseRepoFiles =
-        git(['ls-tree', '-r', '--name-only', base], repoRoot)
-            ?.split('\n')
+        git(['ls-tree', '-r', '-z', '--name-only', base], repoRoot)
+            ?.split('\0')
             .filter(Boolean) ?? [];
     const baseKeys = new Set(
         collect(
@@ -311,11 +322,11 @@ if (!checkAll) {
             : git(['show', `${rev}:${path}`], repoRoot, true);
     const headRepoFiles = (
         git(
-            ['ls-files', '--cached', '--others', '--exclude-standard'],
+            ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
             repoRoot,
         ) ?? ''
     )
-        .split('\n')
+        .split('\0')
         .filter(Boolean);
     const configChanges = [];
     const composerJson = `${appDir}/composer.json`;

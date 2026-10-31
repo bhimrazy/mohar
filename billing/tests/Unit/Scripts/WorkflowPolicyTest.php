@@ -165,10 +165,25 @@ test('the composer commands of the policy and audit paths do not run a script fr
     (new Process(['rm', '-rf', $dir]))->run();
 });
 
+test('no cache is restored in the checks job before the policy checker and the audits have run', function () {
+    $steps = Yaml::parseFile(wfRoot().'/.github/workflows/ci.yml')['jobs']['checks']['steps'];
+    $audits = array_search('Security audits (before install)', array_column($steps, 'name'), true);
+
+    // A restore extracts into the workspace, so an entry from the PR's own cache scope could replace .ci-policy/.
+    foreach (array_slice($steps, 0, $audits + 1) as $step) {
+        $uses = (string) ($step['uses'] ?? '');
+        expect(str_starts_with($uses, 'actions/cache@') || str_starts_with($uses, './'))->toBeFalse("{$step['name']} restores a cache or runs a local action")
+            ->and(isset($step['with']['cache']) || isset($step['with']['cache-dependency-path']))->toBeFalse("{$step['name']} restores a cache");
+    }
+});
+
 test('the merge gate reads waivers through the same script as CI', function () {
     $gate = (string) file_get_contents(wfRoot().'/scripts/merge-gate.sh');
 
-    expect($gate)->toContain('"$repo/scripts/security-exceptions.sh" "$pr" "$gh_repo"')
+    expect($gate)->toContain('git -C "$dir" show "$base:scripts/security-exceptions.sh" > "$exceptions_script"')
+        ->and($gate)->toContain('"$exceptions_script" "$pr" "$gh_repo"')
+        // Each extraction starts from an empty directory, so nothing left from an earlier run is executed.
+        ->and(substr_count($gate, 'rm -rf "${policy_dir:?}" && mkdir -p "$policy_dir"'))->toBe(2)
         ->and($gate)->not->toContain('--json body');
 });
 
