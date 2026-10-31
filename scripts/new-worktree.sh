@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Create an isolated worktree for a workstream: scripts/new-worktree.sh <module-slug>
 # -> $MOHAR_ROOT/.claude/worktrees/<slug> on branch feature/<slug> (from a freshly fetched origin/develop, not the
-# local develop, which goes stale), dependencies ready.
+# local develop, which goes stale), dependencies ready, the pre-push gate installed (scripts/install-hooks.sh).
 set -euo pipefail
 slug="${1:-}"
 # finish-workstream.sh's rule: the slug becomes a directory, a branch and a database name.
@@ -22,4 +22,5 @@ export XDEBUG_MODE=off
 composer dump-autoload -q
 php artisan migrate:fresh --seed --no-interaction -q
 php artisan wayfinder:generate --with-form > /dev/null
+"$wt/scripts/install-hooks.sh" >/dev/null || echo "warning: pre-push gate not installed (run scripts/install-hooks.sh)" >&2
 echo "Worktree ready: $wt/billing (branch feature/$slug)"

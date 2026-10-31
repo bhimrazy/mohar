@@ -134,6 +134,25 @@ test('a docs-only change selects no tests', function () {
     expect(implode("\n", tssList($this->repo, $base)))->toContain('no tests relate to the changes');
 });
 
+test('a change under scripts, .github or loadtest selects only the Scripts and Deploy tests, not all of Unit', function () {
+    [$this->repo, $base] = tssRepo();
+    tssWrite($this->repo, 'billing/tests/Unit/Scripts/ExampleTest.php');
+    tssGit($this->repo, 'add', '-A');
+    tssGit($this->repo, 'commit', '-qm', 'scripts tests');
+    $base = tssGit($this->repo, 'rev-parse', 'HEAD');
+
+    foreach (['scripts/pre-push.sh', '.github/workflows/ci.yml', 'loadtest/k6.js'] as $path) {
+        tssWrite($this->repo, $path, "changed\n");
+        $selection = tssList($this->repo, $base);
+
+        expect($selection)->toContain('tests/Unit/Deploy')->not->toContain('tests/Unit');
+        if (! str_starts_with($path, 'loadtest')) {
+            expect($selection)->toContain('tests/Unit/Scripts');
+        }
+        tssGit($this->repo, 'clean', '-fdq');
+    }
+});
+
 test('on PostgreSQL the Unit and Arch tests are left out of the selection', function () {
     [$this->repo, $base] = tssRepo();
     tssWrite($this->repo, 'billing/app/Modules/Billing/Invoice.php', "<?php\n// changed\n");
