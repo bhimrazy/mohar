@@ -2,6 +2,7 @@ import { useHttp } from '@inertiajs/react';
 import { useState } from 'react';
 import { Field } from '@/components/app/field';
 import { Input } from '@/components/ui/input';
+import { failureMessage } from '@/lib/http-error';
 
 export type CardDetails = {
     card_number: string;
@@ -36,7 +37,11 @@ export function useTokenizeCard() {
     return async (
         vaultUrl: string,
         card: CardDetails,
-    ): Promise<{ token?: CardToken; errors?: VaultErrors }> => {
+    ): Promise<{
+        token?: CardToken;
+        errors?: VaultErrors;
+        message?: string;
+    }> => {
         transform(() => ({
             card_number: card.card_number.replace(/\s+/g, ''),
             exp_month: Number(card.exp_month),
@@ -53,8 +58,8 @@ export function useTokenizeCard() {
             });
 
             return token ? { token } : { errors };
-        } catch {
-            return { errors };
+        } catch (error) {
+            return { errors, message: failureMessage(error) };
         }
     };
 }
@@ -136,12 +141,16 @@ export function CardFields({
 export function useCardForm() {
     const [card, setCard] = useState<CardDetails>(emptyCard);
     const [errors, setErrors] = useState<VaultErrors>({});
+    const [message, setMessage] = useState<string | undefined>();
 
     return {
         card,
         setCard,
         errors,
         setErrors,
+        /** Why the vault call failed outright (network, session, rate limit, server), if it did. */
+        message,
+        setMessage,
         reset: () => setCard(emptyCard),
     };
 }

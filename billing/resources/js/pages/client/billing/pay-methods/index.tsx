@@ -55,6 +55,7 @@ function AddCardDialog({
         setProcessing(true);
         const result = await tokenizeCard(gateway.vault_url, card.card);
         card.setErrors(result.errors ?? {});
+        setServerError(result.message);
 
         if (!result.token) {
             setProcessing(false);

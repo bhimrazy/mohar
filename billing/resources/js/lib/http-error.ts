@@ -1,7 +1,7 @@
 import { http } from '@inertiajs/react';
 
-/** What a failed `useHttp` request carried (an `HttpResponseError`, read by shape: `@inertiajs/core` is not a direct dependency). */
-export type HttpFailure = {
+/** The status, JSON body and headers of an answer. */
+export type JsonResponse = {
     status: number;
     /** The JSON body, or an empty object when it was not JSON. */
     body: Record<string, unknown>;
@@ -9,11 +9,17 @@ export type HttpFailure = {
     headers: Record<string, string>;
 };
 
+/** What a failed `useHttp` request carried (an `HttpResponseError`, read by shape: `@inertiajs/core` is not a direct dependency). */
+export type HttpFailure = JsonResponse;
+
+/** What `postForJson` resolves with: the answer, and whether its status was a success. */
+export type JsonResult = JsonResponse & { ok: boolean };
+
 function parseResponse(
     status: number,
     data: unknown,
     headers: Record<string, string> | undefined,
-): HttpFailure {
+): JsonResponse {
     let body: Record<string, unknown> = {};
 
     try {
@@ -27,6 +33,25 @@ function parseResponse(
     }
 
     return { status, body, headers: headers ?? {} };
+}
+
+/** Plain-words explanation of a failed request, with what to do next, for showing beside the control that sent it. */
+export function failureMessage(error: unknown): string {
+    const status = httpFailure(error)?.status;
+
+    if (status === undefined) {
+        return "We couldn't reach the server. Check your connection and try again.";
+    }
+
+    if (status === 419) {
+        return 'Your session expired. Reload the page and try again.';
+    }
+
+    if (status === 429) {
+        return 'Too many attempts. Wait a minute and try again.';
+    }
+
+    return 'Something went wrong on our side. Try again in a moment.';
 }
 
 export function httpFailure(error: unknown): HttpFailure | null {
@@ -53,7 +78,7 @@ export function httpFailure(error: unknown): HttpFailure | null {
 export async function postForJson(
     url: string,
     data?: Record<string, unknown>,
-): Promise<HttpFailure & { ok: boolean }> {
+): Promise<JsonResult> {
     try {
         const response = await http.getClient().request({
             method: 'post',
