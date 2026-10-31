@@ -42,8 +42,10 @@ the WHMCS side.
   GetTicket, GetTicketNotes, GetTicketAttachment, GetAnnouncements, GetAffiliates`. Write actions, `DecryptPassword`, `GetClientPassword` and
   registrar-touching actions such as `DomainGetNameservers` are **never** called.
 - **Sign-in carry-over (proposed 2026-10-31, `client-import.md` §3.4, A9).** A second allowlist names only `ValidateLogin`.
-  It is used only by the sign-in hook, under its own credential whose role grants that one action. The read-only
-  allowlist above is unchanged, and the importer's credential never calls `ValidateLogin`.
+    - It is used only by the sign-in hook, under its own credential whose role grants that one action.
+    - That credential is a separate `EncryptedStorage` entry (ADR 0022) and is rotated on its own.
+    - It shares the source's one base URL. Changing the URL or either credential pauses carry-over (#555 review, B3).
+    - The read-only allowlist above is unchanged, and the importer's credential never calls `ValidateLogin`.
 - Pagination: `limitstart`/`limitnum` (default page size is 25 at the source; `migration.whmcs.page_size: 100`). Where `orderby` exists
   (`GetClients`, `GetInvoices`), use `orderby=id` with the action's own direction parameter (`sorting=ASC` for `GetClients`). After each pass, check that the number of unique ids matches `totalresults`.
   Offset paging over live data can skip rows; the id map plus delta runs make this harmless (§6). Endpoints with no documented paging

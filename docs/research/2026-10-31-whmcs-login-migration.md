@@ -6,7 +6,7 @@ ours. Nothing was run against a WHMCS install; we have none. Not legal advice: t
 
 The owner asked us to "analyze and get the best options, also look if we can avoid resetting passwords too". This note
 compares five ways to carry client sign-in from WHMCS to Mohar, recommends one, and proposes the spec and ADR changes.
-They are in the same PR: `client-import.md` §3.4, and ADR 0018 Amendment (#555).
+They are in the same PR: `client-import.md` §3.4, and the ADR 0018, 0012 and 0015 Amendments (#555).
 
 ## 0. Answer in short
 
@@ -15,7 +15,9 @@ They are in the same PR: `client-import.md` §3.4, and ADR 0018 Amendment (#555)
   user has two-factor sign-in turned on. A client signs in to Mohar with their old email and password. Mohar has no
   usable password for them yet, so it asks the old WHMCS once. If WHMCS accepts the password, Mohar stores its own bcrypt
   hash and never asks again. No password database moves, no export is needed, and it runs on the API the host already
-  opened for the importer. That puts it inside the 2026-10-17 API-first decision.
+  opened for the importer, in line with the 2026-10-17 API-first decision. Whether the licence terms reach this live
+  call is still an open question for the owner or a lawyer (§2, option 2). The #555 design review's requirements are in
+  `client-import.md` §3.4.
 - **Fallback: the invitation mail (option 1) for whoever has not signed in by the cut-off date.** It is already built
   (C3, `client.migration_invitation`). It now reaches only the people who did not come back, not every client.
 - **Not now: importing hashes (option 3).** WHMCS has stored client passwords as bcrypt since 6.3, so the hashes would
@@ -149,150 +151,131 @@ cut-off, and for any host that does not want option 2.
 
 ### Option 2 — Sign-in carry-over through `ValidateLogin` (lazy migration)
 
+The binding requirements are in `client-import.md` §3.4, with criteria 54–82. They take in every finding of the #555
+design review. This section explains the design and the reasons behind it.
+
 **How it works.**
 
-1. The host turns on "Sign-in carry-over" on their WHMCS source. They create a **second** API credential whose role
-   grants only `ValidateLogin`, and set a cut-off date (default 90 days, at most 180). "Test" sends one check for a
-   reserved address (`carry-over-probe@<random>.invalid`) and expects "Email or Password Invalid". Any other answer,
-   such as an unknown action, a permission error, a redirect or TLS trouble, is shown with its reason.
-2. The API import (client-import PR 8) creates a `migration_login_checks` row for each WHMCS user it turns into a
-   Mohar login that has no password of its own. The row holds the source, the WHMCS user id and a keyed hash of the
-   email as imported.
-3. A client signs in on Mohar's normal form. Mohar checks its own hash first. That check fails for an imported login,
-   because nobody knows its password. Mohar then calls the one kernel hook (§4), provided all of these hold:
-    - the login has an open row;
-    - its email still equals the imported one;
-    - the cut-off has not passed;
-    - the source is healthy;
-    - the remote budgets allow it.
-4. The Migration module sends `ValidateLogin` over the guarded connection (ADR 0015), with the email as imported and
-   the typed password.
-    - **Success, `twoFactorEnabled` false, and `userid` equal to the WHMCS user id recorded at import.** In one locked
-      transaction, Mohar stores its own bcrypt hash of the typed password and closes the row as `migrated`. The
-      sign-in continues as a normal password sign-in.
-    - **Success with `twoFactorEnabled` true.** No sign-in yet (§3.4). Mohar mails a confirmation link to the login's
-      address. Opening it in the same browser stores the hash and signs the client in. The login is flagged "had 2FA",
-      so the banner from §6.10 shows.
-    - **"Email or Password Invalid".** An ordinary failed sign-in. It counts towards the login limiter and the remote
-      budget.
-    - **A `userid` mismatch, a malformed answer, a timeout or a 5xx.** The answer is treated as a failure. The source's
-      health counter goes up, and repeated faults switch carry-over off with an alert to staff.
-5. After the cut-off, or when staff switch it off: the open rows expire, the hook answers "not applicable", and those
-   clients use "Forgot password" or a staff invitation (option 1a). Staff can send invitations to everyone not yet
-   migrated with one filter.
+1. **Setup.** The host turns on "Sign-in carry-over" on their WHMCS source. They add a **second** API credential
+   whose role grants only `ValidateLogin`, on the source's one base URL, and set a cut-off date (default 90 days, at
+   most 180). "Test" does three things:
+    - vets the host;
+    - records the TLS key (trust on first use);
+    - sends one check for a reserved `.invalid` address and expects "Email or Password Invalid".
+
+   It can also prove the endpoint is the same install, by comparing a `GetUsers` sample with the id map.
+2. **Rows.** The API import (client-import PR 8) creates a `migration_login_checks` row for each WHMCS user it turns
+   into a Mohar login with no password of its own. The row records the source, the WHMCS user id, a keyed hash of the
+   email, and **the placeholder hash the login got at import**.
+3. **Sign-in.** A client signs in on Mohar's normal form, and Mohar checks its own hash first. The kernel asks
+   Migration only when all of these hold:
+    - the login is not staff;
+    - `SignInGate` has no refusal;
+    - Migration says the login is `pending()`: its password is still the placeholder, its email is unchanged, the
+      cut-off has not passed, and the source and the install switch are on;
+    - the guess budget allows it.
+4. **The call.** Migration sends `ValidateLogin` with the email as imported and the typed password, to a pre-resolved
+   and pinned address, within a 5-second deadline. Then:
+    - **Success, `twoFactorEnabled` false, and `userid` exactly the recorded id:** Mohar writes its own hash by
+      compare-and-set against the placeholder. The sign-in continues normally.
+    - **Success with the flag true, or with no recognisable flag:** no sign-in. The client is mailed a link: a GET
+      shows a confirm page, and a POST from the same browser completes the sign-in through `CompleteSignIn`.
+    - **"Email or Password Invalid":** an ordinary failure that counts towards the lockout.
+    - **Anything else** (a mismatch, a malformed answer, a timeout, a 5xx, a changed TLS key): the ordinary failure,
+      not counted towards the lockout, and counted as a fault. Faults, spikes in Rejected answers and changes to the
+      destination pause the source.
+5. **After the cut-off**, or when staff pause carry-over: nothing is sent, and clients use "Forgot password" or an
+   invitation (option 1a).
 
 **Client experience.** For most clients nothing changes: same email, same password, and no mail. 2FA clients get one
 "confirm it's you" mail, then set up 2FA again. Clients who come back after the cut-off use "Forgot password" or their
-invitation. The login page shows a notice during the window: "Moved from our old client area? Your old password works
-until <date>." A per-host setting can turn it off.
+invitation. During the window, the login page says the old password works until the cut-off, and every failure
+message carries a Forgot password hint.
 
 **Host effort.**
 
-- Keep the old WHMCS running and reachable over HTTPS until the cut-off, on its **own hostname**
-  (`old.example.com`). The usual switch moves the old billing hostname to Mohar, so the old WHMCS needs a new one.
-  Mohar refuses a base URL that resolves to its own `APP_URL` host.
+- Keep the old WHMCS licensed, running and reachable over HTTPS until the cut-off, on its **own hostname**
+  (`old.example.com`). The usual switch moves the old billing hostname to Mohar. Mohar refuses any base URL whose
+  normalised hostname is one it serves.
 - Create the one-action credential.
-- Allow Mohar's egress IP. It is already on the API allow-list for the importer. The host should also whitelist it
-  against the login ban if WHMCS applies one (§7).
-- Leave the WHMCS client area closed, or redirect it to Mohar. It must stay open for API calls only. This is a
-  runbook item in `migration.md` §10.
+- Allow Mohar's egress IP, which is already on the API allow-list for the importer. Also whitelist it against the
+  login ban, if WHMCS applies one (§7).
+- Keep certificate keys stable during the window, or expect a pause on renewal (Q13(d)).
+- Close the WHMCS client area, or redirect it to Mohar; only the API stays open. This is a runbook item in
+  `migration.md` §10.
 
-**Security risks and mitigations.**
+**Security risks and mitigations** (the review finding in brackets).
 
 | Risk | Mitigation |
 | --- | --- |
-| The plaintext password travels to a second system | It is typed into Mohar's form anyway; it is sent onward only once per login, only to the host's own WHMCS, only over HTTPS with TLS verification. No `--allow-insecure`; plain `http://` is refused even on a private address. The connection is pinned through `OutboundAddressGuard` (ADR 0015; staff-entered infrastructure, so the install policy), no proxy, no redirects |
-| The password or WHMCS session token reaches a log | `password2` and `passwordhash` are added to the redaction keys (ADR 0023). The connector never logs request bodies. The token is dropped as soon as it is parsed and never stored. A test greps logs, failed-job payloads and activity rows for both |
-| The old WHMCS is compromised or its hostname taken over during the window and answers "success" for everyone | The answer must carry the `userid` recorded at import, which an attacker on the old host would have to know for each email. The window is short and bounded (at most 180 days). Faults and mismatches switch the source off. Each carry-over is an activity entry; the admin panel shows the daily count, and a spike is visible. The one-action credential means a stolen secret checks passwords and nothing else. Optional SPKI pin (§7, Q13d) |
-| The remote check becomes a guessing oracle | Remote checks run only after the local `login` limiter (5 a minute per email and IP), within a budget per login (5 an hour) and per source (5 a second, at most 4 at once). Counting is atomic, using the add-then-increment pattern of `PasswordGuesses` (#536, not `RateLimiter::increment`). Over budget, the answer is the ordinary failure without a call |
-| Mohar's egress IP gets banned by WHMCS and carry-over stops for everyone | The budgets above keep failures far below any ban threshold. The host whitelists the IP. A ban shows up as a health fault, not as wrong passwords |
-| Slow WHMCS holds PHP threads at sign-in, which is already the slowest page (`sizing.md`: p95 1.4 s at 40 users) | 5-second total timeout. At most 4 checks at once per source; over that, the answer is "try again in a moment". The call happens only for imported, not-yet-migrated logins, a population that shrinks every day |
-| Two sign-ins at once both write a hash | The row is locked and compared-and-set; the second sign-in re-checks the new local hash |
-| A weak WHMCS password is carried over (WHMCS before 9.1 had no 12-character minimum) | After a carry-over, the typed password is checked against Mohar's rules (`PasswordValidationRules`). If it fails, the client must choose a new one before using the client area (SHOULD) |
-| The email changed on one side after the import | Only the email as imported is sent, and only while the Mohar login still has it. Otherwise the row closes and the client uses "Forgot password". A WHMCS-side change is picked up by a delta run (§8 of client-import) |
+| An old WHMCS password overwrites a newer Mohar password (B1) | Eligibility is the password itself: the login must still hold its import placeholder. The write is a compare-and-set against it. No list of password writers to keep in step |
+| The hook becomes a harvest point for every wrong password (B2) | Never for staff; only after `SignInGate`; the secret crosses only after `pending()` says yes. One first-party implementer, enforced by an Arch test and a boot check (ADR 0012 Amendment (#555)). `#[\SensitiveParameter]` everywhere |
+| Whoever changes the URL or credential decides where passwords go (B3) | One base URL per source; any change pauses carry-over; the fields are read-only while it is on; Resume needs a fresh passing Test and step-up; an audit row and `SecurityNotice` to the owner, every `*` holder and the actor |
+| Sign-in stalls the small host (B4) | No DNS in the request (a cached, vetted address set from the health probe); a 2 s connect and 5 s total deadline; concurrency `max(1, threads/4)`, which is 1 on 4 threads; a bounded failure floor taken from the measured p95; a load-test scenario (ADR 0015 Amendment (#555)) |
+| A second sign-in path (B5) | The 2FA link signs in only through `CompleteSignIn`. PR 8c waits for ADR 0018 PR 0 |
+| The old host is compromised or its hostname taken over (M1) | The recorded TLS key is enforced per call and aborts before the request is sent; an issuer change pauses; the `userid` must match exactly; faults and spikes pause; the window is at most 180 days; the credential checks passwords and nothing else |
+| A malformed or changed answer skips the mailbox step (M2) | Fail-closed parsing. A missing or unknown 2FA flag means ConfirmByEmail; inconsistent fields are faults |
+| An outage locks clients out, or the cap leaks "imported" (M3) | Unavailable never fires `Failed`. The budget is counted before the call and refunded unless the password was wrong. Every refusal uses the ordinary text |
+| An incident needs a fast stop (M4) | Pause without step-up, effective on the next request; an install-wide environment switch; automatic pause on faults, TLS changes and Rejected spikes; metrics |
+| Mail scanners, or a link opened in the wrong browser (M5) | GET shows, POST consumes; a `__Host-` Lax cookie; a mismatch does not burn the token; everything is checked again on POST |
+| The password reaches a log or trace (M6) | `RedactionScope` with a `RedactionSet`; no HTTP-client events; Guzzle exceptions never reported; the email hash keyed with `InstallSecrets`; tested with `zend.exception_ignore_args` both on and off |
+| A weak WHMCS password is carried over (WHMCS before 9.1 had no 12-character minimum) | Checked against Mohar's rules after a carry-over; the client must change it first (SHOULD) |
 
-**Account enumeration.** Mohar's answer is the same text for an unknown email, a wrong password and a remote
-"invalid". Timing still differs: only an imported, unmigrated login waits for WHMCS. What it would leak is "this email
-belongs to an imported client". Two mitigations:
+**Accepted residuals** (for the security reviewer to probe):
 
-- while carry-over is on, every failed password sign-in waits until a fixed minimum time has passed (default 1 s,
-  with jitter) before answering;
-- the per-email login limiter bounds how many emails an attacker can probe.
+- A source slower than the floor reveals that the probed email is imported.
+- Twenty wrong guesses an hour can keep a victim's carry-over from being checked. The victim still has "Forgot
+  password".
+- Unavailable is not counted towards the lockout, so over many attempts the lockout behaves differently for
+  imported logins during an outage.
 
-Unknown emails are never sent to WHMCS. The "we emailed you a link" message appears only for a correct password on a
-2FA account (below), never for a wrong one. That avoids both enumeration and mail bombing. The residual leak is
-accepted, and the security reviewer should probe it.
+**2FA users.** WHMCS withholds its session token when 2FA is required, but it still says whether the password was
+right. We cannot check the second factor: the secret is encrypted with the source's key, which we never ask for. So
+the second proof is the mailbox, which is stronger than "Forgot password", where the mailbox alone is enough.
+Opening the link also gives the importer the "had 2FA" flag, which until now only the gap reader could provide.
 
-**2FA users.** WHMCS withholds its session token when 2FA is required, but it still says that the password was right.
-Mohar cannot check the second factor: the secret is encrypted with the source's key, which we never ask for. Signing in
-on the password alone would quietly lower the account's protection. So the second proof is the mailbox:
+**Sub-users.** Every WHMCS user becomes a Mohar login, owner or not, and each has its own row. A user linked to three
+client accounts migrates once and keeps all three links.
 
-- Mohar mails a single-use link to the login's own address (template `client.migration_confirm_signin`, always
-  sent). It is valid for 30 minutes and bound to the browser that started the sign-in by a nonce cookie stored hashed
-  with the token. This is the social sign-in SS-17 pattern.
-- The bcrypt hash of the typed password is held in the row until the link is opened, then stored on the login. If the
-  link is not used in time, the held hash is deleted.
-- At most 3 links an hour per login.
-- The login gets the "had 2FA" flag, which until now only the gap reader could give (§6.10), and sees "Set up two-factor
-  sign-in" after signing in.
-- This is a sign-in proof, not step-up, so it does not conflict with ADR 0018 §4. The ADR is still amended to say so.
+**What "verified" means for the email.** A carry-over does not set `email_verified_at`, because knowing a password
+does not prove the mailbox. The 2FA path does set it.
 
-**Sub-users.** Every WHMCS user becomes a Mohar login, whether owner or not (§6.11), and every login gets its own row.
-The check is per user, so a user linked to three client accounts migrates once and keeps all three links and their
-permissions. Contacts without a login (8.x contacts, and every pre-8.0 sub-account, Q10) have nothing to migrate.
+**Licence dependency: an open question, not a conclusion (M8).**
 
-**What "verified" means for the email.** A carry-over proves that the person knows the WHMCS password for that
-address. It does not prove they control the mailbox, so it **does not** set `email_verified_at`. Verification stays as
-imported from WHMCS's `email_verified` (§6.7), or comes from the mail flows. The 2FA path is the exception, because
-opening the link proves the mailbox, so it verifies the email. ADR 0018's rule that "verified 30 days ago" bounds the
-last email change still holds: a carry-over does not change the email.
-
-**Cut-off and admin progress.**
-
-- Per source: `login_carry_over_until`, a date on the company clock (ADR 0013), ending at 23:59:59 company time.
-  Default: 90 days after carry-over is turned on; at most 180. It can be shortened at any time and extended only up
-  to the maximum.
-- Migration → Sources → <WHMCS source> → **Sign-in carry-over**:
-    - a status line (on, off, or paused by faults, with the reason) and the days left;
-    - progress: eligible, carried over, confirmed by email (2FA), waiting for confirmation, expired, and the percentage;
-    - checks in the last 24 hours (accepted, refused, faults), and the last health probe;
-    - buttons: Test, Pause or Resume, Change the cut-off, and "Invite everyone not carried over", which opens the
-      invitation page with that filter.
-- Switching on, the cut-off and credential changes need `migration.sources.manage` and step-up. Viewing needs
-  `migration.runs.view`.
-
-**Licence dependency.** None beyond what the importer already relies on. It uses the host's own WHMCS through its
-documented API, with the host's credential, and it moves no data export. The host should know it calls one action
-that writes (the last-login time). That goes in the wizard text.
+- `docs/research/2026-10-31-whmcs-licence-terms.md` §5 puts a live `ValidateLogin` call under the same open points
+  as the importer:
+    - EULA §2.5, on automated extraction;
+    - handing credentials to a third party (that note's lawyer question 2);
+    - its own lawyer question 7, on first sign-in during or after a licence lapse.
+- It needs no database export, which is what makes it better placed than option 3. But it is not settled.
+- Product risk: the software stops when the licence ends (EULA §2.4.2, §5.3). A lapse mid-window shows up as
+  Unavailable, pauses carry-over and leaves clients to invitations. The wizard says so.
 
 **Implementation size and placement.**
 
-- **Kernel PR** (CTO): the contract and its null default (§4), the Fortify hook in the sign-in pipeline, the failed
-  sign-in time floor, the redaction keys and the ADR 0018 amendment, with tests. About 300 lines.
-- **client-import PR 8b** (after PR 8, which creates the user logins with WHMCS ids): the table, the connector call
-  (a second allowlist that names only `ValidateLogin`), the state machine, budgets, health, the cut-off, the plain
-  path and `ValidateLogin` in the simulator. About 900 lines.
-- **PR 8c**: the 2FA confirmation link and template, the admin panel, the login-page notice and the invitation
-  filter. About 700 lines.
-- PR 9 (gap reader) stays owner-gated and becomes less needed. `invoice-domain-import.md` is not affected: phase 3
-  imports no logins.
+- **PR 8a, kernel (CTO), about 450 lines.** It goes after ADR 0018 PR 0, or brings `SignInGate` and `CompleteSignIn`
+  forward. It contains:
+    - the contract and its null default;
+    - the `authenticateUsing` hook for both pipeline shapes;
+    - the Arch test and the boot check;
+    - the failure floor and the shared guess counter;
+    - `kernel-api.txt` and a kernel-changelog fragment.
+- **PR 8b, about 1,300 lines.** It contains:
+    - the table, eligibility, the call, parsing and the compare-and-set;
+    - budgets, the cap, the address cache and the TLS record;
+    - the change guards, kill switches and auto-pause;
+    - the simulator's `ValidateLogin` and its new faults;
+    - the load test.
+- **PR 8c, about 800 lines, after ADR 0018 PR 0.** It contains the 2FA link, the admin panel, the notice and the
+  invitation filter.
+- PR 9 (gap reader) stays owner-gated. `invoice-domain-import.md` is not affected.
 
-**Tests** (simulator scenarios; the full list is in `client-import.md` §20, criteria 54–70):
+**Tests.** `client-import.md` §20, criteria 54–82, on the WHMCS simulator (ADR 0016):
 
-- Plain carry-over: one call, then none.
-- Wrong password: a failure, counted.
-- 2FA account: the link, its browser binding and its expiry.
-- Hostile source: a wrong `userid`, a non-JSON answer, a redirect, or a base URL on Mohar's own host.
-- Faults: a timeout, a 5xx or an unknown action, each counted, and repeated ones pause the source.
-- Rate and concurrency caps; the time floor.
-- The cut-off moment on the company clock.
-- Redaction: a log grep.
-- Sub-users: one carry-over for a user with three links.
-- A changed email; two parallel sign-ins.
-- `MODULES=Core` (Migration absent): password sign-in unchanged.
-
-The simulator gains `ValidateLogin` (scenario users with email, password, user id and a 2FA flag) and control actions
-for an outage, slowness, a removed action, a wrong user id and a login ban.
+- The simulator gains `ValidateLogin`, with scenario users that have an email, a password, an id and a 2FA flag.
+- It gains two faults: a 3xx with `Location`, and a 200 with a non-JSON body.
+- The scenario CA is trusted only in `testing`, failing closed as `Endpoints` does.
+- Guard cases use a fake resolver, and timing uses `Sleep::fake()`.
 
 ### Option 3 — Import hashes through the §3.3 gap reader
 
@@ -319,7 +302,8 @@ expense on the next sign-in.
 accepted from a file (§6.9). 2FA logins never get a carried hash. `migration.imported_password_max_days` limits stale
 ones.
 
-**Licence dependency.** Full: it needs a database export from the host (owner questions §8, items 1 and 2).
+**Licence dependency.** Full: it needs a database export from the host (§8, items 3 and 4; licence note §6, lawyer
+questions 1 to 3).
 
 **Size.** client-import PR 9, about 1,000 lines with fixtures. Fixtures need a real export (Q11).
 
@@ -351,7 +335,8 @@ WHMCS reachable to browsers, not just to Mohar.
 nonce, `iss` and `aud` checks, an unverified email (the docs do not document `email_verified`, so matching by email
 needs the imported-email rule above), and an account linked by email (social sign-in SS-17 says never silently).
 
-**Licence dependency.** None.
+**Licence dependency.** No export, but it is a live use of the host's install, so the same open points apply as for
+option 2 (licence note §5). A question for the owner or a lawyer.
 
 **Size.** Large. It needs ADR 0018's PR 0 (`SignInMethods`, `CompleteSignIn`, `SignInGate`), which is not built.
 Today `app/Actions/Fortify` has none of them. It also needs an OIDC client (Socialite's generic driver, or our own
@@ -390,54 +375,60 @@ hosts ask for it after the social sign-in module (which brings the same kernel) 
 | --- | --- | --- | --- | --- |
 | Avoids a reset for returning clients | No | **Yes, within the window** | Yes, always | No (deferred) |
 | Mails sent | One per login | Only 2FA confirmations and the remainder | None | None |
-| Needs a DB export | No | **No** | Yes | No |
+| Needs a DB export | No | **No** (licence point still open) | Yes | No |
 | Old WHMCS reachable | No | Until cut-off (API only) | No | Until cut-off (browsers) |
 | Host effort | Low | Low | High | Medium |
 | Plaintext password leaves Mohar | No | Once per login, to the host's own WHMCS | No | No |
 | 2FA accounts | Invitation | Mailbox confirmation, 2FA flag known | No hash, invitation | WHMCS's 2FA applies |
-| Kernel change | None | One contract (§4) | One column | ADR 0018 PR 0 |
-| Size | Built | ~1,900 lines in 3 PRs | ~1,000 | ~1,500 after PR 0 |
+| Kernel change | None | One closed contract (§4), after ADR 0018 PR 0 | One column | ADR 0018 PR 0 |
+| Size | Built | ~2,550 lines in 3 PRs | ~1,000 | ~1,500 after PR 0 |
 | Depends on WHMCS keeping the feature | No | Yes (deprecation notice) | No | Yes |
 
-## 4. Kernel shape (for the CTO, ADR 0018 amendment)
+## 4. Kernel shape (for the CTO; ADR 0018, 0012 and 0015 Amendments (#555))
 
 The Fortify sign-in pipeline (`app/Actions/Fortify`, `FortifyServiceProvider`) cannot import the Migration module.
-The smallest hook is one contract with a null default and a single binder. It is not a registry, because there is only
-one implementer and nothing else would ever register:
+So the hook is one contract with a null default and one first-party implementer. It is not a registry, and after the
+review it is explicitly closed to packages (B2).
 
 ```php
 namespace App\Contracts\Auth;
 
+/** Not an extension point: one first-party implementation (ADR 0012 Amendment (#555)). */
 interface PendingPasswordCheck
 {
-    // Called only after the local password check failed, inside the login limiter. Never inside a transaction.
-    public function check(User $user, string $password, Request $request): PendingPasswordOutcome;
-
-    // True while any source may answer, so the failed sign-in time floor applies.
+    /** True while any source may answer, so the failure floor applies. Cached; never remote; never throws. */
     public function active(): bool;
+
+    /** Whether this login has an open carry-over. Receives no secret. Cached; never remote; never throws. */
+    public function pending(User $user): bool;
+
+    /** Only for a non-staff login, after SignInGate, when pending() is true. Never inside a transaction. */
+    public function check(User $user, #[\SensitiveParameter] string $password, string $ip): PendingPasswordOutcome;
 }
 
+/** Closed: a new case needs an ADR amendment (ADR 0010). */
 enum PendingPasswordOutcome: string
 {
-    case NotApplicable = 'not_applicable'; // no open carry-over for this login
-    case Verified = 'verified';            // the implementer stored the new local hash; continue the sign-in
-    case ConfirmByEmail = 'confirm';       // correct, but the source had 2FA; a link was mailed, no sign-in
-    case Rejected = 'rejected';            // wrong password at the source; an ordinary failure
-    case Unavailable = 'unavailable';      // the source could not answer; an ordinary failure, counted as a fault
+    case NotApplicable = 'not_applicable';
+    case Verified = 'verified';        // the new hash was written by compare-and-set against the placeholder
+    case ConfirmByEmail = 'confirm';   // the source had 2FA, or its flag was missing; a link was mailed
+    case Rejected = 'rejected';        // wrong password at the source; fires Failed
+    case Unavailable = 'unavailable';  // no usable answer; no Failed, not a lockout failure
 }
 ```
 
-- Core binds `NullPendingPasswordCheck` with `bindIf` (always `NotApplicable`, `active()` false). Migration binds its
-  implementation. With `MODULES=` excluding Migration, sign-in is exactly as today.
-- The caller is the password-validation step of the sign-in pipeline (`Fortify::authenticateUsing`, or
-  `RememberValidatedLogin::validateCredentials`; the builder picks one and a pipeline test pins it). A `Verified`
-  outcome continues into the same 2FA and session steps as a local match. `ConfirmByEmail` answers with a status
-  message and no session.
-- Step-up (`confirmPasswordsUsing`) never calls it. A login in a session already has a local password.
-- **Must not be added:** a second sign-in route or controller for imported logins; a "migration" sign-in method in
-  `SignInMethods` (this is the password method); an event per carry-over (the activity log and the table's counts are
-  enough, and an event would have no consumer); a generic "external password provider" registry; any column on
-  `users` (the state lives in Migration's table).
+- **Binding.** Core binds the null implementation with `bindIf`. Migration binds the real one. An Arch test and a
+  boot check allow nothing else.
+- **The caller** is `Fortify::authenticateUsing`, which covers the pipeline with 2FA on and off (M7). The kernel
+  maps any `Throwable` from `check()` to Unavailable.
+- **Not step-up.** Step-up never calls it.
+- **Must not be added:**
+    - a second implementer;
+    - any sign-in route other than the one confirmation pair, which signs in through `CompleteSignIn`;
+    - a "migration" entry in `SignInMethods`;
+    - an event per carry-over;
+    - a generic external-password registry;
+    - any column on `users`.
 
 ## 5. Recommendation
 
@@ -452,12 +443,22 @@ enum PendingPasswordOutcome: string
 
 ## 6. What changes in the specs
 
-- `client-import.md`: new §3.4 (this design), A9 in §2, §6.9 and §6.10 updated, a permission note in §11, C11 and C12
-  in §16, PRs 8b and 8c in §19, criteria 54–70 in §20, Q13 in §21, and the sources in §23.
-- `migration.md` §2.1: one note: a second allowlist, under its own credential, that names only `ValidateLogin`; the
-  read-only allowlist is unchanged.
-- ADR 0018: Amendment (#555), Proposed: the hook, the mailbox confirmation, verification semantics, and what must not
-  be added.
+- `client-import.md`:
+    - new §3.4, the binding requirements, with every #555 review finding;
+    - A9 in §2;
+    - §6.9 and §6.10 updated;
+    - a permission note in §11;
+    - C11 and C12 in §16;
+    - PRs 8a to 8c in §19;
+    - criteria 54–82 in §20;
+    - Q13 in §21;
+    - the sources in §23.
+- `migration.md` §2.1: a note on the second allowlist, which names only `ValidateLogin`. It has its own credential,
+  which is a separate `EncryptedStorage` entry and shares the base URL. The read-only allowlist is unchanged.
+- ADR 0018 Amendment (#555), Proposed: the hook, outcomes and lockout, the confirmation route, verification and
+  secrets.
+- ADR 0012 Amendment (#555), Proposed: kernel contracts that receive secrets are closed to packages.
+- ADR 0015 Amendment (#555), Proposed: outbound calls made inside a user request.
 
 ## 7. Verify before relying on it (simulator assumptions until a real 8.x/9.x response is seen)
 
@@ -472,25 +473,33 @@ enum PendingPasswordOutcome: string
 6. Behaviour on WHMCS Cloud (the API is the same; the OIDC developer page is self-hosted only).
 7. For option 3: the 8.x/9.x client hash prefix in a real export, and whether 9.x changed the user algorithm as it did
    for admins.
+8. Whether WHMCS writes `ValidateLogin` parameters, including `password2`, to any log on the old host (the API log or
+   the activity log). That would leave passwords there, and the wizard would have to tell hosts to turn that logging
+   off or purge it (L2).
+9. Whether a successful `ValidateLogin` makes WHMCS send the client a sign-in notice or alert, which clients would
+   receive from the old system (L2).
 
-Sample responses from a test install with fake data (Q11) settle items 1, 3 and 4. Items 2 and 5 need a host to try
-them.
+Sample responses from a test install with fake data (Q11) settle items 1, 3 and 4. Items 2, 5, 8 and 9 need a host to
+try them.
 
 ## 8. Owner questions (not legal advice)
 
+These are `client-import.md` Q13.
+
 1. **Approve option 2 as the default**, with a 90-day default window and a 180-day maximum?
 2. **Sending the password onward.** Is it acceptable that Mohar forwards a returning client's typed password once,
-   over TLS, to the host's own WHMCS? Hosts might want this mentioned in their privacy notice. Should the wizard say
-   so?
-3. **Licence.** Option 2 uses only the host's own API access, which the 2026-10-17 decision already relies on. Does
-   the owner see any difference in calling an action that authenticates a user and updates the last-login time,
-   rather than one that only reads?
-4. **Option 3 stays parked** until the existing licence question (schema note §6, item 2) has an answer: may a host
-   hand an export of their own WHMCS data to a third-party tool?
-5. **2FA path.** Is a mailbox confirmation an acceptable second proof for accounts that had 2FA at WHMCS, or should
-   those accounts always use the invitation?
-6. **Hostile old host.** Offer an optional TLS key pin for the old WHMCS (it breaks if the host changes its
-   certificate key during the window), or rely on the user-id check and the short window?
+   over TLS, to the host's own WHMCS? Should the wizard tell hosts to mention it in their privacy notice?
+3. **Licence, for the owner or a lawyer.** A live `ValidateLogin` call sits under the open points of
+   `docs/research/2026-10-31-whmcs-licence-terms.md` §5: EULA §2.5, and handing credentials to a third party (its
+   lawyer question 2). It also has its own question: limits to a first-sign-in check, including during or after a
+   licence lapse (its lawyer question 7). The call also updates the last-login time at the source.
+4. **Option 3 stays parked** until the licence note's export question has an answer: may a host hand an export of
+   their own WHMCS data to a third-party tool?
+5. **2FA path.** The mailbox plus the password is stronger than "Forgot password". Recommendation: yes, with 2FA
+   enrolment prompted at the next sign-in.
+6. **TLS key changes.** The key is recorded on first use and enforced on every call, so a renewal that changes the key
+   pauses carry-over until staff re-run Test. Is that acceptable? The wizard would advise reusing the key during the
+   window.
 
 ## 9. Sources (all read 2026-10-31)
 
@@ -525,6 +534,6 @@ them.
 - Our documents and code: `billing/docs/product/client-import.md` (A6, §3.3, §6.7, §6.9 to §6.11, Q1, Q2),
   `billing/docs/product/migration.md` §2, `billing/docs/product/social-sign-in.md` (SS-17), ADRs 0013, 0015, 0016,
   0018, 0019, 0022 and 0023, `docs/research/2026-10-31-whmcs-schema-sources.md` (§6, Q1b),
-  `docs/research/2026-10-31-whmcs-docs-coverage.md` §6, `docs/handoff/requirements.md` (2026-10-17),
+  `docs/research/2026-10-31-whmcs-docs-coverage.md` §6, `docs/research/2026-10-31-whmcs-licence-terms.md` (§5, §6), `docs/handoff/requirements.md` (2026-10-17),
   `billing/docs/devops/sizing.md`, `billing/app/Actions/Fortify/{PasswordGuesses,RememberValidatedLogin,SignInValidatedUser}.php`,
   `billing/app/Contracts/Auth/ClientLoginInvitations.php`, `billing/tools/simulators/src/Providers/Whmcs/`.

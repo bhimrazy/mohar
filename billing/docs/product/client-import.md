@@ -106,85 +106,231 @@ the owner:
 
 ### 3.4 Sign-in carry-over through the WHMCS API (phase 2a.2, SHOULD; proposed 2026-10-31, Q13)
 
-Research and the comparison of options: `docs/research/2026-10-31-whmcs-login-migration.md`. Kernel hook: ADR 0018
-Amendment (#555).
+Research and the comparison of options: `docs/research/2026-10-31-whmcs-login-migration.md`. Requirements B1–B5,
+M1–M9 and L1–L5 come from the #555 design review, and the CTO accepted them all. Kernel rules: ADR 0018 Amendment
+(#555), ADR 0012 Amendment (#555) (contracts that receive secrets) and ADR 0015 Amendment (#555) (outbound calls inside
+a request). All three are Proposed until the owner answers Q13.
 
 The goal is that returning clients sign in with their old email and password and never reset them. WHMCS documents
 `ValidateLogin`: it checks an email and password against a WHMCS user and returns `userid`, `twoFactorEnabled` and a
 WHMCS session token. The token comes back only when no 2FA is required (API reference, read 2026-10-31). We check each
-password once, at the client's first Mohar sign-in, and then keep our own hash. No hash or export moves, so this works
-under the API-only decision (Q1).
+password once, at the client's first Mohar sign-in, and then keep our own hash. No hash or export moves. Whether the
+licence terms reach this live call is an open question for the owner or a lawyer (Q13(c)).
 
-- **Setup (per WHMCS source).**
-    - A second API credential whose role grants only `ValidateLogin`. It is stored encrypted and declared in
-      `EncryptedStorage` (ADR 0022).
-    - A base URL on HTTPS whose host is not Mohar's own `APP_URL` host. The old billing hostname usually moves to
-      Mohar, so the old WHMCS keeps a hostname of its own.
-    - A cut-off date, `login_carry_over_until`, on the company clock (ADR 0013, ending 23:59:59): default 90 days after
-      switching on, at most 180. It can be shortened at any time and extended only up to the maximum.
-    - "Test" sends one check for a reserved `.invalid` address and expects "Email or Password Invalid". It shows any
-      other answer with its reason.
-    - The wizard says that `ValidateLogin` updates the last-login time at the source, so it is not a read-only call.
-- **Eligibility.**
-    - The WHMCS API run (PR 8) writes one `migration_login_checks` row per WHMCS user it turns into a Mohar login that
-      has no password of its own: owners and non-owner users alike (§6.11).
-    - CSV-only logins are not eligible, and neither are contacts or logins from WHMCS before 8.0 (Q10).
-    - A row closes when the login gets a password any other way: an invitation, a reset, or staff setting one.
-- **Sign-in.** Mohar's own hash is checked first. Only when it fails does the kernel hook (`PendingPasswordCheck`,
-  ADR 0018 amendment) ask Migration. Migration calls `ValidateLogin` when all of these hold:
+**Setup (per WHMCS source)**
+
+- **One base URL per source.** The importer credential and the carry-over credential share it; there is no separate
+  carry-over URL (B3).
+- **A second API credential** whose role grants only `ValidateLogin`. It is its own `EncryptedStorage` entry
+  (ADR 0022) and is rotated on its own (L4).
+- **The host rule (M1).** The base URL is HTTPS. Its hostname is normalised (IDNA to ASCII, lower case, trailing dot
+  removed) and compared with every host Mohar serves: the `APP_URL` host and the client-area, admin and storefront
+  domains with their aliases. A match is refused. The rule compares hostnames; it does not resolve them. The old
+  billing hostname usually moves to Mohar, so the old WHMCS keeps a hostname of its own.
+- **The cut-off** is `login_carry_over_until`, on the company clock (ADR 0013, ending 23:59:59). Default: 90 days
+  after switching on; at most 180.
+- **"Test"** runs these checks in order:
+    1. It resolves and vets the host through `OutboundAddressGuard`.
+    2. It records the TLS leaf's SPKI (SHA-256) and the issuer: trust on first use (M1).
+    3. It sends one `ValidateLogin` for a reserved `.invalid` address and expects "Email or Password Invalid".
+    4. SHOULD: it proves the endpoint is the same install. It fetches a sample of users with the read-only importer
+       credential (`GetUsers`) and compares their id and email pairs with the id map.
+
+  Its output follows ADR 0015's `Redactor::excerpt()` rule (L3). A passing Test is recorded together with a
+  fingerprint of the values it ran against.
+- **The wizard says three things.**
+    - `ValidateLogin` updates the last-login time at the source.
+    - The host must keep WHMCS licensed and running until the cut-off. A licence that lapses mid-window shows up as
+      Unavailable answers, which pause carry-over and leave clients to invitations (M8).
+    - Carry-over sends each returning client's typed password once to the host's WHMCS.
+- **Permissions (M4).** Switching on, Resume and extending the cut-off need `migration.sources.manage` and step-up.
+  Pause, shortening the cut-off and switching off need the permission only, because they reduce risk.
+
+**Changes to where passwords go (B3)**
+
+- Changing the base URL or either credential pauses carry-over at once.
+- While carry-over is on, those fields are read-only; staff pause it first.
+- Resume needs step-up and a passing Test whose fingerprint matches the current values. Otherwise Resume is refused.
+- Every change writes an audit entry with the actor, the old and new host, and "credential replaced" (never a value).
+- Every change sends `SecurityNotice` to the install owner, every holder of `*`, and the actor.
+- **The recorded SPKI is enforced on every call** (`CURLOPT_PINNEDPUBLICKEY`). A mismatch aborts the connection
+  before any request byte is sent. It counts as a fault, pauses the source and sends the same notice.
+- The scheduled health probe compares the issuer too. Re-accepting a new key or issuer means a new Test, then Resume.
+
+**Eligibility (B1)**
+
+- The WHMCS API run (PR 8) writes one `migration_login_checks` row per WHMCS user it turns into a Mohar login that
+  has no password of its own. That covers owners and non-owner users alike (§6.11).
+- The row records:
+    - the source and the WHMCS user id;
+    - **the placeholder hash the login received at import** (§6.9);
+    - a keyed hash of the email as imported, keyed with an `InstallSecrets` secret, not `APP_KEY` (ADR 0022 rule 1;
+      M6).
+- CSV-only logins are not eligible, and neither are contacts or logins from WHMCS before 8.0 (Q10).
+- `pending(User)` is true only when **all** of these hold:
+    - the login is not staff;
     - the row is open;
-    - the login's email still equals the email as imported (a keyed hash);
+    - `users.password` still equals the recorded placeholder (`hash_equals`);
+    - the email hash matches;
     - the cut-off has not passed;
-    - the source is not paused;
-    - the budgets allow it.
+    - the source is on and not paused;
+    - the install kill switch is off.
+- Eligibility does not depend on a list of password writers. Any password change, through any path present or
+  future, makes `users.password` differ, and the login stops being pending. A row found in that state is closed.
+- `pending()` and `active()` read only the row and a cache entry. They never make a remote call and never throw
+  (ADR 0020; L1).
 
-  The call uses the email as imported and the typed password, over `OutboundAddressGuard` (ADR 0015: pinned, no
-  proxy, no redirects, TLS verified, `http://` refused).
-    - Success with `twoFactorEnabled` false and the `userid` recorded at import: in one locked transaction, store Mohar's
-      bcrypt hash of the typed password and mark the row `migrated`. The sign-in continues like any password sign-in.
-      The session token is discarded unread.
-    - Success with `twoFactorEnabled` true: no sign-in. The bcrypt hash is held in the row for 30 minutes, and a
-      single-use link goes to the login's address, bound to the browser by a nonce cookie (the social sign-in SS-17
-      pattern). Opening the link stores the hash, verifies the email, signs the client in through the normal session
-      steps, and sets the "had 2FA" flag (§6.10). The template is `client.migration_confirm_signin`, always sent; at
-      most 3 links an hour per login.
-    - "Email or Password Invalid": an ordinary failed sign-in.
-    - A different `userid`, a malformed answer, a redirect, a timeout, a 5xx or an unknown action: a failed sign-in and
-      a **fault**. 10 faults in 10 minutes, or one "unknown action" (WHMCS has said `ValidateLogin` may be deprecated),
-      pause the source and alert staff.
-- **Budgets and timing.**
-    - The remote check runs after the `login` limiter, within 5 checks an hour per login, and within 5 a second and at
-      most 4 at once per source.
-    - Counting is atomic, with the add-then-increment pattern of `PasswordGuesses` (#536).
-    - Timeout: 5 seconds in total. Over the concurrency cap, the answer is "try again in a moment" and no call is made.
-    - While any source has carry-over on, every failed password sign-in answers no sooner than
-      `migration.login_carry_over.min_failure_ms` (default 1000, with jitter), so the remote wait does not reveal
-      which emails are imported.
-    - The answer text is the same for an unknown email, a wrong password, a remote refusal and a fault. Unknown emails
-      are never sent to WHMCS.
-- **After a carry-over.**
-    - `email_verified_at` is unchanged, because knowing the password does not prove the mailbox (§6.7). The 2FA path
-      above is the exception.
-    - The typed password is checked against Mohar's rules. When it fails them, the client must choose a new one before
-      using the client area (SHOULD).
-    - The activity log records `auth.password_carried_over` with the source, never the password.
+**Sign-in (B2, M3, M7)**
+
+The hook is `Fortify::authenticateUsing`, which both pipeline shapes honour: `RedirectIfTwoFactorAuthenticatable`
+when 2FA is on, `AttemptToAuthenticate` when it is off. In order:
+
+1. Fortify's `login` limiter and Platform's lockout middleware run unchanged.
+2. The login is found by email. Mohar checks its own hash.
+3. If that fails:
+    - the login is not staff;
+    - `SignInGate::refusal()` returns null (disabled login, closed client, lockout);
+    - `pending()` is true;
+    - the budget allows a check.
+4. Only then is `check(User, #[\SensitiveParameter] string $password, string $ip)` called.
+
+The kernel wraps `check()` and maps any `Throwable` to Unavailable. It logs a fixed sentence and the exception class
+only.
+
+| Outcome | What happens |
+| --- | --- |
+| Verified | The sign-in continues through the same 2FA and session steps as a local match |
+| Rejected | Fortify's `Failed` event fires, so the lockout counts it, and the ordinary failure message is shown |
+| Unavailable | The ordinary failure message, **without** the `Failed` event, so an outage locks nobody out (M3) |
+| ConfirmByEmail | No session. "We have emailed you a link to finish signing in." |
+| NotApplicable | The ordinary failure, as today |
+
+During the window, every failure message, for every email alike, carries a hint: "Moved from our old client area?
+Use Forgot password if your old password does not work."
+
+**The call (B4, M1, M2, M6)**
+
+- **Timing.** Synchronous, inside the sign-in request: never queued, cached or put in a job payload (MUST).
+- **Destination.** The call connects to the cached address set that the scheduled health probe resolved and vetted
+  through `OutboundAddressGuard`, with a TTL of at most 5 minutes. The sign-in path never resolves DNS. A cache miss
+  means Unavailable (ADR 0015 Amendment (#555)).
+- **Connection options.**
+    - pinned through `pinOptions()`, so the proxy is bypassed;
+    - `allow_redirects => false`;
+    - `CURLOPT_PROTOCOLS` and `CURLOPT_REDIR_PROTOCOLS` set to HTTPS;
+    - TLS verification with the system CA bundle, which cannot be switched off;
+    - the SPKI pin;
+    - `connect_timeout` of 2 s and a total of 5 s, covering connect, TLS and body.
+- **Response.** The body must parse as JSON and be at most 64 KB. Anything else is a fault.
 - **Secrets.**
-    - `password2` and `passwordhash` join the redaction keys (ADR 0023).
-    - The connector never logs request bodies.
-    - The password is never stored in plain text, queued, cached or put in a job payload. The call is synchronous
-      inside the sign-in request.
-- **After the cut-off** (or when staff pause or switch it off): the open rows expire, and the hook answers "not
-  applicable". Those clients use "Forgot password", or the invitation (§5.7), whose page gains the filter "not carried
-  over".
-- **Admin.** Migration → Sources → <source> → Sign-in carry-over:
-    - the status (on, paused with the reason, or off) and the days left;
-    - counts: eligible, carried over, confirmed by email, waiting for confirmation, expired, and the percentage;
-    - the last 24 hours: accepted, refused, faults; the last test;
-    - actions: Test, Pause or Resume, Change the cut-off, and Invite everyone not carried over.
+    - The call runs inside `RedactionScope::during()`, with a `RedactionSet` holding the typed password and the API
+      secret.
+    - `#[\SensitiveParameter]` marks the password parameter on the contract, every implementation, the connector's
+      send and any hasher wrapper. PHP does not inherit the attribute.
+    - The connector uses a Guzzle client directly, not Laravel's `Http` client, whose events carry the request.
+    - A Guzzle exception is never reported or logged. It becomes a fixed sentence plus its class.
+    - The password is never put on request attributes, in the session or in old input.
+    - ADR 0023 has no global key list. `password2` and `passwordhash` are already masked by its `password` rule.
+- **Parsing is fail-closed (M2).** Verified requires all of these:
+    - `result` is exactly `"success"`;
+    - `userid` is a positive integer (a JSON integer, or a string of digits with no leading zero, sign or space) equal
+      to the mapped WHMCS user id. `"01"`, `" 1"` and `1.0` are faults;
+    - `twoFactorEnabled` is in the closed set `true`, `false`, `"true"`, `"false"`, `1`, `0`, `"1"`, `"0"`.
 
-  Changing anything needs `migration.sources.manage` and step-up. Viewing needs `migration.runs.view`.
-- **Client.** During the window the sign-in page shows "Moved from our old client area? Your old password works until
-  <date>." It is on by default per source, and the date is in the client's language.
+  Edge cases:
+    - A missing or unrecognised flag means **ConfirmByEmail**, never a plain sign-in.
+    - `passwordhash` missing while the flag is false is a fault, and so is `passwordhash` present while the flag is
+      true.
+    - `result: "error"` with "Email or Password Invalid" is Rejected. Any other error is a fault, answered as
+      Unavailable.
+    - The session token is discarded after parsing.
+    - The 2FA flag is trusted as far as the source is trusted, which the B3 controls bound.
+- **Writing the hash (B1).** Verified is a compare-and-set in one transaction:
+  `UPDATE users SET password = :new WHERE id = :id AND password = :placeholder`, then the row becomes `migrated`.
+  If zero rows change, a password was set meanwhile. The answer is NotApplicable and the new password stays.
+
+**Budgets and capacity (B4, M3)**
+
+- **Guesses.** The budget is counted before the call and refunded unless the source said the password was wrong. So
+  Verified, ConfirmByEmail and Unavailable are refunded. The shape and the atomic counting are `PasswordGuesses`'
+  (#536): 5 per login and IP per minute, and 20 per login per hour. PR 8a extracts the counting so both use one
+  implementation. Over budget, no call is made and the ordinary failure is shown.
+- **Accepted residual.** Twenty wrong guesses an hour can keep a victim's carry-over from being checked. The victim
+  sees the ordinary failure with the Forgot password hint.
+- **Concurrency.** The cap is install-wide: `max(1, intdiv(php_threads, 4))`, which is 1 on the 4-thread small
+  profile. `php_threads` is a config value that the deploy sets. Over the cap, no call is made and the **ordinary
+  failure text** is shown, never "try again" (M3).
+- **Failure floor.** While `active()` is true, a failed password sign-in answers no sooner than the measured p95 of
+  remote checks over the last hour, clamped to 300 ms–2 s, plus jitter. At most `max(1, intdiv(php_threads, 4))`
+  requests wait in the floor at once; others answer at once.
+- **Accepted residual.** A slow source, up to the 5 s timeout, exceeds any floor and reveals that the probed email is
+  imported.
+
+**Kill switches and alerts (M4)**
+
+- **Per-source Pause.** It takes effect on the next request: `active()` and `pending()` read a cache entry that the
+  pause clears.
+- **Install-wide switch.** `MIGRATION_LOGIN_CARRY_OVER=off` (`migration.login_carry_over.enabled`) makes the
+  implementation behave as the null one.
+- **Automatic pause and a staff alert** happen on any of these:
+    - 10 faults in 10 minutes;
+    - one "unknown action" answer (WHMCS has said `ValidateLogin` may be deprecated);
+    - an SPKI or issuer change;
+    - a spike in Rejected answers: more than 50 in 10 minutes, or more than 80% of at least 30 checks in an hour.
+      This catches credential stuffing; the thresholds are settings.
+- **Metrics** (ADR 0014): counts per outcome and remote latency.
+
+**Accounts with 2FA at WHMCS (M5, B5)**
+
+- **The token.** At least 32 random bytes, stored as SHA-256 and compared in constant time. It is bound to the row,
+  the login, the source and the email hash at issue. It expires 30 minutes after issue (an absolute UTC time). A new
+  link replaces the previous one.
+- **Limits.** At most 3 links an hour per login. A fourth request gets the same message and no mail.
+- **The held hash.** The bcrypt hash of the typed password is held in the row until the link is used. A scheduled
+  purge deletes it at expiry.
+- **The binding cookie.** `__Host-` prefix, `HttpOnly`, `Secure`, `SameSite=Lax` (Strict would drop it on the click
+  from webmail). Its random value is stored hashed with the token. The implementation sets it with `Cookie::queue`.
+- **Opening the link.** A **GET only shows a confirm page.** It neither consumes the token nor deletes the held hash,
+  so mail-scanner prefetches do no harm. **A POST with CSRF consumes it**, by an atomic compare-and-set on
+  `used_at IS NULL AND expires_at > now`. A binding mismatch is refused and logged, but it does not burn the token,
+  so the client can retry from the right browser.
+- **On the POST, everything is checked again:**
+    - the B1 compare-and-set still holds;
+    - the email has not changed;
+    - the cut-off has not passed;
+    - the source is not paused, and the kill switch is off;
+    - `SignInGate` allows the login.
+
+  Then the hash is stored, the email is verified and the "had 2FA" flag is set (§6.10). The client is signed in only
+  through `CompleteSignIn::for($request, $user, 'password')` (ADR 0018 §3).
+- **Routes.** This pair (`login.carry-over.show` and `login.carry-over.confirm`) is the one confirmation route the
+  ADR 0018 amendment allows.
+- **The mail.** The template is `client.migration_confirm_signin`, always sent. The mail holds only the link, says
+  what to do if the request was not yours, and never shows the password.
+- **After sign-in,** the next sign-in prompts the client to set up 2FA.
+
+**After a carry-over**
+
+- `email_verified_at` is unchanged, because knowing the password does not prove the mailbox (§6.7). The 2FA path is
+  the exception.
+- The typed password is checked against Mohar's rules. When it fails them, the client must choose a new one before
+  using the client area (SHOULD).
+- The activity log records `auth.password_carried_over` with the source, never the password.
+
+**After the cut-off**, or when staff pause or switch it off: the open rows expire and `pending()` is false. Those
+clients use "Forgot password", or the invitation (§5.7). The invitation page gains the filter "not carried over".
+
+**Admin.** Migration → Sources → <source> → Sign-in carry-over:
+
+- the status (on, paused with the reason, or off) and the days left;
+- counts: eligible, carried over, confirmed by email, waiting for confirmation, expired, and the percentage;
+- the last 24 hours: accepted, refused, faults, and the remote p95; the last Test and its TLS record;
+- actions: Test, Pause or Resume, Change the cut-off, and Invite everyone not carried over.
+
+Viewing needs `migration.runs.view`.
+
+**Client.** During the window the sign-in page shows "Moved from our old client area? Your old password works until
+<date>." It is on by default per source, and the date is in the client's language.
 
 ## 4. Entities and key fields
 
@@ -584,6 +730,13 @@ Sensitive permissions are never granted by a wildcard (security standards §2). 
 source credentials sit behind `password.recent` (ADR 0018 §4); a login without a password cannot pass step-up, so the
 response offers "Set a password".
 
+Carry-over (§3.4) has an exception and an extra rule:
+
+- Pausing it, shortening its cut-off and switching it off need the permission only, not step-up, because they reduce
+  risk.
+- Switching on, Resume and extending need step-up.
+- A change to the base URL or either credential is audited and sends `SecurityNotice`.
+
 Audit (`ActivityLogger`, fixed sentences, values in properties, nothing secret): run uploaded, mapping saved, run
 confirmed (counts), run completed, invitations sent (count), run undone (counts), file deleted, payload purged; and one
 entry per created or updated client ("Client created by import", with the run). For 50,000 clients the per-client entries
@@ -660,7 +813,7 @@ Platform owns invitations, so Migration reaches them through a contract.
 | C8  | Billing-internal: `CreditReason::Import` and the `billing.credit_balance` importer                                                                                                                                                                                                                                                                                                                                                      | §6.12                               |
 | C9  | Notifications template key `client.migration_invitation`                                                                                                                                                                                                                                                                                                                                                                                | Every mail has an editable template |
 | C10 | `clients.email_changed_at` shared with cPanel 3b-2 (#95)                                                                                                                                                                                                                                                                                                                                                                                | §6.2                                |
-| C11 | Kernel `App\Contracts\Auth\PendingPasswordCheck::check(User, string $password, Request): PendingPasswordOutcome` and `active(): bool`, enum `App\Enums\PendingPasswordOutcome` (NotApplicable, Verified, ConfirmByEmail, Rejected, Unavailable); Core null default with `bindIf`; called by the sign-in pipeline only after the local password check fails; failed sign-in time floor while `active()`; redaction keys `password2`, `passwordhash` (ADR 0018 Amendment (#555), ADR 0023) | §3.4; Fortify cannot import Migration |
+| C11 | Kernel `App\Contracts\Auth\PendingPasswordCheck`: `active(): bool`, `pending(User): bool` and `check(User, #[\SensitiveParameter] string $password, string $ip): PendingPasswordOutcome`; closed enum `App\Enums\PendingPasswordOutcome` (NotApplicable, Verified, ConfirmByEmail, Rejected, Unavailable); Core null default with `bindIf`; one first-party implementer (Arch test and boot check); called through `Fortify::authenticateUsing` only for non-staff logins after `SignInGate`; failure floor while `active()`; shared guess counting extracted from `PasswordGuesses` (ADR 0018, 0012 and 0015 Amendments (#555)) | §3.4; Fortify cannot import Migration |
 | C12 | Notifications template key `client.migration_confirm_signin` (always sent)                                                                                                                                                                                                                                                                                                                                                             | §3.4 2FA path                       |
 
 ## 17. Edge cases
@@ -713,9 +866,9 @@ operating model). PR 0 is a kernel PR made by the CTO session.
 | 6   | 1     | Performance: query budgets, a 50k-row test fixture, the load-test import scenario in `loadtest/`                                                                              | 43–44          |
 | 7   | 2a    | WHMCS API connector (`migration.md` §2.1 ACs 1–5), currencies and groups stages                                                                                               | 45             |
 | 8   | 2a    | WHMCS clients, contacts, users and permissions, consent, verification, credit balance, delta re-runs, through the same importers                                              | 46–50          |
-| 8a  | 2a.2  | Kernel (CTO): C11, the sign-in pipeline hook and its pinned test, the failure time floor, redaction keys                                                                    | 54–56          |
-| 8b  | 2a.2  | Sign-in carry-over (§3.4): `migration_login_checks`, the second credential and allowlist, state machine, budgets, faults and pause, cut-off, `ValidateLogin` in the WHMCS simulator | 57–66          |
-| 8c  | 2a.2  | 2FA mailbox confirmation (C12), the admin panel, the sign-in page notice, the "not carried over" invitation filter                                                           | 67–70          |
+| 8a  | 2a.2  | Kernel (CTO), after ADR 0018 PR 0 (`SignInGate`, `CompleteSignIn`) or bringing them forward: C11, the `authenticateUsing` hook for both pipeline shapes, the single-implementer Arch test and boot check, the failure floor, the shared guess counter; `kernel-api.txt` and a `kernel-changelog.d` fragment (L5) | 54–59 |
+| 8b  | 2a.2  | Carry-over (§3.4): `migration_login_checks` with the placeholder, the second credential and allowlist, eligibility, the call (cached addresses, SPKI pin, fail-closed parsing), compare-and-set, budgets and cap, B3 change guards, kill switch, auto-pause, metrics; `ValidateLogin` and the new faults in the WHMCS simulator; the load-test scenario | 60–77 |
+| 8c  | 2a.2  | Needs ADR 0018 PR 0: the 2FA confirmation (GET page, POST consume, `CompleteSignIn`; C12), the admin panel, the sign-in notice and hint, the "not carried over" invitation filter | 78–82 |
 | 9   | 2a.1  | Gap reader, only if Q1/Q2 are approved                                                                                                                                        | 51–53          |
 | —   | 2b    | Products and services (`migration.md` stages 7, 8, 12). Imported services carry server and username, so the cPanel import then shows them as linked                           | `migration.md` |
 | —   | 2c    | Invoices with balances, transactions, credit log and reconciliation (`migration.md` stage 15)                                                                                 | `migration.md` |
@@ -724,9 +877,8 @@ operating model). PR 0 is a kernel PR made by the CTO session.
 Dependencies: PR 3 needs #112 (nullable `users.password`, `password.recent` in the kernel) and the
 `email_changed_at` column from #95 or its own copy (C10). Invitations (PR 4) refuse to start while the account-link host
 check fails (`AccountLinks::problem()`), with that reason shown on the button. PR 1 to 3 can be reviewed in sequence
-while PR 4 is built. PR 8b needs PR 8 (users imported with their WHMCS ids) and PR 8a; PR 8c needs 8b. None of 8a–8c
-needs ADR 0018's sign-in-method kernel (social sign-in PR 0), which is not built yet. Phase 2b and later each get a short delivery section in
-`migration.md` when they start; their acceptance criteria are already there (§13).
+while PR 4 is built. PR 8b needs PR 8 (users imported with their WHMCS ids) and PR 8a. PR 8a and PR 8c need ADR 0018's PR 0
+(`SignInGate`, `CompleteSignIn`), unless 8a brings those forward (B2, B5).
 
 ## 20. Acceptance criteria
 
@@ -847,47 +999,125 @@ SQLite and PostgreSQL.
 
 **Sign-in carry-over (PR 8a–8c, §3.4; WHMCS simulator per ADR 0016, no real accounts)**
 
-54. MUST: with `MODULES=Core` (Migration absent), the null `PendingPasswordCheck` answers NotApplicable, and password
-    sign-in, the lockout and the 2FA challenge behave exactly as before (the existing sign-in tests pass unchanged).
-55. MUST: a pipeline test pins the hook's position: it is called only after the local hash fails, never for step-up
-    (`confirmPasswordsUsing`), and a Verified outcome reaches the same two-factor and session steps as a local match.
-56. MUST: while `active()` is true, a failed password sign-in for an unknown email and one for an imported login whose
-    remote check takes 300 ms both answer in no less than `min_failure_ms`, with the same message and status.
-57. MUST: an imported login whose WHMCS password is correct signs in on its first attempt. The simulator records one
-    `ValidateLogin` call. `users.password` then verifies the typed password locally, the row is `migrated`, the
-    activity entry is written, and the next sign-in makes no remote call.
-58. MUST: a wrong password gives the ordinary failure and counts towards the `login` limiter. After 5 remote checks in
-    an hour for that login, a sixth attempt makes no call and gives the same failure.
-59. MUST: a success whose `userid` differs from the id recorded at import does not sign in, does not store a hash, and
-    counts as a fault.
-60. MUST: an unknown email, a login without a row, a login whose email changed since import, and a date after the
-    cut-off (company clock; 23:59:59 accepted, 00:00:00 the next day refused) each make no remote call.
-61. MUST: a base URL on `http://`, a host equal to the `APP_URL` host, a 3xx answer, or an address the outbound policy
-    refuses (ADR 0015) makes no call, or a refused one, and Test shows the reason.
-62. MUST: a timeout (the simulator delays past 5 s), a 5xx, a non-JSON answer and an "unknown action" answer each fail
-    the sign-in with the ordinary message. Ten faults in ten minutes, or one "unknown action", pause the source and
-    alert staff.
-63. MUST: with 4 checks already running for a source, a fifth sign-in makes no call and answers "try again in a
-    moment".
-64. MUST: two parallel sign-ins with the right password produce one stored hash and one `migrated` transition. Both
-    sign in or the second re-checks the local hash.
-65. MUST: after a run of sign-ins (success, failure, 2FA, fault), neither the typed password nor the returned
-    `passwordhash` appears in the log files, failed-job payloads, activity rows, the `migration_login_checks` table or
-    the cache store (grep).
-66. MUST: a WHMCS user linked to three clients carries over once and keeps its three links and their areas.
-67. MUST: a success with `twoFactorEnabled` true does not sign in, and mails `client.migration_confirm_signin`. Opening
-    the link in the same browser within 30 minutes stores the hash, verifies the email, sets the "had 2FA" flag and
-    signs in (the 2FA banner shows). Opening it in another browser, after 30 minutes, or twice is refused, and the held
-    hash is deleted at expiry. A fourth request in an hour sends no mail.
-68. MUST: a carry-over without the 2FA path leaves `email_verified_at` as imported.
-69. MUST: the admin panel shows eligible, carried-over, confirmed, waiting and expired counts that match the table.
-    Switching on, pausing and changing the cut-off need `migration.sources.manage` and step-up. The cut-off cannot be
-    set beyond 180 days from switching on. "Invite everyone not carried over" queues invitations only for open or
-    expired rows.
-70. SHOULD: a carried-over password shorter than Mohar's minimum signs in and is then sent to choose a new one before
-    any client-area page; the sign-in page shows the carry-over notice with the cut-off date while the window is open.
+Simulator work in PR 8b (M9):
+- `ValidateLogin` is served for scenario users with an email, a password, an id and a 2FA flag.
+- Faults are added for a 3xx with a `Location` header and a 200 with a body that is not JSON. The existing
+  `latency`, `status`, `commit_then_hang` and `rotate_certificate` faults are reused.
+- The scenario CA is trusted for a staff-entered WHMCS URL only in `testing`, failing closed as `Endpoints` does
+  (ADR 0016 §3).
 
-Count: 70 criteria (65 MUST, 5 SHOULD).
+Address-guard cases (private ranges, DNS rebinding) are unit tests with a fake resolver, because the simulator binds
+only to 127.0.0.1. Timing is asserted with `Sleep::fake()`, never with wall-clock time.
+
+*Kernel (PR 8a)*
+
+54. MUST: with `MODULES=Core` (Migration absent), the null `PendingPasswordCheck` gives `pending()` false and
+    `active()` false. Password sign-in, the lockout and the 2FA challenge behave exactly as before (the existing
+    sign-in tests pass unchanged).
+55. MUST: a pipeline test, run with Fortify's 2FA feature **on and off** (M7), pins the hook in
+    `Fortify::authenticateUsing`:
+    - it is called only after the local hash failed;
+    - it is never called from `confirmPasswordsUsing` (step-up);
+    - Verified reaches the same 2FA and session steps as a local match;
+    - Rejected fires `Failed`, and Unavailable does not.
+56. MUST: a staff login, a disabled login, a login of a closed client and a locked email and IP pair each cause no
+    `pending()` and no `check()` call (B2).
+57. MUST: an Arch test allows exactly one implementer of `PendingPasswordCheck` under `app/Modules/Migration`, plus
+    Core's null class. A boot check refuses any other binding: a test that binds a fake fails the boot. A reflection
+    test finds `#[\SensitiveParameter]` on the password parameter of the interface and of every implementation (B2,
+    ADR 0012 Amendment (#555)).
+58. MUST: while `active()` is true, an unknown email and an imported login with a slow remote answer get the same
+    message and status. With `Sleep::fake()`, each waits until the floor. Above the parked-request bound, further
+    failures answer without waiting.
+59. MUST: PR 8a regenerates `docs/architecture/kernel-api.txt` and adds a `kernel-changelog.d` fragment for C11
+    (ADR 0010, ADR 0027; L5).
+
+*Carry-over (PR 8b)*
+
+60. MUST: an imported login whose WHMCS password is correct signs in on its first attempt:
+    - the simulator's request log shows one `ValidateLogin`;
+    - `users.password` then verifies the typed password locally, and the row is `migrated`;
+    - the activity entry is written;
+    - the next sign-in makes no remote call.
+61. MUST: for each password writer (reset, `settings/password/set-link`, profile change, staff edit, invitation
+    accept, `app:admin-password`), a later sign-in with the old WHMCS password makes no remote call and leaves the new
+    hash in place (B1).
+62. MUST: two parallel sign-ins with the right password produce one stored hash and one `migrated` transition. A
+    password set between the remote answer and the write changes zero rows. The sign-in fails as NotApplicable and the
+    new password stays (B1).
+63. MUST: a wrong password is Rejected:
+    - `Failed` fires and the lockout counts it;
+    - 5 checks per login and IP per minute and 20 per login per hour are allowed;
+    - over budget, no call is made and the ordinary failure is shown (M3).
+64. MUST: Unavailable (a timeout, a 5xx, an unknown cached address) never counts towards `LoginLockout`. Six
+    Unavailable attempts in a row leave the email and IP pair unlocked, and the guess budget is refunded (M3).
+65. MUST: with the concurrency cap reached (`max(1, intdiv(php_threads, 4))`), a further sign-in makes no call and
+    gets **the same text and status as an unknown email** (M3, replacing the earlier "try again" answer).
+66. MUST: each parse case (M2):
+    - `userid` different, `"01"`, `" 1"` or `1.0` is a fault;
+    - a missing or unrecognised `twoFactorEnabled` gives ConfirmByEmail;
+    - `passwordhash` missing with the flag false, or present with the flag true, is a fault;
+    - an error other than "Email or Password Invalid" is a fault;
+    - a 200 with a non-JSON body is a fault, and so is a body over 64 KB;
+    - an implementation that throws gives Unavailable, logged without the exception's request.
+67. MUST: no remote call is made for any of these: an unknown email; a login without a row; a login whose email
+    changed; a login whose password no longer equals the placeholder; a source that is paused; the kill switch; a
+    date after the cut-off on the company clock (23:59:59 accepted, 00:00:00 the next day refused).
+68. MUST: a base URL on `http://`, or whose normalised host (IDNA, case, trailing dot) equals any host Mohar serves,
+    is refused at save time. A 3xx with `Location` is a fault and is not followed. Guard unit tests with a fake
+    resolver refuse private, metadata and rebinding answers (M1).
+69. MUST: an untrusted certificate, or a key that differs from the SPKI recorded by Test, means **zero `ValidateLogin`
+    requests in the simulator's request log**. The password never left Mohar. The source pauses and `SecurityNotice` is
+    sent (M1, M9).
+70. MUST: a sign-in with no cached address set makes no DNS lookup (a fake resolver asserts no call) and answers
+    Unavailable. The health probe refreshes the cache (B4).
+71. MUST: each of these pauses the source and alerts staff (M4):
+    - 10 faults in 10 minutes;
+    - one "unknown action" answer;
+    - a change of SPKI or issuer;
+    - more than 50 Rejected answers in 10 minutes, or more than 80% Rejected of at least 30 checks in an hour.
+72. MUST: `MIGRATION_LOGIN_CARRY_OVER=off` gives the null behaviour: no call, and `active()` false (M4).
+73. MUST: Pause and shortening the cut-off need `migration.sources.manage` but no step-up, and take effect on the next
+    request. Switching on, Resume and extending need step-up and a passing Test of the current values. The cut-off
+    cannot go beyond 180 days from switching on (M4).
+74. MUST: changing the base URL or either credential (B3):
+    - pauses carry-over;
+    - writes an audit row with the old and new host and "credential replaced";
+    - sends `SecurityNotice` to the install owner, every `*` holder and the actor.
+
+    While carry-over is on, the fields are read-only. Resume without a fresh passing Test is refused.
+75. MUST: run sign-ins with every outcome, plus an exception forced inside the implementation, with
+    `zend.exception_ignore_args` both Off and On. Afterwards neither the typed password nor the returned
+    `passwordhash` appears in any of these: the log files, `failed_jobs`, activity rows, the `migration_login_checks`
+    table, the cache store, or the exception trace. No `Illuminate\Http\Client` event is dispatched by the call
+    (`Event::fake()`; M6).
+76. MUST: a WHMCS user linked to three clients carries over once and keeps its three links and their areas.
+77. MUST (load test, B4): a `loadtest/` scenario on the small profile floods failed sign-ins while a window is active,
+    with the simulator answering at 2 s. Sign-in p95 for other users stays within the budget that `sizing.md`
+    records for it, and the result is written there.
+
+*2FA confirmation, admin and client (PR 8c, after ADR 0018 PR 0)*
+
+78. MUST: a success with `twoFactorEnabled` true does not sign in. It mails `client.migration_confirm_signin`, holding
+    only the link. Then (M5):
+    - two GETs of the link (a scanner prefetch) only show the confirm page;
+    - the POST from the same browser within 30 minutes stores the hash, verifies the email and sets the "had 2FA"
+      flag, and signs in through `CompleteSignIn`;
+    - a POST from another browser is refused and logged, and the token still works from the right browser;
+    - after 30 minutes, or a second use, the token is refused;
+    - the held hash is purged at expiry;
+    - a new link voids the old one;
+    - a fourth request in an hour gets the same message and sends no mail.
+79. MUST: a password change, an email change, a pause or the cut-off between the mail and the POST makes the POST
+    refuse, with no sign-in. A password that was set stays (M5, B1).
+80. MUST: a carry-over without the 2FA path leaves `email_verified_at` as imported.
+81. MUST: the admin panel shows eligible, carried-over, confirmed, waiting and expired counts that match the table.
+    "Invite everyone not carried over" queues invitations only for open or expired rows.
+82. SHOULD: a carried-over password shorter than Mohar's minimum signs in, and the client must choose a new one
+    before any client-area page. The sign-in page shows the carry-over notice with the cut-off date while the window
+    is open, and every failure message during the window carries the Forgot password hint.
+
+Count: 82 criteria (77 MUST, 5 SHOULD).
 
 ## 21. Owner decisions (2026-10-20: all recommendations accepted)
 
@@ -913,18 +1143,31 @@ The questions below were answered by accepting each recommendation as written.
 11. **Sample data (Q11).** Can the owner provide a WHMCS "Clients" export and two API responses (`GetUserPermissions`,
     `GetUsers`) from a test install with fake data? They settle the **verify** items in §3.1 and §3.2.
 12. **Limits (Q12).** 20 MB and 100,000 rows per file: enough?
-13. **Sign-in carry-over (Q13, open, 2026-10-31).** Approve §3.4 as the default for WHMCS 8.0+ sources (90-day default
-    window, 180 at most), with invitations only for the logins not carried over by the cut-off?
-    Sub-questions:
-    - (a) Is forwarding a returning client's typed password once, over TLS, to the host's own WHMCS acceptable, and
-      should the wizard tell hosts to mention it in their privacy notice?
-    - (b) Is a mailbox confirmation an acceptable second proof for accounts that had 2FA at WHMCS, or should they
-      always use the invitation?
-    - (c) Any concern with calling one API action that updates the last-login time at the source?
-    - (d) Offer an optional TLS key pin for the old host?
+13. **Sign-in carry-over (Q13, open, 2026-10-31).** Approve §3.4 as the default for WHMCS 8.0+ sources, with a
+    90-day default window and 180 days at most, and with invitations only for the logins not carried over by the
+    cut-off? Sub-questions:
+    - (a) Is it acceptable to forward a returning client's typed password once, over TLS, to the host's own WHMCS?
+      Should the wizard tell hosts to mention it in their privacy notice?
+    - (b) For accounts that had 2FA at WHMCS, is a mailbox confirmation plus the password an acceptable second proof?
+      **Recommendation: yes** (#555 review, M5). It is stronger than "Forgot password", which needs only the mailbox,
+      so it does not lower any account below Mohar's existing recovery floor. 2FA enrolment is prompted at the next
+      sign-in.
+    - (c) **Licence, a question for the owner or a lawyer, not a conclusion.** `ValidateLogin` is a live, ongoing API
+      call against the host's install. `docs/research/2026-10-31-whmcs-licence-terms.md` §5 puts it under the same
+      open points as the importer:
+        - EULA §2.5, on automated data extraction;
+        - handing scoped credentials to a third party (that note's lawyer question 2);
+        - its own lawyer question 7, on limits to a first-sign-in check, in particular during or after a licence
+          lapse.
 
-    Recommendation: yes to the default and (a); a mailbox confirmation for (b); no pin in v1 for (d). Not legal
-    advice: the licence side of (c) is a question for the owner.
+      The call also updates the last-login time at the source. The product side is already handled: a lapse shows up
+      as Unavailable, pauses carry-over and leaves clients to invitations.
+    - (d) The TLS key is recorded on first use and enforced on every call (§3.4). A certificate renewal that changes
+      the key pauses carry-over until staff re-run Test. Is that pause acceptable, or should hosts be told to reuse
+      keys on renewal?
+
+    Recommendation: yes to the default, (a) and (b); (c) is open; for (d), accept the pause and put the key-reuse
+    advice in the wizard. Not legal advice.
 
 ## 22. Out of scope (v1)
 
