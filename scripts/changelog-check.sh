@@ -13,7 +13,9 @@
 #     the kernel surface (ADR 0010) changes and no kernel-changelog.d/ fragment is.
 # Env: BASE_REF, the PR's base branch (a release PR into main carries develop's assembled changelog and is not
 # checked); HEAD_REF, the PR's head branch (a back-merge from main brings that changelog back and is not checked either);
-# PR_NUMBER (PRs up to LEGACY_MAX_PR, opened before fragments, keep their direct edits with a warning).
+# HEAD_REPO and REPOSITORY, the head's and the base's owner/repo (when HEAD_REPO is set, only a head branch main of this
+# repository counts as a back-merge, so a fork's branch named main is checked); PR_NUMBER (PRs up to LEGACY_MAX_PR,
+# opened before fragments, keep their direct edits with a warning).
 set -euo pipefail
 export LC_ALL=C
 
@@ -37,7 +39,11 @@ annotate() { # annotate <error|warning> <file> <message>
     if [ "${GITHUB_ACTIONS:-}" = true ]; then echo "::$1 file=$2::$3"; else echo "$1: $2: $3"; fi
 }
 
-if [ "${BASE_REF:-}" = main ] || [ "${HEAD_REF:-}" = main ]; then
+back_merge=false
+if [ "${HEAD_REF:-}" = main ] && { [ -z "${HEAD_REPO:-}" ] || [ "$HEAD_REPO" = "${REPOSITORY:-}" ]; }; then
+    back_merge=true
+fi
+if [ "${BASE_REF:-}" = main ] || [ "$back_merge" = true ]; then
     echo "changelog-check: release PR or back-merge from main; not checked"
     exit 0
 fi

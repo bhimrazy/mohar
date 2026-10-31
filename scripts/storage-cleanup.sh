@@ -5,7 +5,9 @@
 #   LOW_SPACE_GB=4 scripts/storage-cleanup.sh --apply   also clear the npm cache when free space is below 4 GB
 #
 # Safe actions (never touch uncommitted, unpushed or in-progress work):
-#   1. Remove a worktree only when its branch's PR is MERGED, the worktree is clean and nothing is unpushed.
+#   1. Remove a worktree only when its branch's PR is MERGED, the worktree is clean, nothing is unpushed and it is not
+#      in use: no .claude-in-use file at its root, and no change to its git HEAD or index or its top-level files (also
+#      in billing/) in the last SWEEP_IDLE_HOURS (default 12; 0 turns that check off), as in sweep-stale.sh.
 #   2. Clear Laravel compiled views (untouched for 1h) and test scratch (untouched for 2h) in every
 #      worktree, so running suites are never disturbed; truncate logs over 50 MB.
 #   3. Remove stopped containers older than 2 hours, dangling images, and tagged images that no container
@@ -19,9 +21,21 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 apply=false
 [ "${1:-}" = "--apply" ] && apply=true
 low_gb="${LOW_SPACE_GB:-4}"
+idle_min=$(( ${SWEEP_IDLE_HOURS:-12} * 60 ))
 
 run() { if $apply; then "$@"; else echo "  would run: $*"; fi; }
 free_gb() { df -Pk "$root" | awk 'NR==2 {printf "%d", $4 / 1048576}'; }
+# in_use <worktree>: why the tree may belong to a running agent (prints the reason), as sweep-stale.sh decides it.
+in_use() {
+    local gd
+    if [ -e "$1/.claude-in-use" ]; then echo "marked in use (.claude-in-use)"; return 0; fi
+    [ "$idle_min" -gt 0 ] || return 1
+    gd="$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null)" || return 1
+    if [ -n "$(find "$gd/HEAD" "$gd/index" "$1" "$1/billing" -maxdepth 1 -mmin "-$idle_min" ! -name .git 2>/dev/null | head -1)" ]; then
+        echo "active in the last $((idle_min / 60)) h"; return 0
+    fi
+    return 1
+}
 
 echo "== $(date -u +%FT%TZ) storage cleanup (apply=$apply), free before: $(free_gb) GB"
 
@@ -32,7 +46,10 @@ git -C "$root" worktree list --porcelain | awk '/^worktree /{print $2}' | tail -
     dirty="$(git -C "$wt" status --porcelain 2>/dev/null | wc -l | tr -d " ")"
     unpushed="$(git -C "$wt" rev-list --count "origin/$branch..HEAD" 2>/dev/null || echo unknown)"
     merged_pr="$(gh pr list --state merged --head "$branch" --json number -q '.[0].number' 2>/dev/null)"
-    if [ -n "$merged_pr" ] && [ "$dirty" = 0 ] && [ "$unpushed" = 0 ]; then
+    busy="$(in_use "$wt")"
+    if [ -n "$busy" ]; then
+        echo "- worktree $wt: keep ($busy)"
+    elif [ -n "$merged_pr" ] && [ "$dirty" = 0 ] && [ "$unpushed" = 0 ]; then
         echo "- worktree $wt: PR #$merged_pr merged, clean, pushed -> remove"
         run git -C "$root" worktree remove "$wt"
         run git -C "$root" branch -D "$branch"
