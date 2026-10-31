@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-31 (evening) by the CTO session, on the owner's Mac. Update this file whenever a PR merges, a workstream starts or
+Last updated: 2026-11-01 (early hours, paused) by the CTO session, on the owner's Mac. Update this file whenever a PR merges, a workstream starts or
 stops, or the owner makes a decision. Keep it short: merges older than the current day move to `billing/docs/progress.md`, and history goes in `history.md` and `docs/reviews/`.
 
 ## Summary
@@ -174,13 +174,26 @@ flight), #576 (NV1 IRD sales book), #577 (AF4 permission sweep), #578 (AF6 test 
 #583 (on-order provisioning retry), #585 (DB1 status CHECKs; follow-up #593 MigrationLint), #589 (S1 part 1, tests
 mirror the modules), #591 (#567 public read limit), #592 (#566 PDF font subsetting).
 
-In flight:
-- #574 (`feature/audit-fixes-1`): `DeclaresSensitiveKeys` masked in `RegistrarGateway` and `ExecuteModuleCommand`
-  errors, logs included. Strict loop; round 4 fixes in re-review. Worktrees created before #579 (this one, M3, S3/S4)
-  have no pre-push gate until they merge develop.
-- ADR 0030 M3 (gateway registry, kernel) and S3/S4 (Orders, Notifications, Support folders) in worktrees.
-- Next after them: #566 part 2 (PDF-bearing invoice mails on the notifications queue, strict loop, before S5), S1
-  part 2, then wave 2 per the plan.
+Merged 2026-11-01 (early hours): #574 (audit M4: declared sensitive keys masked in module and registrar errors, after
+five strict rounds), #586–#588 (S3/S4 Orders, Notifications, Support), #589/#596 (S1 parts 1 and 2), #590 (ADR 0030 M3
+gateway registry, strict), #597 (AF9 frontend), #601 (#593 MigrationLint scope), #602 (#599 snapshot closure hashes),
+#604 (#598 pro-rata investigation and pinning tests), #605 (#603 worktree hook retry), #606 (T1 translation mechanism,
+ADR 0028). Waves 0 and 1 are done.
+
+**Paused by the owner, 2026-11-01 ~02:00 NPT.** Resume in this order (no agents running):
+1. #600 (#566 part 2, `feature/pdf-render-queue`, head 5fdd334f, strict): one blocking item from the re-review, B1d.
+   `composeQueued()` must drop `InvoiceCreated`/`InvoiceModified` when `invoice_due` shows the invoice neither
+   payable nor paid (cancelled before the worker runs). Probe: `InvoiceEmailQueuedStateChangesTest` on
+   `review/pr-600-probes` @ 95945702. Also add the changelog line on `{{ invoice.paid }}` (N2), fix production.md's
+   rollback sentence (N3) and ADR 0014's pool list (N4). The receipt after a refund is accepted as is. Then a re-review
+   and merge.
+2. #607 (#598 D1 pro-rata at checkout, `feature/prorata-checkout`, head 7d3fc578, strict): built with both CTO
+   decisions (promo prices pro-rated; "from <date>" on renewals); browser order, dark and phone checked. Left: the
+   SQLite and PostgreSQL module runs on the new head (command in the PR), then the review board.
+3. #610 (ADR 0030 M1, `feature/m1-extensions`, head 0e6d20cb, draft WIP): loader, base provider, gateway snapshot and
+   the `tests/Isolation` rename done; no driver moved yet. Resume list and three pending decisions (fixed load order,
+   per-extension Nepal HTTP copies, base provider extends ModuleServiceProvider) are in the PR body.
+4. Then AF1 and #595 (kernel, one at a time after M1), #608, #609 (M5a precondition).
 
 Next: the wave plan in `docs/handoff/issue-plan.md`. Wave 1 (fence) starts as the two PRs above reach review: S0 folder
 rules, audit fixes 4, 6, 8, 9 and Nepal VAT PR NV1. Then wave 2 (ADR 0030 M3, M1 with the test and module moves
