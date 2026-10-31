@@ -214,3 +214,22 @@ test('the kit leaves the event listeners as it found them', function () {
 
     expect($count())->toBe($before);
 });
+
+test('the deprecated register() warns exactly once, however often it is called', function () {
+    (new ReflectionProperty(GatewayManager::class, 'warnedRegister'))->setValue(null, false);
+    $warnings = [];
+    set_error_handler(function (int $level, string $message) use (&$warnings): bool {
+        $warnings[] = $message;
+
+        return true;
+    }, E_USER_DEPRECATED);
+
+    try {
+        app(GatewayRegistry::class)->register(new ManualDriver);
+        app(GatewayRegistry::class)->register(new ManualDriver);
+    } finally {
+        restore_error_handler();
+    }
+
+    expect(array_values(array_filter($warnings, fn (string $message): bool => str_contains($message, 'GatewayRegistry::register() is deprecated since 0.2.0 and removed in 1.0.0'))))->toHaveCount(1);
+});
