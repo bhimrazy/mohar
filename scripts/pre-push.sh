@@ -9,6 +9,8 @@
 #   pint --test on changed PHP, vp check on changed frontend/docs files under billing/, scripts/changelog-check.sh,
 #   phpstan on changed analysed PHP, scripts/test.sh --changed. A docs-only push runs just vp check and the changelog
 #   check. When test.sh would run the whole suite (shared code changed) the tests are left to CI, unless PRE_PUSH_FULL=1.
+# The test step is capped at PRE_PUSH_TEST_TIMEOUT seconds (default 300, the wait for a heavy.sh slot counts): on a
+# timeout the push goes through and CI runs the tests. The other checks always block.
 # CPU-heavy commands go through scripts/heavy.sh. Every failing check is reported, then the push is refused.
 set -uo pipefail
 export LC_ALL=C XDEBUG_MODE=off
@@ -58,6 +60,20 @@ while IFS= read -r f; do
     esac
 done <<< "$files"
 
+# with_timeout <seconds> <command...>: kills the command's process group after the cap; a timeout is not a failure.
+with_timeout() {
+    local secs="$1"; shift
+    perl -e 'my $t = shift; my $pid = fork; if (!$pid) { setpgrp(0, 0); exec @ARGV; exit 127 }
+        $SIG{ALRM} = sub { kill "TERM", -$pid; select(undef, undef, undef, 2); kill "KILL", -$pid; exit 124 };
+        alarm $t; waitpid $pid, 0; exit(($? & 127) ? 128 + ($? & 127) : $? >> 8)' "$secs" "$@"
+    local rc=$?
+    if [ "$rc" = 124 ]; then
+        echo "pre-push: tests stopped after ${secs}s (PRE_PUSH_TEST_TIMEOUT); the push goes ahead and CI runs them" >&2
+        return 0
+    fi
+    return "$rc"
+}
+
 skipped() { case ",${PRE_PUSH_SKIP:-}," in *",$1,"*) return 0 ;; esac; return 1; }
 failed=()
 step() { # step <name> <description> <command...>
@@ -95,7 +111,7 @@ else
     if grep -qx "whole suite" <<< "$selection" && [ -z "${PRE_PUSH_FULL:-}" ]; then
         skip_step tests "shared code changed, the whole suite is left to CI (PRE_PUSH_FULL=1 runs it)"
     else
-        step tests "scripts/test.sh --changed" env TEST_BASE="$base" "$scripts/test.sh" --changed
+        step tests "scripts/test.sh --changed, at most ${PRE_PUSH_TEST_TIMEOUT:-300}s" with_timeout "${PRE_PUSH_TEST_TIMEOUT:-300}" env TEST_BASE="$base" "$scripts/test.sh" --changed
     fi
 fi
 

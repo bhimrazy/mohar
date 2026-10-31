@@ -232,6 +232,11 @@ A docs-only push runs only `vp` and `changelog`. When `test.sh` would run the wh
 - Preview the plan: `scripts/pre-push.sh --dry-run`.
 - Skip single checks: `PRE_PUSH_SKIP=tests,phpstan git push`. `PRE_PUSH_BASE` replaces `origin/develop`.
 - Emergency bypass: `git push --no-verify`. CI still runs every check, so a bypassed push only costs a failed run.
+- The test step stops after `PRE_PUSH_TEST_TIMEOUT` seconds (default 300, a wait for a `heavy.sh` slot counts). It then
+  prints a note and lets the push through with the tests left to CI; the other checks always block.
+- The installer sets `extensions.worktreeConfig=true` in the repository config (`.git/config`, shared by all worktrees).
+  To undo: `git config --worktree --unset core.hooksPath` in the worktree, and, once no worktree needs it,
+  `git config --unset extensions.worktreeConfig`.
 - Without `origin/develop` locally the gate prints a note and lets the push through (`git fetch origin develop`).
 
 After the PR merges, `scripts/finish-workstream.sh <slug>` removes the worktree, the merged local branch and the

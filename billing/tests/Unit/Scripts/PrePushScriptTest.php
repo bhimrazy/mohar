@@ -151,3 +151,26 @@ test('the hook installer sets core.hooksPath for one worktree only', function ()
 
     (new Process(['rm', '-rf', $home]))->run();
 });
+
+test('a test step past PRE_PUSH_TEST_TIMEOUT is stopped without failing the push', function () {
+    [$this->repo, $base] = ppRepo();
+    ppWrite($this->repo, 'billing/app/Modules/Billing/Invoice.php', "<?php\n// changed\n");
+    ppGit($this->repo, 'commit', '-qam', 'change');
+    // A stub test.sh that lists a selection and then hangs; the gate's other checks are skipped.
+    $stub = $this->repo.'/stub';
+    mkdir($stub.'/scripts', 0700, true);
+    foreach (['pre-push.sh', 'heavy.sh', 'changelog-check.sh'] as $file) {
+        copy(dirname(__DIR__, 4)."/scripts/{$file}", "{$stub}/scripts/{$file}");
+    }
+    file_put_contents("{$stub}/scripts/test.sh", "#!/usr/bin/env bash\n[ \"\${2:-}\" = --list ] || [ \"\${3:-}\" = --list ] && { echo tests/Unit; exit 0; }\nsleep 30\n");
+
+    chmod("{$stub}/scripts/test.sh", 0700);
+
+    $run = new Process(['bash', "{$stub}/scripts/pre-push.sh"], "{$this->repo}/billing", [
+        'PRE_PUSH_BASE' => $base, 'PRE_PUSH_SKIP' => 'pint,phpstan,changelog,vp', 'PRE_PUSH_TEST_TIMEOUT' => '1', 'HEAVY_LOCK_DIR' => $this->repo.'/locks',
+    ]);
+    $run->setTimeout(25)->run();
+
+    expect($run->getExitCode())->toBe(0, $run->getOutput().$run->getErrorOutput())
+        ->and($run->getErrorOutput())->toContain('tests stopped after 1s');
+});
