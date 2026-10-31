@@ -168,16 +168,17 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
-     * tests/Unit and tests/Arch run only in the SQLite step of CI, not again on PostgreSQL (docs/devops/ci.md), so a
-     * test there must never touch the database. This fails one that does; move it to tests/Feature instead.
+     * tests/Unit, tests/Kernel/Unit, tests/Tooling and tests/Arch run only in the SQLite step of CI, not again on
+     * PostgreSQL (docs/devops/ci.md), so a test there
+     * must never touch the database. This fails one that does; move it to tests/Feature instead.
      */
     private function refuseDatabaseInDatabaseFreeSuites(): void
     {
-        if (preg_match('/(^|\\\\)Tests\\\\(Unit|Arch)\\\\/', static::class) !== 1) {
+        if (preg_match('/(^|\\\\)Tests\\\\(Unit|Arch|Tooling|Kernel\\\\Unit)\\\\/', static::class) !== 1) {
             return;
         }
 
-        $message = static::class.' is in a database-free suite (tests/Unit, tests/Arch), which CI does not run on PostgreSQL; move it to tests/Feature.';
+        $message = static::class.' is in a database-free suite (tests/Unit, tests/Kernel/Unit, tests/Tooling, tests/Arch), which CI does not run on PostgreSQL; move it to tests/Feature.';
         $databaseTraits = [RefreshDatabase::class, LazilyRefreshDatabase::class, DatabaseMigrations::class, DatabaseTransactions::class, DatabaseTruncation::class];
 
         if (array_intersect($databaseTraits, class_uses_recursive($this)) !== []) {

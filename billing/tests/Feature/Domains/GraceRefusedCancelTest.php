@@ -5,8 +5,8 @@ use App\Modules\Domains\Actions\ApplyExpiryLifecycle;
 use App\Modules\Domains\Actions\IssueRenewalInvoices;
 use App\Modules\Domains\Models\Domain;
 use App\Support\CalendarDate;
+use Tests\Fakes\Billing\FakeInvoicer;
 use Tests\Fakes\Domains\DomainFixtures;
-use Tests\Fakes\Domains\FakeInvoicer;
 use Tests\Fakes\Domains\FakeRegistrar;
 
 beforeEach(function () {

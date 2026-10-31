@@ -13,8 +13,8 @@ use Illuminate\Support\Facades\Storage;
  * the per-login cap counts failures only. P3 replaces "staff have a higher document limit", which passes on develop.
  */
 
-require_once dirname(__DIR__, 2).'/Billing/helpers.php';
-require_once dirname(__DIR__, 2).'/Notifications/helpers.php';
+require_once dirname(__DIR__).'/Billing/helpers.php';
+require_once dirname(__DIR__).'/Notifications/helpers.php';
 
 test('P1 a login has an hourly failure budget across IPs: twenty wrong guesses, then the right one is refused', function () {
     $this->actingAs(User::factory()->create(['password' => 'correct-horse-battery']));

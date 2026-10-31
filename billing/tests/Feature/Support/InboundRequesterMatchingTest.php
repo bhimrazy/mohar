@@ -22,7 +22,7 @@ use App\Modules\Support\Models\Ticket;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 
-require_once dirname(__DIR__, 2).'/Support/helpers.php';
+require_once dirname(__DIR__).'/Support/helpers.php';
 
 beforeEach(function () {
     Storage::fake('objects');

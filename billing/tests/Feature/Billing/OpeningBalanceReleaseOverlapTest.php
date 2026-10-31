@@ -13,7 +13,7 @@ use App\Modules\Core\Models\Currency;
 use App\Support\Migration\ImportRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
-use Tests\Feature\Billing\Support\Pr283PreviousReleaseOpeningBalanceImporter;
+use Tests\Feature\Billing\Support\PreviousReleaseOpeningBalanceImporter;
 
 require_once __DIR__.'/helpers.php';
 require_once __DIR__.'/Support/race.php';
@@ -56,7 +56,7 @@ beforeEach(function () {
 test('B1: a previous-release worker does not post a second opening balance for a run the new release already posted', function () {
     $client = billingClient(['currency' => 'NPR']);
     $new = app(OpeningBalanceImporter::class);
-    $old = app(Pr283PreviousReleaseOpeningBalanceImporter::class);
+    $old = app(PreviousReleaseOpeningBalanceImporter::class);
 
     expect($new->upsert(pr283Record($client, 100000), pr283Context(9), null)->action)->toBe(ImportAction::Created);
 
@@ -72,7 +72,7 @@ test('verified: new release alone, and previous release then new release, post o
     $a = billingClient(['currency' => 'NPR']);
     $b = billingClient(['currency' => 'NPR']);
     $new = app(OpeningBalanceImporter::class);
-    $old = app(Pr283PreviousReleaseOpeningBalanceImporter::class);
+    $old = app(PreviousReleaseOpeningBalanceImporter::class);
 
     $new->upsert(pr283Record($a, 100000), pr283Context(9), null);
     $old->upsert(pr283Record($b, 100000), pr283Context(9), null);
