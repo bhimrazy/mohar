@@ -17,7 +17,8 @@ class VatRegisterReport extends RegisterReport
     /**
      * Schedule 9's 13 columns as of the VAT Rules' 27th amendment, keyed by row key, with its Nepali headings: the 25th
      * amendment (2080) removed the goods and quantity columns, the 26th (2081) wrote "निर्यात" for "निकासी"
-     * (docs/research/2026-10-31-nepal-vat-ebilling.md §12). Where the Schedule groups two columns under one heading
+     * (docs/research/2026-10-31-nepal-vat-ebilling.md §12; headings as the research note gives them, not yet checked
+     * against the IRD PDF). Where the Schedule groups two columns under one heading
      * (taxable sales: value and tax), the group heading leads the column's own.
      */
     public const IRD_COLUMNS = [
@@ -25,7 +26,7 @@ class VatRegisterReport extends RegisterReport
         'number' => 'बीजक नम्बर',
         'buyer' => 'खरिदकर्ताको नाम',
         'pan' => 'खरिदकर्ताको स्थायी लेखा नम्बर',
-        'total_sales' => 'जम्मा बिक्री / निर्यात मूल्य (रु)',
+        'total_sales' => 'जम्मा बिक्री/निर्यात मूल्य (रु)',
         'exempt' => 'स्थानीय कर छुटको बिक्री मूल्य (रु)',
         'taxable' => 'करयोग्य बिक्री मूल्य (रु)',
         'vat' => 'करयोग्य बिक्री कर (रु)',

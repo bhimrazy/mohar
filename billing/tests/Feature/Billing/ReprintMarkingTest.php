@@ -103,20 +103,29 @@ test('every download path marks each reprint "Copy of original" with its print n
     'client' => ['client'],
 ]);
 
-test('a debit note reprint is marked like a credit note', function () {
-    $invoice = reprintDocument(Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']), 'invoice');
+test('a debit note reprint is marked like a credit note, for staff and for the client', function (string $who) {
+    $client = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']);
+    $invoice = reprintDocument($client, 'invoice');
     $issuer = app(TaxNoteIssuer::class);
     $request = NoteRequest::debit($invoice->id, 113_000, true, 'price_correction', 'Setup fee was left off.');
     $preview = $issuer->preview($request);
     $note = $issuer->issue($request, $preview->version, $preview->digest);
-    actingAsStaff(['billing.tax_notes.view']);
+
+    if ($who === 'client') {
+        Currency::query()->where('code', 'USD')->delete(); // actingAsClient() adds it
+        actingAsClient($client);
+        $url = route('client.invoices.notes.pdf', $note->id);
+    } else {
+        actingAsStaff(['billing.tax_notes.view']);
+        $url = route('admin.billing.notes.pdf', $note);
+    }
+
     reprintHtmlCopies('note');
+    $this->get($url)->assertOk()->assertDownload();
 
-    $this->get(route('admin.billing.notes.pdf', $note))->assertOk()->assertDownload();
-
-    expect($this->get(route('admin.billing.notes.pdf', $note))->getContent())->toContain('Debit Note')->toContain('Copy of original — print 2')
+    expect($this->get($url)->getContent())->toContain('Debit Note')->toContain('Copy of original — print 2')
         ->and($note->fresh()->print_count)->toBe(2);
-});
+})->with(['staff' => ['staff'], 'client' => ['client']]);
 
 test('an email or a resend after reprints carries the original, unmarked and not counted (emailed PDF as a print: open with the accountant)', function (string $document) {
     $client = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR', 'tax_id' => '301234567', 'company_name' => 'Everest Traders']);

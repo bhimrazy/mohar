@@ -9,7 +9,7 @@
   goods, quantity and unit columns and gains a "Total" column before the currency columns.
 - **The VAT register and the note register show the period's counts for the monthly return.** The header block (screen,
   CSV and PDF) adds "Tax invoices issued", "Credit notes issued" and "Debit notes issued" (the note register shows the
-  note counts only). Every document in the period counts, also one left out of the sums for a missing exchange rate.
+  note counts only), grouped like the register's rupees (1,23,456). Every document in the period counts, also one left out of the sums for a missing exchange rate.
   The CSV header rows grow from four to seven (six on the note register), so the column headings start lower.
 - **"Copy of original" on reprints is now a requirement in the spec, tested on every path.** No behaviour change: in
   Nepal VAT mode the first download of a tax invoice, credit note or debit note is the original and each later one, by

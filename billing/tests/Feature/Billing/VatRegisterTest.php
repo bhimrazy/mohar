@@ -514,7 +514,7 @@ test('the IRD-layout CSV has the header rows with the period\'s counts, then Sch
         ['Debit notes issued', '1'],
     ])->and($rows[7])->toBe([
         // Goods, quantity and unit are gone (25th amendment, 2080); "निर्यात" replaces "निकासी" (26th, 2081).
-        'मिति', 'बीजक नम्बर', 'खरिदकर्ताको नाम', 'खरिदकर्ताको स्थायी लेखा नम्बर', 'जम्मा बिक्री / निर्यात मूल्य (रु)',
+        'मिति', 'बीजक नम्बर', 'खरिदकर्ताको नाम', 'खरिदकर्ताको स्थायी लेखा नम्बर', 'जम्मा बिक्री/निर्यात मूल्य (रु)',
         'स्थानीय कर छुटको बिक्री मूल्य (रु)', 'करयोग्य बिक्री मूल्य (रु)', 'करयोग्य बिक्री कर (रु)',
         'निर्यात गरेको वस्तु वा सेवाको मूल्य (रु)', 'निर्यात गरेको देश', 'निर्यात प्रज्ञापनपत्र नम्बर', 'निर्यात प्रज्ञापनपत्र मिति', 'कुल जम्मा',
         'Date (AD)', 'Document', 'Reference invoice', 'Reference date (BS)', 'Document currency', 'Document amount', 'Rate',
@@ -623,4 +623,78 @@ test('issuing a tax invoice and a note sends nothing to CBMS and leaves its stat
     Http::assertNothingSent();
     expect(TaxNote::query()->count())->toBe(3)
         ->and(TaxNote::query()->whereNotNull('cbms_status')->orWhereNotNull('cbms_reference')->exists())->toBeFalse();
+});
+
+/** @return array<string, int> kind label => listed rows */
+function registerListedByType(string $key, array $filters): array
+{
+    return collect(registerRows($key, $filters))->countBy('type')->sortKeys()->all();
+}
+
+/** @return array<string, int> */
+function registerHeaderCounts(string $key, array $filters): array
+{
+    $block = app(ReportRegistry::class)->get($key)->headerBlock(app(ReportExporter::class)->query($key, $filters, auth()->id()));
+
+    return collect(array_slice($block, 4))->mapWithKeys(fn (array $row): array => [$row[0] => (int) str_replace(',', '', $row[1])])->all();
+}
+
+test('the header counts equal the listed rows per kind, at BS month and fiscal-year edges in Nepal time', function () {
+    kartikRegisterFixture();
+    awkwardRateRegisterFixture();
+    unclassifiedRegisterFixture();
+    $usd = Client::factory()->create(['country' => 'NP', 'currency' => 'USD']);
+    $unconverted = onRegisterDay('2026-10-23', fn () => issueInvoice($usd, [10_000]));
+    DB::table('invoices')->where('id', $unconverted->id)->update(['report_rate' => null]);
+    $npr = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']);
+
+    // Kartik 2083 ends on 2026-11-16 AD. 23:50 in Nepal is 18:05 UTC (Kartik); 00:10 on the 17th is 18:25 UTC (Mangsir).
+    CarbonImmutable::setTestNow('2026-11-16 18:05:00');
+    $lastOfKartik = issueInvoice($npr, [1_000]);
+    CarbonImmutable::setTestNow('2026-11-16 18:25:00');
+    $firstOfMangsir = issueInvoice($npr, [1_000]);
+    registerNote(NoteRequest::creditAmount($lastOfKartik->id, 113, 'goodwill', 'Edge'));
+
+    // Fiscal-year edge: the last minute of Asar 2083 in Nepal time and the first of Shrawan.
+    $asarEnd = BikramSambat::toAd(2083, 3, BikramSambat::daysInMonth(2083, 3));
+    CarbonImmutable::setTestNow(CarbonImmutable::parse($asarEnd->format('Y-m-d').' 23:55:00', 'Asia/Kathmandu')->utc());
+    $lastOfFy = issueInvoice($npr, [1_000]);
+    CarbonImmutable::setTestNow(CarbonImmutable::parse($asarEnd->format('Y-m-d').' 23:55:00', 'Asia/Kathmandu')->addMinutes(10)->utc());
+    $firstOfFy = issueInvoice($npr, [1_000]);
+    CarbonImmutable::setTestNow('2026-12-01 06:00:00');
+    actingAsStaff(['reports.vat_register.view', 'reports.tax_note_register.view']);
+
+    expect($lastOfKartik->fresh()->bs_period)->toBe('2083-07')->and($firstOfMangsir->fresh()->bs_period)->toBe('2083-08')
+        ->and($lastOfFy->fresh()->bs_fiscal_year)->not->toBe($firstOfFy->fresh()->bs_fiscal_year);
+
+    foreach ([['month' => '2083-07'], ['month' => '2083-08'], ['month' => '2083-03'], ['month' => '2083-04'], ['year' => '2082.083'], ['year' => '2083.084']] as $filters) {
+        $listed = registerListedByType('vat_register', $filters);
+        $header = registerHeaderCounts('vat_register', $filters);
+
+        expect([$header['Tax invoices issued'], $header['Credit notes issued'], $header['Debit notes issued']])
+            ->toBe([$listed['Tax invoice'] ?? 0, $listed['Credit note'] ?? 0, $listed['Debit note'] ?? 0], json_encode($filters));
+
+        $notes = registerListedByType('tax_note_register', $filters);
+        expect(registerHeaderCounts('tax_note_register', $filters))->toBe(['Credit notes issued' => $notes['Credit note'] ?? 0, 'Debit notes issued' => $notes['Debit note'] ?? 0]);
+    }
+
+    // The year is the sum of its months.
+    $year = registerHeaderCounts('vat_register', ['year' => '2083.084']);
+    $months = collect(range(4, 15))->map(fn (int $m) => registerHeaderCounts('vat_register', ['month' => $m <= 12 ? sprintf('2083-%02d', $m) : sprintf('2084-%02d', $m - 12)]));
+    expect($year['Tax invoices issued'])->toBe($months->sum('Tax invoices issued'))
+        ->and($year['Credit notes issued'])->toBe($months->sum('Credit notes issued'))
+        ->and(registerHeaderCounts('vat_register', ['month' => '2083-03'])['Tax invoices issued'])->toBe(1)
+        ->and(registerHeaderCounts('vat_register', ['month' => '2083-04'])['Tax invoices issued'])->toBe(1);
+});
+
+test('the header counts are grouped like the register\'s rupees', function () {
+    actingAsStaff(['reports.vat_register.view']);
+    $summary = new RegisterSummary('NPR');
+    $summary->counts = ['invoice' => 123_456, 'credit' => 1_234, 'debit' => 0];
+    $documents = Mockery::mock(app(RegisterDocuments::class));
+    $documents->shouldReceive('summary')->andReturn($summary);
+    app()->instance(RegisterDocuments::class, $documents);
+
+    expect(array_slice(app(ReportRegistry::class)->get('vat_register')->headerBlock(app(ReportExporter::class)->query('vat_register', ['month' => '2083-07'], auth()->id())), 4))
+        ->toBe([['Tax invoices issued', '1,23,456'], ['Credit notes issued', '1,234'], ['Debit notes issued', '0']]);
 });
