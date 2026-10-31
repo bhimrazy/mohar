@@ -4,14 +4,11 @@ namespace App\Modules\Billing\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Http\Requests\Admin\TaxRuleRequest;
-use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Support\ActivityLogger;
-use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -91,21 +88,7 @@ class TaxRuleController extends Controller
             return back();
         }
 
-        $used = Invoice::query()->where('tax1_rule_id', $taxRule->id)->orWhere('tax2_rule_id', $taxRule->id)->count();
-
-        if ($used === 0) {
-            try {
-                // The foreign key also refuses an invoice calculated with the rule after the count; the savepoint keeps
-                // an outer PostgreSQL transaction usable after that refusal.
-                DB::transaction(fn () => $taxRule->delete());
-            } catch (QueryException $exception) {
-                if (! str_starts_with((string) ($exception->errorInfo[0] ?? ''), '23')) {
-                    throw $exception;
-                }
-
-                $used = 1;
-            }
-        }
+        $used = $taxRule->deleteUnlessUsed();
 
         if ($used > 0) {
             Inertia::flash('toast', ['type' => 'error', 'message' => trans_choice(
