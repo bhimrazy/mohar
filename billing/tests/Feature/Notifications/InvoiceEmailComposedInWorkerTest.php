@@ -1,13 +1,18 @@
 <?php
 
+use App\Events\Billing\InvoiceCreated;
 use App\Events\Billing\InvoiceModified;
 use App\Events\Billing\InvoicePaymentReminder;
 use App\Events\Billing\PaymentReceived;
+use App\Events\Notifications\EmailQueued;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Jobs\ComposeEventEmails;
 use App\Modules\Notifications\Jobs\SendEmailMessage;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Services\RecipientResolver;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 
@@ -100,4 +105,49 @@ test('a transient failure while the worker composes reaches the queue, so the jo
     $this->partialMock(RecipientResolver::class, fn ($mock) => $mock->shouldReceive('forClient')->once()->andThrow(new RuntimeException('connection lost')));
 
     expect(fn () => app()->call([$job, 'handle']))->toThrow(RuntimeException::class);
+});
+
+test('an invoice-created email composed after the invoice was paid has no pay button', function () {
+    Queue::fake();
+    $invoice = issueInvoice($this->client, [10_000]);
+    payInvoice($invoice, 10_000);
+    runComposeJobs(fn (object $event): bool => $event instanceof InvoiceCreated);
+
+    $message = EmailMessage::query()->where('template_key', 'invoice.created')->sole();
+    expect($message->body_text)->toContain('already paid')->not->toContain('Pay ')
+        ->and($message->subject)->toEndWith(': paid');
+});
+
+test('a retry after the worker died between logging a message and queueing its send queues that send once', function () {
+    Queue::fake();
+    Mail::fake();
+    issueInvoice($this->client, [10_000]);
+    $job = Queue::pushed(ComposeEventEmails::class)->sole();
+    $killed = false;
+    Event::listen(EmailQueued::class, function () use (&$killed): void {
+        if (! $killed) {
+            $killed = true;
+
+            throw new RuntimeException('worker killed');
+        }
+    });
+
+    expect(fn () => app()->call([unserialize(serialize($job)), 'handle']))->toThrow(RuntimeException::class, 'worker killed');
+    $message = EmailMessage::query()->where('template_key', 'invoice.created')->sole();
+    expect($message->status)->toBe(EmailStatus::Queued);
+    Queue::assertNotPushed(SendEmailMessage::class);
+
+    app()->call([unserialize(serialize($job)), 'handle']);
+    app()->call([unserialize(serialize($job)), 'handle']);
+
+    expect(EmailMessage::query()->where('template_key', 'invoice.created')->count())->toBe(1);
+    Queue::assertPushed(SendEmailMessage::class, 1);
+
+    // A second copy of the send (queued again once its unique lock had expired) finds the message sent.
+    $send = Queue::pushed(SendEmailMessage::class)->sole();
+    app()->call([unserialize(serialize($send)), 'handle']);
+    app()->call([unserialize(serialize($send)), 'handle']);
+
+    Mail::assertSentCount(1);
+    expect($message->fresh()->status)->toBe(EmailStatus::Sent);
 });
