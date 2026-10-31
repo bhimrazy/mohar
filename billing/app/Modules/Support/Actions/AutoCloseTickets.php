@@ -6,7 +6,7 @@ use App\Events\Support\TicketClosed;
 use App\Modules\Support\Data\TicketAuthor;
 use App\Modules\Support\Enums\ClosedBy;
 use App\Modules\Support\Models\Ticket;
-use App\Modules\Support\Services\SupportSettings;
+use App\Modules\Support\Settings\SupportSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 

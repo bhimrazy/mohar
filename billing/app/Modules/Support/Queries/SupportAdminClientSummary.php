@@ -1,11 +1,12 @@
 <?php
 
-namespace App\Modules\Support\Services;
+namespace App\Modules\Support\Queries;
 
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Support\Enums\TicketStatus;
 use App\Modules\Support\Models\Ticket;
+use App\Modules\Support\Services\TicketAccess;
 use App\Support\Dashboard\Dashboard;
 use Illuminate\Database\Eloquent\Builder;
 

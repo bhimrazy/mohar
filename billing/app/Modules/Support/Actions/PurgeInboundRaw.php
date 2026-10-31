@@ -4,7 +4,7 @@ namespace App\Modules\Support\Actions;
 
 use App\Modules\Support\Models\InboundEmail;
 use App\Modules\Support\Services\AttachmentStore;
-use App\Modules\Support\Services\SupportSettings;
+use App\Modules\Support\Settings\SupportSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Storage;
 

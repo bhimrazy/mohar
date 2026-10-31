@@ -20,7 +20,7 @@ use App\Modules\Support\Services\IncomingFile;
 use App\Modules\Support\Services\MessageWriter;
 use App\Modules\Support\Services\QuoteStripper;
 use App\Modules\Support\Services\RequesterResolver;
-use App\Modules\Support\Services\SupportSettings;
+use App\Modules\Support\Settings\SupportSettings;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Throwable;

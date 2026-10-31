@@ -5,7 +5,7 @@ namespace App\Modules\Support\Http\Resources;
 use App\Modules\Support\Models\Ticket;
 use App\Modules\Support\Models\TicketAttachment;
 use App\Modules\Support\Models\TicketMessage;
-use App\Modules\Support\Services\SupportSettings;
+use App\Modules\Support\Settings\SupportSettings;
 
 /**
  * Shapes ticket props for Inertia per audience. Clients and guests never receive internal notes,

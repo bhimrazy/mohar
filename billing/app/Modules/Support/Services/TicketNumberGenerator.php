@@ -3,6 +3,7 @@
 namespace App\Modules\Support\Services;
 
 use App\Modules\Support\Models\Ticket;
+use App\Modules\Support\Settings\SupportSettings;
 use Carbon\CarbonImmutable;
 
 /**

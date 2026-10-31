@@ -11,7 +11,7 @@ use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Services\DomainDates;
 use App\Modules\Platform\Services\SettingsCatalog;
 use App\Modules\Support\Models\Department;
-use App\Modules\Support\Services\SupportSettings;
+use App\Modules\Support\Settings\SupportSettings;
 use App\Support\Settings\SettingsRegistry;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
