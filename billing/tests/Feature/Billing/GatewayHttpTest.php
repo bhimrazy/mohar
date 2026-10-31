@@ -38,3 +38,42 @@ test('minor-unit decimals come from the configured currencies, 2 when unknown', 
     expect(MinorUnits::decimals('jpy'))->toBe(0)
         ->and(MinorUnits::decimals('XTS'))->toBe(2);
 });
+
+test('only lookups are retried: a single-shot request is sent once whatever the answer', function () {
+    config(['acme_pay.http' => ['lookup_retry_delays_ms' => [0, 0]]]);
+    $gateway = new GatewayConfig('acme_pay', 'Acme');
+    \Illuminate\Support\Facades\Http::fake(['acme.test/*' => \Illuminate\Support\Facades\Http::sequence()->push('', 503)->push('', 503)->push('{}', 200)]);
+
+    $charge = GatewayHttp::for('acme_pay.http')->request($gateway)->post('https://acme.test/charge');
+
+    expect($charge->status())->toBe(503);
+    \Illuminate\Support\Facades\Http::assertSentCount(1);
+});
+
+test('a lookup is retried on 5xx and connection errors, never on 4xx', function () {
+    config(['acme_pay.http' => ['lookup_retry_delays_ms' => [0, 0]]]);
+    $gateway = new GatewayConfig('acme_pay', 'Acme');
+
+    \Illuminate\Support\Facades\Http::fake(['acme.test/*' => \Illuminate\Support\Facades\Http::sequence()->push('', 503)->push('', 502)->push('{"ok":true}', 200)]);
+    expect(GatewayHttp::for('acme_pay.http')->lookup($gateway)->get('https://acme.test/status')->status())->toBe(200);
+    \Illuminate\Support\Facades\Http::assertSentCount(3);
+});
+
+test('a lookup answered 4xx is returned at once', function () {
+    config(['acme_pay.http' => ['lookup_retry_delays_ms' => [0, 0]]]);
+    \Illuminate\Support\Facades\Http::fake(['acme.test/*' => \Illuminate\Support\Facades\Http::sequence()->push('{"status":"Expired"}', 400)->push('{}', 200)]);
+
+    expect(GatewayHttp::for('acme_pay.http')->lookup(new GatewayConfig('acme_pay', 'Acme'))->get('https://acme.test/status')->status())->toBe(400);
+    \Illuminate\Support\Facades\Http::assertSentCount(1);
+});
+
+test('the bundled gateways keep their own HTTP timeouts: Cybersource 15 s, the others the staff timeout', function () {
+    $gateway = new GatewayConfig('x', 'X', httpTimeoutSeconds: 40);
+
+    expect(GatewayHttp::for('payments_cybersource.http')->request($gateway)->getOptions())->toMatchArray(['timeout' => 15, 'connect_timeout' => 5]);
+
+    foreach (['payments_stripe.http', 'payments_razorpay.http', 'payments_nepal.http'] as $config) {
+        expect(GatewayHttp::for($config)->request($gateway)->getOptions())->toMatchArray(['timeout' => 40, 'connect_timeout' => 5])
+            ->and(GatewayHttp::for($config)->interactive()->getOptions())->toMatchArray(['timeout' => 6, 'connect_timeout' => 3]);
+    }
+});

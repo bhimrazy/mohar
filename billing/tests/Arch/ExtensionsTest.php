@@ -64,7 +64,7 @@ foreach ($importerNamespaces as $namespace) {
 
 // One probe per route to a provider or a job: each must be refused on its own.
 foreach (['EventfulImporter' => 'dispatches an event', 'RenewingImporter' => "queues its module's job", 'NoticeImporter' => "uses its module's notification",
-    'HttpImporter' => 'calls the Http facade', 'BusImporter' => 'queues through the bus contract', 'SyncImporter' => 'calls dispatch_sync()'] as $probe => $route) {
+    'HttpImporter' => 'calls the Http facade', 'GatewayHttpImporter' => 'calls a provider through GatewayHttp', 'BusImporter' => 'queues through the bus contract', 'SyncImporter' => 'calls dispatch_sync()'] as $probe => $route) {
     test("the record-importer rule refuses an importer that {$route}", function () use ($probe) {
         expect(fn () => expect("Tests\\Fixtures\\Migration\\Import\\{$probe}")->not->toUse(importerForbidden()))->toThrow(ExpectationFailedException::class);
     });

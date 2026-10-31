@@ -106,3 +106,23 @@ test('get() answers for a registered key, enabled() gates new work, and an unkno
         ->and(fn () => $registry->get('nope'))->toThrow(InvalidArgumentException::class)
         ->and(fn () => app(GatewayManager::class)->driver('nope'))->toThrow(BillingException::class, 'Unknown payment gateway [nope].');
 });
+
+test('a stateful bundled driver is one instance per process, so its memo reaches the next call', function (string $key) {
+    // Khalti's resume answer and Razorpay's webhook lookup hint are kept on the instance between two driver() calls.
+    $manager = app(GatewayManager::class);
+
+    expect($manager->driver($key))->toBe($manager->driver($key))
+        ->and(app(GatewayDriverRegistry::class)->get($key))->toBe($manager->driver($key));
+})->with(['khalti', 'razorpay', 'esewa', 'connectips', 'stripe', 'cybersource']);
+
+test('a key the registry accepts also routes its webhook and return URLs', function () {
+    // The registry and GatewayDriver::key() allow digits ([a-z0-9_]); a key must not register that its URLs cannot carry.
+    app(GatewayDriverRegistry::class)->register('pay2', fn () => conformanceDriver('pay2'));
+
+    GatewayConformance::assertDriver('pay2');
+
+    $routes = app('router')->getRoutes();
+
+    expect($routes->match(\Illuminate\Http\Request::create('/billing/webhooks/pay2', 'POST'))->getName())->toBe('billing.webhooks')
+        ->and($routes->match(\Illuminate\Http\Request::create('/billing/gateways/pay2/return', 'GET'))->getName())->toBe('billing.gateways.return');
+});
