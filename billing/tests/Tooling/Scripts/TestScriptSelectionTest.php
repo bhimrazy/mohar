@@ -8,7 +8,7 @@
 use Symfony\Component\Process\Process;
 
 const TSS_ALWAYS = [
-    'tests/Arch', 'tests/Extensions', 'tests/Feature/Auth', 'tests/Feature/DashboardTest.php', 'tests/Feature/Integrations', 'tests/Feature/Migration',
+    'tests/Arch', 'tests/Isolation', 'tests/Feature/Auth', 'tests/Feature/DashboardTest.php', 'tests/Feature/Integrations', 'tests/Feature/Migration',
     'tests/Feature/Reports', 'tests/Feature/Security', 'tests/Feature/Settings', 'tests/Feature/TestHarness', 'tests/Kernel/Feature', 'tests/Kernel/Unit',
 ];
 

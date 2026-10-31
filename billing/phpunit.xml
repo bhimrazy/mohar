@@ -17,8 +17,8 @@
             <directory>tests/Feature</directory>
             <directory>tests/Kernel/Feature</directory>
         </testsuite>
-        <testsuite name="Extensions">
-            <directory>tests/Extensions</directory>
+        <testsuite name="Isolation">
+            <directory>tests/Isolation</directory>
         </testsuite>
         <testsuite name="Simulator framework">
             <directory>tools/simulators/tests</directory>

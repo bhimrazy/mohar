@@ -26,7 +26,7 @@ abstract class TestCase extends BaseTestCase
     /**
      * Load only these modules (the MODULES env value, e.g. "Core" or "Services") for the tests of one file, to prove
      * behaviour without sibling modules. Set it in beforeAll() and reset it in afterAll(); null loads every module.
-     * Files that set it live in tests/Extensions, which does not refresh the database: a module subset must never
+     * Files that set it live in tests/Isolation, which does not refresh the database: a module subset must never
      * migrate a database the other tests share.
      */
     public static ?string $onlyModules = null;

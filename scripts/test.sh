@@ -15,7 +15,7 @@
 #     (tests that reach a module only over HTTP are not found this way: the suites below cover the common ones);
 #     tools/simulators/** -> tools/simulators/tests; deploy/, loadtest/ -> tests/Tooling/Deploy; scripts/, billing/scripts/,
 #     .github/ -> tests/Tooling; resources/js/** -> tests/Feature (the Inertia component and prop assertions);
-#   - always, once any of those changed: tests/Arch, tests/Extensions, tests/Kernel and, in tests/Feature, Security,
+#   - always, once any of those changed: tests/Arch, tests/Isolation, tests/Kernel and, in tests/Feature, Security,
 #     Migration, TestHarness, Auth, Settings, Reports, Integrations and DashboardTest.php, which catch
 #     breakage across modules and PRs;
 #   - the whole suite when shared code changed: app/Modules/Core (nearly every test depends on it), the kernel and other
@@ -117,7 +117,7 @@ if [ "$changed" = 1 ]; then
         exit 0
     else
         full=0
-        for d in tests/Arch tests/Extensions tests/Feature/Security tests/Feature/Migration tests/Feature/TestHarness \
+        for d in tests/Arch tests/Isolation tests/Feature/Security tests/Feature/Migration tests/Feature/TestHarness \
             tests/Feature/Auth tests/Feature/Settings tests/Feature/Reports tests/Feature/Integrations \
             tests/Kernel/Feature tests/Kernel/Unit; do add_dir "$d"; done
         [ -f tests/Feature/DashboardTest.php ] && selection+=(tests/Feature/DashboardTest.php)

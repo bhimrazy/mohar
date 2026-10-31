@@ -1,4 +1,4 @@
-tests/Extensions/Pr264ArchitectProbesTest.php
+tests/Isolation/Pr264ArchitectProbesTest.php
 tests/Feature/Domains/Pr164ReviewProbesTest.php
 tests/Feature/Domains/Pr199ReviewProbesTest.php
 tests/Feature/Domains/Pr262ReviewProbesTest.php

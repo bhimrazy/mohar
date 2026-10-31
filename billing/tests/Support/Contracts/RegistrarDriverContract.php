@@ -338,7 +338,7 @@ final class RegistrarDriverContract
 
     /**
      * One entry per interface: call name => [expected result, call]. A new capability in RegistrarDriverRegistry
-     * needs an entry here; the completeness test in tests/Extensions/AcmePanelWithoutServicesTest holds the two lists together.
+     * needs an entry here; the completeness test in tests/Isolation/AcmePanelWithoutServicesTest holds the two lists together.
      *
      * @return array<class-string, Closure(mixed, RegistrarConfig): array<string, array{0: string, 1: Closure(): mixed}>>
      */
