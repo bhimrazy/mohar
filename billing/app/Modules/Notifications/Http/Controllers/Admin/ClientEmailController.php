@@ -11,7 +11,7 @@ use App\Modules\Notifications\Enums\TemplateType;
 use App\Modules\Notifications\Http\Requests\SendClientEmailRequest;
 use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Services\SampleContext;
-use App\Modules\Notifications\Support\SecretTemplatePolicy;
+use App\Modules\Notifications\Services\SecretTemplatePolicy;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;

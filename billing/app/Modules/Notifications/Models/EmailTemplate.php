@@ -5,7 +5,7 @@ namespace App\Modules\Notifications\Models;
 use App\Modules\Notifications\Database\Factories\EmailTemplateFactory;
 use App\Modules\Notifications\Enums\TemplateAudience;
 use App\Modules\Notifications\Enums\TemplateType;
-use App\Modules\Notifications\Support\SecretTemplatePolicy;
+use App\Modules\Notifications\Services\SecretTemplatePolicy;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UseFactory;

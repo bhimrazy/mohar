@@ -81,10 +81,12 @@ collaborating classes that no single building block describes. Each is named her
 `tests/Arch/ModuleFoldersTest.php`; the rules for classes inside it are the ones for their kind (value objects stay
 free of the container, hosts that touch models are Services). An undocumented folder still fails the test.
 
-| Sub-domain        | Holds                                                                                         |
-| ----------------- | --------------------------------------------------------------------------------------------- |
-| `Orders/Fraud/`   | order fraud screening: the checker contract, the built-in checkers and the assessment objects |
-| `Orders/Pricing/` | cart pricing: the pricer, promotion eligibility and calculation, priced-cart value objects    |
+| Sub-domain                 | Holds                                                                                         |
+| -------------------------- | --------------------------------------------------------------------------------------------- |
+| `Orders/Fraud/`            | order fraud screening: the checker contract, the built-in checkers and the assessment objects |
+| `Orders/Pricing/`          | cart pricing: the pricer, promotion eligibility and calculation, priced-cart value objects    |
+| `Notifications/Rendering/` | the template engine: parser, renderer, result and syntax-error types                          |
+| `Notifications/Webhooks/`  | outbound webhook delivery: URL guard, host resolver, signer, sender and publisher             |
 
 Naming:
 

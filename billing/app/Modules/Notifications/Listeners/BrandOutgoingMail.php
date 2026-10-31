@@ -4,7 +4,7 @@ namespace App\Modules\Notifications\Listeners;
 
 use App\Modules\Notifications\Enums\TemplateType;
 use App\Modules\Notifications\Mail\TemplatedMail;
-use App\Modules\Notifications\Support\SupportAddresses;
+use App\Modules\Notifications\Settings\SupportAddresses;
 use Illuminate\Mail\Events\MessageSending;
 use Symfony\Component\Mime\Address;
 

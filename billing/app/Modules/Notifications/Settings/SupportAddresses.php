@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Notifications\Support;
+namespace App\Modules\Notifications\Settings;
 
 use App\Contracts\Branding\BrandProvider;
 use App\Modules\Core\Support\Settings;

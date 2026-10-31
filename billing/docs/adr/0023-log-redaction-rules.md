@@ -24,7 +24,7 @@
     - `GatewayConfig::secretValues()` returns every setting of 8 characters or more, secret or not, and nothing calls
       it. `GatewayLogger` and the transaction `raw` columns use `redactPayment()`, which masks by key and card number
       only, so configured gateway credentials are never masked by value.
-    - `Notifications\Support\SecretTemplatePolicy::maskValues()` masks one-time secrets (access keys, tokens) in
+    - `Notifications\Services\SecretTemplatePolicy::maskValues()` masks one-time secrets (access keys, tokens) in
       mail. It decodes HTML entities and percent-encoding until the text is stable (`normalise()`) and replaces any
       word whose decoded form holds a secret with `••••`.
 - **Exceptions are masked two ways.** `RegistrarGateway::maskChain()` and `guard()` rewrite the message of each

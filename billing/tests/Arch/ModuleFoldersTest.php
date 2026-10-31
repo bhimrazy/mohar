@@ -20,6 +20,8 @@ const ALLOWED_MODULE_FOLDERS = [
 const SANCTIONED_SUBDOMAINS = [
     'Orders/Fraud' => 'order fraud screening: the checker contract, its built-in checkers and the assessment value objects',
     'Orders/Pricing' => 'cart pricing: the pricer, promotion rules and the priced-cart value objects',
+    'Notifications/Rendering' => 'the template engine: parser, renderer and the result and error types',
+    'Notifications/Webhooks' => 'outbound webhook delivery: URL guard, host resolver, signer, sender and publisher',
 ];
 
 /**
@@ -35,9 +37,6 @@ const MODULE_FOLDER_BASELINE = [
     'Core/Import' => 'S8',
     'Core/Notifications' => 'S8',
     'Core/Security' => 'S8',
-    // TODO(S3): Notifications sub-domains (template engine, webhook delivery).
-    'Notifications/Rendering' => 'S3',
-    'Notifications/Webhooks' => 'S3',
     // TODO(S3): Laravel notification classes move to Mail/.
     'Platform/Notifications' => 'S3',
 ];

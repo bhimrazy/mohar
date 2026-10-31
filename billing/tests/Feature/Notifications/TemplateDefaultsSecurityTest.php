@@ -2,8 +2,8 @@
 
 use App\Models\User;
 use App\Modules\Notifications\Models\EmailTemplate;
+use App\Modules\Notifications\Services\SecretTemplatePolicy;
 use App\Modules\Notifications\Services\TemplateCatalog;
-use App\Modules\Notifications\Support\SecretTemplatePolicy;
 
 require_once __DIR__.'/helpers.php';
 

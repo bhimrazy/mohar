@@ -1,0 +1,775 @@
+{
+    "permissions": {
+        "groups/Notifications/notifications.templates.view": "View and preview email templates",
+        "groups/Notifications/notifications.templates.manage": "Edit, create and delete email templates",
+        "groups/Notifications/notifications.log.view": "View the email log",
+        "groups/Notifications/notifications.log.resend": "Resend emails from the log",
+        "groups/Notifications/notifications.send": "Send emails to clients",
+        "groups/Notifications/notifications.subscriptions.manage": "Choose which staff roles receive which alerts",
+        "groups/Notifications/notifications.webhooks.manage": "Manage webhook endpoints, secrets and deliveries",
+        "groups/Notifications/notifications.delivery.manage": "Change email senders, Reply-To, global BCC and template CC/BCC",
+        "groups/Notifications/notifications.settings.manage": "Manage email & notification settings",
+        "sensitive/notifications.templates.manage": "notifications.templates.manage",
+        "sensitive/notifications.webhooks.manage": "notifications.webhooks.manage",
+        "sensitive/notifications.delivery.manage": "notifications.delivery.manage"
+    },
+    "settings": {
+        "sections/notifications/_meta": {
+            "title": "Email & notifications",
+            "permission": "notifications.settings.manage"
+        },
+        "sections/notifications/notifications.mail_disabled": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.mail_disabled",
+            "label": "Stop sending email",
+            "type": "boolean",
+            "help": "Messages are still logged, with status \"suppressed\".",
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/notifications/notifications.signature": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.signature",
+            "label": "Email signature",
+            "type": "text",
+            "help": "Inserted where templates use {{ signature }}.",
+            "options": [],
+            "rules": ["max:2000"],
+            "secret": false
+        },
+        "sections/notifications/notifications.footer_help_text": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.footer_help_text",
+            "label": "Footer help line",
+            "type": "string",
+            "help": "Shown in every email footer. {{ support.email }} is replaced by the support address.",
+            "options": [],
+            "rules": ["max:300"],
+            "secret": false
+        },
+        "sections/notifications/notifications.footer_address": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.footer_address",
+            "label": "Address in the email footer",
+            "type": "text",
+            "help": "Defaults to the seller address on invoices.",
+            "options": [],
+            "rules": ["max:500"],
+            "secret": false
+        },
+        "sections/notifications/notifications.support_url": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.support_url",
+            "label": "Help link in the email footer",
+            "type": "string",
+            "help": "Defaults to the client area ticket list.",
+            "options": [],
+            "rules": ["nullable", "url", "max:500"],
+            "secret": false
+        },
+        "sections/notifications/notifications.default_locale": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.default_locale",
+            "label": "Default email language",
+            "type": "string",
+            "help": "Locale code used when a client has no translation, e.g. en.",
+            "options": [],
+            "rules": ["required", "max:10", "alpha_dash"],
+            "secret": false
+        },
+        "sections/notifications/notifications.client_can_manage_preferences": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.client_can_manage_preferences",
+            "label": "Clients can manage their email preferences",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/notifications/notifications.notify_client_changes": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.notify_client_changes",
+            "label": "Email staff when clients change their details",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/notifications/notifications.daily_summary": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.daily_summary",
+            "label": "Email the daily automation summary",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/notifications/notifications.email_log_body_retention_days": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.email_log_body_retention_days",
+            "label": "Keep email bodies for (days)",
+            "type": "integer",
+            "help": null,
+            "options": [],
+            "rules": ["min:1", "max:3650"],
+            "secret": false
+        },
+        "sections/notifications/notifications.webhooks_max_attempts": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.webhooks_max_attempts",
+            "label": "Webhook attempts before giving up",
+            "type": "integer",
+            "help": null,
+            "options": [],
+            "rules": ["min:1", "max:8"],
+            "secret": false
+        },
+        "sections/notifications/notifications.webhooks_disable_after_consecutive_failures": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.webhooks_disable_after_consecutive_failures",
+            "label": "Disable a webhook endpoint after (consecutive failures)",
+            "type": "integer",
+            "help": null,
+            "options": [],
+            "rules": ["min:1", "max:1000"],
+            "secret": false
+        },
+        "sections/notifications/notifications.webhooks_delivery_retention_days": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.webhooks_delivery_retention_days",
+            "label": "Keep webhook deliveries for (days)",
+            "type": "integer",
+            "help": null,
+            "options": [],
+            "rules": ["min:1", "max:365"],
+            "secret": false
+        },
+        "sections/email_delivery/_meta": {
+            "title": "Email delivery",
+            "permission": "notifications.delivery.manage"
+        },
+        "sections/email_delivery/notifications.from.default": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.from.default",
+            "label": "Send email from",
+            "type": "email",
+            "help": "Sender for client and staff email; empty = MAIL_FROM_ADDRESS. The sender name is always the company name. Use an address on a domain your mail provider is authorised to send for (SPF/DKIM), so DMARC passes.",
+            "options": [],
+            "rules": ["nullable", "email", "max:255"],
+            "secret": false
+        },
+        "sections/email_delivery/notifications.from.billing": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.from.billing",
+            "label": "Send billing email from",
+            "type": "email",
+            "help": "Sender for invoices, receipts and reminders, e.g. billing@ your domain. Must be on the same authorised sending domain (DMARC alignment).",
+            "options": [],
+            "rules": ["nullable", "email", "max:255"],
+            "secret": false
+        },
+        "sections/email_delivery/notifications.support_email": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.support_email",
+            "label": "Support email address",
+            "type": "email",
+            "help": "Reply-To for general email and the address named in every footer. Defaults to the billing email address. Never a no-reply mailbox.",
+            "options": [],
+            "rules": ["nullable", "email", "max:255"],
+            "secret": false
+        },
+        "sections/email_delivery/notifications.auth_link_host": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.auth_link_host",
+            "label": "Other host for account links",
+            "type": "string",
+            "help": "Only if reset and verification pages live on another domain than APP_URL (comma-separated host names). One-time links to any other host are never sent.",
+            "options": [],
+            "rules": [
+                "nullable",
+                "max:255",
+                "regex:/^\\s*$|^\\s*[a-z0-9.-]+(\\s*,\\s*[a-z0-9.-]+)*\\s*$/i"
+            ],
+            "secret": false
+        },
+        "sections/email_delivery/notifications.mail_bcc": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "notifications.mail_bcc",
+            "label": "BCC every client email to",
+            "type": "string",
+            "help": "Comma-separated addresses. Never applied to mail carrying a reset, verification or invitation link.",
+            "options": [],
+            "rules": [
+                "max:500",
+                "regex:/^\\s*$|^\\s*[^@\\s,]+@[^@\\s,]+\\.[^@\\s,]+(\\s*,\\s*[^@\\s,]+@[^@\\s,]+\\.[^@\\s,]+)*\\s*$/"
+            ],
+            "secret": false
+        }
+    },
+    "navigation": {
+        "items/admin/admin.notifications.templates.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Email templates",
+            "route": "admin.notifications.templates.index",
+            "icon": "Mail",
+            "group": "Setup",
+            "order": 40,
+            "permission": "notifications.templates.view",
+            "activePattern": "admin.notifications.templates.*",
+            "badge": null
+        },
+        "items/admin/admin.notifications.emails.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Email log",
+            "route": "admin.notifications.emails.index",
+            "icon": "Inbox",
+            "group": "Setup",
+            "order": 91,
+            "permission": "notifications.log.view",
+            "activePattern": "admin.notifications.emails.*",
+            "badge": null
+        },
+        "items/admin/admin.notifications.subscriptions.edit": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Staff email alerts",
+            "route": "admin.notifications.subscriptions.edit",
+            "icon": "UserCog",
+            "group": "Setup",
+            "order": 41,
+            "permission": "notifications.subscriptions.manage",
+            "activePattern": "admin.notifications.subscriptions.*",
+            "badge": null
+        },
+        "items/admin/admin.notifications.webhooks.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Webhooks",
+            "route": "admin.notifications.webhooks.index",
+            "icon": "Webhook",
+            "group": "Setup",
+            "order": 42,
+            "permission": "notifications.webhooks.manage",
+            "activePattern": "admin.notifications.webhooks.*",
+            "badge": null
+        },
+        "items/client/client.notifications.preferences.edit": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Email preferences",
+            "route": "client.notifications.preferences.edit",
+            "icon": "Mail",
+            "group": "Setup",
+            "order": 91,
+            "permission": null,
+            "activePattern": "client.notifications.preferences.*",
+            "badge": null
+        },
+        "items/client/client.notifications.emails.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Email history",
+            "route": "client.notifications.emails.index",
+            "icon": "Inbox",
+            "group": "Setup",
+            "order": 92,
+            "permission": null,
+            "activePattern": "client.notifications.emails.*",
+            "badge": null
+        },
+        "items/admin-client/admin.notifications.emails.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Emails",
+            "route": "admin.notifications.emails.index",
+            "icon": "Mail",
+            "group": "General",
+            "order": 80,
+            "permission": "notifications.log.view",
+            "activePattern": null,
+            "badge": null
+        }
+    },
+    "search": [],
+    "webhooks": [],
+    "automation": {
+        "tasks/notifications.prune": {
+            "stage": 90,
+            "handler": "Closure(Carbon\\CarbonImmutable $today)",
+            "label": "Prune (notifications)",
+            "description": null
+        },
+        "takesCalendarDate/notifications.prune": false,
+        "takesCarbonDate/notifications.prune": true
+    },
+    "dashboard": {
+        "todos/admin/notifications.failed_emails": {
+            "key": "notifications.failed_emails",
+            "resolver": "Closure(App\\Models\\User $user)",
+            "permission": "notifications.log.view",
+            "order": 40
+        },
+        "todos/admin/notifications.disabled_webhooks": {
+            "key": "notifications.disabled_webhooks",
+            "resolver": "Closure(App\\Models\\User $user)",
+            "permission": "notifications.webhooks.manage",
+            "order": 41
+        },
+        "health/admin/notifications.account_links": {
+            "key": "notifications.account_links",
+            "resolver": "Closure(App\\Models\\User $user)",
+            "permission": "notifications.log.view",
+            "order": 60
+        }
+    },
+    "sitemap": [],
+    "currency_usage": [],
+    "merge_fields": [],
+    "reference_data": {
+        "items/notifications_templates": {
+            "item": "App\\Modules\\Notifications\\Install\\DefaultTemplates",
+            "order": 100
+        }
+    },
+    "encrypted_storage": {
+        "items/notifications_webhook_endpoints": {
+            "class": "App\\Support\\Security\\EncryptedModel",
+            "model": "App\\Modules\\Notifications\\Models\\WebhookEndpoint"
+        }
+    },
+    "event_listeners": {
+        "App\\Events\\Affiliates\\AffiliateActivated": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Affiliates\\AffiliateCommissionEarned": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Affiliates\\AffiliateWithdrawalRequested": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\CreditNoteIssued": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\DebitNoteIssued": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\GatewayCredentialExpired": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\GatewayCredentialExpiring": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\InvoiceCancelled": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\InvoiceCreated": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\InvoiceModified": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\InvoiceOverdue": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\InvoicePaid": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\InvoicePaymentReminder": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\InvoiceRefunded": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\PaymentFailed": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\PaymentReceived": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\PaymentReinstated": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\PaymentReversed": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\QuoteAccepted": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\QuoteSent": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Billing\\TaxNoteResendRequested": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Core\\AutomationRunCompleted": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Core\\ClientRegistered": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Core\\ClientUpdated": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Core\\StaffLoginFailuresThreshold": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Domains\\DomainExpired": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Domains\\DomainExpiryDigest": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Domains\\DomainRegistered": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Domains\\DomainRenewed": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Domains\\DomainSyncReport": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Domains\\DomainTransferFailed": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Domains\\DomainTransferInitiated": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Domains\\DomainTransferred": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Domains\\FreeDomainRenewalBlocked": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Domains\\RegistrarActionFailed": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Kyc\\DocumentDecided": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Notifications\\WebhookEndpointDisabled": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Orders\\OrderCancelled": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Orders\\OrderMarkedFraud": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Orders\\OrderPlaced": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Services\\ProvisioningFailed": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Services\\ServiceActivated": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Services\\ServiceCancellationRequested": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Services\\ServiceCancelled": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Services\\ServiceRenewed": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Services\\ServiceSuspended": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Services\\ServiceTerminated": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Services\\ServiceUnsuspended": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Services\\ServiceUpgraded": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Support\\InboundEmailBounced": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Support\\TicketAccessLinkReplaced": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Support\\TicketAssigned": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Support\\TicketClosed": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Support\\TicketDepartmentChanged": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Support\\TicketNoteAdded": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Support\\TicketOpened": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "App\\Events\\Support\\TicketReplied": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\SendEventEmails",
+                "handle"
+            ],
+            [
+                "App\\Modules\\Notifications\\Listeners\\PublishEventWebhooks",
+                "handle"
+            ]
+        ],
+        "Illuminate\\Mail\\Events\\MessageSending": [
+            [
+                "App\\Modules\\Notifications\\Listeners\\BrandOutgoingMail",
+                "handle"
+            ]
+        ]
+    },
+    "rate_limiters": [],
+    "web_middleware": []
+}

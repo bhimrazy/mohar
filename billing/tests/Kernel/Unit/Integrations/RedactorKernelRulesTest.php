@@ -6,7 +6,7 @@
  */
 
 use App\Data\Billing\GatewayConfig;
-use App\Modules\Notifications\Support\SecretTemplatePolicy;
+use App\Modules\Notifications\Services\SecretTemplatePolicy;
 use App\Support\Integrations\RedactionSet;
 use App\Support\Integrations\Redactor;
 

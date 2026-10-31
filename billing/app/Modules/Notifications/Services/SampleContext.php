@@ -5,9 +5,8 @@ namespace App\Modules\Notifications\Services;
 use App\Data\Notifications\SensitiveValue;
 use App\Modules\Core\Support\InvitationExpiry;
 use App\Modules\Notifications\Enums\TemplateType;
+use App\Modules\Notifications\Settings\SupportAddresses;
 use App\Modules\Notifications\Support\MailDates;
-use App\Modules\Notifications\Support\SecretTemplatePolicy;
-use App\Modules\Notifications\Support\SupportAddresses;
 use Carbon\CarbonImmutable;
 
 /**
