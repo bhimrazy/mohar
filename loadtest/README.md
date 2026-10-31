@@ -9,17 +9,23 @@ stack cannot run there.
 
 ## Run it
 
-- **On a pull request:** add the `load-test` label. That runs the small profile with the large volume. Remove and
-  re-add the label to run again.
+- **On a pull request:** add the `load-test` label. It runs the jobs listed in the PR's `loadtest/label-runs.json`,
+  one runner each, in parallel: up to three runs, each with a `name`, `profile` (small or medium; large does not fit
+  the standard runner), and optionally `volume` (default large), `levels`, `level_duration`, `start_spread`, `warmup`
+  and `think`. `loadtest/bin/plan.py` checks every value against a fixed pattern first; the runner (`ubuntu-24.04`)
+  and the rule that skips a profile larger than the runner come from the workflow, not the file. Remove and re-add the
+  label to run again. Only people with triage access can add a label.
 - **Any profile or volume:** Actions → Load test → Run workflow. This is available once the workflow is on the
   default branch. Inputs: `profile` (small, medium, large or all), `volume` (tiny, small, medium, large), `levels`
   (virtual users per step, for example `5 10 20`), `level_duration` (for example `90s`), `runner` (a runner label)
   and `allow_smaller_runner`.
 - **On any Linux host with Docker Compose v2 and passwordless sudo:**
   `loadtest/bin/run --profile small --volume large`. Results go to `loadtest/results/<run>/`. Without sudo the
-  whole-stack cap is skipped and the summary says so.
+  whole-stack cap is skipped and the summary says so. `--think "10 30"` sets every pause between pages to 10–30 s
+  (people who read each page); `--no-stop` runs every level even past saturation.
 
-Each run uploads an artifact named `load-test-<profile>-<volume>-<run id>`. It holds `summary.md` (also shown on the
+Each job uploads an artifact named `load-test-<name>-<volume>-<run id>`, where `<name>` is the run's `name` in
+`loadtest/label-runs.json` or, for a dispatch, the profile. It holds `summary.md` (also shown on the
 run page) and `summary.json`, plus the raw files: k6 summaries per level, `docker-stats.ndjson`, the slowest
 PostgreSQL queries, the PDF bench, the automation log and the queue drain. It never holds secrets: generated keys and
 passwords stay in a temporary directory that is deleted at the end. To compare several runs, download their
@@ -46,7 +52,10 @@ Cloud plans, so that needs either one of those or a self-hosted runner.
    Caddy with an internal certificate and the upstream file `deploy/bin/deploy` writes for blue. Then it warms up for
    60 seconds. The warm-up fills OPcache, PostgreSQL buffers and compiled views.
 5. **Web load** (`k6/main.js`): one k6 run per step of `LOAD_LEVELS`, each for `LEVEL_DURATION`, with `docker stats`
-   sampled every few seconds and `pg_stat_statements` collected.
+   sampled every few seconds and `pg_stat_statements` collected. **Stop at saturation:** once a level is past the
+   comfortable limit (p95 of all requests 1 s or more, or 1% errors or more), the run does one more level so the knee
+   shows, then skips the rest. The summary names the last comfortable and the first failing level, with the per-page
+   table and the CPU of the app, PostgreSQL and k6 at both.
 6. **Background work.** The PDF bench comes first. Then the workers stop and today's `automation:run` runs in the
    scheduler container. When it finishes, the workers start again and the run times how long the queue takes to
    drain. The provisioning hook comes last.
@@ -115,7 +124,9 @@ least 7 days old, and `composer deps:check` verifies it. The mix of virtual user
 |   10% | `api`        | the JSON endpoints the UI calls: admin global search, the client picker, and the storefront price preview. There is no public REST API yet.                                   |
 
 Each virtual user loads its first page as full HTML and then navigates with Inertia JSON requests, as a browser
-does. Think time is 1 to 3 seconds per page, so a virtual user is roughly one active person.
+does. Think time is 1 to 3 seconds per page, so a virtual user is a fast, busy person; someone who reads each page
+takes 10–30 s, which `--think "10 30"` (k6 `THINK_MIN` and `THINK_MAX`) models by replacing every pause with that
+range.
 
 Each virtual user arrives at a random moment in the first 20 seconds of a level (`--start-spread`, 0 for all at once;
 it must be shorter than the level and the warm-up),
@@ -134,7 +145,7 @@ load generator's single IP address, which a real crowd would not.
 | medium  | 4 vCPU, 8 GB     | 2,560 MB (8)      | 1, 2, 1 × 320 MB                           | 2,560 MB (640 MB)            | 10 20 40 80  |
 | large   | 8 vCPU, 16 GB    | 5,120 MB (16)     | 2, 3, 2 × 320 MB                           | 6,144 MB (1,536 MB)          | 20 40 80 160 |
 
-The per-service memory limits add up to about 90% of the host's total. CPU limits are ceilings within the total,
+The per-service memory limits add up to 90–97% of the host's total (97% on small, whose scheduler has production's 512 MB). CPU limits are ceilings within the total,
 not reservations. `loadtest/frankenphp/Caddyfile` is the production FrankenPHP Caddyfile plus `num_threads` from the
 profile: two threads per vCPU, which is what FrankenPHP starts by default on a VPS of that size.
 

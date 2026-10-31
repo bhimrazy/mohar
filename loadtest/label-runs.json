@@ -1,0 +1,13 @@
+{
+    "runs": [
+        {
+            "name": "small-realistic",
+            "profile": "small",
+            "levels": "100 200 300 400",
+            "level_duration": "6m",
+            "start_spread": 240,
+            "warmup": "300s",
+            "think": "10 30"
+        }
+    ]
+}

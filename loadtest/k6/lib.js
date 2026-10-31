@@ -20,7 +20,16 @@ const PAGE_PATTERN = /<script[^>]*data-page="app"[^>]*>([\s\S]*?)<\/script>/;
 /** 2xx and 3xx are successes; 429 is expected for the IP-limited storefront endpoints. */
 export const allow429 = http.expectedStatuses({ min: 200, max: 399 }, 429);
 
+// THINK_MIN and THINK_MAX (seconds) replace every pause with one range, to model people who read each page
+// (e.g. 10 and 30). Unset, each call keeps its own range (1–3 s by default).
+const THINK_MIN = parseFloat(__ENV.THINK_MIN || '');
+const THINK_MAX = parseFloat(__ENV.THINK_MAX || '');
+const THINK_OVERRIDE = Number.isFinite(THINK_MIN) && Number.isFinite(THINK_MAX);
+
 export function think(min = 1, max = 3) {
+    if (THINK_OVERRIDE) {
+        [min, max] = [THINK_MIN, THINK_MAX];
+    }
     sleep(min + Math.random() * (max - min));
 }
 

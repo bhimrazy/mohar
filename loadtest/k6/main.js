@@ -1,7 +1,7 @@
 // Mixed load at one concurrency level (loadtest/README.md): client area, storefront and cart, admin area and the
 // JSON endpoints, as constant virtual users with think time. loadtest/bin/run calls this once per level.
 //
-//   k6 run -e VUS=50 -e DURATION=2m -e START_SPREAD=20 -e CLIENTS=50000 -e STAFF=20 -e LOADTEST_PASSWORD=... -e OUT=/results/k6-50.json main.js
+//   k6 run -e VUS=50 -e DURATION=2m -e START_SPREAD=20 [-e THINK_MIN=10 -e THINK_MAX=30] -e CLIENTS=50000 -e STAFF=20 -e LOADTEST_PASSWORD=... -e OUT=/results/k6-50.json main.js
 //
 // Each request is tagged with `page`; a threshold per page makes k6 report it as its own sub-metric, which
 // bin/summarize.py turns into the per-page latency table.

@@ -3,6 +3,7 @@
 
     python3 loadtest/bin/summarize.py loadtest/results/<run>
     python3 loadtest/bin/summarize.py --combine out/ run-a/ run-b/ ...    one table across runs (the workflow)
+    python3 loadtest/bin/summarize.py --check-level <run>/k6-50.json       one level: prints it, exits 3 if saturated
 
 Only numbers that were measured: every value comes from a k6 summary, docker stats, PostgreSQL, the PDF bench or the
 automation log of this run. Standard library only.
@@ -24,6 +25,24 @@ PAGES_SHOWN = [
 # p95 under 200 ms, separately.
 P95_LIMIT_MS = 1000
 ERROR_LIMIT = 0.01
+SATURATED = 3  # exit code of --check-level for a level past the comfortable limit (bin/run stops the ramp on it)
+
+
+def comfortable(level):
+    return level['p95_ms'] < P95_LIMIT_MS and level['error_rate'] < ERROR_LIMIT
+
+
+def saturation(levels):
+    """The last comfortable level before the first one that is not, in the order they ran."""
+    first = next((i for i, level in enumerate(levels) if not comfortable(level)), None)
+    before = levels[:first] if first is not None else levels
+    return {
+        'last_comfortable_vus': before[-1]['vus'] if before else None,
+        'first_failing_vus': levels[first]['vus'] if first is not None else None,
+        'reason': None if first is None else ', '.join(
+            ([f"p95 {levels[first]['p95_ms']} ms >= {P95_LIMIT_MS} ms"] if levels[first]['p95_ms'] >= P95_LIMIT_MS else [])
+            + ([f"errors {levels[first]['error_rate'] * 100:.2f}% >= {ERROR_LIMIT * 100:.0f}%"] if levels[first]['error_rate'] >= ERROR_LIMIT else [])),
+    }
 
 
 def load(path, default=None):
@@ -160,7 +179,18 @@ def summarize(run):
         level = web_level(run / f'k6-{vus}.json')
         if level:
             levels.append({'vus': int(vus), **level})
-    comfortable = [level for level in levels if level['p95_ms'] < P95_LIMIT_MS and level['error_rate'] < ERROR_LIMIT]
+    usage = resources(ndjson(run / 'docker-stats.ndjson'), meta.get('project', 'mohar-loadtest'))
+    cap = (meta.get('profile_cpus') or 0) * 100
+    for level in levels:
+        phase = usage.get(f"web-{level['vus']}", {})
+        stack = sum(r['cpu_avg_pct'] for service, r in phase.items() if service != 'k6')
+        level['cpu'] = {
+            'stack_avg_pct': round(stack, 1) if phase else None,
+            'stack_avg_of_cap_pct': round(100 * stack / cap, 1) if cap and phase else None,
+            'app_avg_pct': (phase.get('app-blue') or {}).get('cpu_avg_pct'),
+            'postgres_avg_pct': (phase.get('postgres') or {}).get('cpu_avg_pct'),
+            'k6_avg_pct': (phase.get('k6') or {}).get('cpu_avg_pct'),
+        }
     phases = ndjson(run / 'phases.ndjson')
     drain_start = next((p['t'] for p in phases if p['phase'] == 'drain'), None)
     drain = load(run / 'drain.json', {})
@@ -174,10 +204,11 @@ def summarize(run):
         'invariants_broken': sum((seed.get('invariants') or {}).values()) if seed else None,
         'database': load(run / 'database.json', {}),
         'web': levels,
-        'max_comfortable_vus': max((level['vus'] for level in comfortable), default=None),
-        'resources': resources(ndjson(run / 'docker-stats.ndjson'), meta.get('project', 'mohar-loadtest')),
+        'saturation': saturation(levels),
+        'resources': usage,
         'pdf': load(run / 'pdf.json', {}),
         'automation': {
+            'exit_code': (load(run / 'automation-exit.json', {}) or {}).get('exit_code'),
             'seconds': round(automation_ms / 1000, 1),
             'tasks': sorted(({'task': t['task'], 'status': t['status'], 'seconds': round(int(t.get('duration_ms') or 0) / 1000, 2), 'summary': t.get('summary')} for t in tasks),
                             key=lambda t: -t['seconds']),
@@ -200,6 +231,17 @@ def summarize(run):
     return summary
 
 
+def automation_failure(code):
+    """128 + N is death by signal N (137: SIGKILL, usually a memory limit). RunAutomation itself returns 1 both after
+    a failed task and when another run holds its lock, so a low code means it ended on its own."""
+    if code >= 128:
+        return (f"- **`automation:run` was stopped early (exit {code}, signal {code - 128})**"
+                + (', usually by the scheduler container\'s memory limit' if code == 137 else '')
+                + '. The billing-day figures below cover only the tasks it recorded.')
+    return (f"- `automation:run` finished, but a task failed or another run held its lock (exit {code}); "
+            'see automation.log.')
+
+
 def fmt(value, suffix=''):
     return '–' if value is None else f'{value:,}{suffix}' if isinstance(value, int) else f'{value}{suffix}'
 
@@ -209,8 +251,9 @@ def markdown(s):
     lines = [
         f"## Load test: {meta.get('profile')} profile, {meta.get('volume')} volume ({meta.get('run')})",
         '',
-        f"Runner {meta.get('host_cpus')} CPU / {meta.get('host_memory_mb')} MB; profile {meta.get('profile_cpus')} vCPU / {meta.get('profile_memory')}; "
-        f"host cap: {meta.get('host_cap')}; PHP threads {meta.get('php_threads')}; virtual users arrive over {fmt(meta.get('start_spread_s'), ' s')}; commit {meta.get('git_sha')}."
+        f"Runner {meta.get('host_cpus')} CPU ({meta.get('host_cpu_model') or 'model not recorded'}) / {meta.get('host_memory_mb')} MB; profile {meta.get('profile_cpus')} vCPU / {meta.get('profile_memory')}; "
+        f"host cap: {meta.get('host_cap')}; PHP threads {meta.get('php_threads')}; virtual users arrive over {fmt(meta.get('start_spread_s'), ' s')}; "
+        f"think time {meta.get('think') or 'per page (1–3 s mostly)'}; levels of {meta.get('level_duration')}; commit {meta.get('git_sha')}."
         + (' **The runner is smaller than this profile: these numbers are for the runner, not the profile.**' if meta.get('runner_smaller_than_profile') else ''),
         '',
         f"Seeded {fmt(seed.get('clients'))} clients, {fmt(seed.get('services'))} services, {fmt(seed.get('invoices'))} invoices, "
@@ -219,18 +262,24 @@ def markdown(s):
         '',
         '### Web (mixed: 50% client area, 30% storefront and cart, 10% admin, 10% JSON)',
         '',
-        '| VUs | req/s | p50 ms | p95 ms | p99 ms | errors | 429s | content errors |',
-        '| --: | --: | --: | --: | --: | --: | --: | --: |',
+        '| VUs | req/s | p50 ms | p95 ms | p99 ms | errors | 429s | content errors | stack CPU % of cap | app CPU % | PostgreSQL CPU % | k6 CPU % |',
+        '| --: | --: | --: | --: | --: | --: | --: | --: | --: | --: | --: | --: |',
     ]
     for level in s['web']:
+        cpu = level.get('cpu') or {}
         lines.append(f"| {level['vus']} | {level['rps']} | {level['p50_ms']} | {level['p95_ms']} | {level['p99_ms']} | "
-                     f"{level['error_rate'] * 100:.2f}% | {level['rate_limited']} | {level['content_errors']} |")
-    lines += ['', f"Highest level with p95 < {P95_LIMIT_MS} ms and errors < 1%: {fmt(s['max_comfortable_vus'])} VUs.", '']
-    if s['web']:
-        top = s['web'][-1]
-        lines += [f"### Pages at {top['vus']} VUs", '', '| page | n | p50 | p95 | p99 | errors |', '| --- | --: | --: | --: | --: | --: |']
+                     f"{level['error_rate'] * 100:.2f}% | {level['rate_limited']} | {level['content_errors']} | "
+                     f"{fmt(cpu.get('stack_avg_of_cap_pct'))} | {fmt(cpu.get('app_avg_pct'))} | {fmt(cpu.get('postgres_avg_pct'))} | {fmt(cpu.get('k6_avg_pct'))} |")
+    sat = s['saturation']
+    lines += ['', f"Comfortable: p95 < {P95_LIMIT_MS} ms and errors < 1%. CPU columns are averages over the level, % of one core (k6 is outside the cap).", '',
+              f"**Saturation:** last comfortable level {fmt(sat['last_comfortable_vus'])} VUs; first failing level {fmt(sat['first_failing_vus'])} VUs"
+              + (f" ({sat['reason']})" if sat['reason'] else ' (none of the levels run)')
+              + (f"; levels planned but not run: {' '.join(meta['levels_skipped'])}" if meta.get('levels_skipped') else '') + '.', '']
+    knee = [level for level in s['web'] if level['vus'] in (sat['last_comfortable_vus'], sat['first_failing_vus'])] or s['web'][-1:]
+    for level in knee:
+        lines += [f"### Pages at {level['vus']} VUs", '', '| page | n | p50 | p95 | p99 | errors |', '| --- | --: | --: | --: | --: | --: |']
         for page in PAGES_SHOWN:
-            p = top['pages'].get(page)
+            p = level['pages'].get(page)
             if p:
                 lines.append(f"| {page} | {p['count']} | {p['p50_ms']} | {p['p95_ms']} | {p['p99_ms']} | {p['error_rate'] * 100:.1f}% |")
         lines.append('')
@@ -245,6 +294,7 @@ def markdown(s):
         '### Background work', '',
         f"- Invoice PDF: {fmt(pdf.get('ms_p50'))} ms p50, {fmt(pdf.get('ms_p95'))} ms p95, {fmt(pdf.get('renders_per_second_one_process'))} renders/s per PHP process, "
         f"up to {fmt(pdf.get('peak_memory_mb_per_render_max'))} MB per render, {fmt(pdf.get('pdf_kb_avg'))} KB per file.",
+        *([automation_failure(automation['exit_code'])] if automation.get('exit_code') else []),
         f"- Billing-day automation: {fmt(automation['seconds'])} s in total; slowest: "
         + ', '.join(f"{t['task']} {t['seconds']} s ({t['summary']})" for t in automation['tasks'][:4]) + '.',
         f"- Jobs it queued: {json.dumps(automation['jobs_queued'])}. Drain: {fmt(drain.get('jobs'))} jobs in {fmt(drain.get('seconds'))} s "
@@ -267,20 +317,28 @@ def combine(out, runs):
     out.mkdir(parents=True, exist_ok=True)
     summaries = [load(Path(r) / 'summary.json') for r in runs]
     summaries = [s for s in summaries if s]
-    lines = ['## Load test: all profiles', '', '| profile | volume | runner | max VUs at p95 < 1 s | req/s there | automation s | drain jobs/s | PDF ms p50 |',
-             '| --- | --- | --- | --: | --: | --: | --: | --: |']
+    lines = ['## Load test: all profiles', '', '| profile | volume | think | runner | last comfortable VUs | req/s there | first failing VUs | automation s | drain jobs/s | PDF ms p50 |',
+             '| --- | --- | --- | --- | --: | --: | --: | --: | --: | --: |']
     for s in summaries:
         meta = s['meta']
-        best = next((level for level in s['web'] if level['vus'] == s['max_comfortable_vus']), None)
-        lines.append(f"| {meta.get('profile')} | {meta.get('volume')} | {meta.get('host_cpus')} CPU / {meta.get('host_memory_mb')} MB"
-                     f"{' (smaller than profile)' if meta.get('runner_smaller_than_profile') else ''} | {fmt(s['max_comfortable_vus'])} | "
-                     f"{fmt(best['rps'] if best else None)} | {fmt(s['automation']['seconds'])} | {fmt(s['drain'].get('jobs_per_second'))} | {fmt(s['pdf'].get('ms_p50'))} |")
+        sat = s.get('saturation') or {}
+        best = next((level for level in s['web'] if level['vus'] == sat.get('last_comfortable_vus')), None)
+        lines.append(f"| {meta.get('profile')} | {meta.get('volume')} | {meta.get('think') or 'default'} | {meta.get('host_cpus')} CPU / {meta.get('host_memory_mb')} MB"
+                     f"{' (smaller than profile)' if meta.get('runner_smaller_than_profile') else ''} | {fmt(sat.get('last_comfortable_vus'))} | "
+                     f"{fmt(best['rps'] if best else None)} | {fmt(sat.get('first_failing_vus'))} | {fmt(s['automation']['seconds'])} | {fmt(s['drain'].get('jobs_per_second'))} | {fmt(s['pdf'].get('ms_p50'))} |")
     (out / 'summary.md').write_text('\n'.join(lines) + '\n')
     (out / 'summary.json').write_text(json.dumps(summaries, indent=2))
 
 
 if __name__ == '__main__':
-    if len(sys.argv) > 2 and sys.argv[1] == '--combine':
+    if len(sys.argv) == 3 and sys.argv[1] == '--check-level':
+        level = web_level(sys.argv[2])
+        if level is None:
+            sys.exit(f'no k6 summary in {sys.argv[2]}')
+        print(f"  {level['rps']} req/s, p50 {level['p50_ms']} ms, p95 {level['p95_ms']} ms, p99 {level['p99_ms']} ms, "
+              f"errors {level['error_rate'] * 100:.2f}%{'' if comfortable(level) else ' (past the comfortable limit)'}")
+        sys.exit(0 if comfortable(level) else SATURATED)
+    elif len(sys.argv) > 2 and sys.argv[1] == '--combine':
         combine(sys.argv[2], sys.argv[3:])
     elif len(sys.argv) == 2:
         summarize(sys.argv[1])
