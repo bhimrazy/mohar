@@ -408,7 +408,7 @@ the snapshot, with a `kernel-changelog.d` fragment):
    one instance from `ImportRegistry::get()` per chunk), **`MatchesExisting::matchExisting(list<ImportRecord>,
    ImportContext): array<string sourceId, int targetId>`** (batch; a proposal only, the id map wins), and
    **`ImportIdResolver::targetIds(string $entity, list<string> $sourceIds): array<int|string,int>`** (numeric source ids come
-   back as int keys). Test doubles in `OpeningBalanceImportTest` and `Pr283ReviewProbesTest` are updated. Done in #527.
+   back as int keys). Test doubles in `OpeningBalanceImportTest` and `OpeningBalanceReleaseOverlapTest` are updated. Done in #527.
 3. **`DeclaresValueMaps extends RecordImporter`**, `valueMaps(): array<string, list<array{value:string,label:string}>>`,
    with `validate()` returning `ImportIssue`s for unmapped values. Migration's "Mappings required" step lists the targets
    without reading other modules' tables. A map key is the path of the attribute it applies to, per entity (ADR 0019

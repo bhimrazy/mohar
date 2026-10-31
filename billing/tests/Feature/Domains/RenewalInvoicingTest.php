@@ -15,8 +15,8 @@ use App\Modules\Domains\Models\DomainInvoice;
 use App\Support\CalendarDate;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Event;
+use Tests\Fakes\Billing\FakeInvoicer;
 use Tests\Fakes\Domains\DomainFixtures;
-use Tests\Fakes\Domains\FakeInvoicer;
 use Tests\Fakes\Domains\FakeRegistrar;
 
 beforeEach(function () {

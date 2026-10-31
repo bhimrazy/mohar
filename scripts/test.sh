@@ -13,10 +13,10 @@
 #   - changed test files, and the whole directory of a changed test helper;
 #   - app/Modules/<M>/** -> tests/Feature/<M>, tests/Unit/<M> and every test file that names an App\Modules\<M>\ class
 #     (tests that reach a module only over HTTP are not found this way: the suites below cover the common ones);
-#     tools/simulators/** -> tools/simulators/tests; deploy/, loadtest/ -> tests/Unit/Deploy; scripts/, billing/scripts/,
-#     .github/ -> tests/Unit/Scripts and tests/Unit/Deploy; resources/js/** -> tests/Feature (the Inertia component and prop assertions);
-#   - always, once any of those changed: tests/Arch, tests/Extensions and, in tests/Feature, Security, Migration,
-#     TestHarness, Auth, Settings, Reports, Integrations, Review, ReviewProbes and DashboardTest.php, which catch
+#     tools/simulators/** -> tools/simulators/tests; deploy/, loadtest/ -> tests/Tooling/Deploy; scripts/, billing/scripts/,
+#     .github/ -> tests/Tooling; resources/js/** -> tests/Feature (the Inertia component and prop assertions);
+#   - always, once any of those changed: tests/Arch, tests/Extensions, tests/Kernel and, in tests/Feature, Security,
+#     Migration, TestHarness, Auth, Settings, Reports, Integrations and DashboardTest.php, which catch
 #     breakage across modules and PRs;
 #   - the whole suite when shared code changed: app/Modules/Core (nearly every test depends on it), the kernel and other
 #     app/ code outside app/Modules, config/, routes/, bootstrap/, database/, resources/views, lang/, tests/Pest.php,
@@ -101,9 +101,9 @@ if [ "$changed" = 1 ]; then
             billing/tools/simulators/*)
                 php_side=1; add_dir tools/simulators/tests ;;
             deploy/* | loadtest/*)
-                php_side=1; add_dir tests/Unit/Deploy ;;
+                php_side=1; add_dir tests/Tooling/Deploy ;;
             scripts/* | billing/scripts/* | .github/*)
-                php_side=1; add_dir tests/Unit/Scripts; add_dir tests/Unit/Deploy ;;
+                php_side=1; add_dir tests/Tooling ;;
             billing/*)
                 reason="${reason:-$f}" ;;
             *) ;;
@@ -118,8 +118,8 @@ if [ "$changed" = 1 ]; then
     else
         full=0
         for d in tests/Arch tests/Extensions tests/Feature/Security tests/Feature/Migration tests/Feature/TestHarness \
-            tests/Feature/Auth tests/Feature/Settings tests/Feature/Reports tests/Feature/Integrations tests/Feature/Review \
-            tests/Feature/ReviewProbes; do add_dir "$d"; done
+            tests/Feature/Auth tests/Feature/Settings tests/Feature/Reports tests/Feature/Integrations \
+            tests/Kernel/Feature tests/Kernel/Unit; do add_dir "$d"; done
         [ -f tests/Feature/DashboardTest.php ] && selection+=(tests/Feature/DashboardTest.php)
         paths+=("${selection[@]}")
     fi
@@ -135,7 +135,7 @@ if [ "$full" = 0 ]; then
     paths=()
     while IFS= read -r p; do
         [ -n "$p" ] || continue
-        if [ "$pgsql" = 1 ]; then case "$p" in tests/Unit | tests/Unit/* | tests/Arch | tests/Arch/*) continue ;; esac; fi
+        if [ "$pgsql" = 1 ]; then case "$p" in tests/Unit | tests/Unit/* | tests/Kernel/Unit | tests/Kernel/Unit/* | tests/Tooling | tests/Tooling/* | tests/Arch | tests/Arch/*) continue ;; esac; fi
         covered=0
         for q in ${paths[@]+"${paths[@]}"}; do case "$p" in "$q"/*) covered=1 ;; esac; done
         [ "$covered" = 1 ] || paths+=("$p")

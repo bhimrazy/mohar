@@ -261,3 +261,16 @@ test('plan.py refuses a hostile or wasteful plan before anything reaches a shell
     'think minimum 0' => [[['profile' => 'small', 'think' => '0 30']], 'think'],
     'think reversed' => [[['profile' => 'small', 'think' => '30 10']], 'the smaller number first'],
 ]);
+
+test('k6 counts error statuses per page in the classes summarize.py reads, and the limited storefront pages allow 429 (#567)', function () {
+    $lib = loadtestFile('loadtest/k6/lib.js');
+    $summarize = loadtestFile('loadtest/bin/summarize.py');
+
+    preg_match("/^export const STATUS_CLASSES = (\[.*\]);$/m", $lib, $js);
+    preg_match("/^STATUS_CLASSES = (\[.*\])$/m", $summarize, $py);
+    expect($js[1] ?? null)->not->toBeNull()
+        ->and($js[1] ?? null)->toBe($py[1] ?? null)
+        ->and(loadtestFile('loadtest/k6/main.js'))->toContain('thresholds[`status_${statusClass}{page:${page}}`]')
+        ->and($summarize)->toContain("values(metrics, f'status_{c}{{page:{page}}}')")
+        ->and(loadtestFile('loadtest/k6/scenarios/storefront.js'))->toContain('visit(anonymous, path, name, {}, { limited: true });');
+});

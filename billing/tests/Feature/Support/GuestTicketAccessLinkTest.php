@@ -13,7 +13,7 @@ use App\Modules\Support\Models\Department;
 use App\Modules\Support\Models\Ticket;
 use Illuminate\Support\Facades\Storage;
 
-require_once dirname(__DIR__, 2).'/Support/helpers.php';
+require_once dirname(__DIR__).'/Support/helpers.php';
 
 beforeEach(function () {
     Storage::fake('objects');

@@ -15,8 +15,8 @@ use App\Modules\Domains\Models\RegistrarCommandLog;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Services\DomainPricingService;
 use Carbon\CarbonImmutable;
+use Tests\Fakes\Billing\FakeInvoicer;
 use Tests\Fakes\Domains\DomainFixtures;
-use Tests\Fakes\Domains\FakeInvoicer;
 use Tests\Fakes\Domains\FakeRegistrar;
 
 /*

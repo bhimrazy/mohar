@@ -39,7 +39,7 @@ use Illuminate\Support\Facades\DB;
  * Both writes open their own transaction and lock the client before reading its ledger (ADR 0021 §3, import: run,
  * migration record, then client).
  */
-class Pr283PreviousReleaseOpeningBalanceImporter implements RevertsImport
+class PreviousReleaseOpeningBalanceImporter implements RevertsImport
 {
     private const GATEWAY = 'import';
 

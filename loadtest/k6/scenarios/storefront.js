@@ -72,7 +72,8 @@ export function storefront() {
         ['/knowledgebase', 'knowledgebase'],
         ['/announcements', 'announcements'],
     ]);
-    visit(anonymous, path, name);
+    // Anonymous, so every virtual user shares the generator's IP and the support-public limit (#567).
+    visit(anonymous, path, name, {}, { limited: true });
     think();
 
     // Signed-in customer ordering.

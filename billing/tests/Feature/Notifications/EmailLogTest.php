@@ -19,7 +19,7 @@ use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\Exception\TransportException;
 use Symfony\Component\Mailer\SentMessage;
 use Symfony\Component\Mime\RawMessage;
-use Tests\Fakes\Services\FakePriceBook;
+use Tests\Fakes\Catalog\FakePriceBook;
 
 require_once __DIR__.'/helpers.php';
 
