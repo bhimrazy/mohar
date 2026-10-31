@@ -13,8 +13,8 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 
-require_once dirname(__DIR__, 2).'/Billing/helpers.php';
-require_once dirname(__DIR__, 2).'/Notifications/helpers.php';
+require_once dirname(__DIR__).'/Billing/helpers.php';
+require_once dirname(__DIR__).'/Notifications/helpers.php';
 
 beforeEach(function () {
     CarbonImmutable::setTestNow('2026-10-20 06:00:00');

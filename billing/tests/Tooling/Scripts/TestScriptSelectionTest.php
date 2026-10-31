@@ -9,7 +9,7 @@ use Symfony\Component\Process\Process;
 
 const TSS_ALWAYS = [
     'tests/Arch', 'tests/Extensions', 'tests/Feature/Auth', 'tests/Feature/DashboardTest.php', 'tests/Feature/Integrations', 'tests/Feature/Migration',
-    'tests/Feature/Reports', 'tests/Feature/Review', 'tests/Feature/ReviewProbes', 'tests/Feature/Security', 'tests/Feature/Settings', 'tests/Feature/TestHarness',
+    'tests/Feature/Reports', 'tests/Feature/Security', 'tests/Feature/Settings', 'tests/Feature/TestHarness', 'tests/Kernel/Feature', 'tests/Kernel/Unit',
 ];
 
 function tssGit(string $dir, string ...$args): string
@@ -31,7 +31,7 @@ function tssRepo(string $suffix = ''): array
 {
     $dir = sys_get_temp_dir().'/test-sh-'.bin2hex(random_bytes(4)).$suffix;
 
-    foreach ([...TSS_ALWAYS, 'tests/Feature/Billing', 'tests/Unit/Billing', 'tests/Unit/Deploy', 'tests/Feature/Kyc/Support'] as $tests) {
+    foreach ([...TSS_ALWAYS, 'tests/Feature/Billing', 'tests/Unit/Billing', 'tests/Tooling/Deploy', 'tests/Feature/Kyc/Support'] as $tests) {
         str_ends_with($tests, '.php') ? tssWrite($dir, "billing/{$tests}") : tssWrite($dir, "billing/{$tests}/ExampleTest.php");
     }
     // A test outside the Billing directories that uses a Billing class.
@@ -113,11 +113,11 @@ test('a base ref that does not exist fails instead of selecting nothing', functi
 
 test('a committed test file and an untracked helper select the file and the helper\'s directory', function () {
     [$this->repo, $base] = tssRepo();
-    tssWrite($this->repo, 'billing/tests/Unit/Deploy/ExampleTest.php', "<?php\n// changed\n");
+    tssWrite($this->repo, 'billing/tests/Tooling/Deploy/ExampleTest.php', "<?php\n// changed\n");
     tssGit($this->repo, 'commit', '-qam', 'change');
     tssWrite($this->repo, 'billing/tests/Feature/Kyc/Support/worker.php');
 
-    expect(tssList($this->repo, $base))->toContain('tests/Unit/Deploy/ExampleTest.php', 'tests/Feature/Kyc/Support', ...TSS_ALWAYS);
+    expect(tssList($this->repo, $base))->toContain('tests/Tooling/Deploy/ExampleTest.php', 'tests/Feature/Kyc/Support', ...TSS_ALWAYS);
 });
 
 test('a change to shared code runs the whole suite', function () {
