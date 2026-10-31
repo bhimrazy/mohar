@@ -163,12 +163,12 @@ MD),
 
 A passkey was added to {{ user.email }}. It can be used to log in without your password.
 
-| Date | {{ system.today | date }} |
+| Added | {{ notice.added_at }} |
 |---|---|
 
 If you didn't add it, remove it in your security settings, change your password and contact us{% if support.email %} at {{ support.email }}{% endif %} straight away.
 
-[Open security settings]({{ system.client_area_url }})
+[Open security settings]({{ notice.security_url }})
 MD),
     $client('client.welcome', 'general', 'Welcome to the client area', 'Welcome to {{ company.name }}', <<<'MD'
 # Welcome, {{ client.first_name }}
@@ -858,11 +858,16 @@ MD),
     $staff('staff.passkey_added', 'Staff passkey added', 'A passkey was added to your staff account', <<<'MD'
 # A passkey was added to your staff account
 
-A passkey was added to {{ user.email }}. It can be used to log in without your password.
+{% if recipient.first_name %}Hi {{ recipient.first_name }},{% else %}Hello,{% endif %}
+
+A passkey was added to your staff login, {{ recipient.email }}. It can be used to log in without your password.
+
+| Added | {{ notice.added_at }} |
+|---|---|
 
 If you didn't add it, remove it in your security settings, change your password and tell another administrator straight away.
 
-[Open admin area]({{ system.admin_url }})
+[Open security settings]({{ notice.security_url }})
 MD),
     $staff('staff.password_reissued', 'Staff one-time password issued', 'A new one-time password was issued for your staff account', <<<'MD'
 # A new one-time password was issued
@@ -971,7 +976,7 @@ $preheaders = [
     'auth.access_granted' => 'Log in as usual to see {{ notice.account }}.',
     'auth.owner_changed' => '{{ notice.email }} now owns {{ notice.account }}.',
     'auth.two_factor_reset' => 'Set it up again from your security settings.',
-    'auth.passkey_added' => 'Added on {{ system.today | date }}. Not you? Remove it and change your password.',
+    'auth.passkey_added' => 'Added {{ notice.added_at }}. Not you? Remove it and change your password.',
     'kyc.document_decided' => '{% if kyc.approved %}Approved after review.{% else %}What to fix: {{ kyc.reason }}{% endif %}',
     'client.welcome' => 'Your account is ready. Log in to order services, pay invoices and get help.',
     'order.confirmation' => 'Thanks for your order. We\'ll email you as soon as each service is ready.',

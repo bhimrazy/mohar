@@ -5,9 +5,12 @@
   confirmation from the same session is not enough. The confirm-password page no longer offers "Confirm with passkey".
 - **Adding or removing a passkey, and every two-factor change, need a password confirmation from the last 15
   minutes (#538)**, not the 3-hour window. The Settings → Security page asks again after 15 minutes too. When the
-  window runs out during two-factor setup or while adding a passkey, the password dialog opens and the step carries on
-  after it.
+  window runs out during two-factor setup, recovery codes, turning two-factor off or adding a passkey, the password
+  dialog opens on the same page and the step carries on after it, with the typed code kept. The confirm-password
+  page's "Back" link now leads to the settings or the dashboard instead of the storefront, and the page and dialog
+  name the configured window (`AUTH_STEP_UP_SECONDS`) instead of always "15 minutes".
 - **Adding a passkey now mails the account (#538)** with the new always-sent templates "Passkey added" (clients) and
-  "Staff passkey added", and writes `auth.passkey_added` to the activity log. Upgrade note: run
+  "Staff passkey added", and writes `auth.passkey_added` to the activity log. The mail gives the date and time and
+  links to the security settings. Staff mail no longer links to the clients' help centre in its footer. Upgrade note: run
   `php artisan app:install`, which adds new reference data, so existing installations get the two templates; until then
   the notice goes out as a plain mail.

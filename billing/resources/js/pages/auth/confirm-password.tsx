@@ -1,4 +1,4 @@
-import { Form, setLayoutProps } from '@inertiajs/react';
+import { Form, setLayoutProps, usePage } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import { SetPasswordButton } from '@/components/app/set-password-button';
 import InputError from '@/components/input-error';
@@ -6,17 +6,24 @@ import PasswordInput from '@/components/password-input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
+import { stepUpWindow } from '@/lib/step-up';
 import { store } from '@/routes/password/confirm';
 
 export default function ConfirmPassword({
     download = false,
     hasPassword = true,
+    back,
 }: {
     download?: boolean;
     hasPassword?: boolean;
+    back?: { url: string; label: string };
 }) {
+    const confirmFor = stepUpWindow(usePage().props.auth.step_up_minutes);
+
     if (!hasPassword) {
         setLayoutProps({
+            backHref: back?.url,
+            backLabel: back?.label,
             title: 'Set a password to continue',
             description:
                 "This action needs a password, and your account doesn't have one yet. We can email you a link to set one; then come back.",
@@ -31,12 +38,13 @@ export default function ConfirmPassword({
         );
     }
 
-    if (download) {
-        setLayoutProps({
-            description:
-                "Enter your password to download this file; you won't be asked again for 15 minutes. The download starts as soon as you confirm.",
-        });
-    }
+    setLayoutProps({
+        backHref: back?.url,
+        backLabel: back?.label,
+        description: download
+            ? `Enter your password to download this file; you won't be asked again for ${confirmFor}. The download starts as soon as you confirm.`
+            : `This page changes sensitive settings. Enter your password to continue; you won't be asked again for ${confirmFor}.`,
+    });
 
     return (
         <>
@@ -78,6 +86,4 @@ export default function ConfirmPassword({
 
 ConfirmPassword.layout = {
     title: 'Confirm your password',
-    description:
-        "This page changes sensitive settings. Enter your password to continue; you won't be asked again for 15 minutes.",
 };

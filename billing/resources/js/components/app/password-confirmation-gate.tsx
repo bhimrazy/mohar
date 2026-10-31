@@ -21,7 +21,9 @@ import {
 } from '@/components/app/set-password-button';
 import { STEP_UP_DOWNLOAD_EVENT } from '@/components/app/step-up-download-link';
 import {
+    replacePending,
     STEP_UP_CALLER_RETRIES_HEADER,
+    stepUpWindow,
     STEP_UP_CONFIRM_EVENT,
 } from '@/lib/step-up';
 import type { StepUpConfirmDetail } from '@/lib/step-up';
@@ -80,12 +82,13 @@ export function PasswordConfirmationGate() {
             ) {
                 setPassword('');
                 setError(null);
-                setPending({
+                const visit: PendingVisit = {
                     ...lastVisit.current,
                     noPassword:
                         event.detail.errors.step_up_reason ===
                         'password_not_set',
-                });
+                };
+                setPending((previous) => replacePending(previous, visit));
             }
         });
 
@@ -96,13 +99,15 @@ export function PasswordConfirmationGate() {
             const { url, noPassword } = (
                 event as CustomEvent<{ url: string; noPassword?: boolean }>
             ).detail;
-            setPending({
-                url,
-                method: 'get',
-                data: {},
-                download: true,
-                noPassword,
-            });
+            setPending((previous) =>
+                replacePending(previous, {
+                    url,
+                    method: 'get',
+                    data: {},
+                    download: true,
+                    noPassword,
+                }),
+            );
         };
         const onConfirm = (event: Event) => {
             event.preventDefault();
@@ -111,18 +116,15 @@ export function PasswordConfirmationGate() {
             const { noPassword, resolve } = (
                 event as CustomEvent<StepUpConfirmDetail>
             ).detail;
-            setPending((previous) => {
-                // A second request while the dialog is open replaces the first, which is told it was not confirmed.
-                previous?.resolve?.(false);
-
-                return {
+            setPending((previous) =>
+                replacePending(previous, {
                     url: '',
                     method: 'get',
                     data: {},
                     noPassword,
                     resolve,
-                };
-            });
+                }),
+            );
         };
         window.addEventListener(STEP_UP_DOWNLOAD_EVENT, onDownload);
         window.addEventListener(STEP_UP_CONFIRM_EVENT, onConfirm);
@@ -253,8 +255,8 @@ export function PasswordConfirmationGate() {
                             <DialogTitle>Confirm your password</DialogTitle>
                             <DialogDescription>
                                 This is a sensitive action. Enter your password
-                                to continue; you won't be asked again for 15
-                                minutes.
+                                to continue; you won't be asked again for{' '}
+                                {stepUpWindow(auth.step_up_minutes)}.
                             </DialogDescription>
                         </DialogHeader>
                         <div className="grid gap-2">
@@ -285,7 +287,7 @@ export function PasswordConfirmationGate() {
                                 disabled={processing || password === ''}
                             >
                                 {processing && <Spinner />}
-                                Confirm and continue
+                                Confirm password
                             </Button>
                         </DialogFooter>
                     </form>

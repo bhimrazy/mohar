@@ -240,6 +240,14 @@ not count as step-up; this restores §4 rather than changing it.
   `password_confirmation` error), so the confirm dialog asks in place. The two-factor setup and passkey registration
   retry their own step after it (`withStepUp`, `useStepUpForm`, `ensureStepUp` in `resources/js`), so a setup that
   runs past the window is not left half done. The route arguments (redirect route and timeout) are ignored.
+- **The refusal's redirect back renders the page.** A refused Inertia mutation redirects back to the page it came
+  from, which is itself behind `password.confirm` (the security page). That one Inertia GET is let through, so the page
+  renders with the error and the dialog asks there, but only when it is the URL flashed with the refusal and the
+  page this session last loaded with a recent confirmation (`RequireRecentPasswordConfirmation::PAGE_KEY`). It shows
+  nothing the session was not already shown. The same holds for the staff and role pages, whose `password.recent`
+  forms went to the confirm page before.
+- **The confirm page's way out** leads to Settings → Profile for a settings page, and to the dashboard otherwise.
+  The window it and the dialog name comes from `auth.step_up_seconds` (shared as `auth.step_up_minutes`).
 - **Unused vendor routes.** Fortify always registers `POST /passkeys/confirm` and `/user/confirmed-password-status`
   and has no option to drop them; both read or write only Laravel's key. A test keeps the frontend from calling them.
 - **The confirm page has no passkey option**, since a passkey confirmation would not satisfy it. Passkey sign-in is

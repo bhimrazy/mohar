@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     ensureStepUp,
+    replacePending,
     requestStepUp,
+    StepUpCancelled,
     STEP_UP_CONFIRM_EVENT,
     stepUpRefusal,
     withStepUp,
@@ -75,12 +77,15 @@ describe('withStepUp', () => {
         expect(asked).toHaveLength(1);
     });
 
-    it('rethrows the refusal when the dialog is cancelled', async () => {
+    it('throws StepUpCancelled when the dialog is cancelled, so a flow can stop asking', async () => {
         const { target } = gate(false);
-        const error = refused();
-        const request = vi.fn<() => Promise<string>>().mockRejectedValue(error);
+        const request = vi
+            .fn<() => Promise<string>>()
+            .mockRejectedValue(refused());
 
-        await expect(withStepUp(request, target)).rejects.toBe(error);
+        await expect(withStepUp(request, target)).rejects.toBeInstanceOf(
+            StepUpCancelled,
+        );
         expect(request).toHaveBeenCalledTimes(1);
     });
 
@@ -125,5 +130,32 @@ describe('ensureStepUp', () => {
             ensureStepUp('/user/passkeys/options', target),
         ).resolves.toBe(false);
         expect(asked[0].noPassword).toBe(true);
+    });
+});
+
+describe('replacePending', () => {
+    it('tells a waiting caller it was not confirmed when its request is replaced', async () => {
+        let settled: boolean | undefined;
+        const waiting = {
+            url: '',
+            resolve: (confirmed: boolean) => {
+                settled = confirmed;
+            },
+        };
+        const next: { url: string; resolve?: (confirmed: boolean) => void } = {
+            url: '/file.csv',
+        };
+
+        expect(replacePending(waiting, next)).toBe(next);
+        expect(settled).toBe(false);
+    });
+
+    it('leaves nothing to answer when nothing was waiting, or the same request is set again', () => {
+        const resolve = vi.fn();
+        const same = { url: '', resolve };
+
+        expect(replacePending(null, same)).toBe(same);
+        expect(replacePending(same, same)).toBe(same);
+        expect(resolve).not.toHaveBeenCalled();
     });
 });

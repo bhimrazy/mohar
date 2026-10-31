@@ -294,6 +294,7 @@ final class MailFramer
             statusWhen: in_array($key, ['staff.password_reset', 'staff.invitation'], true) && $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null,
             reason: $security ? null : self::text('You\'re receiving this because your staff role gets these alerts.'),
             security: $security,
+            staff: true,
         );
     }
 

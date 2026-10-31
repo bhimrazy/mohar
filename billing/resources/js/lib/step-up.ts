@@ -15,6 +15,35 @@ export type StepUpConfirmDetail = {
     resolve: (confirmed: boolean) => void;
 };
 
+/** How long a password confirmation lasts, for text: "15 minutes", "1 minute" (shared `auth.step_up_minutes`). */
+export function stepUpWindow(minutes: number | undefined): string {
+    const value = minutes && minutes > 0 ? minutes : 15;
+
+    return value === 1 ? '1 minute' : `${value} minutes`;
+}
+
+/** Thrown by `withStepUp` when the person cancels the dialog, so a multi-step flow stops instead of asking again. */
+export class StepUpCancelled extends Error {
+    constructor() {
+        super('Password confirmation was cancelled.');
+        this.name = 'StepUpCancelled';
+    }
+}
+
+/**
+ * The gate's next pending request. A `requestStepUp()` caller still waiting on the one it replaces is told it was not
+ * confirmed, so its `await` always settles.
+ */
+export function replacePending<
+    T extends { resolve?: (confirmed: boolean) => void },
+>(previous: T | null, next: T): T {
+    if (previous !== next) {
+        previous?.resolve?.(false);
+    }
+
+    return next;
+}
+
 /** Ask a mounted gate for the password; false on cancel or when no gate handled the request. */
 export function requestStepUp(
     target: EventTarget,
@@ -58,7 +87,10 @@ export function stepUpRefusal(error: unknown): { noPassword: boolean } | null {
     }
 }
 
-/** Runs a `useHttp` request; when it is refused for step-up, asks for the password and runs it once more. */
+/**
+ * Runs a `useHttp` request; when it is refused for step-up, asks for the password and runs it once more. A cancelled
+ * dialog (or a page with no gate) throws `StepUpCancelled`; any other error is rethrown as it is.
+ */
 export async function withStepUp<T>(
     request: () => Promise<T>,
     target: EventTarget = window,
@@ -68,11 +100,15 @@ export async function withStepUp<T>(
     } catch (error) {
         const refusal = stepUpRefusal(error);
 
-        if (refusal && (await requestStepUp(target, refusal.noPassword))) {
+        if (!refusal) {
+            throw error;
+        }
+
+        if (await requestStepUp(target, refusal.noPassword)) {
             return request();
         }
 
-        throw error;
+        throw new StepUpCancelled();
     }
 }
 

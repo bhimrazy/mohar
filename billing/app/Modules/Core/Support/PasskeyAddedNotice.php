@@ -28,7 +28,11 @@ final class PasskeyAddedNotice
 
         $this->activity->log('Passkey added', $user, properties: ['passkey_id' => $event->passkey->getKey()], event: 'auth.passkey_added', actor: $user);
 
-        $context = ['user' => ['first_name' => trim(explode(' ', trim($user->name))[0]), 'email' => $user->email]];
+        $context = [
+            'user' => ['first_name' => trim(explode(' ', trim($user->name))[0]), 'email' => $user->email],
+            // A Carbon value: the mailer writes it as the company's date and time.
+            'notice' => ['added_at' => now(), 'security_url' => route('security.edit')],
+        ];
         $outcome = $this->mailer->send($user->is_staff ? 'staff.passkey_added' : 'auth.passkey_added', $user, $context, 'passkey-added|'.$event->passkey->getKey());
 
         if ($outcome === SystemMailOutcome::Unavailable) {
@@ -36,6 +40,7 @@ final class PasskeyAddedNotice
                 $user->notify(new LoginEmailNotice(__('A passkey was added to your account'), [
                     __('A passkey was added to the account :email. It can be used to sign in.', ['email' => $user->email]),
                     __('If you didn\'t add it, remove it in your security settings, change your password and contact support straight away.'),
+                    __('Security settings: :url', ['url' => route('security.edit')]),
                 ]));
 
                 return;

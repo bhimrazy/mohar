@@ -152,7 +152,23 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::confirmPasswordView(fn (Request $request) => Inertia::render('auth/confirm-password', [
             'download' => RequireRecentPasswordConfirmation::confirmingDownload($request),
             'hasPassword' => (bool) $request->user()?->hasPassword(),
+            'back' => $this->confirmPageBack($request),
         ]));
+    }
+
+    /**
+     * Where the confirm page's way out leads: not to the page that sent the person here, which would only ask again,
+     * but to the settings for a settings page, and to the person's own dashboard otherwise (#538).
+     *
+     * @return array{url: string, label: string}
+     */
+    private function confirmPageBack(Request $request): array
+    {
+        $intended = (string) parse_url((string) $request->session()->get('url.intended', ''), PHP_URL_PATH);
+
+        return str_starts_with($intended, '/settings/')
+            ? ['url' => route('profile.edit'), 'label' => __('Back to settings')]
+            : ['url' => route('dashboard'), 'label' => __('Back to the dashboard')];
     }
 
     /**

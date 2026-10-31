@@ -1,6 +1,6 @@
 import { useHttp } from '@inertiajs/react';
 import { useCallback, useState } from 'react';
-import { withStepUp } from '@/lib/step-up';
+import { StepUpCancelled, withStepUp } from '@/lib/step-up';
 import { qrCode, recoveryCodes, secretKey } from '@/routes/two-factor';
 
 export type UseTwoFactorAuthReturn = {
@@ -19,6 +19,12 @@ export type UseTwoFactorAuthReturn = {
 };
 
 export const OTP_MAX_LENGTH = 6;
+
+const CANCELLED_MESSAGE = 'Confirm your password to continue.';
+
+/** The message for a failed fetch; a cancelled password dialog says so instead of "failed". */
+const failure = (error: unknown, message: string): string =>
+    error instanceof StepUpCancelled ? CANCELLED_MESSAGE : message;
 
 export const useTwoFactorAuth = (): UseTwoFactorAuthReturn => {
     const { submit } = useHttp();
@@ -55,9 +61,17 @@ export const useTwoFactorAuth = (): UseTwoFactorAuthReturn => {
             };
 
             setQrCodeSvg(svg);
-        } catch {
-            setErrors((prev) => [...prev, 'Failed to fetch QR code']);
+        } catch (error) {
+            setErrors((prev) => [
+                ...prev,
+                failure(error, 'Failed to fetch QR code'),
+            ]);
             setQrCodeSvg(null);
+
+            // fetchSetupData stops here, so a cancelled dialog is not opened again for the setup key.
+            if (error instanceof StepUpCancelled) {
+                throw error;
+            }
         }
     }, [submit]);
 
@@ -70,8 +84,11 @@ export const useTwoFactorAuth = (): UseTwoFactorAuthReturn => {
             };
 
             setManualSetupKey(key);
-        } catch {
-            setErrors((prev) => [...prev, 'Failed to fetch a setup key']);
+        } catch (error) {
+            setErrors((prev) => [
+                ...prev,
+                failure(error, 'Failed to fetch a setup key'),
+            ]);
             setManualSetupKey(null);
         }
     }, [submit]);
@@ -83,8 +100,11 @@ export const useTwoFactorAuth = (): UseTwoFactorAuthReturn => {
                 submit(recoveryCodes()),
             )) as string[];
             setRecoveryCodesList(codes);
-        } catch {
-            setErrors((prev) => [...prev, 'Failed to fetch recovery codes']);
+        } catch (error) {
+            setErrors((prev) => [
+                ...prev,
+                failure(error, 'Failed to fetch recovery codes'),
+            ]);
             setRecoveryCodesList([]);
         }
     }, [submit]);

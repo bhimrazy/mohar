@@ -42,7 +42,8 @@ final readonly class MailFooter
             tagline: $brand->tagline,
             address: implode(', ', array_filter([$legal !== '' && $legal !== $brand->name ? $legal : null, $address !== '' ? $address : null])),
             help: $supportEmail !== null ? str_replace('{{ support.email }}', $supportEmail, $template) : null,
-            helpUrl: (string) ($settings->get('notifications.support_url') ?: (Route::has('client.support.tickets.index') ? route('client.support.tickets.index') : '')),
+            // The help centre is the clients' one; staff mail carries no link to it.
+            helpUrl: $frame?->staff ? '' : (string) ($settings->get('notifications.support_url') ?: (Route::has('client.support.tickets.index') ? route('client.support.tickets.index') : '')),
             preferencesUrl: $frame?->security ? null : $preferencesUrl,
             reason: $frame?->reason,
             security: $frame !== null && $frame->security,

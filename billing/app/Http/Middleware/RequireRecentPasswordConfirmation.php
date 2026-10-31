@@ -50,6 +50,12 @@ class RequireRecentPasswordConfirmation
     /** Session key holding the unix time of the last password confirmation; written only by markConfirmed(). */
     public const SESSION_KEY = 'auth.step_up_confirmed_at';
 
+    /** Session key holding the last page behind `password.confirm` this session loaded with a recent confirmation. */
+    public const PAGE_KEY = 'step_up.page';
+
+    /** Flashed with a refused mutation: the page it was sent from, which the redirect back returns to. */
+    public const REFUSED_ON_KEY = 'step_up.refused_on';
+
     /** Session key holding the file URL a download sent to the confirm page. */
     public const DOWNLOAD_KEY = 'step_up_download';
 
@@ -87,6 +93,8 @@ class RequireRecentPasswordConfirmation
 
         // Back with the error only, never the old input: this runs before any form request that keeps secrets out of
         // the session, and the dialog replays the visit itself (security standards §6).
+        $request->session()->flash(self::REFUSED_ON_KEY, url()->previous());
+
         return back()->withErrors(
             $this->hasNoPassword($request)
                 ? [self::ERROR_KEY => __('Your account has no password. Set a password to continue.'), self::REASON_KEY => self::NO_PASSWORD_CODE]
@@ -119,6 +127,22 @@ class RequireRecentPasswordConfirmation
         session()->put(self::DOWNLOAD_KEY, session('url.intended'));
 
         return $redirect;
+    }
+
+    /**
+     * Whether this Inertia page load is the redirect back after a refused mutation, to a page behind `password.confirm`
+     * that this session last loaded with a recent confirmation. It then renders with the error, so the dialog asks on
+     * the page and the step carries on (#538), instead of the confirm page replacing it. It shows nothing the session
+     * had not already been shown.
+     */
+    public static function returningToRefusedPage(Request $request): bool
+    {
+        $url = $request->fullUrl();
+
+        return $request->header('X-Inertia') !== null
+            && $request->isMethod('GET')
+            && $request->session()->get(self::REFUSED_ON_KEY) === $url
+            && $request->session()->get(self::PAGE_KEY) === $url;
     }
 
     /**
