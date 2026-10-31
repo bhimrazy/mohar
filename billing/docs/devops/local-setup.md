@@ -217,13 +217,13 @@ worktrees; the SQLite file is per worktree. Rebase on `develop` and run `compose
 touched). In an older worktree, run `scripts/install-hooks.sh` once. `git push` then runs `scripts/pre-push.sh` on what
 the branch changes against `origin/develop`, the fast checks that most CI failures came from:
 
-| Check       | Runs on                                                              |
-| ----------- | -------------------------------------------------------------------- |
-| `pint`      | changed PHP (`pint --test`)                                          |
-| `vp`        | changed frontend and Markdown files under `billing/` (`vp check`)    |
-| `changelog` | the whole diff (`scripts/changelog-check.sh`)                        |
-| `phpstan`   | changed PHP in the analysed paths (`phpstan.neon`)                   |
-| `tests`     | `scripts/test.sh --changed`                                          |
+| Check       | Runs on                                                           |
+| ----------- | ----------------------------------------------------------------- |
+| `pint`      | changed PHP (`pint --test`)                                       |
+| `vp`        | changed frontend and Markdown files under `billing/` (`vp check`) |
+| `changelog` | the whole diff (`scripts/changelog-check.sh`)                     |
+| `phpstan`   | changed PHP in the analysed paths (`phpstan.neon`)                |
+| `tests`     | `scripts/test.sh --changed`                                       |
 
 A docs-only push runs only `vp` and `changelog`. When `test.sh` would run the whole suite (shared code such as Core or
 `app/Support` changed) the gate leaves the tests to CI; `PRE_PUSH_FULL=1 git push` runs them anyway. Pint, phpstan,
