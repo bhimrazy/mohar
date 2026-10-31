@@ -11,14 +11,14 @@ use App\Modules\Billing\Enums\TransactionStatus;
 use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Http\Requests\Admin\ManualTransactionRequest;
 use App\Modules\Billing\Http\Requests\Admin\RefundRequest;
+use App\Modules\Billing\Http\Requests\Admin\ResolveRefundRequest;
+use App\Modules\Billing\Http\Requests\Admin\TransactionListRequest;
 use App\Modules\Billing\Http\Resources\TransactionResource;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -26,20 +26,9 @@ class TransactionController extends Controller
 {
     public function __construct(private ActivityLogger $activity) {}
 
-    public function index(Request $request, GatewayManager $gateways): Response
+    public function index(TransactionListRequest $request, GatewayManager $gateways): Response
     {
-        $this->authorize('billing.transactions.view');
-
-        $filters = $request->validate([
-            'search' => ['nullable', 'string', 'max:100'],
-            'client' => ['nullable', 'integer'],
-            'gateway' => ['nullable', 'string', 'max:50'],
-            'type' => ['nullable', Rule::enum(TransactionType::class)],
-            'from' => ['nullable', 'date'],
-            'to' => ['nullable', 'date'],
-            'review' => ['nullable', 'boolean'],
-            'waiting' => ['nullable', 'boolean'],
-        ]);
+        $filters = $request->validated();
 
         $transactions = (($filters['review'] ?? false) ? Transaction::toReview() : (($filters['waiting'] ?? false) ? Transaction::refundsAwaitingProvider(0) : Transaction::query()))
             ->with(['client:id,first_name,last_name,company_name', 'invoice:id,number,proforma_number'])
@@ -147,14 +136,10 @@ class TransactionController extends Controller
      * Staff settle a waiting refund by hand, for a provider that can't be asked: it was made there (with the
      * provider's reference, which the books keep), or it was not.
      */
-    public function resolveRefund(Request $request, Transaction $transaction, RefundTransaction $refund): RedirectResponse
+    public function resolveRefund(ResolveRefundRequest $request, Transaction $transaction, RefundTransaction $refund): RedirectResponse
     {
-        $this->authorize('billing.refunds.manage');
         abort_unless($transaction->type === TransactionType::Refund && $transaction->status === TransactionStatus::Pending, 404);
-        $data = $request->validate([
-            'outcome' => ['required', 'in:confirmed,not_refunded'],
-            'provider_reference' => ['required_if:outcome,confirmed', 'nullable', 'string', 'max:191'],
-        ]);
+        $data = $request->validated();
         $confirmed = $data['outcome'] === 'confirmed';
 
         $row = $refund->resolve($transaction, $confirmed, $data['provider_reference'] ?? null);

@@ -12,7 +12,9 @@ use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\InvoiceKind;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\ImmutableInvoiceException;
+use App\Modules\Billing\Http\Requests\Admin\InvoiceListRequest;
 use App\Modules\Billing\Http\Requests\Admin\SaveDraftInvoiceRequest;
+use App\Modules\Billing\Http\Requests\Admin\UpdateInvoiceDetailsRequest;
 use App\Modules\Billing\Http\Resources\InvoiceResource;
 use App\Modules\Billing\Http\Resources\PayMethodResource;
 use App\Modules\Billing\Http\Resources\TransactionResource;
@@ -28,7 +30,6 @@ use App\Modules\Billing\Support\TaxNotePanel;
 use App\Modules\Core\Models\Client;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -36,20 +37,9 @@ class InvoiceController extends Controller
 {
     public function __construct(private GatewayManager $gateways) {}
 
-    public function index(Request $request): Response
+    public function index(InvoiceListRequest $request): Response
     {
-        $this->authorize('billing.invoices.view');
-
-        $filters = $request->validate([
-            'search' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in([...array_column(InvoiceStatus::cases(), 'value'), 'overdue', 'outstanding'])],
-            'client' => ['nullable', 'integer'],
-            'gateway' => ['nullable', 'string', 'max:50'],
-            'from' => ['nullable', 'date'],
-            'to' => ['nullable', 'date'],
-            // Only the invoices a cancel or a late fee was refused on (Needs attention), while they are still payable.
-            'refused' => ['nullable', 'boolean'],
-        ]);
+        $filters = $request->validated();
 
         $invoices = Invoice::query()
             ->with('client:id,first_name,last_name,company_name')
@@ -158,18 +148,9 @@ class InvoiceController extends Controller
     /**
      * Fields that stay editable after issue.
      */
-    public function updateDetails(Request $request, Invoice $invoice, UpdateInvoiceDetails $update): RedirectResponse
+    public function updateDetails(UpdateInvoiceDetailsRequest $request, Invoice $invoice, UpdateInvoiceDetails $update): RedirectResponse
     {
-        $this->authorize('billing.invoices.manage');
-
-        $data = $request->validate([
-            'due_date' => ['sometimes', 'nullable', 'date'],
-            'payment_gateway' => ['sometimes', 'nullable', Rule::in(array_keys($this->gateways->drivers()))],
-            'notes' => ['sometimes', 'nullable', 'string', 'max:5000'],
-            'admin_notes' => ['sometimes', 'nullable', 'string', 'max:5000'],
-        ]);
-
-        $update->handle($invoice, $data);
+        $update->handle($invoice, $request->validated());
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Invoice :number updated.', ['number' => $invoice->displayNumber()])]);
 
         return back();

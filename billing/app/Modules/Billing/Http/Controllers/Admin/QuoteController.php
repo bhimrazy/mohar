@@ -5,6 +5,7 @@ namespace App\Modules\Billing\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\Quotes;
 use App\Modules\Billing\Enums\QuoteStage;
+use App\Modules\Billing\Http\Requests\Admin\QuoteListRequest;
 use App\Modules\Billing\Http\Requests\Admin\QuoteRequest;
 use App\Modules\Billing\Http\Resources\QuoteResource;
 use App\Modules\Billing\Models\Quote;
@@ -14,7 +15,6 @@ use App\Modules\Core\Support\ActivityLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
-use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -22,15 +22,9 @@ class QuoteController extends Controller
 {
     public function __construct(private Quotes $quotes) {}
 
-    public function index(Request $request): Response
+    public function index(QuoteListRequest $request): Response
     {
-        $this->authorize('billing.quotes.view');
-
-        $filters = $request->validate([
-            'search' => ['nullable', 'string', 'max:100'],
-            'stage' => ['nullable', Rule::enum(QuoteStage::class)],
-            'client' => ['nullable', 'integer'],
-        ]);
+        $filters = $request->validated();
 
         $quotes = Quote::query()
             ->with('client:id,first_name,last_name,company_name')

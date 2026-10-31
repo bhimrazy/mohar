@@ -4,22 +4,16 @@ namespace App\Modules\Billing\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
+use App\Modules\Billing\Http\Requests\Admin\GatewayLogListRequest;
 use App\Modules\Billing\Models\GatewayLog;
-use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class GatewayLogController extends Controller
 {
-    public function index(Request $request, GatewayManager $gateways): Response
+    public function index(GatewayLogListRequest $request, GatewayManager $gateways): Response
     {
-        $this->authorize('billing.gateway_log.view');
-
-        $filters = $request->validate([
-            'gateway' => ['nullable', 'string', 'max:50'],
-            'direction' => ['nullable', 'in:callback,request,response'],
-            'invoice' => ['nullable', 'integer'],
-        ]);
+        $filters = $request->validated();
 
         return Inertia::render('admin/billing/gateway-log/index', [
             'entries' => GatewayLog::query()

@@ -4,6 +4,7 @@ namespace App\Modules\Billing\Http\Controllers\Admin;
 
 use App\Events\Billing\TaxNoteResendRequested;
 use App\Http\Controllers\Controller;
+use App\Modules\Billing\Http\Requests\Admin\TaxNoteListRequest;
 use App\Modules\Billing\Models\TaxNote;
 use App\Modules\Billing\Support\TaxNoteList;
 use App\Modules\Core\Models\Client;
@@ -23,21 +24,9 @@ class TaxNoteListController extends Controller
 {
     public function __construct(private TaxNoteList $list) {}
 
-    public function index(Request $request): Response
+    public function index(TaxNoteListRequest $request): Response
     {
-        $this->authorize('billing.tax_notes.view');
-
-        $filters = $request->validate([
-            'search' => ['nullable', 'string', 'max:50'],
-            'kind' => ['nullable', 'in:credit,debit'],
-            'reason' => ['nullable', 'string', 'max:30'],
-            'settlement' => ['nullable', 'in:'.implode(',', array_keys(TaxNoteList::SETTLEMENTS))],
-            'automatic' => ['nullable', 'in:0,1'],
-            'period' => ['nullable', 'regex:/^\d{4}-\d{2}$/'],
-            'from' => ['nullable', 'date_format:Y-m-d'],
-            'to' => ['nullable', 'date_format:Y-m-d'],
-            'client' => ['nullable', 'integer'],
-        ]);
+        $filters = $request->validated();
 
         $notes = $this->list->filtered(TaxNote::query(), $filters)
             ->with('client:id,first_name,last_name,company_name')
