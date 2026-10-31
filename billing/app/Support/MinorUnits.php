@@ -65,7 +65,8 @@ final class MinorUnits
     /**
      * A provider's decimal amount → minor units with $decimals, or null when it is not a plain non-negative amount
      * exact to $decimals, or does not fit an integer. Accepts integers, floats exact to the minor unit (JSON 100.0)
-     * and strings ("1,130.0"); thousands separators are ignored.
+     * and strings ("1,130.0"); thousands separators are ignored. At most 6 fraction digits are read, so a value with more
+     * is refused even when $decimals allows it (no provider sends more today).
      */
     public static function fromDecimal(mixed $value, int $decimals): ?int
     {

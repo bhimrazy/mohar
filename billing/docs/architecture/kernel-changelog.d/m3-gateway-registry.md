@@ -2,7 +2,8 @@
 
 - **Breaking.** A driver key must start with a lowercase letter: `DriverRegistry::KEY` is `[a-z][a-z0-9_]{0,49}`
   (it was `[a-z0-9_]{1,50}`). It is public, and Billing's gateway webhook, return and admin routes use it, so every key
-  the registry accepts can be routed. No bundled or known driver key is affected.
+  the registry accepts can be routed. The rule covers every `DriverRegistry`, so provisioning and registrar driver keys
+  too. No bundled or known driver key is affected.
 - New `App\Support\Billing\GatewayDriverRegistry` (`@api`, extends `DriverRegistry<GatewayDriver>`), bound in
   `AppServiceProvider`, so a package registers in its own `boot()` whether or not Billing is loaded:
   `register('khalti', KhaltiDriver::class)`. Reserved keys (`import`) and duplicates throw (`replace: true` replaces).

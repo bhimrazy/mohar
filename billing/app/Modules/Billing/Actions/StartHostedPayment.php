@@ -41,6 +41,11 @@ class StartHostedPayment
     public function handle(Invoice $invoice, string $gatewayKey): array
     {
         $gateway = $this->charger->activeGateway($gatewayKey);
+        // hosted() also returns drivers that may only settle (ADR 0030 A1); starting a payment is new work.
+        if (! $this->gateways->enabled($gatewayKey)) {
+            throw new BillingException(__('This payment method is not available.'));
+        }
+
         $driver = $this->gateways->hosted($gatewayKey) ?? throw new BillingException(__('This payment method is not available.'));
         $config = $this->gateways->config($gateway);
 
