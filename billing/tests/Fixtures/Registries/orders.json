@@ -31,11 +31,7 @@
             "type": "string",
             "help": null,
             "options": [],
-            "rules": [
-                "nullable",
-                "url",
-                "max:255"
-            ],
+            "rules": ["nullable", "url", "max:255"],
             "secret": false
         },
         "sections/orders/orders.checkout_redirect": {
@@ -58,10 +54,7 @@
             "type": "integer",
             "help": null,
             "options": [],
-            "rules": [
-                "min:0",
-                "max:90"
-            ],
+            "rules": ["min:0", "max:90"],
             "secret": false
         },
         "sections/orders/orders.cart_ttl_days": {
@@ -71,10 +64,7 @@
             "type": "integer",
             "help": null,
             "options": [],
-            "rules": [
-                "min:1",
-                "max:365"
-            ],
+            "rules": ["min:1", "max:365"],
             "secret": false
         },
         "sections/orders/orders.allow_checkout_notes": {
@@ -144,10 +134,7 @@
             "type": "integer",
             "help": null,
             "options": [],
-            "rules": [
-                "min:0",
-                "max:365"
-            ],
+            "rules": ["min:0", "max:365"],
             "secret": false
         },
         "sections/orders/orders.suppress_invoice_email_on_order": {
@@ -180,9 +167,7 @@
             "type": "integer",
             "help": null,
             "options": [],
-            "rules": [
-                "min:0"
-            ],
+            "rules": ["min:0"],
             "secret": false
         },
         "sections/orders/orders.fraud.max_orders_per_ip": {
@@ -192,9 +177,7 @@
             "type": "integer",
             "help": null,
             "options": [],
-            "rules": [
-                "min:0"
-            ],
+            "rules": ["min:0"],
             "secret": false
         },
         "sections/orders/orders.fraud.banned_email_domains": {
@@ -234,10 +217,7 @@
             "type": "integer",
             "help": null,
             "options": [],
-            "rules": [
-                "min:100",
-                "max:60000"
-            ],
+            "rules": ["min:100", "max:60000"],
             "secret": false
         }
     },

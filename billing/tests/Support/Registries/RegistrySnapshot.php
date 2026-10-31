@@ -237,6 +237,7 @@ final class RegistrySnapshot
             file_put_contents($path, $current);
         }
 
-        expect($current)->toBe((string) file_get_contents($path));
+        // Compared decoded: the formatter may re-wrap the committed file.
+        expect(json_decode($current, true))->toBe(json_decode((string) file_get_contents($path), true));
     }
 }
