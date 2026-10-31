@@ -76,10 +76,9 @@ use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Tests\Fakes\Orders\FakeGateways;
-use Tests\Fakes\Orders\FakePriceBook;
+use Tests\Fakes\Catalog\FakePriceBook;
 use Tests\Fakes\Orders\FakeServiceRegistry;
 use Tests\Fakes\Orders\OrdersFakes;
-use Tests\Fakes\Services\FakePriceBook as ServicesPriceBook;
 
 [, $label, $mode, $database, $clientId, $amount, $delay, $pause] = $argv;
 $base = dirname(__DIR__, 4);
@@ -98,7 +97,7 @@ $print = fn (array $result) => fwrite(STDOUT, (string) json_encode(['label' => $
     'database' => DB::connection()->getDatabaseName(), 'transaction_level' => DB::transactionLevel()]));
 
 if ($mode === 'checkout') {
-    app()->instance(PriceBook::class, (new FakePriceBook)->addProduct(1, 'Starter Hosting', ['monthly' => [(int) $amount, 0]]));
+    app()->instance(PriceBook::class, (new FakePriceBook(anyUpgrade: true, driver: 'demo', type: 'shared_hosting', requiresDomain: false))->addProduct(1, 'Starter Hosting', ['monthly' => [(int) $amount, 0]]));
     app()->instance(GatewayDirectory::class, new FakeGateways);
     // Distinct service ids per worker: the invoice lines' period guard is unique on them.
     app()->instance(ServiceRegistry::class, new class((int) $pause, $label) extends FakeServiceRegistry
@@ -208,7 +207,7 @@ if ($mode === 'server-import') {
     try {
         $import = ServerAccountImport::query()->with('server')->findOrFail((int) $clientId);
         $groupId = (int) $import->server->groups()->value('server_groups.id');
-        app()->instance(PriceBook::class, $priceBook = new ServicesPriceBook);
+        app()->instance(PriceBook::class, $priceBook = new FakePriceBook);
         $priceBook->addProduct(21, 'Basic hosting', ['monthly' => 1200], driver: 'cpanel', serverGroupId: $groupId);
         [$line] = app(ImportServerAccounts::class)->handle($import->server, $import, null);
         $currency = $line['service_id'] === null ? null : Service::query()->whereKey($line['service_id'])->value('currency');

@@ -19,6 +19,7 @@ use App\Modules\Orders\Enums\CartItemKind;
 use App\Modules\Orders\Models\Cart;
 use Illuminate\Support\Str;
 use Tests\Fakes\Billing\FakeInvoiceQueries;
+use Tests\Fakes\Catalog\FakePriceBook;
 
 /**
  * Binds fakes for every contract Orders consumes and exposes them to the test.
@@ -26,7 +27,7 @@ use Tests\Fakes\Billing\FakeInvoiceQueries;
 final class OrdersFakes
 {
     public function __construct(
-        public FakePriceBook $catalog = new FakePriceBook,
+        public FakePriceBook $catalog = new FakePriceBook(anyUpgrade: true, driver: 'demo', type: 'shared_hosting', requiresDomain: false),
         public FakeDomains $domains = new FakeDomains,
         public FakeServiceRegistry $services = new FakeServiceRegistry,
         public FakeBilling $billing = new FakeBilling,
