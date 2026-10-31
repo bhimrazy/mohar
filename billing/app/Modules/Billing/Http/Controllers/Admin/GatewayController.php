@@ -9,10 +9,11 @@ use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\ConfigureGateway;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Http\Requests\Admin\GatewayRequest;
 use App\Modules\Billing\Services\GatewayLogger;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Core\Models\Currency;
+use App\Support\Billing\GatewayDriverRegistry;
 use App\Support\Integrations\StoredSecrets;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
@@ -37,7 +38,7 @@ class GatewayController extends Controller
         $this->authorize('billing.gateways.manage');
         $driver = $this->gateways->driver($gateway);
         $model = $this->gateways->gateway($gateway);
-        $fields = array_map(SettingField::fromArray(...), $driver->settingsFields());
+        $fields = GatewayDriverRegistry::fieldsOf($driver);
         $config = $this->gateways->config($model);
 
         return Inertia::render('admin/billing/gateways/edit', [

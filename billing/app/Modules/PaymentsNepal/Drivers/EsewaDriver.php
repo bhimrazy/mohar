@@ -14,10 +14,12 @@ use App\Data\Billing\PaymentIntent;
 use App\Data\Billing\ReturnHint;
 use App\Data\Integrations\ConnectionCheck;
 use App\Data\Integrations\IntegrationLogo;
-use App\Modules\PaymentsNepal\Support\NprAmount;
+use App\Data\Integrations\SettingField;
+use App\Enums\FieldType;
 use App\Modules\PaymentsNepal\Support\ProviderException;
 use App\Modules\PaymentsNepal\Support\ProviderHttp;
 use App\Support\Billing\AbstractGatewayDriver;
+use App\Support\MinorUnits;
 use Carbon\CarbonInterval;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
@@ -79,15 +81,33 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
         return ['NPR'];
     }
 
+    /**
+     * @return list<SettingField>
+     */
     public function settingsFields(): array
     {
         return [
-            ['key' => 'sandbox', 'label' => 'Sandbox mode', 'type' => 'boolean', 'default' => true,
-                'help' => 'Uses eSewa UAT (rc-epay.esewa.com.np); no real money moves. Not available in production. "Test connection" books an unpaid Rs 10 eSewa session (in live mode too), which expires on its own.'],
-            ['key' => 'product_code', 'label' => 'Merchant (product) code', 'type' => 'string', 'required' => true, 'default' => 'EPAYTEST',
-                'help' => 'Provided by eSewa. UAT: EPAYTEST.'],
-            ['key' => 'secret_key', 'label' => 'Secret key', 'type' => 'secret', 'required' => true,
-                'help' => 'Provided by eSewa for signing. UAT: the public test key from eSewa\'s developer docs.'],
+            new SettingField(
+                key: 'sandbox',
+                label: 'Sandbox mode',
+                type: FieldType::Boolean,
+                help: 'Uses eSewa UAT (rc-epay.esewa.com.np); no real money moves. Not available in production. "Test connection" books an unpaid Rs 10 eSewa session (in live mode too), which expires on its own.',
+                default: true,
+            ),
+            new SettingField(
+                key: 'product_code',
+                label: 'Merchant (product) code',
+                required: true,
+                help: 'Provided by eSewa. UAT: EPAYTEST.',
+                default: 'EPAYTEST',
+            ),
+            new SettingField(
+                key: 'secret_key',
+                label: 'Secret key',
+                type: FieldType::Secret,
+                required: true,
+                help: 'Provided by eSewa for signing. UAT: the public test key from eSewa\'s developer docs.',
+            ),
         ];
     }
 
@@ -116,7 +136,7 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
         }
 
         [$productCode, $secret] = $this->credentials($gateway);
-        $total = NprAmount::toRupees($intent->amount->amount);
+        $total = MinorUnits::toDecimal($intent->amount->amount, 2);
         $fields = [
             'amount' => $total,
             'tax_amount' => '0',
@@ -172,9 +192,9 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
         try {
             [$productCode] = $this->credentials($gateway);
             $endpoint = ProviderHttp::endpoint($gateway, 'esewa.status');
-            $response = $this->http->lookup($attempt->interactive)->withOptions($endpoint->options)->get($endpoint->baseUrl, [
+            $response = $this->http->lookup($gateway, $attempt->interactive)->withOptions($endpoint->options)->get($endpoint->baseUrl, [
                 'product_code' => $productCode,
-                'total_amount' => NprAmount::toRupees($attempt->amount->amount),
+                'total_amount' => MinorUnits::toDecimal($attempt->amount->amount, 2),
                 'transaction_uuid' => $attempt->reference,
             ]);
         } catch (ConnectionException) {
@@ -186,7 +206,7 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
         $body = $response->json();
         $body = is_array($body) ? $body : [];
         $status = is_string($body['status'] ?? null) ? strtoupper(trim($body['status'])) : null;
-        $amount = NprAmount::toPaisa($body['total_amount'] ?? null);
+        $amount = MinorUnits::fromDecimal($body['total_amount'] ?? null, 2);
         $raw = array_filter([
             'http_status' => $response->status(),
             'status' => $status,
@@ -263,7 +283,7 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
         $fields['signature'] = self::signature($fields, self::REQUEST_SIGNED_FIELDS, $secret);
 
         try {
-            $response = $this->http->request()->withOptions($form->options)->asForm()->withoutRedirecting()->post($form->baseUrl, $fields);
+            $response = $this->http->request($gateway)->withOptions($form->options)->asForm()->withoutRedirecting()->post($form->baseUrl, $fields);
         } catch (ConnectionException) {
             return new ConnectionCheck(false, __('Couldn\'t reach eSewa (:mode). Check the server\'s outbound connection.', ['mode' => $mode]));
         }

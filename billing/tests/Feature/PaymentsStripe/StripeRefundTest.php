@@ -2,7 +2,6 @@
 
 use App\Data\Billing\RefundRequest;
 use App\Modules\Billing\Actions\RefundTransaction;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Enums\TransactionStatus;
@@ -11,6 +10,7 @@ use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\PaymentsStripe\Drivers\StripeDriver;
 use App\Support\Money;
 use Carbon\CarbonImmutable;

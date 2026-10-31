@@ -34,7 +34,13 @@ use Throwable;
  */
 abstract class DriverRegistry
 {
-    private const KEY_PATTERN = '/^[a-z0-9_]{1,50}$/';
+    /**
+     * A driver key: a lowercase letter, then up to 49 lowercase letters, digits or underscores. Unanchored, so a route
+     * constraint uses it as is (->where('gateway', DriverRegistry::KEY)) and accepts exactly the keys registered here.
+     */
+    public const KEY = '[a-z][a-z0-9_]{0,49}';
+
+    private const KEY_PATTERN = '/^'.self::KEY.'$/';
 
     /** @var array<string, class-string<TDriver>|Closure(Container): TDriver> */
     private array $drivers = [];
@@ -73,7 +79,7 @@ abstract class DriverRegistry
     public function register(string $key, string|Closure $driver, bool $replace = false): void
     {
         if (preg_match(self::KEY_PATTERN, $key) !== 1) {
-            throw new InvalidArgumentException("Invalid driver key [{$key}]: use 1 to 50 lowercase letters, digits or underscores.");
+            throw new InvalidArgumentException("Invalid driver key [{$key}]: start with a lowercase letter, then up to 49 lowercase letters, digits or underscores.");
         }
 
         if (isset($this->drivers[$key])) {
@@ -94,6 +100,16 @@ abstract class DriverRegistry
     public function has(string $key): bool
     {
         return isset($this->drivers[$key]) && $this->usable($key);
+    }
+
+    /**
+     * Whether new work may start on $key (ADR 0030 A1): a new payment, order, charge, module command or registration.
+     * Callers that finish or verify an existing record use get() instead, which answers for every registered key.
+     * Until extensions can be disabled (ADR 0030 M5a) this is has().
+     */
+    public function enabled(string $key): bool
+    {
+        return $this->has($key);
     }
 
     /**

@@ -42,6 +42,14 @@ foreach (MODULES_ON_BRANCH as $module) {
         ->not->toUse($others);
 }
 
+// Gateway extensions use the kernel only, Core included (ADR 0030 §1; review D3, removed in M3): Core answers them
+// through kernel contracts such as CurrencyDirectory, and the staff timeout arrives in GatewayConfig.
+foreach (['PaymentsStripe', 'PaymentsRazorpay', 'PaymentsCybersource', 'PaymentsNepal'] as $gateway) {
+    arch("{$gateway} does not depend on Core")
+        ->expect("App\\Modules\\{$gateway}")
+        ->not->toUse('App\Modules\Core');
+}
+
 // One rule per kernel namespace: with several targets in one expect(), the arch plugin reports a pass even when one
 // of them imports a module (probed on PR #268).
 foreach (['App\Modules\Core', 'App\Contracts', 'App\Data', 'App\Events', 'App\Enums', 'App\Support', 'App\Http'] as $kernel) {

@@ -4,10 +4,10 @@ use App\Data\Billing\ChargeRequest;
 use App\Data\Billing\ChargeResult;
 use App\Data\Billing\GatewayConfig;
 use App\Modules\Billing\Actions\CaptureInvoice;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\GatewayManager;
 
 require_once __DIR__.'/helpers.php';
 

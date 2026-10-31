@@ -13,7 +13,6 @@ use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Billing\TaxIdRules;
 use App\Contracts\Core\CompanyClock;
 use App\Contracts\Notifications\MergeFieldRegistry;
-use App\Data\Integrations\SettingField;
 use App\Enums\BillableType;
 use App\Events\Billing\CreditNoteIssued;
 use App\Events\Billing\DebitNoteIssued;
@@ -33,7 +32,6 @@ use App\Models\User;
 use App\Modules\Billing\Actions\CheckGatewayCredentials;
 use App\Modules\Billing\Actions\PruneGatewayLog;
 use App\Modules\Billing\Drivers\Gateways\BankTransferDriver;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\ManualDriver;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\InvoiceStatus;
@@ -59,6 +57,7 @@ use App\Modules\Billing\Services\BillingDirectory;
 use App\Modules\Billing\Services\BillingDocumentAttachments;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\DocumentNumbers;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Billing\Services\InvoiceService;
 use App\Modules\Billing\Services\NepalVatMode;
 use App\Modules\Billing\Services\PaymentReconciler;
@@ -74,12 +73,14 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\RetentionRunDate;
 use App\Support\Automation\Automation;
+use App\Support\Billing\GatewayDriverRegistry;
 use App\Support\CalendarDate;
 use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Events\WebhookEvents;
 use App\Support\Install\ReferenceDataRegistry;
+use App\Support\Integrations\DriverRegistry;
 use App\Support\Integrations\StoredSecrets;
 use App\Support\Migration\ImportRegistry;
 use App\Support\Modules\ModuleServiceProvider;
@@ -128,20 +129,28 @@ class BillingServiceProvider extends ModuleServiceProvider
         $this->app->bind(BillingDocuments::class, BillingDocumentAttachments::class);
 
         $this->app->singleton(GatewayRegistry::class, fn (): GatewayManager => $this->app->make(GatewayManager::class));
-        $this->app->singleton(GatewayManager::class, function (): GatewayManager {
-            $manager = new GatewayManager;
-            $manager->register(new BankTransferDriver);
-            $manager->register(new ManualDriver);
-            if (SandboxCardDriver::enabled()) {
-                $manager->register(new SandboxCardDriver);
-            }
+        $this->app->singleton(GatewayManager::class);
+        $this->app->when(GatewayManager::class)->needs(DriverRegistry::class)->give(fn (): GatewayDriverRegistry => $this->app->make(GatewayDriverRegistry::class));
+    }
 
-            return $manager;
-        });
+    /**
+     * Billing's built-in gateway drivers. Billing boots before the gateway extensions (modules boot in name order after
+     * Core), so they list first, as they always have.
+     */
+    public static function registerBuiltInGateways(GatewayDriverRegistry $drivers): void
+    {
+        $drivers->register('bank_transfer', BankTransferDriver::class);
+        $drivers->register('manual', ManualDriver::class);
+
+        if (SandboxCardDriver::enabled()) {
+            $drivers->register(SandboxCardDriver::KEY, SandboxCardDriver::class);
+        }
     }
 
     protected function bootModule(): void
     {
+        self::registerBuiltInGateways($this->app->make(GatewayDriverRegistry::class));
+
         $webhooks = $this->app->make(WebhookEvents::class);
         $webhooks->register(InvoiceCreated::class, 'invoice.created', 'invoice', 'invoiceId');
         $webhooks->register(InvoicePaid::class, 'invoice.paid', 'invoice', 'invoiceId');
@@ -168,7 +177,7 @@ class BillingServiceProvider extends ModuleServiceProvider
 
             foreach (Gateway::query()->orderBy('key')->get() as $gateway) {
                 if ($gateways->has($gateway->key)) {
-                    yield ['owner' => $gateway->display_name, 'fields' => array_map(SettingField::fromArray(...), $gateways->driver($gateway->key)->settingsFields()), 'values' => fn (): array => $gateway->config ?? []];
+                    yield ['owner' => $gateway->display_name, 'fields' => $gateways->fields($gateway->key), 'values' => fn (): array => $gateway->config ?? []];
                 }
             }
         });

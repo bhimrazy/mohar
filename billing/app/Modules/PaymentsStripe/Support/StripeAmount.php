@@ -2,7 +2,7 @@
 
 namespace App\Modules\PaymentsStripe\Support;
 
-use App\Modules\Core\Models\Currency;
+use App\Support\MinorUnits;
 use App\Support\Money;
 
 /**
@@ -50,7 +50,7 @@ final class StripeAmount
             return null;
         }
 
-        $amount = self::shift($money->amount, self::exponent($currency) - self::decimals($currency));
+        $amount = MinorUnits::rescale($money->amount, MinorUnits::decimals($currency), self::exponent($currency));
 
         if ($amount !== null && in_array($currency, self::WHOLE_UNITS_ONLY, true) && $amount % 100 !== 0) {
             return null;
@@ -71,38 +71,12 @@ final class StripeAmount
             return null;
         }
 
-        return self::shift($amount, self::decimals($currency) - self::exponent($currency));
+        return MinorUnits::rescale($amount, self::exponent($currency), MinorUnits::decimals($currency));
     }
 
     /** Decimals Stripe uses for the currency in API amounts. */
     public static function exponent(string $currency): int
     {
         return in_array(strtoupper($currency), self::ZERO_DECIMAL, true) ? 0 : 2;
-    }
-
-    /** Decimals of our minor units (Core currency settings; 2 when the currency isn't configured). */
-    private static function decimals(string $currency): int
-    {
-        $decimals = Currency::query()->where('code', strtoupper($currency))->value('decimals');
-
-        return is_numeric($decimals) ? (int) $decimals : 2;
-    }
-
-    /**
-     * Multiply by 10^$power; for a negative power divide, refusing a remainder.
-     */
-    private static function shift(int $amount, int $power): ?int
-    {
-        if ($power === 0) {
-            return $amount;
-        }
-
-        $factor = 10 ** abs($power);
-
-        if ($power > 0) {
-            return $amount > intdiv(PHP_INT_MAX, $factor) ? null : $amount * $factor;
-        }
-
-        return $amount % $factor === 0 ? intdiv($amount, $factor) : null;
     }
 }

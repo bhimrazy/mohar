@@ -3,8 +3,8 @@
 namespace App\Modules\Billing\Http\Controllers\Public;
 
 use App\Http\Controllers\Controller;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Money;
 use Illuminate\Contracts\View\View;

@@ -3,6 +3,7 @@
 // The suite shortens waits that really sleep (TestCase::shortenWaits()). Production keeps its values, and a
 // retry keeps its number of attempts: only the delay between them is gone.
 
+use App\Data\Billing\GatewayConfig;
 use App\Modules\PaymentsNepal\Support\ProviderHttp;
 use App\Modules\Platform\Support\MailServerSettings;
 use Illuminate\Contracts\Auth\StatefulGuard;
@@ -33,7 +34,7 @@ test('a background lookup still retries a 5xx as often as in production', functi
     Http::fake(['https://lookup.example.test/*' => Http::sequence()->push('', 503)->push('', 503)->push('{"ok":true}', 200)]);
     $started = microtime(true);
 
-    $response = app(ProviderHttp::class)->lookup()->get('https://lookup.example.test/status');
+    $response = app(ProviderHttp::class)->lookup(new GatewayConfig('khalti', 'Khalti'))->get('https://lookup.example.test/status');
 
     expect($response->ok())->toBeTrue()->and(microtime(true) - $started)->toBeLessThan(1.0);
     Http::assertSentCount(3);

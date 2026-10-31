@@ -4,10 +4,10 @@ use App\Data\Billing\GatewayConfig;
 use App\Data\Billing\LookupResult;
 use App\Data\Billing\PaymentAttemptRef;
 use App\Enums\HostedSessionCancel;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\PaymentAttempt;
+use App\Modules\Billing\Services\GatewayManager;
 
 require_once __DIR__.'/helpers.php';
 

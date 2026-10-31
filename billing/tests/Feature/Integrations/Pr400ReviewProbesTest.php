@@ -6,12 +6,13 @@
  */
 
 use App\Data\Integrations\SettingField;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Models\Gateway;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Support\ServerSettings;
+use App\Support\Billing\GatewayDriverRegistry;
 use App\Support\Domains\RegistrarDriverRegistry;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Support\Facades\Artisan;
@@ -34,7 +35,7 @@ function rb400Server(array $over = []): array
 test('P1 every registered driver field round-trips through toArray/fromArray', function () {
     $fields = [];
     foreach (app(GatewayManager::class)->drivers() as $driver) {
-        $fields = [...$fields, ...array_map(SettingField::fromArray(...), $driver->settingsFields())];
+        $fields = [...$fields, ...GatewayDriverRegistry::fieldsOf($driver)];
     }
     $registrars = app(RegistrarDriverRegistry::class);
     foreach (['log', 'resellerclub'] as $key) {

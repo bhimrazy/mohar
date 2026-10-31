@@ -2,14 +2,15 @@
 
 namespace App\Modules\PaymentsRazorpay;
 
-use App\Contracts\Billing\GatewayRegistry;
 use App\Modules\PaymentsRazorpay\Drivers\RazorpayDriver;
+use App\Support\Billing\GatewayDriverRegistry;
 use App\Support\Modules\ModuleServiceProvider;
 
 /**
  * Razorpay gateway driver for India (docs/product/payments-gateways-expansion.md §8): Payment Links settled by lookup,
- * signed webhooks that trigger a lookup, full and partial refunds. The module only registers its driver with Billing's
- * GatewayRegistry; it holds no tables or routes (credentials live encrypted in Billing's gateway configuration).
+ * signed webhooks that trigger a lookup, full and partial refunds. The module only registers its driver with the
+ * kernel's GatewayDriverRegistry; it holds no tables or routes (credentials live encrypted in Billing's gateway
+ * configuration).
  */
 class PaymentsRazorpayServiceProvider extends ModuleServiceProvider
 {
@@ -18,11 +19,15 @@ class PaymentsRazorpayServiceProvider extends ModuleServiceProvider
         return 'payments_razorpay';
     }
 
+    protected function registerModule(): void
+    {
+        // One instance per process, as when drivers were registered as instances.
+        $this->app->singleton(RazorpayDriver::class);
+    }
+
     protected function bootModule(): void
     {
-        // Fires for every new registry instance (also when Billing rebuilds it), and at once if one exists already.
-        $this->callAfterResolving(GatewayRegistry::class, function (GatewayRegistry $registry): void {
-            $registry->register($this->app->make(RazorpayDriver::class));
-        });
+        $drivers = $this->app->make(GatewayDriverRegistry::class);
+        $drivers->register(RazorpayDriver::KEY, RazorpayDriver::class);
     }
 }

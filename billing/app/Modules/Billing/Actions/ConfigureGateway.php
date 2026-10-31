@@ -4,18 +4,18 @@ namespace App\Modules\Billing\Actions;
 
 use App\Contracts\Billing\GatewayDriver;
 use App\Data\Integrations\CertificateInfo;
-use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Events\Billing\GatewayConfigurationChanged;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Billing\Support\AfterCommit;
 use App\Modules\Core\Models\IntegrationCredential;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Support\Billing\GatewayDriverRegistry;
 use App\Support\Billing\SandboxPolicy;
 use App\Support\Integrations\CertificateBundle;
 use Illuminate\Support\Facades\DB;
@@ -49,7 +49,7 @@ class ConfigureGateway
         $config = $gateway->config ?? [];
         $changes = [];
 
-        foreach (array_map(SettingField::fromArray(...), $driver->settingsFields()) as $field) {
+        foreach (GatewayDriverRegistry::fieldsOf($driver) as $field) {
             if ($field->type === FieldType::Certificate) {
                 if (isset($certificates[$field->key])) {
                     $info = $certificates[$field->key]->info;
@@ -121,7 +121,7 @@ class ConfigureGateway
      */
     private function assertActivatable(GatewayDriver $driver, array $config): void
     {
-        foreach (array_map(SettingField::fromArray(...), $driver->settingsFields()) as $field) {
+        foreach (GatewayDriverRegistry::fieldsOf($driver) as $field) {
             if ($field->type === FieldType::Boolean) {
                 continue;
             }

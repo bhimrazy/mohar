@@ -405,3 +405,12 @@ for a contract that packages implement ships in the kernel, under `App\Support\<
 own `AssertionError` subclass and depends on neither PHPUnit nor Pest. A kit that only checks this repository's own
 code stays in `tests/Support`. Production code in `app/` never calls a kit; `tests/Arch/ReportsTest.php` fails if it
 does. The first kit is `App\Support\Reports\ReportConformance` (ADR 0020 Amendment (#515)).
+
+## Amendment (#590) — 2026-10-31, gateway family aligned (ADR 0030 M3)
+
+- Gateway `settingsFields()` returns `list<SettingField>`. The array shape is deprecated and still read through
+  `GatewayDriverRegistry::fieldsOf()`.
+- Gateway drivers read no Core internals. Decimals come through `CurrencyDirectory` (`App\Support\MinorUnits`). The
+  staff timeout comes through `GatewayConfig::$httpTimeoutSeconds`, applied by `App\Support\Billing\GatewayHttp`. An arch
+  rule holds this for the four gateway modules.
+- The gateway conformance kit is `App\Support\Billing\GatewayConformance` (Amendment (#515)).

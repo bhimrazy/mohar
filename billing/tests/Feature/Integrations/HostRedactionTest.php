@@ -6,9 +6,9 @@
  * involved.
  */
 
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Services\GatewayLogger;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\ActivityLogger;

@@ -12,6 +12,8 @@ final readonly class GatewayConfig
     /**
      * @param  array<string, mixed>  $settings  driver settings (secrets included; never log or expose them)
      * @param  list<string>  $secretSettingKeys  settings typed Secret or SecretText; the host masks their values
+     * @param  int  $httpTimeoutSeconds  total timeout of a call to the provider (Settings → Billing → Gateways), read
+     *                                   through GatewayHttp
      */
     public function __construct(
         public string $key,
@@ -20,7 +22,10 @@ final readonly class GatewayConfig
         public bool $sandbox = false,
         public ?string $convertToCurrency = null,
         public array $secretSettingKeys = [],
+        public int $httpTimeoutSeconds = self::DEFAULT_HTTP_TIMEOUT_SECONDS,
     ) {}
+
+    public const DEFAULT_HTTP_TIMEOUT_SECONDS = 15;
 
     public function setting(string $key, mixed $default = null): mixed
     {

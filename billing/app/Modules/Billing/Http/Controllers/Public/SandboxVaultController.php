@@ -3,9 +3,9 @@
 namespace App\Modules\Billing\Http\Controllers\Public;
 
 use App\Http\Controllers\Controller;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Http\Requests\Client\SandboxTokenRequest;
+use App\Modules\Billing\Services\GatewayManager;
 use Illuminate\Http\JsonResponse;
 
 /**

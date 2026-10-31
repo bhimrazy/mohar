@@ -2,7 +2,6 @@
 
 use App\Data\Billing\GatewayConfig;
 use App\Data\Integrations\CertificateInfo;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Models\CreditLedgerEntry;
@@ -10,6 +9,7 @@ use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\PaymentsNepal\Drivers\ConnectipsDriver;
 use App\Support\Integrations\Endpoints;
 use Carbon\CarbonImmutable;

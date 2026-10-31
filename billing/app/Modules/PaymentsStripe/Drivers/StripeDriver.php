@@ -21,6 +21,8 @@ use App\Data\Billing\RefundRequest;
 use App\Data\Billing\ReturnHint;
 use App\Data\Integrations\ConnectionCheck;
 use App\Data\Integrations\IntegrationLogo;
+use App\Data\Integrations\SettingField;
+use App\Enums\FieldType;
 use App\Enums\HostedSessionCancel;
 use App\Modules\PaymentsStripe\Support\StripeAmount;
 use App\Modules\PaymentsStripe\Support\StripeClient;
@@ -88,17 +90,38 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
         return StripeAmount::CURRENCIES;
     }
 
+    /**
+     * @return list<SettingField>
+     */
     public function settingsFields(): array
     {
         return [
-            ['key' => 'sandbox', 'label' => 'Test mode', 'type' => 'boolean', 'default' => true,
-                'help' => 'Uses your Stripe sandbox with test keys (sk_test_…); no real money moves. Not available in production.'],
-            ['key' => 'secret_key', 'label' => 'Secret key', 'type' => 'secret', 'required' => true,
-                'help' => 'Stripe Workbench → API keys. A restricted key (rk_…) needs write access to Checkout Sessions and Refunds and read access to PaymentIntents, Refunds and Disputes.'],
-            ['key' => 'webhook_secret', 'label' => 'Webhook signing secret', 'type' => 'secret', 'required' => true,
-                'help' => 'Create a snapshot event destination for the webhook URL below with: checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, checkout.session.expired, payment_intent.succeeded, refund.created, refund.updated, charge.dispute.created, charge.dispute.funds_withdrawn, charge.dispute.closed. Paste its whsec_… secret here.'],
-            ['key' => 'publishable_key', 'label' => 'Publishable key', 'type' => 'string',
-                'help' => 'Optional (pk_…). Checkout doesn\'t need it; "Test connection" checks that it belongs to the same mode as the secret key.'],
+            new SettingField(
+                key: 'sandbox',
+                label: 'Test mode',
+                type: FieldType::Boolean,
+                help: 'Uses your Stripe sandbox with test keys (sk_test_…); no real money moves. Not available in production.',
+                default: true,
+            ),
+            new SettingField(
+                key: 'secret_key',
+                label: 'Secret key',
+                type: FieldType::Secret,
+                required: true,
+                help: 'Stripe Workbench → API keys. A restricted key (rk_…) needs write access to Checkout Sessions and Refunds and read access to PaymentIntents, Refunds and Disputes.',
+            ),
+            new SettingField(
+                key: 'webhook_secret',
+                label: 'Webhook signing secret',
+                type: FieldType::Secret,
+                required: true,
+                help: 'Create a snapshot event destination for the webhook URL below with: checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, checkout.session.expired, payment_intent.succeeded, refund.created, refund.updated, charge.dispute.created, charge.dispute.funds_withdrawn, charge.dispute.closed. Paste its whsec_… secret here.',
+            ),
+            new SettingField(
+                key: 'publishable_key',
+                label: 'Publishable key',
+                help: 'Optional (pk_…). Checkout doesn\'t need it; "Test connection" checks that it belongs to the same mode as the secret key.',
+            ),
         ];
     }
 

@@ -4,7 +4,7 @@ use App\Contracts\Billing\GatewayRegistry;
 use App\Modules\Billing\Drivers\Gateways\ManualDriver;
 
 /**
- * `import` marks opening-balance entries in credit_ledger.gateway, so no driver may register it; keys are [a-z0-9_]{1,50}.
+ * `import` marks opening-balance entries in credit_ledger.gateway, so no driver may register it; keys match DriverRegistry::KEY.
  */
 test('the registry refuses a reserved or malformed key and keeps the drivers it has', function (string $key, string $message) {
     $registry = app(GatewayRegistry::class);
@@ -23,7 +23,9 @@ test('the registry refuses a reserved or malformed key and keeps the drivers it 
         ->and(array_keys($registry->drivers()))->toBe($before);
 })->with([
     ['import', 'The gateway key [import] is reserved'],
-    ['Import', 'must be 1 to 50 lowercase letters'],
-    [' import', 'must be 1 to 50 lowercase letters'],
-    ['', 'must be 1 to 50 lowercase letters'],
+    ['Import', 'start with a lowercase letter'],
+    [' import', 'start with a lowercase letter'],
+    ['', 'start with a lowercase letter'],
+    ['2checkout', 'start with a lowercase letter'],
+    ['_hidden', 'start with a lowercase letter'],
 ]);

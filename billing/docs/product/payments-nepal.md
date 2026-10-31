@@ -452,11 +452,11 @@ merchants).
 ### 8.1 What was built and where
 
 - **Module `app/Modules/PaymentsNepal`** (an extension, not part of Billing). It holds `Drivers/KhaltiDriver.php`,
-  `Drivers/EsewaDriver.php`, `Support/ProviderHttp` (pinned hosts per mode, 5 s connect timeout,
-  `billing.gateways.http_timeout_seconds` total, retries only on lookups), `Support/NprAmount` (exact paisa ↔ rupee
-  strings, no floats), and `Config/payments_nepal.php` (endpoints, minimums, TTLs). The service provider registers
-  both drivers with `GatewayRegistry`. The module imports only `App\Contracts|Data|Support` and Core, which the
-  architecture test enforces. It has no migration, routes or settings of its own. Credentials live in Billing's
+  `Drivers/EsewaDriver.php`, `Support/ProviderHttp` (pinned hosts per mode; timeouts and lookup retries from the
+  kernel's `GatewayHttp`, ADR 0030 M3), and `Config/payments_nepal.php` (endpoints, minimums, TTLs). Paisa ↔ rupee
+  strings go through the kernel's `MinorUnits` (exact, no floats; `NprAmount` until M3). The service provider registers
+  the drivers with `GatewayDriverRegistry` by key and class. The module imports only `App\Contracts|Data|Support`,
+  Core excluded since M3, which the architecture test enforces. It has no migration, routes or settings of its own. Credentials live in Billing's
   encrypted `gateways.config`.
 - **This differs from §3.1's packaging** (`Billing/Drivers/Gateways/Nepal`). The contracts and DTOs had already moved
   to `app/Contracts/Billing` and `app/Data/Billing`, so a separate module needed no new kernel decision.

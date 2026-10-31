@@ -5,11 +5,11 @@ namespace App\Modules\Billing\Actions;
 use App\Contracts\Billing\ResumesHostedPayment;
 use App\Data\Billing\LookupResult;
 use App\Modules\Billing\Data\ResumeOutcome;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Services\GatewayLogger;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Billing\Support\PaymentInProgress;
 
 /**

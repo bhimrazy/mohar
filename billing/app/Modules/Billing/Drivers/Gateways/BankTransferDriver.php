@@ -3,6 +3,8 @@
 namespace App\Modules\Billing\Drivers\Gateways;
 
 use App\Data\Billing\GatewayConfig;
+use App\Data\Integrations\SettingField;
+use App\Enums\FieldType;
 use App\Support\Billing\AbstractGatewayDriver;
 
 /**
@@ -20,10 +22,18 @@ class BankTransferDriver extends AbstractGatewayDriver
         return 'Bank transfer';
     }
 
+    /**
+     * @return list<SettingField>
+     */
     public function settingsFields(): array
     {
         return [
-            ['key' => 'instructions', 'label' => 'Payment instructions', 'type' => 'text', 'help' => 'Shown on unpaid invoices. {invoice} is replaced with the invoice number.'],
+            new SettingField(
+                key: 'instructions',
+                label: 'Payment instructions',
+                type: FieldType::Text,
+                help: 'Shown on unpaid invoices. {invoice} is replaced with the invoice number.',
+            ),
         ];
     }
 

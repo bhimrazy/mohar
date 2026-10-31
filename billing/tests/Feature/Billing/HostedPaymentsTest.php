@@ -11,12 +11,13 @@ use App\Data\Billing\PaymentIntent;
 use App\Data\Billing\QrPayload;
 use App\Data\Billing\RedirectInstruction;
 use App\Data\Billing\ReturnHint;
+use App\Data\Integrations\SettingField;
+use App\Enums\FieldType;
 use App\Events\Billing\InvoicePaid;
 use App\Models\User;
 use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Actions\StartHostedPayment;
 use App\Modules\Billing\BillingServiceProvider;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
@@ -26,18 +27,20 @@ use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\PaymentsCybersource\Drivers\CybersourceDriver;
 use App\Modules\PaymentsCybersource\Support\CybersourceException;
-use App\Modules\PaymentsNepal\Support\NprAmount;
 use App\Modules\PaymentsNepal\Support\ProviderException;
 use App\Modules\PaymentsRazorpay\Support\RazorpayException;
 use App\Modules\PaymentsStripe\Support\StripeException;
 use App\Support\Billing\AbstractGatewayDriver;
+use App\Support\Billing\GatewayDriverRegistry;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Integrations\Redactor;
+use App\Support\MinorUnits;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterval;
@@ -299,7 +302,7 @@ function hostedDriverCase(string $key, array $lines): array
         ],
         'esewa' => [$invoice, $markPaid,
             fn (PaymentAttempt $attempt) => $returnUrl(['ref' => $attempt->reference]),
-            fn (PaymentAttempt $attempt, FormPost $form) => (int) NprAmount::toPaisa($form->fields['total_amount']),
+            fn (PaymentAttempt $attempt, FormPost $form) => (int) MinorUnits::fromDecimal($form->fields['total_amount'], 2),
         ],
         'stripe' => [$invoice, $markPaid,
             fn (PaymentAttempt $attempt) => $returnUrl(['ref' => $attempt->reference]),
@@ -850,8 +853,8 @@ test('every hosted driver honours the contract', function (string $key) {
         ->and(Transaction::query()->count())->toBe(0);
 
     // Values of the driver's secret settings (public ones such as eSewa's product code may be echoed back).
-    $secrets = collect($driver->settingsFields())->whereIn('type', ['secret', 'secret_text'])
-        ->map(fn (array $field) => (string) $config->setting($field['key'], ''))->filter();
+    $secrets = collect(GatewayDriverRegistry::fieldsOf($driver))->filter(fn (SettingField $field): bool => in_array($field->type, [FieldType::Secret, FieldType::SecretText], true))
+        ->map(fn (SettingField $field) => (string) $config->setting($field->key, ''))->filter();
 
     expect($secrets)->not->toBeEmpty();
     foreach ($secrets as $secret) {

@@ -5,7 +5,6 @@ namespace App\Modules\Billing\Services;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\InvoiceNumbers;
 use App\Contracts\Billing\InvoiceQueries;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;

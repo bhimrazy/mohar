@@ -45,7 +45,7 @@ use Illuminate\Support\Facades\DB;
  */
 class OpeningBalanceImporter implements RevertsImport
 {
-    /** The pre-#263 gateway value, still written beside the key until #284 (reserved in GatewayManager). */
+    /** The pre-#263 gateway value, still written beside the key until #284 (reserved in GatewayDriverRegistry::RESERVED_KEYS). */
     private const LEGACY_GATEWAY = 'import';
 
     public function __construct(private CreditLedgerService $ledger) {}

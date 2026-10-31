@@ -17,6 +17,8 @@ use App\Data\Billing\PaymentIntent;
 use App\Data\Billing\RefundRequest;
 use App\Data\Billing\ReturnHint;
 use App\Data\Integrations\ConnectionCheck;
+use App\Data\Integrations\SettingField;
+use App\Enums\FieldType;
 use App\Modules\PaymentsCybersource\Support\CybersourceException;
 use App\Modules\PaymentsCybersource\Support\CybersourceRest;
 use App\Support\Billing\AbstractGatewayDriver;
@@ -85,25 +87,59 @@ final class CybersourceDriver extends AbstractGatewayDriver implements Connectio
         return $currencies === [] ? ['NPR'] : $currencies;
     }
 
+    /**
+     * @return list<SettingField>
+     */
     public function settingsFields(): array
     {
         $rest = ' Required: card payments are confirmed only through the REST API, so the gateway can\'t be activated without it.';
 
         return [
-            ['key' => 'sandbox', 'label' => 'Test mode', 'type' => 'boolean', 'default' => true,
-                'help' => 'Uses Cybersource\'s test hosts (testsecureacceptance and apitest.cybersource.com); no real money moves. Not available in production.'],
-            ['key' => 'merchant_id', 'label' => 'Merchant ID', 'type' => 'string', 'required' => true,
-                'help' => 'Your Cybersource organisation ID, given by NIC Asia Bank with the service agreement.'],
-            ['key' => 'profile_id', 'label' => 'Secure Acceptance profile ID', 'type' => 'string', 'required' => true,
-                'help' => 'From the Business Center, Payment Configuration → Secure Acceptance. In the profile, set the customer response page to the return URL below and the merchant POST URL to the webhook URL below.'],
-            ['key' => 'access_key', 'label' => 'Profile access key', 'type' => 'string', 'required' => true,
-                'help' => 'Created with the profile\'s security key. It is sent in the payment form, so it is not a secret.'],
-            ['key' => 'secret_key', 'label' => 'Profile secret key', 'type' => 'secret', 'required' => true,
-                'help' => 'Created with the access key; signs the payment form and checks Cybersource\'s replies.'],
-            ['key' => 'rest_key_id', 'label' => 'REST key ID', 'type' => 'string', 'required' => true,
-                'help' => 'Business Center, Key Management: a REST shared secret key.'.$rest],
-            ['key' => 'rest_secret', 'label' => 'REST shared secret', 'type' => 'secret', 'required' => true,
-                'help' => 'The base64 shared secret shown once when the REST key is created.'.$rest],
+            new SettingField(
+                key: 'sandbox',
+                label: 'Test mode',
+                type: FieldType::Boolean,
+                help: 'Uses Cybersource\'s test hosts (testsecureacceptance and apitest.cybersource.com); no real money moves. Not available in production.',
+                default: true,
+            ),
+            new SettingField(
+                key: 'merchant_id',
+                label: 'Merchant ID',
+                required: true,
+                help: 'Your Cybersource organisation ID, given by NIC Asia Bank with the service agreement.',
+            ),
+            new SettingField(
+                key: 'profile_id',
+                label: 'Secure Acceptance profile ID',
+                required: true,
+                help: 'From the Business Center, Payment Configuration → Secure Acceptance. In the profile, set the customer response page to the return URL below and the merchant POST URL to the webhook URL below.',
+            ),
+            new SettingField(
+                key: 'access_key',
+                label: 'Profile access key',
+                required: true,
+                help: 'Created with the profile\'s security key. It is sent in the payment form, so it is not a secret.',
+            ),
+            new SettingField(
+                key: 'secret_key',
+                label: 'Profile secret key',
+                type: FieldType::Secret,
+                required: true,
+                help: 'Created with the access key; signs the payment form and checks Cybersource\'s replies.',
+            ),
+            new SettingField(
+                key: 'rest_key_id',
+                label: 'REST key ID',
+                required: true,
+                help: 'Business Center, Key Management: a REST shared secret key.'.$rest,
+            ),
+            new SettingField(
+                key: 'rest_secret',
+                label: 'REST shared secret',
+                type: FieldType::Secret,
+                required: true,
+                help: 'The base64 shared secret shown once when the REST key is created.'.$rest,
+            ),
         ];
     }
 

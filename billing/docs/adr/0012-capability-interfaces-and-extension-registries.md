@@ -173,3 +173,19 @@ Status: Accepted 2026-10-31 (owner approved `client-import.md` Q13), with ADR 00
   `app/Modules/Migration`.
 - **Packages.** Packages keep every other extension point in this ADR. A package that needs a secret-receiving hook
   asks for an ADR, as any new kernel surface does under ADR 0010.
+
+## Amendment (#590) — 2026-10-31, the gateway registry is aligned (ADR 0030 M3)
+
+- **The registry.** `App\Support\Billing\GatewayDriverRegistry` extends `DriverRegistry` and is bound in
+  `AppServiceProvider`. Extensions call `register(key, class)` in `boot()` and bind stateful drivers as singletons.
+  Billing registers its built-ins in `bootModule()`, like every host module.
+- **The deprecated adapter.** `GatewayRegistry::register(instance)` is the adapter this ADR planned. It is deprecated
+  since 0.2.0, removed in 1.0.0, and keeps the old replace semantics. From M4, which records owners, it replaces only a
+  key the same owner registered (ADR 0030 A5.7). `GatewayManager` is Billing's host over the registry and lives in
+  `Services/`.
+- **Two gates.** `DriverRegistry::enabled()` is ADR 0030 A1's new-work gate. It equals `has()` until M5a. Settlement
+  and the redaction scope reach a driver through `isRegistered()` and `get()`, never `has()`.
+- **Driver keys.** A driver key matches `DriverRegistry::KEY`: a lowercase letter, then up to 49 lowercase letters,
+  digits or underscores. Billing's gateway routes use the same constant, so every key the registry accepts can be
+  routed.
+- **Exchange rates.** `ExchangeRateSources` and `PriceConverters` taking `(key, class)` are issue #595.

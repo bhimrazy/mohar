@@ -20,6 +20,8 @@ use App\Data\Billing\QrPayload;
 use App\Data\Billing\RedirectInstruction;
 use App\Data\Billing\RefundRequest;
 use App\Data\Billing\ReturnHint;
+use App\Data\Integrations\SettingField;
+use App\Enums\FieldType;
 use App\Enums\HostedSessionCancel;
 use App\Modules\Billing\Services\Tax\TaxMath;
 use App\Support\Billing\AbstractGatewayDriver;
@@ -89,12 +91,30 @@ class SandboxCardDriver extends AbstractGatewayDriver implements CancelsHostedPa
         return ['USD', 'INR', 'NPR'];
     }
 
+    /**
+     * @return list<SettingField>
+     */
     public function settingsFields(): array
     {
         return [
-            ['key' => 'checkout_mode', 'label' => 'Client checkout', 'type' => 'select', 'options' => ['inline' => 'Card form on the invoice (tokenised)', 'hosted' => 'Hosted payment page (redirect + lookup)'], 'default' => 'inline'],
-            ['key' => 'webhook_secret', 'label' => 'Webhook signing secret', 'type' => 'secret', 'help' => 'Used to verify X-Sandbox-Signature on callbacks.'],
-            ['key' => 'fee_percent', 'label' => 'Simulated fee (%)', 'type' => 'string', 'help' => 'Fee recorded on successful charges, e.g. 2.9'],
+            new SettingField(
+                key: 'checkout_mode',
+                label: 'Client checkout',
+                type: FieldType::Select,
+                options: ['inline' => 'Card form on the invoice (tokenised)', 'hosted' => 'Hosted payment page (redirect + lookup)'],
+                default: 'inline',
+            ),
+            new SettingField(
+                key: 'webhook_secret',
+                label: 'Webhook signing secret',
+                type: FieldType::Secret,
+                help: 'Used to verify X-Sandbox-Signature on callbacks.',
+            ),
+            new SettingField(
+                key: 'fee_percent',
+                label: 'Simulated fee (%)',
+                help: 'Fee recorded on successful charges, e.g. 2.9',
+            ),
         ];
     }
 

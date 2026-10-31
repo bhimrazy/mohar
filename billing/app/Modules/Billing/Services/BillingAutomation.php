@@ -11,7 +11,6 @@ use App\Modules\Billing\Actions\CancelInvoice;
 use App\Modules\Billing\Actions\CaptureInvoice;
 use App\Modules\Billing\Actions\ManagePayMethods;
 use App\Modules\Billing\Actions\Quotes;
-use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\InvoiceKind;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\BillingException;
