@@ -471,10 +471,20 @@ missing new-password mask in `ExecuteModuleCommand` is fixed now, outside this s
 
 - `ExecuteModuleCommand` and `RegistrarGateway` read `DeclaresSensitiveKeys` for the command or capability they run
   (`Redactor::declaredKeys()`), before the driver is called. A driver whose `sensitiveKeys()` throws fails the command
-  then, with nothing sent. The keys are masked by key in the command log. The values under them
-  (`Redactor::valuesUnder()`: arrays, JSON string leaves, and what `redact()` masks by key in XML and `name=value`
-  text) are masked in the call's text (`maskDeclared()`): errors, failure items, activity and registrar messages. A
-  value under 8 bytes is matched only as a whole token. Past the node limit the text is withheld whole.
-- `RegistrarGateway::codeKeys()` stays as the host's built-in key for `epp` and `transfer`, in addition to declared keys,
-  not replaced by them. Its values are not masked in text, so an EPP result code under `code` stays readable in messages.
-- Gateway payloads (`GatewayLogger`) do not read the capability yet.
+  then, with nothing sent.
+- The keys are masked by key in the command log.
+- The values under them are collected from structure only (`Redactor::valuesUnder()`). That means arrays, JSON string
+  leaves, and `<key>…</key>` elements or `key=…` pairs in other strings. CDATA is unwrapped, and entity-decoded and
+  percent-decoded forms are added.
+- Every occurrence of a collected value is masked:
+    - in each stored payload string, by plain substring (`redactDeclared()`);
+    - in the call's text (`maskDeclared()`): errors, failure items, activity and registrar messages.
+- A value of 4 to 7 bytes is matched only as a whole token in text, and always in payloads. A value under 4 bytes is
+  covered by key masking only.
+- Fail closed: when a payload cannot be read in full, the payloads are stored as `{"withheld": "[redacted]"}` and the
+  text as `[redacted]`. That happens past the node or depth limit, or when a string uses a declared key as a name in
+  any other form (`ticket: X`, `<item key="ticket">`, a nested element).
+- `RegistrarGateway::codeKeys()` stays as the host's built-in key for `epp` and `transfer`, in addition to declared
+  keys, not replaced by them. Its values are not masked in text, so an EPP result code under `code` stays readable in
+  messages.
+- Gateway payloads (`GatewayLogger`) do not read the capability yet (#582).

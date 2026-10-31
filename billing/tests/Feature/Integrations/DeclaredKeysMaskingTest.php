@@ -2,8 +2,9 @@
 
 /*
  * ADR 0023 §5: a driver that implements DeclaresSensitiveKeys gets those keys masked in the host's command log, and
- * their values masked in the text the host stores and shows (errors, activity, staff messages). The string-body,
- * throwing-driver and short-value cases were adopted from the #574 review probes.
+ * their values masked in the text the host stores and shows (errors, activity, staff messages). A payload it cannot
+ * read in full is withheld whole, with its text. The string-body, markup, throwing-driver, node-limit and short-value
+ * cases were adopted from the #574 review and re-review probes.
  */
 
 use App\Contracts\Domains\Registrar\RegistrarDriver;
@@ -216,4 +217,73 @@ test('declared values past the node limit withhold the text whole', function () 
     expect($values)->toBeNull()
         ->and($redactor->maskDeclared('Panel refused ticket '.DECLARED_CODE, $values))->toBe(Redactor::MASK)
         ->and($redactor->valuesUnder(['ticket'], ['ticket' => DECLARED_CODE]))->toBe([DECLARED_CODE]);
+});
+
+test('a declared value inside CDATA or an element redact() masks whole is masked everywhere it is stored', function (string $body) {
+    declaringLogDriver(['ticket'], fn (): DriverResult => DriverResult::fail('Panel refused '.DECLARED_CODE, response: ['body' => $body]));
+
+    suspendWithDeclaringDriver();
+
+    expect(storedModuleText())->not->toContain(DECLARED_CODE)
+        ->and(ModuleCommand::query()->value('error'))->toBe('Panel refused [redacted]');
+})->with([
+    'cdata' => ['<r><ticket><![CDATA['.DECLARED_CODE.']]></ticket></r>'],
+    'epp root' => ['<epp><command><ticket>'.DECLARED_CODE.'</ticket></command></epp>'],
+]);
+
+test('a registrar message is masked when the declared value sits in an EPP XML answer', function () {
+    $script = FakeRegistrar::install();
+    app(RegistrarDriverRegistry::class)->register('fake', fn (): RegistrarDriver => new class($script, 'fake') extends FakeRegistrarDriver implements DeclaresSensitiveKeys
+    {
+        public function sensitiveKeys(string $operation): array
+        {
+            return ['ticket'];
+        }
+    }, replace: true);
+
+    $result = app(RegistrarGateway::class)->call('fake', 'info', RegistrarDriver::class, fn (): RegistrarResult => new RegistrarResult(message: 'Refused '.DECLARED_CODE, meta: ['raw' => '<epp><ticket>'.DECLARED_CODE.'</ticket></epp>']));
+
+    expect($result->message)->toBe('Refused [redacted]')
+        ->and(json_encode(RegistrarCommandLog::all()))->not->toContain(DECLARED_CODE);
+});
+
+test('a payload past the node limit is withheld whole with its text', function () {
+    declaringLogDriver(['ticket'], fn (): DriverResult => DriverResult::fail('Panel refused '.DECLARED_CODE, response: [
+        'ticket' => DECLARED_CODE,
+        'note' => 'refused '.DECLARED_CODE,
+        'rows' => array_fill(0, 50_001, 'x'),
+    ]));
+
+    suspendWithDeclaringDriver();
+
+    expect(storedModuleText())->not->toContain(DECLARED_CODE)
+        ->and(ModuleCommand::query()->sole()->response)->toBe(['withheld' => '[redacted]'])
+        ->and(ModuleCommand::query()->value('error'))->toBe('[redacted]');
+});
+
+test('a body that uses a declared key in a form not read is withheld whole with its text', function () {
+    declaringLogDriver(['ticket'], fn (): DriverResult => DriverResult::fail('Panel refused '.DECLARED_CODE, response: ['body' => '<item key="ticket">'.DECLARED_CODE.'</item>']));
+
+    suspendWithDeclaringDriver();
+
+    expect(storedModuleText())->not->toContain(DECLARED_CODE)
+        ->and(ModuleCommand::query()->sole()->response)->toBe(['withheld' => '[redacted]']);
+});
+
+test('a short declared value echoed under another key is masked in the logged payload', function () {
+    declaringLogDriver(['pin'], fn (): DriverResult => DriverResult::fail('PIN rejected', response: ['pin' => '4821', 'message' => 'PIN 4821 rejected']));
+
+    suspendWithDeclaringDriver();
+
+    expect(storedModuleText())->not->toContain('4821')
+        ->and(ModuleCommand::query()->sole()->response)->toBe(['pin' => '[redacted]', 'message' => 'PIN [redacted] rejected']);
+});
+
+test('a percent-encoded declared value is masked where the driver echoes it decoded', function () {
+    declaringLogDriver(['ticket'], fn (): DriverResult => DriverResult::fail('Panel refused ab+cd/ef99812QWER==', response: ['body' => 'status=denied&ticket=ab%2Bcd%2Fef99812QWER%3D%3D&retry=0']));
+
+    suspendWithDeclaringDriver();
+
+    expect(storedModuleText())->not->toContain('ab+cd\\/ef99812QWER==')
+        ->and(ModuleCommand::query()->value('error'))->toBe('Panel refused [redacted]');
 });

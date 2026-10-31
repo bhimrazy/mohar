@@ -54,8 +54,11 @@ final class Redactor
     /** Exceptions behind the first one whose messages maskThrowable() masks; those further down are withheld. */
     private const MAX_PREVIOUS = 16;
 
-    /** A declared value at least this long is masked as a substring; a shorter one only as a whole token. */
+    /** A declared value at least this long is masked as a substring in text; a shorter one only as a whole token. */
     private const DECLARED_SUBSTRING_BYTES = 8;
+
+    /** Declared values shorter than this are not masked by value; key masking still covers them. */
+    private const DECLARED_MIN_BYTES = 4;
 
     /** A key is sensitive when it is exactly one of these. */
     private const SENSITIVE_KEYS = ['key', 'pw', 'pwd', 'dv', 'phpsessid'];
@@ -244,12 +247,14 @@ final class Redactor
     }
 
     /**
-     * The values a host masks by value for keys a driver declares (declaredKeys()): every scalar under one of
-     * $sensitiveKeys (exact, any case) in $payloads, nested arrays included, in a string leaf that is a JSON document,
-     * and whatever redact() masks by key in other string leaves (XML elements and attributes, `name=value` pairs).
+     * The values under keys a driver declares (declaredKeys()), for the host to mask by value in everything it stores.
+     * Read from structure only: arrays, JSON string leaves, and in other strings `<key>value</key>` elements (CDATA
+     * unwrapped, entities decoded) and `key=value` pairs (also percent-decoded). Values under DECLARED_MIN_BYTES are
+     * left out; key masking still covers them.
      *
-     * Null when the payloads cannot be read in full (more than the node limit, a masked span that cannot be located):
-     * the host then withholds the text whole (maskDeclared()), as redact() withholds what lies past its limit.
+     * Null (fail closed: the host withholds the payloads and the text whole) when a payload cannot be read in full:
+     * past the node or depth limit, or a string that uses a declared key as a name in any other form (`ticket: X`,
+     * `<item key="ticket">`, a nested element).
      *
      * @param  list<string>  $sensitiveKeys
      * @param  array<array-key, mixed>  ...$payloads
@@ -261,11 +266,11 @@ final class Redactor
             return [];
         }
 
-        $keys = array_map('strtolower', $sensitiveKeys);
+        $keys = array_values(array_unique(array_map('strtolower', $sensitiveKeys)));
         $values = [];
         $nodes = 0;
 
-        $walk = function (array $payload, bool $under, int $depth) use (&$walk, &$values, &$nodes, $keys, $sensitiveKeys): bool {
+        $walk = function (array $payload, bool $under, int $depth) use (&$walk, &$values, &$nodes, $keys): bool {
             foreach ($payload as $key => $value) {
                 if (++$nodes > self::MAX_NODES || $depth > self::MAX_DEPTH) {
                     return false;
@@ -273,28 +278,22 @@ final class Redactor
 
                 $hit = $under || (is_string($key) && in_array(strtolower($key), $keys, true));
 
-                if (is_string($value) && strlen($value) > 1 && ($value[0] === '{' || $value[0] === '[')) {
-                    $decoded = json_decode($value, true);
-
-                    if (is_array($decoded)) {
-                        $value = $decoded;
-                    }
+                if (is_object($value)) {
+                    $value = json_decode((string) json_encode($value), true);
+                } elseif (is_string($value)) {
+                    $value = self::jsonDocument($value) ?? $value;
                 }
 
                 if (is_array($value)) {
                     if (! $walk($value, $hit, $depth + 1)) {
                         return false;
                     }
-                } elseif ($hit && (is_string($value) || is_int($value) || is_float($value))) {
-                    $values[] = (string) $value;
-                } elseif (is_string($value) && self::mentionsAny($value, $keys)) {
-                    $masked = $this->maskedSpans($value, $this->redact(['v' => $value], [], $sensitiveKeys)['v']);
-
-                    if ($masked === null) {
-                        return false;
+                } elseif ($hit) {
+                    if (is_string($value) || is_int($value) || is_float($value)) {
+                        $values[] = (string) $value;
                     }
-
-                    array_push($values, ...$masked);
+                } elseif (is_string($value) && ! self::readMarkup($value, $keys, $values)) {
+                    return false;
                 }
             }
 
@@ -307,13 +306,15 @@ final class Redactor
             }
         }
 
-        return array_values(array_unique(array_filter($values, fn (string $value): bool => trim($value) !== '' && $value !== self::MASK)));
+        $values = array_map('trim', $values);
+
+        return array_values(array_unique(array_filter($values, fn (string $value): bool => strlen($value) >= self::DECLARED_MIN_BYTES && $value !== self::MASK)));
     }
 
     /**
-     * $text with declared values (valuesUnder()) and $secrets masked, as maskValues() does. A declared value shorter
-     * than DECLARED_SUBSTRING_BYTES is masked only as a whole token, so `1000` leaves `port 10000` readable. Null
-     * values (payloads not read in full) withhold the text whole.
+     * $text with $secrets and the declared values (valuesUnder()) masked. A declared value under
+     * DECLARED_SUBSTRING_BYTES is masked only as a whole token, so `1000` leaves `port 10000` readable. Null values
+     * (a payload not read in full) withhold the text whole.
      *
      * @param  list<string>|null  $values
      * @param  list<string>  $secrets
@@ -324,10 +325,10 @@ final class Redactor
             return self::MASK;
         }
 
-        [$long, $short] = self::splitDeclared($values);
-        $masked = $this->maskValues($text, [...$secrets, ...$long]);
+        $long = array_values(array_filter($values, fn (string $value): bool => strlen($value) >= self::DECLARED_SUBSTRING_BYTES));
+        $masked = str_ireplace($long, self::MASK, $this->maskValues($text, [...$secrets, ...$long]));
 
-        foreach ($short as $value) {
+        foreach (array_diff($values, $long) as $value) {
             $masked = (string) preg_replace('/(?<![A-Za-z0-9_])'.preg_quote($value, '/').'(?![A-Za-z0-9_])/i', self::MASK, $masked);
         }
 
@@ -335,8 +336,9 @@ final class Redactor
     }
 
     /**
-     * redact() for a payload of a call whose driver declares keys: masked by $sensitiveKeys, and by value with $secrets
-     * and the declared values long enough to match as substrings (short ones are masked by key).
+     * redact() for a payload of a call whose driver declares keys: masked by $sensitiveKeys and $secrets, then every
+     * occurrence of a declared value, short ones included, replaced in every string. Null values (a payload not read
+     * in full) withhold the payload whole.
      *
      * @param  array<array-key, mixed>  $payload
      * @param  list<string>|null  $values
@@ -346,93 +348,81 @@ final class Redactor
      */
     public function redactDeclared(array $payload, ?array $values, array $secrets, array $sensitiveKeys): array
     {
-        return $this->redact($payload, [...$secrets, ...self::splitDeclared($values ?? [])[0]], $sensitiveKeys);
+        if ($values === null) {
+            return $payload === [] ? [] : ['withheld' => self::MASK];
+        }
+
+        $redacted = $this->redact($payload, [...$secrets, ...$values], $sensitiveKeys);
+
+        if ($values !== []) {
+            array_walk_recursive($redacted, function (mixed &$leaf) use ($values): void {
+                if (is_string($leaf)) {
+                    $leaf = str_ireplace($values, self::MASK, $leaf);
+                }
+            });
+        }
+
+        return $redacted;
     }
 
     /**
-     * @param  list<string>  $values
-     * @return array{list<string>, list<string>} values matched as substrings, values matched as whole tokens
+     * @return array<array-key, mixed>|null
      */
-    private static function splitDeclared(array $values): array
+    private static function jsonDocument(string $value): ?array
     {
-        $long = [];
-        $short = [];
+        $trimmed = ltrim($value);
 
-        foreach ($values as $value) {
-            $value = trim($value);
-
-            if ($value === '') {
-                continue;
-            }
-
-            if (strlen($value) >= self::DECLARED_SUBSTRING_BYTES) {
-                $long[] = $value;
-            } else {
-                $short[] = $value;
-            }
-        }
-
-        return [$long, $short];
-    }
-
-    /**
-     * @param  list<string>  $keys  lowercase
-     */
-    private static function mentionsAny(string $text, array $keys): bool
-    {
-        foreach ($keys as $key) {
-            if (stripos($text, $key) !== false) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * The spans of $original that $masked replaced with MASK, or null when they cannot be located (another mask, a
-     * re-encoded document): the caller then fails closed.
-     *
-     * @return list<string>|null
-     */
-    private function maskedSpans(string $original, string $masked): ?array
-    {
-        if ($masked === $original) {
-            return [];
-        }
-
-        $pieces = explode(self::MASK, $masked);
-
-        if (! str_starts_with($original, $pieces[0])) {
+        if ($trimmed === '' || ($trimmed[0] !== '{' && $trimmed[0] !== '[')) {
             return null;
         }
 
-        $spans = [];
-        $at = strlen($pieces[0]);
-        $last = count($pieces) - 1;
+        $decoded = json_decode($trimmed, true);
 
-        for ($index = 1; $index <= $last; $index++) {
-            $piece = $pieces[$index];
+        return is_array($decoded) ? $decoded : null;
+    }
 
-            if ($index === $last) {
-                $end = strlen($original) - strlen($piece);
+    /**
+     * Adds the values of `<key>…</key>` elements and `key=…` pairs in $text to $values. False when $text uses a
+     * declared key as a name anywhere else, so the caller fails closed.
+     *
+     * @param  list<string>  $keys  lowercase
+     * @param  list<string>  $values
+     */
+    private static function readMarkup(string $text, array $keys, array &$values): bool
+    {
+        foreach ($keys as $key) {
+            $name = preg_quote($key, '/');
+            // The key used as a name: after markup or a separator, or before `=`, `:`, `>` or `]` (prose is not a use).
+            $mentions = preg_match_all('/(?<![A-Za-z0-9_])(?:(?<=[<\/"\'\[&?;:])'.$name.'|'.$name.'(?=\s*["\']?\s*[=:>\]]))(?![A-Za-z0-9_])/i', $text);
 
-                if ($end < $at || ! str_ends_with($original, $piece)) {
-                    return null;
-                }
-            } else {
-                $end = $piece === '' ? $at : strpos($original, $piece, $at);
-
-                if ($end === false) {
-                    return null;
-                }
+            if ($mentions === 0) {
+                continue;
             }
 
-            $spans[] = substr($original, $at, $end - $at);
-            $at = $end + strlen($piece);
+            $prefix = '(?:[A-Za-z_][\w.\-]*:)?';
+            $elements = preg_match_all('/<'.$prefix.$name.'(?:\s[^<>]*)?>(.*?)<\/'.$prefix.$name.'\s*>/is', $text, $element);
+            $pairs = preg_match_all('/(?<![A-Za-z0-9_.\-\[\]])'.$name.'=([^&;\s"\'<>]*)/i', $text, $pair);
+
+            if ($mentions === false || $elements === false || $pairs === false || $mentions !== 2 * $elements + $pairs) {
+                return false;
+            }
+
+            foreach ($element[1] as $content) {
+                if (preg_match('/^\s*<!\[CDATA\[(.*)\]\]>\s*$/s', $content, $cdata) === 1) {
+                    $content = $cdata[1];
+                } elseif (str_contains($content, '<')) {
+                    return false;
+                }
+
+                array_push($values, $content, html_entity_decode($content, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+            }
+
+            foreach ($pair[1] as $raw) {
+                array_push($values, $raw, rawurldecode($raw), urldecode($raw));
+            }
         }
 
-        return $spans;
+        return true;
     }
 
     /**
