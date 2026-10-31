@@ -119,24 +119,37 @@ class RegistrarGateway
         $started = hrtime(true);
         $staffId ??= $this->currentStaffId();
         $config = $this->accounts->configFor($registrarKey, $account);
-        $secrets = [...$config->secrets(), ...array_values(array_filter($secrets, fn (string $secret): bool => $secret !== ''))];
+        // Keys the driver declares secret in this call's payloads: masked by key in the log, and their values in its text.
+        $declared = Redactor::declaredKeys($driver, $capability);
+        $keys = [...self::codeKeys($capability), ...$declared];
+        $secrets = [
+            ...$config->secrets(),
+            ...array_values(array_filter($secrets, fn (string $secret): bool => $secret !== '')),
+            ...$this->redactor->valuesUnder($declared, $request),
+        ];
 
         try {
-            $result = $this->maskResult($call($driver, $config), $secrets);
+            $answer = $call($driver, $config);
+
+            if ($declared !== []) {
+                $secrets = [...$secrets, ...$this->redactor->valuesUnder($declared, $this->normalise($answer) ?? [])];
+            }
+
+            $result = $this->maskResult($answer, $secrets);
 
             if ($logSuccess) {
-                $this->record($registrarKey, $capability, $domain, $request, $this->normalise($result), true, null, $started, $staffId, $secrets);
+                $this->record($registrarKey, $capability, $domain, $request, $this->normalise($result), true, null, $started, $staffId, $secrets, $keys);
             }
 
             return $result;
         } catch (RegistrarException $exception) {
             $error = $this->redactor->maskValues($exception->getMessage(), $secrets);
-            $this->record($registrarKey, $capability, $domain, $request, null, false, $error, $started, $staffId, $secrets);
+            $this->record($registrarKey, $capability, $domain, $request, null, false, $error, $started, $staffId, $secrets, $keys);
 
             throw $this->maskChain($exception, $secrets);
         } catch (Throwable $exception) {
             $error = $this->redactor->maskValues($exception->getMessage(), $secrets);
-            $this->record($registrarKey, $capability, $domain, $request, null, false, $error, $started, $staffId, $secrets);
+            $this->record($registrarKey, $capability, $domain, $request, null, false, $error, $started, $staffId, $secrets, $keys);
             $previous = $this->maskChain($exception, $secrets);
 
             if (in_array($capability, self::MUTATING, true)) {
@@ -225,15 +238,16 @@ class RegistrarGateway
      * @param  array<string, mixed>  $request
      * @param  array<string, mixed>|null  $response
      * @param  list<string>  $secrets
+     * @param  list<string>  $sensitiveKeys  extra keys secret in this command's payloads
      */
-    private function record(string $registrarKey, string $command, ?Domain $domain, array $request, ?array $response, bool $success, ?string $error, int|float $started, ?int $staffId, array $secrets = []): void
+    private function record(string $registrarKey, string $command, ?Domain $domain, array $request, ?array $response, bool $success, ?string $error, int|float $started, ?int $staffId, array $secrets = [], array $sensitiveKeys = []): void
     {
         RegistrarCommandLog::query()->create([
             'domain_id' => $domain?->id,
             'registrar_key' => $registrarKey,
             'command' => $command,
-            'request' => $this->redactor->redact($request, $secrets, self::codeKeys($command)),
-            'response' => $response === null ? null : $this->truncate($this->redactor->redact($response, $secrets, self::codeKeys($command))),
+            'request' => $this->redactor->redact($request, $secrets, $sensitiveKeys),
+            'response' => $response === null ? null : $this->truncate($this->redactor->redact($response, $secrets, $sensitiveKeys)),
             'success' => $success,
             'error' => $error === null ? null : $this->redactor->maskValues($error, $secrets),
             'duration_ms' => (int) ((hrtime(true) - $started) / 1_000_000),
@@ -243,6 +257,7 @@ class RegistrarGateway
 
     /**
      * In EPP code and transfer calls a bare `code` key is the domain's transfer secret; elsewhere it is an error code.
+     * Built in for every driver; a driver adds its own keys through DeclaresSensitiveKeys.
      *
      * @return list<string>
      */

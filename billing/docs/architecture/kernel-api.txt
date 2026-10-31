@@ -2224,6 +2224,8 @@ App\Support\Integrations\Redactor final class
 App\Support\Integrations\Redactor const public CARD_MASK = '[redacted-pan]'
 App\Support\Integrations\Redactor const public EXCERPT_BYTES = 4096
 App\Support\Integrations\Redactor const public MASK = '[redacted]'
+App\Support\Integrations\Redactor method public static declaredKeys(?object $driver, string $operation): array
+App\Support\Integrations\Redactor doc method declaredKeys @return list<string>
 App\Support\Integrations\Redactor method public excerpt(string $raw, App\Support\Integrations\RedactionSet|array $secrets = [], int $limit = self::EXCERPT_BYTES): string
 App\Support\Integrations\Redactor doc method excerpt @param $secrets RedactionSet|list<string>
 App\Support\Integrations\Redactor method public isSensitiveKey(string|int $key, array $sensitiveKeys = []): bool
@@ -2245,6 +2247,10 @@ App\Support\Integrations\Redactor doc method redactPayment @param $payload array
 App\Support\Integrations\Redactor doc method redactPayment @param $secrets RedactionSet|list<string>
 App\Support\Integrations\Redactor doc method redactPayment @return array<array-key, mixed>
 App\Support\Integrations\Redactor method public scrubCardNumbers(string $value): string
+App\Support\Integrations\Redactor method public valuesUnder(array $sensitiveKeys, array ...$payloads): array
+App\Support\Integrations\Redactor doc method valuesUnder @param $sensitiveKeys list<string>
+App\Support\Integrations\Redactor doc method valuesUnder @param $payloads array<array-key, mixed>
+App\Support\Integrations\Redactor doc method valuesUnder @return list<string>
 App\Support\Integrations\SecretMinimumLength final readonly class implements Illuminate\Contracts\Validation\ValidationRule
 App\Support\Integrations\SecretMinimumLength method public __construct(App\Data\Integrations\SettingField $field)
 App\Support\Integrations\SecretMinimumLength method public validate(string $attribute, mixed $value, Closure $fail): void

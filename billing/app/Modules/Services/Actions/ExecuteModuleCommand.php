@@ -213,7 +213,9 @@ class ExecuteModuleCommand
             $result = DriverResult::fail($exception->getMessage());
         }
 
-        $secrets = $this->secrets($context, $args);
+        // Keys the driver declares secret in this command's payloads: masked by key in the log, and their values in its text.
+        $declared = Redactor::declaredKeys($driver, $command->value);
+        $secrets = [...$this->secrets($context, $args), ...$this->redactor->valuesUnder($declared, $result->request, $result->response)];
         $error = $result->success ? null : $this->redactor->maskValues((string) $result->message, $secrets);
         $outcome = $result->outcome();
 
@@ -226,8 +228,8 @@ class ExecuteModuleCommand
             },
             'error' => $error,
             // The recorded target goes last, so nothing a driver logs can overwrite it.
-            'request' => [...$this->redactor->redact($result->request, $secrets), ...($target === null ? [] : ['target' => $target])] ?: null,
-            'response' => $this->redactor->redact($result->response, $secrets) ?: null,
+            'request' => [...$this->redactor->redact($result->request, $secrets, $declared), ...($target === null ? [] : ['target' => $target])] ?: null,
+            'response' => $this->redactor->redact($result->response, $secrets, $declared) ?: null,
             'duration_ms' => (int) ((hrtime(true) - $started) / 1_000_000),
         ];
 

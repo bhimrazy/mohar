@@ -2,6 +2,7 @@
 
 namespace App\Support\Integrations;
 
+use App\Contracts\Integrations\DeclaresSensitiveKeys;
 use Closure;
 use Error;
 use Exception;
@@ -226,6 +227,57 @@ final class Redactor
     public function redact(array $payload, RedactionSet|array $secrets = [], array $sensitiveKeys = []): array
     {
         return $this->budgeted(fn (): array => $this->redactWith($payload, self::set($secrets), array_map('strtolower', $sensitiveKeys), 0));
+    }
+
+    /**
+     * The extra keys a driver declares secret in one operation's payloads (DeclaresSensitiveKeys, ADR 0023 §5), for
+     * the host to pass to redact() and valuesUnder(); [] for a driver that declares none.
+     *
+     * @return list<string>
+     */
+    public static function declaredKeys(?object $driver, string $operation): array
+    {
+        return $driver instanceof DeclaresSensitiveKeys ? array_values(array_filter($driver->sensitiveKeys($operation), is_string(...))) : [];
+    }
+
+    /**
+     * The text of every scalar under one of $sensitiveKeys (exact, any case), nested arrays included, so the host can
+     * also mask those values by value in text the driver composed: a message or error that echoes them.
+     *
+     * @param  list<string>  $sensitiveKeys
+     * @param  array<array-key, mixed>  ...$payloads
+     * @return list<string>
+     */
+    public function valuesUnder(array $sensitiveKeys, array ...$payloads): array
+    {
+        if ($sensitiveKeys === []) {
+            return [];
+        }
+
+        $keys = array_map('strtolower', $sensitiveKeys);
+        $values = [];
+        $nodes = 0;
+        $walk = function (array $payload, bool $under, int $depth) use (&$walk, &$values, &$nodes, $keys): void {
+            foreach ($payload as $key => $value) {
+                if (++$nodes > self::MAX_NODES) {
+                    return;
+                }
+
+                $hit = $under || (is_string($key) && in_array(strtolower($key), $keys, true));
+
+                if (is_array($value) && $depth < self::MAX_DEPTH) {
+                    $walk($value, $hit, $depth + 1);
+                } elseif ($hit && (is_string($value) || is_int($value) || is_float($value)) && (string) $value !== '') {
+                    $values[] = (string) $value;
+                }
+            }
+        };
+
+        foreach ($payloads as $payload) {
+            $walk($payload, false, 0);
+        }
+
+        return array_values(array_unique($values));
     }
 
     /**
