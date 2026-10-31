@@ -8,8 +8,9 @@ use App\Support\Modules\ModuleServiceProvider;
 
 /**
  * Razorpay gateway driver for India (docs/product/payments-gateways-expansion.md §8): Payment Links settled by lookup,
- * signed webhooks that trigger a lookup, full and partial refunds. The module only registers its driver with Billing's
- * GatewayRegistry; it holds no tables or routes (credentials live encrypted in Billing's gateway configuration).
+ * signed webhooks that trigger a lookup, full and partial refunds. The module only registers its driver with the
+ * kernel's GatewayDriverRegistry; it holds no tables or routes (credentials live encrypted in Billing's gateway
+ * configuration).
  */
 class PaymentsRazorpayServiceProvider extends ModuleServiceProvider
 {
