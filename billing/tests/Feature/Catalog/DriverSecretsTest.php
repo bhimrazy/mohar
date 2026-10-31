@@ -50,10 +50,10 @@ it('keeps a stored secret when it is left empty and replaces it when a new value
     $product = Product::factory()->create(['provisioning_driver' => 'log', 'driver_config' => ['plan' => 'starter', 'api_token' => 'tok-12345']]);
     $pairs = fn (string $token) => [['key' => 'plan', 'value' => 'pro'], ['key' => 'api_token', 'value' => $token]];
 
+    confirmPassword();
     $this->put(route('admin.catalog.products.provisioning.update', $product), ['provisioning_driver' => 'log', 'driver_config' => $pairs('')])->assertSessionHasNoErrors();
     expect($product->fresh()->driver_config)->toBe(['plan' => 'pro', 'api_token' => 'tok-12345']);
 
-    confirmPassword();
     $this->put(route('admin.catalog.products.provisioning.update', $product), ['provisioning_driver' => 'log', 'driver_config' => $pairs('tok-new')])->assertSessionHasNoErrors();
     expect($product->fresh()->driver_config)->toBe(['plan' => 'pro', 'api_token' => 'tok-new']);
 });
@@ -71,8 +71,8 @@ it('keeps a stored addon secret when it is left empty', function () {
 });
 
 /*
- * Security review 2026-10-29, L3: entering a secret value needs a recent password confirmation; saving with secrets
- * left blank (kept) or changing other settings does not.
+ * Security review 2026-10-29, L3, and the #536 review (M2): entering a secret value, or changing settings that hold a
+ * stored secret, needs a recent password confirmation; saving them unchanged does not.
  */
 it('asks for step-up before a product provisioning secret is replaced, and keeps it out of the session', function () {
     actingAsStaff(['catalog.products.manage']);
@@ -86,8 +86,17 @@ it('asks for step-up before a product provisioning secret is replaced, and keeps
     expect($product->fresh()->driver_config)->toBe(['plan' => 'starter', 'api_token' => 'tok-12345'])
         ->and(json_encode(session()->all()))->not->toContain('tok-attacker');
 
-    $save('')->assertSessionHasNoErrors();
-    expect($product->fresh()->driver_config)->toBe(['plan' => 'pro', 'api_token' => 'tok-12345']);
+    // Unchanged, with the secret left blank: no step-up.
+    $this->from(route('admin.catalog.products.edit', $product))->put(route('admin.catalog.products.provisioning.update', $product), [
+        'provisioning_driver' => 'log', 'driver_config' => [['key' => 'api_token', 'value' => ''], ['key' => 'plan', 'value' => 'starter']],
+    ])->assertSessionHasNoErrors();
+    expect($product->fresh()->driver_config)->toEqual(['plan' => 'starter', 'api_token' => 'tok-12345']);
+
+    // Another driver drops the stored secret: that needs step-up too.
+    $this->from(route('admin.catalog.products.edit', $product))->put(route('admin.catalog.products.provisioning.update', $product), [
+        'provisioning_driver' => 'none', 'driver_config' => [],
+    ])->assertSessionHasErrors('password_confirmation');
+    expect($product->fresh()->provisioning_driver)->toBe('log');
 });
 
 it('asks for step-up on the add-on form only when a secret value is entered', function () {
@@ -98,7 +107,7 @@ it('asks for step-up on the add-on form only when a secret value is entered', fu
         'driver_config' => [['key' => 'password', 'value' => $password]], 'product_ids' => [], 'prices' => [],
     ]);
 
-    $save('pw-attacker')->assertUnprocessable()->assertJsonValidationErrors('password_confirmation');
+    $save('pw-attacker')->assertStatus(423);
     expect($addon->fresh()->driver_config)->toBe(['password' => 'pw-1']);
 
     $save('')->assertSessionHasNoErrors();

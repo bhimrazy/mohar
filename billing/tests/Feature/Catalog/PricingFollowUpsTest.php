@@ -81,6 +81,7 @@ describe('driver change resets secrets', function () {
     it('does not carry a product secret over to another driver', function () {
         actingAsStaff(['catalog.products.manage']);
         twoDrivers();
+        confirmPassword(); // a driver change with a stored secret needs step-up (#536)
         $product = Product::factory()->create(['provisioning_driver' => 'log', 'driver_config' => ['api_token' => 'tok-12345']]);
         $url = route('admin.catalog.products.provisioning.update', $product);
 
@@ -95,6 +96,7 @@ describe('driver change resets secrets', function () {
     it('does not carry an addon secret over to another driver', function () {
         actingAsStaff(['catalog.addons.manage']);
         twoDrivers();
+        confirmPassword(); // a driver change with a stored secret needs step-up (#536)
         $addon = Addon::factory()->create(['provisioning_driver' => 'log', 'driver_config' => ['api_token' => 'tok-12345']]);
 
         $this->put(route('admin.catalog.addons.update', $addon), [

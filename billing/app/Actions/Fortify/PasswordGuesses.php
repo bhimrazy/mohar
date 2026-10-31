@@ -6,11 +6,13 @@ use App\Models\User;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\ClientContext;
 use Closure;
+use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -33,7 +35,11 @@ final class PasswordGuesses
      * otherwise a validation error on $field.
      *
      * The guess is counted before the compare and refunded unless it was wrong, so concurrent guesses cannot all
-     * pass a budget check made before any of them is counted (#523).
+     * pass a budget check made before any of them is counted (#523). Guesses still being compared count towards the
+     * hourly cap too, so under concurrency a session can end before twenty of them have turned out wrong (fails
+     * closed).
+     *
+     * Not to be called inside a database transaction: on the database cache store a refusal would roll its count back.
      *
      * @param  Closure(): bool  $compare
      * @param  (Closure(): void)|null  $onWrong  runs for a wrong password, before the session can end
@@ -45,14 +51,14 @@ final class PasswordGuesses
     {
         $hour = self::hourKey($user);
         $minute = self::minuteKey($user, $request);
-        $hourCount = RateLimiter::increment($hour, 3600);
-        $minuteCount = RateLimiter::increment($minute, 60);
+        $hourCount = self::count($hour, 3600);
+        $minuteCount = self::count($minute, 60);
 
         if ($hourCount > self::PER_HOUR || $minuteCount > self::PER_MINUTE) {
             self::refund($hour, $minute);
             [$key, $message] = $hourCount > self::PER_HOUR ? [$hour, self::hourMessage($hour)] : [$minute, self::minuteMessage($minute)];
 
-            self::refuse($request, $field, $message, RateLimiter::availableIn($key));
+            self::refuse($request, $field, $message, self::secondsLeft($key));
         }
 
         if ($compare()) {
@@ -94,27 +100,73 @@ final class PasswordGuesses
         return 'password-guess|'.$user->getKey().'|'.$request->ip();
     }
 
-    private static function refund(string $hour, string $minute): void
+    /**
+     * Counts one guess with the store's atomic add and increment only. RateLimiter::increment() is not used: it
+     * overwrites the counter with put() on a 0 -> 1 step, which loses a concurrent guess once a refund has brought
+     * the counter back to 0 (#536 review, B1). The window is the separate timer key (the RateLimiter's layout); the
+     * counter expires with it.
+     */
+    private static function count(string $key, int $window): int
     {
-        RateLimiter::decrement($hour, 3600);
-        RateLimiter::decrement($minute, 60);
+        $store = self::store();
+        $now = now()->getTimestamp();
+
+        // The database store answers false when the counter expired between add and increment: count again.
+        for ($try = 0; $try < 2; $try++) {
+            $store->add($key.':timer', $now + $window, $window);
+            $store->add($key, 0, max(1, self::secondsLeft($key)));
+            $count = $store->increment($key);
+
+            if ($count !== false) {
+                return (int) $count;
+            }
+        }
+
+        // Never compare a guess that is not counted.
+        throw new RuntimeException('The cache store did not count the password guess.');
+    }
+
+    /**
+     * Only an existing counter: a store that creates a missing key on decrement would keep it without an expiry.
+     */
+    private static function refund(string ...$keys): void
+    {
+        $store = self::store();
+
+        foreach ($keys as $key) {
+            if ($store->has($key)) {
+                $store->decrement($key);
+            }
+        }
+    }
+
+    private static function secondsLeft(string $key): int
+    {
+        return max(0, (int) self::store()->get($key.':timer', 0) - now()->getTimestamp());
+    }
+
+    /** The rate limiter's store (cache.limiter, else the default). */
+    private static function store(): Repository
+    {
+        return Cache::store(config('cache.limiter'));
     }
 
     private static function hourMessage(string $hour): string
     {
-        $minutes = max(1, (int) ceil(RateLimiter::availableIn($hour) / 60));
+        $minutes = max(1, (int) ceil(self::secondsLeft($hour) / 60));
 
         return trans_choice('{1} Too many wrong passwords. Try again in :minutes minute.|[2,*] Too many wrong passwords. Try again in :minutes minutes.', $minutes, ['minutes' => $minutes]);
     }
 
     private static function minuteMessage(string $minute): string
     {
-        return __('Too many password attempts. Try again in :seconds seconds.', ['seconds' => RateLimiter::availableIn($minute)]);
+        return __('Too many password attempts. Try again in :seconds seconds.', ['seconds' => self::secondsLeft($minute)]);
     }
 
     /**
      * The session may be someone else's (M1's threat model), so it does not keep guessing from a fresh one either.
-     * Signing out also cycles the remember-me token.
+     * Only this session ends; but logout cycles the login's one remember-me token, so remember-me stops working on
+     * every device.
      *
      * @throws HttpResponseException
      */
@@ -124,16 +176,19 @@ final class PasswordGuesses
 
         Auth::guard('web')->logout();
 
+        $message = self::hourMessage($hour).' '.__('You have been signed out.');
+
+        // The sign-in page shows the reason, also when the step-up dialog sends the browser there.
         if ($request->hasSession()) {
             $request->session()->invalidate();
             $request->session()->regenerateToken();
+            $request->session()->flash('status', $message);
         }
 
-        $message = self::hourMessage($hour).' '.__('You have been signed out.');
-
         throw new HttpResponseException($request->wantsJson()
-            ? response()->json(['message' => $message, 'errors' => [$field => [$message]]], Response::HTTP_TOO_MANY_REQUESTS, ['Retry-After' => RateLimiter::availableIn($hour)])
-            : redirect()->route('login')->with('status', $message));
+            // signed_out tells the step-up dialog to go to sign-in rather than stay open on an ended session.
+            ? response()->json(['message' => $message, 'errors' => [$field => [$message]], 'signed_out' => true, 'redirect' => route('login')], Response::HTTP_TOO_MANY_REQUESTS, ['Retry-After' => self::secondsLeft($hour)])
+            : redirect()->route('login'));
     }
 
     /**

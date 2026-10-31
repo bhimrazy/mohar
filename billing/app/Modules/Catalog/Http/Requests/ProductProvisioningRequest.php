@@ -22,9 +22,10 @@ class ProductProvisioningRequest extends FormRequest
         return $this->user()?->hasPermission('catalog.products.manage') ?? false;
     }
 
-    protected function prepareForValidation(): void
+    /** After authorize(), so a login without the permission gets 403 before any password prompt. */
+    public function withValidator(Validator $validator): void
     {
-        $this->ensureSecretEntryIsConfirmed();
+        $this->ensureDriverChangeIsConfirmed();
     }
 
     /**

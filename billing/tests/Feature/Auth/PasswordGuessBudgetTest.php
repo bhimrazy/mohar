@@ -5,7 +5,7 @@ use App\Models\User;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ClientContext;
-use Illuminate\Cache\RateLimiter as CacheRateLimiter;
+use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -71,9 +71,12 @@ test('the wrong password that uses up the hourly budget ends the session and is 
         ->postJson(route('password.confirm.store'), ['password' => 'wrong-last'])
         ->assertTooManyRequests()
         ->assertHeader('Retry-After')
-        ->assertJsonPath('message', 'Too many wrong passwords. Try again in 60 minutes. You have been signed out.');
+        ->assertJsonPath('message', 'Too many wrong passwords. Try again in 60 minutes. You have been signed out.')
+        ->assertJsonPath('signed_out', true)
+        ->assertJsonPath('redirect', route('login'));
 
     $this->assertGuest();
+    $this->get(route('login'))->assertInertia(fn ($page) => $page->where('status', 'Too many wrong passwords. Try again in 60 minutes. You have been signed out.'));
     expect(ActivityLog::query()->where('event', 'auth.password_guesses_exhausted')->sole()->user_id)->toBe($user->id)
         ->and(ActivityLog::query()->where('event', 'auth.confirm_password_failed')->count())->toBe(PasswordGuesses::PER_HOUR);
 });
@@ -122,32 +125,56 @@ describe('concurrent guesses in separate processes (PostgreSQL)', function () {
         if (DB::connection()->getDriverName() !== 'pgsql') {
             $this->markTestSkipped('Needs separate processes sharing one database cache store (PostgreSQL).');
         }
+
+        // One committed database per test with a login whose hourly counter is set up by $earlier.
+        $this->raceSeed = function (string $name, Closure $earlier): User {
+            $this->useSeededDatabase($name, function () use ($name, $earlier): void {
+                $user = User::factory()->create(['email' => "{$name}@example.test"]);
+                config(['cache.stores.database.connection' => DB::getDefaultConnection()]);
+                app('cache')->forgetDriver('database');
+                $earlier(app('cache')->store('database'), 'password-guess|'.$user->id);
+            });
+
+            return User::query()->where('email', "{$name}@example.test")->sole();
+        };
+        $this->raceRun = function (User $user, int $count): array {
+            $startAt = (string) (microtime(true) + 3);
+            $workers = [];
+
+            foreach (range(1, $count) as $worker) {
+                $workers["w{$worker}"] = ['wrong', DB::connection()->getDatabaseName(), (string) $user->id, '203.0.113.'.$worker, $startAt];
+            }
+
+            $outcomes = collect(passwordGuessRaceWorkers($workers))->countBy('outcome')->all();
+            app('cache')->forgetDriver('database');
+
+            return [$outcomes, app('cache')->store('database')->get('password-guess|'.$user->id)];
+        };
     });
 
     test('six wrong guesses at once with three left in the hourly budget: exactly three are compared', function () {
-        $this->useSeededDatabase('password_guess_race', function (): void {
-            $user = User::factory()->create(['email' => 'guess-race@example.test']);
-            config(['cache.stores.database.connection' => DB::getDefaultConnection()]);
-            app('cache')->forgetDriver('database');
-            $limiter = new CacheRateLimiter(app('cache')->store('database'));
-
-            foreach (range(1, PasswordGuesses::PER_HOUR - 3) as $earlier) {
-                $limiter->increment('password-guess|'.$user->id, 3600);
-            }
+        $user = ($this->raceSeed)('password_guess_race', function (Repository $store, string $hour): void {
+            $store->add($hour.':timer', now()->getTimestamp() + 3600, 3600);
+            $store->add($hour, PasswordGuesses::PER_HOUR - 3, 3600);
         });
-        $user = User::query()->where('email', 'guess-race@example.test')->sole();
-        $startAt = (string) (microtime(true) + 3);
-        $workers = [];
 
-        foreach (range(1, 6) as $worker) {
-            $workers["w{$worker}"] = ['wrong', DB::connection()->getDatabaseName(), (string) $user->id, '203.0.113.'.$worker, $startAt];
-        }
-
-        $outcomes = collect(passwordGuessRaceWorkers($workers))->countBy('outcome')->all();
+        [$outcomes, $count] = ($this->raceRun)($user, 6);
 
         // The third compared guess is the twentieth wrong one: it ends its session.
-        app('cache')->forgetDriver('database');
         expect($outcomes)->toEqual(['wrong' => 2, 'ended' => 1, 'refused' => 3])
-            ->and((new CacheRateLimiter(app('cache')->store('database')))->attempts('password-guess|'.$user->id))->toBe(PasswordGuesses::PER_HOUR);
+            ->and($count)->toBe(PasswordGuesses::PER_HOUR);
+    });
+
+    test('#536 B1: from a counter a refund brought back to 0, every concurrent wrong guess is counted', function () {
+        $user = ($this->raceSeed)('password_guess_zero', function (Repository $store, string $hour): void {
+            $store->add($hour.':timer', now()->getTimestamp() + 3600, 3600);
+            $store->add($hour, 0, 3600);
+            $store->increment($hour);
+            $store->decrement($hour);
+        });
+
+        [$outcomes, $count] = ($this->raceRun)($user, 8);
+
+        expect($outcomes)->toEqual(['wrong' => 8])->and($count)->toBe(8);
     });
 });

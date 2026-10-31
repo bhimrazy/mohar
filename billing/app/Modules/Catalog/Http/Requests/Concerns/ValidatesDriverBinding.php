@@ -6,7 +6,7 @@ use App\Contracts\Services\ProvisioningDrivers;
 use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Catalog\Services\DriverSecrets;
 use Closure;
-use Illuminate\Validation\ValidationException;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Validation\Validator;
 
 /**
@@ -37,31 +37,35 @@ trait ValidatesDriverBinding
     }
 
     /**
-     * Entering a secret value needs a recent password confirmation (security review 2026-10-29, L3). Only then: the
-     * addon form saves its driver settings with everything else, and a blank secret keeps the stored one. Checked
-     * before validation, like the password.recent middleware.
+     * Needs a recent password confirmation (security review 2026-10-29, L3) when a secret value is entered, or when
+     * settings that hold a stored secret change in any way (#536 review, M2): another endpoint next to a kept
+     * credential would send that credential there. Other saves need none, since the add-on form saves its driver
+     * settings with everything else. Call it after authorize() and before validation (withValidator).
      *
-     * @throws ValidationException
+     * @throws HttpResponseException
      */
-    protected function ensureSecretEntryIsConfirmed(): void
+    protected function ensureDriverChangeIsConfirmed(): void
     {
-        $submitted = $this->submittedDriverConfig();
-        $driver = (string) $this->input('provisioning_driver');
-        $secrets = app(DriverSecrets::class)->secretKeys($driver, $submitted);
-        $entered = array_filter($submitted, fn (string $value, int|string $key): bool => $value !== '' && in_array((string) $key, $secrets, true), ARRAY_FILTER_USE_BOTH);
+        $driver = $this->input('provisioning_driver');
 
-        if ($entered === [] || RequireRecentPasswordConfirmation::recentlyConfirmed($this)) {
+        if (! is_string($driver) || RequireRecentPasswordConfirmation::recentlyConfirmed($this)) {
+            return; // a malformed driver fails validation and saves nothing
+        }
+
+        $secrets = app(DriverSecrets::class);
+        $submitted = $this->submittedDriverConfig();
+        $entered = array_intersect_key(array_filter($submitted, fn (string $value): bool => $value !== ''), array_flip($secrets->secretKeys($driver, $submitted)));
+        $stored = array_map(fn (mixed $value): string => is_scalar($value) ? (string) $value : (string) json_encode($value), $this->storedDriverConfig() ?? []);
+        $storedSecrets = array_intersect_key(array_filter($stored, fn (string $value): bool => $value !== ''), array_flip($secrets->secretKeys((string) $this->storedDriver(), $stored)));
+        $merged = $this->driverConfig();
+        ksort($stored);
+        ksort($merged);
+
+        if ($entered === [] && ($storedSecrets === [] || ($driver === $this->storedDriver() && $merged === $stored))) {
             return;
         }
 
-        $refusal = ValidationException::withMessages([RequireRecentPasswordConfirmation::ERROR_KEY => __('Confirm your password to continue.')]);
-
-        // Back with the error only, never the old input, which holds the secret.
-        if (! $this->expectsJson()) {
-            $refusal->response = back()->withErrors($refusal->errors());
-        }
-
-        throw $refusal;
+        throw new HttpResponseException(RequireRecentPasswordConfirmation::refusal($this));
     }
 
     /**
