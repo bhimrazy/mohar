@@ -75,8 +75,13 @@ a running container).
 
 - The manual "Build image" workflow (`.github/workflows/build-image.yml`) builds `linux/amd64`, `linux/arm64` (QEMU)
   or both into an OCI artifact with SBOM and provenance, reports the compressed size per platform, packs the
-  release tarball (target `release`), can push the same archive to GHCR and, from the default branch, attach the
-  tarball to a draft GitHub release for an existing tag (`release_tag`). Only amd64 has been built on a runner.
+  release tarball (target `release`), can push the same archive to GHCR and attach the tarball to a draft GitHub
+  release for an existing tag (`release_tag`). Both publishing jobs run only from `main`, in the `release`
+  environment, and only for merged code: the build fails unless a GHCR push built `main`'s head and a release built a
+  tag on `main`. Those two checks are the protection today. The `release` environment does not exist yet, and GitHub
+  creates a missing one on first use with no rules, so it adds nothing until the owner creates it with a `main`-only
+  deployment branch policy and a required reviewer. That is an owner setting and should be done before the first
+  publish. Only amd64 has been built on a runner.
 - No provenance attestation for the release tarball (`actions/attest-build-provenance`, needs `id-token: write` and
   `attestations: write`): a new action, waiting for the owner's approval (#225). The image already carries BuildKit
   SBOM and provenance.

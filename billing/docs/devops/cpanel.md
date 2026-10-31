@@ -87,6 +87,7 @@ the `ea-php84` binary) stops the current ones early.
     APP_URL=https://billing.example.com
     DB_CONNECTION=pgsql
     DB_HOST=…  DB_PORT=5432  DB_DATABASE=…  DB_USERNAME=…  DB_PASSWORD=…
+    DB_SSLMODE=verify-full  DB_SSLROOTCERT=…   # a database over the network: install.md, "Database over a network"
     QUEUE_CONNECTION=database
     CACHE_STORE=database
     SESSION_DRIVER=database

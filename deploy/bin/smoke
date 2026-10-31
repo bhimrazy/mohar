@@ -158,6 +158,7 @@ pass "POST /login = ${login}; /admin then answers ${after} (the one-time passwor
 
 step "no one-time token in Caddy's access log"
 "${curl_tls[@]}" -o /dev/null "${base}/reset-password/SMOKESECRETTOKEN?email=smoke%40example.com"
+"${curl_tls[@]}" -o /dev/null "${base}/settings/password/set/SMOKESECRETSETPASSWORD"
 "${curl_tls[@]}" -o /dev/null -H "Referer: ${base}/staff-invitation/SMOKESECRETREFERER" "${base}/login?signature=SMOKESECRETSIG"
 access_log=""
 for _ in $(seq 30); do
@@ -167,6 +168,7 @@ for _ in $(seq 30); do
 done
 grep -q 'SMOKESECRET' <<< "$access_log" && fail "a URL token reached Caddy's logs"
 grep -q '"uri":"/reset-password/REDACTED?REDACTED"' <<< "$access_log" || fail "the access log does not show the redacted reset link"
+grep -q '"uri":"/settings/password/set/REDACTED"' <<< "$access_log" || fail "the access log does not show the redacted set-password link"
 pass "URL tokens are redacted in Caddy's access log (path, query and Referer)"
 
 # Queue RunAutomationJob through the live web container and wait for the live colour's automation worker (its own
@@ -204,6 +206,17 @@ if "${compose[@]}" exec -T app-blue sh -c 'touch /app/smoke-write-test' 2>/dev/n
     fail "the app's root filesystem is writable"
 fi
 pass "app runs as UID 10001 on a read-only root filesystem"
+# The data stores (compose.prod.yaml): read-only root, all capabilities dropped, no-new-privileges. Read from Docker,
+# not by writing a file: RustFS runs unprivileged, so a failed write would prove nothing.
+hardened() {
+    docker inspect -f '{{.HostConfig.ReadonlyRootfs}} {{json .HostConfig.CapDrop}} {{json .HostConfig.SecurityOpt}}' \
+        "$("${compose[@]}" ps -q "$1")"
+}
+for service in postgres rustfs; do
+    [[ "$(hardened "$service")" == 'true ["ALL"] ["no-new-privileges:true"]' ]] \
+        || fail "$service is not hardened (ReadonlyRootfs, CapDrop, SecurityOpt: $(hardened "$service"))"
+done
+pass "postgres and rustfs run on a read-only root with all capabilities dropped and no-new-privileges"
 "${compose[@]}" exec -T app-blue php -r 'exit(@file_get_contents("https://example.com") === false ? 1 : 0);' \
     || fail "PHP stream TLS (SMTP STARTTLS, https:// streams) cannot verify a public certificate"
 pass "PHP stream TLS verifies a public certificate (CA bundle)"
@@ -268,6 +281,18 @@ deploy/bin/deploy rollback || fail "rollback"
 stop_loop "rollback"
 assert_live blue green
 queued_job blue
+
+step "PostgreSQL restarts over its existing data directory"
+# The first boot ran initdb on an empty volume; a restart takes the entrypoint's other path (chmod and chown of a data
+# directory postgres already owns, as root), which needs FOWNER among the capabilities compose.prod.yaml keeps.
+"${compose[@]}" up -d --wait --wait-timeout 120 --force-recreate --no-deps postgres \
+    || fail "postgres did not come back after a recreate over its existing volume"
+users="$("${compose[@]}" exec -T postgres psql -U billing -d billing -Atc 'select count(*) from users')" \
+    || fail "psql could not read the stack's data after the postgres restart"
+[ "${users:-0}" -ge 1 ] || fail "no users after the postgres restart (users = ${users:-none})"
+[[ "$(hardened postgres)" == 'true ["ALL"] ["no-new-privileges:true"]' ]] || fail "postgres lost its hardening on recreate"
+"${curl_tls[@]}" -o /dev/null -w '%{http_code}' "${base}/up" | grep -qx 200 || fail "/up after the postgres restart"
+pass "postgres recreated over its data (users = $users), still hardened; /up answers 200"
 
 step "full demo seed on PostgreSQL (real commits, non-production APP_ENV)"
 # The stack is APP_ENV=production, where DatabaseSeeder skips demo data, and its image has no dev dependencies, which

@@ -7,7 +7,8 @@
  *   - npm packages       (billing/ and docs-site/ package-lock.json → registry.npmjs.org time[version]; direct
  *                         dependencies in their package.json must be exact versions)
  *   - GitHub Actions     (.github/**: `uses: owner/repo@<sha> # <tag>` → release date; SHA must match the tag)
- *   - Docker images      (billing/compose.yaml, workflow, deploy/*.yaml and loadtest/*.yaml `image:`; `# syntax=`,
+ *   - Docker images      (billing/compose.yaml, workflow, deploy/*.yaml and loadtest/*.yaml `image:`; setup-buildx's
+ *                         `driver-opts: image=`; `# syntax=`,
  *                         `FROM` and `--from=` of every Dockerfile/Containerfile → Docker Hub tag push date; digest
  *                         required)
  *   - Tools              (billing/.nvmrc → nodejs.org; setup-php `tools: composer:X` → GitHub release)
@@ -23,7 +24,8 @@
  *      DEPENDENCY_AGE_EXCEPTIONS ("Security-Exception: name@version" lines, or "name@version, ..."): waives the
  *      cooldown for exactly those items (CI passes them from the PR body when the security-exception label is set),
  *      GITHUB_TOKEN (API limits), GITHUB_STEP_SUMMARY (waived items are listed there),
- *      DEPENDENCY_AGE_CACHE (cache file, default storage/framework/cache/dependency-age.json).
+ *      DEPENDENCY_AGE_CACHE (cache file, default storage/framework/cache/dependency-age.json; ignored in GitHub
+ *      Actions, and a cache file committed to git fails the check).
  * Exit codes: 0 ok · 1 policy violation · 2 could not verify (network/registry error).
  */
 import { execFileSync } from 'node:child_process';
@@ -37,6 +39,8 @@ import {
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+    buildkitImages,
+    composerAuditConfigChanges,
     composerDistProblems,
     directPinProblems,
     digestBelongsToTag,
@@ -47,6 +51,7 @@ import {
     isExcepted,
     npmEntryProblems,
     npmIntegrityProblem,
+    npmrcAuditConfigChanges,
     parseSecurityExceptions,
 } from './dependency-policy.mjs';
 
@@ -68,6 +73,8 @@ const option = (name) =>
         .join('=');
 const checkAll = args.includes('--all');
 const exceptionText = process.env.DEPENDENCY_AGE_EXCEPTIONS ?? '';
+// scripts/security-exceptions.sh adds this line when the security-exception label is present and bound to the body.
+const labelled = /^\s*Security-Exception-Label:/im.test(exceptionText);
 const exceptions = parseSecurityExceptions(
     /security-exception:/i.test(exceptionText)
         ? exceptionText
@@ -85,8 +92,21 @@ if (!Number.isFinite(minDays) || minDays < 0) {
     fail(2, `Invalid minimum release age: ${minDays}`);
 }
 
-/** @type {Record<string, string>} immutable "kind|name|version|ref" → ISO publish date (local only; not cached in CI) */
-const cache = readJson(cachePath) ?? {};
+// A cached date skips the registry lookup and the integrity, dist and SHA-to-tag checks made with it, so the cache must
+// never come from the tree being judged: a committed cache file fails, and in GitHub Actions there is no cache at all.
+const cacheInRepo = relative(repoRoot, cachePath);
+if (
+    !cacheInRepo.startsWith('..') &&
+    git(['ls-files', '--error-unmatch', '--', cacheInRepo], repoRoot, true) !==
+        null
+) {
+    fail(
+        1,
+        `${cacheInRepo} is committed: the dependency-age cache is local state and would let a change choose its own publish dates; remove it from git`,
+    );
+}
+/** @type {Record<string, string>} immutable "kind|name|version|ref" → ISO publish date (local runs only; never read or written in GitHub Actions) */
+const cache = inActions ? {} : (readJson(cachePath) ?? {});
 /** Pinning / integrity violations: always enforced. */
 const violations = [];
 /** @type {{item: Item, message: string}[]} cooldown violations: only these can be waived, per item. */
@@ -172,6 +192,14 @@ function collect(read, listWorkflowFiles, listRepoFiles) {
                 file,
             });
         }
+        for (const image of buildkitImages(text)) {
+            items.push({
+                kind: 'image',
+                name: image.split('@')[0],
+                version: image.split('@')[1] ?? '',
+                file,
+            });
+        }
         for (const [, target, comment] of text.matchAll(
             /^\s*-?\s*uses:\s*['"]?([^\s'"#]+)['"]?[ \t]*(?:#[ \t]*(\S+))?/gm,
         )) {
@@ -227,6 +255,8 @@ function collect(read, listWorkflowFiles, listRepoFiles) {
 const key = (item) =>
     `${item.kind}|${item.name}|${item.version}|${item.ref ?? ''}`;
 
+// Git listings are NUL-separated (-z): a newline-separated listing quotes unusual names ("a\"b.yml"), which would then
+// not match the file on disk and drop out of the check.
 const headItems = collect(
     (path) =>
         existsSync(join(repoRoot, path))
@@ -241,11 +271,17 @@ const headItems = collect(
     () =>
         (
             git(
-                ['ls-files', '--cached', '--others', '--exclude-standard'],
+                [
+                    'ls-files',
+                    '-z',
+                    '--cached',
+                    '--others',
+                    '--exclude-standard',
+                ],
                 repoRoot,
             ) ?? ''
         )
-            .split('\n')
+            .split('\0')
             .filter(Boolean),
 );
 
@@ -255,12 +291,15 @@ if (!checkAll) {
     const base = resolveBase();
     baseLabel = `changes since ${base}`;
     const baseFiles =
-        git(['ls-tree', '-r', '--name-only', base, '--', '.github'], repoRoot)
-            ?.split('\n')
+        git(
+            ['ls-tree', '-r', '-z', '--name-only', base, '--', '.github'],
+            repoRoot,
+        )
+            ?.split('\0')
             .filter(Boolean) ?? [];
     const baseRepoFiles =
-        git(['ls-tree', '-r', '--name-only', base], repoRoot)
-            ?.split('\n')
+        git(['ls-tree', '-r', '-z', '--name-only', base], repoRoot)
+            ?.split('\0')
             .filter(Boolean) ?? [];
     const baseKeys = new Set(
         collect(
@@ -270,6 +309,58 @@ if (!checkAll) {
         ).map(key),
     );
     candidates = headItems.filter((item) => !baseKeys.has(key(item)));
+
+    // The audits read composer.json and .npmrc from the tree being judged, so a change to a setting outside the
+    // allowlists (dependency-policy.mjs) is a policy change of its own: it needs the security-exception label. This
+    // module stays on node: built-ins only: CI runs it from billing/, where a bare import would resolve from the PR's
+    // node_modules.
+    const read = (rev, path) =>
+        rev === null
+            ? existsSync(join(repoRoot, path))
+                ? readFileSync(join(repoRoot, path), 'utf8')
+                : null
+            : git(['show', `${rev}:${path}`], repoRoot, true);
+    const headRepoFiles = (
+        git(
+            ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+            repoRoot,
+        ) ?? ''
+    )
+        .split('\0')
+        .filter(Boolean);
+    const configChanges = [];
+    const composerJson = `${appDir}/composer.json`;
+    for (const name of composerAuditConfigChanges(
+        read(base, composerJson),
+        read(null, composerJson),
+    )) {
+        configChanges.push(`${composerJson}: ${name}`);
+    }
+    const npmrcs = new Set(
+        [...headRepoFiles, ...baseRepoFiles].filter((path) =>
+            /(^|\/)\.npmrc$/.test(path),
+        ),
+    );
+    for (const npmrc of [...npmrcs].sort((a, b) => a.localeCompare(b))) {
+        for (const name of npmrcAuditConfigChanges(
+            read(base, npmrc),
+            read(null, npmrc),
+        )) {
+            configChanges.push(`${npmrc}: ${name}`);
+        }
+    }
+    for (const change of configChanges) {
+        if (labelled) {
+            annotate(
+                'warning',
+                `${change} changed — allowed by the security-exception label (CTO approval required)`,
+            );
+        } else {
+            violations.push(
+                `${change} changed: it is not on the allowlist of settings a change may touch without review (it can redirect, narrow or silence composer audit / npm audit), so it needs the security-exception label (dependency-policy.md)`,
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------- pinning (offline, every item)
@@ -370,7 +461,9 @@ await mapLimit(unique, 8, async (item) => {
         console.log(`  ✓ ${line}`);
     }
 });
-writeJson(cachePath, cache);
+if (!inActions) {
+    writeJson(cachePath, cache);
+}
 
 // ---------------------------------------------------------------- report
 

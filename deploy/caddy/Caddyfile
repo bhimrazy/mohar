@@ -22,7 +22,7 @@
 		output stderr
 		format filter {
 			wrap json
-			request>uri regexp "^(/(?:reset-password|staff-invitation|account-invitation|email/verify)/)[^?]*|(\?).*$" "${1}${2}REDACTED"
+			request>uri regexp "^(/(?:reset-password|settings/password/set|staff-invitation|account-invitation|email/verify)/)[^?]*|(\?).*$" "${1}${2}REDACTED"
 			request>headers>Referer delete
 		}
 	}
@@ -38,8 +38,8 @@
 	# pass through, so the app trusts only those three, and only from this proxy's network (TRUSTED_PROXIES).
 	import ../live/upstream.caddy
 
-	# Access log without secrets: one-time tokens travel in URLs (password reset, staff and account invitations,
-	# email verification paths; signed links' and guest tickets' query strings). Their path segment and every query
+	# Access log without secrets: one-time tokens travel in URLs (password reset, set-password, staff and account
+	# invitations, email verification paths; signed links' and guest tickets' query strings). Their path segment and every query
 	# string are replaced by REDACTED, in the request URI and in a redirect's Location (a failed form post on a token
 	# page redirects back to it); the Referer, which repeats those URLs, is dropped. Caddy already logs Cookie and
 	# Authorization as REDACTED.
@@ -47,9 +47,9 @@
 		output stdout
 		format filter {
 			wrap json
-			request>uri regexp "^(/(?:reset-password|staff-invitation|account-invitation|email/verify)/)[^?]*|(\?).*$" "${1}${2}REDACTED"
+			request>uri regexp "^(/(?:reset-password|settings/password/set|staff-invitation|account-invitation|email/verify)/)[^?]*|(\?).*$" "${1}${2}REDACTED"
 			request>headers>Referer delete
-			resp_headers>Location regexp "(/(?:reset-password|staff-invitation|account-invitation|email/verify)/)[^?]*|(\?).*$" "${1}${2}REDACTED"
+			resp_headers>Location regexp "(/(?:reset-password|settings/password/set|staff-invitation|account-invitation|email/verify)/)[^?]*|(\?).*$" "${1}${2}REDACTED"
 		}
 	}
 }

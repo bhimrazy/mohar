@@ -136,7 +136,7 @@ test('the release tarball excludes .env, tests, docs, node_modules and dev vendo
         ->and(d4Stage('vendor'))->toContain('find storage -type f ! -name .gitignore');
 });
 
-test('the draft release job is the only write-capable job besides the GHCR push, and runs only from the default branch for the built tag', function () {
+test('the draft release job is the only write-capable job besides the GHCR push, and runs only from main for the built tag', function () {
     $workflow = file_get_contents(dirname(__DIR__, 4).'/.github/workflows/build-image.yml');
     preg_match('/^    release:\n(.*?)(?=^    \S+:\n|\z)/ms', $workflow, $m) || throw new RuntimeException('no release job');
     $job = d4WithoutComments($m[1]);
@@ -146,8 +146,29 @@ test('the draft release job is the only write-capable job besides the GHCR push,
         ->and($workflow)->toContain("format('refs/tags/{0}', inputs.release_tag)")
         ->and($job)->toContain('-- "$RELEASE_TAG"')
         ->and($job)->toContain('contents: write')
-        ->and($job)->toContain("github.ref == format('refs/heads/{0}', github.event.repository.default_branch)")
+        ->and($job)->toContain("github.ref == 'refs/heads/main'")
+        ->and($job)->toContain('environment: release')
         ->and($job)->toContain('inputs.release_tag == inputs.ref')
         ->and($job)->toContain('--verify-tag --draft')
         ->and(preg_match_all('/^\s+contents: write$/m', $workflow))->toBe(1);
+});
+
+test('the GHCR push runs only from main in the release environment, and only for merged code', function () {
+    $workflow = file_get_contents(dirname(__DIR__, 4).'/.github/workflows/build-image.yml');
+    preg_match('/^    push:\n(.*?)(?=^    \S+:\n|\z)/ms', $workflow, $m) || throw new RuntimeException('no push job');
+    $push = d4WithoutComments($m[1]);
+    preg_match('/^    build:\n(.*?)(?=^    \S+:\n|\z)/ms', $workflow, $m) || throw new RuntimeException('no build job');
+    $build = d4WithoutComments($m[1]);
+
+    expect($push)->toContain("if: inputs.push_to_ghcr && github.ref == 'refs/heads/main'")
+        ->and($push)->toContain('environment: release')
+        ->and($push)->toContain('packages: write')
+        // The build fails before anything is published unless the built commit is main's head (a push) or on main
+        // (a release tag); full history is fetched for that check, as a string so the expression cannot drop it.
+        ->and($build)->toContain('fetch-depth: ${{ (inputs.push_to_ghcr || inputs.release_tag != \'\') && \'0\' || \'1\' }}')
+        ->and($build)->toContain('if: inputs.push_to_ghcr || inputs.release_tag != \'\'')
+        ->and($build)->toContain('main="$(git rev-parse refs/remotes/origin/main)"')
+        ->and($build)->toContain('git merge-base --is-ancestor "$built" "$main"')
+        ->and($build)->toContain('elif [ "$built" != "$main" ]; then')
+        ->and(strpos($build, 'Built commit is merged'))->toBeLessThan(strpos($build, 'Build the image as an OCI archive'));
 });

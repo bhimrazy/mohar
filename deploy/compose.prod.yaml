@@ -318,6 +318,23 @@ services:
             # PostgreSQL 18+ keeps data under /var/lib/postgresql/<major>/docker; mount the parent.
             - postgres-data:/var/lib/postgresql
         shm_size: 256m
+        # The entrypoint starts as root, fixes the ownership of the data and socket directories, then drops to the
+        # postgres user (su-exec): those steps need exactly these capabilities. The data volume is the only writable
+        # path besides the socket directory and /tmp.
+        read_only: true
+        tmpfs:
+            - /tmp
+            - /var/run/postgresql
+        cap_drop:
+            - ALL
+        cap_add:
+            - CHOWN
+            - DAC_OVERRIDE
+            - FOWNER
+            - SETGID
+            - SETUID
+        security_opt:
+            - no-new-privileges:true
         # A fast shutdown with a large checkpoint can take longer than Docker's default 10 s.
         stop_grace_period: 60s
         healthcheck:
@@ -341,8 +358,19 @@ services:
             RUSTFS_ACCESS_KEY: ${OBJECTS_ACCESS_KEY:?set OBJECTS_ACCESS_KEY in deploy/.env}
             RUSTFS_SECRET_KEY: ${OBJECTS_SECRET_KEY:?set OBJECTS_SECRET_KEY in deploy/.env}
             RUSTFS_CONSOLE_ENABLE: 'false'
+            # Empty: logs go to stdout (Docker's rotated json-file log) instead of files under /logs, which the
+            # read-only root filesystem would refuse.
+            RUSTFS_OBS_LOG_DIRECTORY: ''
         volumes:
             - rustfs-data:/data
+        # The image runs as its own non-root user (uid 10001), so no capability is added back.
+        read_only: true
+        tmpfs:
+            - /tmp
+        cap_drop:
+            - ALL
+        security_opt:
+            - no-new-privileges:true
         healthcheck:
             test: ['CMD-SHELL', 'curl -fsS http://localhost:9000/health || exit 1']
             interval: 10s

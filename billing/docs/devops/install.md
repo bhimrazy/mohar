@@ -66,7 +66,8 @@ production does not use. The file is written for local infrastructure: it also t
 public interface. With this option the app itself runs on the host (step 2); the all-container stack is in [production.md](production.md).
 
 **Bare metal or managed services.** Create a PostgreSQL database and a user that owns it, and a private bucket
-with an access key limited to that bucket. Put the connection details in `.env` (step 3).
+with an access key limited to that bucket. Put the connection details in `.env` (step 3). A database on another host
+also needs TLS that checks the server, see [Database over a network](#database-over-a-network).
 
 ## 2. Code and assets
 
@@ -111,6 +112,24 @@ OBJECTS_SECRET_KEY=...
 OBJECTS_BUCKET=billing
 OBJECTS_REGION=us-east-1
 ```
+
+### Database over a network
+
+`DB_SSLMODE` defaults to `prefer`: the connection is encrypted when the server offers TLS, but the server's certificate
+is never checked, so anyone on the network path can pose as the database and read every query and password. That is
+fine only for a database on the same host or on a private Docker network (the production compose stack). For any
+database reached over a network, a managed PostgreSQL included, verify the server:
+
+```dotenv
+DB_SSLMODE=verify-full                        # TLS required, certificate signed by the CA below, host name matches DB_HOST
+DB_SSLROOTCERT=/etc/ssl/billing/db-ca.pem     # the provider's CA certificate, readable by the PHP user
+```
+
+`DB_HOST` must then be the name in the server's certificate, not an IP address it does not list. Without
+`DB_SSLROOTCERT`, libpq reads `~/.postgresql/root.crt` of the PHP user; libpq 16 and later also accept
+`DB_SSLROOTCERT=system`, the operating system's CA store, for providers whose certificates chain to a public CA. A
+wrong CA or host name fails the first connection with an SSL error, so test with `php artisan db:show` before going
+live. `require` encrypts without checking the server and is not a substitute.
 
 `APP_URL` must be the exact public address clients use, with `https://` and no trailing slash. Outside local
 development every generated link (password resets, email verification, signed download links, queued mail, the
