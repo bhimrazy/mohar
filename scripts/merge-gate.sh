@@ -234,11 +234,16 @@ setup_note="${head:0:8} into ${base:0:8}"
 [ "$code" = false ] && setup_note="$setup_note, docs-only fast path"
 row "$setup_name" PASS "$(seconds $(( $(date +%s) - setup_started )))" "$setup_note"
 
-# Security exceptions as CI reads them: the label, then the "Security-Exception:" lines of the PR body.
-if gh pr view "$pr" -R "$gh_repo" --json labels --jq '.labels[].name' | grep -qx security-exception; then
-    DEPENDENCY_AGE_EXCEPTIONS="$(gh pr view "$pr" -R "$gh_repo" --json body --jq .body | grep -iE '^[[:space:]]*Security-Exception:' || true)"
-    export DEPENDENCY_AGE_EXCEPTIONS
+# Security exceptions as CI reads them (this checkout's copy, which is develop's): with the label, the PR body's
+# "Security-Exception:" lines, only while the body is unchanged since the label was added.
+if ! DEPENDENCY_AGE_EXCEPTIONS="$("$repo/scripts/security-exceptions.sh" "$pr" "$gh_repo" 2> "$logs/00-exceptions.log")"; then
+    printf '%-44s ' "security exceptions bound to the label"
+    row "security exceptions bound to the label" FAIL - "$(tail -1 "$logs/00-exceptions.log" | cut -c1-160)"
+    result=FAIL
+    DEPENDENCY_AGE_EXCEPTIONS=""
+    [ "${GATE_CONTINUE:-0}" = 1 ] || finish
 fi
+export DEPENDENCY_AGE_EXCEPTIONS
 
 # ---------------------------------------------------------------- policy, before install (CI's order)
 # No dependency is installed yet and these run no PR code: grep, composer validate/audit on the lock (no vendor/, so
