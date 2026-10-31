@@ -152,6 +152,46 @@ test('the hook installer sets core.hooksPath for one worktree only', function ()
     (new Process(['rm', '-rf', $home]))->run();
 });
 
+/** @return array{0: Process, 1: string} the installer run, and the lock path (the caller holds it first) */
+function ppInstallWithLock(string $repo, array $env): array
+{
+    $root = dirname(__DIR__, 4);
+    foreach (['scripts/install-hooks.sh', 'scripts/pre-push.sh', 'scripts/githooks/pre-push'] as $file) {
+        ppWrite($repo, $file, file_get_contents("{$root}/{$file}"));
+    }
+    $home = $repo.'-home';
+    @mkdir($home);
+
+    return [new Process(['bash', "{$repo}/scripts/install-hooks.sh"], $repo, ['HOME' => $home, 'GIT_CONFIG_GLOBAL' => "{$home}/gitconfig", ...$env]), "{$repo}/.git/config.lock"];
+}
+
+test('the hook installer retries while .git/config.lock is held and then succeeds', function () {
+    [$this->repo] = ppRepo();
+    [$install, $lock] = ppInstallWithLock($this->repo, ['HOOKS_CONFIG_RETRIES' => '20', 'HOOKS_CONFIG_DELAY' => '0.1']);
+    touch($lock);
+    // Release the lock shortly after the installer has hit it.
+    $release = new Process(['bash', '-c', 'sleep 1; rm -f "$1"', 'release', $lock]);
+    $release->start();
+    $install->setTimeout(30)->run();
+    $release->wait();
+
+    expect($install->getExitCode())->toBe(0, $install->getErrorOutput())
+        ->and($install->getOutput())->toContain('core.hooksPath='.realpath($this->repo).'/scripts/githooks')
+        ->and(ppGit($this->repo, 'config', '--worktree', 'core.hooksPath'))->toBe(realpath($this->repo).'/scripts/githooks');
+});
+
+test('the hook installer fails with a clear message when .git/config.lock stays held', function () {
+    [$this->repo] = ppRepo();
+    [$install, $lock] = ppInstallWithLock($this->repo, ['HOOKS_CONFIG_RETRIES' => '3', 'HOOKS_CONFIG_DELAY' => '0.05']);
+    touch($lock);
+    $install->setTimeout(30)->run();
+    unlink($lock);
+
+    expect($install->getExitCode())->not->toBe(0)
+        ->and($install->getErrorOutput())->toContain('failed after 3 attempts')
+        ->and($install->getOutput())->not->toContain('installed');
+});
+
 test('a test step past PRE_PUSH_TEST_TIMEOUT is stopped without failing the push', function () {
     [$this->repo, $base] = ppRepo();
     ppWrite($this->repo, 'billing/app/Modules/Billing/Invoice.php', "<?php\n// changed\n");
