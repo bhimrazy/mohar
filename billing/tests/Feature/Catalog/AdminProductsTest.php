@@ -9,6 +9,7 @@ use App\Modules\Catalog\Models\ProductCustomField;
 use App\Modules\Catalog\Models\ProductGroup;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Settings;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Catalog\FakeCatalogUsage;
 
@@ -203,6 +204,19 @@ it('deletes a product without services and removes paths pointing to it', functi
 
     $this->assertSoftDeleted($product);
     $this->assertDatabaseMissing('product_upgrade_paths', ['target_product_id' => $product->id]);
+});
+
+it('gives the slug of a deleted product to a new one, never the slug of a live one', function () {
+    actingAsStaff(['catalog.products.manage']);
+    $group = ProductGroup::factory()->create();
+    Product::factory()->create(['slug' => 'starter'])->delete();
+    Product::factory()->create(['slug' => 'pro']);
+
+    $this->post(route('admin.catalog.products.store'), productPayload($group, ['slug' => 'starter']))->assertSessionHasNoErrors();
+    $this->post(route('admin.catalog.products.store'), productPayload($group, ['name' => 'Pro', 'slug' => 'pro']))->assertSessionHasErrors('slug');
+
+    expect(Product::withTrashed()->where('slug', 'starter')->count())->toBe(2)
+        ->and(fn () => Product::factory()->create(['slug' => 'starter']))->toThrow(UniqueConstraintViolationException::class);
 });
 
 it('duplicates a product as a hidden copy with prices and relations', function () {
