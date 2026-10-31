@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\Billing\GatewayDriver;
 use App\Modules\Billing\Actions\CaptureInvoice;
 use App\Modules\Billing\Actions\ManagePayMethods;
 use App\Modules\Billing\Actions\StartHostedPayment;
@@ -12,6 +13,9 @@ use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Core\Support\Settings;
+use App\Support\Billing\GatewayDriverRegistry;
+use App\Support\Integrations\DriverRegistry;
 
 require_once __DIR__.'/helpers.php';
 require_once __DIR__.'/WebhookHelpers.php';
@@ -74,4 +78,38 @@ test('a key whose driver is not registered is refused even with a saved row and 
 
     expect(app(GatewayManager::class)->settles('gone_gateway'))->toBeFalse();
     $this->call('POST', route('billing.webhooks', 'gone_gateway'), [], [], [], ['CONTENT_TYPE' => 'application/json'], '{}')->assertNotFound();
+});
+
+test('a driver that may not start new work is refused a new hosted payment, while its settlement still reaches it', function () {
+    // What ADR 0030 M5a answers for a disabled extension: registered and usable, but enabled() and has() say no.
+    Gateway::factory()->sandbox()->create(['config' => ['webhook_secret' => 'whsec_test', 'checkout_mode' => 'hosted']]);
+    $registry = new class(app()) extends DriverRegistry
+    {
+        protected function contract(): string
+        {
+            return GatewayDriver::class;
+        }
+
+        public function capabilities(): array
+        {
+            return [];
+        }
+
+        public function has(string $key): bool
+        {
+            return false;
+        }
+
+        public function enabled(string $key): bool
+        {
+            return false;
+        }
+    };
+    $registry->register('sandbox_card', fn () => app(GatewayDriverRegistry::class)->get('sandbox_card'));
+    app()->instance(GatewayManager::class, new GatewayManager($registry, app(Settings::class)));
+
+    expect(app(GatewayManager::class)->hosted('sandbox_card'))->not->toBeNull()
+        ->and(fn () => app(StartHostedPayment::class)->handle($this->invoice->fresh(), 'sandbox_card'))->toThrow(BillingException::class);
+
+    expect(PaymentAttempt::query()->count())->toBe(0);
 });
