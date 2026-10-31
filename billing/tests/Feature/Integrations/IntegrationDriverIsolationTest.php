@@ -100,7 +100,7 @@ test('the health line counts only certificate settings the driver still declares
 });
 
 test('a step-up refusal on a platform settings section keeps no old input, as a form post, an Inertia visit or JSON', function () {
-    $this->withSession(['auth.password_confirmed_at' => 0]);
+    $this->withSession(['auth.step_up_confirmed_at' => 0]);
     $secret = ['support' => ['inbound_secret' => 'inbound-secret-'.str_repeat('x', 30)]];
 
     $this->put(route('admin.platform.settings.update', 'support_inbound'), $secret)

@@ -89,7 +89,7 @@ test('sending needs the execute permission and a recent password, and mails the 
     actingAsStaff(['migration.runs.view']);
     $this->post(route('admin.migration.imports.invitations.send', $run))->assertForbidden();
     actingAsStaff(['migration.runs.view', 'migration.runs.execute']);
-    $this->withSession(['auth.password_confirmed_at' => 0])->post(route('admin.migration.imports.invitations.send', $run))->assertSessionHasErrors('password_confirmation');
+    $this->withSession(['auth.step_up_confirmed_at' => 0])->post(route('admin.migration.imports.invitations.send', $run))->assertSessionHasErrors('password_confirmation');
     expect(MigrationInvitation::query()->count())->toBe(0);
 
     confirmPassword();

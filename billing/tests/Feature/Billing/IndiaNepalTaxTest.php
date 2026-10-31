@@ -7,7 +7,7 @@ use App\Modules\Core\Models\Currency;
 require_once __DIR__.'/helpers.php';
 
 /** Sensitive staff actions require a recent password confirmation (password.recent, App\Http\Middleware\RequireRecentPasswordConfirmation). */
-beforeEach(fn () => $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]));
+beforeEach(fn () => $this->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()]));
 
 beforeEach(function () {
     billingSettings(['tax.enabled' => true, 'tax.home_country' => 'IN', 'tax.home_state' => 'MH']);

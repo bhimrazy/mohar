@@ -4,22 +4,26 @@ namespace App\Http\Middleware;
 
 use App\Models\User;
 use Closure;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Step-up authentication for sensitive mutations ("password.recent" middleware, ADR 0018 §4): the user must have
- * confirmed their password (Fortify confirm-password, which sets auth.password_confirmed_at) within
- * auth.step_up_seconds. It lives in the kernel and is aliased in bootstrap/app.php, so every module's sensitive
- * routes resolve whichever modules are installed (#81).
+ * confirmed their password (Fortify confirm-password) within auth.step_up_seconds. The time is our own session key,
+ * set only on that path (markConfirmed()): Laravel's auth.password_confirmed_at is also set by Fortify's passkey
+ * confirmation, which is not step-up. It lives in the kernel and is aliased in bootstrap/app.php, so every module's
+ * sensitive routes resolve whichever modules are installed (#81).
  *
- * Laravel's own `password.confirm` (RequirePassword) is not reused: it reads a different timestamp window
- * (`auth.password_timeout`), and ADR 0018 §4 makes `auth.step_up_seconds` the one step-up window.
+ * Laravel's `password.confirm` is bound to RequirePasswordUnlessExpired, which applies the same rule and hands every
+ * request except a page load to this middleware (#538).
  *
- * Unlike Laravel's RequirePassword (which redirects, and so cannot resume a POST), this rejects the request:
- * JSON clients get 423, Inertia gets a "password_confirmation" validation error (redirected back without the old
- * input, so no submitted secret reaches the session) that the UI turns into a confirm-password dialog before retrying.
+ * Unlike Laravel's RequirePassword (which redirects, and so cannot resume a POST), this rejects the request with
+ * 423: JSON clients get it as it is, and an Inertia mutation gets it with REFUSAL_HEADER, which the confirm dialog
+ * catches (Inertia's httpException event) before sending the same visit again (#538). Nothing redirects, so the
+ * page the form is on is never loaded again without a recent confirmation, and no submitted secret reaches the
+ * session. A plain form post (no JavaScript) goes back with a "password_confirmation" error.
  *
  * Downloads (GET routes, #272) cannot use that dialog by themselves, so they have three paths, all of which keep the
  * rule that the file is never sent without a recent confirmation:
@@ -45,6 +49,12 @@ class RequireRecentPasswordConfirmation
     public const REASON_KEY = 'step_up_reason';
 
     public const PROBE_HEADER = 'X-Step-Up-Check';
+
+    /** Session key holding the unix time of the last password confirmation; written only by markConfirmed(). */
+    public const SESSION_KEY = 'auth.step_up_confirmed_at';
+
+    /** On the 423 answering an Inertia mutation, so the confirm dialog knows the refusal is step-up's. */
+    public const REFUSAL_HEADER = 'X-Step-Up-Required';
 
     /** Session key holding the file URL a download sent to the confirm page. */
     public const DOWNLOAD_KEY = 'step_up_download';
@@ -81,13 +91,18 @@ class RequireRecentPasswordConfirmation
     }
 
     /**
-     * The answer to an unconfirmed request: 423 for JSON clients; otherwise back with the error only, never the old
-     * input: this runs before any form request that keeps secrets out of the session, and the dialog replays the
-     * visit itself (security standards §6). Also for checks that need step-up only for some input (a form request).
+     * The answer to an unconfirmed request: 423 for JSON clients and for Inertia (with REFUSAL_HEADER), which the
+     * dialog handles in place; a plain form post goes back with the error only, never the old input: this runs before
+     * any form request that keeps secrets out of the session (security standards §6). Also for checks that need
+     * step-up only for some input (a form request).
      */
     public static function refusal(Request $request): Response
     {
-        if ($request->expectsJson() && ! $request->header('X-Inertia')) {
+        if ($request->header('X-Inertia')) {
+            return self::lockedJson($request)->header(self::REFUSAL_HEADER, '1');
+        }
+
+        if ($request->expectsJson()) {
             return self::locked($request);
         }
 
@@ -101,6 +116,14 @@ class RequireRecentPasswordConfirmation
     private static function hasNoPassword(Request $request): bool
     {
         return $request->user() !== null && ! $request->user()->hasPassword();
+    }
+
+    /** The 423 for an Inertia visit: a plain JSON body, never an Inertia page, so the client raises httpException. */
+    private static function lockedJson(Request $request): JsonResponse
+    {
+        return self::hasNoPassword($request)
+            ? response()->json(['message' => __('Your account has no password. Set a password to continue.'), 'code' => self::NO_PASSWORD_CODE], 423)
+            : response()->json(['message' => __('Password confirmation required.')], 423);
     }
 
     private static function locked(Request $request): Response
@@ -136,12 +159,20 @@ class RequireRecentPasswordConfirmation
     }
 
     /**
-     * A login without a password is never confirmed, whatever the session holds: a passkey confirmation or a
-     * stale timestamp must not stand in for a password it does not have (ADR 0018 §4).
+     * Records a password confirmation. Called only once the password matched (PasswordConfirmedResponse).
+     */
+    public static function markConfirmed(Request $request): void
+    {
+        $request->session()->put(self::SESSION_KEY, now()->getTimestamp());
+    }
+
+    /**
+     * A login without a password is never confirmed, whatever the session holds: a stale timestamp must not stand
+     * in for a password it does not have (ADR 0018 §4).
      */
     public static function recentlyConfirmed(Request $request): bool
     {
-        $confirmedAt = $request->hasSession() ? (int) $request->session()->get('auth.password_confirmed_at', 0) : 0;
+        $confirmedAt = $request->hasSession() ? (int) $request->session()->get(self::SESSION_KEY, 0) : 0;
 
         if ($request->user() !== null) {
             return self::confirmedFor($request->user(), $confirmedAt);
