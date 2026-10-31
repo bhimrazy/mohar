@@ -18,6 +18,7 @@ use App\Modules\Orders\Data\CheckoutData;
 use App\Modules\Orders\Enums\CartItemKind;
 use App\Modules\Orders\Models\Cart;
 use Illuminate\Support\Str;
+use Tests\Fakes\Billing\FakeInvoiceQueries;
 
 /**
  * Binds fakes for every contract Orders consumes and exposes them to the test.

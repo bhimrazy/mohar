@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests\Fakes\Services;
+namespace Tests\Fakes\Billing;
 
 use App\Contracts\Billing\Invoicer;
 use App\Data\Billing\InvoiceDraft;
@@ -13,15 +13,26 @@ use App\Support\Billing\InvoiceNotCancellable;
 use Carbon\CarbonImmutable;
 
 /**
- * In-memory Invoicer for Services tests. Mirrors the contract: zero-total invoices are paid on
- * issue, cancel() is a no-op for paid invoices, and paying dispatches InvoicePaid with the lines.
+ * In-memory Invoicer shared by the module tests (Billing is a sibling module). Mirrors the contract: a zero-total
+ * invoice is paid on issue, cancel() is a no-op for paid invoices, and paying dispatches InvoicePaid with the lines.
  */
 class FakeInvoicer implements Invoicer
 {
     /** @var array<int, array{draft: InvoiceDraft, status: string}> */
     public array $invoices = [];
 
+    /** @var list<int> */
+    public array $cancelled = [];
+
     private int $nextId = 7001;
+
+    public static function bind(): self
+    {
+        $fake = new self;
+        app()->instance(Invoicer::class, $fake);
+
+        return $fake;
+    }
 
     public function issue(InvoiceDraft $draft): InvoiceResult
     {
@@ -55,6 +66,7 @@ class FakeInvoicer implements Invoicer
         }
 
         $this->invoices[$invoiceId]['status'] = 'cancelled';
+        $this->cancelled[] = $invoiceId;
         InvoiceCancelled::dispatch($invoiceId, $this->invoices[$invoiceId]['draft']->clientId);
     }
 
@@ -107,6 +119,14 @@ class FakeInvoicer implements Invoicer
     public function invoicesFor(BillableType $type, int $billableId): array
     {
         return array_filter($this->invoices, fn (array $invoice): bool => $this->billsItem($invoice['draft'], $type, $billableId));
+    }
+
+    /**
+     * @return list<array{draft: InvoiceDraft, status: string}>
+     */
+    public function issued(): array
+    {
+        return array_values($this->invoices);
     }
 
     public function lastInvoiceId(): ?int

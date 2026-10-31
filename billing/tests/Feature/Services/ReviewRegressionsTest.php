@@ -118,7 +118,7 @@ test('applying an upgrade leaves the addon renewal alone', function () {
 test('a renewal invoice with a recorded payment is never cancelled', function () {
     $service = Service::factory()->dueOn('2026-11-15')->create();
     $this->artisan('automation:run', ['--date' => '2026-11-01', '--only' => 'services.renewals'])->assertSuccessful();
-    $this->kit->invoiceQueries->paidInvoiceIds[] = $this->kit->invoicer->lastInvoiceId();
+    $this->kit->invoiceQueries->withPayments[] = $this->kit->invoicer->lastInvoiceId();
 
     app(RequestCancellation::class)->handle($service, CancellationType::EndOfPeriod, 'Leaving', null, false, CarbonImmutable::parse('2026-11-02'));
 

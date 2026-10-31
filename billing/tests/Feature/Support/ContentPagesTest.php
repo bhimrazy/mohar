@@ -5,6 +5,9 @@ use App\Modules\Support\Models\Announcement;
 use App\Modules\Support\Models\KbArticle;
 use App\Modules\Support\Models\KbCategory;
 use App\Modules\Support\Models\NetworkIncident;
+use App\Modules\Support\SupportServiceProvider;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/helpers.php';
@@ -119,4 +122,25 @@ test('network status can be public by setting', function () {
     app(Settings::class)->set('support.network_status_requires_login', false);
 
     $this->get(route('support.network.index'))->assertOk();
+});
+
+test('the read-only public pages have their own per-IP limit, apart from the guest ticket pages (#567)', function () {
+    $middleware = fn (string $name): array => app('router')->getRoutes()->getByName($name)->gatherMiddleware();
+
+    foreach (['support.kb.index', 'support.kb.category', 'support.kb.article', 'support.announcements.index', 'support.announcements.feed', 'support.announcements.show', 'support.network.index'] as $name) {
+        expect($middleware($name))->toContain('throttle:support-public-read')->not->toContain('throttle:support-public');
+    }
+    expect($middleware('support.tickets.create'))->toContain('throttle:support-public');
+
+    $limit = RateLimiter::limiter('support-public-read')(Request::create('/knowledgebase', server: ['REMOTE_ADDR' => '203.0.113.7']));
+    expect($limit->maxAttempts)->toBe(SupportServiceProvider::PUBLIC_READS_PER_MINUTE)
+        ->and($limit->decaySeconds)->toBe(60)
+        ->and($limit->key)->toBe('support-public-read|203.0.113.7');
+});
+
+test('one address can open the knowledge base and announcements more than 60 times a minute (#567)', function () {
+    for ($i = 0; $i < 40; $i++) {
+        $this->get(route('support.kb.index'))->assertOk();
+        $this->get(route('support.announcements.index'))->assertOk();
+    }
 });

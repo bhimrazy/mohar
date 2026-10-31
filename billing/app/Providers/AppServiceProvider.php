@@ -64,6 +64,9 @@ class AppServiceProvider extends ServiceProvider
     {
         // password.confirm with the step-up rule (#459, #538); it ignores auth.password_timeout, so none is passed.
         $this->app->bind(RequirePassword::class, RequirePasswordUnlessExpired::class);
+        // laravel-dompdf turns font subsetting off, so every PDF embedded the whole of DejaVu Sans: an invoice was
+        // 858 KB instead of 23 KB and took about 40 ms longer to render (#566).
+        $this->app->extend('dompdf.options', fn (array $options): array => [...$options, 'enable_font_subsetting' => true]);
         $this->app->singleton(Navigation::class);
         $this->app->singleton(Dashboard::class);
         $this->app->singleton(PermissionRegistry::class);

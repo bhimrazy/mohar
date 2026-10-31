@@ -14,6 +14,26 @@ export const EMAIL_DOMAIN = 'loadtest.example.com';
 export const rateLimited = new Rate('rate_limited');
 /** Pages whose body did not have what the scenario needed (an Inertia page object, an id to follow). */
 export const contentErrors = new Counter('content_errors');
+/** Answers outside 2xx and 3xx by status class, per page, so a summary says which status the errors were (#567). */
+export const STATUS_CLASSES = ['429', '4xx', '5xx', 'none'];
+const statusCounters = Object.fromEntries(
+    STATUS_CLASSES.map((c) => [c, new Counter(`status_${c}`)]),
+);
+
+function countStatus(status, name) {
+    if (status >= 200 && status < 400) {
+        return;
+    }
+    const statusClass =
+        status === 429
+            ? '429'
+            : status >= 500
+              ? '5xx'
+              : status >= 400
+                ? '4xx'
+                : 'none';
+    statusCounters[statusClass].add(1, { page: name });
+}
 
 const PAGE_PATTERN = /<script[^>]*data-page="app"[^>]*>([\s\S]*?)<\/script>/;
 
@@ -70,6 +90,7 @@ function inertiaPage(res) {
 }
 
 function record(res, page, name) {
+    countStatus(res.status, name);
     if (res.status === 429) {
         rateLimited.add(1, { page: name });
         return;
@@ -86,11 +107,12 @@ function record(res, page, name) {
 }
 
 /** A full HTML page load (first visit, or a link opened in a new tab). Returns the Inertia page object or null. */
-export function html(session, path, name) {
+export function html(session, path, name, { limited = false } = {}) {
     const res = http.get(`${BASE}${path}`, {
         headers: { Accept: 'text/html,application/xhtml+xml' },
         jar: session.jar,
         tags: { page: name },
+        ...(limited ? { responseCallback: allow429 } : {}),
     });
     const page = inertiaPage(res);
     if (page && page.version !== undefined) {
@@ -118,10 +140,19 @@ export function download(session, path, name, contentType) {
     return res.status;
 }
 
-/** An Inertia navigation: JSON page object. A 409 means a new asset version: reload once as HTML, like the client. */
-export function visit(session, path, name, extraHeaders = {}) {
+/**
+ * An Inertia navigation: JSON page object. A 409 means a new asset version: reload once as HTML, like the client.
+ * `limited` marks a page behind a per-IP limiter: its 429s are counted apart, not as errors.
+ */
+export function visit(
+    session,
+    path,
+    name,
+    extraHeaders = {},
+    { limited = false } = {},
+) {
     if (session.version === null) {
-        return html(session, path, name);
+        return html(session, path, name, { limited });
     }
     const res = http.get(`${BASE}${path}`, {
         headers: {
@@ -133,9 +164,10 @@ export function visit(session, path, name, extraHeaders = {}) {
         },
         jar: session.jar,
         tags: { page: name },
+        ...(limited ? { responseCallback: allow429 } : {}),
     });
     if (res.status === 409) {
-        return html(session, path, name);
+        return html(session, path, name, { limited });
     }
     const page = inertiaPage(res);
     record(res, page, name);
@@ -209,6 +241,7 @@ export function submit(
         tags: { page: name },
         ...(limited ? { responseCallback: allow429 } : {}),
     });
+    countStatus(res.status, name);
     if (res.status === 429) {
         rateLimited.add(1, { page: name });
     } else {

@@ -227,6 +227,10 @@ billable items from tickets, ticket feedback surveys on close, ticket splitting,
 
 - **Captcha → honeypot + rate limit.** Guest submission uses a hidden honeypot field and `throttle:support-guest`
   (6/min per IP) until shared captcha infrastructure exists (`security.captcha_on_ticket_submit` is not read yet).
+- **Public page limits, per IP.** The guest ticket pages share `throttle:support-public` (60/min). The knowledge base,
+  announcements and network status have their own `throttle:support-public-read` (300/min,
+  `SupportServiceProvider::PUBLIC_READS_PER_MINUTE`): many customers can share one ISP or office NAT address, and an
+  outage sends them to the status page together (#567).
 - **Statuses are a PHP enum** (`open, answered, customer_reply, on_hold, in_progress, closed`). Which statuses count
   as "awaiting reply" or auto-close are settings (`support.awaiting_reply_statuses`, `support.auto_close_statuses`);
   there is no `ticket_statuses` table and no custom statuses in v1.

@@ -15,8 +15,8 @@ use App\Support\Domains\RegistrarException;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
+use Tests\Fakes\Billing\FakeInvoicer;
 use Tests\Fakes\Domains\DomainFixtures;
-use Tests\Fakes\Domains\FakeInvoicer;
 use Tests\Fakes\Domains\FakeRegistrar;
 
 beforeEach(function () {
