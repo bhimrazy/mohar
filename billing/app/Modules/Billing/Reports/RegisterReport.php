@@ -144,12 +144,17 @@ abstract class RegisterReport implements HasSensitiveExport, ProvidesCsvOptions,
     {
         $seller = $this->seller->snapshot();
         $period = $this->period($query);
+        $summary = $this->summary($query);
 
         return [
             [__('Seller PAN'), (string) ($seller['pan'] ?? $seller['vat_number'] ?? '')],
             [__('Seller name'), (string) $seller['legal_name']],
             [__('Fiscal year (BS)'), $period->fiscalYear()],
             [__('Tax period'), $period->label()],
+            // The return (Schedule 10) asks for the period's count of sales invoices, credit notes and debit notes.
+            ...($this->notesOnly() ? [] : [[__('Tax invoices issued'), (string) $summary->counts['invoice']]]),
+            [__('Credit notes issued'), (string) $summary->counts['credit']],
+            [__('Debit notes issued'), (string) $summary->counts['debit']],
         ];
     }
 
