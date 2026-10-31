@@ -1,9 +1,10 @@
 // Bundle budget (audit L7): gzip size of the entry and of every JS chunk in public/build, from manifest.json.
 // Reports by default and exits 0; `--enforce` (or BUNDLE_BUDGET_ENFORCE=1) exits 1 on a breach. CI reports first and
 // enforces once the two known large chunks (chart, dist) have been split or accepted.
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 export const ENTRY_BUDGET_KB = 80;
 export const CHUNK_BUDGET_KB = 150;
@@ -43,7 +44,11 @@ export function breaches(rows) {
         );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// import.meta.url is the real path; argv[1] is not (symlinked checkouts, macOS /var), and must be URL-escaped.
+if (
+    process.argv[1] &&
+    import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+) {
     const enforce =
         process.argv.includes('--enforce') ||
         process.env.BUNDLE_BUDGET_ENFORCE === '1';

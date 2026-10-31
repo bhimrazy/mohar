@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process';
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
     breaches,
@@ -34,5 +38,26 @@ describe('breaches', () => {
         expect(breaches(rows)).toEqual([
             expect.stringContaining('chunk assets/b.js'),
         ]);
+    });
+});
+
+describe('running as a script', () => {
+    it('detects the main module when the script path needs URL escaping', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'bundle size '));
+        const script = join(dir, 'check-bundle-size.mjs');
+        cpSync(new URL('../check-bundle-size.mjs', import.meta.url), script);
+        mkdirSync(join(dir, 'build'));
+        writeFileSync(join(dir, 'build', 'a.js'), 'x');
+        writeFileSync(
+            join(dir, 'build', 'manifest.json'),
+            JSON.stringify({ a: { file: 'a.js', isEntry: true } }),
+        );
+
+        const output = execFileSync('node', [script], {
+            env: { ...process.env, BUNDLE_DIR: join(dir, 'build') },
+            encoding: 'utf8',
+        });
+
+        expect(output).toContain('1 JS files');
     });
 });
