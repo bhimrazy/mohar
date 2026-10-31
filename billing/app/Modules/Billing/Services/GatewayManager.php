@@ -16,6 +16,7 @@ use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Support\Settings;
 use App\Support\Billing\GatewayDriverRegistry;
 use App\Support\Billing\SandboxPolicy;
+use App\Support\Integrations\DriverRegistry;
 use App\Support\Integrations\RedactionScope;
 use App\Support\Integrations\RedactionSet;
 use Closure;
@@ -28,14 +29,26 @@ use Illuminate\Database\Eloquent\Collection;
  */
 class GatewayManager implements GatewayRegistry
 {
-    public function __construct(private GatewayDriverRegistry $drivers, private Settings $settings) {}
+    /** Whether the deprecated register() has warned in this process (ADR 0010: once per process). */
+    private static bool $warnedRegister = false;
 
     /**
-     * @deprecated since kernel 0.x M3; register a class with GatewayDriverRegistry::register($key, $class) instead.
+     * @param  DriverRegistry<GatewayDriver>  $drivers  the kernel's GatewayDriverRegistry (BillingServiceProvider)
+     */
+    public function __construct(private DriverRegistry $drivers, private Settings $settings) {}
+
+    /**
+     * @deprecated since 0.2.0, removed in 1.0.0; use GatewayDriverRegistry::register($key, $class).
      * Kept as an adapter with its old semantics: the instance is used as is, and a key registered again is replaced.
+     * From M4, which records owners, it replaces only a key the same extension registered (ADR 0030 A5.7).
      */
     public function register(GatewayDriver $driver): void
     {
+        if (! self::$warnedRegister) {
+            self::$warnedRegister = true;
+            trigger_error('GatewayRegistry::register() is deprecated since 0.2.0 and removed in 1.0.0; use GatewayDriverRegistry::register($key, $class) (first caller: ['.$driver->key().']).', E_USER_DEPRECATED);
+        }
+
         $this->drivers->register($driver->key(), fn (): GatewayDriver => $driver, replace: true);
     }
 
@@ -146,7 +159,8 @@ class GatewayManager implements GatewayRegistry
      */
     private function secretSettingKeys(string $key): array
     {
-        $fields = $this->has($key) ? $this->fields($key) : [];
+        $driver = $this->resolved($key);
+        $fields = $driver !== null ? GatewayDriverRegistry::fieldsOf($driver) : [];
 
         return array_values(array_map(fn (SettingField $field): string => $field->key, array_filter($fields, fn (SettingField $field): bool => $field->isSecret())));
     }
@@ -236,9 +250,17 @@ class GatewayManager implements GatewayRegistry
         return $this->has($key) && $this->driver($key)->supports($capability);
     }
 
-    /** The driver for $key, or null when none is registered or it cannot be used. */
+    /**
+     * The driver for $key whether or not new work may start on it, so settlement (hosted(): the return, the
+     * reconciler, the refund check) and the redaction scope's secrets keep working for a disabled driver (ADR 0030
+     * A1). Null when nothing is registered as $key or it fails the registry's checks (reported there, once).
+     */
     private function resolved(string $key): ?GatewayDriver
     {
-        return $this->drivers->has($key) ? $this->drivers->get($key) : null;
+        if (! $this->drivers->isRegistered($key) || array_key_exists($key, $this->drivers->unavailable())) {
+            return null;
+        }
+
+        return $this->drivers->get($key);
     }
 }

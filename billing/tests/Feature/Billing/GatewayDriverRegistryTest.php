@@ -6,11 +6,18 @@ use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Modules\Billing\Drivers\Gateways\ManualDriver;
 use App\Modules\Billing\Exceptions\BillingException;
+use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Services\GatewayManager;
+use App\Modules\Core\Support\Settings;
+use App\Modules\PaymentsNepal\Drivers\KhaltiDriver;
 use App\Support\Billing\AbstractGatewayDriver;
 use App\Support\Billing\GatewayConformance;
 use App\Support\Billing\GatewayConformanceFailure;
 use App\Support\Billing\GatewayDriverRegistry;
+use App\Support\Integrations\DriverRegistry;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Http\Client\Events\RequestSending;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 /** Every bundled driver, in the order the gateway pages list them: Billing's built-ins first, then the extensions. */
@@ -123,6 +130,87 @@ test('a key the registry accepts also routes its webhook and return URLs', funct
 
     $routes = app('router')->getRoutes();
 
-    expect($routes->match(\Illuminate\Http\Request::create('/billing/webhooks/pay2', 'POST'))->getName())->toBe('billing.webhooks')
-        ->and($routes->match(\Illuminate\Http\Request::create('/billing/gateways/pay2/return', 'GET'))->getName())->toBe('billing.gateways.return');
+    expect($routes->match(Request::create('/billing/webhooks/pay2', 'POST'))->getName())->toBe('billing.webhooks')
+        ->and($routes->match(Request::create('/billing/gateways/pay2/return', 'GET'))->getName())->toBe('billing.gateways.return');
+});
+
+test('settlement and redaction reach a registered driver that may not start new work', function () {
+    // What ADR 0030 M5a answers for a disabled extension: hidden from listings and new work, still settled.
+    $registry = new class(app()) extends DriverRegistry
+    {
+        protected function contract(): string
+        {
+            return GatewayDriver::class;
+        }
+
+        public function capabilities(): array
+        {
+            return [];
+        }
+
+        public function has(string $key): bool
+        {
+            return false;
+        }
+
+        public function enabled(string $key): bool
+        {
+            return false;
+        }
+    };
+    $registry->register('khalti', fn () => app(GatewayDriverRegistry::class)->get('khalti'));
+    $manager = new GatewayManager($registry, app(Settings::class));
+    $config = $manager->config(new Gateway(['key' => 'khalti', 'display_name' => 'Khalti', 'config' => ['secret_key' => 'live_secret_key_0123456789']]));
+
+    expect($manager->has('khalti'))->toBeFalse()
+        ->and($manager->enabled('khalti'))->toBeFalse()
+        ->and($manager->hosted('khalti'))->toBeInstanceOf(KhaltiDriver::class)
+        ->and($manager->driver('khalti'))->toBeInstanceOf(KhaltiDriver::class)
+        ->and($config->secrets())->toBe(['live_secret_key_0123456789']);
+});
+
+test('the deprecated paths warn once per process', function () {
+    $warnings = [];
+    set_error_handler(function (int $level, string $message) use (&$warnings): bool {
+        $warnings[] = $message;
+
+        return true;
+    }, E_USER_DEPRECATED);
+
+    try {
+        app(GatewayRegistry::class)->register(new ManualDriver);
+        app(GatewayRegistry::class)->register(new ManualDriver);
+        $legacy = conformanceDriver('legacy_once', fields: [['key' => 'api_key', 'label' => 'API key', 'type' => 'secret']]);
+        GatewayDriverRegistry::fieldsOf($legacy);
+        GatewayDriverRegistry::fieldsOf($legacy);
+    } finally {
+        restore_error_handler();
+    }
+
+    $register = array_filter($warnings, fn (string $message): bool => str_contains($message, 'GatewayRegistry::register() is deprecated since 0.2.0 and removed in 1.0.0'));
+    $fields = array_filter($warnings, fn (string $message): bool => str_contains($message, '[legacy_once] returns array-shaped settings fields'));
+
+    // Another test in this process may have triggered the register() warning first.
+    expect(count($register))->toBeLessThanOrEqual(1)
+        ->and($fields)->toHaveCount(1);
+});
+
+test('a key with a digit routes its webhook, return and admin URLs', function () {
+    app(GatewayDriverRegistry::class)->register('pay2', fn () => conformanceDriver('pay2'));
+    $routes = app('router')->getRoutes();
+
+    expect(route('billing.webhooks', 'pay2', false))->toBe('/billing/webhooks/pay2')
+        ->and($routes->match(Request::create('/billing/webhooks/pay2', 'POST'))->getName())->toBe('billing.webhooks')
+        ->and($routes->match(Request::create('/billing/gateways/pay2/return', 'GET'))->getName())->toBe('billing.gateways.return')
+        ->and($routes->match(Request::create(route('admin.billing.gateways.edit', 'pay2', false), 'GET'))->getName())->toBe('admin.billing.gateways.edit');
+});
+
+test('the kit leaves the event listeners as it found them', function () {
+    $count = fn (): array => array_map('count', array_intersect_key(app('events')->getRawListeners(), array_flip([QueryExecuted::class, RequestSending::class])));
+    $before = $count();
+
+    GatewayConformance::assertDriver('stripe');
+    GatewayConformance::assertDriver('khalti');
+
+    expect($count())->toBe($before);
 });

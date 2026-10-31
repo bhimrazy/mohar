@@ -102,9 +102,13 @@ final class GatewayDriverRegistry extends DriverRegistry
         return self::fieldsOf($this->get($key));
     }
 
+    /** @var array<string, true> driver keys warned about array-shaped settings in this process */
+    private static array $warnedArrayFields = [];
+
     /**
-     * A driver's settings as SettingField objects. A driver may still return the array shape that gateways used before
-     * kernel 0.x M3 (deprecated, read through SettingField::fromArray()); new drivers return SettingField.
+     * A driver's settings as SettingField objects. A driver may still return the array shape gateways used before
+     * 0.2.0, read through SettingField::fromArray(): deprecated since 0.2.0, removed in 1.0.0, and warned about once
+     * per driver key and process (ADR 0010).
      *
      * @return list<SettingField>
      */
@@ -113,6 +117,11 @@ final class GatewayDriverRegistry extends DriverRegistry
         $fields = [];
 
         foreach ($driver->settingsFields() as $field) {
+            if (is_array($field) && ! isset(self::$warnedArrayFields[$driver->key()])) {
+                self::$warnedArrayFields[$driver->key()] = true;
+                trigger_error("The gateway driver [{$driver->key()}] returns array-shaped settings fields, deprecated since 0.2.0 and removed in 1.0.0; return SettingField objects.", E_USER_DEPRECATED);
+            }
+
             $fields[] = self::field($field);
         }
 
