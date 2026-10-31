@@ -10,6 +10,7 @@ use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Support\Actions\PostReply;
+use App\Modules\Support\Actions\UpdateTicket;
 use App\Modules\Support\Data\TicketAuthor;
 use App\Modules\Support\Drivers\Inbound\GenericDriver;
 use App\Modules\Support\Models\Department;
@@ -65,7 +66,7 @@ test('staff and import account emails attach new mail; a client-typed one does n
     'client' => [EmailSource::Client, false],
 ]);
 
-test('a client-typed account email counts once a login of that client verified it', function () {
+test('mail from a client-typed account email attaches when a login of that client verified the same address', function () {
     $client = clientTypedEmail('me@corp.example');
     $client->users()->attach(User::factory()->create(['email' => 'me@corp.example']), ['is_owner' => true]);
 
@@ -117,13 +118,45 @@ test('a threaded email reply from the client-typed account email is blocked; fro
     trustInbound('sub@corp.example', ['in_reply_to' => $reply->email_message_id])->assertJsonPath('status', 'blocked');
 });
 
-test('the public ticket form treats a client-typed address as a guest, not as that account', function () {
+test('the public form does not attach a client-typed address, but still mails the link and flags the requester', function () {
     clientTypedEmail('typed@victim.example');
 
     $this->post(route('support.tickets.store'), [
         'department_id' => $this->department->id, 'name' => 'Sam', 'email' => 'typed@victim.example',
         'subject' => 'Hello', 'body' => 'Question about a transfer.',
-    ])->assertRedirect();
+    ])->assertRedirect(route('support.tickets.submitted'));
+
+    expect(Ticket::query()->sole())->client_id->toBeNull()->is_unverified_requester->toBeTrue();
+});
+
+test('the public form shows the link to an address nobody registered', function () {
+    $this->post(route('support.tickets.store'), [
+        'department_id' => $this->department->id, 'name' => 'Sam', 'email' => 'new@guest.example',
+        'subject' => 'Hello', 'body' => 'Pre-sales question.',
+    ])->assertRedirectContains('key=');
 
     expect(Ticket::query()->sole())->client_id->toBeNull()->is_unverified_requester->toBeFalse();
+});
+
+test('a sender\'s name comes from a vouched account email or a client login, not a client-typed email or a staff login', function () {
+    Client::factory()->create(['email' => 'vouched@corp.example', 'first_name' => 'Val', 'last_name' => 'Ouched']);
+    clientTypedEmail('typed@victim.example')->forceFill(['first_name' => 'Mallory', 'last_name' => 'M'])->save();
+    User::factory()->create(['email' => 'agent@support.example', 'name' => 'Staff Agent', 'is_staff' => true]);
+
+    foreach (['vouched@corp.example', 'typed@victim.example', 'agent@support.example'] as $from) {
+        trustInbound($from)->assertCreated();
+    }
+
+    expect(Ticket::query()->orderBy('id')->pluck('requester_name')->all())->toBe(['Val Ouched', 'typed', 'agent']);
+});
+
+test('after staff link a guest ticket, the client area replaces the rotated guest link', function () {
+    $ticket = Ticket::factory()->create(['department_id' => $this->department->id]);
+    $key = $ticket->access_key;
+    [, $client] = actingAsClient();
+
+    app(UpdateTicket::class)->handle($ticket, supportStaff([$this->department]), ['client_id' => $client->id]);
+
+    expect($ticket->fresh()->access_key)->not->toBe($key);
+    $this->actingAs($client->users()->firstOrFail())->get(route('client.support.tickets.show', $ticket->number))->assertOk();
 });

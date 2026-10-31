@@ -236,9 +236,14 @@ billable items from tickets, ticket feedback surveys on close, ticket splitting,
   when it is an account email set by staff or an import (`EmailSource::isVouched()`), the email of a login with
   `email_verified_at` set (owner or sub-user), or a contact (entered by staff or an import). An account email the
   client typed in counts only through a login of that client that verified it. Any other address is an unknown
-  sender: a guest ticket, a `clients_only` bounce, or a `blocked` reply.
-- **Guest email matching a client** (§4.1): the ticket is attached to that client but flagged
-  `is_unverified_requester` for staff, and the submitter only gets a confirmation page — the access link is emailed.
+  sender: a guest ticket, a `clients_only` bounce, or a `blocked` reply. Residual (Low, accepted): an address
+  proved once stays trusted on tickets that recorded it; a requester address or a verified login that is later
+  replaced or abandoned is not re-checked, so a new holder of that mailbox could reply by email.
+- **Guest email matching a client** (§4.1): two separate rules. The ticket is attached to a client only through a
+  proved address (above). Whenever the address is any account, login or contact email, proved or not, the ticket is
+  flagged `is_unverified_requester` for staff and the submitter only gets a confirmation page — the access link is
+  emailed. Linking a guest ticket to a client (or changing its client) rotates `access_key`; the client area
+  replaces the old link.
 - **Inbound reply verification** (§6.6): a reply is verified only when it is threaded (In-Reply-To/References) on a
   Message-ID **we generated for that ticket** (`email_message_id_generated`) **and** the sender exactly matches the
   requester, a CC, the client's vouched account email, a verified client login or a contact. The webhook HMAC only authenticates the relay, so

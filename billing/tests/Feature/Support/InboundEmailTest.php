@@ -335,7 +335,7 @@ test('oversized webhook bodies are refused before parsing', function () {
 
 test('a sender without a display name gets the name of the matching login', function () {
     $client = Client::factory()->create(['email' => 'casey@example.com']);
-    User::factory()->create(['email' => 'casey@example.com', 'name' => 'Casey Jones']);
+    $client->users()->attach(User::factory()->create(['email' => 'casey@example.com', 'name' => 'Casey Jones']), ['is_owner' => true]);
 
     inboundEmail(['from' => 'casey@example.com']);
 

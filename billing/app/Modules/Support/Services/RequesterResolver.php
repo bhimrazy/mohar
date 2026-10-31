@@ -48,13 +48,26 @@ class RequesterResolver
     }
 
     /**
-     * Name of the login or contact using this address, if any. Same trust rule as match(), so an
-     * address a client merely typed in does not label a stranger's mail with that client's name.
+     * Whether the address is any account email, login email or contact email, proved or not. The
+     * public form uses it to mail the access link instead of showing it (spec §16); it never attaches.
+     */
+    public function isRegistered(string $email): bool
+    {
+        $email = mb_strtolower(trim($email));
+
+        return $email !== '' && (Client::query()->whereRaw('lower(email) = ?', [$email])->exists()
+            || DB::table('users')->whereRaw('lower(email) = ?', [$email])->exists()
+            || Contact::query()->whereRaw('lower(email) = ?', [$email])->exists());
+    }
+
+    /**
+     * Name of the client login or contact using this address, if any. Same trust rule as match(),
+     * so an address a client merely typed in does not label a stranger's mail with that client's name.
      */
     public function nameFor(string $email): ?string
     {
         $email = mb_strtolower(trim($email));
-        $user = DB::table('users')->whereRaw('lower(email) = ?', [$email])->whereNotNull('email_verified_at')->value('name');
+        $user = $this->verifiedLogins($email)->orderBy('users.id')->value('users.name');
 
         if (is_string($user) && $user !== '') {
             return $user;
