@@ -26,10 +26,10 @@ function tssWrite(string $dir, string $path, string $content = "<?php\n"): void
     file_put_contents("{$dir}/{$path}", $content);
 }
 
-/** @return array{0: string, 1: string} the repository and its base commit */
-function tssRepo(): array
+/** @return array{0: string, 1: string} the repository (its directory name ends in $suffix) and its base commit */
+function tssRepo(string $suffix = ''): array
 {
-    $dir = sys_get_temp_dir().'/test-sh-'.bin2hex(random_bytes(4));
+    $dir = sys_get_temp_dir().'/test-sh-'.bin2hex(random_bytes(4)).$suffix;
 
     foreach ([...TSS_ALWAYS, 'tests/Feature/Billing', 'tests/Unit/Billing', 'tests/Unit/Deploy', 'tests/Feature/Kyc/Support'] as $tests) {
         str_ends_with($tests, '.php') ? tssWrite($dir, "billing/{$tests}") : tssWrite($dir, "billing/{$tests}/ExampleTest.php");
@@ -143,3 +143,40 @@ test('on PostgreSQL the Unit and Arch tests are left out of the selection', func
     expect($selection)->toContain('tests/Feature/Billing', 'tests/Feature/Security')
         ->not->toContain('tests/Arch')->not->toContain('tests/Unit/Billing');
 });
+
+test('several selected paths run in parallel as one testsuite of a temporary phpunit.xml, since paratest takes one path', function (string $suffix) {
+    [$this->repo, $base] = tssRepo($suffix);
+    copy(dirname(__DIR__, 3).'/phpunit.xml', "{$this->repo}/billing/phpunit.xml");
+    tssGit($this->repo, 'add', '-A');
+    tssGit($this->repo, 'commit', '-qm', 'phpunit.xml');
+    $base = tssGit($this->repo, 'rev-parse', 'HEAD');
+    tssWrite($this->repo, 'billing/app/Modules/Billing/Invoice.php', "<?php\n// changed\n");
+
+    $process = new Process(['bash', dirname(__DIR__, 4).'/scripts/test.sh', '--changed'], "{$this->repo}/billing", [
+        'TEST_SH_IN_SLOT' => '1', 'TEST_SH_DRY_RUN' => '1', 'TEST_BASE' => $base, 'TEST_PROCESSES' => '4',
+    ]);
+    $process->setTimeout(30)->run();
+    expect($process->getExitCode())->toBe(0, $process->getErrorOutput());
+
+    $output = $process->getOutput();
+    preg_match('/^pest (.*)$/m', $output, $command);
+    preg_match('/--configuration=(\S+)/', $command[1] ?? '', $config);
+    $xml = simplexml_load_string(substr($output, (int) strpos($output, '<?xml')));
+    // The worktree's billing/ as git reports it (macOS: /private/var for /var).
+    $app = dirname((string) $xml['bootstrap'], 2);
+    $suite = array_map('strval', $xml->xpath('//testsuite/directory | //testsuite/file'));
+
+    expect($command[1] ?? '')->toStartWith('--parallel --processes=4 --configuration=')->not->toContain('tests/')
+        ->and($config[1] ?? '')->not->toStartWith($app)
+        ->and(file_exists($config[1] ?? ''))->toBeFalse()
+        ->and($xml->testsuites->testsuite)->toHaveCount(1)
+        ->and($suite)->toContain("{$app}/tests/Feature/Billing", "{$app}/tests/Unit/Billing", "{$app}/tests/Feature/DashboardTest.php")
+        ->and(realpath($app))->toBe(realpath("{$this->repo}/billing"))
+        ->and((string) $xml['bootstrap'])->toBe("{$app}/vendor/autoload.php")
+        ->and((string) $xml->source->include->directory)->toBe("{$app}/app")
+        ->and($xml->xpath('//env[@name="APP_ENV"]'))->toHaveCount(1);
+})->with([
+    'a plain path' => [''],
+    // XML-special characters and the ones awk treats specially in a replacement or a -v value.
+    'a path with & < > quotes and a backslash' => [' a&b <c> \'d\' "e" \\f'],
+]);

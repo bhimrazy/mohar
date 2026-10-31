@@ -5,6 +5,8 @@
 #   $MOHAR_ROOT/scripts/test.sh --pgsql         on PostgreSQL (scripts/pg.sh <worktree slug>), as CI's PostgreSQL jobs
 #   $MOHAR_ROOT/scripts/test.sh [options] <paths...> [-- <pest options>]   these paths only
 #   $MOHAR_ROOT/scripts/test.sh --list --changed   print the selection and exit
+# Several paths run as one testsuite of a temporary copy of phpunit.xml: paratest (--parallel) takes at most one path.
+# TEST_SH_DRY_RUN=1 prints the pest command (and that copy) instead of running it.
 # Options combine (--changed --pgsql). Run it from anywhere inside the worktree; it works in the worktree's billing/.
 #
 # --changed selects (from the diff of origin/develop...HEAD plus uncommitted and untracked files):
@@ -22,7 +24,8 @@
 #   When in doubt it selects more, never less. TEST_BASE overrides origin/develop (a missing ref exits 2); fetch first
 #   (git fetch origin develop) for an up-to-date base.
 #
-# Workers: --parallel with TEST_PROCESSES workers, by default picked from the load once heavy.sh gives a slot:
+# Workers: always --parallel (locally 4 workers when the machine is idle), with TEST_PROCESSES workers, by default
+# picked from the load once heavy.sh gives a slot:
 # TEST_LOAD_CEILING (8, the shared Mac's limit) minus the 1-minute load, at most 4; at least 2 for the whole suite,
 # because one worker running everything passes the 1 GB memory_limit in phpunit.xml.
 # macOS without setsid(1): the simulator tests leave the native run and run once through scripts/linux.sh (SQLite, in
@@ -174,9 +177,6 @@ minimum=1
 processes="${TEST_PROCESSES:-$(awk -v l="$load" -v c="$ceiling" -v m="$minimum" 'BEGIN { p = int(c - l); if (p > 4) p = 4; if (p < m) p = m; print p }')}"
 echo "test.sh: load $load (ceiling $ceiling) -> $processes workers; $([ "$pgsql" = 1 ] && echo PostgreSQL || echo SQLite)"
 
-export XDEBUG_MODE=off
-php artisan config:clear -q
-
 args=(--parallel --processes="$processes")
 excluded=()
 [ "$pgsql" = 1 ] && excluded+=(Unit Arch)
@@ -185,13 +185,68 @@ if [ ${#excluded[@]} -gt 0 ]; then
     args+=("--exclude-testsuite=$(IFS=,; echo "${excluded[*]}")")
 fi
 
+# paratest takes at most one path, so several become the one testsuite of a copy of phpunit.xml. The copy lives in a
+# temporary directory with absolute paths: a file left in the worktree would be selected by the next --changed.
+run_native=0
+{ [ "$full" = 1 ] || [ ${#native[@]} -gt 0 ]; } && run_native=1
+if [ ${#native[@]} -gt 1 ]; then
+    selection_dir="$(mktemp -d)"
+    trap 'rm -rf "$selection_dir"' EXIT
+    # The paths reach awk through the environment (-v would interpret backslashes), are XML-escaped, and replace
+    # text literally (a gsub replacement would read & and \ in a checkout path as special).
+    TEST_SH_APP="$app" TEST_SH_SELECTION="$(printf '%s\n' "${native[@]}")" awk '
+        function xml(text) {
+            gsub(/&/, "\\&amp;", text); gsub(/</, "\\&lt;", text); gsub(/>/, "\\&gt;", text)
+            gsub(/"/, "\\&quot;", text); gsub(/\047/, "\\&apos;", text)
+            return text
+        }
+        function literal(text, find, with,    out, at) {
+            out = ""
+            while ((at = index(text, find)) > 0) { out = out substr(text, 1, at - 1) with; text = substr(text, at + length(find)) }
+            return out text
+        }
+        BEGIN { app = xml(ENVIRON["TEST_SH_APP"]) }
+        /<testsuites>/ {
+            print
+            print "        <testsuite name=\"Selection\">"
+            n = split(ENVIRON["TEST_SH_SELECTION"], paths, "\n")
+            for (i = 1; i <= n; i++) {
+                if (paths[i] == "") continue
+                tag = (paths[i] ~ /\.php$/) ? "file" : "directory"
+                printf "            <%s>%s/%s</%s>\n", tag, app, xml(paths[i]), tag
+            }
+            print "        </testsuite>"
+            skip = 1
+            next
+        }
+        /<\/testsuites>/ { skip = 0 }
+        skip { next }
+        { print literal(literal($0, "\"vendor/", "\"" app "/vendor/"), "<directory>app</directory>", "<directory>" app "/app</directory>") }
+    ' phpunit.xml > "$selection_dir/phpunit.xml"
+    # Exclusions are already applied to the selection (Unit and Arch on PostgreSQL), and the copy has no other suites.
+    args=(--parallel --processes="$processes" "--configuration=$selection_dir/phpunit.xml")
+    native=()
+fi
+# Several Linux-only paths: the whole simulator suite, as one path (it selects more, never less).
+[ ${#linux_selected[@]} -gt 1 ] && linux_selected=(tools/simulators/tests)
+
+if [ -n "${TEST_SH_DRY_RUN:-}" ]; then
+    [ "$run_native" = 1 ] && echo "pest ${args[*]} ${native[*]+${native[*]}}"
+    [ ${#linux_selected[@]} -gt 0 ] && echo "linux.sh pest ${linux_selected[*]}"
+    [ -n "${selection_dir:-}" ] && cat "$selection_dir/phpunit.xml"
+    exit 0
+fi
+
+export XDEBUG_MODE=off
+php artisan config:clear -q
+
 if [ "$pgsql" = 1 ]; then
     slug="$(basename "$top")"
     eval "$("$scripts/pg.sh" "$slug")"
 fi
 
 status=0
-if [ "$full" = 1 ] || [ ${#native[@]} -gt 0 ]; then
+if [ "$run_native" = 1 ]; then
     php vendor/bin/pest "${args[@]}" ${native[@]+"${native[@]}"} ${extra[@]+"${extra[@]}"} || status=$?
 fi
 

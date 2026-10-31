@@ -141,7 +141,8 @@ limited by the Docker VM's memory (3.58 GiB on this Mac, `docker info`), which w
 With durability off, a killed container or a VM crash can corrupt the volume: if the server won't start, run
 `pg.sh --stop` and start it again.
 The container has `--shm-size=512m`: under Docker's 64 MB default the full suite fails with `SQLSTATE[53100] could not
-resize shared memory segment`. `pg.sh --drop <slug>` drops one slug's databases (`finish-workstream.sh` calls it).
+resize shared memory segment`. `pg.sh --drop <slug>` drops one slug's databases (`finish-workstream.sh` calls it), with the seeded copies and the
+`<database>_template` schema the tests copy them from (`Tests\TestCase::useSeededDatabase`).
 It has full fidelity and is already approved.
 
 ### 6. Testcontainers

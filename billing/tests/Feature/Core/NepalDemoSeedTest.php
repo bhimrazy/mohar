@@ -15,11 +15,18 @@ use App\Modules\Services\Models\Service;
 use App\Modules\Services\Models\ServiceAddon;
 use Illuminate\Support\Facades\Storage;
 
+// The demo seed takes tens of seconds: seed it once per worker. The object disk is faked before the seed runs, and the
+// files the seed wrote are kept for the PDF test, so it observes the seed itself rather than a disk faked afterwards.
 beforeEach(function () {
-    Storage::fake('objects');
-    $this->seed(CoreSeeder::class);
-    $this->seed(CatalogSeeder::class);
-    $this->seed(DomainsSeeder::class);
+    $this->useSeededDatabase('nepal_demo', function () {
+        Storage::fake('objects');
+        $this->seed(CoreSeeder::class);
+        $this->seed(CatalogSeeder::class);
+        $this->seed(DomainsSeeder::class);
+        $this->seed(ServicesSeeder::class);
+        $this->seed(BillingSeeder::class);
+        nepalDemoSeedPdfs(Storage::disk('objects')->allFiles('billing'));
+    });
 });
 
 it('prices the catalogue and the domains in NPR from the US dollar base', function () {
@@ -40,8 +47,6 @@ it('gives the showcase client a client-registered .np domain with no registrar a
 });
 
 it('bills each showcase line at its own price: the service for hosting, the TLD renewal for the domain', function () {
-    $this->seed(ServicesSeeder::class);
-    $this->seed(BillingSeeder::class);
     $demo = Client::query()->where('email', 'demo@example.com')->sole();
     $lines = Invoice::query()->where('client_id', $demo->id)->whereNotNull('number')->with('items')->get()->flatMap(fn (Invoice $invoice) => $invoice->items);
     $line = fn (string $prefix) => $lines->first(fn ($item) => str_starts_with($item->description, $prefix))->unit_amount;
@@ -58,10 +63,20 @@ it('bills each showcase line at its own price: the service for hosting, the TLD 
 });
 
 it('renders no PDF while seeding and leaves the attachment setting as it was', function () {
-    $this->seed(ServicesSeeder::class);
-    $this->seed(BillingSeeder::class);
-
     expect(Invoice::query()->whereNotNull('number')->exists())->toBeTrue()
         ->and(app(Settings::class)->get('billing.pdf.attach_to_emails'))->toBeTrue()
-        ->and(Storage::disk('objects')->allFiles('billing'))->toBe([]);
+        ->and(nepalDemoSeedPdfs())->toBe([]);
 });
+
+/**
+ * The billing files on the faked object disk when the seed finished in this process (null before it ran).
+ *
+ * @param  list<string>|null  $files
+ * @return list<string>|null
+ */
+function nepalDemoSeedPdfs(?array $files = null): ?array
+{
+    static $seeded = null;
+
+    return $seeded = $files ?? $seeded;
+}

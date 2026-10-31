@@ -1,5 +1,7 @@
 <?php
 
+use App\Modules\Platform\Support\MailServerSettings;
+
 return [
     /** Activity-log entries without a client are pruned after this many days (spec §8). */
     'activity_log_retention_days' => 365,
@@ -29,6 +31,15 @@ return [
     'rates_manual_stale_after_days' => 30,
     'nrb_rate_type' => 'mid',
     'rates_update_time' => '',
+
+    /*
+     * "Send test email": seconds to wait for one answer from the mail server, and for the whole send. Not an env
+     * setting on purpose; only the test suite shortens them (Tests\TestCase::shortenWaits()).
+     */
+    'mail_test' => [
+        'timeout_seconds' => MailServerSettings::TEST_TIMEOUT,
+        'deadline_seconds' => MailServerSettings::TEST_DEADLINE,
+    ],
 
     'exchange_rates' => [
         'ecb_url' => 'https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml',

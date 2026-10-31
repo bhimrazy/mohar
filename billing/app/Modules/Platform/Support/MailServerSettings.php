@@ -158,8 +158,8 @@ final class MailServerSettings
         }
 
         $config = match ($config['transport'] ?? $default) {
-            'smtp' => [...$this->smtpConfig($config), 'transport' => self::TEST_DRIVER, 'timeout' => self::TEST_TIMEOUT],
-            'ses', 'ses-v2' => [...$config, 'http' => ['timeout' => self::TEST_TIMEOUT, 'connect_timeout' => self::TEST_TIMEOUT]],
+            'smtp' => [...$this->smtpConfig($config), 'transport' => self::TEST_DRIVER, 'timeout' => self::testTimeout()],
+            'ses', 'ses-v2' => [...$config, 'http' => ['timeout' => self::testTimeout(), 'connect_timeout' => self::testTimeout()]],
             default => $config,
         };
         config(['mail.mailers.'.self::TEST_MAILER => $config]);
@@ -258,7 +258,7 @@ final class MailServerSettings
         // The options the framework's SMTP factory reads, including those a MAIL_URL carries as query parameters.
         $bool = fn (string $key, bool $default): bool => ! isset($config[$key]) || $config[$key] === '' ? $default : filter_var($config[$key], FILTER_VALIDATE_BOOL);
         $autoTls = $bool('auto_tls', true);
-        $transport = new DeadlineSmtpTransport((string) $config['host'], $port, $scheme === 'smtps' ? true : ($autoTls ? null : false), (float) self::TEST_DEADLINE);
+        $transport = new DeadlineSmtpTransport((string) $config['host'], $port, $scheme === 'smtps' ? true : ($autoTls ? null : false), (float) self::testDeadline());
         $transport->setAutoTls($autoTls);
         $transport->setRequireTls($bool('require_tls', false));
 
@@ -289,7 +289,7 @@ final class MailServerSettings
             }
 
             $stream->setStreamOptions($options);
-            $stream->setTimeout((float) ($config['timeout'] ?? self::TEST_TIMEOUT));
+            $stream->setTimeout((float) ($config['timeout'] ?? self::testTimeout()));
 
             if (($config['source_ip'] ?? '') !== '') {
                 $stream->setSourceIp((string) $config['source_ip']);
@@ -297,5 +297,17 @@ final class MailServerSettings
         }
 
         return $transport;
+    }
+
+    /** platform.mail_test.timeout_seconds (TEST_TIMEOUT by default; the test suite shortens both). */
+    public static function testTimeout(): int
+    {
+        return (int) config('platform.mail_test.timeout_seconds', self::TEST_TIMEOUT);
+    }
+
+    /** platform.mail_test.deadline_seconds (TEST_DEADLINE by default). */
+    public static function testDeadline(): int
+    {
+        return (int) config('platform.mail_test.deadline_seconds', self::TEST_DEADLINE);
     }
 }
