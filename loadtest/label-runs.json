@@ -1,28 +1,29 @@
 {
     "runs": [
         {
-            "name": "small-ramp",
+            "name": "small-ramp-low",
             "profile": "small",
-            "levels": "50 100 150 200 250 300 400 500",
+            "levels": "10 20 30 40 50",
             "level_duration": "3m",
             "start_spread": 60,
             "warmup": "90s"
         },
         {
-            "name": "medium-ramp",
+            "name": "small-realistic-knee",
+            "profile": "small",
+            "levels": "200 250 300 350",
+            "level_duration": "6m",
+            "start_spread": 240,
+            "warmup": "300s",
+            "think": "10 30"
+        },
+        {
+            "name": "medium-realistic",
             "profile": "medium",
-            "levels": "50 100 150 200 250 300 400 500",
-            "level_duration": "3m",
-            "start_spread": 60,
-            "warmup": "90s"
-        },
-        {
-            "name": "small-realistic",
-            "profile": "small",
-            "levels": "100 200 300 400 500 600 800 1000",
-            "level_duration": "5m",
-            "start_spread": 120,
-            "warmup": "150s",
+            "levels": "300 400 500 600 800",
+            "level_duration": "6m",
+            "start_spread": 240,
+            "warmup": "300s",
             "think": "10 30"
         }
     ]
