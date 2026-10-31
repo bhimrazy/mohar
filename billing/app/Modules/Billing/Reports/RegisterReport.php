@@ -13,6 +13,7 @@ use App\Data\Reports\ReportColumn;
 use App\Data\Reports\ReportQuery;
 use App\Enums\ColumnType;
 use App\Modules\Billing\Services\SellerDetails;
+use App\Support\Currencies\MoneyFormatter;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
 
@@ -31,6 +32,7 @@ abstract class RegisterReport implements HasSensitiveExport, ProvidesCsvOptions,
         protected RegisterDocuments $documents,
         protected CompanyClock $clock,
         private SellerDetails $seller,
+        private MoneyFormatter $formatter,
     ) {}
 
     /** Whether the register lists notes only. */
@@ -144,13 +146,24 @@ abstract class RegisterReport implements HasSensitiveExport, ProvidesCsvOptions,
     {
         $seller = $this->seller->snapshot();
         $period = $this->period($query);
+        $summary = $this->summary($query);
 
         return [
             [__('Seller PAN'), (string) ($seller['pan'] ?? $seller['vat_number'] ?? '')],
             [__('Seller name'), (string) $seller['legal_name']],
             [__('Fiscal year (BS)'), $period->fiscalYear()],
             [__('Tax period'), $period->label()],
+            // The return (Schedule 10) asks for the period's count of sales invoices, credit notes and debit notes.
+            ...($this->notesOnly() ? [] : [[__('Tax invoices issued'), $this->groupedCount($summary, 'invoice')]]),
+            [__('Credit notes issued'), $this->groupedCount($summary, 'credit')],
+            [__('Debit notes issued'), $this->groupedCount($summary, 'debit')],
         ];
+    }
+
+    /** A count grouped as the register's money is ("1,00,000" in rupees), without decimals. */
+    private function groupedCount(RegisterSummary $summary, string $kind): string
+    {
+        return MoneyFormatter::number($summary->counts[$kind] * 100, 0, $this->formatter->display($summary->currency)->format);
     }
 
     /**
