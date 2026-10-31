@@ -11,7 +11,8 @@ use PhpToken;
  * is matched against the rules. Findings come in three levels:
  *  - `excused`: a change the previous release may not survive (drop, rename, type change, tightened constraint). A
  *    `@contract` or `@compatible` tag with a reason, in a comment directly before the statement, excuses that
- *    statement only. A tag elsewhere in the file (the class docblock) excuses the file's only such statement.
+ *    statement only, also inside a loop or branch (each statement in a block is its own). A tag elsewhere in the file
+ *    (the class docblock) excuses the file's only such statement.
  *  - `error`: rules 5 and 6, which no tag excuses: an ALTER outside LockTimeout::run, an index outside OnlineIndex,
  *    OnlineIndex in a migration that runs in a transaction.
  *  - `warning`: advice only.
@@ -56,6 +57,8 @@ final class MigrationLint
     private const UNIQUE = 'adds a unique index the previous release may violate';
 
     private const UNLOCKED_INDEX = 'builds an index with allowLocking, which blocks writes while it builds';
+
+    private const CONTROL = '/^(?:foreach|for|while|if|elseif|else(?:\s+if)?|try|catch|finally|do|switch)\b/i';
 
     private const RAW_CALL = '/\b(?:statement|unprepared)\s*\(/i';
 
@@ -350,6 +353,18 @@ final class MigrationLint
 
             $current ??= ['text' => '', 'line' => $token->line, 'comments' => array_splice($pending, 0)];
             $current['text'] .= $token->text;
+
+            // A control structure's block is split into its own statements, so a tag before one statement in a loop or
+            // branch does not excuse its siblings. The header (`foreach (...)`) stays a statement of its own.
+            if ($token->text === '{' && $depth === 0 && preg_match(self::CONTROL, $current['text']) === 1) {
+                $end = self::close($tokens, $i);
+                $statements[] = $current;
+                $statements = array_merge($statements, self::statements(array_slice($tokens, $i + 1, $end - $i - 1)));
+                $current = null;
+                $i = $end;
+
+                continue;
+            }
 
             $depth += match ($token->text) {
                 '(', '[', '{', '${' => 1,

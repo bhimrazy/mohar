@@ -182,6 +182,28 @@ test('a tag excuses the statement it precedes, and only that one', function () {
         ->assertSuccessful();
 });
 
+test('a tag inside a loop or branch excuses the statement it precedes, not its siblings', function (string $wrap) {
+    $body = <<<'PHP'
+        // @compatible widening: the previous release writes values that still fit.
+        LockTimeout::run('currencies', fn () => Schema::table('currencies', fn (Blueprint $table) => $table->decimal('rate', 24, 12)->change()));
+        LockTimeout::run('clients', fn () => Schema::table('clients', fn (Blueprint $table) => $table->dropColumn('first_name')));
+        PHP;
+
+    $this->artisan('deploy:check-migrations', ['paths' => [ruleMigration($this->dir, 'loop_one', ruleUp(sprintf($wrap, $body)))]])
+        ->expectsOutputToContain('compatible change (@compatible): changes a column definition')
+        ->expectsOutputToContain('drops a column')
+        ->assertFailed();
+
+    $both = str_replace("LockTimeout::run('clients'", "// @contract first_name unused since release 1.2.\n        LockTimeout::run('clients'", $body);
+
+    $this->artisan('deploy:check-migrations', ['paths' => [ruleMigration($this->dir, 'loop_both', ruleUp(sprintf($wrap, $both)), timestamp: '2026_10_19_000002')]])
+        ->assertSuccessful();
+})->with([
+    'foreach' => ["foreach ([1, 2] as \$i) {\n%s\n        }"],
+    'if and else' => ["if (true) {\n%s\n        } else {\n            \$x = 1;\n        }"],
+    'nested' => ["foreach ([1] as \$i) {\n            if (\$i) {\n%s\n            }\n        }"],
+]);
+
 test('a tag without a reason excuses nothing', function () {
     $up = ruleUp("// @contract\n        LockTimeout::run('clients', fn () => Schema::table('clients', fn (Blueprint \$table) => \$table->dropColumn('a')));");
 
