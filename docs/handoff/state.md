@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-25 (evening) by the CTO session, on the owner's Mac. Update this file whenever a PR merges, a workstream starts or
+Last updated: 2026-10-31 by the CTO session, on the owner's Mac. Update this file whenever a PR merges, a workstream starts or
 stops, or the owner makes a decision. Keep it short: merges older than the current day move to `billing/docs/progress.md`, and history goes in `history.md` and `docs/reviews/`.
 
 ## Summary
@@ -136,17 +136,30 @@ hand: #506, #203, #267, #158, #68, #354, #367, #431, #443, #97, #171.
 Rule since 10-29: every open kernel PR merges develop and runs `php artisan kernel:api-snapshot`; a re-review follows every
 fix round on money and auth PRs (CTO review).
 
-No agents running. No open PRs. Open follow-ups: #507 (a "succeeded" refund racing a failed report); #516 (test `objects`
-disk survives runs); #523 (password-guess budget not atomic, audit `client_id`, L3 step-up for provisioning secrets);
-#406 and #244 (re-pin caddy/composer after 10-29 18:13 UTC, k6 10-31, postgres 11-02, Node 11-04); #67, #70, #83 (P12a
-leftovers); #503 review leftovers (invoice-number search index, per-note resend cooldown, email-log link); #520 leftovers
-(pending-attach flow for unverified logins, mail send inside the first-invitation transaction); #511 leftover (rollback with
-mutable tags); a scheduled `check-dependency-age.mjs --all` job; `product-vision.md` claims to mark "planned" (AI,
-OpenTelemetry, p95 under 200 ms, i18n/WCAG). Owner decisions open: `symfony/mime` 8.1.10 and Node 24.22.1 cooldown
-exceptions; lift "simulators only" for eSewa and Khalti; Nepal SMS provider and panel order after cPanel; import spec Q2
-(ResellerClub per-client customer) blocks its PR 4.
-Next (from the 10-29 reviews): import PR 0 (ADR 0019 contracts), mail transport settings with test send, frontend i18n ADR,
-month-end reports pack, public API design.
+Merged 2026-10-30 and 2026-10-31: #525, #526 (research: ResellerClub customer mapping, Nepal SMS and panels), #528 (ADR 0028
+translations, Proposed), #529 (ADR 0029 public API and v1 spec), #530 (cooldown exceptions for `symfony/mime` 8.1.10 and
+Node 24.22.1), #531 (month-end reports spec), #527 (import PR 0: importer capabilities, soft ordering, ADR 0019 amendment),
+#533 (worktrees under `.claude/worktrees`, `scripts/finish-workstream.sh`, `scripts/sweep-stale.sh`, `pg.sh --drop`), #532
+(Admin → Settings → Mail server with test send, ADR 0015 relay profile), #534 (infra security review 10-31), #535 (security
+review 10-31: M1 passkey step-up, M2 support sender trust), #537 (M2: inbound mail attaches only through a proved address;
+guest `access_key` rotates on link), #536 (#523: atomic password-guess budget, sign-out at the cap, `client_id` on
+step-up failures, step-up for secret-bearing driver config changes), #545 (WHMCS 9.0/9.1 refresh note). Issues closed by
+hand: #523.
+
+In review: #538 (M1: own step-up key, `password.confirm` is step-up, in-place dialog after expiry, passkey-added mail;
+re-review and browser re-walk running), #539 (infra fixes: base-side policy scripts, waiver bound to the PR body, weekly
+audit, release gate, container hardening; third fix round). Running: capacity load test (50–500 VUs, small and medium,
+realistic think time), test-suite speed review, WHMCS docs and changelog coverage audit, whole-database architecture review.
+
+Open follow-ups: #540 (flaky `AwaitingQueueTest` on PostgreSQL), #541 (public form says the link was emailed when
+autoresponse is off), #542 (security notice at the guess cap), #544 (vacuous multi-needle `not->toContain`), #546 (staff
+security page in the client shell), #507, #516, #406 and #244 (re-pin caddy, composer, postgres, k6: upstream re-pushed
+their tags), #67, #70, #83, #503, #520 and #511 leftovers, `product-vision.md` "planned" markers.
+Owner actions open: GitHub repository settings (secret scanning and push protection, SHA pinning, protect `main`, default
+branch `develop`; the `release` environment before images are published); production rebuild for #530; ADR 0028 and 0029
+questions; month-end Q2, Q5, Q7–Q12; SMS provider; panel order; importer card tokens (CTO: do not import); a hosted tier.
+Rules since 10-31: scratch files and PR bodies are named after the PR (`pr<N>-body.md`); clean up with
+`scripts/finish-workstream.sh <slug>` at merge.
 
 Walkthrough: `docs-site` Overview and Get started → Walkthrough (12 steps, run against a seeded app). Before a demo
 start Mailpit (`docker compose up -d` in `billing/`) and `composer dev` (now includes the scheduler).

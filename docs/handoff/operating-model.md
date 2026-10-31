@@ -193,7 +193,9 @@ Code's own worktree feature (`EnterWorktree`, `isolation: "worktree"`); the swee
 - Each worktree costs about 1 GB. `scripts/storage-cleanup.sh --apply` removes worktrees whose PR is merged and that
   are clean and pushed, clears stale caches, and (on a codespace or with `STORAGE_DOCKER=1`) dangling images; run it every 30 minutes in long sessions.
 - Browser checks use Playwright only (CPU-heavy runs go through `scripts/heavy.sh`), never the owner's Chrome (no Chrome DevTools MCP for agents). Scratch files
-  get a unique name per agent (`$SCRATCH/<agent-slug>/`), so agents never overwrite each other.
+  get a unique name per agent (`$SCRATCH/<agent-slug>/`, PR bodies `pr<N>-body.md`), so agents never overwrite each
+  other; every brief repeats this, since the agents share one scratchpad (PR bodies of #527, #537 and #538 were
+  overwritten by a shared `body.md`). After editing a PR body, check it is that PR's text.
 - No `npx` for a tool outside the lockfile (`vp`, `tsc` and `playwright` are in it): it runs unvetted code.
 - Never stop, kill or remove a Docker container you didn't start (`docker kill`, `stop`, `rm`, `compose down`):
   the shared test database `mohar-pg` and Mailpit serve every agent. Restarting
