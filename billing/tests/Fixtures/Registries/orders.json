@@ -1,0 +1,477 @@
+{
+    "permissions": {
+        "groups/Orders/orders.orders.view": "View orders",
+        "groups/Orders/orders.orders.create": "Place orders for clients",
+        "groups/Orders/orders.orders.accept": "Accept orders",
+        "groups/Orders/orders.orders.cancel": "Cancel orders",
+        "groups/Orders/orders.orders.mark_fraud": "Mark orders as fraud, set back to pending, re-run fraud checks",
+        "groups/Orders/orders.orders.delete": "Delete orders",
+        "groups/Orders/orders.promotions.manage": "Manage promotions",
+        "groups/Orders/orders.fraud.configure": "Configure order and fraud settings"
+    },
+    "settings": {
+        "sections/orders/_meta": {
+            "title": "Orders",
+            "permission": "orders.fraud.configure"
+        },
+        "sections/orders/orders.require_tos": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.require_tos",
+            "label": "Require terms of service acceptance at checkout",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/orders/orders.tos_url": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.tos_url",
+            "label": "Terms of service URL",
+            "type": "string",
+            "help": null,
+            "options": [],
+            "rules": [
+                "nullable",
+                "url",
+                "max:255"
+            ],
+            "secret": false
+        },
+        "sections/orders/orders.checkout_redirect": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.checkout_redirect",
+            "label": "After checkout, send customers to",
+            "type": "select",
+            "help": null,
+            "options": {
+                "complete_page": "Order confirmation page",
+                "invoice": "Invoice"
+            },
+            "rules": [],
+            "secret": false
+        },
+        "sections/orders/orders.initial_invoice_grace_days": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.initial_invoice_grace_days",
+            "label": "Days until the first invoice is due",
+            "type": "integer",
+            "help": null,
+            "options": [],
+            "rules": [
+                "min:0",
+                "max:90"
+            ],
+            "secret": false
+        },
+        "sections/orders/orders.cart_ttl_days": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.cart_ttl_days",
+            "label": "Days a cart is kept",
+            "type": "integer",
+            "help": null,
+            "options": [],
+            "rules": [
+                "min:1",
+                "max:365"
+            ],
+            "secret": false
+        },
+        "sections/orders/orders.allow_checkout_notes": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.allow_checkout_notes",
+            "label": "Let customers add notes at checkout",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/orders/orders.block_duplicate_domains": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.block_duplicate_domains",
+            "label": "Block ordering hosting for a domain already in use",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/orders/orders.transfer_requires_epp": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.transfer_requires_epp",
+            "label": "Require an EPP code for domain transfers",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/orders/orders.domains_taxable": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.domains_taxable",
+            "label": "Charge tax on domains",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/orders/orders.auto_accept_on_payment": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.auto_accept_on_payment",
+            "label": "Accept orders automatically when paid and the fraud check passed",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/orders/orders.auto_provision_only_existing_clients": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.auto_provision_only_existing_clients",
+            "label": "Only auto-provision for clients with an active service",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/orders/orders.auto_cancel_unpaid_days": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.auto_cancel_unpaid_days",
+            "label": "Cancel pending unpaid orders after N days (0 = never)",
+            "type": "integer",
+            "help": null,
+            "options": [],
+            "rules": [
+                "min:0",
+                "max:365"
+            ],
+            "secret": false
+        },
+        "sections/orders/orders.suppress_invoice_email_on_order": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.suppress_invoice_email_on_order",
+            "label": "Do not email the invoice for new orders",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/orders/orders.fraud.driver": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.fraud.driver",
+            "label": "Fraud check provider",
+            "type": "select",
+            "help": null,
+            "options": {
+                "none": "None",
+                "rules": "Built-in rules"
+            },
+            "rules": [],
+            "secret": false
+        },
+        "sections/orders/orders.fraud.max_pending_orders": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.fraud.max_pending_orders",
+            "label": "Maximum pending orders per client",
+            "type": "integer",
+            "help": null,
+            "options": [],
+            "rules": [
+                "min:0"
+            ],
+            "secret": false
+        },
+        "sections/orders/orders.fraud.max_orders_per_ip": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.fraud.max_orders_per_ip",
+            "label": "Maximum orders per IP address in 24 hours",
+            "type": "integer",
+            "help": null,
+            "options": [],
+            "rules": [
+                "min:0"
+            ],
+            "secret": false
+        },
+        "sections/orders/orders.fraud.banned_email_domains": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.fraud.banned_email_domains",
+            "label": "Banned email domains",
+            "type": "text",
+            "help": "Comma separated, e.g. mailinator.com",
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/orders/orders.fraud.skip_for_existing_clients": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.fraud.skip_for_existing_clients",
+            "label": "Skip fraud checks for clients with an active service",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/orders/orders.fraud.fail_open": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.fraud.fail_open",
+            "label": "Treat fraud provider errors as \"review\" instead of \"fail\"",
+            "type": "boolean",
+            "help": null,
+            "options": [],
+            "rules": [],
+            "secret": false
+        },
+        "sections/orders/orders.fraud.timeout_ms": {
+            "class": "App\\Support\\Settings\\SettingDefinition",
+            "key": "orders.fraud.timeout_ms",
+            "label": "Fraud check timeout (ms)",
+            "type": "integer",
+            "help": null,
+            "options": [],
+            "rules": [
+                "min:100",
+                "max:60000"
+            ],
+            "secret": false
+        }
+    },
+    "navigation": {
+        "items/admin/admin.orders.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Orders",
+            "route": "admin.orders.index",
+            "icon": "ShoppingCart",
+            "group": "Orders",
+            "order": 10,
+            "permission": "orders.orders.view",
+            "activePattern": "admin.orders.*",
+            "badge": "Closure(App\\Models\\User $user)"
+        },
+        "items/admin/admin.promotions.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Promotions",
+            "route": "admin.promotions.index",
+            "icon": "Percent",
+            "group": "Orders",
+            "order": 20,
+            "permission": "orders.promotions.manage",
+            "activePattern": "admin.promotions.*",
+            "badge": null
+        },
+        "items/client/client.orders.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Order history",
+            "route": "client.orders.index",
+            "icon": "Receipt",
+            "group": "Orders",
+            "order": 10,
+            "permission": null,
+            "activePattern": "client.orders.*",
+            "badge": null
+        },
+        "items/client/store.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Store",
+            "route": "store.index",
+            "icon": "ShoppingCart",
+            "group": "Orders",
+            "order": 20,
+            "permission": null,
+            "activePattern": "store.[!d]*",
+            "badge": null
+        },
+        "items/client/store.domains": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Register a domain",
+            "route": "store.domains",
+            "icon": "Search",
+            "group": "Domains",
+            "order": 20,
+            "permission": null,
+            "activePattern": "store.domains",
+            "badge": null
+        },
+        "items/admin-client/admin.orders.index": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "Orders",
+            "route": "admin.orders.index",
+            "icon": "ShoppingCart",
+            "group": "General",
+            "order": 20,
+            "permission": "orders.orders.view",
+            "activePattern": null,
+            "badge": null
+        },
+        "items/admin-create/admin.orders.create": {
+            "class": "App\\Support\\Navigation\\NavItem",
+            "title": "New order",
+            "route": "admin.orders.create",
+            "icon": "ShoppingCart",
+            "group": "General",
+            "order": 20,
+            "permission": "orders.orders.create",
+            "activePattern": null,
+            "badge": null
+        }
+    },
+    "search": {
+        "providers/orders.orders.view": {
+            "group": "Orders",
+            "resolver": "Closure(string $term)",
+            "permission": "orders.orders.view"
+        }
+    },
+    "webhooks": {
+        "types/order.placed": {
+            "event": "App\\Events\\Orders\\OrderPlaced",
+            "entity": "order",
+            "idProperty": "orderId"
+        },
+        "types/order.fraud": {
+            "event": "App\\Events\\Orders\\OrderMarkedFraud",
+            "entity": "order",
+            "idProperty": "orderId"
+        },
+        "types/order.cancelled": {
+            "event": "App\\Events\\Orders\\OrderCancelled",
+            "entity": "order",
+            "idProperty": "orderId"
+        },
+        "types/affiliate.commission_earned": {
+            "event": "App\\Events\\Affiliates\\AffiliateCommissionEarned",
+            "entity": "affiliate",
+            "idProperty": "affiliateId"
+        }
+    },
+    "automation": {
+        "tasks/orders.cancel_stale_pending": {
+            "stage": 50,
+            "handler": "Closure(Carbon\\CarbonImmutable $today)",
+            "label": "Cancel stale unpaid orders",
+            "description": "Cancels pending orders whose invoice is still unpaid after the configured number of days."
+        },
+        "tasks/orders.prune_carts": {
+            "stage": 90,
+            "handler": "Closure(App\\Support\\CalendarDate $today)",
+            "label": "Delete expired carts",
+            "description": "Removes shopping carts past their expiry."
+        },
+        "takesCalendarDate/orders.cancel_stale_pending": false,
+        "takesCalendarDate/orders.prune_carts": true,
+        "takesCarbonDate/orders.cancel_stale_pending": true,
+        "takesCarbonDate/orders.prune_carts": false
+    },
+    "dashboard": {
+        "widgets/admin/orders.pending": {
+            "key": "orders.pending",
+            "type": "stat",
+            "size": "sm",
+            "deferred": false,
+            "mirrorsTodo": true,
+            "resolver": "Closure(App\\Models\\User $user)",
+            "permission": "orders.orders.view",
+            "order": 20
+        },
+        "widgets/admin/orders.today": {
+            "key": "orders.today",
+            "type": "stat",
+            "size": "sm",
+            "deferred": false,
+            "mirrorsTodo": false,
+            "resolver": "Closure(App\\Models\\User $user)",
+            "permission": "orders.orders.view",
+            "order": 21
+        },
+        "widgets/admin/orders.recent": {
+            "key": "orders.recent",
+            "type": "list",
+            "size": "md",
+            "deferred": false,
+            "mirrorsTodo": false,
+            "resolver": "Closure(App\\Models\\User $user)",
+            "permission": "orders.orders.view",
+            "order": 50
+        },
+        "widgets/admin/orders.by_type": {
+            "key": "orders.by_type",
+            "type": "chart",
+            "size": "md",
+            "deferred": true,
+            "mirrorsTodo": false,
+            "resolver": "Closure(App\\Models\\User $user)",
+            "permission": "orders.orders.view",
+            "order": 30
+        },
+        "todos/admin/orders.pending": {
+            "key": "orders.pending",
+            "resolver": "Closure(App\\Models\\User $user)",
+            "permission": "orders.orders.view",
+            "order": 10
+        },
+        "todos/admin/orders.fraud": {
+            "key": "orders.fraud",
+            "resolver": "Closure(App\\Models\\User $user)",
+            "permission": "orders.orders.view",
+            "order": 11
+        }
+    },
+    "sitemap": {
+        "sources/orders": "Closure()"
+    },
+    "currency_usage": {
+        "sources/orders": "Closure(array $clientIds)"
+    },
+    "merge_fields": {
+        "resolvers/order": "Closure(int $id)"
+    },
+    "reference_data": [],
+    "encrypted_storage": [],
+    "event_listeners": {
+        "App\\Events\\Billing\\InvoicePaid": [
+            "App\\Modules\\Orders\\Listeners\\AcceptPaidOrder"
+        ],
+        "App\\Events\\Domains\\DomainRegistered": [
+            "App\\Modules\\Orders\\Listeners\\TrackItemActivation"
+        ],
+        "App\\Events\\Domains\\DomainTransferred": [
+            "App\\Modules\\Orders\\Listeners\\TrackItemActivation"
+        ],
+        "App\\Events\\Services\\ServiceActivated": [
+            "App\\Modules\\Orders\\Listeners\\TrackItemActivation"
+        ],
+        "Illuminate\\Auth\\Events\\Login": [
+            "App\\Modules\\Orders\\Listeners\\MergeCartOnLogin"
+        ]
+    },
+    "rate_limiters": {
+        "orders-cart": {
+            "max": 60,
+            "decay": 60,
+            "key": "cart|ip:203.0.113.9"
+        },
+        "orders-checkout": {
+            "max": 10,
+            "decay": 60,
+            "key": "checkout|ip:203.0.113.9"
+        },
+        "orders-promo": {
+            "max": 10,
+            "decay": 60,
+            "key": "promo|ip:203.0.113.9"
+        },
+        "orders-quote": {
+            "max": 120,
+            "decay": 60,
+            "key": "quote|ip:203.0.113.9"
+        }
+    },
+    "web_middleware": [
+        "App\\Modules\\Orders\\Http\\Middleware\\CaptureReferralAndPromo"
+    ]
+}
