@@ -60,6 +60,9 @@ final class Redactor
     /** Declared values shorter than this are not masked by value; key masking still covers them. */
     private const DECLARED_MIN_BYTES = 4;
 
+    /** Percent-decoding passes readMarkup() reads before it fails closed. */
+    private const DECODE_PASSES = 6;
+
     /** A key is sensitive when it is exactly one of these. */
     private const SENSITIVE_KEYS = ['key', 'pw', 'pwd', 'dv', 'phpsessid'];
 
@@ -249,12 +252,12 @@ final class Redactor
     /**
      * The values under keys a driver declares (declaredKeys()), for the host to mask by value in everything it stores.
      * Read from structure only: arrays, JSON string leaves, and in other strings `<key>value</key>` elements (CDATA
-     * unwrapped, entities decoded) and `key=value` pairs (also percent-decoded). Values under DECLARED_MIN_BYTES are
-     * left out; key masking still covers them.
+     * unwrapped, entities decoded) and `key=value` pairs (also percent-decoded, until stable). Values under
+     * DECLARED_MIN_BYTES are left out; key masking still covers them.
      *
      * Null (fail closed: the host withholds the payloads and the text whole) when a payload cannot be read in full:
-     * past the node or depth limit, or a string that uses a declared key as a name in any other form (`ticket: X`,
-     * `<item key="ticket">`, a nested element).
+     * past the node or depth limit, a JSON string that repeats a declared key, or a string that uses a declared key as
+     * a name in any other form (`ticket: X`, `<item key="ticket">`, a nested element).
      *
      * @param  list<string>  $sensitiveKeys
      * @param  array<array-key, mixed>  ...$payloads
@@ -281,7 +284,14 @@ final class Redactor
                 if (is_object($value)) {
                     $value = json_decode((string) json_encode($value), true);
                 } elseif (is_string($value)) {
-                    $value = self::jsonDocument($value) ?? $value;
+                    $document = self::jsonDocument($value);
+
+                    // json_decode() keeps only the last value of a repeated key: the earlier ones would go unread.
+                    if ($document !== null && self::repeatsKey($value, $document, $keys)) {
+                        return false;
+                    }
+
+                    $value = $document ?? $value;
                 }
 
                 if (is_array($value)) {
@@ -373,8 +383,38 @@ final class Redactor
     }
 
     /**
+     * Whether the raw JSON $text names a declared key more often than its decoded $document holds it (a repeated key).
+     * Object keys are the strings followed by `:`, unescaped before they are compared.
+     *
+     * @param  array<array-key, mixed>  $document
+     * @param  list<string>  $keys  lowercase
+     */
+    private static function repeatsKey(string $text, array $document, array $keys): bool
+    {
+        if (preg_match_all('/"((?:[^"\\\\]|\\\\.)*)"\s*:/s', $text, $names) === false) {
+            return true;
+        }
+
+        $raw = count(array_filter($names[1], fn (string $name): bool => in_array(strtolower((string) json_decode('"'.$name.'"')), $keys, true)));
+
+        $held = 0;
+        $count = function (array $node) use (&$count, &$held, $keys): void {
+            foreach ($node as $key => $value) {
+                $held += (int) (is_string($key) && in_array(strtolower($key), $keys, true));
+
+                if (is_array($value)) {
+                    $count($value);
+                }
+            }
+        };
+        $count($document);
+
+        return $raw > $held;
+    }
+
+    /**
      * Adds the values of `<key>…</key>` elements and `key=…` pairs (unquoted, or in single or double quotes, as in an
-     * attribute) in $text, and in its percent-decoded form, to $values. False, so the caller fails closed, when either
+     * attribute) in $text, and in each of its percent-decoded forms, to $values. False, so the caller fails closed, when either
      * form uses a declared key as a name anywhere else, or a capture is empty, nested, carries attributes on the
      * declared element, or holds markup or a document. When in doubt this fails closed: over-withholding a log line is
      * acceptable, a leak is not.
@@ -384,9 +424,26 @@ final class Redactor
      */
     private static function readMarkup(string $text, array $keys, array &$values): bool
     {
-        $decoded = str_contains($text, '%') ? rawurldecode($text) : $text;
+        if (! self::readText($text, $keys, $values)) {
+            return false;
+        }
 
-        return self::readText($text, $keys, $values) && ($decoded === $text || self::readText($decoded, $keys, $values));
+        // Percent-decoded until stable (a pair encoded twice in a nested URL); still changing after the last pass fails closed.
+        for ($pass = 0; str_contains($text, '%'); $pass++) {
+            $decoded = rawurldecode($text);
+
+            if ($decoded === $text) {
+                return true;
+            }
+
+            if ($pass === self::DECODE_PASSES || ! self::readText($decoded, $keys, $values)) {
+                return false;
+            }
+
+            $text = $decoded;
+        }
+
+        return true;
     }
 
     /**
