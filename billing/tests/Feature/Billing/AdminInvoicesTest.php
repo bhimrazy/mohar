@@ -186,6 +186,15 @@ test('bulk actions update only payable invoices', function () {
         ->and($paid->fresh()->status)->toBe(InvoiceStatus::Paid);
 });
 
+test('a bulk action checks the permission for its action before it validates the input', function () {
+    actingAsStaff(['billing.invoices.view', 'billing.invoices.manage']);
+    confirmPassword();
+
+    // Marking paid needs billing.payments.manage: refused before the missing ids are reported.
+    $this->post(route('admin.billing.invoices.bulk'), ['action' => 'mark_paid'])->assertForbidden();
+    $this->post(route('admin.billing.invoices.bulk'), ['action' => 'cancel'])->assertSessionHasErrors('ids');
+});
+
 test('selected lines can be cancelled with a credit note', function () {
     billingStaff();
     $invoice = issueInvoice(billingClient(), [1_000, 2_000]);

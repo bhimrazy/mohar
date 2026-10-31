@@ -7,13 +7,13 @@ use App\Modules\Billing\Actions\ManagePayMethods;
 use App\Modules\Billing\Actions\PaymentBatches;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Http\Requests\Client\PayInvoiceRequest;
+use App\Modules\Billing\Http\Requests\Client\PaymentBatchRequest;
 use App\Modules\Billing\Http\Resources\InvoiceResource;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentBatch;
 use App\Modules\Billing\Support\ClientPaymentOptions;
 use App\Modules\Core\Support\ClientContext;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -24,10 +24,9 @@ class PaymentBatchController extends Controller
 {
     public function __construct(private ClientContext $context) {}
 
-    public function store(Request $request, PaymentBatches $batches): RedirectResponse
+    public function store(PaymentBatchRequest $request, PaymentBatches $batches): RedirectResponse
     {
-        $this->context->authorize('billing');
-        $data = $request->validate(['invoice_ids' => ['nullable', 'array', 'max:50'], 'invoice_ids.*' => ['integer']]);
+        $data = $request->validated();
 
         $ids = $data['invoice_ids'] ?? Invoice::query()->where('client_id', $this->context->id())->whereIn('status', InvoiceStatus::payable())->pluck('id')->all();
         $batch = $batches->create($this->context->id(), array_values(array_map('intval', $ids)));

@@ -5,6 +5,7 @@ namespace App\Modules\Billing\Http\Controllers\Client;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\Quotes;
 use App\Modules\Billing\Enums\QuoteStage;
+use App\Modules\Billing\Http\Requests\Client\AcceptQuoteRequest;
 use App\Modules\Billing\Http\Resources\QuoteResource;
 use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Services\InvoicePdf;
@@ -12,7 +13,6 @@ use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Support\ClientContext;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -40,14 +40,8 @@ class QuoteController extends Controller
         ]);
     }
 
-    public function accept(Request $request, int $quote, BillingSettings $settings): RedirectResponse
+    public function accept(AcceptQuoteRequest $request, int $quote): RedirectResponse
     {
-        $this->context->authorize('billing');
-
-        if ($settings->bool('quotes.require_tos')) {
-            $request->validate(['accept_tos' => ['accepted']]);
-        }
-
         $quote = $this->quotes->accept($this->find($quote));
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Quote accepted. Thank you.')]);
 

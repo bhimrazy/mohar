@@ -11,6 +11,7 @@ use App\Modules\Billing\Enums\TransactionStatus;
 use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Http\Requests\Admin\CreditAdjustmentRequest;
 use App\Modules\Billing\Http\Requests\Admin\CreditRefundRequest;
+use App\Modules\Billing\Http\Requests\Admin\InvoicingPreferenceRequest;
 use App\Modules\Billing\Http\Resources\CreditEntryResource;
 use App\Modules\Billing\Models\ClientFlag;
 use App\Modules\Billing\Models\CreditLedgerEntry;
@@ -69,10 +70,9 @@ class CreditController extends Controller
     /**
      * Per-client invoicing preference (separate invoice per renewal item, or the default).
      */
-    public function preferences(Request $request, Client $client, ActivityLogger $activity): RedirectResponse
+    public function preferences(InvoicingPreferenceRequest $request, Client $client, ActivityLogger $activity): RedirectResponse
     {
-        $this->authorize('billing.credit.manage');
-        $data = $request->validate(['separate_invoices' => ['nullable', 'boolean']]);
+        $data = $request->validated();
 
         ClientFlag::query()->updateOrCreate(['client_id' => $client->id], ['separate_invoices' => $data['separate_invoices'] ?? null]);
         $activity->log('Invoicing preference changed', $client, $client->id, ['separate_invoices' => $data['separate_invoices'] ?? null]);

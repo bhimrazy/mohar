@@ -227,10 +227,28 @@ through a renderer it registers (`callAfterResolving(ExceptionHandler::class, �
 the module's `Config/<module>.php`. Every tunable number in a spec becomes a setting with a default.
 
 **Authorization** — staff permissions are strings `module.area.action`, e.g. `billing.invoices.view`,
-`billing.invoices.manage`; roles grant them with `*` wildcards (`billing.*`). Use `$this->authorize('...')`
-in admin controllers or `->can('...')` route middleware. Client area: inject `ClientContext`, call
-`$context->authorize('billing')` (areas: billing, services, domains, support, profile, contacts) and ALWAYS
-scope queries to `$context->id()` — never trust ids from the request without scoping (IDOR tests required).
+`billing.invoices.manage`; roles grant them with `*` wildcards (`billing.*`). Client area: the check is
+`ClientContext::authorize('billing')` (areas: billing, services, domains, support, profile, contacts), and queries
+ALWAYS scope to `$context->id()` — never trust ids from the request without scoping (IDOR tests required).
+
+**Validation and authorization** — one place for each, so a missing check is visible in review (audit 2026-10-31, M1):
+
+- An action that takes input (a write, or a list's filters) takes a Form Request. Its `rules()` hold the validation
+  and its `authorize()` holds the check: `$this->user()?->hasPermission('...')` for staff,
+  `app(ClientContext::class)->authorize('<area>')` for the client area. The controller does not check again.
+- An action without input (show, destroy, a download) calls `$this->authorize('...')` (staff) or
+  `$context->authorize('<area>')` (client) as its first line.
+- No `$request->validate()`, `Validator::make()` or `validator()` in a controller. `tests/Arch/FormRequestValidationTest.php`
+  holds the controllers not yet moved at their current count; Billing has none left.
+- A check that depends on the input (a bulk action's permission per `action`) reads it in `authorize()`, which runs
+  before validation, so an unauthorized caller never sees validation errors.
+- `tests/Feature/Security/AdminPermissionSweepTest.php` calls every `admin.*` route as a staff member with no
+  permissions and expects a 403 that a denied permission caused: granted that permission, the route answers
+  differently. A route that needs no permission goes in its `SWEEP_OPEN` list with the reason; a route whose
+  `authorize()` picks the permission from the input gets one body per branch in `SWEEP_BODIES`.
+- The sweep proves only that no permission means no access. It cannot tell a wrong permission name from the right
+  one, and a dropped second condition (`a && b`) fails it only for the routes whose permissions its guard list pins.
+  Both stay review-checklist items.
 
 **Routes** — in `routes/web.php` of the module:
 
