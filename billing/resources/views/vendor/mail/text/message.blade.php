@@ -5,7 +5,7 @@
     $footerAddress = trim((string) ($settings->get('notifications.footer_address') ?: $settings->get('billing.seller.address', '')));
     $supportUrl = (string) ($settings->get('notifications.support_url') ?: (\Illuminate\Support\Facades\Route::has('client.support.tickets.index') ? route('client.support.tickets.index') : ''));
     // Support address (never a no-reply mailbox): notifications.support_email, else the billing email.
-    $supportEmail = app(\App\Modules\Notifications\Support\SupportAddresses::class)->general();
+    $supportEmail = app(\App\Modules\Notifications\Settings\SupportAddresses::class)->general();
     $helpLine = $supportEmail ? str_replace('{{ support.email }}', $supportEmail, (string) $settings->get('notifications.footer_help_text', 'Questions? Reply to this email or write to {{ support.email }}.')) : null;
 @endphp
 {!! $slot !!}

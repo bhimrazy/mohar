@@ -7,7 +7,7 @@
 --}}
 @php
     $brandName = app(\App\Contracts\Branding\BrandProvider::class)->brand()->name;
-    $supportEmail = app(\App\Modules\Notifications\Support\SupportAddresses::class)->general();
+    $supportEmail = app(\App\Modules\Notifications\Settings\SupportAddresses::class)->general();
 @endphp
 <x-mail::message :preheader="$introLines[0] ?? null">
 # {{ ! empty($greeting) ? $greeting : ($subject ?? ($level === 'error' ? __('Something went wrong') : __('Hello'))) }}
