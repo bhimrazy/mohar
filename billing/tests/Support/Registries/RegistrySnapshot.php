@@ -20,10 +20,10 @@ use Illuminate\Cache\RateLimiter;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Http\Request;
+use PhpToken;
 use ReflectionFunction;
 use ReflectionNamedType;
 use ReflectionObject;
-use PhpToken;
 
 /**
  * Records what one module put into the kernel registries after boot, so a refactor of its service provider
