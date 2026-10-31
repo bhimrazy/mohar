@@ -160,7 +160,7 @@ The CI budget per page is set when each test is added. A new N+1 query fails the
 - Three small Core PRs (correlation and logs, the `Queues` constants and worker, the `HealthChecks` registry), plus a
   devops doc. No new dependencies until the OpenTelemetry PR.
 
-## Amendment (#PRNUM) — 2026-10-31, on-order provisioning moves to `provisioning`
+## Amendment (#583) — 2026-10-31, on-order provisioning moves to `provisioning`
 
 - `ProvisionOrderItem` runs on `Queues::PROVISIONING`, the provider pool (`--timeout=200`), not on `default`. Its
   timeout is 180 s. The order item lock lasts 200 s, below the 240 s `retry_after`. A job that finds the lock held is
