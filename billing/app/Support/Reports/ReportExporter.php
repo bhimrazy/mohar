@@ -96,7 +96,7 @@ final class ReportExporter
      * The permission and the step-up are decided for the user in the query.
      *
      * `$passwordConfirmedAt` (unix time) is for an export that runs with no request. It must be a stored confirmation:
-     * the session's `auth.password_confirmed_at`, read when the export was queued. A synchronous caller must not pass
+     * the session's `RequireRecentPasswordConfirmation::SESSION_KEY`, read when the export was queued. A synchronous caller must not pass
      * `time()`, which would confirm nothing. Without it, the current request must be that user's and recently confirmed.
      *
      * @throws AuthorizationException when the acting user may not export the report

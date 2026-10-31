@@ -142,7 +142,7 @@ test('a fetch already running is not started twice, and an expired list is delet
 
 test('fetching needs a recent password', function () {
     actingAsStaff();
-    $this->withSession(['auth.password_confirmed_at' => 0]);
+    $this->withSession(['auth.step_up_confirmed_at' => 0]);
 
     $this->post(route('admin.services.servers.import.fetch', $this->server))->assertSessionHasErrors('password_confirmation');
 

@@ -15,7 +15,7 @@ function rr459ExpiringUser(): User
 
 test('R1: passkey registration (RequirePassword) refuses an expired one-time password in a session confirmed before it expired', function () {
     $user = rr459ExpiringUser();
-    $this->actingAs($user)->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
+    $this->actingAs($user)->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()]);
     $this->travel(2)->minutes();
     expect($user->refresh()->passwordExpired())->toBeTrue();
 
@@ -24,7 +24,7 @@ test('R1: passkey registration (RequirePassword) refuses an expired one-time pas
 
 test('R2: the security page (RequirePassword) refuses after expiry in a session confirmed before it', function () {
     $user = rr459ExpiringUser();
-    $this->actingAs($user)->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
+    $this->actingAs($user)->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()]);
     $this->travel(2)->minutes();
 
     $this->get(route('security.edit'))->assertRedirect(route('password.confirm'));
@@ -32,7 +32,7 @@ test('R2: the security page (RequirePassword) refuses after expiry in a session 
 
 test('R3: two-factor disable (RequirePassword) refuses after expiry in a session confirmed before it', function () {
     $user = User::factory()->withTwoFactor()->create(['password_expires_at' => now()->addMinute(), 'must_change_password' => true]);
-    $this->actingAs($user)->withSession(['auth.password_confirmed_at' => now()->getTimestamp()]);
+    $this->actingAs($user)->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()]);
     $this->travel(2)->minutes();
 
     $this->deleteJson(route('two-factor.disable'))->assertStatus(423);

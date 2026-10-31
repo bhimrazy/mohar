@@ -18,5 +18,5 @@ test('confirm-password is rate limited, so a hijacked session cannot guess its w
 
     // The right password after ten wrong guesses within a minute must not confirm.
     $this->postJson(route('password.confirm.store'), ['password' => 'correct-horse-battery'])->assertStatus(429);
-    expect(session('auth.password_confirmed_at'))->toBeNull();
+    expect(session('auth.step_up_confirmed_at'))->toBeNull();
 });

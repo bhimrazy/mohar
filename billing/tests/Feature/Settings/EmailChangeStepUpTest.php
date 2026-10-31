@@ -135,7 +135,7 @@ test('a hijacked session cannot move the account without the password', function
     $this->patch(route('profile.update'), ['name' => 'Ram', 'email' => 'attacker@evil.test'])->assertSessionHasErrors('password_confirmation');
 
     // A confirmation older than the step-up window no longer counts.
-    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp() - (int) config('auth.step_up_seconds') - 1]);
+    $this->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp() - (int) config('auth.step_up_seconds') - 1]);
     $this->patch(route('profile.update'), ['name' => 'Ram', 'email' => 'attacker@evil.test'])->assertSessionHasErrors('password_confirmation');
 
     expect($user->fresh()->email)->toBe('ram@example.com.np');

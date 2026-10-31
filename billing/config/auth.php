@@ -106,9 +106,9 @@ return [
     | Password Confirmation Timeout
     |--------------------------------------------------------------------------
     |
-    | Here you may define the number of seconds before a password confirmation
-    | window expires and users are asked to re-enter their password via the
-    | confirmation screen. By default, the timeout lasts for three hours.
+    | Laravel's own window. Here it opens no route: "password.confirm" is bound
+    | to RequirePasswordUnlessExpired, which uses step_up_seconds below (#538).
+    | Only Fortify's unused /user/confirmed-password-status still reads it.
     |
     */
 
@@ -116,8 +116,8 @@ return [
 
     /*
     | Step-up window: seconds a password confirmation unlocks sensitive mutations behind the "password.recent"
-    | middleware (App\Http\Middleware\RequireRecentPasswordConfirmation, ADR 0018 §4). Kept apart from
-    | password_timeout, which governs the "password.confirm" pages. AUTH_STEP_UP_SECONDS must be a whole number
+    | middleware (App\Http\Middleware\RequireRecentPasswordConfirmation, ADR 0018 §4) and behind "password.confirm",
+    | which uses the same rule (#538); password_timeout above opens no route. AUTH_STEP_UP_SECONDS must be a whole number
     | from 60 to 3600: a shorter window makes confirmations useless, and a longer one turns step-up into a formality.
     | An out-of-range value stops the application at boot instead of being clamped silently.
     */
