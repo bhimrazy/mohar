@@ -24,6 +24,8 @@ PAGES_SHOWN = [
 # (billing/docs/devops/sizing.md) uses this line for its "fits" verdicts and reports the stricter per-page target,
 # p95 under 200 ms, separately.
 P95_LIMIT_MS = 1000
+# The status classes k6/lib.js counts per page (STATUS_CLASSES there; a probe keeps the two equal).
+STATUS_CLASSES = ['429', '4xx', '5xx', 'none']
 ERROR_LIMIT = 0.01
 SATURATED = 3  # exit code of --check-level for a level past the comfortable limit (bin/run stops the ramp on it)
 
@@ -109,6 +111,8 @@ def web_level(path):
             'count': count, 'p50_ms': round(d.get('med', 0)), 'p95_ms': round(d.get('p(95)', 0)), 'p99_ms': round(d.get('p(99)', 0)),
             'max_ms': round(d.get('max', 0)), 'error_rate': round(values(metrics, f'http_req_failed{{page:{page}}}').get('rate', 0), 4),
             'content_errors': int(values(metrics, f'content_errors{{page:{page}}}').get('count', 0)),
+            # Answers outside 2xx/3xx by class (k6/lib.js STATUS_CLASSES), only the classes seen.
+            'statuses': {c: n for c in STATUS_CLASSES if (n := int(values(metrics, f'status_{c}{{page:{page}}}').get('count', 0)))},
         }
     return level
 
@@ -277,11 +281,12 @@ def markdown(s):
               + (f"; levels planned but not run: {' '.join(meta['levels_skipped'])}" if meta.get('levels_skipped') else '') + '.', '']
     knee = [level for level in s['web'] if level['vus'] in (sat['last_comfortable_vus'], sat['first_failing_vus'])] or s['web'][-1:]
     for level in knee:
-        lines += [f"### Pages at {level['vus']} VUs", '', '| page | n | p50 | p95 | p99 | errors |', '| --- | --: | --: | --: | --: | --: |']
+        lines += [f"### Pages at {level['vus']} VUs", '', '| page | n | p50 | p95 | p99 | errors | statuses |', '| --- | --: | --: | --: | --: | --: | --- |']
         for page in PAGES_SHOWN:
             p = level['pages'].get(page)
             if p:
-                lines.append(f"| {page} | {p['count']} | {p['p50_ms']} | {p['p95_ms']} | {p['p99_ms']} | {p['error_rate'] * 100:.1f}% |")
+                statuses = ', '.join(f'{c}: {n}' for c, n in p.get('statuses', {}).items())
+                lines.append(f"| {page} | {p['count']} | {p['p50_ms']} | {p['p95_ms']} | {p['p99_ms']} | {p['error_rate'] * 100:.1f}% | {statuses} |")
         lines.append('')
     web_phases = sorted((name for name in s['resources'] if re.fullmatch(r'web-\d+', name)), key=lambda name: int(name[4:]))
     for phase in web_phases[-1:] + [name for name in ('automation', 'drain') if name in s['resources']]:

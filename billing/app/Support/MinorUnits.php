@@ -23,21 +23,22 @@ final class MinorUnits
         return app(CurrencyDirectory::class)->display($currency)->decimals ?? 2;
     }
 
+    /** Most decimals any conversion here handles: 10^18 is the largest power of ten in a 64-bit integer. */
+    public const MAX_DECIMALS = 18;
+
     /**
-     * An amount with $from decimals as one with $to decimals (1234 with 2 → 12340 with 3), or null when it overflows
-     * or would drop a non-zero digit.
+     * A non-negative amount with $from decimals as one with $to decimals (1234 with 2 → 12340 with 3), or null when
+     * it is negative, overflows or would drop a non-zero digit.
      */
     public static function rescale(int $amount, int $from, int $to): ?int
     {
-        $power = $to - $from;
+        $factor = self::factor(abs($to - $from));
 
-        if ($power === 0) {
-            return $amount;
+        if ($amount < 0 || $factor === null) {
+            return null;
         }
 
-        $factor = self::factor(abs($power));
-
-        if ($power > 0) {
+        if ($to >= $from) {
             return $amount > intdiv(PHP_INT_MAX, $factor) ? null : $amount * $factor;
         }
 
@@ -45,7 +46,8 @@ final class MinorUnits
     }
 
     /**
-     * 113050 with 2 decimals → "1130.50"; whole units without decimals (113000 → "1130").
+     * 113050 with 2 decimals → "1130.50"; whole units without decimals (113000 → "1130"). Throws for a negative amount
+     * (a provider is never sent one) or decimals outside 0 to MAX_DECIMALS.
      */
     public static function toDecimal(int $amount, int $decimals): string
     {
@@ -53,7 +55,7 @@ final class MinorUnits
             throw new InvalidArgumentException('Amounts sent to the provider must not be negative.');
         }
 
-        $factor = self::factor($decimals);
+        $factor = self::factor($decimals) ?? throw new InvalidArgumentException('Decimals must be 0 to '.self::MAX_DECIMALS.'.');
         $whole = intdiv($amount, $factor);
         $fraction = $amount % $factor;
 
@@ -62,12 +64,16 @@ final class MinorUnits
 
     /**
      * A provider's decimal amount → minor units with $decimals, or null when it is not a plain non-negative amount
-     * exact to $decimals. Accepts integers, floats exact to the minor unit (JSON 100.0) and strings ("1,130.0");
-     * thousands separators are ignored.
+     * exact to $decimals, or does not fit an integer. Accepts integers, floats exact to the minor unit (JSON 100.0)
+     * and strings ("1,130.0"); thousands separators are ignored.
      */
     public static function fromDecimal(mixed $value, int $decimals): ?int
     {
         $factor = self::factor($decimals);
+
+        if ($factor === null) {
+            return null;
+        }
 
         if (is_int($value)) {
             return $value >= 0 && $value <= intdiv(PHP_INT_MAX, $factor) ? $value * $factor : null;
@@ -99,12 +105,22 @@ final class MinorUnits
             return null;
         }
 
-        return (int) $match[1] * $factor + (int) str_pad(substr($fraction, 0, $decimals), $decimals, '0');
+        $whole = (int) $match[1];
+
+        if ($whole > intdiv(PHP_INT_MAX - ($factor - 1), $factor)) {
+            return null;
+        }
+
+        return $whole * $factor + (int) str_pad(substr($fraction, 0, $decimals), $decimals, '0');
     }
 
-    /** 10 to the power $decimals, as an integer. */
-    private static function factor(int $decimals): int
+    /** 10 to the power $decimals, or null outside 0 to MAX_DECIMALS. */
+    private static function factor(int $decimals): ?int
     {
+        if ($decimals < 0 || $decimals > self::MAX_DECIMALS) {
+            return null;
+        }
+
         $factor = 1;
 
         for ($i = 0; $i < $decimals; $i++) {

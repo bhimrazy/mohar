@@ -70,8 +70,10 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
   every 10 to 30 s (40 fast virtual users; 300 people was the first failing level). The medium host (4 vCPU, 8 GB) is
   comfortable at about **400 people at once**, a lower bound because the load generator shared its 4 CPUs. CPU runs out
   first, split about evenly between PHP and PostgreSQL; memory is not close (4 GB stays the minimum in every doc).
-  Open findings: the small profile's billing day did not finish in these runs, and the medium host renewed at 4.0/s
-  against 24.8/s on the small host a week earlier (#566); public KB and announcement pages errored at 100 users (#567).
+  Open finding: the small profile's billing day did not finish in these runs. Found and partly fixed: the medium
+  host's slow renewals (#566: invoice PDFs rendered in the renewal loop with whole fonts; subsetting merged in #592,
+  moving the render to the notifications queue is next, CTO decision option a) and the KB errors at 100 users (#567,
+  own limit in #591).
 - Reviews of 2026-10-31 (all in `docs/reviews/`): best-practices audit 78/100 (#569), code structure 63/100 (#570),
   whole-database architecture, extension model (#565), security and infrastructure security. Their fix work is in the
   wave plan, `docs/handoff/issue-plan.md`.
@@ -167,13 +169,18 @@ Merged 2026-10-31 (afternoon and evening; `gh pr list --state merged --search "m
   #551, #553, #556.
 - Issues closed by hand: those the PRs name; the follow-ups they opened are listed under "Open issues worth knowing".
 
-In flight (no PR open yet at the time of writing; both are in worktrees under `.claude/worktrees/`):
-- #571 (`feature/inactive-settlement`): deactivating a gateway or registrar account stops new work only; webhooks,
-  returns and reconcile keep settling (ADR 0030 A1). Strict loop (money). Must merge before ADR 0030 M5a.
-- Audit fix PR 3, `feature/audit-fixes-1` (#569 findings M3, M4, L2): a retried order-provisioning job retries instead of
-  returning success while the item lock is held, `DeclaresSensitiveKeys` is read by `RegistrarGateway` and
-  `ExecuteModuleCommand`, and the `Queues::*` constants replace string names. Combined review. It rebases on #571
-  (same two files).
+Merged 2026-10-31, late evening: #573 (S0 folder rules), #575 (#571: inactive gateways and registrars settle work in
+flight), #576 (NV1 IRD sales book), #577 (AF4 permission sweep), #578 (AF6 test guards), #579 (AF8 pre-push gate),
+#583 (on-order provisioning retry), #585 (DB1 status CHECKs; follow-up #593 MigrationLint), #589 (S1 part 1, tests
+mirror the modules), #591 (#567 public read limit), #592 (#566 PDF font subsetting).
+
+In flight:
+- #574 (`feature/audit-fixes-1`): `DeclaresSensitiveKeys` masked in `RegistrarGateway` and `ExecuteModuleCommand`
+  errors, logs included. Strict loop; round 4 fixes in re-review. Worktrees created before #579 (this one, M3, S3/S4)
+  have no pre-push gate until they merge develop.
+- ADR 0030 M3 (gateway registry, kernel) and S3/S4 (Orders, Notifications, Support folders) in worktrees.
+- Next after them: #566 part 2 (PDF-bearing invoice mails on the notifications queue, strict loop, before S5), S1
+  part 2, then wave 2 per the plan.
 
 Next: the wave plan in `docs/handoff/issue-plan.md`. Wave 1 (fence) starts as the two PRs above reach review: S0 folder
 rules, audit fixes 4, 6, 8, 9 and Nepal VAT PR NV1. Then wave 2 (ADR 0030 M3, M1 with the test and module moves
@@ -272,9 +279,8 @@ approved in principle for later); see `requirements.md`.
 Go-live (label `go-live`): issues #11 and #126 are closed (#11 by PR #242, #126 by PR #282), so none is open from the earlier list. The 40-user tail latency (#205) is a known performance finding without the label. Full list: `gh issue list --label go-live`.
 
 Opened 2026-10-31 and not yet planned into a PR (each has a slot in `issue-plan.md`):
-#559 and #560 (CHECK constraints on `services.status` and `domains.status`, DB1), #561 (drop redundant indexes and
-`jobs_queue_index`, DB2), #566 (medium billing-day renewal rate 4.0/s against 24.8/s), #567 (knowledge base and
-announcement errors at 100 users on medium), #571 (in flight, above). Review follow-ups still open: #540, #541, #542,
+#561 (drop redundant indexes and `jobs_queue_index`, DB2), #566 (part 2 open: the PDF render in the renewal loop),
+#593 (MigrationLint scopes `@compatible` to a whole loop). Review follow-ups still open: #540, #541, #542,
 #544, #546, #557.
 
 ## Scheduled

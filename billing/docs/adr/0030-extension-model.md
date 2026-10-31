@@ -456,3 +456,10 @@ The order below moves no file twice.
 
 Folders inside an extension (`Drivers/`, `Support/`, `Config/`) follow #570 §3.2 once S0 is in `architecture.md`. M1
 moves them as they are; by then M3 has already shrunk them.
+
+## Amendment (#590) — 2026-11-01, notes from M3 for M4
+
+- **Registrations happen once.** Extensions register their drivers once, in `boot()`. A kernel registry that is rebuilt
+  later (`forgetInstance()`) comes back empty of them, and nothing in `app/` does that. M4's catalogue and scope must
+  not rebuild a registry. If one ever must be rebuilt, the catalogue replays the registrations.
+- **Route keys.** The route key pattern of A6 landed in M3: the Billing gateway routes use `DriverRegistry::KEY`.

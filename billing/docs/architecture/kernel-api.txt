@@ -2182,6 +2182,7 @@ App\Support\Install\ReferenceDataRegistry doc method register @param $installer 
 App\Support\Integrations\DriverRegistry abstract class
 App\Support\Integrations\DriverRegistry doc class @template TDriver of IntegrationDriver
 App\Support\Integrations\DriverRegistry const public FAILURE_TTL = 60
+App\Support\Integrations\DriverRegistry const public KEY = '[a-z][a-z0-9_]{0,49}'
 App\Support\Integrations\DriverRegistry property protected Illuminate\Contracts\Container\Container $container
 App\Support\Integrations\DriverRegistry method public __construct(Illuminate\Contracts\Container\Container $container)
 App\Support\Integrations\DriverRegistry method public all(): array
@@ -2307,6 +2308,7 @@ App\Support\Migration\ImportRegistry doc method register @param $importer class-
 App\Support\Migration\ImportRegistry doc method register @param $dependsOn list<string>
 App\Support\Migration\ImportRegistry doc method register @param $after list<string>
 App\Support\MinorUnits final class
+App\Support\MinorUnits const public MAX_DECIMALS = 18
 App\Support\MinorUnits method public static decimals(string $currency): int
 App\Support\MinorUnits method public static fromDecimal(mixed $value, int $decimals): ?int
 App\Support\MinorUnits method public static rescale(int $amount, int $from, int $to): ?int

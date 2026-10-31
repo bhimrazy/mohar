@@ -80,6 +80,7 @@ use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Events\WebhookEvents;
 use App\Support\Install\ReferenceDataRegistry;
+use App\Support\Integrations\DriverRegistry;
 use App\Support\Integrations\StoredSecrets;
 use App\Support\Migration\ImportRegistry;
 use App\Support\Modules\ModuleServiceProvider;
@@ -129,19 +130,27 @@ class BillingServiceProvider extends ModuleServiceProvider
 
         $this->app->singleton(GatewayRegistry::class, fn (): GatewayManager => $this->app->make(GatewayManager::class));
         $this->app->singleton(GatewayManager::class);
-        // The built-in drivers register when the kernel registry is first built, before any extension's boot() can
-        // add to it, so they list first, as they always have.
-        $this->callAfterResolving(GatewayDriverRegistry::class, function (GatewayDriverRegistry $drivers): void {
-            $drivers->register('bank_transfer', BankTransferDriver::class);
-            $drivers->register('manual', ManualDriver::class);
-            if (SandboxCardDriver::enabled()) {
-                $drivers->register(SandboxCardDriver::KEY, SandboxCardDriver::class);
-            }
-        });
+        $this->app->when(GatewayManager::class)->needs(DriverRegistry::class)->give(fn (): GatewayDriverRegistry => $this->app->make(GatewayDriverRegistry::class));
+    }
+
+    /**
+     * Billing's built-in gateway drivers. Billing boots before the gateway extensions (modules boot in name order after
+     * Core), so they list first, as they always have.
+     */
+    public static function registerBuiltInGateways(GatewayDriverRegistry $drivers): void
+    {
+        $drivers->register('bank_transfer', BankTransferDriver::class);
+        $drivers->register('manual', ManualDriver::class);
+
+        if (SandboxCardDriver::enabled()) {
+            $drivers->register(SandboxCardDriver::KEY, SandboxCardDriver::class);
+        }
     }
 
     protected function bootModule(): void
     {
+        self::registerBuiltInGateways($this->app->make(GatewayDriverRegistry::class));
+
         $webhooks = $this->app->make(WebhookEvents::class);
         $webhooks->register(InvoiceCreated::class, 'invoice.created', 'invoice', 'invoiceId');
         $webhooks->register(InvoicePaid::class, 'invoice.paid', 'invoice', 'invoiceId');

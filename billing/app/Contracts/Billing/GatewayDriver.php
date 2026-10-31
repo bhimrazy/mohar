@@ -14,9 +14,10 @@ use App\Data\Integrations\SettingField;
 use Illuminate\Http\Request;
 
 /**
- * Payment gateway driver. Drivers may live in any module (e.g. app/Modules/PaymentsNepal) and register with
- * App\Support\Billing\GatewayDriverRegistry. They receive DTOs only and never touch Billing models. Billing calls a method only when the
- * driver declares the matching capability; extend App\Support\Billing\AbstractGatewayDriver for defaults.
+ * Payment gateway driver. A driver ships in a gateway extension or a package and registers with
+ * App\Support\Billing\GatewayDriverRegistry by key and class. It receives DTOs only and never touches Billing models.
+ * Billing calls a method only when the driver declares the matching capability; extend
+ * App\Support\Billing\AbstractGatewayDriver for defaults.
  */
 interface GatewayDriver extends IntegrationDriver
 {
@@ -42,7 +43,7 @@ interface GatewayDriver extends IntegrationDriver
 
     public const STORED_METHODS = 'stored_methods';
 
-    /** Unique key, [a-z0-9_]{1,50}; also the gateways.key and the callback/return URL segment. */
+    /** Unique key matching DriverRegistry::KEY; also the gateways.key and the callback/return URL segment. */
     public function key(): string;
 
     public function name(): string;
@@ -66,7 +67,7 @@ interface GatewayDriver extends IntegrationDriver
      * Staff-configurable settings, as SettingField (ADR 0009). Secret, SecretText and Certificate values are
      * write-only in the admin UI; a Certificate is a .pfx/.p12 upload whose PEM private key is the setting and whose
      * metadata the driver reads through GatewayConfig::certificate(). The older array shape (`type`, `label`, `help`,
-     * `options`, `required`, `default`) is still read through SettingField::fromArray(), deprecated.
+     * `options`, `required`, `default`) is still read through SettingField::fromArray(): deprecated since 0.2.0, removed in 1.0.0.
      *
      * @return list<SettingField|array{key: string, label: string, type?: string, help?: string, options?: array<string, string>, required?: bool, default?: string|bool}>
      */

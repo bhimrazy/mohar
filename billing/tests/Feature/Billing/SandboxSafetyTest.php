@@ -32,10 +32,11 @@ test('the sandbox gateway is disabled in production unless explicitly forced', f
 
 test('a disabled sandbox is not registered and cannot be activated', function () {
     config(['billing_sandbox.enabled' => false]);
-    // A fresh kernel registry holds only what registers on its creation: Billing's built-in drivers.
+    // Rebuild the registry with Billing's built-ins as its boot registers them under this configuration.
     app()->forgetInstance(GatewayDriverRegistry::class);
     app()->forgetInstance(GatewayManager::class);
     app()->forgetInstance(GatewayRegistry::class);
+    BillingServiceProvider::registerBuiltInGateways(app(GatewayDriverRegistry::class));
 
     expect(app(GatewayRegistry::class)->has(SandboxCardDriver::KEY))->toBeFalse()
         ->and(fn () => app(ConfigureGateway::class)->handle(SandboxCardDriver::KEY, [

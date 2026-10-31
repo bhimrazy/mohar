@@ -136,8 +136,8 @@ Settings, connection checks, logos and log redaction are shared by every driver 
   (`Secret`, `SecretText`, `Certificate`), not a flag. A `Certificate` is a .pfx/.p12 upload read in memory by
   `Support\Integrations\CertificateBundle`; the host keeps the PEM key as the secret, `CertificateInfo` beside it, and
   expiry bookkeeping in Core's `integration_credentials` (ADR 0009 Amendment (#489); only the gateway host takes one
-  so far, the registrar and provisioning registries refuse it). Gateways still return arrays, which Billing reads through
-  `SettingField::fromArray()` until the gateway family is aligned. Every field list sent to the browser is
+  so far, the registrar and provisioning registries refuse it). Gateway drivers return `SettingField` too since ADR 0030 M3;
+  the older array shape is still read, deprecated (`GatewayDriverRegistry::fieldsOf()`). Every field list sent to the browser is
   `SettingField::toArray()`, rendered by `resources/js/components/app/setting-field.tsx`.
 - `Data\Integrations\ConnectionCheck` is the result of any credential test.
 - `Contracts\Integrations\ProvidesLogo` (returning `Data\Integrations\IntegrationLogo`) lets any driver ship a logo.

@@ -9,6 +9,7 @@ use App\Data\Integrations\SettingField;
 use ArrayObject;
 use Closure;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Events\Dispatcher;
 use Illuminate\Http\Client\Events\RequestSending;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -20,7 +21,8 @@ use Throwable;
  * GatewayConformance::assertDriver('<key>') from its own tests once its provider has registered the driver. It checks
  * what Billing relies on without calling the provider: the registration, the declared capabilities against the methods
  * the driver implements, the settings fields and currencies, and a constructor that does no I/O. Each failure throws
- * GatewayConformanceFailure. tests/Feature/Billing/GatewayConformanceTest.php runs it on every bundled driver.
+ * GatewayConformanceFailure. tests/Feature/Billing/GatewayDriverRegistryTest.php runs it on every bundled driver.
+ * For tests only: production code never calls it (tests/Arch/ExtensionsTest.php).
  *
  * @api
  */
@@ -68,6 +70,10 @@ final class GatewayConformance
         /** @var ArrayObject<int, string> $io */
         $io = new ArrayObject;
         $listening = new ArrayObject(['on' => false]);
+        // Put back exactly the listeners that were there, so repeated checks do not pile up listeners. Under
+        // Event::fake() the facade root is a fake that keeps no listeners, and there is nothing to put back.
+        $events = Event::getFacadeRoot();
+        $before = $events instanceof Dispatcher ? $events->getRawListeners() : null;
         DB::listen(function (QueryExecuted $query) use ($io, $listening): void {
             if ($listening['on']) {
                 $io[] = 'query: '.mb_substr($query->sql, 0, 120);
@@ -88,6 +94,17 @@ final class GatewayConformance
             throw new GatewayConformanceFailure("The gateway driver [{$key}] cannot be built: {$exception->getMessage()}", 0, $exception);
         } finally {
             $listening['on'] = false;
+
+            if ($events instanceof Dispatcher) {
+                foreach ([QueryExecuted::class, RequestSending::class] as $event) {
+                    $events->forget($event);
+                    $listeners = $before[$event] ?? [];
+
+                    foreach (is_array($listeners) ? $listeners : [] as $listener) {
+                        $events->listen($event, $listener);
+                    }
+                }
+            }
         }
 
         self::that(count($io) === 0, "Building the gateway driver [{$key}] did I/O (ADR 0012: constructors run no queries or HTTP): ".implode('; ', $io->getArrayCopy()));

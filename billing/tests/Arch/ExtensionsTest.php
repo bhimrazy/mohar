@@ -30,8 +30,25 @@ arch('an extension package uses the kernel only, never a module')
     ->not->toUse('App\Modules');
 
 arch('concrete driver registries are final')
-    ->expect(['App\Support\Services\ProvisioningDriverRegistry', 'App\Support\Domains\RegistrarDriverRegistry'])
+    ->expect(['App\Support\Services\ProvisioningDriverRegistry', 'App\Support\Domains\RegistrarDriverRegistry', 'App\Support\Billing\GatewayDriverRegistry'])
     ->toBeFinal();
+
+test('production code does not call a conformance kit', function () {
+    // ADR 0009 Amendment (#515): kits (App\Support\<Area>\*Conformance) are for tests; ReportsTest guards ReportConformance too.
+    $callers = [];
+
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(dirname(__DIR__, 2).'/app', FilesystemIterator::SKIP_DOTS)) as $file) {
+        if ($file->getExtension() !== 'php' || preg_match('/Conformance(Failure)?\.php$/', $file->getFilename()) === 1) {
+            continue;
+        }
+
+        if (preg_match('/\b\w+Conformance::|^use\s+App\\\\Support\\\\[\w\\\\]+Conformance;/m', (string) file_get_contents($file->getPathname())) === 1) {
+            $callers[] = $file->getPathname();
+        }
+    }
+
+    expect($callers)->toBe([]);
+});
 
 /**
  * What a record importer may not use (client-import spec §9, AC 2; invoice-domain-import spec AC 2): it writes
@@ -47,7 +64,7 @@ function importerForbidden(): array
         'Illuminate\Contracts\Mail', 'Illuminate\Contracts\Notifications', 'Illuminate\Http\Client', 'Illuminate\Support\Facades\Http',
         'Illuminate\Support\Facades\Event', 'Illuminate\Support\Facades\Bus', 'Illuminate\Support\Facades\Queue', 'Illuminate\Support\Facades\Mail', 'Illuminate\Support\Facades\Notification', 'App\Contracts\Notifications\SystemMailer',
         'App\Contracts\Auth\AuthMailer', 'App\Contracts\Integrations\IntegrationDriver', 'App\Contracts\Services\Provisioning',
-        'App\Contracts\Billing\GatewayDriver', 'App\Contracts\Billing\HostedPaymentDriver', 'App\Contracts\Billing\GatewayRegistry', 'App\Support\Billing\GatewayDriverRegistry', 'App\Support\Services\ProvisioningDriverRegistry',
+        'App\Contracts\Billing\GatewayDriver', 'App\Contracts\Billing\HostedPaymentDriver', 'App\Contracts\Billing\GatewayRegistry', 'App\Support\Billing\GatewayDriverRegistry', 'App\Support\Billing\GatewayHttp', 'App\Support\Services\ProvisioningDriverRegistry',
         'App\Contracts\Domains\Registrar', 'App\Support\Domains\RegistrarDriverRegistry', 'App\Support\Integrations\DriverRegistry',
         ...array_map(fn (string $area): string => 'App\\Events\\'.basename($area), array_filter(glob($app.'/Events/*', GLOB_ONLYDIR) ?: [], fn (string $area): bool => basename($area) !== 'Migration')),
         // No GLOB_BRACE: musl builds do not define it.
@@ -76,6 +93,7 @@ test('every arch target in this file matches at least one class', function () us
             'App\Contracts\Domains\Registrar', 'App\Data\Domains\Registrar', 'App\Modules\Domains\Drivers\Registrars', 'App\Modules\Services\Drivers\Provisioning', 'Tests\Fixtures\Extensions', ...$importerNamespaces,
             // Single-class targets: a rename would otherwise leave the rule checking nothing.
             'App\Support\Services\ProvisioningDriverRegistry', 'App\Support\Domains\RegistrarDriverRegistry', 'App\Support\Integrations\DriverRegistry',
+            'App\Support\Billing\GatewayDriverRegistry', 'App\Support\Billing\GatewayHttp',
         ]))->toBe([]);
 });
 

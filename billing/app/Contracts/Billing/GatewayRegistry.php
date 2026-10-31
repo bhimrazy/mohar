@@ -13,8 +13,8 @@ use LogicException;
 interface GatewayRegistry
 {
     /**
-     * @deprecated since kernel 0.x M3: use GatewayDriverRegistry::register($key, $class). Needs Billing to be loaded,
-     * and replaces a key registered before.
+     * @deprecated since 0.2.0, removed in 1.0.0; use GatewayDriverRegistry::register($key, $class). Needs Billing to
+     * be loaded, and replaces a key registered before.
      *
      * @throws LogicException when the key is not 1 to 50 of [a-z0-9_], or is reserved (`import`, #263)
      */
