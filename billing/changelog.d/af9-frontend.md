@@ -7,3 +7,4 @@
 ### Fixed
 
 - A card tokenising request that fails on the network now clears the processing state instead of leaving the form stuck.
+- A card form whose request fails now says why next to the card (no connection, session expired, too many attempts, server error) and the button re-enables; before, it showed nothing.
