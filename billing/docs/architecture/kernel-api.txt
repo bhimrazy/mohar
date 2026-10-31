@@ -102,7 +102,7 @@ App\Contracts\Branding\BrandProvider method logoDataUri(bool $dark = false): ?st
 App\Contracts\Catalog\PriceBook interface
 App\Contracts\Catalog\PriceBook method addonQuote(int $addonId, App\Enums\BillingCycle $cycle, string $currency): ?App\Data\Catalog\PriceQuote
 App\Contracts\Catalog\PriceBook method addonsFor(int $productId, string $currency): array
-App\Contracts\Catalog\PriceBook doc method addonsFor @return list<array{id: int, name: string, description: ?string, pricing: list<array{cycle: string, recurring: int, setup: int}>}>
+App\Contracts\Catalog\PriceBook doc method addonsFor @return list<array{id: int, name: string, description: ?string, prorata_with_parent?: bool, pricing: list<array{cycle: string, recurring: int, setup: int}>}>
 App\Contracts\Catalog\PriceBook method availableCycles(int $productId, string $currency): array
 App\Contracts\Catalog\PriceBook doc method availableCycles @return list<BillingCycle>
 App\Contracts\Catalog\PriceBook method canUpgrade(int $fromProductId, int $toProductId): bool
@@ -1087,13 +1087,14 @@ App\Data\Reports\ReportQuery doc method resolve @param $filters array<string, mi
 App\Data\Reports\ReportQuery method public unpaged(): self
 App\Data\Services\AddonDraft final readonly class
 App\Data\Services\AddonDraft property public readonly int $addonId
+App\Data\Services\AddonDraft property public readonly ?int $billingAnchorDay
 App\Data\Services\AddonDraft property public readonly App\Enums\BillingCycle $cycle
 App\Data\Services\AddonDraft property public readonly Carbon\CarbonImmutable $nextDueDate
 App\Data\Services\AddonDraft property public readonly ?int $orderId
 App\Data\Services\AddonDraft property public readonly int $recurringAmount
 App\Data\Services\AddonDraft property public readonly int $serviceId
 App\Data\Services\AddonDraft property public readonly int $setupFee
-App\Data\Services\AddonDraft method public __construct(int $serviceId, int $addonId, App\Enums\BillingCycle $cycle, int $recurringAmount, int $setupFee, Carbon\CarbonImmutable $nextDueDate, ?int $orderId = null)
+App\Data\Services\AddonDraft method public __construct(int $serviceId, int $addonId, App\Enums\BillingCycle $cycle, int $recurringAmount, int $setupFee, Carbon\CarbonImmutable $nextDueDate, ?int $orderId = null, ?int $billingAnchorDay = null)
 App\Data\Services\ProvisionResult final readonly class
 App\Data\Services\ProvisionResult property public readonly ?string $message
 App\Data\Services\ProvisionResult property public readonly bool $pending
@@ -1261,6 +1262,7 @@ App\Data\Services\RemoteOptions doc method __construct @param $options array<str
 App\Data\Services\RemoteOptions doc method __construct @param $missingOn array<string, array<int, string>>
 App\Data\Services\RemoteOptions doc method __construct @param $unreachable array<int, string>
 App\Data\Services\ServiceDraft final readonly class
+App\Data\Services\ServiceDraft property public readonly ?int $billingAnchorDay
 App\Data\Services\ServiceDraft property public readonly int $clientId
 App\Data\Services\ServiceDraft property public readonly array $configOptions
 App\Data\Services\ServiceDraft property public readonly string $currency
@@ -1275,7 +1277,7 @@ App\Data\Services\ServiceDraft property public readonly ?int $promotionCyclesRem
 App\Data\Services\ServiceDraft property public readonly ?int $promotionId
 App\Data\Services\ServiceDraft property public readonly int $recurringAmount
 App\Data\Services\ServiceDraft property public readonly int $renewalDiscount
-App\Data\Services\ServiceDraft method public __construct(int $clientId, int $productId, App\Enums\BillingCycle $cycle, string $currency, int $recurringAmount, int $firstPaymentAmount, Carbon\CarbonImmutable $nextDueDate, ?int $orderId = null, ?string $domain = null, array $configOptions = [], array $customFields = [], ?int $promotionId = null, ?int $promotionCyclesRemaining = null, int $renewalDiscount = 0)
+App\Data\Services\ServiceDraft method public __construct(int $clientId, int $productId, App\Enums\BillingCycle $cycle, string $currency, int $recurringAmount, int $firstPaymentAmount, Carbon\CarbonImmutable $nextDueDate, ?int $orderId = null, ?string $domain = null, array $configOptions = [], array $customFields = [], ?int $promotionId = null, ?int $promotionCyclesRemaining = null, int $renewalDiscount = 0, ?int $billingAnchorDay = null)
 App\Data\Services\ServiceDraft doc method __construct @param $configOptions array<int, int>
 App\Data\Services\ServiceDraft doc method __construct @param $customFields array<int, mixed>
 App\Enums\BillableType enum: string

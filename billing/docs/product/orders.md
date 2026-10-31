@@ -89,7 +89,7 @@ stateDiagram-v2
 
 ## 5. Totals & promotions — rules (MUST unless tagged)
 
-- Per item: `base_first = quote.recurring` (or prorata partial, catalog.md §3.4), `setup = quote.setup`.
+- Per item: `base_first = quote.recurring`, or the prorata first amount when the product uses prorata (catalog.md §3.4; an addon with `prorata_with_parent` follows its parent), `setup = quote.setup`. The invoice line's period is the first period, `[today, first_period_end)`.
 - Promotion eligibility (all must hold): code exists and not manually expired; `today ∈ [starts_on, expires_on]` evaluated in **company timezone**, expiry inclusive to 23:59:59; `max_uses = 0 or uses < max_uses`; client constraints (`new_clients_only` = client has no prior non-cancelled orders; `existing_clients_only` = ≥1 active service; `once_per_client` = no unreleased redemption by this client); `requires` items present in cart (or owned, if `requires_existing_ok`); cart subtotal ≥ `min_cart_amount` (converted to cart currency).
 - Applicable items: item matches `applies_to` and its cycle ∈ `cycles` (if set). `apply_once` ⇒ only the single most expensive applicable item gets the discount.
 - Discount per applicable item:
