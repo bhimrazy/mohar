@@ -12,7 +12,6 @@ use App\Modules\Notifications\Data\EmailRequest;
 use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Support\MailDates;
-use App\Modules\Notifications\Support\SecretTemplatePolicy;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Support\Facades\Log;

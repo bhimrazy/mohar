@@ -6,7 +6,7 @@ use App\Modules\Notifications\Enums\TemplateType;
 use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Rendering\TemplateEngine;
 use App\Modules\Notifications\Rendering\TemplateSyntaxError;
-use App\Modules\Notifications\Support\SecretTemplatePolicy;
+use App\Modules\Notifications\Services\SecretTemplatePolicy;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;

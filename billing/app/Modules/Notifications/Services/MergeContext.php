@@ -7,8 +7,8 @@ use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Data\Recipient;
+use App\Modules\Notifications\Settings\SupportAddresses;
 use App\Modules\Notifications\Support\MailDates;
-use App\Modules\Notifications\Support\SupportAddresses;
 use Illuminate\Support\Facades\Route;
 use Throwable;
 

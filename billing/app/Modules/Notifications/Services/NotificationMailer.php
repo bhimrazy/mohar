@@ -18,7 +18,7 @@ use App\Modules\Notifications\Jobs\SendEmailMessage;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Rendering\TemplateSyntaxError;
-use App\Modules\Notifications\Support\SupportAddresses;
+use App\Modules\Notifications\Settings\SupportAddresses;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 

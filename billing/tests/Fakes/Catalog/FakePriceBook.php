@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests\Fakes\Orders;
+namespace Tests\Fakes\Catalog;
 
 use App\Contracts\Catalog\PriceBook;
 use App\Data\Catalog\PriceQuote;
@@ -10,11 +10,29 @@ use App\Enums\BillingCycle;
 use Tests\Fakes\Concerns\FakesModuleInputs;
 
 /**
- * Configurable in-memory catalog. Prices are minor units in every currency (no conversion).
+ * Configurable in-memory catalog shared by the Orders and Services tests. Prices are minor units in every currency (no
+ * conversion). Orders builds it with `anyUpgrade: true, driver: 'demo', type: 'shared_hosting', requiresDomain: false`;
+ * Services uses the defaults, where an upgrade needs an explicit allowUpgrade() path.
  */
 class FakePriceBook implements PriceBook
 {
     use FakesModuleInputs;
+
+    /** @var list<array{0: int, 1: int}> */
+    public array $upgradePaths = [];
+
+    /** @var array<int, string> addon id => name, offered for every product */
+    public array $addonNames = [];
+
+    /** @var list<ProductSelection> */
+    public array $quotedSelections = [];
+
+    public function __construct(
+        private readonly bool $anyUpgrade = false,
+        private readonly string $driver = 'log',
+        private readonly string $type = 'hosting',
+        private readonly bool $requiresDomain = true,
+    ) {}
 
     /** @var array<int, ProductSummary> */
     public array $products = [];
@@ -44,7 +62,8 @@ class FakePriceBook implements PriceBook
     public array $quotedFor = [];
 
     /**
-     * @param  array<string, array{0: int, 1: int}>  $pricing  cycle => [recurring, setup]
+     * @param  array<string, int|array{0: int, 1: int}>  $pricing  cycle => recurring, or [recurring, setup]
+     * @param  array<string, mixed>  $driverConfig
      * @param  'order'|'payment'|'accept'|'manual'  $autoSetup
      * @param  list<string>|null  $allowedGateways
      * @param  list<string>  $freeDomainTlds
@@ -55,7 +74,7 @@ class FakePriceBook implements PriceBook
         string $name = 'Starter Hosting',
         array $pricing = ['monthly' => [1000, 0]],
         string $autoSetup = 'payment',
-        bool $requiresDomain = false,
+        ?bool $requiresDomain = null,
         ?int $stock = null,
         bool $taxable = true,
         bool $active = true,
@@ -64,15 +83,27 @@ class FakePriceBook implements PriceBook
         array $freeDomainTlds = [],
         array $freeDomainCycles = [],
         bool $freeDomainRecurring = false,
+        ?string $driver = null,
+        ?int $serverGroupId = null,
+        array $driverConfig = [],
+        ?int $suspendAfterDays = null,
+        ?int $terminateAfterDays = null,
+        ?int $recurringCycleLimit = null,
     ): self {
         $this->products[$id] = new ProductSummary(
-            $id, $name, 'Hosting', 'shared_hosting', 'demo', null, [], $autoSetup, null, $requiresDomain, $taxable, $stock, $active,
+            $id, $name, 'Hosting', $this->type, $driver ?? $this->driver, $serverGroupId, $driverConfig, $autoSetup, null, $requiresDomain ?? $this->requiresDomain, $taxable, $stock, $active,
+            suspendAfterDays: $suspendAfterDays, terminateAfterDays: $terminateAfterDays, recurringCycleLimit: $recurringCycleLimit,
             freeDomain: $freeDomain, freeDomainTlds: $freeDomainTlds, freeDomainCycles: $freeDomainCycles, freeDomainRecurring: $freeDomainRecurring,
             slug: 'product-'.$id, allowedGateways: $allowedGateways, groupSlug: 'hosting',
         );
-        $this->prices[$id] = $pricing;
+        $this->prices[$id] = array_map(fn (int|array $price): array => is_int($price) ? [$price, 0] : $price, $pricing);
 
         return $this;
+    }
+
+    public function allowUpgrade(int $from, int $to): void
+    {
+        $this->upgradePaths[] = [$from, $to];
     }
 
     /**
@@ -104,6 +135,7 @@ class FakePriceBook implements PriceBook
     public function quote(ProductSelection $selection): ?PriceQuote
     {
         $this->quotedFor[] = $selection->clientId;
+        $this->quotedSelections[] = $selection;
         $price = $this->prices[$selection->productId][$selection->cycle->value] ?? null;
 
         if ($price === null) {
@@ -143,7 +175,7 @@ class FakePriceBook implements PriceBook
 
     public function canUpgrade(int $fromProductId, int $toProductId): bool
     {
-        return true;
+        return $this->anyUpgrade || in_array([$fromProductId, $toProductId], $this->upgradePaths, true);
     }
 
     public function storefront(string $currency): array
@@ -173,12 +205,14 @@ class FakePriceBook implements PriceBook
 
     public function addonsFor(int $productId, string $currency): array
     {
-        return array_map(fn (int $addonId): array => [
+        $named = array_values(array_map(fn (int $id, string $name): array => ['id' => $id, 'name' => $name, 'description' => null, 'pricing' => []], array_keys($this->addonNames), $this->addonNames));
+
+        return [...array_map(fn (int $addonId): array => [
             'id' => $addonId,
             'name' => $this->addons[$addonId]['name'],
             'description' => null,
             'pricing' => array_map(fn (string $cycle, array $price): array => ['cycle' => $cycle, 'recurring' => $price[0], 'setup' => $price[1]], array_keys($this->addons[$addonId]['pricing']), $this->addons[$addonId]['pricing']),
-        ], $this->productAddons[$productId] ?? []);
+        ], $this->productAddons[$productId] ?? []), ...$named];
     }
 
     public function customFieldsFor(int $productId): array

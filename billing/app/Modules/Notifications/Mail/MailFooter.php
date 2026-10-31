@@ -4,7 +4,7 @@ namespace App\Modules\Notifications\Mail;
 
 use App\Contracts\Branding\BrandProvider;
 use App\Modules\Core\Support\Settings;
-use App\Modules\Notifications\Support\SupportAddresses;
+use App\Modules\Notifications\Settings\SupportAddresses;
 use Illuminate\Support\Facades\Route;
 
 /**

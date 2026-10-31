@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Orders\Support;
+namespace App\Modules\Orders\Queries;
 
 use App\Contracts\Catalog\PriceBook;
 use App\Contracts\Core\CompanyClock;

@@ -14,6 +14,17 @@ const ALLOWED_MODULE_FOLDERS = [
 ];
 
 /**
+ * Sub-domains: a folder that is the module's own bounded piece of logic and does not fit one building block
+ * (docs/architecture.md → "Sub-domains"). Key: "Module/Folder". Value: what it is. Each needs a row in that table.
+ */
+const SANCTIONED_SUBDOMAINS = [
+    'Orders/Fraud' => 'order fraud screening: the checker contract, its built-in checkers and the assessment value objects',
+    'Orders/Pricing' => 'cart pricing: the pricer, promotion rules and the priced-cart value objects',
+    'Notifications/Rendering' => 'the template engine: parser, renderer and the result and error types',
+    'Notifications/Webhooks' => 'outbound webhook delivery: URL guard, host resolver, signer, sender and publisher',
+];
+
+/**
  * Folders that exist today and are not in the list above. The baseline only shrinks: the PR that moves or
  * documents a folder deletes its line, and a line for a folder that no longer exists fails the stale check.
  * Key: "Module/Folder". Value: the PR in docs/handoff/issue-plan.md (code structure review, §6) that resolves it.
@@ -26,12 +37,6 @@ const MODULE_FOLDER_BASELINE = [
     'Core/Import' => 'S8',
     'Core/Notifications' => 'S8',
     'Core/Security' => 'S8',
-    // TODO(S3): Notifications sub-domains (template engine, webhook delivery).
-    'Notifications/Rendering' => 'S3',
-    'Notifications/Webhooks' => 'S3',
-    // TODO(S3): Orders sub-domains (fraud screening, cart pricing).
-    'Orders/Fraud' => 'S3',
-    'Orders/Pricing' => 'S3',
     // TODO(S3): Laravel notification classes move to Mail/.
     'Platform/Notifications' => 'S3',
 ];
@@ -56,7 +61,8 @@ test('every module folder is allowed or baselined', function () {
     $unknown = array_values(array_filter(
         moduleFolders(),
         fn (string $path): bool => ! in_array(explode('/', $path)[1], ALLOWED_MODULE_FOLDERS, true)
-            && ! array_key_exists($path, MODULE_FOLDER_BASELINE),
+            && ! array_key_exists($path, MODULE_FOLDER_BASELINE)
+            && ! array_key_exists($path, SANCTIONED_SUBDOMAINS),
     ));
 
     expect($unknown)->toBe([], 'Unknown module folders: add them to architecture.md and ALLOWED_MODULE_FOLDERS, or move the files.');
@@ -71,6 +77,16 @@ test('the folder baseline only shrinks', function () {
     ));
 
     expect($stale)->toBe([], 'Delete these lines from MODULE_FOLDER_BASELINE: the folder is gone or now allowed.');
+});
+
+test('every sanctioned sub-domain exists and is documented', function () {
+    $doc = (string) file_get_contents(dirname(__DIR__, 2).'/docs/architecture.md');
+    $problems = array_values(array_filter(
+        array_keys(SANCTIONED_SUBDOMAINS),
+        fn (string $path): bool => ! in_array($path, moduleFolders(), true) || ! str_contains($doc, "`{$path}/`"),
+    ));
+
+    expect($problems)->toBe([], 'Remove the entry or add its row to the Sub-domains table in architecture.md.');
 });
 
 test('the allowed folders are the ones architecture.md lists', function () {

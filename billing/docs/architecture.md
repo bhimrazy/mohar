@@ -69,6 +69,25 @@ the baseline only shrinks.
 | `Resources/`  | files that are not PHP classes: Blade views for PDFs and mail, data files such as theme presets                                                                                                                                  | none                                                | PHP classes                                                                                                                |
 | `routes/`     | `web.php`, `api.php`                                                                                                                                                                                                             | controllers                                         | logic                                                                                                                      |
 
+A `Boot/` split is proven by a registry snapshot: `tests/Support/Registries/RegistrySnapshot` records what a module put
+into the kernel registries, listeners, rate limiters and web middleware after boot, and
+`tests/Feature/Registries/<Module>RegistrySnapshotTest.php` compares it with a committed fixture. A provider refactor
+keeps the fixture byte-for-byte; a deliberate registry change regenerates it with `UPDATE_REGISTRY_SNAPSHOT=1`.
+
+#### Sub-domains
+
+A module may keep a folder of its own beyond the table when it is a bounded piece of logic with several
+collaborating classes that no single building block describes. Each is named here and in `SANCTIONED_SUBDOMAINS` in
+`tests/Arch/ModuleFoldersTest.php`; the rules for classes inside it are the ones for their kind (value objects stay
+free of the container, hosts that touch models are Services). An undocumented folder still fails the test.
+
+| Sub-domain                 | Holds                                                                                         |
+| -------------------------- | --------------------------------------------------------------------------------------------- |
+| `Orders/Fraud/`            | order fraud screening: the checker contract, the built-in checkers and the assessment objects |
+| `Orders/Pricing/`          | cart pricing: the pricer, promotion eligibility and calculation, priced-cart value objects    |
+| `Notifications/Rendering/` | the template engine: parser, renderer, result and syntax-error types                          |
+| `Notifications/Webhooks/`  | outbound webhook delivery: URL guard, host resolver, signer, sender and publisher             |
+
 Naming:
 
 - Actions are verb phrases: `ApplyPayment`, `IssueInvoice`.
