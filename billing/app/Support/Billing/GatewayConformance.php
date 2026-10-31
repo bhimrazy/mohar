@@ -70,9 +70,10 @@ final class GatewayConformance
         /** @var ArrayObject<int, string> $io */
         $io = new ArrayObject;
         $listening = new ArrayObject(['on' => false]);
-        $events = app('events');
-        // Put back exactly the listeners that were there, so repeated checks do not pile up listeners.
-        $before = $events instanceof Dispatcher ? array_intersect_key($events->getRawListeners(), array_flip([QueryExecuted::class, RequestSending::class])) : null;
+        // Put back exactly the listeners that were there, so repeated checks do not pile up listeners. Under
+        // Event::fake() the facade root is a fake that keeps no listeners, and there is nothing to put back.
+        $events = Event::getFacadeRoot();
+        $before = $events instanceof Dispatcher ? $events->getRawListeners() : null;
         DB::listen(function (QueryExecuted $query) use ($io, $listening): void {
             if ($listening['on']) {
                 $io[] = 'query: '.mb_substr($query->sql, 0, 120);
@@ -94,11 +95,12 @@ final class GatewayConformance
         } finally {
             $listening['on'] = false;
 
-            if ($before !== null && $events instanceof Dispatcher) {
+            if ($events instanceof Dispatcher) {
                 foreach ([QueryExecuted::class, RequestSending::class] as $event) {
                     $events->forget($event);
+                    $listeners = $before[$event] ?? [];
 
-                    foreach ($before[$event] ?? [] as $listener) {
+                    foreach (is_array($listeners) ? $listeners : [] as $listener) {
                         $events->listen($event, $listener);
                     }
                 }
