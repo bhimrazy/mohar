@@ -100,13 +100,15 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
-     * An outbound request no Http::fake() answers throws instead of leaving the machine. Only a test that talks to a
-     * real local process opts out: the simulator harness (tests/Simulators) overrides this to return true. Do not
-     * override it to silence a failing test; fake the request.
+     * An outbound request no Http::fake() answers throws instead of leaving the machine. Only tests that talk to real
+     * local processes opt out: the simulator harness (tests/Simulators, which overrides this) and the simulators' own
+     * suite (tools/simulators/tests). Do not opt out to silence a failing test; fake the request.
      */
     protected function allowsStrayHttp(): bool
     {
-        return false;
+        $file = str_replace('\\', '/', property_exists(static::class, '__filename') ? (string) static::$__filename : '');
+
+        return str_contains($file, '/tools/simulators/tests/');
     }
 
     /**

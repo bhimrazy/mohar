@@ -29,7 +29,7 @@ beforeEach(function () {
         $this->markTestSkipped('openssl is not installed.');
     }
 
-    // The one real request of the file: the pinned address is a local openssl server (TestCase::allowsStrayHttp()).
+    // The one real request of the file: the pinned address is a local openssl server.
     Http::allowStrayRequests(['https://'.Whm::HOST.':*']);
     config(['integrations.outbound.allow_loopback' => true]);
     Whm::bindGuard('127.0.0.1');

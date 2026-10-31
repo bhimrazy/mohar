@@ -100,8 +100,9 @@ trait or runs a query (`tests/Unit/TestHarness/DatabaseFreeSuiteGuardTest.php`);
 **Test hygiene guards.**
 
 - `tests/TestCase` calls `Http::preventStrayRequests()` in `setUp()`: a request no `Http::fake()` answers throws. Fake it in the
-  test. The one opt-out is `allowsStrayHttp()`, which the simulator harness (`tests/Simulators/SimulatorHarness`, real local
-  processes) overrides to return true; a test that merely fails the guard is not a reason to use it.
+  test. The only opt-outs are `allowsStrayHttp()`: true for the simulators' own suite (`tools/simulators/tests`) and overridden to true by the
+  simulator harness (`tests/Simulators/SimulatorHarness`); both talk to real local processes; a test that merely fails the guard is not a reason to use it. A test that sends one real request
+  to a local listener allows just that URL with `Http::allowStrayRequests(['https://host:*'])`.
 - Performance tests of the redactor assert a complexity budget, not a duration: the CPU time at one size against the CPU time at a
   smaller size (`RedactorTiming::bestCpuPair`), plus peak memory. A fixed number of seconds fails on a loaded machine.
 - Test file names (`tests/Arch/TestNamingTest.php`): a new test file may not start with `Pr<digits>` or contain `Round<digit>`;
