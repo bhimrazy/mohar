@@ -6,7 +6,6 @@
 | statement runs in a savepoint, so the PostgreSQL test transaction stays usable for the check after it.
 */
 
-use App\Modules\Billing\Models\Invoice;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 

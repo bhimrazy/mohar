@@ -92,7 +92,7 @@ class TaxRuleController extends Controller
 
         if ($used > 0) {
             Inertia::flash('toast', ['type' => 'error', 'message' => trans_choice(
-                '{1} This rule was used to calculate an invoice, so it can\'t be deleted: the invoice keeps it as the record of its tax.|[2,*] This rule was used to calculate :count invoices, so it can\'t be deleted: the invoices keep it as the record of their tax.',
+                '{1} This rule was used to calculate an invoice, so it can\'t be deleted: the invoice keeps it as the record of its tax. To stop it applying to new invoices, add a rule for the same place with a higher priority or a later effective date.|[2,*] This rule was used to calculate :count invoices, so it can\'t be deleted: the invoices keep it as the record of their tax. To stop it applying to new invoices, add a rule for the same place with a higher priority or a later effective date.',
                 $used,
             )]);
 
