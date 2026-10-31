@@ -305,6 +305,8 @@ decisions (Q1-Q7) stand. This amendment changes how the design is built. Where i
         - `SettlePaymentAttempt` and `PaymentReconciler` (`billing:reconcile-payments`, `billing.payment_reconciliation`);
         - `SettledRefundCheck` (`billing.gateway_refund_check`);
         - refund lookups (`LooksUpRefunds`);
+        - a refund staff start on an inactive gateway (`RefundTransaction`), because returning money settles an
+          existing payment. It has no `is_active` check (#575);
         - `CancelsHostedPayment` for an open session.
     - **Services:**
         - `VerifyUnknownOutcomes` (`ReconcilesCommands`), which moves from `has()` (`:110`) to `get()`;

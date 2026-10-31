@@ -204,7 +204,7 @@ export function SettingFieldInput({
                 secretStored && secretShort
                     ? shortSecretHint(field.min_length)
                     : secretStored
-                      ? 'Stored encrypted. Leave blank to keep it.'
+                      ? 'Stored encrypted. Leave blank to keep it, or enter a new value to replace it.'
                       : (field.help ?? undefined)
             }
             error={shown}

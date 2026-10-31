@@ -26,7 +26,7 @@ use ReflectionProperty;
 use Throwable;
 
 /**
- * The only way to call a registrar driver: refuses disabled registrars and unsupported capabilities,
+ * The only way to call a registrar driver: refuses new work on disabled registrars, and unsupported capabilities,
  * times the call and writes registrar_command_log with secrets redacted and responses truncated.
  *
  * Error text a driver raises is masked (secret pairs by name, and the account's own configured credentials by value)
@@ -45,6 +45,12 @@ class RegistrarGateway
 
     /** Commands that change state at the registry and must never be blindly repeated. */
     public const MUTATING = ['register', 'transfer', 'renew', 'restore'];
+
+    /**
+     * Commands that only read or verify what the registrar already holds. They keep running for a disabled account
+     * (ADR 0030 A1), so a command in flight when staff switch it off is still reconciled and synced.
+     */
+    public const SETTLEMENT = [RegistrarDriverRegistry::RECONCILE, RegistrarDriverRegistry::INFO, RegistrarDriverRegistry::SYNC, RegistrarDriverRegistry::TRANSFER_SYNC];
 
     public function __construct(private RegistrarDriverRegistry $drivers, private RegistrarManager $accounts, private Redactor $redactor) {}
 
@@ -69,7 +75,9 @@ class RegistrarGateway
     {
         $account = $this->accounts->account($registrarKey);
 
-        if (! $this->accounts->isActiveFor($registrarKey, $account)) {
+        $settling = $account !== null && in_array($capability, self::SETTLEMENT, true) && $this->drivers->has($registrarKey);
+
+        if (! $settling && ! $this->accounts->isActiveFor($registrarKey, $account)) {
             $name = $this->drivers->get($registrarKey)->name();
 
             throw new RegistrarException($account !== null
