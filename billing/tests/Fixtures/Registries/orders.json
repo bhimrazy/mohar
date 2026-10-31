@@ -231,7 +231,7 @@
             "order": 10,
             "permission": "orders.orders.view",
             "activePattern": "admin.orders.*",
-            "badge": "Closure(App\\Models\\User $user)"
+            "badge": "Closure(App\\Models\\User $user) #e2739e091c96"
         },
         "items/admin/admin.promotions.index": {
             "class": "App\\Support\\Navigation\\NavItem",
@@ -303,7 +303,7 @@
     "search": {
         "providers/orders.orders.view": {
             "group": "Orders",
-            "resolver": "Closure(string $term)",
+            "resolver": "Closure(string $term) #e0c55da195b0",
             "permission": "orders.orders.view"
         }
     },
@@ -332,13 +332,13 @@
     "automation": {
         "tasks/orders.cancel_stale_pending": {
             "stage": 50,
-            "handler": "Closure(Carbon\\CarbonImmutable $today)",
+            "handler": "Closure(Carbon\\CarbonImmutable $today) #88e8a13a21ff",
             "label": "Cancel stale unpaid orders",
             "description": "Cancels pending orders whose invoice is still unpaid after the configured number of days."
         },
         "tasks/orders.prune_carts": {
             "stage": 90,
-            "handler": "Closure(App\\Support\\CalendarDate $today)",
+            "handler": "Closure(App\\Support\\CalendarDate $today) #c40026b069f4",
             "label": "Delete expired carts",
             "description": "Removes shopping carts past their expiry."
         },
@@ -354,7 +354,7 @@
             "size": "sm",
             "deferred": false,
             "mirrorsTodo": true,
-            "resolver": "Closure(App\\Models\\User $user)",
+            "resolver": "Closure(App\\Models\\User $user) #06c10886ba89",
             "permission": "orders.orders.view",
             "order": 20
         },
@@ -364,7 +364,7 @@
             "size": "sm",
             "deferred": false,
             "mirrorsTodo": false,
-            "resolver": "Closure(App\\Models\\User $user)",
+            "resolver": "Closure(App\\Models\\User $user) #e0dc77e3dc70",
             "permission": "orders.orders.view",
             "order": 21
         },
@@ -374,7 +374,7 @@
             "size": "md",
             "deferred": false,
             "mirrorsTodo": false,
-            "resolver": "Closure(App\\Models\\User $user)",
+            "resolver": "Closure(App\\Models\\User $user) #7c572d9018ea",
             "permission": "orders.orders.view",
             "order": 50
         },
@@ -384,31 +384,31 @@
             "size": "md",
             "deferred": true,
             "mirrorsTodo": false,
-            "resolver": "Closure(App\\Models\\User $user)",
+            "resolver": "Closure(App\\Models\\User $user) #bf5d643a7231",
             "permission": "orders.orders.view",
             "order": 30
         },
         "todos/admin/orders.pending": {
             "key": "orders.pending",
-            "resolver": "Closure(App\\Models\\User $user)",
+            "resolver": "Closure(App\\Models\\User $user) #9ebb8f506288",
             "permission": "orders.orders.view",
             "order": 10
         },
         "todos/admin/orders.fraud": {
             "key": "orders.fraud",
-            "resolver": "Closure(App\\Models\\User $user)",
+            "resolver": "Closure(App\\Models\\User $user) #1a4437ad98d9",
             "permission": "orders.orders.view",
             "order": 11
         }
     },
     "sitemap": {
-        "sources/orders": "Closure()"
+        "sources/orders": "Closure() #aa79e61b56a7"
     },
     "currency_usage": {
-        "sources/orders": "Closure(array $clientIds)"
+        "sources/orders": "Closure(array $clientIds) #772a3b70dbc6"
     },
     "merge_fields": {
-        "resolvers/order": "Closure(int $id)"
+        "resolvers/order": "Closure(int $id) #3293f2ef51b3"
     },
     "reference_data": [],
     "encrypted_storage": [],

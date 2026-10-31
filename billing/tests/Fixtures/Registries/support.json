@@ -49,7 +49,7 @@
             "label": "Statuses that auto-close",
             "type": "multiselect",
             "help": "Idle tickets in these statuses are closed after the hours above.",
-            "options": "Closure()",
+            "options": "Closure() #1f7ce0310a84",
             "rules": [],
             "secret": false
         },
@@ -59,7 +59,7 @@
             "label": "Statuses awaiting a staff reply",
             "type": "multiselect",
             "help": "Tickets in these statuses count as waiting for staff.",
-            "options": "Closure()",
+            "options": "Closure() #1f7ce0310a84",
             "rules": [],
             "secret": false
         },
@@ -179,7 +179,7 @@
             "label": "Default department for unknown addresses",
             "type": "select",
             "help": "Email sent to an address no department uses opens a ticket here.",
-            "options": "Closure()",
+            "options": "Closure() #f56d5575186a",
             "rules": [],
             "secret": false
         },
@@ -228,7 +228,7 @@
             "order": 10,
             "permission": "support.tickets.view",
             "activePattern": "admin.support.tickets.*",
-            "badge": "Closure(App\\Models\\User $user)"
+            "badge": "Closure(App\\Models\\User $user) #ed2233525371"
         },
         "items/admin/admin.support.departments.index": {
             "class": "App\\Support\\Navigation\\NavItem",
@@ -366,12 +366,12 @@
     "search": {
         "providers/support.tickets.view": {
             "group": "Tickets",
-            "resolver": "Closure(string $term)",
+            "resolver": "Closure(string $term) #256d4fd7c8f6",
             "permission": "support.tickets.view"
         },
         "providers/support.kb.manage": {
             "group": "Knowledge base",
-            "resolver": "Closure(string $term)",
+            "resolver": "Closure(string $term) #dc80fc5ae4cb",
             "permission": "support.kb.manage"
         }
     },
@@ -395,19 +395,19 @@
     "automation": {
         "tasks/support.auto_close": {
             "stage": 90,
-            "handler": "Closure(App\\Support\\CalendarDate $today)",
+            "handler": "Closure(App\\Support\\CalendarDate $today) #d63af181df0d",
             "label": "Close idle tickets",
             "description": "Closes tickets that have waited on the customer longer than the auto-close period."
         },
         "tasks/support.purge_inbound_raw": {
             "stage": 90,
-            "handler": "Closure(App\\Support\\CalendarDate $today)",
+            "handler": "Closure(App\\Support\\CalendarDate $today) #9f206f04eabb",
             "label": "Purge raw inbound emails",
             "description": "Deletes stored raw inbound email payloads older than the retention period."
         },
         "tasks/support.prune_attachments": {
             "stage": 90,
-            "handler": "Closure(App\\Support\\CalendarDate $today)",
+            "handler": "Closure(App\\Support\\CalendarDate $today) #8743303994cc",
             "label": "Delete old ticket attachments",
             "description": "Deletes attachment files from tickets closed longer than the configured months (details stay)."
         },
@@ -425,7 +425,7 @@
             "size": "sm",
             "deferred": false,
             "mirrorsTodo": false,
-            "resolver": "Closure(App\\Models\\User $user)",
+            "resolver": "Closure(App\\Models\\User $user) #395dc510335a",
             "permission": "support.tickets.view",
             "order": 50
         },
@@ -435,7 +435,7 @@
             "size": "sm",
             "deferred": false,
             "mirrorsTodo": true,
-            "resolver": "Closure(App\\Models\\User $user)",
+            "resolver": "Closure(App\\Models\\User $user) #418f929cf03a",
             "permission": "support.tickets.view",
             "order": 51
         },
@@ -445,7 +445,7 @@
             "size": "sm",
             "deferred": false,
             "mirrorsTodo": false,
-            "resolver": "Closure(App\\Models\\User $user)",
+            "resolver": "Closure(App\\Models\\User $user) #afba05fd311d",
             "permission": "support.tickets.view",
             "order": 52
         },
@@ -455,7 +455,7 @@
             "size": "md",
             "deferred": false,
             "mirrorsTodo": false,
-            "resolver": "Closure(App\\Models\\User $user)",
+            "resolver": "Closure(App\\Models\\User $user) #100f491a2718",
             "permission": "support.tickets.view",
             "order": 53
         },
@@ -465,7 +465,7 @@
             "size": "sm",
             "deferred": false,
             "mirrorsTodo": false,
-            "resolver": "Closure(App\\Models\\User $user, App\\Modules\\Core\\Models\\Client $client)",
+            "resolver": "Closure(App\\Models\\User $user, App\\Modules\\Core\\Models\\Client $client) #5855d64d6a21",
             "permission": null,
             "order": 60
         },
@@ -475,7 +475,7 @@
             "size": "md",
             "deferred": false,
             "mirrorsTodo": false,
-            "resolver": "Closure(App\\Models\\User $user, App\\Modules\\Core\\Models\\Client $client)",
+            "resolver": "Closure(App\\Models\\User $user, App\\Modules\\Core\\Models\\Client $client) #38d62817f377",
             "permission": null,
             "order": 30
         },
@@ -485,7 +485,7 @@
             "size": "sm",
             "deferred": false,
             "mirrorsTodo": false,
-            "resolver": "Closure(App\\Models\\User $user, App\\Modules\\Core\\Models\\Client $client)",
+            "resolver": "Closure(App\\Models\\User $user, App\\Modules\\Core\\Models\\Client $client) #0dc11bc3c040",
             "permission": "support.tickets.view",
             "order": 23
         },
@@ -495,36 +495,36 @@
             "size": "md",
             "deferred": false,
             "mirrorsTodo": false,
-            "resolver": "Closure(App\\Models\\User $user, App\\Modules\\Core\\Models\\Client $client)",
+            "resolver": "Closure(App\\Models\\User $user, App\\Modules\\Core\\Models\\Client $client) #5d5c2c2498ca",
             "permission": "support.tickets.view",
             "order": 33
         },
         "todos/admin/support.awaiting": {
             "key": "support.awaiting",
-            "resolver": "Closure(App\\Models\\User $user)",
+            "resolver": "Closure(App\\Models\\User $user) #706c7ca827e0",
             "permission": "support.tickets.view",
             "order": 20
         },
         "todos/admin/support.unassigned": {
             "key": "support.unassigned",
-            "resolver": "Closure(App\\Models\\User $user)",
+            "resolver": "Closure(App\\Models\\User $user) #ffbc51929fe9",
             "permission": "support.tickets.view",
             "order": 21
         },
         "todos/admin/support.incidents": {
             "key": "support.incidents",
-            "resolver": "Closure(App\\Models\\User $user)",
+            "resolver": "Closure(App\\Models\\User $user) #27734bd45ef3",
             "permission": "support.network.manage",
             "order": 22
         }
     },
     "sitemap": {
-        "sources/support": "Closure()"
+        "sources/support": "Closure() #7c225f02bc49"
     },
     "currency_usage": [],
     "merge_fields": {
-        "resolvers/ticket": "Closure(int $id)",
-        "resolvers/ticket_reply": "Closure(int $id)"
+        "resolvers/ticket": "Closure(int $id) #429fd446ef64",
+        "resolvers/ticket_reply": "Closure(int $id) #dc847ef00940"
     },
     "reference_data": [],
     "encrypted_storage": [],
