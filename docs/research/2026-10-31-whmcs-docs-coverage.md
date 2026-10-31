@@ -24,6 +24,9 @@ against a WHMCS install. A companion note covers the per-patch change logs:
 
 ## 1. Method and limits
 
+The request, URL and page-read counts below, and the "24 URLs" figure, are the author's own counts from this session.
+No script or list is committed, so they cannot be reproduced from the repository.
+
 - **docs.whmcs.com.** `robots.txt` names `/sitemap.xml`, which lists only 72 top-level pages. Each version has its own
   sitemap: [9.1](https://docs.whmcs.com/9-1/sitemap.xml) lists 1,431 pages (9.0: 1,412; 8.13: 1,368). I used 9.1 as
   the inventory. Pages were matched to our citations ignoring the version prefix, so `.../8-13/payments/x` and
@@ -80,7 +83,7 @@ customisations 5, cloud 3 and 7 single pages.
 
 | Section | Pages | Cited before | Uncited |
 | --- | --- | --- | --- |
-| API reference (`/api-reference`, 163 actions) | 163 | 163 | 0 |
+| API reference (`/api-reference`, 162 actions plus the index page) | 163 | 163 | 0 |
 | Classes (`/classes`) | 152 | 152 | 0 |
 | REST API v2 operations (`/rest-api/reference`) | 86 | 86 | 0 |
 | Hooks reference (21 categories) and hooks guides | 26 | 26 | 0 |
@@ -242,7 +245,7 @@ by reason. The three developer pages follow the docs lists.
 
 | Page (under `https://docs.whmcs.com/9-1/`) | Triage | Note |
 | --- | --- | --- |
-| `customization/transliteration` | a | Converts client names and addresses to a safe character set before a registrar call; a hook can replace the default. Mohar plan: registrar contact normaliser, see section 4 item 1. |
+| `customization/transliteration` | a (not needed) | Converts client names and addresses to a safe character set before a registrar call; a hook can replace the default. Owner decided 2026-10-31 that this is not needed (section 4 item 1). |
 | `customization/client-area-customization-tutorials/customize-quick-shortcuts` | b | Homepage panels, menus and sidebars as object trees with page context. Compare navigation registry. |
 | `customization/client-area-customization-tutorials/preview-a-template` | b | Preview an unpublished theme with a URL parameter. Idea in section 5. |
 | `customization/client-area-customization/client-area-homepage-panels` | b | Homepage panels, menus and sidebars as object trees with page context. Compare navigation registry. |
@@ -365,15 +368,15 @@ form and the page adds a detail or a test.
 
 | # | Item | Class | What it is | Build? (Nepal-first) | Where |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Registrar-safe character set | a | A shipped function replaces characters in client details that registrars reject; a hook can swap in a better one ([transliteration](https://docs.whmcs.com/9-1/customization/transliteration), 2026-10-31) | **Yes, P1.** Nepali clients write names and addresses in Devanagari or mixed script; ResellerClub and Namecheap want Latin. A registration that fails after payment is the worst moment. Normalise at the registrar boundary, show staff the result, keep the original | `registrars.md` contact mapping, `domains.md` section 5; wave 3.3 |
+| 1 | Registrar-safe character set | a (not needed) | A shipped function replaces characters in client details that registrars reject; a hook can swap in a better one ([transliteration](https://docs.whmcs.com/9-1/customization/transliteration), 2026-10-31) | **Not needed (owner, 2026-10-31):** clients never enter Devanagari names, so no conversion is built. Kept in the list as the highest-ranked item before the decision | `registrars.md` contact mapping, `domains.md` section 5; wave 3.3 |
 | 2 | Import guard for blank, zero or past next-due dates | b | A service with a zero next-due date makes the invoice job create one invoice for every missed period ([duplicate invoices, different dates](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-invoices/duplicate-invoices-different-dates), 2026-10-31) | **Yes, P0 for the importer.** A switching host has such rows (imported or hand-added services). Reject or flag them in the dry run; never let a due date earlier than the cutover date create catch-up invoices | `migration.md` section 7, `invoice-domain-import.md` section 9 |
 | 3 | Headless payment contract | a | A payment returns `status` (paid, pending, action_required, not_required, failed) and a `next_action` (redirect or payment_session). A decline returns normally with `failed` and a fresh session. Removing a saved method returns 422 for a merchant setting, 409 for a passing condition, 429 for rate limit ([headless](https://developers.whmcs.com/rest-api/headless-stripe-payments), [stored methods](https://developers.whmcs.com/rest-api/stored-payment-methods), 2026-10-31) | **Yes, P1.** eSewa and Khalti are redirect flows and fit `redirect`; cards fit `payment_session`. One shape for a custom storefront, mobile app or the host's own site. Add `Retry-After` and per-token limits, which WHMCS does not | `public-api.md` section 4/5 (v1.1), `payments-nepal.md` flows; wave 4 REST API |
 | 4 | Monthly equivalent in the cart | a | A setting shows the per-month price for longer billing cycles; admins who forget it see "prices lower than set" ([page](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-the-client-area/prices-incorrect-in-cart), 2026-10-31) | **Yes, P2, small.** Nepali hosts sell annual plans; "NPR 250 a month, billed NPR 3,000 a year" helps conversion. Always show the billed amount next to it | `storefront-marketing.md`, `orders.md` section 4 |
 | 5 | Event and hook trace | a | A debug switch logs each hook call so an admin can find which custom hook blocked an email ([page](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-email/sending-aborted-by-hook), 2026-10-31) | **Yes, P2.** Once outside code listens to our events (wave 4 webhooks), "who stopped this email" needs an answer. A per-event listener trace with durations, off by default, in the activity log | ADR 0008 amendment; `notifications.md` suppression reasons |
-| 6 | E-invoice submission lifecycle | a | A submitted e-invoice becomes immutable; a recipient refusing it is a business outcome needing a new document; missing client data blocks export ([three pages](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-addon-modules/e-invoicing/refused-e-invoice-status), 2026-10-31) | **Later, P2.** Only if the IRD makes electronic submission mandatory for our hosts. Design now so an invoice can carry a `submitted` state without a schema change. See Owner to confirm | `billing.md` section 2 (document states); `vat-register.md` |
+| 6 | E-invoice submission lifecycle | a | A submitted e-invoice becomes immutable; a recipient refusing it is a business outcome needing a new document; missing client data blocks export ([three pages](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-addon-modules/e-invoicing/refused-e-invoice-status), 2026-10-31) | **Out of scope for now (owner, 2026-10-31); kept as a note only.** If the IRD later requires electronic submission, reserve a `submitted` state | `billing.md` section 2 (document states); `vat-register.md` |
 | 7 | Update and maintenance protocol | a | Unattended updates try three times then stop and wait for a person; a permission pre-check runs before any file is touched; during an upgrade the client area, API and cron all answer with one maintenance message ([updates](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-updates/permanently-failed-automatic-updates), [maintenance](https://docs.whmcs.com/9-1/troubleshooting/general-troubleshooting/down-for-maintenance-errors), 2026-10-31) | **Yes, P2.** Ours is a container deploy, but the rules carry over: one maintenance state that returns 503 with `Retry-After` to web, API and scheduler; a preflight; bounded retries with a visible failed state | `docs/devops` install and upgrade runbook; platform-admin maintenance mode |
-| 8 | Small validation rules | b | One mailbox per support department (two on one import every reply twice); admin invites last 7 days and resend or delete kills the old link (our staff invitations have the 7 days and resend; confirm cancel); remembered admin sessions last 30 days; 10 failed logins in 10 minutes lock the source; password history is clamped to 4 to 40 | **Yes, P1, cheap.** Each is one acceptance line. The server-deletion rule is already specified (`services.md` section 9) | `support.md` section 6, `platform-admin.md` |
-| 9 | Scheduled ticket action retry window | b | An action that cannot run is retried for 60 minutes, then marked failed and left alone ([page](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-the-support-system/scheduled-action-failures), 2026-10-31) | **Decide a window**, show failed actions to the owner of the ticket | `support.md` section 11 |
+| 8 | Small validation rules | b | One mailbox per support department (two on one import every reply twice; already specified: `support.md` schema and section 13); admin invites last 7 days and resend or delete kills the old link (our staff invitations have the 7 days and resend; confirm cancel); remembered admin sessions last 30 days; 10 failed logins in 10 minutes lock the source; password history is clamped to 4 to 40 | **Yes, P1, cheap.** Each is one acceptance line. The server-deletion rule is already specified (`services.md` section 9) | `support.md` section 6, `platform-admin.md` |
+| 9 | Scheduled ticket action retry window | b | An action that cannot run is retried for 60 minutes, then marked failed and left alone ([page](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-the-support-system/scheduled-action-failures), 2026-10-31) | **Only if built:** `support.md` section 15 lists scheduled ticket actions as out of scope for v1; decide a window then | `support.md` section 15 |
 | 10 | Cart honesty on unknowns | b | Availability checks that hit registry timeouts give wrong answers; TLD or period not priced rejects the order late ([availability](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-domains/domain-availability-errors), [periods](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-orders/invalid-registration-period-errors), 2026-10-31) | **Yes, P1.** Show "could not check" rather than "available"; never offer an unpriced period | `domains.md` section 6, `orders.md` section 6 |
 
 Other (b) findings that need only a test, not a feature:
@@ -381,7 +384,7 @@ Other (b) findings that need only a test, not a feature:
 - Marking an invoice paid twice moves the next due date twice ([page](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-invoices/unexpected-next-due-date)). Our paid transition is idempotent; keep the test.
 - Two cron processes create twin invoices, twin reminders and double charges ([page](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-invoices/duplicate-invoices-same-dates)). Our unique indexes and run lock cover it; keep a test that runs the job twice at once.
 - Signup-anniversary prorata overrides product prorata without saying so ([page](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-products-and-services/service-not-prorated)). Show the effective rule in the product editor (see ideas).
-- Early client renewal is allowed only when the service is recurring, active, unmetered, fully paid and inside the renewal window ([page](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-products-and-services/on-demand-renewal-unsupported)). Check `services.md` section 4 lists the same five conditions.
+- Early client renewal is allowed only when the service is recurring, active, unmetered, fully paid and inside the renewal window ([page](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-products-and-services/on-demand-renewal-unsupported)). `services.md` section 16 puts early renewals out of scope for v1, so this is Missing; the five conditions are the starting point if built (parity row "On-demand renewals per product").
 - WHMCS lets an owner switch invoice immutability off, with three states ([page](https://docs.whmcs.com/9-1/billing-and-invoicing/invoicing-tutorials/configure-invoice-immutability)). We keep it on with no switch; we assume the IRD treats an issued invoice as final (see Owner to confirm).
 - The daily run can stall inside its own backup step or its usage-polling step ([backup](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-cron-issues/cron-system-queue-timeout), [polling](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-cron-issues/cron-metrics-polling-timeout)). Keep backups out of the billing run and give each step a time budget.
 - A recipient list with one bad address fails the whole email ([page](https://docs.whmcs.com/9-1/troubleshooting/troubleshoot-email/failed-recipients)). Validate addresses on save and send to the valid ones.
@@ -411,7 +414,7 @@ Other (b) findings that need only a test, not a feature:
 
 ### 6.1 API actions
 
-Our read-only allowlist has 33 actions (`migration.md` section 2.1). WHMCS has 163 action pages. The read actions
+Our read-only allowlist has 33 actions (`migration.md` section 2.1). WHMCS has 162 action pages. The read actions
 (names starting `Get`) that our allowlist does not name, with a verdict:
 
 | Action | What it returns | Need? | Why |
@@ -466,14 +469,14 @@ renamed and deprecated hooks that old hook files still use.
 
 ## 7. Owner to confirm
 
-- **Transliteration (item 1).** Assumed workflow: clients may enter names and addresses in Devanagari; staff today
-  retype them in Latin before a registrar order. We would convert automatically and show staff the result before
-  sending.
-- **IRD electronic invoicing (item 6).** Assumed: submission to the IRD's billing system is not required of our
-  hosts yet and stays out of scope; an issued invoice is final and corrected only by a credit note.
-- **Exchange rates (troubleshooting, exchange rates).** Assumed: the Nepal Rastra Bank published rate is the source
-  for NPR conversions, and a manual rate is the fallback when no feed carries NPR (the page shows a failed update
-  for a currency a feed does not carry; whether common feeds carry NPR is to be verified).
+Decisions recorded by the owner on 2026-10-31 (PR #550) replace the assumptions in the first draft.
+
+- **Transliteration (item 1): not needed.** Clients never enter Devanagari names. Nothing to build.
+- **IRD e-invoicing (item 6): out of scope for now.** Kept as a note only. An issued invoice is final and corrected
+  only by a credit note (our existing rule).
+- **Exchange rates: confirmed.** The Nepal Rastra Bank rate is the source for NPR, with a review dialog and a
+  history of changes. The WHMCS page on failed rate updates (a currency the feed does not carry) still argues for a
+  manual rate as the fallback.
 
 ## 8. What I could not reach or did not read
 

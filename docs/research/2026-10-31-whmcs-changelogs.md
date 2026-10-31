@@ -298,7 +298,7 @@ selected fixes, security, deprecations and removals, then the flags.
 - **Fixes.** **Prorata over a daylight-saving change no longer bills an extra day** (WHMCS-11766) [U]; pending-invoice
   check before service upgrades (WHMCS-19397) [U]; AddTransaction works without a description (WHMCS-19780) [I];
   user invoice permission (WHMCS-19691).
-- **Security.** 8.12.2 (2025-06-03): PayPal Payments captured the full amount instead of the remaining balance on a
+- **Security.** 8.12.2 (2025-06-03; the same fix is also listed in 8.11.3 and 8.13.1): PayPal Payments captured the full amount instead of the remaining balance on a
   partly paid invoice (WHMCS-21375) [U][R]. Treat this as a money bug fixed in a security release.
 
 </details>
@@ -326,7 +326,7 @@ selected fixes, security, deprecations and removals, then the flags.
 </details>
 
 <details>
-<summary>9.0 (2026-01-20), 161 entries, 25 undisclosed security lines, ten patches</summary>
+<summary>9.0 (2026-01-20), 161 entries, 25 undisclosed security lines, nine patches (9.0.1 to 9.0.9)</summary>
 
 [Change log](https://docs.whmcs.com/releases/9-0/9-0-change-log/), [notes](https://docs.whmcs.com/releases/9-0/9-0-release-notes/).
 
