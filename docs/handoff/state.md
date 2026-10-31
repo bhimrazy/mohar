@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-31 by the CTO session, on the owner's Mac. Update this file whenever a PR merges, a workstream starts or
+Last updated: 2026-10-31 (evening) by the CTO session, on the owner's Mac. Update this file whenever a PR merges, a workstream starts or
 stops, or the owner makes a decision. Keep it short: merges older than the current day move to `billing/docs/progress.md`, and history goes in `history.md` and `docs/reviews/`.
 
 ## Summary
@@ -65,10 +65,16 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
       decision needs a recent password. Spec: `billing/docs/product/kyc.md` section 7.
     - Invoices use AD dates; an optional "BS beside AD" switch later (#207); BS fiscal-year numbering waits for an
       accountant's answer (10-21).
-- Load test on the GitHub runner (small profile 2 vCPU / 4 GB, 50k clients; `billing/docs/devops/sizing.md`): p95
-  424 ms at 40 users, billing day 285 s, no errors. Tail latency at 40 users (dashboard p95 5.1 s, sign-in p50
-  2.4 s) is the remaining performance finding. Memory: the stack used at most 857 MiB there; 4 GB is the minimum
-  in every doc (#320), the smallest size tested.
+- Load test and sizing (#543, `billing/docs/devops/sizing.md`, runs of 2026-10-31 on the GitHub runner, 50,000 clients):
+  the small host (2 vCPU, 4 GB) is comfortable to about 15 req/s, which is **200 to 350 people at once** reading a page
+  every 10 to 30 s (40 fast virtual users; 300 people was the first failing level). The medium host (4 vCPU, 8 GB) is
+  comfortable at about **400 people at once**, a lower bound because the load generator shared its 4 CPUs. CPU runs out
+  first, split about evenly between PHP and PostgreSQL; memory is not close (4 GB stays the minimum in every doc).
+  Open findings: the small profile's billing day did not finish in these runs, and the medium host renewed at 4.0/s
+  against 24.8/s on the small host a week earlier (#566); public KB and announcement pages errored at 100 users (#567).
+- Reviews of 2026-10-31 (all in `docs/reviews/`): best-practices audit 78/100 (#569), code structure 63/100 (#570),
+  whole-database architecture, extension model (#565), security and infrastructure security. Their fix work is in the
+  wave plan, `docs/handoff/issue-plan.md`.
 - The milestone that moves the number most: a Nepali host's switch path end to end on `develop`. Import clients and
   `.np` guidance are merged; next are eSewa and Khalti verified live, and a real cPanel/WHM account.
 
@@ -76,7 +82,7 @@ stops, or the owner makes a decision. Keep it short: merges older than the curre
 
 - GitHub `bhimrazy/mohar` (public; the old name `bhimrazy/whmcs` redirects). `develop` = integration, `main` = release
   landing page (not yet cut).
-- App: `billing/` (Laravel 13.36, PHP 8.4, Inertia 3, React 19, Pest 5, vite-plus 1.3.0). Local setup:
+- App: `billing/` (Laravel 13.38, PHP 8.4, Inertia 3, React 19, Pest 5, vite-plus 1.3.0). Local setup:
   `billing/docs/devops/local-setup.md` and the docs-site page "Run locally". Production install:
   `billing/docs/devops/install.md`.
 - Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`. Process:
@@ -146,10 +152,32 @@ guest `access_key` rotates on link), #536 (#523: atomic password-guess budget, s
 step-up failures, step-up for secret-bearing driver config changes), #545 (WHMCS 9.0/9.1 refresh note). Issues closed by
 hand: #523.
 
-In review: #538 (M1: own step-up key, `password.confirm` is step-up, in-place dialog after expiry, passkey-added mail;
-re-review and browser re-walk running), #539 (infra fixes: base-side policy scripts, waiver bound to the PR body, weekly
-audit, release gate, container hardening; third fix round). Running: capacity load test (50–500 VUs, small and medium,
-realistic think time), test-suite speed review, WHMCS docs and changelog coverage audit, whole-database architecture review.
+Merged 2026-10-31 (afternoon and evening; `gh pr list --state merged --search "merged:2026-10-31"`):
+- Code: #538 (security M1: a password confirmation is the only step-up, in-place dialog after expiry), #539 (infra review
+  fixes: base-side policy scripts, weekly audit, release gate, container hardening), #552 (database fix PR 2: seven
+  indexes through `OnlineIndex` for the billing day and dashboards, `jobs (queue, id)`, a live-only product slug
+  unique), #554 (database fix PR 1: money tables restrict client deletes, `tax_rules` foreign keys, PostgreSQL CHECKs on
+  rates, quantities and money signs), #558 (test speed 1: template-backed seeded databases, no real sleeps,
+  simulator guard off Linux), #563 (eSewa and Khalti simulators pinned to the real sandboxes' answers, one eSewa
+  message fixed), #568 (Laravel 13.38, React 19.3.1, vite-plus 1.4.0 and other minors), #543 (capacity load test and
+  `sizing.md`).
+- Docs: #562 (owner and CTO decisions, ADR 0012/0015/0018 amendments, ADR 0028/0029 Accepted, accountant list), #564
+  (Nepal VAT and e-billing research), #555 (WHMCS login carry-over), #565 (extension model review, ADR 0030 Accepted and
+  its amendment), #569 (best-practices audit), #570 (code structure review), and the research and review notes #548 to
+  #551, #553, #556.
+- Issues closed by hand: those the PRs name; the follow-ups they opened are listed under "Open issues worth knowing".
+
+In flight (no PR open yet at the time of writing; both are in worktrees under `.claude/worktrees/`):
+- #571 (`feature/inactive-settlement`): deactivating a gateway or registrar account stops new work only; webhooks,
+  returns and reconcile keep settling (ADR 0030 A1). Strict loop (money). Must merge before ADR 0030 M5a.
+- Audit fix PR 3, `feature/audit-fixes-1` (#569 findings M3, M4, L2): a retried order-provisioning job retries instead of
+  returning success while the item lock is held, `DeclaresSensitiveKeys` is read by `RegistrarGateway` and
+  `ExecuteModuleCommand`, and the `Queues::*` constants replace string names. Combined review. It rebases on #571
+  (same two files).
+
+Next: the wave plan in `docs/handoff/issue-plan.md`. Wave 1 (fence) starts as the two PRs above reach review: S0 folder
+rules, audit fixes 4, 6, 8, 9 and Nepal VAT PR NV1. Then wave 2 (ADR 0030 M3, M1 with the test and module moves
+beside them). The kernel PRs (M3, AF1, AF5 base, S2, AF2, M4) go through the CTO session one at a time.
 
 Open follow-ups: #540 (flaky `AwaitingQueueTest` on PostgreSQL), #541 (public form says the link was emailed when
 autoresponse is off), #542 (security notice at the guess cap), #544 (vacuous multi-needle `not->toContain`), #546 (staff
@@ -160,9 +188,17 @@ secret scanning and push protection; SHA pinning, protecting `main`, default bra
 environment before images are published stay open); the accountant list `docs/handoff/accountant-questions.md`; whether
 the owner holds a Sparrow or Aakash account; a lawyer's review of the WHMCS licence before the importer and carry-over
 are marketed; business items (licence and NPR price, support model, security policy page, privacy terms, trademark
-search, a design-partner host). Closed 10-31: #530 rebuild (no live install), Docker cleanup, ADR 0028 and 0029
+search, a design-partner host); **the IRD software approval route** (new, below). Closed 10-31: #530 rebuild (no live install), Docker cleanup, ADR 0028 and 0029
 questions, month-end questions other than Q11, SMS and panel order, importer card tokens, hosted tier (self-hosted
 first), live sandboxes for eSewa, Khalti and ResellerClub (public test credentials only).
+New owner action, **IRD software approval route** (business-level launch item). The Nepal VAT research
+(`docs/research/2026-10-31-nepal-vat-ebilling.md`, §0 and §15) finds that a host may issue electronic invoices only with
+the tax office's prior approval, only from software listed with the IRD, at any turnover; that an install on a cloud
+system must report to CBMS as each bill is issued; and that billing software which lets bills be edited carries a Rs 5
+lakh penalty that can reach its maker. The owner decides, with the accountant, whether Mohar is listed with the IRD as
+the producer or each host applies as a user, whether a self-hosted VPS counts as "cloud", and whether the CBMS driver
+moves back into scope. Until then CBMS and e-invoicing submission stay out of scope (decisions of 10-22 and 10-31) and
+NV3 and any CBMS work wait (`issue-plan.md`).
 Rules since 10-31: scratch files and PR bodies are named after the PR (`pr<N>-body.md`); clean up with
 `scripts/finish-workstream.sh <slug>` at merge.
 
@@ -192,8 +228,8 @@ new issues; a PR merges when nothing blocks, except money, auth and data deletio
 - Data-changing since: migration `2026_10_25_100600` (#478) renames groups whose slug the store now reserves (to `<slug>-plans`,
   logged); `app:install` resets the Billing system role to add the two register export permissions (#480).
 - Data-changing since: migration `2026_11_01_300780` adds `invoices.print_count` (#482); #489's migration adds the unique provider-ref index (duplicates resolved first: the paid attempt keeps the reference, losers keep it in `raw` and go to review) and a Core `integration_credentials` table.
-- Next: VAT PR 6 and 8 if planned, P6b (extend `BillingDocuments`, do not add `InvoiceDocuments`), #483 admin Credit notes list
-  with resend, P2c remainder, P13 (issue plan).
+- Earlier "Next" items: P6b (#504), #483 (#503), P2c (#510) and P13 (#515) merged. VAT PR 6 and 8 are not defined in
+  the VAT spec; the Nepal VAT work is now the NV package in the wave plan.
 - Deferred from this wave (add to packages): #480 accept only csv/pdf in the export route, throw on unknown layout, drop dead
   `can.export`, Nepali IRD header labels (kernel change), release note that Billing-role staff can export buyer PANs; #478
   `/domains/search` drops `?currency=` on redirect, reserved-slug test from registered routes, Change plan wording for staff,
@@ -210,10 +246,16 @@ new issues; a PR merges when nothing blocks, except money, auth and data deletio
 Decided on 2026-10-31 and recorded in `requirements.md` ("Decisions of 2026-10-31"): Q13 carry-over, card tokens, SMS,
 panel order, hosted tier, ADR 0028 and 0029, month-end, Docker cleanup, live sandboxes, release timing, Namecheap `.ca`
 and `.eu` (off until a sandbox check), bcrypt cost (stays 12 unless the load test shows saturation).
+Also decided on 2026-10-31 (sign-offs of #565 and #570): the extension model (ADR 0030 and amendment) and the
+code-structure calls (Platform merges into Core, an Auth module, behaviour-named tests, `spatie/typescript-transformer`
+approved in principle for later); see `requirements.md`.
 
-- Accountant (list to forward: `docs/handoff/accountant-questions.md`): the three #464 register questions, CBMS and
-  fiscal-year numbering, D2, D6, A1 to A11, whether old WHMCS invoices were already reported (import Q3), whether an
+- Accountant (list to forward: `docs/handoff/accountant-questions.md`, rewritten by #564 as "we found X, please
+  confirm"): the three #464 register questions, CBMS and fiscal-year numbering, whether hosting is an "ISP" for the
+  Rs 5 crore line, whether a VPS is "cloud", which NRB rate (buying, selling or mid), the sales book format since the
+  Economic Act 2083, D2, D6, A1 to A11, whether old WHMCS invoices were already reported (import Q3), whether an
   emailed note PDF counts as a print, the Nepali labels in the IRD CSV header, month-end Q11.
+- Owner and accountant: the IRD approval route (above). Answers gate NV2 (numbering, BS date, rate type) and NV3.
 - Lawyer: the WHMCS licence terms against the importer and sign-in carry-over, before either is marketed.
 - Sparrow or Aakash: does the owner hold an account, and is a funded trial available for fixtures.
 - connectIPS merchant enrolment (weeks of lead time); a WHMCS dev licence or fake-data export for importer fixtures; a
@@ -228,6 +270,12 @@ and `.eu` (off until a sandbox check), bcrypt cost (stays 12 unless the load tes
 ## Open issues worth knowing
 
 Go-live (label `go-live`): issues #11 and #126 are closed (#11 by PR #242, #126 by PR #282), so none is open from the earlier list. The 40-user tail latency (#205) is a known performance finding without the label. Full list: `gh issue list --label go-live`.
+
+Opened 2026-10-31 and not yet planned into a PR (each has a slot in `issue-plan.md`):
+#559 and #560 (CHECK constraints on `services.status` and `domains.status`, DB1), #561 (drop redundant indexes and
+`jobs_queue_index`, DB2), #566 (medium billing-day renewal rate 4.0/s against 24.8/s), #567 (knowledge base and
+announcement errors at 100 users on medium), #571 (in flight, above). Review follow-ups still open: #540, #541, #542,
+#544, #546, #557.
 
 ## Scheduled
 
