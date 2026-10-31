@@ -429,6 +429,15 @@ describe('npmrcAuditConfigChanges', () => {
         ]);
     });
 
+    it('ends a line at a lone CR, as npm does', () => {
+        expect(
+            npmrcAuditConfigChanges(
+                base,
+                'save-exact=true\rhttps-proxy=http://127.0.0.1:9/\rstrict-ssl=false\rmin-release-age=7\n',
+            ),
+        ).toEqual(['https-proxy', 'strict-ssl']);
+    });
+
     it('allows the keys this project uses, and ignores comments', () => {
         expect(
             npmrcAuditConfigChanges(
@@ -437,5 +446,20 @@ describe('npmrcAuditConfigChanges', () => {
             ),
         ).toEqual([]);
         expect(npmrcAuditConfigChanges(null, null)).toEqual([]);
+    });
+});
+
+describe('CR-only line ends in compose files', () => {
+    it('still finds every image line, as a YAML parser would', () => {
+        expect(
+            composeImages(
+                'services:\r  a:\r    image: postgres:18\r  b:\r    image: caddy:2\r',
+            ).map((entry) => entry.image),
+        ).toEqual(['postgres:18', 'caddy:2']);
+        expect(
+            buildkitImages(
+                '  driver-opts: |\r    image=moby/buildkit:master\r',
+            ),
+        ).toEqual(['moby/buildkit:master']);
     });
 });

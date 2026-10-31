@@ -133,6 +133,8 @@ it('fails a change to the audit settings of composer.json or .npmrc unless the P
     // Re-review of #539: npm's ini parser drops the quotes, so these are honoured; and userconfig loads another file.
     '.npmrc quoted registry' => ['billing/.npmrc', fn (string $rc) => $rc."\"registry\"=https://evil-quoted.invalid/\n", 'billing/.npmrc: registry'],
     '.npmrc quoted omit' => ['billing/.npmrc', fn (string $rc) => $rc."  'omit' = dev\n", 'billing/.npmrc: omit'],
+    // Second re-review: npm's ini splits on CR alone, so these keys were invisible to a CRLF/LF-only split.
+    '.npmrc CR-only line ends' => ['billing/.npmrc', fn (string $rc) => "save-exact=true\rhttps-proxy=http://127.0.0.1:9/\rstrict-ssl=false\rmin-release-age=7\n", 'billing/.npmrc: https-proxy'],
     '.npmrc userconfig' => ['billing/.npmrc', fn (string $rc) => $rc."userconfig=./evil.ini\n", 'billing/.npmrc: userconfig'],
     '.npmrc ca[]' => ['billing/.npmrc', fn (string $rc) => $rc."ca[]=-----BEGIN CERTIFICATE-----\n", 'billing/.npmrc: ca'],
     'composer config.policy' => ['billing/composer.json', fn (string $json) => json_encode([...json_decode($json, true), 'config' => ['sort-packages' => true, 'policy' => ['advisories' => ['audit' => 'ignore']]]]), 'billing/composer.json: config.policy'],

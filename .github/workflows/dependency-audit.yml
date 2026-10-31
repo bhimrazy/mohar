@@ -51,17 +51,23 @@ jobs:
                   node-version-file: billing/.nvmrc
 
             # The three checks run even when one fails, so one run reports everything; the job fails if any did.
+            # As in ci.yml: no Composer scripts or plugins, and npm audits a copy of the manifest and lockfile in an
+            # empty directory, so no project .npmrc is read.
             - name: composer audit
-              run: composer audit --locked --abandoned=report
+              run: composer audit --locked --abandoned=report --no-scripts --no-plugins
 
-            - name: npm audit (billing)
+            - name: npm audit (billing and docs-site)
               if: ${{ !cancelled() }}
-              run: npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ --include=dev
-
-            - name: npm audit (docs-site)
-              if: ${{ !cancelled() }}
-              working-directory: docs-site
-              run: npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ --include=dev
+              run: |
+                  status=0
+                  for dir in . ../docs-site; do
+                      copy="$(mktemp -d "$RUNNER_TEMP/npm-audit.XXXXXX")"
+                      cp "$dir/package.json" "$dir/package-lock.json" "$copy/"
+                      echo "== npm audit $dir"
+                      (cd "$copy" && npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ \
+                          --include=dev --strict-ssl=true --noproxy=registry.npmjs.org) || status=1
+                  done
+                  exit "$status"
 
             # Every item, not a diff, with no minimum age: the cooldown judges adopting a version, and what is merged
             # was judged then (a security exception would otherwise fail here for 7 days). What remains is pinning and

@@ -49,24 +49,30 @@ composer deps:check                                # composer validate + compose
   tree being judged: the checker ignores it in GitHub Actions and fails when the file is committed, and CI and the
   merge gate point `DEPENDENCY_AGE_CACHE` at a fresh file outside the PR tree. A PR run only fetches its few changed
   items.
-- The audits read their settings from the tree being judged, so they are pinned twice:
-    - On the command line, which beats the project files: `npm audit … --registry=https://registry.npmjs.org/
-      --include=dev` and `composer audit --locked --abandoned=report` (CI, the weekly audit, the merge gate,
-      `composer deps:check`).
-    - By an allowlist (`dependency-policy.mjs`). A diff run fails when a change touches any `.npmrc` key other than
+- The audits read their settings from the tree being judged, so CI runs the base checker **first**, before any
+  tool that reads the PR's `composer.json` or `.npmrc`, and removes its copy before they run. Then:
+    - Composer runs with `--no-scripts --no-plugins` (`validate` and `audit`). Without them a `pre-command-run`
+      script in the PR's `composer.json` runs inside those commands.
+    - npm audits a copy of `package.json` and `package-lock.json` in an empty directory, so no project `.npmrc` is
+      read. It also gets `--registry=https://registry.npmjs.org/ --include=dev --strict-ssl=true
+      --noproxy=registry.npmjs.org` on the command line; npm rejects an empty `--https-proxy=`, so the bypass is by
+      host. `composer audit` gets `--abandoned=report`. This holds in CI, the weekly audit and the merge gate;
+      `composer deps:check` uses the same flags but audits in place, on your own checkout.
+    - An allowlist (`dependency-policy.mjs`): a diff run fails when a change touches any `.npmrc` key other than
       `save-exact`, `min-release-age`, `ignore-scripts`, `engine-strict` and `fund`. Keys are read the way npm reads
-      them, so `"registry"=`, `'omit' = dev`, `ca[]=` and `userconfig=` (which loads another file) all count. It also
-      fails when `billing/composer.json` changes `repositories` or any `config` key other than `allow-plugins`,
-      `optimize-autoloader`, `preferred-install` and `sort-packages` (`config.audit`, `config.policy`,
-      `config.disable-tls`, …). The error names the file and key. Adding a key to the allowlist is a change to
-      `dependency-policy.mjs`, which only takes effect once it is on develop.
+      them: a line ends at any CR or LF, so `"registry"=`, `'omit' = dev`, `ca[]=`, `userconfig=` (which loads another
+      file) and keys behind a lone CR all count. It also fails when `billing/composer.json` changes `repositories` or
+      any `config` key other than `allow-plugins`, `optimize-autoloader`, `preferred-install` and `sort-packages`
+      (`config.audit`, `config.policy`, `config.disable-tls`, …). The error names the file and key. Adding a key to the
+      allowlist is a change to `dependency-policy.mjs`, which only takes effect once it is on develop.
     - The `security-exception` label allows such a change. `.github/CODEOWNERS` also lists the manifests and `.npmrc`
       files.
 - A push run (develop or main) is judged like the PR it merged: CI looks up the PR whose merge or squash commit is
-  the pushed commit and reads that PR's label and waivers through `security-exceptions.sh`. An approved waiver or
-  setting change therefore does not turn the branch red after the merge (the #530 push did). A push that no merged PR
-  produced has no waivers. Only the head commit's PR counts, so a push carrying several merged PRs is judged with the
-  last one's waivers.
+  the pushed commit, merged into the pushed branch, and reads that PR's label and waivers through
+  `security-exceptions.sh`. An approved waiver or setting change therefore does not turn the branch red after the
+  merge (the #530 push did). A push that no merged PR produced has no waivers. Only the head commit's PR counts, for
+  the whole pushed range: a push carrying several merged PRs is judged with the last one's label and waivers, so that
+  label also approves an audit-setting change made by an earlier PR in the range.
 - Every age is bound to what is actually installed: an action SHA must equal its tag; an image digest must be
   the tag's current multi-arch index digest (registry `Docker-Content-Digest`) or one of its platform digests
   (otherwise exit 2: its origin and age cannot be proven — re-pin); an npm `resolved` URL must be

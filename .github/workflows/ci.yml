@@ -209,21 +209,6 @@ jobs:
                       exit 1
                   fi
 
-            - name: Lockfiles in sync (before install)
-              if: steps.changes.outputs.code == 'true' || steps.changes.outputs.deps == 'true'
-              run: composer validate --no-check-publish
-
-            # Only when a manifest, lockfile, .npmrc or workflow file changed (detect step above). The registry, the
-            # dependency types and the abandoned-package rule are given on the command line, which beats the PR's
-            # .npmrc and composer.json; the checker below fails on any other audit setting a PR changes.
-            - name: Security audits (before install)
-              if: steps.changes.outputs.audit == 'true'
-              run: |
-                  composer audit --locked --abandoned=report
-                  npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ --include=dev
-                  # The documentation site's lockfile (docs-site/), audited without installing it.
-                  (cd ../docs-site && npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ --include=dev)
-
             - name: Dependency cooldown and pinning (before install)
               if: steps.changes.outputs.code == 'true' || steps.changes.outputs.deps == 'true'
               env:
@@ -233,6 +218,7 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   REPOSITORY: ${{ github.repository }}
                   SHA: ${{ github.sha }}
+                  BRANCH: ${{ github.ref_name }}
                   BASE: ${{ steps.changes.outputs.base }}
                   # Outside the PR tree and empty: a cached date skips the registry checks (the checker also ignores
                   # its cache in Actions, once that copy is the base branch's).
@@ -241,12 +227,14 @@ jobs:
                   # Read at run time (re-runs pick it up): with the security-exception label, the "Security-Exception:
                   # name@version" lines of the PR body are waived, for the cooldown only, and only while the body is
                   # unchanged since the label was added (scripts/security-exceptions.sh fails otherwise).
-                  # A push of a merged PR (its merge or squash commit) is judged with that PR's label and waivers, so a
-                  # change approved on the PR does not turn the branch red after the merge. Any other push has none.
+                  # A push of a merged PR (its merge or squash commit, merged into this branch) is judged with that PR's
+                  # label and waivers, so a change approved on the PR does not turn the branch red after the merge. Any
+                  # other push has none. Only the pushed commit's PR counts, for the whole pushed range.
                   if [ "$EVENT" = push ]; then
-                      PR_NUMBER=$(gh api "repos/$REPOSITORY/commits/$SHA/pulls" \
-                          --jq "[.[] | select(.merged_at != null and .merge_commit_sha == \"$SHA\")][0].number // empty")
-                      echo "merged PR for $SHA: ${PR_NUMBER:-<none>}"
+                      PR_NUMBER=$(gh api --paginate "repos/$REPOSITORY/commits/$SHA/pulls" \
+                          --jq '.[] | select(.merged_at != null and .merge_commit_sha == env.SHA and .base.ref == env.BRANCH) | .number' \
+                          | sed -n 1p)
+                      echo "merged PR for $SHA into $BRANCH: ${PR_NUMBER:-<none>}"
                   fi
                   if [ -n "$PR_NUMBER" ]; then
                       DEPENDENCY_AGE_EXCEPTIONS=$(.ci-policy/security-exceptions.sh "$PR_NUMBER" "$REPOSITORY")
@@ -262,6 +250,31 @@ jobs:
             - name: Remove the policy scripts
               if: always()
               run: rm -rf .ci-policy
+
+            - name: Lockfiles in sync (before install)
+              if: steps.changes.outputs.code == 'true' || steps.changes.outputs.deps == 'true'
+              # --no-scripts --no-plugins: a pre-command-run script in the PR's composer.json would run here otherwise.
+              run: composer validate --no-check-publish --no-scripts --no-plugins
+
+            # Only when a manifest, lockfile, .npmrc or workflow file changed (detect step above). They run after the
+            # base checker, which has already failed any composer.json or .npmrc setting outside its allowlist. On top:
+            # Composer runs no scripts or plugins, and npm audits a copy of each manifest and lockfile in an empty
+            # directory, so no project .npmrc (registry, proxy, TLS, omit, ...) is read; the registry, dependency types,
+            # TLS check and proxy bypass are also given on the command line.
+            - name: Security audits (before install)
+              if: steps.changes.outputs.audit == 'true'
+              run: |
+                  composer audit --locked --abandoned=report --no-scripts --no-plugins
+                  npm_audit() {
+                      local copy
+                      copy="$(mktemp -d "$RUNNER_TEMP/npm-audit.XXXXXX")"
+                      cp "$1/package.json" "$1/package-lock.json" "$copy/"
+                      (cd "$copy" && npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ \
+                          --include=dev --strict-ssl=true --noproxy=registry.npmjs.org)
+                  }
+                  npm_audit .
+                  # The documentation site's lockfile (docs-site/), audited without installing it.
+                  npm_audit ../docs-site
 
             - name: Install dependencies
               uses: ./.github/actions/setup-app

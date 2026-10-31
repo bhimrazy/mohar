@@ -170,7 +170,7 @@ export function dockerfileImages(text) {
 
     // Parser directives (`# syntax=<frontend image>`) are only valid before the first instruction or comment;
     // BuildKit pulls the syntax frontend as an image, so it is checked like a FROM.
-    for (const line of text.split(/\r?\n/)) {
+    for (const line of text.split(/\r\n|\r|\n/)) {
         const directive = line.match(/^#\s*([a-z]+)\s*=\s*(\S+)\s*$/i);
         if (!directive) {
             break;
@@ -182,7 +182,7 @@ export function dockerfileImages(text) {
 
     const lines = text
         .replace(/\\[ \t]*\r?\n/g, ' ')
-        .split(/\r?\n/)
+        .split(/\r\n|\r|\n/)
         .map((line) => line.trim())
         .filter((line) => line !== '' && !line.startsWith('#'));
 
@@ -266,7 +266,7 @@ export function isDockerfile(path) {
  */
 export function composeImages(text) {
     const images = [];
-    for (const line of text.split(/\r?\n/)) {
+    for (const line of text.split(/\r\n|\r|\n/)) {
         const entry = line.match(/^\s*image:\s*(.*)$/);
         if (!entry) {
             continue;
@@ -297,7 +297,7 @@ export function composeImages(text) {
  */
 export function buildkitImages(text) {
     const images = [];
-    const lines = text.split(/\r?\n/);
+    const lines = text.split(/\r\n|\r|\n/);
     for (let i = 0; i < lines.length; i++) {
         const key = lines[i].match(/^(\s*)driver-opts:\s*(.*)$/);
         if (!key) {
@@ -414,8 +414,8 @@ export const NPMRC_ALLOWED = [
 
 /**
  * The .npmrc keys whose values differ between two versions of the file (a missing file has none) and are not on
- * NPMRC_ALLOWED. Keys are read the way npm's ini parser reads them: surrounding whitespace and quotes are dropped, and
- * so is an array suffix (`ca[]`); a `[section]` line or a line without `=` is a key too.
+ * NPMRC_ALLOWED. Keys are read the way npm's ini parser reads them: lines end at any CR or LF, surrounding whitespace
+ * and quotes are dropped, and so is an array suffix (`ca[]`); a `[section]` line or a line without `=` is a key too.
  *
  * @param {string|null} baseText
  * @param {string|null} headText
@@ -431,7 +431,8 @@ export function npmrcAuditConfigChanges(baseText, headText) {
             .toLowerCase();
     const settings = (text) => {
         const found = new Map();
-        for (const line of (text ?? '').split(/\r?\n/)) {
+        // npm's ini parser splits on any run of CR and LF, so a CR alone ends a line too.
+        for (const line of (text ?? '').split(/[\r\n]+/)) {
             const trimmed = line.trim();
             if (trimmed === '' || /^[#;]/.test(trimmed)) {
                 continue;

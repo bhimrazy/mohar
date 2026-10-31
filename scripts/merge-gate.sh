@@ -11,8 +11,9 @@
 #      (no edits; stops on a conflict). Removed on exit, pass or fail. A PR already in develop gates develop itself.
 #      CI's change detection decides which steps run: a docs-only change takes the fast path (vp check, image sizes),
 #      the audits run only when a manifest, lockfile, .npmrc or workflow file changed.
-#   2. The policy checks before any dependency is installed or any PR code runs, as in CI: changelog fragments,
-#      postgres pin, lockfiles in sync, audits, dependency cooldown and pinning. The changelog check and the cooldown
+#   2. The policy checks before any dependency is installed or any PR code runs, in CI's order: changelog fragments,
+#      postgres pin, dependency cooldown and pinning, then lockfiles in sync and audits (no Composer scripts or
+#      plugins; npm on a copy of each lockfile). The changelog check and the cooldown
 #      checker are develop's copies, run against the PR's tree, so a PR cannot weaken the check that judges it.
 #   3. Dependencies: from the main checkout when composer.lock / package-lock.json equal its billing/ ones and its
 #      installed trees match those locks (vendor/ is copied, since links break Pest and the arch tests; node_modules/
@@ -246,9 +247,11 @@ fi
 export DEPENDENCY_AGE_EXCEPTIONS
 
 # ---------------------------------------------------------------- policy, before install (CI's order)
-# No dependency is installed yet and these run no PR code: grep, composer validate/audit on the lock (no vendor/, so
-# no plugins or scripts), npm audit on the lockfile, and develop's dependency checker (Node built-ins only). It is
-# placed inside the PR's billing/ so its app root (its parent directory) is the PR tree, and removed afterwards.
+# No dependency is installed yet and these run no PR code, in CI's order: develop's changelog check and dependency
+# checker (git, awk and Node built-ins only) first, before any tool that reads the PR's config; then composer validate
+# and audit with --no-scripts --no-plugins (a pre-command-run script in the PR's composer.json would run otherwise),
+# and npm audit on a copy of each lockfile in an empty directory (no project .npmrc). The checker is placed inside the
+# PR's billing/ so its app root (its parent directory) is the PR tree, and removed before composer runs.
 policy_dir="$app/.merge-gate-policy"
 # CI's "Changelog fragments" step, with develop's copy of the scripts so a PR cannot weaken the check that judges it.
 # Not run for a PR already in develop (no merge commit) or before develop has the scripts.
@@ -267,10 +270,6 @@ when "$code" "postgres pin matches compose.yaml" bash -c '
     c=$(grep -Eo "$pattern" ../deploy/compose.prod.yaml 2>/dev/null | sort -u)
     echo "compose.yaml: ${a:-<none>}"; echo "ci.yml: ${b:-<none>}"; echo "compose.prod.yaml: ${c:-<none>}"
     [ -n "$a" ] && [ "$(wc -l <<< "$a")" -eq 1 ] && [ "$a" = "$b" ] && [ "$a" = "$c" ]'
-when "$policy" "lockfiles in sync" composer validate --no-check-publish
-when "$audit" "security audits" bash -c '
-    composer audit --locked --abandoned=report && npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ --include=dev \
-        && (cd ../docs-site && npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ --include=dev)'
 if [ "$policy" = true ]; then
     mkdir -p "$policy_dir" && git -C "$dir" archive "$base" billing/scripts | tar -x -C "$policy_dir" -f - \
         && cp -R "$policy_dir"/billing/scripts/. "$policy_dir"/ && rm -rf "${policy_dir:?}/billing"
@@ -281,6 +280,16 @@ when "$policy" "dependency cooldown and pinning (develop's checker)" env DEPENDE
     node "$policy_dir/check-dependency-age.mjs" \
     "$([ "$dep_base" = --all ] && echo --all || echo "--base=$dep_base")"
 rm -rf "${policy_dir:?}"
+when "$policy" "lockfiles in sync" composer validate --no-check-publish --no-scripts --no-plugins
+when "$audit" "security audits" env AUDIT_TMP="$logs" bash -c '
+    npm_audit() {
+        local copy
+        copy="$(mktemp -d "$AUDIT_TMP/npm-audit.XXXXXX")" && cp "$1/package.json" "$1/package-lock.json" "$copy/" \
+            && (cd "$copy" && npm audit --audit-level=high --package-lock-only --registry=https://registry.npmjs.org/ \
+                --include=dev --strict-ssl=true --noproxy=registry.npmjs.org)
+        local rc=$?; rm -rf "$copy"; return "$rc"
+    }
+    composer audit --locked --abandoned=report --no-scripts --no-plugins && npm_audit . && npm_audit ../docs-site'
 
 # ---------------------------------------------------------------- dependencies (PR code may run from here on)
 setup_name="setup: dependencies, .env"

@@ -70,36 +70,99 @@ test('CI runs the base branch\'s changelog, waiver and dependency checkers on th
         ->and($raw)->not->toMatch('#node scripts/check-dependency-age\.mjs|\.\./scripts/changelog-check\.sh|--json body#');
 
     $at = fn (string $name) => array_search($name, $names, true);
+    // The base checker runs, and its copy is removed, before any tool that reads the PR's config (composer, npm).
     expect($at('Policy scripts from the base branch'))->toBeLessThan($at('Changelog fragments'))
         ->and($at('Dependency cooldown and pinning (before install)'))->toBeLessThan($at('Remove the policy scripts'))
-        ->and($at('Remove the policy scripts'))->toBeLessThan($at('Install dependencies'));
+        ->and($at('Remove the policy scripts'))->toBeLessThan($at('Lockfiles in sync (before install)'))
+        ->and($at('Lockfiles in sync (before install)'))->toBeLessThan($at('Security audits (before install)'))
+        ->and($at('Security audits (before install)'))->toBeLessThan($at('Install dependencies'));
 });
 
-test('every audit names its registry, dependency types and abandoned rule on the command line', function () {
-    $files = ['.github/workflows/ci.yml', '.github/workflows/dependency-audit.yml', 'scripts/merge-gate.sh', 'billing/composer.json'];
-    foreach ($files as $file) {
-        $text = (string) file_get_contents(wfRoot()."/{$file}");
-        preg_match_all('/npm audit\b[^\n"\')]*/', $text, $npm);
-        preg_match_all('/composer audit\b[^\n"&]*/', $text, $composer);
-        $npm = array_filter($npm[0], fn (string $call) => str_contains($call, '--package-lock-only'));
-        $composer = array_filter($composer[0], fn (string $call) => str_contains($call, '--locked'));
+/** @return list<string> the npm and composer audit/validate calls of a file, with shell line continuations joined */
+function wfToolCalls(string $file, string $tool): array
+{
+    $text = preg_replace('/[ \t]*\\\\\n\s*/', ' ', (string) file_get_contents(wfRoot()."/{$file}"));
+    preg_match_all('/\b'.$tool.' (?:audit|validate)\b[^\n"\'&)]*/', $text, $calls);
+
+    // Calls only: an option follows the subcommand (a step name or a comment mentioning the tool has none).
+    return array_values(array_filter($calls[0], fn (string $call) => preg_match('/^\S+ \S+ --/', $call) === 1));
+}
+
+const WF_AUDIT_FILES = ['.github/workflows/ci.yml', '.github/workflows/dependency-audit.yml', 'scripts/merge-gate.sh', 'billing/composer.json'];
+
+test('every audit pins its registry, dependency types, TLS check and proxy bypass, and composer runs no PR scripts', function () {
+    foreach (WF_AUDIT_FILES as $file) {
+        $npm = array_filter(wfToolCalls($file, 'npm'), fn (string $call) => str_contains($call, '--package-lock-only'));
+        $composer = wfToolCalls($file, 'composer');
 
         expect($npm)->not->toBeEmpty($file)->and($composer)->not->toBeEmpty($file);
         foreach ($npm as $call) {
-            expect(str_contains($call, '--registry=https://registry.npmjs.org/ --include=dev'))->toBeTrue("{$file}: {$call}");
+            expect(str_contains($call, '--registry=https://registry.npmjs.org/ --include=dev --strict-ssl=true --noproxy=registry.npmjs.org'))
+                ->toBeTrue("{$file}: {$call}");
         }
         foreach ($composer as $call) {
-            expect(str_contains($call, '--abandoned=report'))->toBeTrue("{$file}: {$call}");
+            expect(str_contains($call, '--no-scripts --no-plugins'))->toBeTrue("{$file}: {$call}");
         }
     }
 });
 
-test('a push run takes the waivers of the PR it merged, and only of that PR', function () {
-    $raw = (string) file_get_contents(wfRoot().'/.github/workflows/ci.yml');
+test('CI, the weekly audit and the merge gate run npm audit on a copy of the lockfile, away from any project .npmrc', function () {
+    foreach (array_slice(WF_AUDIT_FILES, 0, 3) as $file) {
+        $text = (string) file_get_contents(wfRoot()."/{$file}");
 
-    expect($raw)->toContain('PR_NUMBER=$(gh api "repos/$REPOSITORY/commits/$SHA/pulls"')
-        ->and($raw)->toContain('select(.merged_at != null and .merge_commit_sha == \"$SHA\")')
+        expect($text)->toMatch('#cp "\$(1|dir)/package\.json" "\$(1|dir)/package-lock\.json" "\$copy/"#')
+            ->and($text)->toMatch('#\(cd "\$copy" && npm audit #')
+            ->and(preg_match('#cd \.\./docs-site && npm audit|^\s*npm audit #m', $text))->toBe(0, $file);
+    }
+});
+
+test('the push lookup takes the merged PR of the pushed commit into the pushed branch, and only that one', function () {
+    (new Process(['jq', '--version']))->run() === 0 || $this->markTestSkipped('jq is not installed');
+    $raw = (string) file_get_contents(wfRoot().'/.github/workflows/ci.yml');
+    preg_match("/gh api --paginate \"repos\/\\\$REPOSITORY\/commits\/\\\$SHA\/pulls\" \\\\\n\s*--jq '([^']+)'/", $raw, $m) || throw new RuntimeException('no push lookup');
+    $sha = str_repeat('a', 40);
+    $pages = json_encode([
+        ['number' => 7, 'merged_at' => null, 'merge_commit_sha' => $sha, 'base' => ['ref' => 'develop']],
+        ['number' => 8, 'merged_at' => '2026-10-31T10:00:00Z', 'merge_commit_sha' => str_repeat('b', 40), 'base' => ['ref' => 'develop']],
+        ['number' => 9, 'merged_at' => '2026-10-31T10:00:00Z', 'merge_commit_sha' => $sha, 'base' => ['ref' => 'main']],
+        ['number' => 10, 'merged_at' => '2026-10-31T10:00:00Z', 'merge_commit_sha' => $sha, 'base' => ['ref' => 'develop']],
+    ]);
+    $lookup = function (string $branch) use ($m, $pages, $sha): string {
+        $jq = new Process(['jq', '-r', $m[1]], null, ['SHA' => $sha, 'BRANCH' => $branch]);
+        $jq->setInput($pages)->mustRun();
+
+        return trim($jq->getOutput());
+    };
+
+    expect($lookup('develop'))->toBe('10')
+        ->and($lookup('main'))->toBe('9')
+        ->and($lookup('feature/x'))->toBe('')
+        ->and($raw)->toContain('BRANCH: ${{ github.ref_name }}')
         ->and($raw)->toContain('SHA: ${{ github.sha }}');
+});
+
+test('the composer commands of the policy and audit paths do not run a script from the PR\'s composer.json', function () {
+    (new Process(['composer', '--version']))->run() === 0 || $this->markTestSkipped('composer is not installed');
+    $dir = realpath(sys_get_temp_dir()).'/wfc-'.bin2hex(random_bytes(4));
+    mkdir("{$dir}/home", 0700, true);
+    file_put_contents("{$dir}/composer.json", json_encode(['name' => 'x/probe', 'require' => new stdClass, 'scripts' => ['pre-command-run' => 'touch pwned.txt']]));
+    $env = ['COMPOSER_HOME' => "{$dir}/home", 'XDEBUG_MODE' => 'off', 'COMPOSER_NO_INTERACTION' => '1'];
+    $run = function (string $command) use ($dir, $env): bool {
+        @unlink("{$dir}/pwned.txt");
+        (new Process(['bash', '-c', $command], $dir, $env))->setTimeout(60)->run();
+
+        return file_exists("{$dir}/pwned.txt");
+    };
+    $run('composer update --no-scripts --no-plugins -q');
+
+    // The probe works: without the flags the PR's script runs.
+    expect($run('composer validate --no-check-publish'))->toBeTrue('control: the probe script should run');
+    foreach (WF_AUDIT_FILES as $file) {
+        foreach (wfToolCalls($file, 'composer') as $call) {
+            expect($run($call))->toBeFalse("{$file}: {$call} ran the PR's pre-command-run script");
+        }
+    }
+    (new Process(['rm', '-rf', $dir]))->run();
 });
 
 test('the merge gate reads waivers through the same script as CI', function () {
@@ -118,7 +181,8 @@ test('the weekly dependency audit installs nothing and checks every item', funct
     expect(array_keys($workflow['on']))->toBe(['schedule', 'workflow_dispatch'])
         ->and($uses)->toBe(['actions/checkout', 'shivammathur/setup-php', 'actions/setup-node'])
         ->and($runs)->toContain('composer audit --locked')
-        ->and(substr_count($runs, 'npm audit --audit-level=high --package-lock-only'))->toBe(2)
+        ->and(substr_count($runs, 'npm audit --audit-level=high --package-lock-only'))->toBe(1)
+        ->and($runs)->toContain('for dir in . ../docs-site; do')
         ->and($runs)->toContain('node scripts/check-dependency-age.mjs --all --min-days=0')
         ->and($runs)->not->toMatch('/\b(npm (ci|install|i)|composer (install|update|require)|npx)\b/');
 });
