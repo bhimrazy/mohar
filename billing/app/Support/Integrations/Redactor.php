@@ -384,18 +384,23 @@ final class Redactor
 
     /**
      * Whether the raw JSON $text names a declared key more often than its decoded $document holds it (a repeated key).
-     * Object keys are the strings followed by `:`, unescaped before they are compared.
+     * Object keys are the strings followed by `:`, unescaped before they are compared. Each match consumes one whole
+     * string (possessively, so the scan stays linear and never restarts inside a string); a regex error fails closed.
      *
      * @param  array<array-key, mixed>  $document
      * @param  list<string>  $keys  lowercase
      */
     private static function repeatsKey(string $text, array $document, array $keys): bool
     {
-        if (preg_match_all('/"((?:[^"\\\\]|\\\\.)*)"\s*:/s', $text, $names) === false) {
+        if (preg_match_all('/"((?:[^"\\\\]++|\\\\.)*+)"(\s*+:)?/s', $text, $strings) === false) {
             return true;
         }
 
-        $raw = count(array_filter($names[1], fn (string $name): bool => in_array(strtolower((string) json_decode('"'.$name.'"')), $keys, true)));
+        $raw = 0;
+
+        foreach ($strings[1] as $index => $name) {
+            $raw += (int) ($strings[2][$index] !== '' && in_array(strtolower((string) json_decode('"'.$name.'"')), $keys, true));
+        }
 
         $held = 0;
         $count = function (array $node) use (&$count, &$held, $keys): void {
