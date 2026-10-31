@@ -166,6 +166,7 @@ export function PasswordConfirmationGate() {
         setError(null);
 
         try {
+            // The password lives in component state, not in the useHttp form, so it is injected per request.
             transform(() => ({ password }));
             const confirmed = await post(
                 ConfirmablePasswordController.store.url(),
