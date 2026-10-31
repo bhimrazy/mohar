@@ -67,13 +67,22 @@ abstract class TestCase extends BaseTestCase
         }
     }
 
+    /**
+     * Skips the simulator suite as a whole class off Linux (simulatorHostProblem()): skipped here, no beforeEach or
+     * afterEach of the file runs, so none of them fails on what the other never set up.
+     */
+    public static function setUpBeforeClass(): void
+    {
+        parent::setUpBeforeClass();
+
+        if (preg_match('/^P\\\\Tools\\\\simulators\\\\tests\\\\/', static::class) === 1 && ($reason = static::simulatorHostProblem()) !== null) {
+            static::markTestSkipped($reason);
+        }
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
-
-        if (preg_match('/^P\\\\Tools\\\\simulators\\\\tests\\\\/', static::class) === 1 && ($reason = static::simulatorHostProblem()) !== null) {
-            $this->markTestSkipped($reason);
-        }
 
         // Page components are asserted via inertia.testing.ensure_pages_exist; no built assets needed.
         $this->withoutVite();
