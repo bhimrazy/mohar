@@ -75,3 +75,24 @@ test('database and object-store secrets have no defaults', function () {
         ->toContain('${OBJECTS_SECRET_KEY:?')
         ->not->toMatch('/\$\{(DB_PASSWORD|OBJECTS_ACCESS_KEY|OBJECTS_SECRET_KEY|APP_KEY):-/');
 });
+
+/*
+ * Infra security review 2026-10-31, L4. The postgres entrypoint starts as root, fixes the ownership of the data and
+ * socket directories and drops to the postgres user with su-exec: CHOWN, DAC_OVERRIDE, FOWNER, SETGID and SETUID, no
+ * more. RustFS runs as its own uid 10001 and needs none; its logs go to stdout, since /logs is read-only here.
+ */
+test('the database and the object store are read-only, without extra privileges, and keep only the capabilities they need', function () {
+    $services = prodCompose()['services'];
+
+    foreach (['postgres', 'rustfs'] as $name) {
+        expect($services[$name]['cap_drop'])->toBe(['ALL'])
+            ->and($services[$name]['security_opt'])->toContain('no-new-privileges:true')
+            ->and($services[$name]['read_only'])->toBeTrue()
+            ->and($services[$name]['tmpfs'])->toContain('/tmp');
+    }
+
+    expect($services['postgres']['cap_add'])->toBe(['CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'SETGID', 'SETUID'])
+        ->and($services['postgres']['tmpfs'])->toContain('/var/run/postgresql')
+        ->and($services['rustfs']['cap_add'] ?? [])->toBe([])
+        ->and($services['rustfs']['environment']['RUSTFS_OBS_LOG_DIRECTORY'])->toBe('');
+});

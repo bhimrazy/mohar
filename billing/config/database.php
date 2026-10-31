@@ -97,6 +97,8 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // The CA that signed the server's certificate, for DB_SSLMODE=verify-full (docs/devops/install.md).
+            'sslrootcert' => env('DB_SSLROOTCERT'),
         ],
 
         'sqlsrv' => [
