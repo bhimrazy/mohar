@@ -48,6 +48,8 @@ class HandleInertiaRequests extends Middleware
             'name' => fn (): string => app(BrandProvider::class)->brand()->name,
             'auth' => [
                 'user' => $request->user() ? [...$request->user()->toArray(), 'has_password' => $request->user()->hasPassword()] : null,
+                // For the confirm dialog and page: how long a password confirmation lasts (AUTH_STEP_UP_SECONDS).
+                'step_up_minutes' => intdiv(RequireRecentPasswordConfirmation::timeout(), 60),
             ],
             // Display settings per currency (prefix, suffix, grouping) so formatMoney matches server output.
             'currencyFormats' => fn (): array => array_map(fn (CurrencyDisplay $display): array => $display->toArray(), app(CurrencyDirectory::class)->displays()),

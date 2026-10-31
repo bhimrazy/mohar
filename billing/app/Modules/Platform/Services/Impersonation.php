@@ -4,6 +4,7 @@ namespace App\Modules\Platform\Services;
 
 use App\Events\Core\ImpersonationEnded;
 use App\Events\Core\ImpersonationStarted;
+use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
@@ -87,7 +88,7 @@ class Impersonation
 
         $this->switchTo($session->user);
 
-        $request->session()->forget('auth.password_confirmed_at');
+        $request->session()->forget(['auth.password_confirmed_at', RequireRecentPasswordConfirmation::SESSION_KEY]);
         ImpersonationStarted::dispatch($session->id, $session->staff_id, $session->client_id, $session->user_id);
 
         $request->session()->put([

@@ -104,7 +104,7 @@ it('scopes resending to a login of that account', function () {
     $user = User::query()->where('email', 'helper@example.test')->sole();
     actingAsStaff(['core.users.manage', 'core.clients.view']);
 
-    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])
+    $this->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()])
         ->post(route('admin.platform.clients.users.invitation', [$other, $user]))->assertNotFound();
 });
 
@@ -113,7 +113,7 @@ it('requires the users permission to resend an invitation', function () {
     $user = User::query()->where('email', 'helper@example.test')->sole();
     actingAsStaff(['core.clients.view', 'core.*']);
 
-    $this->withSession(['auth.password_confirmed_at' => now()->getTimestamp()])
+    $this->withSession(['auth.step_up_confirmed_at' => now()->getTimestamp()])
         ->post(route('admin.platform.clients.users.invitation', [$this->client, $user]))->assertForbidden();
 });
 

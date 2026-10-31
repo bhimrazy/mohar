@@ -20,6 +20,13 @@ import {
     xsrfToken,
 } from '@/components/app/set-password-button';
 import { STEP_UP_DOWNLOAD_EVENT } from '@/components/app/step-up-download-link';
+import {
+    inertiaStepUpRefusal,
+    replacePending,
+    stepUpWindow,
+    STEP_UP_CONFIRM_EVENT,
+} from '@/lib/step-up';
+import type { StepUpConfirmDetail } from '@/lib/step-up';
 import type { HttpMethod } from '@/types/app';
 
 type PendingVisit = {
@@ -30,12 +37,16 @@ type PendingVisit = {
     download?: boolean;
     /** The login has no password: offer "Set a password" instead of the password field. */
     noPassword?: boolean;
+    /** The caller retries itself (requestStepUp): told the outcome instead of a replayed visit. */
+    resolve?: (confirmed: boolean) => void;
 };
 
 /**
- * Step-up authentication for sensitive actions. When the server answers a visit with a
- * "password_confirmation" error (the `password.recent` middleware), ask for the password,
- * confirm it with Fortify, then repeat the original request once.
+ * Step-up authentication for sensitive actions. When the server refuses a visit for step-up (`password.recent`, or
+ * `password.confirm` for anything but a page load: a 423 with the step-up header, or a "password_confirmation" error
+ * from a check in a form request), ask for the password, confirm it with Fortify, then repeat the original request
+ * once. A caller that retries itself asks through
+ * `requestStepUp()` and is told whether the password was confirmed.
  */
 export function PasswordConfirmationGate() {
     const { auth } = usePage().props;
@@ -66,13 +77,37 @@ export function PasswordConfirmationGate() {
             ) {
                 setPassword('');
                 setError(null);
-                setPending({
+                const visit: PendingVisit = {
                     ...lastVisit.current,
                     noPassword:
                         event.detail.errors.step_up_reason ===
                         'password_not_set',
-                });
+                };
+                setPending((previous) => replacePending(previous, visit));
             }
+        });
+
+        // The server's answer to a refused Inertia mutation (#538): a 423 with the step-up header. Nothing was changed
+        // and no page reloads, so the form keeps its input; confirm, then send the same visit again.
+        const offHttpException = router.on('httpException', (event) => {
+            const refusal = inertiaStepUpRefusal(event.detail.response);
+
+            if (
+                !refusal ||
+                !lastVisit.current ||
+                lastVisit.current.method === 'get'
+            ) {
+                return;
+            }
+
+            event.preventDefault();
+            setPassword('');
+            setError(null);
+            const visit: PendingVisit = {
+                ...lastVisit.current,
+                noPassword: refusal.noPassword,
+            };
+            setPending((previous) => replacePending(previous, visit));
         });
 
         const onDownload = (event: Event) => {
@@ -82,20 +117,42 @@ export function PasswordConfirmationGate() {
             const { url, noPassword } = (
                 event as CustomEvent<{ url: string; noPassword?: boolean }>
             ).detail;
-            setPending({
-                url,
-                method: 'get',
-                data: {},
-                download: true,
-                noPassword,
-            });
+            setPending((previous) =>
+                replacePending(previous, {
+                    url,
+                    method: 'get',
+                    data: {},
+                    download: true,
+                    noPassword,
+                }),
+            );
+        };
+        const onConfirm = (event: Event) => {
+            event.preventDefault();
+            setPassword('');
+            setError(null);
+            const { noPassword, resolve } = (
+                event as CustomEvent<StepUpConfirmDetail>
+            ).detail;
+            setPending((previous) =>
+                replacePending(previous, {
+                    url: '',
+                    method: 'get',
+                    data: {},
+                    noPassword,
+                    resolve,
+                }),
+            );
         };
         window.addEventListener(STEP_UP_DOWNLOAD_EVENT, onDownload);
+        window.addEventListener(STEP_UP_CONFIRM_EVENT, onConfirm);
 
         return () => {
             offBefore();
             offError();
+            offHttpException();
             window.removeEventListener(STEP_UP_DOWNLOAD_EVENT, onDownload);
+            window.removeEventListener(STEP_UP_CONFIRM_EVENT, onConfirm);
         };
     }, []);
 
@@ -158,6 +215,12 @@ export function PasswordConfirmationGate() {
             const visit = pending;
             setPending(null);
 
+            if (visit.resolve) {
+                visit.resolve(true);
+
+                return;
+            }
+
             if (visit.download) {
                 window.location.assign(visit.url);
 
@@ -181,10 +244,15 @@ export function PasswordConfirmationGate() {
     // The server's answer wins; the page prop can be stale (a password set in another window).
     const noPassword = pending?.noPassword ?? !hasPassword;
 
+    const dismiss = () => {
+        pending?.resolve?.(false);
+        setPending(null);
+    };
+
     return (
         <Dialog
             open={pending !== null}
-            onOpenChange={(open) => !open && !processing && setPending(null)}
+            onOpenChange={(open) => !open && !processing && dismiss()}
         >
             <DialogContent className="sm:max-w-md">
                 {noPassword ? (
@@ -203,7 +271,7 @@ export function PasswordConfirmationGate() {
                             <Button
                                 type="button"
                                 variant="outline"
-                                onClick={() => setPending(null)}
+                                onClick={dismiss}
                             >
                                 Cancel
                             </Button>
@@ -216,8 +284,8 @@ export function PasswordConfirmationGate() {
                             <DialogTitle>Confirm your password</DialogTitle>
                             <DialogDescription>
                                 This is a sensitive action. Enter your password
-                                to continue; you won't be asked again for 15
-                                minutes.
+                                to continue; you won't be asked again for{' '}
+                                {stepUpWindow(auth.step_up_minutes)}.
                             </DialogDescription>
                         </DialogHeader>
                         <div className="grid gap-2">
@@ -238,7 +306,7 @@ export function PasswordConfirmationGate() {
                             <Button
                                 type="button"
                                 variant="outline"
-                                onClick={() => setPending(null)}
+                                onClick={dismiss}
                                 disabled={processing}
                             >
                                 Cancel
@@ -248,7 +316,7 @@ export function PasswordConfirmationGate() {
                                 disabled={processing || password === ''}
                             >
                                 {processing && <Spinner />}
-                                Confirm and continue
+                                Confirm password
                             </Button>
                         </DialogFooter>
                     </form>

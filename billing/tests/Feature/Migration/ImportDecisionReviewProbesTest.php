@@ -37,7 +37,7 @@ test('probe B5: "update" on a company-name match never replaces that client\'s e
 test('probe M3: the errors CSV, which carries the raw cells of every failed row, asks for a recent password', function () {
     $run = ClientCsv::check(ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'not-an-email')])));
 
-    $this->withSession(['auth.password_confirmed_at' => 0])->get(route('admin.migration.imports.errors', $run))->assertRedirect();
+    $this->withSession(['auth.step_up_confirmed_at' => 0])->get(route('admin.migration.imports.errors', $run))->assertRedirect();
 });
 
 test('a row whose email belongs to a long-verified login offers link or no link; linking makes that login the owner and moves the digest', function () {

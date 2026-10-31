@@ -1,6 +1,6 @@
 # ADR 0029 — Public REST API
 
-- Status: Proposed · 2026-10-29 · Owner: Principal architect. The number may change: a sibling ADR (frontend
+- Status: Accepted · 2026-10-31 (all eight questions answered; see `public-api.md` §8; nothing deferred) · Owner: Principal architect. Proposed 2026-10-29. The number may change: a sibling ADR (frontend
   translations) is being written at the same time and takes 0028 if it merges first.
 - Related: `billing/docs/product/public-api.md` (scope, endpoints, PR plan), ADR 0001 (modules), ADR 0007 (dependency
   approval), ADR 0010 (public surface, versioning, `kernel:api-snapshot`), ADR 0011 (events and `WebhookEvents`), ADR
@@ -427,7 +427,7 @@ What we do instead:
 
 - Integrators get a stable, documented API, and our UI and API cannot drift, because both call the same Actions.
 - The API is mostly one PR per module after one foundation PR, so module PRs can run in parallel.
-- Two new dependencies need approval (Sanctum, and Scramble or a generator of our own). The committed OpenAPI file
+- Two new dependencies, `laravel/sanctum` and `dedoc/scramble`, are approved under ADR 0007 (owner, 2026-10-31): pinned, 7-day cooldown, publisher check at install. Token prefix `mhr_`; no RPC shim in v1; guest-checkout-only storefront; every edition for now; v1 kept 12 months after v2 GA; staff service accounts own integration tokens (follow-up to API-1). The committed OpenAPI file
   becomes a second generated contract next to `kernel-api.txt`.
 - The three roots mean some duplication (an invoice appears under `/invoices` and `/account/invoices`). Each root's
   controller calls the same query or Action. Resources are shared, with fields hidden by audience where needed.

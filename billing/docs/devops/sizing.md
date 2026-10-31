@@ -10,6 +10,9 @@ Sources:
 - **the reference:** the GitHub runner run of 2026-10-23,
   [actions/runs/40000321793](https://github.com/bhimrazy/mohar/actions/runs/40000321793), the `load-test` label on
   PR #433 (commit `c5c0ffa`, the PR's head `dbf92da5` merged into `develop`), with virtual users arriving over 20 s;
+- a re-run of 2026-10-31, [actions/runs/41200682198](https://github.com/bhimrazy/mohar/actions/runs/41200682198),
+  the `load-test` label on PR #552 (the database review's indexes, commit `f9fe390`), reported in "Re-run of
+  2026-10-31 (PR #552)" below; the guide's verdicts still rest on the reference;
 - history, before PR #433 (every virtual user started in the same second, see "Where the small host runs out"): the
   runner run of 2026-10-23 on the PR #374 branch,
   [actions/runs/39944684180](https://github.com/bhimrazy/mohar/actions/runs/39944684180) (commit `3151b0d`), and the
@@ -133,6 +136,45 @@ not been separated; a second run of the same commit would show the runner's shar
 | Storefront p95       | 4.6 s                               | 2.9 s                               | 644 ms                              |
 | Admin dashboard p95  | 5.1 s                               | 3.2 s                               | 3.1 s                               |
 | req/s                | 17.7                                | 17.4                                | 16.4                                |
+
+### Re-run of 2026-10-31 (PR #552)
+
+Run 41200682198: the same harness settings as the reference (small profile, large volume, users arriving over
+20 s), on commit `f9fe390`, PR #552 merged into `develop`. PR #552 adds the database review's indexes (open and
+cancelled invoices for the dashboard receivables, open invoices and live services by id for the billing day, the
+client invoice order, `jobs (queue, id)`). Seed: 50,000 clients, 100,000 services, 355,350 invoices, 900 MB.
+
+| Measure                        | 40000321793 (2026-10-23, `c5c0ffa`) | 41200682198 (2026-10-31, `f9fe390`) |
+| ------------------------------ | ----------------------------------- | ----------------------------------- |
+| All pages, 40 users: p50 / p95 | 120 ms / 704 ms (p99 1.5 s)         | 342 ms / 1.26 s (p99 1.65 s)        |
+| req/s at 40 users              | 16.4                                | 15.1                                |
+| Highest comfortable level      | 40 users                            | 20 users                            |
+| Admin dashboard, light         | 219 ms / 960 ms                     | 259 ms / 284 ms                     |
+| Admin dashboard, 40 users      | 828 ms / 3.1 s                      | 960 ms / 2.0 s                      |
+| Client dashboard, light        | 47 ms / 61 ms                       | 69 ms / 95 ms                       |
+| Client dashboard, 40 users     | 138 ms / 546 ms                     | 335 ms / 1.14 s                     |
+| Client invoices, light         | 44 ms / 55 ms                       | 58 ms / 76 ms                       |
+| Client invoices, 40 users      | 100 ms / 586 ms                     | 302 ms / 1.08 s                     |
+| Checkout, light p95            | 411 ms (one request)                | 665 ms / 727 ms                     |
+| Checkout, 40 users             | p95 2.1 s                           | 1.87 s / 3.06 s                     |
+| Receivables aggregate (mean)   | 486 ms                              | 494 ms (7 calls)                    |
+| Billing day (`automation:run`) | 539.3 s                             | not measured (see below)            |
+| App / PostgreSQL CPU, 40 users | 75% / 66% of one core               | 78% / 82% of one core               |
+
+These two runs cannot isolate what the indexes did. Pages the indexes do not touch are also slower: checkout,
+lightly loaded, went from 411 ms to 727 ms. The code moved on by eight days, and the runner may differ (see "Compared
+with the runs before PR #433"). The admin dashboard's light p95 of 284 ms is most likely #441 (`Cache::flexible`),
+which this runner had not measured before. The receivables aggregate costs the same as before: at this volume its
+paid-and-refunded branch matches about a third of the year's invoices and is read by a sequential scan, which
+PR #552 does not change. The branches PR #552 indexes went from 12.7 ms to 2.3 ms in its EXPLAIN (PR #552
+description).
+
+The billing day was not measured. The harness's `automation:run` recorded only `platform.exchange-rates` and
+`domains.renewals`, and its summary shows 0.0 s. Meanwhile the automation phase lasted 144 s and wrote 616 renewal
+invoices. PR #543's small-profile runs on `develop` (`e33b108`, run 41193623951) show the same; its medium-profile run
+completed a 3,059 s billing day. The small profile gives the scheduler container, where `automation:run` runs,
+256 MB, and the highest sample there was 234 MB, so the run may have been killed for memory. That has not been
+confirmed.
 
 <details><summary>History: the full tables of run 39472898451 (2026-10-21), before PR #433</summary>
 

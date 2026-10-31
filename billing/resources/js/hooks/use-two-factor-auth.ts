@@ -1,5 +1,6 @@
 import { useHttp } from '@inertiajs/react';
 import { useCallback, useState } from 'react';
+import { StepUpCancelled, withStepUp } from '@/lib/step-up';
 import { qrCode, recoveryCodes, secretKey } from '@/routes/two-factor';
 
 export type UseTwoFactorAuthReturn = {
@@ -18,6 +19,12 @@ export type UseTwoFactorAuthReturn = {
 };
 
 export const OTP_MAX_LENGTH = 6;
+
+const CANCELLED_MESSAGE = 'Confirm your password to continue.';
+
+/** The message for a failed fetch; a cancelled password dialog says so instead of "failed". */
+const failure = (error: unknown, message: string): string =>
+    error instanceof StepUpCancelled ? CANCELLED_MESSAGE : message;
 
 export const useTwoFactorAuth = (): UseTwoFactorAuthReturn => {
     const { submit } = useHttp();
@@ -48,27 +55,40 @@ export const useTwoFactorAuth = (): UseTwoFactorAuthReturn => {
 
     const fetchQrCode = useCallback(async (): Promise<void> => {
         try {
-            const { svg } = (await submit(qrCode())) as {
+            const { svg } = (await withStepUp(() => submit(qrCode()))) as {
                 svg: string;
                 url: string;
             };
 
             setQrCodeSvg(svg);
-        } catch {
-            setErrors((prev) => [...prev, 'Failed to fetch QR code']);
+        } catch (error) {
+            setErrors((prev) => [
+                ...prev,
+                failure(error, 'Failed to fetch QR code'),
+            ]);
             setQrCodeSvg(null);
+
+            // fetchSetupData stops here, so a cancelled dialog is not opened again for the setup key.
+            if (error instanceof StepUpCancelled) {
+                throw error;
+            }
         }
     }, [submit]);
 
     const fetchSetupKey = useCallback(async (): Promise<void> => {
         try {
-            const { secretKey: key } = (await submit(secretKey())) as {
+            const { secretKey: key } = (await withStepUp(() =>
+                submit(secretKey()),
+            )) as {
                 secretKey: string;
             };
 
             setManualSetupKey(key);
-        } catch {
-            setErrors((prev) => [...prev, 'Failed to fetch a setup key']);
+        } catch (error) {
+            setErrors((prev) => [
+                ...prev,
+                failure(error, 'Failed to fetch a setup key'),
+            ]);
             setManualSetupKey(null);
         }
     }, [submit]);
@@ -76,10 +96,15 @@ export const useTwoFactorAuth = (): UseTwoFactorAuthReturn => {
     const fetchRecoveryCodes = useCallback(async (): Promise<void> => {
         try {
             setErrors([]);
-            const codes = (await submit(recoveryCodes())) as string[];
+            const codes = (await withStepUp(() =>
+                submit(recoveryCodes()),
+            )) as string[];
             setRecoveryCodesList(codes);
-        } catch {
-            setErrors((prev) => [...prev, 'Failed to fetch recovery codes']);
+        } catch (error) {
+            setErrors((prev) => [
+                ...prev,
+                failure(error, 'Failed to fetch recovery codes'),
+            ]);
             setRecoveryCodesList([]);
         }
     }, [submit]);
@@ -87,7 +112,9 @@ export const useTwoFactorAuth = (): UseTwoFactorAuthReturn => {
     const fetchSetupData = useCallback(async (): Promise<void> => {
         try {
             setErrors([]);
-            await Promise.all([fetchQrCode(), fetchSetupKey()]);
+            // One after the other: a step-up refusal on the first asks once, and the second then passes.
+            await fetchQrCode();
+            await fetchSetupKey();
         } catch {
             setQrCodeSvg(null);
             setManualSetupKey(null);

@@ -158,6 +158,18 @@ Our team turned off two-factor authentication on your account, for example after
 
 If you didn't ask for this, contact us{% if support.email %} at {{ support.email }}{% endif %} straight away.
 MD),
+    $client('auth.passkey_added', 'general', 'Passkey added', 'A passkey was added to your {{ company.name }} account', <<<'MD'
+# A passkey was added to your account
+
+A passkey was added to {{ user.email }}. It can be used to log in without your password.
+
+| Added | {{ notice.added_at }} |
+|---|---|
+
+If you didn't add it, remove it in your security settings, change your password and contact us{% if support.email %} at {{ support.email }}{% endif %} straight away.
+
+[Open security settings]({{ notice.security_url }})
+MD),
     $client('client.welcome', 'general', 'Welcome to the client area', 'Welcome to {{ company.name }}', <<<'MD'
 # Welcome, {{ client.first_name }}
 
@@ -843,6 +855,20 @@ If you didn't expect this, tell another administrator straight away.
 
 [Open admin area]({{ system.admin_url }})
 MD),
+    $staff('staff.passkey_added', 'Staff passkey added', 'A passkey was added to your staff account', <<<'MD'
+# A passkey was added to your staff account
+
+{% if recipient.first_name %}Hi {{ recipient.first_name }},{% else %}Hello,{% endif %}
+
+A passkey was added to your staff login, {{ recipient.email }}. It can be used to log in without your password.
+
+| Added | {{ notice.added_at }} |
+|---|---|
+
+If you didn't add it, remove it in your security settings, change your password and tell another administrator straight away.
+
+[Open security settings]({{ notice.security_url }})
+MD),
     $staff('staff.password_reissued', 'Staff one-time password issued', 'A new one-time password was issued for your staff account', <<<'MD'
 # A new one-time password was issued
 
@@ -950,6 +976,7 @@ $preheaders = [
     'auth.access_granted' => 'Log in as usual to see {{ notice.account }}.',
     'auth.owner_changed' => '{{ notice.email }} now owns {{ notice.account }}.',
     'auth.two_factor_reset' => 'Set it up again from your security settings.',
+    'auth.passkey_added' => 'Added {{ notice.added_at }}. Not you? Remove it and change your password.',
     'kyc.document_decided' => '{% if kyc.approved %}Approved after review.{% else %}What to fix: {{ kyc.reason }}{% endif %}',
     'client.welcome' => 'Your account is ready. Log in to order services, pay invoices and get help.',
     'order.confirmation' => 'Thanks for your order. We\'ll email you as soon as each service is ready.',
@@ -1012,6 +1039,7 @@ $descriptions = [
     'auth.access_granted' => 'Tells a person they now have access to a client account.',
     'auth.owner_changed' => 'Tells the previous and new owner that account ownership moved.',
     'auth.two_factor_reset' => 'Confirms that two-factor authentication was turned off for a client login.',
+    'auth.passkey_added' => 'Tells a client login a passkey was added to it.',
     'client.welcome' => 'Welcomes a new client and links to the client area.',
     'kyc.document_decided' => 'Tells the client whether their identity document was approved or declined, and why.',
     'order.confirmation' => 'Confirms an order to the client with its items and total.',
@@ -1074,6 +1102,7 @@ $descriptions = [
     'staff.password_reset' => 'Sent to a staff member who asks to reset their password.',
     'staff.invitation' => 'Invites a new staff member to the admin area.',
     'staff.two_factor_reset' => 'Tells a staff member their two-factor authentication was reset.',
+    'staff.passkey_added' => 'Tells a staff member a passkey was added to their login.',
     'staff.password_reissued' => 'Tells a full administrator a new one-time password was issued from the command line.',
     'staff.email_changed' => 'Tells a staff member their login email was changed.',
     'auth.email_changed' => 'Tells the previous address that a login\'s sign-in email was changed, with the new one partly masked.',

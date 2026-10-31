@@ -28,7 +28,7 @@ class ReviewUnlocks
     /** The end of a window opened now for this request's staff member, step-up included. */
     public function windowEnd(Request $request): CarbonImmutable
     {
-        $confirmedAt = (int) $request->session()->get('auth.password_confirmed_at', 0);
+        $confirmedAt = (int) $request->session()->get(RequireRecentPasswordConfirmation::SESSION_KEY, 0);
         $stepUpEnds = $confirmedAt + RequireRecentPasswordConfirmation::timeout();
 
         return CarbonImmutable::createFromTimestamp(min(CarbonImmutable::now()->addMinutes(self::MINUTES)->getTimestamp(), $stepUpEnds));
