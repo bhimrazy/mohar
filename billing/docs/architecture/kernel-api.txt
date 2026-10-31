@@ -50,7 +50,7 @@ App\Contracts\Billing\GatewayDriver method name(): string
 App\Contracts\Billing\GatewayDriver method parseCallback(App\Data\Billing\GatewayConfig $gateway, Illuminate\Http\Request $request): App\Data\Billing\CallbackEvent|App\Data\Billing\CallbackRejection
 App\Contracts\Billing\GatewayDriver method refund(App\Data\Billing\GatewayConfig $gateway, App\Data\Billing\RefundRequest $request): App\Data\Billing\ChargeResult
 App\Contracts\Billing\GatewayDriver method settingsFields(): array
-App\Contracts\Billing\GatewayDriver doc method settingsFields @return list<SettingField>
+App\Contracts\Billing\GatewayDriver doc method settingsFields @return list<SettingField|array{key: string, label: string, type?: string, help?: string, options?: array<string, string>, required?: bool, default?: string|bool}>
 App\Contracts\Billing\GatewayDriver method supports(string $capability): bool
 App\Contracts\Billing\GatewayDriver method tokenDetails(App\Data\Billing\GatewayConfig $gateway, string $token): ?App\Data\Billing\CardToken
 App\Contracts\Billing\GatewayRegistry interface
