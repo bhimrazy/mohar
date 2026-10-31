@@ -5,8 +5,8 @@ use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use Illuminate\Support\Facades\Route;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Fakes\Billing\FakeInvoicer;
 use Tests\Fakes\Domains\DomainFixtures;
-use Tests\Fakes\Domains\FakeInvoicer;
 use Tests\Fakes\Domains\FakeRegistrar;
 
 beforeEach(function () {
