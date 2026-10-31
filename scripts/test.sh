@@ -14,7 +14,7 @@
 #   - app/Modules/<M>/** -> tests/Feature/<M>, tests/Unit/<M> and every test file that names an App\Modules\<M>\ class
 #     (tests that reach a module only over HTTP are not found this way: the suites below cover the common ones);
 #     tools/simulators/** -> tools/simulators/tests; deploy/, loadtest/ -> tests/Tooling/Deploy; scripts/, billing/scripts/,
-#     .github/ -> tests/Unit and tests/Tooling; resources/js/** -> tests/Feature (the Inertia component and prop assertions);
+#     .github/ -> tests/Tooling; resources/js/** -> tests/Feature (the Inertia component and prop assertions);
 #   - always, once any of those changed: tests/Arch, tests/Extensions, tests/Kernel and, in tests/Feature, Security,
 #     Migration, TestHarness, Auth, Settings, Reports, Integrations and DashboardTest.php, which catch
 #     breakage across modules and PRs;
@@ -103,7 +103,7 @@ if [ "$changed" = 1 ]; then
             deploy/* | loadtest/*)
                 php_side=1; add_dir tests/Tooling/Deploy ;;
             scripts/* | billing/scripts/* | .github/*)
-                php_side=1; add_dir tests/Unit; add_dir tests/Tooling ;;
+                php_side=1; add_dir tests/Tooling ;;
             billing/*)
                 reason="${reason:-$f}" ;;
             *) ;;
