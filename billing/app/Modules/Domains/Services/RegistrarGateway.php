@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\Auth;
 use JsonSerializable;
 use LogicException;
 use ReflectionProperty;
+use SplObjectStorage;
 use Throwable;
 
 /**
@@ -45,6 +46,9 @@ class RegistrarGateway
 
     /** Commands that change state at the registry and must never be blindly repeated. */
     public const MUTATING = ['register', 'transfer', 'renew', 'restore'];
+
+    /** Exception links read for declared values (withValuesIn()); a longer chain is withheld. */
+    private const MAX_CHAIN = 16;
 
     public function __construct(private RegistrarDriverRegistry $drivers, private RegistrarManager $accounts, private Redactor $redactor) {}
 
@@ -175,8 +179,8 @@ class RegistrarGateway
     }
 
     /**
-     * $values plus the declared values in the markup of the exception's message (a driver may throw the answer it got);
-     * null stays null (withheld).
+     * $values plus the declared values in the markup of every message in the exception's chain (a driver may throw the
+     * answer it got, or wrap it). Null (withheld) when $values is null or the chain is longer than maskChain() walks.
      *
      * @param  list<string>|null  $values
      * @param  list<string>  $declared
@@ -188,7 +192,17 @@ class RegistrarGateway
             return $values;
         }
 
-        $found = $this->redactor->valuesUnder($declared, ['message' => $exception->getMessage()]);
+        $messages = [];
+
+        for ($link = $exception; $link !== null; $link = $link->getPrevious()) {
+            if (count($messages) === self::MAX_CHAIN) {
+                return null;
+            }
+
+            $messages[] = $link->getMessage();
+        }
+
+        $found = $this->redactor->valuesUnder($declared, $messages);
 
         return $found === null ? null : [...$values, ...$found];
     }
@@ -234,7 +248,10 @@ class RegistrarGateway
      */
     private function maskChain(Throwable $exception, Closure $mask): Throwable
     {
-        for ($link = $exception, $hops = 0; $link !== null && $hops < 16; $link = $link->getPrevious(), $hops++) {
+        $seen = new SplObjectStorage;
+
+        for ($link = $exception; $link !== null && ! $seen->contains($link); $link = $link->getPrevious()) {
+            $seen->attach($link);
             $masked = $mask($link->getMessage());
 
             if ($masked !== $link->getMessage()) {
