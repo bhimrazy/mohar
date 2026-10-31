@@ -47,3 +47,26 @@ test('rescaling between decimal counts never rounds', function () {
         ->and(MinorUnits::rescale(123_450, 2, 0))->toBeNull()
         ->and(MinorUnits::rescale(PHP_INT_MAX, 0, 2))->toBeNull();
 });
+
+test('an amount that overflows is refused, not returned as a float', function () {
+    // rescale() promises null on overflow; a negative amount scaled up overflows below PHP_INT_MIN.
+    expect(MinorUnits::rescale(PHP_INT_MIN, 0, 2))->toBeNull();
+});
+
+test('a provider amount too large for its decimals is refused, not a TypeError', function () {
+    // fromDecimal() accepts 13 integer digits; with 6 decimals that passes PHP_INT_MAX.
+    expect(MinorUnits::fromDecimal('9999999999999', 6))->toBeNull()
+        ->and(MinorUnits::fromDecimal('9999999999999.999999', 6))->toBeNull();
+});
+
+test('minor units match the converters they replaced, for NPR and Stripe amounts', function () {
+    // NprAmount::toPaisa/toRupees (removed in #590) were fixed at 2 decimals; StripeAmount::shift did 10 ** power.
+    foreach ([0, 1, 99, 100, 101, 113_050, 999_999_999_99] as $paisa) {
+        expect(MinorUnits::fromDecimal(MinorUnits::toDecimal($paisa, 2), 2))->toBe($paisa)
+            ->and(MinorUnits::rescale($paisa, 2, 2))->toBe($paisa);
+    }
+
+    expect(MinorUnits::rescale(150_000, 2, 0))->toBe(1500)
+        ->and(MinorUnits::rescale(150_050, 2, 0))->toBeNull()
+        ->and(MinorUnits::rescale(1500, 0, 2))->toBe(150_000);
+});
