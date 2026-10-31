@@ -1,6 +1,8 @@
+import { useHttp } from '@inertiajs/react';
 import { useState } from 'react';
 import { Field } from '@/components/app/field';
 import { Input } from '@/components/ui/input';
+import { failureMessage } from '@/lib/http-error';
 
 export type CardDetails = {
     card_number: string;
@@ -22,51 +24,43 @@ export const emptyCard: CardDetails = {
 
 type VaultErrors = Partial<Record<keyof CardDetails, string>>;
 
-function xsrfToken(): string {
-    const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
-
-    return match ? decodeURIComponent(match[1]) : '';
-}
-
 /**
  * Sends card details straight to the gateway's vault (sandbox: JSON endpoint) and returns a token.
  * The application's own endpoints only ever receive the token.
  */
-export async function tokenizeCard(
-    vaultUrl: string,
-    card: CardDetails,
-): Promise<{ token?: CardToken; errors?: VaultErrors }> {
-    const response = await fetch(vaultUrl, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-            'X-XSRF-TOKEN': xsrfToken(),
-        },
-        body: JSON.stringify({
+export function useTokenizeCard() {
+    const { post, transform } = useHttp<
+        { card_number: string; exp_month: number; exp_year: number },
+        CardToken
+    >({ card_number: '', exp_month: 0, exp_year: 0 });
+
+    return async (
+        vaultUrl: string,
+        card: CardDetails,
+    ): Promise<{
+        token?: CardToken;
+        errors?: VaultErrors;
+        message?: string;
+    }> => {
+        transform(() => ({
             card_number: card.card_number.replace(/\s+/g, ''),
             exp_month: Number(card.exp_month),
             exp_year: Number(card.exp_year),
-        }),
-    });
+        }));
 
-    if (response.ok) {
-        return { token: (await response.json()) as CardToken };
-    }
+        let errors: VaultErrors = {};
 
-    const body = (await response.json().catch(() => ({}))) as {
-        errors?: Record<string, string[]>;
-    };
+        try {
+            const token = await post(vaultUrl, {
+                onError: (fieldErrors) => {
+                    errors = fieldErrors as VaultErrors;
+                },
+            });
 
-    return {
-        errors: Object.fromEntries(
-            Object.entries(body.errors ?? {}).map(([key, messages]) => [
-                key,
-                messages[0],
-            ]),
-        ) as VaultErrors,
+            return token ? { token } : { errors };
+        } catch (error) {
+            return { errors, message: failureMessage(error) };
+        }
     };
 }
 
@@ -147,12 +141,16 @@ export function CardFields({
 export function useCardForm() {
     const [card, setCard] = useState<CardDetails>(emptyCard);
     const [errors, setErrors] = useState<VaultErrors>({});
+    const [message, setMessage] = useState<string | undefined>();
 
     return {
         card,
         setCard,
         errors,
         setErrors,
+        /** Why the vault call failed outright (network, session, rate limit, server), if it did. */
+        message,
+        setMessage,
         reset: () => setCard(emptyCard),
     };
 }

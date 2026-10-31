@@ -1,4 +1,4 @@
-import { parseMoneyInput } from '@/lib/money';
+import { fromMinor, parseMoneyInput } from '@/lib/money';
 import type { GatewayLogoData } from './gateway-logo';
 
 /**
@@ -264,7 +264,7 @@ export function humanize(value: string): string {
 
 /** Minor units → "12.50" for prefilling decimal amount inputs. */
 export function toDecimalInput(amount: number): string {
-    return (amount / 100).toFixed(2);
+    return fromMinor(amount).toFixed(2);
 }
 
 /**
@@ -278,7 +278,7 @@ export function normalizeMoney(input: string): string {
         return input.trim();
     }
 
-    return `${minor < 0 ? '-' : ''}${(Math.abs(minor) / 100).toFixed(2)}`;
+    return `${minor < 0 ? '-' : ''}${fromMinor(Math.abs(minor)).toFixed(2)}`;
 }
 
 /** Normalise the given money fields of a form payload. */

@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import type { RouteAction } from '@/types/app';
-import { CardFields, tokenizeCard, useCardForm } from './card-form';
+import { CardFields, useCardForm, useTokenizeCard } from './card-form';
 import { GatewayLogo } from './gateway-logo';
 import type { PaymentOptions } from './types';
 
@@ -106,6 +106,7 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
         ),
     );
     const card = useCardForm();
+    const tokenizeCard = useTokenizeCard();
     const [saveCard, setSaveCard] = useState(true);
     const [processing, setProcessing] = useState(false);
 
@@ -147,6 +148,7 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
                 card.card,
             );
             card.setErrors(result.errors ?? {});
+            card.setMessage(result.message);
 
             if (!result.token) {
                 setProcessing(false);
@@ -328,6 +330,7 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
                                 onChange={card.setCard}
                                 errors={card.errors}
                             />
+                            <InputError message={card.message} />
                             <div className="flex items-center gap-2">
                                 <Checkbox
                                     id="save-card"

@@ -1,29 +1,6 @@
 import { useEffect, useState } from 'react';
 import ConfirmablePasswordController from '@/actions/Laravel/Fortify/Http/Controllers/ConfirmablePasswordController';
-
-function xsrfToken(): string {
-    const match = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
-
-    return match ? decodeURIComponent(match[1]) : '';
-}
-
-async function postJson(
-    url: string,
-    body: Record<string, unknown> = {},
-): Promise<Response> {
-    return fetch(url, {
-        method: 'POST',
-        credentials: 'same-origin',
-        cache: 'no-store',
-        headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-            'X-XSRF-TOKEN': xsrfToken(),
-        },
-        body: JSON.stringify(body),
-    });
-}
+import { postForJson } from '@/lib/http-error';
 
 /**
  * Reveal a service password through the audited, step-up protected endpoint. When the server
@@ -76,20 +53,17 @@ export function useCredentialsReveal(
         setError(null);
 
         try {
-            const response = await postJson(url);
+            const response = await postForJson(url);
 
             if (response.status === 423) {
-                const body = (await response.json().catch(() => ({}))) as {
-                    code?: string;
-                };
-                setNoPassword(body.code === 'password_not_set');
+                setNoPassword(response.body.code === 'password_not_set');
                 setNeedsConfirmation(true);
 
                 return;
             }
 
             if (response.status === 429) {
-                const wait = Number(response.headers.get('Retry-After'));
+                const wait = Number(response.headers['retry-after']);
                 setError(
                     wait > 0
                         ? `The password was shown too many times. Try again in ${Math.ceil(wait / 60)} min.`
@@ -100,12 +74,10 @@ export function useCredentialsReveal(
             }
 
             if (!response.ok) {
-                const body = (await response.json().catch(() => ({}))) as {
-                    message?: string;
-                };
+                const message = response.body.message;
                 setError(
-                    response.status === 422 && body.message
-                        ? body.message
+                    response.status === 422 && typeof message === 'string'
+                        ? message
                         : response.status === 419 || response.status === 401
                           ? 'Your session expired. Reload the page, log in again if asked, and try again.'
                           : response.status === 403 || response.status === 404
@@ -116,8 +88,8 @@ export function useCredentialsReveal(
                 return;
             }
 
-            const data = (await response.json()) as { password: string | null };
-            setPassword(data.password);
+            const revealed = response.body.password;
+            setPassword(typeof revealed === 'string' ? revealed : null);
         } catch {
             setError(
                 'Could not show the password. Check your connection and try again.',
@@ -133,7 +105,7 @@ export function useCredentialsReveal(
         setError(null);
 
         try {
-            const response = await postJson(
+            const response = await postForJson(
                 ConfirmablePasswordController.store.url(),
                 { password: accountPassword },
             );

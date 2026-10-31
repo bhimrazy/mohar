@@ -30,7 +30,7 @@ export default function PreviewLayout({
     breadcrumbs?: BreadcrumbItem[];
 }) {
     return (
-        <AppShell variant="sidebar">
+        <AppShell>
             <AppSidebar
                 area={area}
                 navigation={
@@ -40,7 +40,7 @@ export default function PreviewLayout({
                 }
                 quickActions={area === 'admin' ? QUICK_ACTIONS : []}
             />
-            <AppContent variant="sidebar" className="min-w-0 overflow-x-clip">
+            <AppContent className="min-w-0 overflow-x-clip">
                 <AppSidebarHeader
                     breadcrumbs={breadcrumbs}
                     actions={

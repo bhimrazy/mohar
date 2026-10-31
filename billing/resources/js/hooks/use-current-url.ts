@@ -13,17 +13,9 @@ export type IsCurrentOrParentUrlFn = (
     currentUrl?: string,
 ) => boolean;
 
-export type WhenCurrentUrlFn = <TIfTrue, TIfFalse = null>(
-    urlToCheck: NonNullable<InertiaLinkProps['href']>,
-    ifTrue: TIfTrue,
-    ifFalse?: TIfFalse,
-) => TIfTrue | TIfFalse;
-
 export type UseCurrentUrlReturn = {
     currentUrl: string;
-    isCurrentUrl: IsCurrentUrlFn;
     isCurrentOrParentUrl: IsCurrentOrParentUrlFn;
-    whenCurrentUrl: WhenCurrentUrlFn;
 };
 
 export function useCurrentUrl(): UseCurrentUrlReturn {
@@ -66,18 +58,8 @@ export function useCurrentUrl(): UseCurrentUrlReturn {
         return isCurrentUrl(urlToCheck, currentUrl, true);
     };
 
-    const whenCurrentUrl: WhenCurrentUrlFn = <TIfTrue, TIfFalse = null>(
-        urlToCheck: NonNullable<InertiaLinkProps['href']>,
-        ifTrue: TIfTrue,
-        ifFalse: TIfFalse = null as TIfFalse,
-    ): TIfTrue | TIfFalse => {
-        return isCurrentUrl(urlToCheck) ? ifTrue : ifFalse;
-    };
-
     return {
         currentUrl: currentUrlPath,
-        isCurrentUrl,
         isCurrentOrParentUrl,
-        whenCurrentUrl,
     };
 }

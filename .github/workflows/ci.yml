@@ -494,6 +494,10 @@ jobs:
             - name: Build
               run: npm run build
 
+            # Reports only for now (audit L7); add --enforce to make a breach fail the job.
+            - name: Bundle size budget
+              run: npm run bundle:check
+
             # Last, because it removes the dev dependencies from this job's vendor directory (ADR 0016 §5, guarantee 1).
             - name: The app runs without the dev-only simulators package
               # bash -eo pipefail, and the command list is captured first, so a crash of artisan itself fails the step.
