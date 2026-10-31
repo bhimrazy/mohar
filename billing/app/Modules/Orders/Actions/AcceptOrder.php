@@ -7,6 +7,7 @@ use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Orders\Enums\OrderItemStatus;
 use App\Modules\Orders\Enums\OrderItemType;
 use App\Modules\Orders\Enums\OrderStatus;
+use App\Modules\Orders\Exceptions\ItemBeingProvisioned;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\OrderItem;
 use App\Modules\Orders\Services\ItemProvisioner;
@@ -62,6 +63,9 @@ class AcceptOrder
         foreach ($order->items()->whereIn('id', $runCreate)->where('status', OrderItemStatus::Pending)->orderBy('id')->get() as $item) {
             try {
                 $result = $this->provisioner->provision($item->id);
+            } catch (ItemBeingProvisioned) {
+                // Another process is running its create; not a failure of this accept.
+                continue;
             } catch (Throwable $exception) {
                 report($exception);
                 $failures[] = "{$item->description}: ".__('provisioning error.');
