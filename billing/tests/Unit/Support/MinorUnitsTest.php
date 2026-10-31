@@ -79,3 +79,30 @@ test('a negative amount or decimals beyond an integer are refused', function () 
         ->and(MinorUnits::fromDecimal('1', MinorUnits::MAX_DECIMALS))->toBe(10 ** 18)
         ->and(fn () => MinorUnits::toDecimal(1, 19))->toThrow(InvalidArgumentException::class);
 });
+
+test('minor units hold at the integer and decimal edges', function () {
+    expect(MinorUnits::rescale(PHP_INT_MAX, 2, 2))->toBe(PHP_INT_MAX)
+        ->and(MinorUnits::rescale(PHP_INT_MAX, 0, 1))->toBeNull()
+        ->and(MinorUnits::rescale(intdiv(PHP_INT_MAX, 10), 0, 1))->toBe(intdiv(PHP_INT_MAX, 10) * 10)
+        ->and(MinorUnits::rescale(PHP_INT_MIN, 0, 2))->toBeNull()
+        ->and(MinorUnits::rescale(PHP_INT_MIN, 2, 0))->toBeNull()
+        ->and(MinorUnits::rescale(9, 0, 18))->toBe(9 * 10 ** 18)
+        ->and(MinorUnits::rescale(10, 0, 18))->toBeNull()
+        ->and(MinorUnits::rescale(10 ** 18, 18, 0))->toBe(1)
+        ->and(MinorUnits::rescale(0, 0, 0))->toBe(0)
+        ->and(MinorUnits::toDecimal(PHP_INT_MAX, 18))->toBe('9.223372036854775807')
+        ->and(MinorUnits::toDecimal(PHP_INT_MAX, 0))->toBe((string) PHP_INT_MAX)
+        ->and(MinorUnits::toDecimal(1500, 0))->toBe('1500')
+        ->and(MinorUnits::fromDecimal(PHP_INT_MAX, 0))->toBe(PHP_INT_MAX)
+        ->and(MinorUnits::fromDecimal(PHP_INT_MAX, 1))->toBeNull()
+        ->and(MinorUnits::fromDecimal('1500.0', 0))->toBe(1500)
+        ->and(MinorUnits::fromDecimal('1500.5', 0))->toBeNull()
+        ->and(MinorUnits::fromDecimal(1500.0, 0))->toBe(1500)
+        ->and(MinorUnits::fromDecimal('8.5', 18))->toBe(8_500_000_000_000_000_000)
+        ->and(MinorUnits::fromDecimal('9999999999999', 6))->toBeNull()
+        ->and(MinorUnits::fromDecimal('9223372036854.999999', 6))->toBeNull()
+        ->and(MinorUnits::fromDecimal('9.5', 18))->toBeNull()
+        ->and(MinorUnits::fromDecimal('9223372036853', 6))->toBe(9_223_372_036_853_000_000)
+        ->and(MinorUnits::fromDecimal('1', -1))->toBeNull()
+        ->and(fn () => MinorUnits::toDecimal(1, -1))->toThrow(InvalidArgumentException::class);
+});
