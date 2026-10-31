@@ -252,5 +252,32 @@ test('Test connection accepts the merchant secret and names a wrong one', functi
     $driver = app(EsewaDriver::class);
 
     expect($driver->testConnection(esewaConfig())->ok)->toBeTrue()
-        ->and($driver->testConnection(esewaConfig('wrong-secret'))->message)->toContain('rejected the product code or secret key');
+        ->and($driver->testConnection(esewaConfig('wrong-secret'))->message)->toContain('rejected the secret key for product code');
+});
+
+test('refusals have the codes and wording eSewa UAT answered on 2026-10-31', function () {
+    $fixture = fn (string $name): array => json_decode((string) file_get_contents(base_path("tests/Fixtures/Esewa/{$name}.json")), true);
+    $form = function (array $fields = [], ?string $secret = EsewaSimulator::SECRET_KEY): Response {
+        $fields = [
+            'amount' => '100', 'tax_amount' => '0', 'product_service_charge' => '0', 'product_delivery_charge' => '0', 'total_amount' => '100',
+            'transaction_uuid' => 'sandbox-refusals', 'product_code' => EsewaSimulator::PRODUCT_CODE, 'success_url' => 'https://example.test/ok',
+            'failure_url' => 'https://example.test/no', 'signed_field_names' => EsewaDriver::REQUEST_SIGNED_FIELDS, ...$fields,
+        ];
+
+        return esewaBrowser()->asForm()->post($this->scenario->apiUrl().'/api/epay/main/v2/form', [...$fields, 'signature' => EsewaApi::signature($fields, $fields['signed_field_names'], $secret)]);
+    };
+    $status = fn (array $query): Response => esewaBrowser()->get($this->scenario->apiUrl().'/api/epay/transaction/status/', $query);
+
+    expect($form(['product_code' => 'UNKNOWN'])->json())->toBe($fixture('form_unknown_product_code'))
+        ->and($form([], 'wrong-secret')->json())->toBe($fixture('form_invalid_signature'))
+        ->and($form(['amount' => '50'])->json())->toBe($fixture('form_invalid_total'))
+        ->and($form()->status())->toBe(302)
+        ->and($form()->json())->toBe($fixture('form_duplicate_uuid'));
+
+    $missing = $status(['product_code' => 'EPAYTEST', 'transaction_uuid' => 'sandbox-refusals']);
+    expect($missing->status())->toBe(400)->and($missing->header('Content-Type'))->toBe('application/problem+json')
+        ->and($missing->json())->toBe($fixture('status_missing_parameter'))
+        ->and($status(['product_code' => 'EPAYTEST', 'total_amount' => '1,130.5', 'transaction_uuid' => 'sandbox-refusals'])->json())->toBe($fixture('status_unparsable_amount'))
+        ->and($status(['product_code' => 'EPAYTEST', 'total_amount' => '1', 'transaction_uuid' => 'sandbox-refusals'])->json())
+        ->toBe([...$fixture('status_not_found_other_amount'), 'transaction_uuid' => 'sandbox-refusals']);
 });

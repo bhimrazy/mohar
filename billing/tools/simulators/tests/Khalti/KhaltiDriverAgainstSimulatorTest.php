@@ -296,3 +296,15 @@ test('a tampered stored payment_url is refused without asking Khalti (#251)', fu
     'plain http' => ['http://khalti.com/?pidx=x'],
     'userinfo' => ['https://khalti.com@evil.example/'],
 ]);
+
+test('a missing or wrong key gets the 401 bodies Khalti answered on 2026-10-31, and the driver reads both as a rejected key', function () {
+    $fixture = fn (string $name): array => json_decode((string) file_get_contents(base_path("tests/Fixtures/Khalti/{$name}.json")), true);
+    $lookup = fn (array $headers) => khaltiBrowser()->withHeaders($headers)->asJson()->post($this->scenario->apiUrl().'/api/v2/epayment/lookup/', ['pidx' => 'MoharConnectionTest']);
+
+    foreach ([[[], 'auth_not_provided'], [['Authorization' => 'not-a-key'], 'auth_not_provided'], [['Authorization' => 'Key made-up'], 'auth_invalid_token']] as [$headers, $name]) {
+        $answer = $lookup($headers);
+        expect($answer->status())->toBe(401)->and($answer->json())->toBe($fixture($name));
+    }
+
+    expect(app(KhaltiDriver::class)->testConnection(khaltiConfig('made-up'))->message)->toContain('rejected the secret key');
+});

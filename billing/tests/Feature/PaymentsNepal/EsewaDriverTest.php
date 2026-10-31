@@ -1,6 +1,7 @@
 <?php
 
 use App\Data\Billing\GatewayConfig;
+use App\Data\Billing\LookupResult;
 use App\Events\Billing\InvoicePaid;
 use App\Modules\Billing\Actions\RefundTransaction;
 use App\Modules\Billing\Enums\AttemptStatus;
@@ -367,6 +368,17 @@ test('an eSewa outage keeps the attempt open for the next poll', function () {
     expect($attempt->fresh())->status->toBe(AttemptStatus::Pending)->lookup_count->toBe(1)->raw->toMatchArray(['error' => 'error_message: Service is currently unavailable; code: 0']);
 });
 
+test('the 400 problem body eSewa gives a query it cannot parse keeps the attempt pending and retryable', function () {
+    [, $attempt] = startEsewa();
+    $config = new GatewayConfig(EsewaDriver::KEY, 'eSewa', ['sandbox' => '1', 'product_code' => 'EPAYTEST', 'secret_key' => ESEWA_SECRET], sandbox: true);
+    Http::fake([ESEWA_STATUS => Http::response(esewaFixture('status_missing_parameter'), 400, ['Content-Type' => 'application/problem+json'])]);
+
+    $result = app(EsewaDriver::class)->lookup($config, $attempt->toRef());
+
+    expect($result)->status->toBe(LookupResult::PENDING)->retryable->toBeTrue()->sessionEnded->toBeFalse()
+        ->and($result->raw)->toMatchArray(['http_status' => 400, 'error' => "detail: Required parameter 'total_amount' is not present."]);
+});
+
 test('eSewa is offered for NPR invoices only and other currencies are refused', function () {
     [, $client] = actingAsClient();
     $usd = issueInvoice($client);
@@ -409,7 +421,12 @@ test('eSewa payments are refunded in the portal, not through the API', function 
 
 test('the connection test books a signed UAT session to check the code and key', function (int $httpStatus, ?string $fixture, array $headers, string $toast, string $message) {
     billingStaff();
-    Http::fake([ESEWA_FORM => Http::response($fixture !== null ? esewaFixture($fixture) : '', $httpStatus, $headers)]);
+    $body = match ($fixture) {
+        null => '',
+        'form_unknown_product_code_other_code' => esewaFixture('form_unknown_product_code', ['code' => 7]),
+        default => esewaFixture($fixture),
+    };
+    Http::fake([ESEWA_FORM => Http::response($body, $httpStatus, $headers)]);
 
     $this->get(route('admin.billing.gateways.edit', EsewaDriver::KEY))
         ->assertInertia(fn (Assert $page) => $page->where('can_test_connection', true)->where('gateway.settings.product_code', 'EPAYTEST')->where('gateway.settings.secret_key', ''))
@@ -420,8 +437,10 @@ test('the connection test books a signed UAT session to check the code and key',
     Http::assertSent(fn (Request $request) => $request->url() === ESEWA_FORM && $request['signature'] === EsewaDriver::signature($request->data(), EsewaDriver::REQUEST_SIGNED_FIELDS, ESEWA_SECRET));
 })->with([
     'accepted' => [302, null, ['Location' => 'https://rc-epay.esewa.com.np/epay?bookingId=abc'], 'success', 'accepted the product code and secret key'],
-    'bad signature (ES104)' => [400, 'form_invalid_signature', [], 'error', 'rejected the product code or secret key (sandbox mode): message: Invalid payload signature.; code: ES104'],
+    'bad signature (ES104) points at the secret key' => [400, 'form_invalid_signature', [], 'error', 'rejected the secret key for product code EPAYTEST (sandbox mode): message: Invalid payload signature.; code: ES104'],
     'duplicate uuid is not blamed on the credentials' => [400, 'form_duplicate_uuid', [], 'error', 'refused the test booking (sandbox mode): error_message: Duplicate transaction UUID.; code: 0'],
+    'unknown product code (UAT 2026-10-31: code 0, not ES104)' => [400, 'form_unknown_product_code', [], 'error', 'couldn\'t find a key for product code EPAYTEST (sandbox mode): Unable to fetch merchant key. Please try again later. Check the product code; if it is right, eSewa may be unavailable, so try again later.'],
+    'the merchant-key text with another code is a plain refusal' => [400, 'form_unknown_product_code_other_code', [], 'error', 'refused the test booking (sandbox mode): error_message: Unable to fetch merchant key. Please try again later.; code: 7'],
 ]);
 
 test('the provider form is served once, so a refresh never re-posts the signed form', function () {

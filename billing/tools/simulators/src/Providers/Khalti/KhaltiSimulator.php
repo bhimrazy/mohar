@@ -38,8 +38,15 @@ final class KhaltiSimulator implements HasControlActions, RedactsPayments, Simul
     public function routes(): array
     {
         $authorised = fn (\Closure $handler): \Closure => function (Request $request, Scenario $scenario, array $parameters) use ($handler): Response {
-            if ($request->header('Authorization') !== 'Key '.self::SECRET_KEY) {
-                return Response::json(['detail' => 'The authorization key is not valid.', 'status_code' => 401], 401);
+            // Khalti's two 401 bodies (dev.khalti.com, 2026-10-31): no "Key " scheme at all, or a key it doesn't know.
+            $authorization = (string) $request->header('Authorization');
+
+            if (stripos($authorization, 'Key ') !== 0) {
+                return Response::json(['detail' => 'Authentication credentials were not provided.', 'status_code' => 401], 401);
+            }
+
+            if ($authorization !== 'Key '.self::SECRET_KEY) {
+                return Response::json(['detail' => 'Invalid token.', 'status_code' => 401], 401);
             }
 
             return $handler(new KhaltiApi($scenario), $request->input(), $parameters);

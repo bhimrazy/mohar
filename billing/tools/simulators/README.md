@@ -106,14 +106,14 @@ The control plane answers only requests that carry `X-Sim-Token`:
 
 ### `khalti`: Khalti KPG-2 web checkout, for the PaymentsNepal driver
 
-- **API.** `POST /api/v2/epayment/initiate/` and `POST /api/v2/epayment/lookup/` with `Authorization: Key KhaltiSimulator::SECRET_KEY` (anything else is a 401), and `POST /api/merchant-transaction/{transaction_id}/refund/` (no body refunds the rest; `amount` refunds part, in paisa).
+- **API.** `POST /api/v2/epayment/initiate/` and `POST /api/v2/epayment/lookup/` with `Authorization: Key KhaltiSimulator::SECRET_KEY` (anything else is a 401 with Khalti's bodies: "Authentication credentials were not provided." without the `Key ` scheme, "Invalid token." for another key), and `POST /api/merchant-transaction/{transaction_id}/refund/` (no body refunds the rest; `amount` refunds part, in paisa).
     - Amounts are paisa integers. Initiate needs `return_url`, `website_url`, `amount` (at least 1,000), `purchase_order_id` and `purchase_order_name`; a refusal is a 400 keyed by field with `error_key: validation_error`.
     - Initiate answers `pidx`, `payment_url` (on this TLS port), `expires_at` in Nepal time and `expires_in` (1,800 s). A session left open past `expires_at` turns `Expired` on its own.
     - Lookup answers `pidx`, `total_amount`, `status`, `transaction_id`, `fee` (3% here) and `refunded`. `Expired` and `User canceled` come back as HTTP 400 with the same body, and an unknown pidx as 404.
 - **Hosted page.** `GET /?pidx=` with Pay, "Pay (bank confirms later)" (`Pending`) and Cancel (`User canceled`). Each redirects to `return_url` with Khalti's unsigned query (`pidx`, `transaction_id`, `amount`, `total_amount`, `mobile`, `status`, `purchase_order_id`, ...). A second Pay charges nothing and gives the same redirect.
 - **Control actions.** `pay` (optional `total_amount` for an amount mismatch), `pending` and `cancel` return the `redirect` the browser follows; `complete` and `expire` are what Khalti later does to an open or Pending session; `refund` is a refund made in the merchant portal (all, or `amount` paisa).
 - **Using it from the app.** Set the printed `INTEGRATION_ENDPOINTS` (`khalti.api`, `khalti.refund`, `khalti.pay`), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`. Use the Khalti gateway in sandbox mode with the simulator's key.
-- **Shapes.** Written from docs.khalti.com only; there is no Khalti sandbox capture yet (#208). The driver's own fixtures (`tests/Feature/PaymentsNepal/KhaltiDriverTest.php`) use the same key paths.
+- **Shapes.** Written from docs.khalti.com; the only sandbox captures are the two 401 bodies (`tests/Fixtures/Khalti`, 2026-10-31), because Khalti publishes no shared sandbox key (#208). The driver's own fixtures (`tests/Feature/PaymentsNepal/KhaltiDriverTest.php`) use the same key paths.
 
 ### `razorpay`: Razorpay India in test mode (simulated)
 
@@ -155,15 +155,15 @@ For comparison, Cashfree (a later India gateway) authenticates with the headers 
 ### `esewa`: eSewa ePay v2, for the PaymentsNepal driver
 
 - **Form.** `POST /api/epay/main/v2/form` (form fields, as the customer's browser posts them).
-    - The signature is base64 HMAC-SHA256 over `name=value` pairs of `signed_field_names`, which must cover `total_amount,transaction_uuid,product_code`. A wrong one, or an unknown product code, is a 400 with `code: ES104`.
-    - `total_amount` must be the sum of `amount`, `tax_amount` and both charges, in rupees.
+    - The signature is base64 HMAC-SHA256 over `name=value` pairs of `signed_field_names`, which must cover `total_amount,transaction_uuid,product_code`. A wrong one is a 400 with `code: ES104`; an unknown product code is a 400 with `code: 0` ("Unable to fetch merchant key"), as UAT answered on 2026-10-31.
+    - `total_amount` must be the sum of `amount`, `tax_amount` and both charges, in rupees (else `code: ES704`).
     - A `transaction_uuid` already booked for the product code is a 400 with `code: 0`.
     - A booking redirects (302) to the payment page and stays payable for 50 minutes, as in the UAT captures.
 - **Payment page.** `GET /epay/booking/{id}` with Pay, "Go back without paying" (the booking stays `PENDING`) and Cancel. Pay redirects to `success_url?data=` with base64 JSON signed over `transaction_code,status,total_amount,transaction_uuid,product_code,signed_field_names`, `total_amount` written as eSewa writes it (`"1,130.5"`). The other two go to `failure_url`, unchanged.
-- **Status check.** `GET /api/epay/transaction/status/?product_code&total_amount&transaction_uuid`, matched on all three. It answers `PENDING` for a booked session, `COMPLETE` with a `ref_id` once paid, and `NOT_FOUND` for a cancelled or expired booking, an unknown uuid or another amount. `total_amount` is a JSON number (`100.0`).
+- **Status check.** `GET /api/epay/transaction/status/?product_code&total_amount&transaction_uuid`, matched on all three. It answers `PENDING` for a booked session, `COMPLETE` with a `ref_id` once paid, and `NOT_FOUND` for a cancelled or expired booking, an unknown uuid or another amount. `total_amount` is a JSON number (`100.0`). A missing parameter, or an amount with a thousands separator (`1,130.5`), is a 400 `application/problem+json` body, as in UAT.
 - **Control actions.** `pay` (optional `settled_amount` in rupees: the payment settles for another amount, so the status check finds it only under that amount and answers `NOT_FOUND` for ours, and `variant` `wrong_secret`, `tampered` or `unsigned` for a forged return), `leave` and `cancel` return the `redirect`. `settle` sets what eSewa later reports: `COMPLETE`, `EXPIRED`, `AMBIGUOUS`, `NOT_FOUND` (the status check stops finding a pending, halted or paid booking), `FULL_REFUND` or `PARTIAL_REFUND`. eSewa has no refund API, so refunds are only an action.
 - **Using it from the app.** Set the printed `INTEGRATION_ENDPOINTS` (`esewa.form`, `esewa.status`), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`. Use the eSewa gateway in sandbox mode with product code `EPAYTEST` and `EsewaSimulator::SECRET_KEY`.
-- **Shapes.** The UAT captures of 2026-10-21 (`tests/Fixtures/Esewa`) are the expected shapes; `tests/Esewa/EsewaDriverAgainstSimulatorTest.php` checks the status answers against them.
+- **Shapes.** The UAT captures in `tests/Fixtures/Esewa` are the expected shapes: of 2026-10-21 (`PENDING`, `NOT_FOUND` after a cancel, `COMPLETE`, the duplicate uuid, ES104, the booking window) and of 2026-10-31 (`NOT_FOUND` for another amount, the problem bodies for a missing parameter and an unparsable amount, an unknown product code, ES704). `tests/Esewa/EsewaDriverAgainstSimulatorTest.php` checks the status answers and the refusals against them.
 
 ### `resellerclub`: ResellerClub (LogicBoxes) HTTP API, for the registrar driver
 

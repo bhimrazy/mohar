@@ -42,16 +42,21 @@ final class EsewaApi
         $secret = EsewaSimulator::MERCHANTS[$fields['product_code']] ?? null;
         $names = explode(',', $fields['signed_field_names']);
 
-        if ($secret === null || array_diff(['total_amount', 'transaction_uuid', 'product_code'], $names) !== []
+        // Wording and codes as UAT answered on 2026-10-31 (tests/Fixtures/Esewa): an unknown product code is not ES104.
+        if ($secret === null) {
+            return Response::json(['error_message' => 'Unable to fetch merchant key. Please try again later.', 'code' => 0], 400);
+        }
+
+        if (array_diff(['total_amount', 'transaction_uuid', 'product_code'], $names) !== []
             || ! hash_equals(self::signature($fields, $fields['signed_field_names'], $secret), $fields['signature'])) {
-            return Response::json(['code' => 'ES104', 'message' => 'The payload signature does not match.'], 400);
+            return Response::json(['code' => 'ES104', 'message' => 'Invalid payload signature.'], 400);
         }
 
         $parts = array_map(self::paisa(...), [$fields['amount'], $fields['tax_amount'], $fields['product_service_charge'], $fields['product_delivery_charge']]);
         $total = self::paisa($fields['total_amount']);
 
         if (in_array(null, $parts, true) || $total === null || $total <= 0 || array_sum($parts) !== $total) {
-            return Response::json(['code' => 0, 'error_message' => 'total_amount must be the sum of amount, tax and charges.'], 400);
+            return Response::json(['code' => 'ES704', 'message' => 'Invalid total transaction amount.'], 400);
         }
 
         if (preg_match('/^[A-Za-z0-9-]{1,64}$/', $fields['transaction_uuid']) !== 1) {
@@ -62,7 +67,7 @@ final class EsewaApi
             $key = $fields['product_code'].':'.$fields['transaction_uuid'];
 
             if ($this->scenario->state()->get('bookings', $key) !== null) {
-                return Response::json(['error_message' => 'This transaction UUID was already used.', 'code' => 0], 400);
+                return Response::json(['error_message' => 'Duplicate transaction UUID.', 'code' => 0], 400);
             }
 
             $id = bin2hex(random_bytes(8));
@@ -87,18 +92,25 @@ final class EsewaApi
      * GET /api/epay/transaction/status/: matched on product code, uuid and amount (the settled amount once paid);
      * anything else is NOT_FOUND, echoing what was asked. So a payment settled for another amount answers NOT_FOUND to
      * a check for the booked amount, and COMPLETE only to one for the settled amount. total_amount is a JSON number,
-     * as captured.
+     * as captured. A missing parameter, or an amount that is not a plain number ("1,130.5"), is a 400 problem body, as
+     * UAT answered on 2026-10-31; an empty uuid is just not found.
      *
      * @param  array<array-key, mixed>  $query
      */
     public function status(array $query): Response
     {
-        $productCode = (string) ($query['product_code'] ?? '');
-        $uuid = (string) ($query['transaction_uuid'] ?? '');
-        $asked = self::paisa((string) ($query['total_amount'] ?? ''));
+        foreach (['product_code', 'total_amount', 'transaction_uuid'] as $name) {
+            if (! is_string($query[$name] ?? null)) {
+                return self::problem("Required parameter '{$name}' is not present.");
+            }
+        }
 
-        if ($productCode === '' || $uuid === '' || $asked === null) {
-            return Response::json(['code' => 0, 'error_message' => 'product_code, total_amount and transaction_uuid are required.'], 400);
+        $productCode = $query['product_code'];
+        $uuid = $query['transaction_uuid'];
+        $asked = str_contains($query['total_amount'], ',') ? null : self::paisa($query['total_amount']);
+
+        if ($asked === null) {
+            return self::problem("Failed to convert 'total_amount' with value: '{$query['total_amount']}'");
         }
 
         $booking = $this->booking($productCode.':'.$uuid);
@@ -241,6 +253,15 @@ final class EsewaApi
         }
 
         return (int) $match[1] * 100 + (int) str_pad($match[2] ?? '', 2, '0');
+    }
+
+    /** The status API's refusal of a bad query: an RFC 9457 problem body, HTTP 400. */
+    private static function problem(string $detail): Response
+    {
+        return Response::json([
+            'type' => 'about:blank', 'title' => 'Bad Request', 'status' => 400, 'detail' => $detail,
+            'instance' => '/api/epay/transaction/status/', 'properties' => null,
+        ], 400, ['Content-Type' => 'application/problem+json']);
     }
 
     /**

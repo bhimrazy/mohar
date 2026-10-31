@@ -1,0 +1,4 @@
+{
+    "detail": "Authentication credentials were not provided.",
+    "status_code": 401
+}
