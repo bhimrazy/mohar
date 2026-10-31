@@ -45,6 +45,9 @@ A probe that reproduces a finding is pushed as a Pest test file to a branch `rev
 head, tests only) and named in the review. The engineer adopts it in the fix push; the re-check is then a diff read
 plus CI. Adopted probes do not count toward the PR size cap.
 
+An adopted probe is named by the behaviour it pins, never by a PR, round or reviewer (owner decision 2026-10-31):
+`InvoiceOverpaymentTest`, not `Pr536ProbesTest`. Put it in the behaviour's existing test file when one exists.
+
 ## Combined review
 
 When the brief says "combined", `review-board` applies the `security-reviewer` and `database-reviewer` checklists in
