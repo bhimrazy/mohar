@@ -9,8 +9,8 @@ namespace App\Contracts\Integrations;
 interface IntegrationDriver
 {
     /**
-     * The key the driver is registered under: `[a-z0-9_]{1,50}`, stable forever (it is stored on products,
-     * servers and domains).
+     * The key the driver is registered under: a lowercase letter, then up to 49 of `[a-z0-9_]` (DriverRegistry::KEY).
+     * Stable forever: it is stored on products, servers and domains.
      */
     public function key(): string;
 

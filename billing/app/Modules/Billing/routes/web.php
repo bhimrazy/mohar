@@ -25,6 +25,7 @@ use App\Modules\Billing\Http\Controllers\Public\GatewayReturnController;
 use App\Modules\Billing\Http\Controllers\Public\SandboxHostedController;
 use App\Modules\Billing\Http\Controllers\Public\SandboxVaultController;
 use App\Modules\Billing\Http\Controllers\Public\WebhookController;
+use App\Support\Integrations\DriverRegistry;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Support\Facades\Route;
 
@@ -72,10 +73,10 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
     Route::post('credit/refund', [AdminCreditController::class, 'refund'])->middleware('password.recent')->name('credit.refund');
 
     Route::get('gateways', [GatewayController::class, 'index'])->name('gateways.index');
-    Route::get('gateways/{gateway}/edit', [GatewayController::class, 'edit'])->name('gateways.edit')->where('gateway', '[a-z_]+');
-    Route::put('gateways/{gateway}', [GatewayController::class, 'update'])->middleware('password.recent')->name('gateways.update')->where('gateway', '[a-z_]+');
+    Route::get('gateways/{gateway}/edit', [GatewayController::class, 'edit'])->name('gateways.edit')->where('gateway', DriverRegistry::KEY);
+    Route::put('gateways/{gateway}', [GatewayController::class, 'update'])->middleware('password.recent')->name('gateways.update')->where('gateway', DriverRegistry::KEY);
     // Test connection and the status check below change no data staff entered, so they need no step-up (sensitive-route test).
-    Route::post('gateways/{gateway}/test', [GatewayController::class, 'test'])->middleware('throttle:10,1')->name('gateways.test')->where('gateway', '[a-z_]+');
+    Route::post('gateways/{gateway}/test', [GatewayController::class, 'test'])->middleware('throttle:10,1')->name('gateways.test')->where('gateway', DriverRegistry::KEY);
 
     Route::get('tax-rules', [TaxRuleController::class, 'index'])->name('tax-rules.index');
     Route::resource('tax-rules', TaxRuleController::class)->only(['store', 'update', 'destroy'])->parameters(['tax-rules' => 'taxRule'])->middleware('password.recent');
@@ -128,14 +129,14 @@ Route::clientArea(function (): void {
 
 // Gateway callbacks: authenticated by signature, not session/CSRF.
 Route::post('billing/webhooks/{gateway}', WebhookController::class)
-    ->where('gateway', '[a-z_]{1,50}')
+    ->where('gateway', DriverRegistry::KEY)
     ->withoutMiddleware(PreventRequestForgery::class)
     ->middleware('throttle:120,1')
     ->name('billing.webhooks');
 
 // Hosted gateway returns (GET or POST from the provider). Hints only: always settled by an authoritative lookup.
 Route::match(['get', 'post'], 'billing/gateways/{gateway}/return', GatewayReturnController::class)
-    ->where('gateway', '[a-z_]{1,50}')
+    ->where('gateway', DriverRegistry::KEY)
     ->withoutMiddleware(PreventRequestForgery::class)
     ->middleware('throttle:60,1')
     ->name('billing.gateways.return');
