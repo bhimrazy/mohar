@@ -11,7 +11,8 @@ use PhpToken;
  * is matched against the rules. Findings come in three levels:
  *  - `excused`: a change the previous release may not survive (drop, rename, type change, tightened constraint). A
  *    `@contract` or `@compatible` tag with a reason, in a comment directly before the statement, excuses that
- *    statement only. A tag elsewhere in the file (the class docblock) excuses the file's only such statement.
+ *    statement only, also inside a loop or branch (each statement in a block is its own). A tag elsewhere in the file
+ *    (the class docblock) excuses the file's only such statement.
  *  - `error`: rules 5 and 6, which no tag excuses: an ALTER outside LockTimeout::run, an index outside OnlineIndex,
  *    OnlineIndex in a migration that runs in a transaction.
  *  - `warning`: advice only.
