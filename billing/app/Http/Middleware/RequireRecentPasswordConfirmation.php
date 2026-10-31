@@ -68,7 +68,7 @@ class RequireRecentPasswordConfirmation
         $confirmed = self::recentlyConfirmed($request);
 
         if ($safe && $request->hasHeader(self::PROBE_HEADER)) {
-            return $confirmed ? response()->noContent() : $this->locked($request);
+            return $confirmed ? response()->noContent() : self::locked($request);
         }
 
         if ($request->isMethod('HEAD')) {
@@ -83,33 +83,41 @@ class RequireRecentPasswordConfirmation
             return $next($request);
         }
 
-        if ($request->expectsJson() && ! $request->header('X-Inertia')) {
-            return $this->locked($request);
-        }
-
-        if ($safe) {
+        if ($safe && ! $request->expectsJson()) {
             return $this->toConfirmPage();
         }
 
-        // Back with the error only, never the old input: this runs before any form request that keeps secrets out of
-        // the session, and the dialog replays the visit itself (security standards §6).
+        return self::refusal($request);
+    }
+
+    /**
+     * The answer to an unconfirmed request: 423 for JSON clients; otherwise back with the error only, never the old
+     * input: this runs before any form request that keeps secrets out of the session, and the dialog replays the
+     * visit itself (security standards §6). Also for checks that need step-up only for some input (a form request).
+     */
+    public static function refusal(Request $request): Response
+    {
+        if ($request->expectsJson() && ! $request->header('X-Inertia')) {
+            return self::locked($request);
+        }
+
         $request->session()->flash(self::REFUSED_ON_KEY, url()->previous());
 
         return back()->withErrors(
-            $this->hasNoPassword($request)
+            self::hasNoPassword($request)
                 ? [self::ERROR_KEY => __('Your account has no password. Set a password to continue.'), self::REASON_KEY => self::NO_PASSWORD_CODE]
                 : [self::ERROR_KEY => __('Confirm your password to continue.')],
         );
     }
 
-    private function hasNoPassword(Request $request): bool
+    private static function hasNoPassword(Request $request): bool
     {
         return $request->user() !== null && ! $request->user()->hasPassword();
     }
 
-    private function locked(Request $request): Response
+    private static function locked(Request $request): Response
     {
-        if ($this->hasNoPassword($request)) {
+        if (self::hasNoPassword($request)) {
             return response()->json(['message' => __('Your account has no password. Set a password to continue.'), 'code' => self::NO_PASSWORD_CODE], 423);
         }
 

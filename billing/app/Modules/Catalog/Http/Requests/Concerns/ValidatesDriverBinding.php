@@ -3,8 +3,10 @@
 namespace App\Modules\Catalog\Http\Requests\Concerns;
 
 use App\Contracts\Services\ProvisioningDrivers;
+use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Catalog\Services\DriverSecrets;
 use Closure;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Validation\Validator;
 
 /**
@@ -32,6 +34,38 @@ trait ValidatesDriverBinding
             'driver_config.*.key' => ['required', 'string', 'max:100', 'distinct', 'regex:/^[A-Za-z0-9_.-]+$/'],
             'driver_config.*.value' => ['nullable', 'string', 'max:2000'],
         ];
+    }
+
+    /**
+     * Needs a recent password confirmation (security review 2026-10-29, L3) when a secret value is entered, or when
+     * settings that hold a stored secret change in any way (#536 review, M2): another endpoint next to a kept
+     * credential would send that credential there. Other saves need none, since the add-on form saves its driver
+     * settings with everything else. Call it after authorize() and before validation (withValidator).
+     *
+     * @throws HttpResponseException
+     */
+    protected function ensureDriverChangeIsConfirmed(): void
+    {
+        $driver = $this->input('provisioning_driver');
+
+        if (! is_string($driver) || RequireRecentPasswordConfirmation::recentlyConfirmed($this)) {
+            return; // a malformed driver fails validation and saves nothing
+        }
+
+        $secrets = app(DriverSecrets::class);
+        $submitted = $this->submittedDriverConfig();
+        $entered = array_intersect_key(array_filter($submitted, fn (string $value): bool => $value !== ''), array_flip($secrets->secretKeys($driver, $submitted)));
+        $stored = array_map(fn (mixed $value): string => is_scalar($value) ? (string) $value : (string) json_encode($value), $this->storedDriverConfig() ?? []);
+        $storedSecrets = array_intersect_key(array_filter($stored, fn (string $value): bool => $value !== ''), array_flip($secrets->secretKeys((string) $this->storedDriver(), $stored)));
+        $merged = $this->driverConfig();
+        ksort($stored);
+        ksort($merged);
+
+        if ($entered === [] && ($storedSecrets === [] || ($driver === $this->storedDriver() && $merged === $stored))) {
+            return;
+        }
+
+        throw new HttpResponseException(RequireRecentPasswordConfirmation::refusal($this));
     }
 
     /**

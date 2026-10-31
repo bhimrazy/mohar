@@ -120,6 +120,7 @@ it('deletes an unused addon', function () {
 test('a failed add-on save never flashes secret driver settings into the session', function () {
     actingAsStaff(['catalog.addons.manage']);
     FakeProvisioningDrivers::withLogDriver();
+    confirmPassword();
 
     $this->post(route('admin.catalog.addons.store'), addonPayload([
         'name' => '',

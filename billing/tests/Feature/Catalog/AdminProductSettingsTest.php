@@ -243,6 +243,7 @@ it('refuses a product as its own upgrade target', function () {
 it('never flashes secret driver settings into the session when a provisioning save fails', function () {
     actingAsStaff(['catalog.products.manage']);
     FakeProvisioningDrivers::withLogDriver();
+    confirmPassword();
     $product = Product::factory()->create();
 
     $this->put(route('admin.catalog.products.provisioning.update', $product), [

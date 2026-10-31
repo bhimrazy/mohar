@@ -169,8 +169,18 @@ export function PasswordConfirmationGate() {
                     response.status === 429
                         ? ((await response.json().catch(() => null)) as {
                               message?: string;
+                              signed_out?: boolean;
+                              redirect?: string;
                           } | null)
                         : null;
+
+                // The last allowed wrong password ended the session: sign-in shows why.
+                if (throttled?.signed_out && throttled.redirect) {
+                    window.location.assign(throttled.redirect);
+
+                    return;
+                }
+
                 setError(
                     response.status === 422
                         ? 'The password is incorrect.'
