@@ -18,8 +18,9 @@ top="$(git rev-parse --show-toplevel)"
 dry=0
 [ "${1:-}" = "--dry-run" ] && dry=1
 
-# Deleting a branch or pushing only tags: nothing to check. Manual runs (a terminal) have no ref lines.
-if [ "$dry" = 0 ] && [ ! -t 0 ]; then
+# Deleting a branch or pushing only tags: nothing to check. Git passes the remote's name and URL as arguments and the
+# refs on stdin; a manual run has no arguments and must not wait for stdin.
+if [ "$dry" = 0 ] && [ $# -ge 2 ]; then
     refs=0 branches=0
     while read -r local_ref local_sha _; do
         refs=$((refs + 1))
