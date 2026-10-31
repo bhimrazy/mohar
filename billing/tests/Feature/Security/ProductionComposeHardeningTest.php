@@ -51,7 +51,7 @@ test('no container gets the docker socket, host namespaces or extra privileges',
     foreach (prodCompose()['services'] as $name => $service) {
         $volumes = implode(' ', array_map(fn ($v) => is_array($v) ? ($v['source'] ?? '') : $v, $service['volumes'] ?? []));
 
-        expect($volumes)->not->toContain('docker.sock', "{$name} mounts the docker socket")
+        expect(str_contains($volumes, 'docker.sock'))->toBeFalse("{$name} mounts the docker socket")
             ->and($service['privileged'] ?? false)->toBeFalse()
             ->and($service['network_mode'] ?? null)->not->toBe('host')
             ->and($service['pid'] ?? null)->not->toBe('host')

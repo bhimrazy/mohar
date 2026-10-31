@@ -2,8 +2,10 @@
 # SBOM and provenance, a size report, and the release tarball for hosts without Docker (install.md, cpanel.md).
 # Pushing to GHCR is an option of the run: it copies the very OCI archive that was built, digest for digest.
 # Never part of the normal CI job; runs only from Actions -> Build image -> Run workflow. Pushing to GHCR and drafting a
-# release run only from main, in the `release` environment (its protection rules are repository settings), and only for
-# merged code: a push builds main's head, a release a tag on main. The cache is scoped to the built ref.
+# release run only from main and only for merged code: a push builds main's head, a release a tag on main. Both jobs
+# name the `release` environment, which does not exist yet: GitHub creates a missing environment on first use with no
+# protection rules, so it adds nothing until the owner creates it with a main-only branch policy and a required
+# reviewer (an owner setting, billing/docs/devops/container-image.md). The cache is scoped to the built ref.
 name: Build image
 
 on:
@@ -203,7 +205,7 @@ jobs:
         name: Push to GHCR
         needs: build
         # The Actions UI offers any branch that contains this file; only a run started from main may hold
-        # `packages: write`. The environment adds the owner's protection rules (main only, a required reviewer).
+        # `packages: write`. The `release` environment protects nothing until the owner creates it (see the top).
         if: inputs.push_to_ghcr && github.ref == 'refs/heads/main'
         environment: release
         runs-on: ubuntu-24.04
@@ -239,8 +241,8 @@ jobs:
     release:
         name: Draft release with the tarball
         needs: build
-        # Same guards as the GHCR push: only a run from main may hold `contents: write`. The tag must be the ref that
-        # was built, so the assets are the tagged commit's.
+        # Same guards as the GHCR push: only a run from main may hold `contents: write`, and the environment protects
+        # nothing until the owner creates it. The tag must be the ref that was built, so the assets are the tagged commit's.
         if: inputs.release_tag != '' && inputs.release_tag == inputs.ref && github.ref == 'refs/heads/main'
         environment: release
         runs-on: ubuntu-24.04
