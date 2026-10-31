@@ -294,7 +294,7 @@
     "automation": {
         "tasks/notifications.prune": {
             "stage": 90,
-            "handler": "Closure(Carbon\\CarbonImmutable $today)",
+            "handler": "Closure(Carbon\\CarbonImmutable $today) #5924f7e98be6",
             "label": "Prune (notifications)",
             "description": null
         },
@@ -304,19 +304,19 @@
     "dashboard": {
         "todos/admin/notifications.failed_emails": {
             "key": "notifications.failed_emails",
-            "resolver": "Closure(App\\Models\\User $user)",
+            "resolver": "Closure(App\\Models\\User $user) #b3ca025cf486",
             "permission": "notifications.log.view",
             "order": 40
         },
         "todos/admin/notifications.disabled_webhooks": {
             "key": "notifications.disabled_webhooks",
-            "resolver": "Closure(App\\Models\\User $user)",
+            "resolver": "Closure(App\\Models\\User $user) #f0695df8463b",
             "permission": "notifications.webhooks.manage",
             "order": 41
         },
         "health/admin/notifications.account_links": {
             "key": "notifications.account_links",
-            "resolver": "Closure(App\\Models\\User $user)",
+            "resolver": "Closure(App\\Models\\User $user) #622ed04b25d8",
             "permission": "notifications.log.view",
             "order": 60
         }

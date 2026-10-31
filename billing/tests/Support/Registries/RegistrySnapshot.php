@@ -20,6 +20,7 @@ use Illuminate\Cache\RateLimiter;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Http\Request;
+use PhpToken;
 use ReflectionFunction;
 use ReflectionNamedType;
 use ReflectionObject;
@@ -29,8 +30,8 @@ use ReflectionObject;
  * (S4, the Boot/ split) can prove it registered exactly the same things.
  *
  * Registries keep their entries in private arrays, so the snapshot reads them by reflection instead of widening
- * the kernel API. Closures are recorded by signature only (their bodies are not comparable); the entry that holds
- * them is recorded in registration order. A module's entries are the ones whose id (permission, setting, route,
+ * the kernel API. A closure is recorded by its signature plus a hash of its source (see describeClosure()), so a
+ * changed body shows in the fixture diff; the entry that holds them is recorded in registration order. A module's entries are the ones whose id (permission, setting, route,
  * task or webhook key) matches the module's pattern. Regenerate a fixture with `UPDATE_REGISTRY_SNAPSHOT=1`.
  */
 final class RegistrySnapshot
@@ -191,12 +192,7 @@ final class RegistrySnapshot
     private static function normalise(mixed $value, int $depth = 0): mixed
     {
         if ($value instanceof Closure) {
-            $reflection = new ReflectionFunction($value);
-
-            return 'Closure('.implode(', ', array_map(
-                fn ($parameter): string => ($parameter->getType() instanceof ReflectionNamedType ? $parameter->getType()->getName() : 'mixed').' $'.$parameter->getName(),
-                $reflection->getParameters(),
-            )).')';
+            return self::describeClosure($value);
         }
 
         if (is_object($value)) {
@@ -220,6 +216,44 @@ final class RegistrySnapshot
         }
 
         return $value;
+    }
+
+    /**
+     * "Closure(<signature>) #<hash>". The hash covers the PHP tokens of the closure's source lines with whitespace and
+     * comments dropped, so reformatting does not churn fixtures but any code change does. Code after the closure on its last
+     * line is included too; that errs towards a false alarm, never a silent pass.
+     */
+    public static function describeClosure(Closure $closure): string
+    {
+        $reflection = new ReflectionFunction($closure);
+        $signature = implode(', ', array_map(
+            fn ($parameter): string => ($parameter->getType() instanceof ReflectionNamedType ? $parameter->getType()->getName() : 'mixed').' $'.$parameter->getName(),
+            $reflection->getParameters(),
+        ));
+
+        $file = $reflection->getFileName();
+        $lines = $file === false ? [] : array_slice(file($file) ?: [], $reflection->getStartLine() - 1, $reflection->getEndLine() - $reflection->getStartLine() + 1);
+
+        $tokens = [];
+        $started = false;
+
+        foreach (PhpToken::tokenize('<?php '.implode('', $lines)) as $token) {
+            // Skip what precedes the closure on its first line (a call, an assignment, an array key).
+            $started = $started || $token->is([T_FN, T_FUNCTION]);
+
+            if ($started && ! $token->isIgnorable()) {
+                // A trailing comma is formatting too.
+                if (in_array($token->text, [']', ')'], true) && end($tokens) === ',') {
+                    array_pop($tokens);
+                }
+
+                $tokens[] = $token->text;
+            }
+        }
+
+        $code = implode("\x1f", $tokens);
+
+        return 'Closure('.$signature.') #'.substr(hash('sha256', $code), 0, 12);
     }
 
     private static function text(mixed $value): string
