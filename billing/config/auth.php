@@ -114,6 +114,9 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    // Microseconds a sign-in check takes at least, so a wrong password and an unknown user answer alike (SessionGuard).
+    'timebox_duration' => (int) env('AUTH_TIMEBOX_DURATION', 200000),
+
     /*
     | Step-up window: seconds a password confirmation unlocks sensitive mutations behind the "password.recent"
     | middleware (App\Http\Middleware\RequireRecentPasswordConfirmation, ADR 0018 §4). Kept apart from

@@ -98,13 +98,27 @@ trait or runs a query (`tests/Unit/TestHarness/DatabaseFreeSuiteGuardTest.php`);
 `tests/Feature`.
 
 A seed that takes tens of seconds is seeded once per worker, not in every test:
-`$this->useSeededDatabase('<name>', fn () => $this->seed(...))` in `beforeEach` creates, migrates and seeds a
-separate database the first time a worker asks for it (`<database>_<name>` on PostgreSQL, a temporary file on
-SQLite), then runs each test in a transaction on it that is rolled back in `tearDown()`. BillingSeederTest uses it
-for the 730-day demo billing history. A failing seed restores the test's own default connection, and the seeded
-connection has a test-aware transaction manager, so after-commit callbacks behave as under RefreshDatabase
-(`tests/Feature/TestHarness`). PostgreSQL sequences are not rolled back: a test on a seeded database must not
-assert ids or sequence values.
+`$this->useSeededDatabase('<name>', fn () => $this->seed(...))` in `beforeEach` creates and seeds a separate database
+the first time a worker asks for it (`<database>_<name>` on PostgreSQL, a temporary file on SQLite), then runs each
+test in a transaction on it that is rolled back in `tearDown()`. BillingSeederTest uses it for the 730-day demo
+billing history, NepalDemoSeedTest for the Nepal demo, and the race tests for their committed rows. The database is a
+copy of a schema the worker migrates once (`<database>_template`, copied with `CREATE DATABASE … TEMPLATE`, about
+0.1 s against about 5 s for migrating on PostgreSQL; a file copy on SQLite), so a seeded name no longer costs a
+migration per worker. `tests/Feature/TestHarness/SeededTemplateTest.php` proves the copy equals a fresh migrate
+(tables, columns, indexes, foreign keys, constraints, triggers, sequences, migration rows). A test about migrating
+itself passes `freshMigrate: true` to migrate its database instead. A failing seed restores the test's own default
+connection, and the seeded connection has a test-aware transaction manager, so after-commit callbacks behave as under
+RefreshDatabase (`tests/Feature/TestHarness`). PostgreSQL sequences are not rolled back: a test on a seeded database
+must not assert ids or sequence values.
+
+Waits that really sleep are shortened in the tests, with their production values unchanged: the sign-in timebox
+(`AUTH_TIMEBOX_DURATION=0` in `phpunit.xml`; 200 ms in production), the delay between lookup retries (0 ms, same
+number of attempts: Guzzle's MockHandler sleeps for the delay under `Http::fake`) and the mail test send's timeouts
+(2 s and 4 s instead of 10 s and 20 s), in `Tests\TestCase::shortenWaits()`
+(`tests/Feature/TestHarness/ShortenedWaitsTest.php`). On a host other than Linux the simulator suite
+(`tools/simulators/tests`, which needs `setsid` and `/proc`) is skipped with that reason instead of erroring;
+`scripts/test.sh` runs it through `scripts/linux.sh`, and `tools/simulators/tests/HostTest.php` fails on a Linux host
+without them.
 
 Each worker is one PHP process that runs about half the suite, so memory a test file leaves behind (static
 caches, singletons) adds up against the 1 GB `memory_limit` in `phpunit.xml`. The largest such cache is the arch

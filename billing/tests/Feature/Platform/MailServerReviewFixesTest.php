@@ -169,7 +169,7 @@ test('the test mailer is an SMTP transport with an overall deadline', function (
         ->and($transport->getStream()->getHost())->toBe('smtp.example.com.np')
         ->and($transport->getStream()->isTLS())->toBeTrue()
         ->and($transport->getUsername())->toBe('u')
-        ->and($transport->getStream()->getTimeout())->toBe((float) MailServerSettings::TEST_TIMEOUT);
+        ->and($transport->getStream()->getTimeout())->toBe((float) MailServerSettings::testTimeout());
 });
 
 test('a server that answers every step slowly is cut off by the deadline, not only by the read timeout', function () {
@@ -224,7 +224,7 @@ test('a silent mail server ends the test send with an error instead of hanging',
         $stub->stop();
     }
 
-    expect(microtime(true) - $started)->toBeLessThan(MailServerSettings::TEST_DEADLINE + MailServerSettings::TEST_TIMEOUT + 5);
+    expect(microtime(true) - $started)->toBeLessThan(MailServerSettings::testDeadline() + MailServerSettings::testTimeout() + 5);
 });
 
 test('a worker sees a change saved by another process after its per-job reset', function () {

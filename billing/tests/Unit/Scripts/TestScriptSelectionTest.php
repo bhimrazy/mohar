@@ -143,3 +143,36 @@ test('on PostgreSQL the Unit and Arch tests are left out of the selection', func
     expect($selection)->toContain('tests/Feature/Billing', 'tests/Feature/Security')
         ->not->toContain('tests/Arch')->not->toContain('tests/Unit/Billing');
 });
+
+test('several selected paths run in parallel as one testsuite of a temporary phpunit.xml, since paratest takes one path', function () {
+    [$this->repo, $base] = tssRepo();
+    copy(dirname(__DIR__, 3).'/phpunit.xml', "{$this->repo}/billing/phpunit.xml");
+    tssGit($this->repo, 'add', '-A');
+    tssGit($this->repo, 'commit', '-qm', 'phpunit.xml');
+    $base = tssGit($this->repo, 'rev-parse', 'HEAD');
+    tssWrite($this->repo, 'billing/app/Modules/Billing/Invoice.php', "<?php\n// changed\n");
+
+    $process = new Process(['bash', dirname(__DIR__, 4).'/scripts/test.sh', '--changed'], "{$this->repo}/billing", [
+        'TEST_SH_IN_SLOT' => '1', 'TEST_SH_DRY_RUN' => '1', 'TEST_BASE' => $base, 'TEST_PROCESSES' => '4',
+    ]);
+    $process->setTimeout(30)->run();
+    expect($process->getExitCode())->toBe(0, $process->getErrorOutput());
+
+    $output = $process->getOutput();
+    preg_match('/^pest (.*)$/m', $output, $command);
+    preg_match('/--configuration=(\S+)/', $command[1] ?? '', $config);
+    $xml = simplexml_load_string(substr($output, (int) strpos($output, '<?xml')));
+    // The worktree's billing/ as git reports it (macOS: /private/var for /var).
+    $app = dirname((string) $xml['bootstrap'], 2);
+    $suite = array_map('strval', $xml->xpath('//testsuite/directory | //testsuite/file'));
+
+    expect($command[1] ?? '')->toStartWith('--parallel --processes=4 --configuration=')->not->toContain('tests/')
+        ->and($config[1] ?? '')->not->toStartWith($app)
+        ->and(file_exists($config[1] ?? ''))->toBeFalse()
+        ->and($xml->testsuites->testsuite)->toHaveCount(1)
+        ->and($suite)->toContain("{$app}/tests/Feature/Billing", "{$app}/tests/Unit/Billing", "{$app}/tests/Feature/DashboardTest.php")
+        ->and(realpath($app))->toBe(realpath("{$this->repo}/billing"))
+        ->and((string) $xml['bootstrap'])->toBe("{$app}/vendor/autoload.php")
+        ->and((string) $xml->source->include->directory)->toBe("{$app}/app")
+        ->and($xml->xpath('//env[@name="APP_ENV"]'))->toHaveCount(1);
+});
