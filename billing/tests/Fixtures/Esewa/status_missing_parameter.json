@@ -1,0 +1,8 @@
+{
+    "type": "about:blank",
+    "title": "Bad Request",
+    "status": 400,
+    "detail": "Required parameter 'total_amount' is not present.",
+    "instance": "/api/epay/transaction/status/",
+    "properties": null
+}

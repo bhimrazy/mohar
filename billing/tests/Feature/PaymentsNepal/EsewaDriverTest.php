@@ -422,6 +422,7 @@ test('the connection test books a signed UAT session to check the code and key',
     'accepted' => [302, null, ['Location' => 'https://rc-epay.esewa.com.np/epay?bookingId=abc'], 'success', 'accepted the product code and secret key'],
     'bad signature (ES104)' => [400, 'form_invalid_signature', [], 'error', 'rejected the product code or secret key (sandbox mode): message: Invalid payload signature.; code: ES104'],
     'duplicate uuid is not blamed on the credentials' => [400, 'form_duplicate_uuid', [], 'error', 'refused the test booking (sandbox mode): error_message: Duplicate transaction UUID.; code: 0'],
+    'unknown product code (UAT 2026-10-31: code 0, not ES104)' => [400, 'form_unknown_product_code', [], 'error', 'doesn\'t know the product code EPAYTEST (sandbox mode)'],
 ]);
 
 test('the provider form is served once, so a refresh never re-posts the signed form', function () {

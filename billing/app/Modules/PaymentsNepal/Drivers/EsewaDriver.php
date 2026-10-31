@@ -239,8 +239,9 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
 
     /**
      * eSewa's status API is unauthenticated and answers NOT_FOUND even for unknown merchant codes, so the check
-     * books (does not pay) a signed test session: eSewa answers ES104 "Invalid payload signature" when the secret
-     * or product code is wrong, and redirects to its login page when both are right. The booking simply expires.
+     * books (does not pay) a signed test session: eSewa answers ES104 "Invalid payload signature" when the secret is
+     * wrong, "Unable to fetch merchant key" (code 0) when it doesn't know the product code (UAT, 2026-10-31), and
+     * redirects to its login page when both are right. The booking simply expires.
      */
     public function testConnection(GatewayConfig $gateway): ConnectionCheck
     {
@@ -275,6 +276,7 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
         return match (true) {
             $response->redirect() && ($location === parse_url($form->baseUrl, PHP_URL_HOST) || $location === 'esewa.com.np' || str_ends_with($location, '.esewa.com.np')) => new ConnectionCheck(true, __('eSewa accepted the product code and secret key (:mode mode).', ['mode' => $mode])),
             $response->status() === 400 && is_array($body) && ($body['code'] ?? null) === 'ES104' => new ConnectionCheck(false, __('eSewa rejected the product code or secret key (:mode mode): :reason', ['mode' => $mode, 'reason' => ProviderHttp::summary($body)])),
+            $response->status() === 400 && is_array($body) && is_string($body['error_message'] ?? null) && stripos($body['error_message'], 'merchant key') !== false => new ConnectionCheck(false, __('eSewa doesn\'t know the product code :code (:mode mode). Check it with eSewa.', ['code' => $productCode, 'mode' => $mode])),
             $response->status() === 400 => new ConnectionCheck(false, __('eSewa refused the test booking (:mode mode): :reason', ['mode' => $mode, 'reason' => ProviderHttp::summary($body) ?: 'HTTP 400'])),
             default => new ConnectionCheck(false, __('eSewa answered with HTTP :status. Try again later.', ['status' => $response->status()])),
         };

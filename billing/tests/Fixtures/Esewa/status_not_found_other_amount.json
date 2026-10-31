@@ -1,0 +1,7 @@
+{
+    "product_code": "EPAYTEST",
+    "transaction_uuid": "fixture-uuid-pending",
+    "total_amount": 1.0,
+    "status": "NOT_FOUND",
+    "ref_id": null
+}

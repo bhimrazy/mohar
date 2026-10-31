@@ -1,0 +1,8 @@
+{
+    "type": "about:blank",
+    "title": "Bad Request",
+    "status": 400,
+    "detail": "Failed to convert 'total_amount' with value: '1,130.5'",
+    "instance": "/api/epay/transaction/status/",
+    "properties": null
+}
