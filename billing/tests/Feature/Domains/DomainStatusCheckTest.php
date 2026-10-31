@@ -44,3 +44,28 @@ test('rows that break the check stop the migration by id, and the check is not l
 
     expect(DB::table('pg_constraint')->where('conname', 'domains_status_check')->value('convalidated'))->toBeTrue();
 })->skip($pgsqlOnly, 'The check is PostgreSQL only');
+
+test('the status check holds no value outside DomainStatus, whatever its spelling', function () {
+    $definition = (string) DB::table('pg_constraint')->where('conname', 'domains_status_check')->value(DB::raw('pg_get_constraintdef(oid)'));
+    preg_match_all("/'([^']*)'::/", $definition, $values);
+
+    expect($values[1])->toEqualCanonicalizing(DomainStatus::values());
+})->skip($pgsqlOnly, 'The check is PostgreSQL only');
+
+test('a check left NOT VALID by an interrupted run is dropped when rows break it, and validated once they are fixed', function () use ($migrationPath) {
+    $migration = require base_path($migrationPath);
+    $migration->down();
+    $domain = Domain::factory()->create();
+    DB::table('domains')->where('id', $domain->id)->update(['status' => 'Active']);
+    $condition = "status IN ('".implode("', '", DomainStatus::values())."')";
+    DB::statement("ALTER TABLE domains ADD CONSTRAINT domains_status_check CHECK ({$condition}) NOT VALID");
+
+    expect(fn () => $migration->up())->toThrow(RuntimeException::class, "ids {$domain->id}")
+        ->and(DB::table('pg_constraint')->where('conname', 'domains_status_check')->exists())->toBeFalse();
+
+    DB::table('domains')->where('id', $domain->id)->update(['status' => DomainStatus::Active->value]);
+    DB::statement("ALTER TABLE domains ADD CONSTRAINT domains_status_check CHECK ({$condition}) NOT VALID");
+    $migration->up();
+
+    expect(DB::table('pg_constraint')->where('conname', 'domains_status_check')->value('convalidated'))->toBeTrue();
+})->skip($pgsqlOnly, 'The check is PostgreSQL only');

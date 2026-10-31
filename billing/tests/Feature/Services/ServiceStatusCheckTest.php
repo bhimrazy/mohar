@@ -47,3 +47,27 @@ test('rows that break a check stop the migration by id, and the check is not lef
     expect(DB::table('pg_constraint')->whereIn('conname', ['services_status_check', 'service_addons_status_check'])->pluck('convalidated', 'conname')->all())
         ->toEqual(['services_status_check' => true, 'service_addons_status_check' => true]);
 })->skip($pgsqlOnly, 'The checks are PostgreSQL only');
+
+test('each status check holds no value outside ServiceStatus, whatever its spelling', function (string $constraint) {
+    $definition = (string) DB::table('pg_constraint')->where('conname', $constraint)->value(DB::raw('pg_get_constraintdef(oid)'));
+    preg_match_all("/'([^']*)'::/", $definition, $values);
+
+    expect($values[1])->toEqualCanonicalizing(ServiceStatus::values());
+})->with(['services_status_check', 'service_addons_status_check'])->skip($pgsqlOnly, 'The checks are PostgreSQL only');
+
+test('a table whose rows pass keeps its validated check when a later table fails, and the re-run finishes the rest', function () use ($migrationPath) {
+    $migration = require base_path($migrationPath);
+    $migration->down();
+    $addon = ServiceAddon::factory()->create();
+    DB::table('service_addons')->where('id', $addon->id)->update(['status' => 'Active']);
+
+    expect(fn () => $migration->up())->toThrow(RuntimeException::class, 'service_addons: 1 rows break service_addons_status_check')
+        ->and(DB::table('pg_constraint')->whereIn('conname', ['services_status_check', 'service_addons_status_check'])->pluck('convalidated', 'conname')->all())
+        ->toEqual(['services_status_check' => true]);
+
+    DB::table('service_addons')->where('id', $addon->id)->update(['status' => ServiceStatus::Active->value]);
+    $migration->up();
+
+    expect(DB::table('pg_constraint')->whereIn('conname', ['services_status_check', 'service_addons_status_check'])->pluck('convalidated', 'conname')->all())
+        ->toEqual(['services_status_check' => true, 'service_addons_status_check' => true]);
+})->skip($pgsqlOnly, 'The checks are PostgreSQL only');
