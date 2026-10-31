@@ -49,6 +49,7 @@ Amended (each is called out in §16 and at the top of `migration.md`):
 | A6  | Direct database connector: out of scope                   | Still out of scope by default. A narrow, read-only "gap reader" is an **owner decision** (§3.3, Q1)                                                 | It is the only way to carry password hashes; the 2026-10-17 decision stands unless the owner changes it |
 | A7  | The Migration module is a WHMCS importer                  | The Migration module also hosts the CSV connector and the import pages; a run has a `source_kind` (`csv`, `whmcs_api`)                              | One pipeline, one id map, one report for every source                                                   |
 | A8  | `ImportOutcome(targetId, action, issues)`                 | Gains a trailing `changes` (list of field names) so the review can say what an update would change                                                  | The review must show what an update does before it happens                                              |
+| A9  | The API allowlist is read-only                            | Unchanged for the importer. Sign-in carry-over (§3.4) uses a **second** credential and a separate allowlist naming only `ValidateLogin`             | It is the only documented way to check a WHMCS password without a database export                       |
 
 ## 3. Where the data comes from
 
@@ -102,6 +103,88 @@ the owner:
 - **Cost:** a schema can change between versions without notice, so each supported version needs a fixture, and the
   host must open their database port to us (or run the reader on their side). Recommendation: **not in v1**; reconsider
   after the first real migration, and only if hosts ask for password carry-over (Q2).
+
+### 3.4 Sign-in carry-over through the WHMCS API (phase 2a.2, SHOULD; proposed 2026-10-31, Q13)
+
+Research and the comparison of options: `docs/research/2026-10-31-whmcs-login-migration.md`. Kernel hook: ADR 0018
+Amendment (#554).
+
+The goal is that returning clients sign in with their old email and password and never reset them. WHMCS documents
+`ValidateLogin`: it checks an email and password against a WHMCS user and returns `userid`, `twoFactorEnabled` and a
+WHMCS session token. The token comes back only when no 2FA is required (API reference, read 2026-10-31). We check each
+password once, at the client's first Mohar sign-in, and then keep our own hash. No hash or export moves, so this works
+under the API-only decision (Q1).
+
+- **Setup (per WHMCS source).**
+    - A second API credential whose role grants only `ValidateLogin`. It is stored encrypted and declared in
+      `EncryptedStorage` (ADR 0022).
+    - A base URL on HTTPS whose host is not Mohar's own `APP_URL` host. The old billing hostname usually moves to
+      Mohar, so the old WHMCS keeps a hostname of its own.
+    - A cut-off date, `login_carry_over_until`, on the company clock (ADR 0013, ending 23:59:59): default 90 days after
+      switching on, at most 180. It can be shortened at any time and extended only up to the maximum.
+    - "Test" sends one check for a reserved `.invalid` address and expects "Email or Password Invalid". It shows any
+      other answer with its reason.
+    - The wizard says that `ValidateLogin` updates the last-login time at the source, so it is not a read-only call.
+- **Eligibility.**
+    - The WHMCS API run (PR 8) writes one `migration_login_checks` row per WHMCS user it turns into a Mohar login that
+      has no password of its own: owners and non-owner users alike (§6.11).
+    - CSV-only logins are not eligible, and neither are contacts or logins from WHMCS before 8.0 (Q10).
+    - A row closes when the login gets a password any other way: an invitation, a reset, or staff setting one.
+- **Sign-in.** Mohar's own hash is checked first. Only when it fails does the kernel hook (`PendingPasswordCheck`,
+  ADR 0018 amendment) ask Migration. Migration calls `ValidateLogin` when all of these hold:
+    - the row is open;
+    - the login's email still equals the email as imported (a keyed hash);
+    - the cut-off has not passed;
+    - the source is not paused;
+    - the budgets allow it.
+
+  The call uses the email as imported and the typed password, over `OutboundAddressGuard` (ADR 0015: pinned, no
+  proxy, no redirects, TLS verified, `http://` refused).
+    - Success with `twoFactorEnabled` false and the `userid` recorded at import: in one locked transaction, store Mohar's
+      bcrypt hash of the typed password and mark the row `migrated`. The sign-in continues like any password sign-in.
+      The session token is discarded unread.
+    - Success with `twoFactorEnabled` true: no sign-in. The bcrypt hash is held in the row for 30 minutes, and a
+      single-use link goes to the login's address, bound to the browser by a nonce cookie (the social sign-in SS-17
+      pattern). Opening the link stores the hash, verifies the email, signs the client in through the normal session
+      steps, and sets the "had 2FA" flag (§6.10). The template is `client.migration_confirm_signin`, always sent; at
+      most 3 links an hour per login.
+    - "Email or Password Invalid": an ordinary failed sign-in.
+    - A different `userid`, a malformed answer, a redirect, a timeout, a 5xx or an unknown action: a failed sign-in and
+      a **fault**. 10 faults in 10 minutes, or one "unknown action" (WHMCS has said `ValidateLogin` may be deprecated),
+      pause the source and alert staff.
+- **Budgets and timing.**
+    - The remote check runs after the `login` limiter, within 5 checks an hour per login, and within 5 a second and at
+      most 4 at once per source.
+    - Counting is atomic, with the add-then-increment pattern of `PasswordGuesses` (#536).
+    - Timeout: 5 seconds in total. Over the concurrency cap, the answer is "try again in a moment" and no call is made.
+    - While any source has carry-over on, every failed password sign-in answers no sooner than
+      `migration.login_carry_over.min_failure_ms` (default 1000, with jitter), so the remote wait does not reveal
+      which emails are imported.
+    - The answer text is the same for an unknown email, a wrong password, a remote refusal and a fault. Unknown emails
+      are never sent to WHMCS.
+- **After a carry-over.**
+    - `email_verified_at` is unchanged, because knowing the password does not prove the mailbox (§6.7). The 2FA path
+      above is the exception.
+    - The typed password is checked against Mohar's rules. When it fails them, the client must choose a new one before
+      using the client area (SHOULD).
+    - The activity log records `auth.password_carried_over` with the source, never the password.
+- **Secrets.**
+    - `password2` and `passwordhash` join the redaction keys (ADR 0023).
+    - The connector never logs request bodies.
+    - The password is never stored in plain text, queued, cached or put in a job payload. The call is synchronous
+      inside the sign-in request.
+- **After the cut-off** (or when staff pause or switch it off): the open rows expire, and the hook answers "not
+  applicable". Those clients use "Forgot password", or the invitation (§5.7), whose page gains the filter "not carried
+  over".
+- **Admin.** Migration → Sources → <source> → Sign-in carry-over:
+    - the status (on, paused with the reason, or off) and the days left;
+    - counts: eligible, carried over, confirmed by email, waiting for confirmation, expired, and the percentage;
+    - the last 24 hours: accepted, refused, faults; the last test;
+    - actions: Test, Pause or Resume, Change the cut-off, and Invite everyone not carried over.
+
+  Changing anything needs `migration.sources.manage` and step-up. Viewing needs `migration.runs.view`.
+- **Client.** During the window the sign-in page shows "Moved from our old client area? Your old password works until
+  <date>." It is on by default per source, and the date is in the client's language.
 
 ## 4. Entities and key fields
 
@@ -347,7 +430,8 @@ Users and Client Accounts, read 2026-10-20); in Mohar it does, because our link 
   bcrypt hash of a random 64-character secret that is discarded, one hash per chunk of 200 rows, so no password signs
   in until the invitation sets one and 50,000 logins cost 250 hashes, not 50,000. It does not wait for #112's nullable
   password. A password reset is possible and acceptable: its link goes only to the login's own address.
-- **WHMCS API:** no hashes are available for 8.x logins. Same as CSV.
+- **WHMCS API:** no hashes are available for 8.x logins. Same as CSV at import. With sign-in carry-over on (§3.4), a
+  returning client's password is checked once against WHMCS at their first sign-in, and Mohar then stores its own hash.
 - **Gap reader (only if Q1 and Q2 are approved):** WHMCS has hashed client passwords with bcrypt since 6.3 (community
   posts citing the 6.3 release notes; the deprecated `GetClientPassword` example shows a `$2y$10$` value). Carrying such
   a hash is safe in the sense that we would store a bcrypt hash anyway, and Laravel verifies `$2y$` hashes and rehashes on
@@ -371,7 +455,9 @@ data. WHMCS supports time-based tokens, Duo and YubiKey for clients (WHMCS docs,
 2026-10-20); none of them transfer. What happens:
 
 - every imported login starts without 2FA;
-- when the source says the login had 2FA (gap reader only; the API does not say), the login is flagged: the invitation
+- sign-in carry-over (§3.4) learns the flag from `ValidateLogin`'s `twoFactorEnabled` for each client who comes back,
+  and sets it when the mailbox confirmation is opened. The banner below then applies;
+- when the source says the login had 2FA (gap reader; the import API does not say), the login is flagged: the invitation
   mail says "Two-factor sign-in was not carried over; set it up again after you sign in", and the client area shows a
   "Set up two-factor sign-in" banner until it is enabled or dismissed (SHOULD);
 - the report counts flagged logins. Staff are not imported in phase 1 or 2a.
@@ -491,7 +577,7 @@ one-time notice in the client area asks the client to check their details, and t
 | `migration.runs.view`      | See runs, reviews and reports (no error download)              | no        |
 | `migration.runs.execute`   | Upload, map, check, confirm, download errors, send invitations | yes       |
 | `migration.runs.undo`      | Undo a run                                                     | yes       |
-| `migration.sources.manage` | Create sources; enter WHMCS API credentials                    | yes       |
+| `migration.sources.manage` | Create sources; enter WHMCS API credentials; switch on, pause or change sign-in carry-over (§3.4) | yes       |
 | `migration.secrets.import` | Carry password hashes (only if Q2 is approved)                 | yes       |
 
 Sensitive permissions are never granted by a wildcard (security standards §2). Upload, confirm, invitations, undo and
@@ -574,6 +660,8 @@ Platform owns invitations, so Migration reaches them through a contract.
 | C8  | Billing-internal: `CreditReason::Import` and the `billing.credit_balance` importer                                                                                                                                                                                                                                                                                                                                                      | §6.12                               |
 | C9  | Notifications template key `client.migration_invitation`                                                                                                                                                                                                                                                                                                                                                                                | Every mail has an editable template |
 | C10 | `clients.email_changed_at` shared with cPanel 3b-2 (#95)                                                                                                                                                                                                                                                                                                                                                                                | §6.2                                |
+| C11 | Kernel `App\Contracts\Auth\PendingPasswordCheck::check(User, string $password, Request): PendingPasswordOutcome` and `active(): bool`, enum `App\Enums\PendingPasswordOutcome` (NotApplicable, Verified, ConfirmByEmail, Rejected, Unavailable); Core null default with `bindIf`; called by the sign-in pipeline only after the local password check fails; failed sign-in time floor while `active()`; redaction keys `password2`, `passwordhash` (ADR 0018 Amendment (#554), ADR 0023) | §3.4; Fortify cannot import Migration |
+| C12 | Notifications template key `client.migration_confirm_signin` (always sent)                                                                                                                                                                                                                                                                                                                                                             | §3.4 2FA path                       |
 
 ## 17. Edge cases
 
@@ -625,6 +713,9 @@ operating model). PR 0 is a kernel PR made by the CTO session.
 | 6   | 1     | Performance: query budgets, a 50k-row test fixture, the load-test import scenario in `loadtest/`                                                                              | 43–44          |
 | 7   | 2a    | WHMCS API connector (`migration.md` §2.1 ACs 1–5), currencies and groups stages                                                                                               | 45             |
 | 8   | 2a    | WHMCS clients, contacts, users and permissions, consent, verification, credit balance, delta re-runs, through the same importers                                              | 46–50          |
+| 8a  | 2a.2  | Kernel (CTO): C11, the sign-in pipeline hook and its pinned test, the failure time floor, redaction keys                                                                    | 54–56          |
+| 8b  | 2a.2  | Sign-in carry-over (§3.4): `migration_login_checks`, the second credential and allowlist, state machine, budgets, faults and pause, cut-off, `ValidateLogin` in the WHMCS simulator | 57–66          |
+| 8c  | 2a.2  | 2FA mailbox confirmation (C12), the admin panel, the sign-in page notice, the "not carried over" invitation filter                                                           | 67–70          |
 | 9   | 2a.1  | Gap reader, only if Q1/Q2 are approved                                                                                                                                        | 51–53          |
 | —   | 2b    | Products and services (`migration.md` stages 7, 8, 12). Imported services carry server and username, so the cPanel import then shows them as linked                           | `migration.md` |
 | —   | 2c    | Invoices with balances, transactions, credit log and reconciliation (`migration.md` stage 15)                                                                                 | `migration.md` |
@@ -633,7 +724,8 @@ operating model). PR 0 is a kernel PR made by the CTO session.
 Dependencies: PR 3 needs #112 (nullable `users.password`, `password.recent` in the kernel) and the
 `email_changed_at` column from #95 or its own copy (C10). Invitations (PR 4) refuse to start while the account-link host
 check fails (`AccountLinks::problem()`), with that reason shown on the button. PR 1 to 3 can be reviewed in sequence
-while PR 4 is built. Phase 2b and later each get a short delivery section in
+while PR 4 is built. PR 8b needs PR 8 (users imported with their WHMCS ids) and PR 8a; PR 8c needs 8b. None of 8a–8c
+needs ADR 0018's sign-in-method kernel (social sign-in PR 0), which is not built yet. Phase 2b and later each get a short delivery section in
 `migration.md` when they start; their acceptance criteria are already there (§13).
 
 ## 20. Acceptance criteria
@@ -753,7 +845,49 @@ SQLite and PostgreSQL.
 52. MUST: a login flagged with 2FA at the source never receives a carried hash.
 53. MUST: the reader's query log contains only the allowlisted tables and columns.
 
-Count: 53 criteria (49 MUST, 4 SHOULD).
+**Sign-in carry-over (PR 8a–8c, §3.4; WHMCS simulator per ADR 0016, no real accounts)**
+
+54. MUST: with `MODULES=Core` (Migration absent), the null `PendingPasswordCheck` answers NotApplicable, and password
+    sign-in, the lockout and the 2FA challenge behave exactly as before (the existing sign-in tests pass unchanged).
+55. MUST: a pipeline test pins the hook's position: it is called only after the local hash fails, never for step-up
+    (`confirmPasswordsUsing`), and a Verified outcome reaches the same two-factor and session steps as a local match.
+56. MUST: while `active()` is true, a failed password sign-in for an unknown email and one for an imported login whose
+    remote check takes 300 ms both answer in no less than `min_failure_ms`, with the same message and status.
+57. MUST: an imported login whose WHMCS password is correct signs in on its first attempt. The simulator records one
+    `ValidateLogin` call. `users.password` then verifies the typed password locally, the row is `migrated`, the
+    activity entry is written, and the next sign-in makes no remote call.
+58. MUST: a wrong password gives the ordinary failure and counts towards the `login` limiter. After 5 remote checks in
+    an hour for that login, a sixth attempt makes no call and gives the same failure.
+59. MUST: a success whose `userid` differs from the id recorded at import does not sign in, does not store a hash, and
+    counts as a fault.
+60. MUST: an unknown email, a login without a row, a login whose email changed since import, and a date after the
+    cut-off (company clock; 23:59:59 accepted, 00:00:00 the next day refused) each make no remote call.
+61. MUST: a base URL on `http://`, a host equal to the `APP_URL` host, a 3xx answer, or an address the outbound policy
+    refuses (ADR 0015) makes no call, or a refused one, and Test shows the reason.
+62. MUST: a timeout (the simulator delays past 5 s), a 5xx, a non-JSON answer and an "unknown action" answer each fail
+    the sign-in with the ordinary message. Ten faults in ten minutes, or one "unknown action", pause the source and
+    alert staff.
+63. MUST: with 4 checks already running for a source, a fifth sign-in makes no call and answers "try again in a
+    moment".
+64. MUST: two parallel sign-ins with the right password produce one stored hash and one `migrated` transition. Both
+    sign in or the second re-checks the local hash.
+65. MUST: after a run of sign-ins (success, failure, 2FA, fault), neither the typed password nor the returned
+    `passwordhash` appears in the log files, failed-job payloads, activity rows, the `migration_login_checks` table or
+    the cache store (grep).
+66. MUST: a WHMCS user linked to three clients carries over once and keeps its three links and their areas.
+67. MUST: a success with `twoFactorEnabled` true does not sign in, and mails `client.migration_confirm_signin`. Opening
+    the link in the same browser within 30 minutes stores the hash, verifies the email, sets the "had 2FA" flag and
+    signs in (the 2FA banner shows). Opening it in another browser, after 30 minutes, or twice is refused, and the held
+    hash is deleted at expiry. A fourth request in an hour sends no mail.
+68. MUST: a carry-over without the 2FA path leaves `email_verified_at` as imported.
+69. MUST: the admin panel shows eligible, carried-over, confirmed, waiting and expired counts that match the table.
+    Switching on, pausing and changing the cut-off need `migration.sources.manage` and step-up. The cut-off cannot be
+    set beyond 180 days from switching on. "Invite everyone not carried over" queues invitations only for open or
+    expired rows.
+70. SHOULD: a carried-over password shorter than Mohar's minimum signs in and is then sent to choose a new one before
+    any client-area page; the sign-in page shows the carry-over notice with the cut-off date while the window is open.
+
+Count: 70 criteria (65 MUST, 5 SHOULD).
 
 ## 21. Owner decisions (2026-10-20: all recommendations accepted)
 
@@ -779,6 +913,18 @@ The questions below were answered by accepting each recommendation as written.
 11. **Sample data (Q11).** Can the owner provide a WHMCS "Clients" export and two API responses (`GetUserPermissions`,
     `GetUsers`) from a test install with fake data? They settle the **verify** items in §3.1 and §3.2.
 12. **Limits (Q12).** 20 MB and 100,000 rows per file: enough?
+13. **Sign-in carry-over (Q13, open, 2026-10-31).** Approve §3.4 as the default for WHMCS 8.0+ sources (90-day default
+    window, 180 at most), with invitations only for the logins not carried over by the cut-off?
+    Sub-questions:
+    - (a) Is forwarding a returning client's typed password once, over TLS, to the host's own WHMCS acceptable, and
+      should the wizard tell hosts to mention it in their privacy notice?
+    - (b) Is a mailbox confirmation an acceptable second proof for accounts that had 2FA at WHMCS, or should they
+      always use the invitation?
+    - (c) Any concern with calling one API action that updates the last-login time at the source?
+    - (d) Offer an optional TLS key pin for the old host?
+
+    Recommendation: yes to the default and (a); a mailbox confirmation for (b); no pin in v1 for (d). Not legal
+    advice: the licence side of (c) is a question for the owner.
 
 ## 22. Out of scope (v1)
 
@@ -811,6 +957,11 @@ carrying 2FA, security questions, stored cards or bank accounts; Excel (`.xlsx`)
   https://docs.whmcs.com/8-13/clients/client-management-tutorials/require-opting-in-to-emails/ · Add a Client
   https://docs.whmcs.com/8-13/clients/client-management-tutorials/add-a-client/ · Configure GST for India
   https://docs.whmcs.com/8-13/payments/tax-tutorials/configure-gst-for-india/
+- Sign-in carry-over (§3.4, read 2026-10-31): ValidateLogin https://developers.whmcs.com/api-reference/validatelogin/
+  · OpenID Connect https://docs.whmcs.com/9-1/system/authentication/openid-connect/ · OpenID Connect Development
+  https://docs.whmcs.com/9-1/system/authentication/openid-connect-development/ · Security settings
+  https://docs.whmcs.com/9-1/system/general-settings/general-settings-security/ · the full list is in
+  `docs/research/2026-10-31-whmcs-login-migration.md` §9.
 - WHMCS community (secondary, for the bcrypt change in 6.3): https://www.ndchost.com/wiki/software/whmcs/client-password-hash ·
   https://whmcs.community/topic/255397-passwords-25-characters-after-upgrade-to-630/ · marketing opt-in fields:
   https://whmcs.community/topic/288661-query-clients-that-dont-have-marketing-opt-in-and-opt-out-confirmed

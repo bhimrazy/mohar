@@ -219,3 +219,47 @@ input without its secrets (`KeepsSecretsOutOfOldInput`; the platform settings re
 except the section's non-secret settings as secret). JSON clients still get 423 (middleware) or a
 422 validation response (form requests). First shipped for the middleware in #489, completed for the settings
 sections in #490.
+
+## Amendment (#554) — 2026-10-31, a pending password checked once at the source (Proposed)
+
+Status: Proposed, awaiting the owner's answer to `client-import.md` Q13. Research:
+`docs/research/2026-10-31-whmcs-login-migration.md`.
+
+- **What it is for.** An imported login has no password that anyone knows (`client-import.md` §6.9). Sign-in carry-over
+  (§3.4) lets that login's first password sign-in be checked once against the system it came from. On success the
+  typed password becomes the login's own hash. This extends the **password** method. It is not a new sign-in method,
+  so nothing is registered in `SignInMethods` (§1).
+- **One kernel hook.** The interface is `App\Contracts\Auth\PendingPasswordCheck`:
+  `check(User $user, string $password, Request $request): PendingPasswordOutcome` and `active(): bool`. The enum is
+  `App\Enums\PendingPasswordOutcome`: NotApplicable, Verified, ConfirmByEmail, Rejected, Unavailable.
+    - Core binds a null implementation with `bindIf`: NotApplicable, and `active()` false. Migration binds the real
+      one. It is a contract, not a registry, because there is one implementer.
+    - Only the password-validation step of the Fortify sign-in pipeline calls it, and only after the local hash check
+      failed for an existing login, inside the `login` limiter, outside any transaction.
+    - Verified means the implementer has already stored the new hash under a row lock. The pipeline then continues
+      exactly as for a local match: lockout and refusals, the 2FA challenge, session regeneration. When
+      `CompleteSignIn` (§3) exists, that path goes through it too.
+    - Rejected and Unavailable are ordinary failed sign-ins. They count towards the same lockout (§2).
+    - A pipeline test pins the position, as §3 pins Fortify's keys.
+- **Not step-up.** `confirmPasswordsUsing` and `password.recent` never call it (§4). A signed-in login already has a
+  local password.
+- **ConfirmByEmail.** The source said the password is right but the account had a second factor there, which we cannot
+  check. The login is not signed in. A single-use link goes to the login's own address, bound to the browser that
+  started the sign-in. Opening it stores the held hash, verifies the email and signs the login in through the normal
+  session steps. This is a sign-in proof for an account in transit, the same kind as the social sign-in emailed link
+  (SS-17). It is not a step-up mechanism, so §4's "no emailed link" rule is not affected.
+- **Verification.** A carry-over does not set `email_verified_at`, because knowing a password does not prove the
+  mailbox. The ConfirmByEmail path does set it. The 2026-10-21 addendum (verified 30 days ago bounds the last email
+  change) still holds, because a carry-over never changes the email.
+- **Enumeration.** While `active()` is true, every failed password sign-in answers no sooner than a configured floor,
+  so the remote wait does not reveal which emails are imported. The message is the same for every failure.
+- **Must not be added.**
+    - A second sign-in route or controller for imported logins.
+    - A "migration" entry in `SignInMethods`.
+    - A per-carry-over domain event.
+    - A generic external-password-provider registry.
+    - Any column on `users`; the state lives in the Migration module's table.
+    - Any call from step-up.
+- **Consequences.** It is a kernel PR by the CTO (`client-import.md` PR 8a), and it does not depend on the PR 0 listed
+  above. Contract evolution follows ADR 0010: the enum is closed, and a new outcome needs an amendment. Migration
+  adds the redaction keys `password2` and `passwordhash` under ADR 0023.
