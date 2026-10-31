@@ -104,12 +104,15 @@ the owner:
   host must open their database port to us (or run the reader on their side). Recommendation: **not in v1**; reconsider
   after the first real migration, and only if hosts ask for password carry-over (Q2).
 
-### 3.4 Sign-in carry-over through the WHMCS API (phase 2a.2, SHOULD; proposed 2026-10-31, Q13)
+### 3.4 Sign-in carry-over through the WHMCS API (phase 2a.2, SHOULD; accepted 2026-10-31, Q13)
 
 Research and the comparison of options: `docs/research/2026-10-31-whmcs-login-migration.md`. Requirements B1–B5,
 M1–M9 and L1–L5 come from the #555 design review, and the CTO accepted them all. Kernel rules: ADR 0018 Amendment
 (#555), ADR 0012 Amendment (#555) (contracts that receive secrets) and ADR 0015 Amendment (#555) (outbound calls inside
-a request). All three are Proposed until the owner answers Q13.
+a request). All three were accepted on 2026-10-31 with the owner's answer to Q13.
+
+**During the window the old WHMCS only answers password checks.** It takes no new orders or sign-ups. The cutover
+runbook freezes WHMCS orders and sign-ups before switching carry-over on, and ends with a final delta import.
 
 The goal is that returning clients sign in with their old email and password and never reset them. WHMCS documents
 `ValidateLogin`: it checks an email and password against a WHMCS user and returns `userid`, `twoFactorEnabled` and a
@@ -1172,7 +1175,12 @@ The questions below were answered by accepting each recommendation as written.
 11. **Sample data (Q11).** Can the owner provide a WHMCS "Clients" export and two API responses (`GetUserPermissions`,
     `GetUsers`) from a test install with fake data? They settle the **verify** items in §3.1 and §3.2.
 12. **Limits (Q12).** 20 MB and 100,000 rows per file: enough?
-13. **Sign-in carry-over (Q13, open, 2026-10-31).** Approve §3.4 as the default for WHMCS 8.0+ sources, with a
+13. **Sign-in carry-over (Q13, decided 2026-10-31).** The owner approved the default below, with (a), (b) and (c) as
+    stated, and the host may set the window shorter or longer, up to 180 days. The licence review (c) is done by a lawyer
+    before the importer and carry-over are marketed; the build continues. The wizard tells hosts to mention the
+    forwarding in their privacy notice. (d) is still the CTO's recommendation.
+
+    Original question: Approve §3.4 as the default for WHMCS 8.0+ sources, with a
     90-day default window and 180 days at most, and with invitations only for the logins not carried over by the
     cut-off? Sub-questions:
     - (a) Is it acceptable to forward a returning client's typed password once, over TLS, to the host's own WHMCS?
@@ -1198,6 +1206,9 @@ The questions below were answered by accepting each recommendation as written.
 
     Recommendation: yes to the default, (a) and (b); (c) is open; for (d), accept the pause and put the key-reuse
     advice in the wizard. Not legal advice.
+
+**Card tokens (owner, 2026-10-31).** The importer does not import saved card tokens from any source. Clients add a card
+again on their first payment.
 
 ## 22. Out of scope (v1)
 

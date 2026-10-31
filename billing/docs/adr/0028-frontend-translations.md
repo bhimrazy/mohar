@@ -1,6 +1,6 @@
 # ADR 0028 — Translations for the frontend, mail and PDFs
 
-- Status: Proposed · 2026-10-29 · Owner: Principal architect. From the 10-29 reviews
+- Status: Accepted · 2026-10-31 (owner; the PDF engine spike and who translates are deferred) · Owner: Principal architect. From the 10-29 reviews
   (`docs/reviews/2026-10-29-oss-comparison.md` §7 and follow-up 1; `docs/reviews/2026-10-29-whmcs-parity.md` §2.18).
 - Related: ADR 0003 (Inertia and React), ADR 0007 (pins and cooldown), ADR 0013 (company clock), ADR 0017
   (background work), ADR 0020 (hot-path reads), ADR 0024 (fiscal documents), ADR 0025 (reports; Devanagari in PDFs),
@@ -273,12 +273,12 @@ in it shows hard-coded strings and text that overflows its layout, before a real
 
 ## Owner decisions
 
-1. **Option A** (no new package). Choosing B instead needs approval for i18next, react-i18next and a parser under
-   ADR 0007.
-2. **The PDF engine for Nepali and Hindi documents**: approve the spike (Gotenberg against WeasyPrint, both sidecar
-   images pinned by digest). This reopens the 2026-10-23 "no PDF-engine change" decision for translated documents
-   only.
-3. **Fonts**: Noto Sans Devanagari (OFL 1.1) for PDFs and as a self-hosted web font for the UI.
-4. **Digits**: Latin digits in the Nepali UI (recommended), or Devanagari digits as an option later.
-5. **Who translates and reviews Nepali**, and whether to use a translation platform (self-hosted Weblate, or Crowdin;
-   the repository is not open source, so free open-source plans may not apply).
+Decided by the owner on 2026-10-31:
+
+1. **Option A** (no new package). English only for now; build the mechanism.
+2. **The PDF engine spike is deferred** until Nepali documents are planned. The 2026-10-23 "no PDF-engine change" decision stands until then.
+3. **Fonts**: Noto Sans Devanagari, when needed.
+4. **Digits**: Latin digits in the Nepali UI.
+5. **Who translates and reviews Nepali**, and any translation platform: deferred.
+
+Earlier owner decision, unchanged: clients never enter names in Devanagari.
