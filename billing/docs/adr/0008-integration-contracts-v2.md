@@ -47,4 +47,3 @@ owning module implements and binds the real contract in its PR fix round.
   invoice date) and hands Services the result through `ServiceDraft` / `AddonDraft`: `nextDueDate` is the first
   period's end and `billingAnchorDay` the renewal day. Services does not read prorata settings.
 - A longer cycle's partial divides by that cycle's length in days (docs/reviews/2026-11-01-prorata.md, decision 2).
-
