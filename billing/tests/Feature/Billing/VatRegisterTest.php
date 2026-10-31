@@ -624,3 +624,65 @@ test('issuing a tax invoice and a note sends nothing to CBMS and leaves its stat
     expect(TaxNote::query()->count())->toBe(3)
         ->and(TaxNote::query()->whereNotNull('cbms_status')->orWhereNotNull('cbms_reference')->exists())->toBeFalse();
 });
+
+/** @return array<string, int> kind label => listed rows */
+function listedByType(string $key, array $filters): array
+{
+    return collect(registerRows($key, $filters))->countBy('type')->sortKeys()->all();
+}
+
+/** @return array<string, int> */
+function headerCounts(string $key, array $filters): array
+{
+    $block = app(ReportRegistry::class)->get($key)->headerBlock(app(ReportExporter::class)->query($key, $filters, auth()->id()));
+
+    return collect(array_slice($block, 4))->mapWithKeys(fn (array $row): array => [$row[0] => (int) $row[1]])->all();
+}
+
+test('the header counts equal the listed rows per kind, at BS month and fiscal-year edges in Nepal time', function () {
+    kartikRegisterFixture();
+    awkwardRateRegisterFixture();
+    unclassifiedRegisterFixture();
+    $usd = Client::factory()->create(['country' => 'NP', 'currency' => 'USD']);
+    $unconverted = onRegisterDay('2026-10-23', fn () => issueInvoice($usd, [10_000]));
+    DB::table('invoices')->where('id', $unconverted->id)->update(['report_rate' => null]);
+    $npr = Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']);
+
+    // Kartik 2083 ends on 2026-11-16 AD. 23:50 in Nepal is 18:05 UTC (Kartik); 00:10 on the 17th is 18:25 UTC (Mangsir).
+    CarbonImmutable::setTestNow('2026-11-16 18:05:00');
+    $lastOfKartik = issueInvoice($npr, [1_000]);
+    CarbonImmutable::setTestNow('2026-11-16 18:25:00');
+    $firstOfMangsir = issueInvoice($npr, [1_000]);
+    registerNote(NoteRequest::creditAmount($lastOfKartik->id, 113, 'goodwill', 'Edge'));
+
+    // Fiscal-year edge: the last minute of Asar 2083 in Nepal time and the first of Shrawan.
+    $asarEnd = BikramSambat::toAd(2083, 3, BikramSambat::daysInMonth(2083, 3));
+    CarbonImmutable::setTestNow(CarbonImmutable::parse($asarEnd->format('Y-m-d').' 23:55:00', 'Asia/Kathmandu')->utc());
+    $lastOfFy = issueInvoice($npr, [1_000]);
+    CarbonImmutable::setTestNow(CarbonImmutable::parse($asarEnd->format('Y-m-d').' 23:55:00', 'Asia/Kathmandu')->addMinutes(10)->utc());
+    $firstOfFy = issueInvoice($npr, [1_000]);
+    CarbonImmutable::setTestNow('2026-12-01 06:00:00');
+    actingAsStaff(['reports.vat_register.view', 'reports.tax_note_register.view']);
+
+    expect($lastOfKartik->fresh()->bs_period)->toBe('2083-07')->and($firstOfMangsir->fresh()->bs_period)->toBe('2083-08')
+        ->and($lastOfFy->fresh()->bs_fiscal_year)->not->toBe($firstOfFy->fresh()->bs_fiscal_year);
+
+    foreach ([['month' => '2083-07'], ['month' => '2083-08'], ['month' => '2083-03'], ['month' => '2083-04'], ['year' => '2082.083'], ['year' => '2083.084']] as $filters) {
+        $listed = listedByType('vat_register', $filters);
+        $header = headerCounts('vat_register', $filters);
+
+        expect([$header['Tax invoices issued'], $header['Credit notes issued'], $header['Debit notes issued']])
+            ->toBe([$listed['Tax invoice'] ?? 0, $listed['Credit note'] ?? 0, $listed['Debit note'] ?? 0], json_encode($filters));
+
+        $notes = listedByType('tax_note_register', $filters);
+        expect(headerCounts('tax_note_register', $filters))->toBe(['Credit notes issued' => $notes['Credit note'] ?? 0, 'Debit notes issued' => $notes['Debit note'] ?? 0]);
+    }
+
+    // The year is the sum of its months.
+    $year = headerCounts('vat_register', ['year' => '2083.084']);
+    $months = collect(range(4, 15))->map(fn (int $m) => headerCounts('vat_register', ['month' => $m <= 12 ? sprintf('2083-%02d', $m) : sprintf('2084-%02d', $m - 12)]));
+    expect($year['Tax invoices issued'])->toBe($months->sum('Tax invoices issued'))
+        ->and($year['Credit notes issued'])->toBe($months->sum('Credit notes issued'))
+        ->and(headerCounts('vat_register', ['month' => '2083-03'])['Tax invoices issued'])->toBe(1)
+        ->and(headerCounts('vat_register', ['month' => '2083-04'])['Tax invoices issued'])->toBe(1);
+});
