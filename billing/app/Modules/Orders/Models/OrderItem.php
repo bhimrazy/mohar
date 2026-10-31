@@ -36,6 +36,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $renewal_discount
  * @property string|null $auto_setup
  * @property bool $stock_reserved
+ * @property CarbonImmutable|null $period_start
+ * @property CarbonImmutable|null $period_end
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  * @property-read Order $order
@@ -44,7 +46,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable([
     'order_id', 'item_type', 'item_id', 'product_id', 'addon_id', 'parent_id', 'status', 'description', 'domain', 'cycle',
     'years', 'quantity', 'first_amount', 'recurring_amount', 'setup_fee', 'discount_amount', 'taxable',
-    'promotion_cycles_remaining', 'renewal_discount', 'auto_setup', 'stock_reserved',
+    'promotion_cycles_remaining', 'renewal_discount', 'auto_setup', 'stock_reserved', 'period_start', 'period_end',
 ])]
 class OrderItem extends Model
 {
@@ -65,6 +67,8 @@ class OrderItem extends Model
             'taxable' => 'boolean',
             'renewal_discount' => 'integer',
             'stock_reserved' => 'boolean',
+            'period_start' => 'immutable_date',
+            'period_end' => 'immutable_date',
         ];
     }
 

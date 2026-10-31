@@ -23,9 +23,10 @@ use InvalidArgumentException;
 /**
  * Services' implementation of the ServiceRegistry contract used by Orders.
  *
- * Draft dates: `nextDueDate` is the end of the first period the order invoice covers (the date the
- * first renewal is due). The service starts with next_due_date = today (first period unpaid) and
- * next_invoice_date = draft nextDueDate (first period already invoiced by the order).
+ * Draft dates: `nextDueDate` is the end of the first period the order invoice covers, pro-rated or one cycle (the
+ * date the first renewal is due). The service starts with next_due_date = today (first period unpaid),
+ * next_invoice_date = draft nextDueDate (first period already invoiced by the order) and billing_anchor_day = the
+ * draft's anchor day, else the registration day (services.md §4.1).
  */
 class EloquentServiceRegistry implements ServiceRegistry
 {
@@ -54,7 +55,7 @@ class EloquentServiceRegistry implements ServiceRegistry
             'renewal_discount' => $draft->renewalDiscount,
             'recurring_cycles_limit' => $product->recurringCycleLimit ?? 0,
             'registration_date' => $today,
-            'billing_anchor_day' => $recurring ? $draft->nextDueDate->day : null,
+            'billing_anchor_day' => $recurring ? ($draft->billingAnchorDay ?? $today->day) : null,
             'next_due_date' => $recurring ? $today : null,
             'next_invoice_date' => $recurring ? $draft->nextDueDate : null,
             'custom_fields' => $draft->customFields,
@@ -83,7 +84,7 @@ class EloquentServiceRegistry implements ServiceRegistry
             'setup_fee' => $draft->setupFee,
             'recurring_amount' => $draft->recurringAmount,
             'registration_date' => $today,
-            'billing_anchor_day' => $recurring ? $draft->nextDueDate->day : null,
+            'billing_anchor_day' => $recurring ? ($draft->billingAnchorDay ?? $today->day) : null,
             'next_due_date' => $recurring ? $today : null,
             'next_invoice_date' => $recurring ? $draft->nextDueDate : null,
         ]);

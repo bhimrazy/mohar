@@ -1,7 +1,7 @@
 <?php
 
 use App\Enums\BillingCycle;
-use App\Support\Billing\Prorata;
+use App\Modules\Orders\Pricing\Prorata;
 use Carbon\CarbonImmutable;
 
 it('charges only the partial month when ordered before the charge-next-month day', function () {

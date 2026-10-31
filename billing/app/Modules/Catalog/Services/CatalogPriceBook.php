@@ -382,6 +382,7 @@ class CatalogPriceBook implements PriceBook
                 'description' => $addon->description,
                 'payment_type' => $addon->payment_type->value,
                 'allow_quantity' => $addon->allow_quantity,
+                'prorata_with_parent' => $addon->prorata_with_parent,
                 'pricing' => $pricing,
             ];
         }

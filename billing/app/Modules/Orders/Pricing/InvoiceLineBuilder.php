@@ -84,7 +84,8 @@ class InvoiceLineBuilder
     }
 
     /**
-     * Service periods are half-open [today, today + cycle); one-time charges have no period.
+     * Periods are half-open: a service or addon covers its first period (one cycle, or up to the prorata anchor), a
+     * domain its years; one-time charges have no period.
      *
      * @return array{0: ?CarbonImmutable, 1: ?CarbonImmutable}
      */
@@ -94,10 +95,6 @@ class InvoiceLineBuilder
             return [$today, $today->addYearsNoOverflow($line->years)];
         }
 
-        if ($line->cycle === null || ! $line->cycle->isRecurring()) {
-            return [null, null];
-        }
-
-        return [$today, $line->cycle->advance($today, anchorDay: $today->day)];
+        return [$line->firstPeriod?->start, $line->firstPeriod?->end];
     }
 }

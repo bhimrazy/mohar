@@ -1,19 +1,41 @@
 <?php
 
-namespace App\Support\Billing;
+namespace App\Modules\Orders\Pricing;
 
 use App\Enums\BillingCycle;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 
 /**
- * First-period proration aligned to a fixed day of the month (catalog spec §3.4).
- *
- * Shared, pure calculation used by Orders (first invoice) and Services; inputs come from the product's
- * prorata settings (ProductSummary::$prorataDay / $prorataChargeNextMonthDay). Setup fees are never prorated.
+ * First-period proration aligned to a fixed day of the month (catalog.md §3.4), used at checkout. Inputs come from
+ * the product's prorata settings (ProductSummary::$prorataDay / $prorataChargeNextMonthDay). The partial divides by
+ * the length of the cycle that ends on the anchor, so a longer cycle is not charged per month. Setup fees are never
+ * prorated.
  */
 final class Prorata
 {
+    /**
+     * The first billed period of a recurring line ordered on $orderDate (a company-calendar date). Without prorata
+     * settings it is one full cycle anchored on the order day; with them it ends on the prorata anchor. Null for
+     * one-time and free cycles, which have no period.
+     */
+    public static function firstPeriod(CarbonInterface $orderDate, int $recurring, BillingCycle $cycle, ?int $prorataDay = null, ?int $chargeNextMonthDay = null): ?FirstPeriod
+    {
+        if (! $cycle->isRecurring()) {
+            return null;
+        }
+
+        $start = CarbonImmutable::instance($orderDate)->startOfDay();
+
+        if ($prorataDay === null) {
+            return new FirstPeriod($start, $cycle->advance($start, anchorDay: $start->day), $start->day, $recurring, prorated: false);
+        }
+
+        $result = self::calculate($start, $recurring, $cycle, $prorataDay, $chargeNextMonthDay ?? 32);
+
+        return new FirstPeriod($start, $result['next_due_date'], $prorataDay, $result['first_amount'], prorated: ! $result['anchor']->equalTo($start));
+    }
+
     /**
      * @param  int  $prorataDay  1-31, clamped to the month length
      * @param  int  $chargeNextMonthDay  0 = always add the next full cycle, 32 = never
