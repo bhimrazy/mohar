@@ -4,9 +4,7 @@ use App\Models\User;
 use App\Modules\Services\Models\ServerGroup;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Settings\SettingsRegistry;
-use Illuminate\Contracts\Routing\UrlRoutable;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
@@ -16,10 +14,11 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\AssertionFailedError;
+use Tests\Support\Security\RecordingPermissionRegistry;
+use Tests\Support\Security\RouteScan;
 
 /**
  * Security standards §2: every route that changes something behind a sensitive permission needs a recent password
@@ -46,176 +45,6 @@ const STEP_UP_UNRESOLVED = [];
 const STEP_UP_NO_PERMISSION = [
     'admin.appearance.preference' => 'A staff member\'s own theme and density; it changes only their own login.',
 ];
-
-/**
- * Records every permission a request checks: Role::allows() asks the registry whether each one is sensitive.
- */
-final class RecordingPermissionRegistry extends PermissionRegistry
-{
-    /** @var list<string> */
-    public array $checked = [];
-
-    public function __construct(private PermissionRegistry $inner) {}
-
-    public function register(string $group, array $permissions, array $sensitive = []): void
-    {
-        $this->inner->register($group, $permissions, $sensitive);
-    }
-
-    public function all(): array
-    {
-        return $this->inner->all();
-    }
-
-    public function exists(string $permission): bool
-    {
-        return $this->inner->exists($permission);
-    }
-
-    public function isSensitive(string $permission): bool
-    {
-        $this->checked[] = $permission;
-
-        return $this->inner->isSensitive($permission);
-    }
-
-    public function sensitive(): array
-    {
-        return $this->inner->sensitive();
-    }
-}
-
-/** Route key that binds to an empty model, for models without a factory or in a state a fresh one cannot reach. */
-const STEP_UP_BLANK = '987654321';
-
-/**
- * @return array<string, class-string<Model>> route parameter => bound model class
- */
-function stepUpModelParameters(RoutingRoute $route): array
-{
-    $bound = [];
-
-    foreach ($route->signatureParameters(['subClass' => UrlRoutable::class]) as $parameter) {
-        $type = $parameter->getType();
-
-        if ($type instanceof ReflectionNamedType && is_subclass_of($type->getName(), Model::class)) {
-            $bound[$parameter->getName()] = $type->getName();
-        }
-    }
-
-    $models = [];
-
-    foreach ($route->parameterNames() as $name) {
-        $class = $bound[$name] ?? $bound[Str::camel($name)] ?? null;
-
-        if ($class !== null) {
-            $models[$name] = $class;
-        }
-    }
-
-    return $models;
-}
-
-/**
- * Binds STEP_UP_BLANK to an empty model of the route's type; any other key resolves as implicit binding would.
- */
-function stepUpBinder(string $name): void
-{
-    static $bound = [];
-    $key = spl_object_id(app('router')).'|'.$name;
-
-    if (isset($bound[$key])) {
-        return;
-    }
-
-    $bound[$key] = true;
-    Route::bind($name, function (string $value, RoutingRoute $route) use ($name): Model {
-        $class = stepUpModelParameters($route)[$name];
-
-        return $value === STEP_UP_BLANK ? new $class : ((new $class)->resolveRouteBinding($value) ?? throw (new ModelNotFoundException)->setModel($class));
-    });
-}
-
-/**
- * A value for each route parameter: a fresh factory model (children get their parent's id), STEP_UP_BLANK when
- * $blank or the model has no factory, or a known key for string parameters. Null when one cannot be resolved.
- *
- * @return array<string, mixed>|null
- */
-function stepUpParameters(RoutingRoute $route, ?string $section, bool $blank): ?array
-{
-    $models = stepUpModelParameters($route);
-    $values = [];
-    $parents = [];
-
-    foreach ($route->parameterNames() as $name) {
-        $class = $models[$name] ?? null;
-
-        if ($class !== null) {
-            if ($blank || ! method_exists($class, 'factory')) {
-                stepUpBinder($name);
-                $values[$name] = STEP_UP_BLANK;
-
-                continue;
-            }
-
-            $model = new $class;
-            $attributes = [];
-
-            foreach ($parents as $parentName => $parent) {
-                if (Schema::hasColumn($model->getTable(), "{$parentName}_id")) {
-                    $attributes["{$parentName}_id"] = $parent->getKey();
-                }
-            }
-
-            $values[$name] = $parents[Str::snake($name)] = $class::factory()->create($attributes);
-
-            continue;
-        }
-
-        $values[$name] = $name === 'section' ? $section : stepUpStringParameter($route, $name);
-
-        if ($values[$name] === null) {
-            return null;
-        }
-    }
-
-    return $values;
-}
-
-function stepUpStringParameter(RoutingRoute $route, string $name): ?string
-{
-    $pattern = $route->wheres[$name] ?? null;
-
-    // whereIn() constraints list the allowed values; take the first.
-    if (is_string($pattern) && preg_match('/^[a-z0-9_|-]+$/', $pattern) === 1) {
-        return explode('|', $pattern)[0];
-    }
-
-    return [
-        'registrar' => 'log',
-        'gateway' => 'sandbox',
-        'kind' => 'mark',
-        'template' => 'client.welcome',
-        'converter' => 'products',
-        'notice' => 'company_time_settings',
-    ][$name] ?? null;
-}
-
-/**
- * Request bodies for routes that validate before they authorise, one per permission the route can check (#107).
- *
- * @return array<string, array<string, array<string, mixed>>> route => variant => body
- */
-function stepUpBodies(): array
-{
-    return [
-        'admin.billing.invoices.bulk' => ['mark_paid' => ['action' => 'mark_paid', 'ids' => [1]], 'cancel' => ['action' => 'cancel', 'ids' => [1]]],
-        'admin.orders.bulk' => ['accept' => ['action' => 'accept', 'ids' => [1]], 'cancel' => ['action' => 'cancel', 'ids' => [1]], 'delete' => ['action' => 'delete', 'ids' => [1]]],
-        'admin.services.services.change' => ['change' => ['product_id' => 1, 'cycle' => 'monthly']],
-        'admin.services.services.cancel' => ['cancel' => ['type' => 'end_of_period', 'reason' => 'Step-up scan']],
-    ];
-}
 
 /**
  * @param  array<string, mixed>  $body
@@ -289,7 +118,7 @@ function scanSensitiveRoutes(): array
                 $variants[] = [$section, $section, []];
             }
         } else {
-            foreach (stepUpBodies()[$name] ?? ['' => []] as $variant => $body) {
+            foreach (RouteScan::bodies()[$name] ?? ['' => []] as $variant => $body) {
                 $variants[] = [(string) $variant, null, $body];
             }
         }
@@ -303,7 +132,7 @@ function scanSensitiveRoutes(): array
             try {
                 // First with fresh models; if that never reaches a permission check, with empty bound models.
                 foreach ([false, true] as $blank) {
-                    $parameters = stepUpParameters($route, $section, $blank);
+                    $parameters = RouteScan::parameters($route, $section, $blank);
 
                     if ($parameters === null) {
                         break;
