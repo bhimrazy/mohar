@@ -14,10 +14,10 @@
 use App\Data\Billing\LookupResult;
 use App\Models\User;
 use App\Modules\Billing\Actions\RefundTransaction;
-use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Billing\Services\SettledRefundCheck;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Http\Client\Request;

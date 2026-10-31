@@ -3,7 +3,6 @@
 use App\Events\Billing\InvoicePaid;
 use App\Modules\Billing\Actions\ConfigureGateway;
 use App\Modules\Billing\Actions\StartHostedPayment;
-use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\BillingException;
@@ -11,6 +10,7 @@ use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\GatewayManager;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\PaymentsStripe\Drivers\StripeDriver;
