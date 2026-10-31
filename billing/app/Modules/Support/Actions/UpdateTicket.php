@@ -21,6 +21,7 @@ use App\Modules\Support\Models\Ticket;
 use App\Modules\Support\Services\TicketAccess;
 use App\Modules\Support\Services\TicketRecorder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -125,6 +126,9 @@ class UpdateTicket
                 $locked->client_id = $client?->id;
                 $locked->contact_id = null;
                 $locked->is_unverified_requester = false;
+                // Whoever held the old guest link must not follow the ticket onto another account; a linked
+                // ticket's mail points at the client area, and an unlinked one mails the new key.
+                $locked->access_key = Str::random(32);
                 $locked->save();
                 $this->recorder->record($locked, $actor, 'client_linked', null, $client?->display_name);
             }
