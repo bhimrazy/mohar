@@ -1,26 +1,9 @@
 {
     "runs": [
         {
-            "name": "small-ramp-low",
+            "name": "small-realistic",
             "profile": "small",
-            "levels": "10 20 30 40 50",
-            "level_duration": "3m",
-            "start_spread": 60,
-            "warmup": "90s"
-        },
-        {
-            "name": "small-realistic-knee",
-            "profile": "small",
-            "levels": "200 250 300 350",
-            "level_duration": "6m",
-            "start_spread": 240,
-            "warmup": "300s",
-            "think": "10 30"
-        },
-        {
-            "name": "medium-realistic",
-            "profile": "medium",
-            "levels": "300 400 500 600 800",
+            "levels": "100 200 300 400",
             "level_duration": "6m",
             "start_spread": 240,
             "warmup": "300s",

@@ -14,7 +14,8 @@ Sources:
   medium ramps, small with 10–30 s think time) and
   [actions/runs/41198972155](https://github.com/bhimrazy/mohar/actions/runs/41198972155) (commit `450982e`: small at
   10–50 users, small and medium with 10–30 s think time). Both commits are the PR's head merged into `develop` and
-  differ only in `loadtest/label-runs.json`;
+  differ only in `loadtest/label-runs.json`; the two plans are that file at commits `17571c91` (round 1) and
+  `ed10eee2` (round 2) of PR #543. After them the label runs one cheaper job (small, 10–30 s per page);
 - **per-page detail at light load and background work, and history:** the runner run of 2026-10-23,
   [actions/runs/40000321793](https://github.com/bhimrazy/mohar/actions/runs/40000321793), the `load-test` label on
   PR #433 (commit `c5c0ffa`, the PR's head `dbf92da5` merged into `develop`), with virtual users arriving over 20 s;
@@ -194,8 +195,9 @@ Past the knee the tail grows on every page at once, cheap ones included (the sto
 - **Small: the billing day did not finish (measured).** In all four small runs `automation:run` stopped after two
   of its tasks (as in PR #552's run 41200682198) (it ran for 221.6 s in the one checked), and the summary printed 0.0 s because it adds up the tasks
   that finished; PR #543 now records the exit code and says so. The medium scheduler needed 271–272 MB for the same
-  billing day, and the small profile limits the scheduler to 256 MB (production gives it 512 MB), so the likely cause
-  is the profile's memory limit (inferred, not confirmed: the exit code was not recorded yet).
+  billing day, and the small profile then limited the scheduler to 256 MB (production gives it 512 MB), so the failures
+  were most likely that limit (inferred until a run with the exit code confirms it). PR #543 raises the small
+  profile's scheduler to 512 MB, as in production, and records the exit code.
 - **Medium: 3,059 s and 3,078 s (measured),** almost all of it renewals: 11,623 in 2,865–2,874 s, **4.0 per second**,
   against 24.8 per second on 2026-10-23 (small profile, commit `c5c0ffa`). The queue drain took 369–375 s for 12,572
   jobs (34 per second, against 117.6). Not investigated; see "Not measured yet".
@@ -470,10 +472,10 @@ of 49.7 s and a 546 s billing day at 20 renewals per second.
   more than 350 (run 41198972155). Recording the runner's CPU model (PR #543) and running both arrivals on one runner
   would separate them.
 - **More PHP threads on the same cap,** which would show whether threads ever limit before CPU.
-- **The billing day on the small profile** (it did not finish in the 2026-10-31 runs; the scheduler's 256 MB
-  limit in `loadtest/profiles/small.env` is the likely cause, inferred), and **why medium's renewals ran at 4.0 per
-  second** against 24.8 on 2026-10-23.
-- **Which status the knowledge base and announcements returned** in the errors at 100 fast users on medium.
+- **The billing day on the small profile** (it did not finish in the 2026-10-31 runs, most likely the scheduler's
+  256 MB limit then in `loadtest/profiles/small.env`, now 512 MB; inferred until a run with the exit code confirms it), and **why medium's renewals ran at 4.0 per
+  second** against 24.8 on 2026-10-23 (#566).
+- **Which status the knowledge base and announcements returned** in the errors at 100 fast users on medium (#567).
 - **Web load during the billing day**, provisioning against a control panel, and a Redis-backed stack
   (`loadtest/README.md`, "Not covered yet").
 

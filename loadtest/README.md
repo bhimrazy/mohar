@@ -144,7 +144,7 @@ load generator's single IP address, which a real crowd would not.
 | medium  | 4 vCPU, 8 GB     | 2,560 MB (8)      | 1, 2, 1 × 320 MB                           | 2,560 MB (640 MB)            | 10 20 40 80  |
 | large   | 8 vCPU, 16 GB    | 5,120 MB (16)     | 2, 3, 2 × 320 MB                           | 6,144 MB (1,536 MB)          | 20 40 80 160 |
 
-The per-service memory limits add up to about 90% of the host's total. CPU limits are ceilings within the total,
+The per-service memory limits add up to 90–97% of the host's total (97% on small, whose scheduler has production's 512 MB). CPU limits are ceilings within the total,
 not reservations. `loadtest/frankenphp/Caddyfile` is the production FrankenPHP Caddyfile plus `num_threads` from the
 profile: two threads per vCPU, which is what FrankenPHP starts by default on a VPS of that size.
 
