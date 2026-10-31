@@ -274,13 +274,14 @@ inside a request.
     - `pending(User $user): bool`: whether this login has an open carry-over. It receives no secret;
     - `check(User $user, #[\SensitiveParameter] string $password, string $ip): PendingPasswordOutcome`.
 
-  The outcome is the closed enum `App\Enums\PendingPasswordOutcome`: NotApplicable, Verified, ConfirmByEmail,
-  Rejected, Unavailable. Its docblock says it is closed (ADR 0010).
+    The outcome is the closed enum `App\Enums\PendingPasswordOutcome`: NotApplicable, Verified, ConfirmByEmail,
+    Rejected, Unavailable. Its docblock says it is closed (ADR 0010).
     - `active()` and `pending()` are hot-path reads (ADR 0020): cached, never remote, never throwing.
     - Core binds a null implementation with `bindIf`: both reads false. Migration binds the one real implementation.
       ADR 0012 Amendment (#555) closes the contract to packages: an Arch test and a boot check allow exactly that
       implementation and the null one.
     - `#[\SensitiveParameter]` is on the interface and on every implementation, because PHP does not inherit it.
+
 - **Where it is called (M7).** Only from `Fortify::authenticateUsing`, which both pipeline shapes use, with 2FA on or
   off. The kernel calls it only when all of these hold:
     - the local hash check failed for an existing login;
@@ -289,8 +290,9 @@ inside a request.
     - `pending()` is true;
     - the guess budget allows it.
 
-  The call happens inside the `login` limiter and outside any transaction. The kernel wraps `check()` and maps any
-  `Throwable` to Unavailable. It logs a fixed sentence and the exception class only.
+    The call happens inside the `login` limiter and outside any transaction. The kernel wraps `check()` and maps any
+    `Throwable` to Unavailable. It logs a fixed sentence and the exception class only.
+
 - **Outcomes.**
     - **Verified:** the implementation has stored the new hash by compare-and-set against the placeholder. The
       pipeline continues as for a local match: refusals, the 2FA challenge, session regeneration.

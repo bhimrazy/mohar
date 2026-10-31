@@ -136,8 +136,9 @@ licence terms reach this live call is an open question for the owner or a lawyer
     4. SHOULD: it proves the endpoint is the same install. It fetches a sample of users with the read-only importer
        credential (`GetUsers`) and compares their id and email pairs with the id map.
 
-  Its output follows ADR 0015's `Redactor::excerpt()` rule (L3). A passing Test is recorded together with a
-  fingerprint of the values it ran against.
+    Its output follows ADR 0015's `Redactor::excerpt()` rule (L3). A passing Test is recorded together with a
+    fingerprint of the values it ran against.
+
 - **The wizard says three things.**
     - `ValidateLogin` updates the last-login time at the source.
     - The host must keep WHMCS licensed and running until the cut-off. A licence that lapses mid-window shows up as
@@ -197,14 +198,14 @@ when 2FA is on, `AttemptToAuthenticate` when it is off. In order:
 The kernel wraps `check()` and maps any `Throwable` to Unavailable. It logs a fixed sentence and the exception class
 only.
 
-| Outcome | What happens |
-| --- | --- |
-| Verified | The sign-in continues through the same 2FA and session steps as a local match |
-| Rejected | Fortify's `Failed` event fires, so the lockout counts it, and the ordinary failure message is shown |
-| Unavailable | The ordinary failure message, **without** the `Failed` event, so an outage locks nobody out (M3) |
-| ConfirmByEmail | No session. "We have emailed you a link to finish signing in." |
-| NotApplicable | The ordinary failure, as today |
-| Over the budget, over the cap, or no floor slot (no call made) | The ordinary failure message, **without** `Failed`, and the guess refunded (R1, R5) |
+| Outcome                                                        | What happens                                                                                        |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Verified                                                       | The sign-in continues through the same 2FA and session steps as a local match                       |
+| Rejected                                                       | Fortify's `Failed` event fires, so the lockout counts it, and the ordinary failure message is shown |
+| Unavailable                                                    | The ordinary failure message, **without** the `Failed` event, so an outage locks nobody out (M3)    |
+| ConfirmByEmail                                                 | No session. "We have emailed you a link to finish signing in."                                      |
+| NotApplicable                                                  | The ordinary failure, as today                                                                      |
+| Over the budget, over the cap, or no floor slot (no call made) | The ordinary failure message, **without** `Failed`, and the guess refunded (R1, R5)                 |
 
 Fortify fires `Failed` whenever the `authenticateUsing` callback returns null. So for Unavailable and for the three
 no-call cases, the callback throws the ordinary failure (`ValidationException` on `email`, with Fortify's
@@ -243,7 +244,7 @@ Use Forgot password if your old password does not work."
       to the mapped WHMCS user id. `"01"`, `" 1"` and `1.0` are faults;
     - `twoFactorEnabled` is in the closed set `true`, `false`, `"true"`, `"false"`, `1`, `0`, `"1"`, `"0"`.
 
-  Edge cases:
+    Edge cases:
     - A missing or unrecognised flag means **ConfirmByEmail**, never a plain sign-in.
     - `passwordhash` missing while the flag is false is a fault, and so is `passwordhash` present while the flag is
       true.
@@ -251,6 +252,7 @@ Use Forgot password if your old password does not work."
       Unavailable.
     - The session token is discarded after parsing.
     - The 2FA flag is trusted as far as the source is trusted, which the B3 controls bound.
+
 - **Writing the hash (B1).** Verified is a compare-and-set in one transaction:
   `UPDATE users SET password = :new WHERE id = :id AND password = :placeholder`, then the row becomes `migrated`.
   If zero rows change, a password was set meanwhile. The answer is NotApplicable and the new password stays.
@@ -317,8 +319,9 @@ Use Forgot password if your old password does not work."
     - the source is not paused, and the kill switch is off;
     - `SignInGate` allows the login.
 
-  Then the hash is stored, the email is verified and the "had 2FA" flag is set (§6.10). The client is signed in only
-  through `CompleteSignIn::for($request, $user, 'password')` (ADR 0018 §3).
+    Then the hash is stored, the email is verified and the "had 2FA" flag is set (§6.10). The client is signed in only
+    through `CompleteSignIn::for($request, $user, 'password')` (ADR 0018 §3).
+
 - **Routes.** This pair (`login.carry-over.show` and `login.carry-over.confirm`) is the one confirmation route the
   ADR 0018 amendment allows.
 - **The mail.** The template is `client.migration_confirm_signin`, always sent. The mail holds only the link, says
@@ -734,13 +737,13 @@ one-time notice in the client area asks the client to check their details, and t
 
 ## 11. Permissions, step-up and audit
 
-| Permission                 | Grants                                                         | Sensitive |
-| -------------------------- | -------------------------------------------------------------- | --------- |
-| `migration.runs.view`      | See runs, reviews and reports (no error download)              | no        |
-| `migration.runs.execute`   | Upload, map, check, confirm, download errors, send invitations | yes       |
-| `migration.runs.undo`      | Undo a run                                                     | yes       |
+| Permission                 | Grants                                                                                            | Sensitive |
+| -------------------------- | ------------------------------------------------------------------------------------------------- | --------- |
+| `migration.runs.view`      | See runs, reviews and reports (no error download)                                                 | no        |
+| `migration.runs.execute`   | Upload, map, check, confirm, download errors, send invitations                                    | yes       |
+| `migration.runs.undo`      | Undo a run                                                                                        | yes       |
 | `migration.sources.manage` | Create sources; enter WHMCS API credentials; switch on, pause or change sign-in carry-over (§3.4) | yes       |
-| `migration.secrets.import` | Carry password hashes (only if Q2 is approved)                 | yes       |
+| `migration.secrets.import` | Carry password hashes (only if Q2 is approved)                                                    | yes       |
 
 Sensitive permissions are never granted by a wildcard (security standards §2). Upload, confirm, invitations, undo and
 source credentials sit behind `password.recent` (ADR 0018 §4); a login without a password cannot pass step-up, so the
@@ -817,20 +820,20 @@ The Migration module imports only kernel namespaces and `App\Modules\Core\*` (ar
 `client_group`, `client`, `contact` and `user` importers; Billing registers `credit_balance`.
 Platform owns invitations, so Migration reaches them through a contract.
 
-| Id  | Change                                                                                                                                                                                                                                                                                                                                                                                                                                  | Why                                 |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| C1  | Kernel `App\Contracts\Migration\{RecordImporter, ImportIdResolver}`, the final registry `App\Support\Migration\ImportRegistry` (ADR 0012, keys `client`, `client_group`, `user`), `App\Data\Migration\{ImportRecord, ImportContext, ImportOutcome, ImportIssue}`, enums `ImportAction` (open), `ImportSeverity`, with `ImportOutcome::$changes` and `ImportContext::$actorId` as trailing defaulted fields (as built in #160; ADR 0019) | First consumer; A8                  |
-| C2  | `App\Support\Queues::IMPORTS = 'imports'`, in the dev worker after `default`, worked by the default pool (ADR 0014 amendment)                                                                                                                                                                                                                                                                                                           | A1; keeps 50k imports off `default` |
-| C3  | `App\Contracts\Auth\ClientLoginInvitations::invite(int $clientId, int $userId, InvitationPurpose $purpose, ?int $actorId): InvitationOutcome` (Sent, Skipped, Refused, Held, Unavailable) and `problem(): ?string`. Core null default: Unavailable, "not installed"; Platform binds its invitation flow (as built in #255)                                                                                                              | Migration cannot import Platform    |
-| C4  | Events `Migration\MigrationRunCompleted`, `MigrationRunUndone`, `MigrationRunPaused`, each added with the code that dispatches it (ADR 0019 shapes)                                                                                                                                                                                                                                                                                     | §15                                 |
-| C5  | Core schema: `clients.imported_at`, `clients.imported_fields`, `client_marketing_consents`; `users.password_imported_at` only if Q2                                                                                                                                                                                                                                                                                                     | §4                                  |
-| C6  | Core-internal: shared client validation rules (form and importer), `ActivityLogger::logMany()`                                                                                                                                                                                                                                                                                                                                          | §5.4, §11                           |
-| C7  | Undo reads `ClientMergeRegistry` participant counts as a client's footprint (no API change; the architect may prefer a renamed registry)                                                                                                                                                                                                                                                                                                | §5.7                                |
-| C8  | Billing-internal: `CreditReason::Import` and the `billing.credit_balance` importer                                                                                                                                                                                                                                                                                                                                                      | §6.12                               |
-| C9  | Notifications template key `client.migration_invitation`                                                                                                                                                                                                                                                                                                                                                                                | Every mail has an editable template |
-| C10 | `clients.email_changed_at` shared with cPanel 3b-2 (#95)                                                                                                                                                                                                                                                                                                                                                                                | §6.2                                |
+| Id  | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Why                                   |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| C1  | Kernel `App\Contracts\Migration\{RecordImporter, ImportIdResolver}`, the final registry `App\Support\Migration\ImportRegistry` (ADR 0012, keys `client`, `client_group`, `user`), `App\Data\Migration\{ImportRecord, ImportContext, ImportOutcome, ImportIssue}`, enums `ImportAction` (open), `ImportSeverity`, with `ImportOutcome::$changes` and `ImportContext::$actorId` as trailing defaulted fields (as built in #160; ADR 0019)                                                                                                                                                                                          | First consumer; A8                    |
+| C2  | `App\Support\Queues::IMPORTS = 'imports'`, in the dev worker after `default`, worked by the default pool (ADR 0014 amendment)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | A1; keeps 50k imports off `default`   |
+| C3  | `App\Contracts\Auth\ClientLoginInvitations::invite(int $clientId, int $userId, InvitationPurpose $purpose, ?int $actorId): InvitationOutcome` (Sent, Skipped, Refused, Held, Unavailable) and `problem(): ?string`. Core null default: Unavailable, "not installed"; Platform binds its invitation flow (as built in #255)                                                                                                                                                                                                                                                                                                       | Migration cannot import Platform      |
+| C4  | Events `Migration\MigrationRunCompleted`, `MigrationRunUndone`, `MigrationRunPaused`, each added with the code that dispatches it (ADR 0019 shapes)                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | §15                                   |
+| C5  | Core schema: `clients.imported_at`, `clients.imported_fields`, `client_marketing_consents`; `users.password_imported_at` only if Q2                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | §4                                    |
+| C6  | Core-internal: shared client validation rules (form and importer), `ActivityLogger::logMany()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | §5.4, §11                             |
+| C7  | Undo reads `ClientMergeRegistry` participant counts as a client's footprint (no API change; the architect may prefer a renamed registry)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | §5.7                                  |
+| C8  | Billing-internal: `CreditReason::Import` and the `billing.credit_balance` importer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | §6.12                                 |
+| C9  | Notifications template key `client.migration_invitation`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Every mail has an editable template   |
+| C10 | `clients.email_changed_at` shared with cPanel 3b-2 (#95)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | §6.2                                  |
 | C11 | Kernel `App\Contracts\Auth\PendingPasswordCheck`: `active(): bool`, `pending(User): bool` and `check(User, #[\SensitiveParameter] string $password, string $ip): PendingPasswordOutcome`; closed enum `App\Enums\PendingPasswordOutcome` (NotApplicable, Verified, ConfirmByEmail, Rejected, Unavailable); Core null default with `bindIf`; one first-party implementer (Arch test and boot check); called through `Fortify::authenticateUsing` only for non-staff logins after `SignInGate`; failure floor while `active()`; shared guess counting extracted from `PasswordGuesses` (ADR 0018, 0012 and 0015 Amendments (#555)) | §3.4; Fortify cannot import Migration |
-| C12 | Notifications template key `client.migration_confirm_signin` (always sent)                                                                                                                                                                                                                                                                                                                                                             | §3.4 2FA path                       |
+| C12 | Notifications template key `client.migration_confirm_signin` (always sent)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | §3.4 2FA path                         |
 
 ## 17. Edge cases
 
@@ -871,24 +874,24 @@ Platform owns invitations, so Migration reaches them through a contract.
 Each PR stays under **1,500 changed lines** including tests and fixtures (the cap for money and security work,
 operating model). PR 0 is a kernel PR made by the CTO session.
 
-| PR  | Phase | Contents                                                                                                                                                                      | Criteria       |
-| --- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| 0   | 1     | Kernel: C1, C2, C3 (Core null default), C4. Arch rules for `App\Modules\*\Import`                                                                                             | 1–3            |
-| 1   | 1     | Migration module skeleton: tables, permissions, routes; upload with encryption, limits, encoding and delimiter detection; staging job; file deletion; purge task; upload page | 4–11           |
-| 2   | 1     | Map and check: shared Core rules, Core client and group importers (validate only), mapping step with presets, options, check job, duplicate rules (§7)                        | 12–22          |
-| 3   | 1     | Review and apply: review page, digest-bound confirm, apply chunks, id map, logins, `email_changed_at`, consent rows, imported fields, report, errors CSV                      | 23–33          |
-| 4   | 1     | Billing opening balances (C8); invitations through C3 with Platform's binding, throttle and template (C9); profile panels (imported fields, consent history, "Imported from") | 34–38          |
-| 5   | 1     | Undo (C7) and run history; contacts file (SHOULD)                                                                                                                             | 39–42          |
-| 6   | 1     | Performance: query budgets, a 50k-row test fixture, the load-test import scenario in `loadtest/`                                                                              | 43–44          |
-| 7   | 2a    | WHMCS API connector (`migration.md` §2.1 ACs 1–5), currencies and groups stages                                                                                               | 45             |
-| 8   | 2a    | WHMCS clients, contacts, users and permissions, consent, verification, credit balance, delta re-runs, through the same importers                                              | 46–50          |
-| 8a  | 2a.2  | Kernel (CTO), after ADR 0018 PR 0 (`SignInGate`, `CompleteSignIn`) or bringing them forward: C11, the `authenticateUsing` hook for both pipeline shapes, the single-implementer Arch test and boot check, the failure floor, the shared guess counter; `kernel-api.txt` and a `kernel-changelog.d` fragment (L5) | 54–59 |
-| 8b  | 2a.2  | Carry-over (§3.4): `migration_login_checks` with the placeholder, the second credential and allowlist, eligibility, the call (cached addresses, SPKI pin, fail-closed parsing), compare-and-set, budgets and cap, B3 change guards, kill switch, auto-pause, metrics; `ValidateLogin` and the new faults in the WHMCS simulator; the load-test scenario | 60–77 |
-| 8c  | 2a.2  | Needs ADR 0018 PR 0: the 2FA confirmation (GET page, POST consume, `CompleteSignIn`; C12), the admin panel, the sign-in notice and hint, the "not carried over" invitation filter | 78–82 |
-| 9   | 2a.1  | Gap reader, only if Q1/Q2 are approved                                                                                                                                        | 51–53          |
-| —   | 2b    | Products and services (`migration.md` stages 7, 8, 12). Imported services carry server and username, so the cPanel import then shows them as linked                           | `migration.md` |
-| —   | 2c    | Invoices with balances, transactions, credit log and reconciliation (`migration.md` stage 15)                                                                                 | `migration.md` |
-| —   | 2d    | Domains (stage 13); 2e: tickets (stage 17)                                                                                                                                    | `migration.md` |
+| PR  | Phase | Contents                                                                                                                                                                                                                                                                                                                                                | Criteria       |
+| --- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| 0   | 1     | Kernel: C1, C2, C3 (Core null default), C4. Arch rules for `App\Modules\*\Import`                                                                                                                                                                                                                                                                       | 1–3            |
+| 1   | 1     | Migration module skeleton: tables, permissions, routes; upload with encryption, limits, encoding and delimiter detection; staging job; file deletion; purge task; upload page                                                                                                                                                                           | 4–11           |
+| 2   | 1     | Map and check: shared Core rules, Core client and group importers (validate only), mapping step with presets, options, check job, duplicate rules (§7)                                                                                                                                                                                                  | 12–22          |
+| 3   | 1     | Review and apply: review page, digest-bound confirm, apply chunks, id map, logins, `email_changed_at`, consent rows, imported fields, report, errors CSV                                                                                                                                                                                                | 23–33          |
+| 4   | 1     | Billing opening balances (C8); invitations through C3 with Platform's binding, throttle and template (C9); profile panels (imported fields, consent history, "Imported from")                                                                                                                                                                           | 34–38          |
+| 5   | 1     | Undo (C7) and run history; contacts file (SHOULD)                                                                                                                                                                                                                                                                                                       | 39–42          |
+| 6   | 1     | Performance: query budgets, a 50k-row test fixture, the load-test import scenario in `loadtest/`                                                                                                                                                                                                                                                        | 43–44          |
+| 7   | 2a    | WHMCS API connector (`migration.md` §2.1 ACs 1–5), currencies and groups stages                                                                                                                                                                                                                                                                         | 45             |
+| 8   | 2a    | WHMCS clients, contacts, users and permissions, consent, verification, credit balance, delta re-runs, through the same importers                                                                                                                                                                                                                        | 46–50          |
+| 8a  | 2a.2  | Kernel (CTO), after ADR 0018 PR 0 (`SignInGate`, `CompleteSignIn`) or bringing them forward: C11, the `authenticateUsing` hook for both pipeline shapes, the single-implementer Arch test and boot check, the failure floor, the shared guess counter; `kernel-api.txt` and a `kernel-changelog.d` fragment (L5)                                        | 54–59          |
+| 8b  | 2a.2  | Carry-over (§3.4): `migration_login_checks` with the placeholder, the second credential and allowlist, eligibility, the call (cached addresses, SPKI pin, fail-closed parsing), compare-and-set, budgets and cap, B3 change guards, kill switch, auto-pause, metrics; `ValidateLogin` and the new faults in the WHMCS simulator; the load-test scenario | 60–77          |
+| 8c  | 2a.2  | Needs ADR 0018 PR 0: the 2FA confirmation (GET page, POST consume, `CompleteSignIn`; C12), the admin panel, the sign-in notice and hint, the "not carried over" invitation filter                                                                                                                                                                       | 78–82          |
+| 9   | 2a.1  | Gap reader, only if Q1/Q2 are approved                                                                                                                                                                                                                                                                                                                  | 51–53          |
+| —   | 2b    | Products and services (`migration.md` stages 7, 8, 12). Imported services carry server and username, so the cPanel import then shows them as linked                                                                                                                                                                                                     | `migration.md` |
+| —   | 2c    | Invoices with balances, transactions, credit log and reconciliation (`migration.md` stage 15)                                                                                                                                                                                                                                                           | `migration.md` |
+| —   | 2d    | Domains (stage 13); 2e: tickets (stage 17)                                                                                                                                                                                                                                                                                                              | `migration.md` |
 
 Dependencies: PR 3 needs #112 (nullable `users.password`, `password.recent` in the kernel) and the
 `email_changed_at` column from #95 or its own copy (C10). Invitations (PR 4) refuse to start while the account-link host
@@ -1016,6 +1019,7 @@ SQLite and PostgreSQL.
 **Sign-in carry-over (PR 8a–8c, §3.4; WHMCS simulator per ADR 0016, no real accounts)**
 
 Simulator work in PR 8b (M9):
+
 - `ValidateLogin` is served for scenario users with an email, a password, an id and a 2FA flag.
 - Faults are added for a 3xx with a `Location` header and a 200 with a body that is not JSON. The existing
   `latency`, `status`, `commit_then_hang` and `rotate_certificate` faults are reused.
@@ -1025,7 +1029,7 @@ Simulator work in PR 8b (M9):
 Address-guard cases (private ranges, DNS rebinding) are unit tests with a fake resolver, because the simulator binds
 only to 127.0.0.1. Timing is asserted with `Sleep::fake()`, never with wall-clock time.
 
-*Kernel (PR 8a)*
+_Kernel (PR 8a)_
 
 54. MUST: with `MODULES=Core` (Migration absent), the null `PendingPasswordCheck` gives `pending()` false and
     `active()` false. Password sign-in, the lockout and the 2FA challenge behave exactly as before (the existing
@@ -1052,7 +1056,7 @@ only to 127.0.0.1. Timing is asserted with `Sleep::fake()`, never with wall-cloc
 59. MUST: PR 8a regenerates `docs/architecture/kernel-api.txt` and adds a `kernel-changelog.d` fragment for C11
     (ADR 0010, ADR 0027; L5).
 
-*Carry-over (PR 8b)*
+_Carry-over (PR 8b)_
 
 60. MUST: an imported login whose WHMCS password is correct signs in on its first attempt:
     - the simulator's request log shows one `ValidateLogin`;
@@ -1110,6 +1114,7 @@ only to 127.0.0.1. Timing is asserted with `Sleep::fake()`, never with wall-cloc
     - sends `SecurityNotice` to the install owner, every `*` holder and the actor.
 
     While carry-over is on, the fields are read-only. Resume without a fresh passing Test is refused.
+
 75. MUST: run sign-ins with every outcome, plus an exception forced inside the implementation, with
     `zend.exception_ignore_args` both Off and On. Afterwards neither the typed password nor the returned
     `passwordhash` appears in any of these: the log files, `failed_jobs`, activity rows, the `migration_login_checks`
@@ -1120,7 +1125,7 @@ only to 127.0.0.1. Timing is asserted with `Sleep::fake()`, never with wall-cloc
     with the simulator answering at 2 s. Sign-in p95 for other users stays within the budget that `sizing.md`
     records for it, and the result is written there.
 
-*2FA confirmation, admin and client (PR 8c, after ADR 0018 PR 0)*
+_2FA confirmation, admin and client (PR 8c, after ADR 0018 PR 0)_
 
 78. MUST: a success with `twoFactorEnabled` true does not sign in. It mails `client.migration_confirm_signin`, holding
     only the link. Then (M5):
@@ -1184,8 +1189,9 @@ The questions below were answered by accepting each recommendation as written.
         - its own lawyer question 7, on limits to a first-sign-in check, in particular during or after a licence
           lapse.
 
-      The call also updates the last-login time at the source. The product side is already handled: a lapse shows up
-      as Unavailable, pauses carry-over and leaves clients to invitations.
+        The call also updates the last-login time at the source. The product side is already handled: a lapse shows up
+        as Unavailable, pauses carry-over and leaves clients to invitations.
+
     - (d) The TLS key is recorded on first use and enforced on every call (§3.4). A certificate renewal that changes
       the key pauses carry-over until staff re-run Test. Is that pause acceptable, or should hosts be told to reuse
       keys on renewal?
