@@ -95,9 +95,14 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
-     * Waits that really sleep in a test (Guzzle's MockHandler sleeps for a retry's delay under Http::fake): retry with
-     * no delay, so the number of attempts stays what production makes, and give the mail test send a short timeout.
-     * auth.timebox_duration is 0 through phpunit.xml. A test about the real wait sets the production value again.
+     * Waits that really sleep in a test, shortened here only (production config has no way to lower them):
+     * - auth.timebox_duration 0: the SessionGuard timebox (validate() and attempt(): password confirmation, step-up)
+     *   otherwise takes 200 ms per check. Fortify's sign-in form keeps its own fixed 200 ms. Guards resolved while
+     *   booting are forgotten, so the next one reads the new value.
+     * - lookup retries with no delay (Guzzle's MockHandler sleeps for it under Http::fake), keeping the number of
+     *   attempts production makes.
+     * - a short mail test send (platform.mail_test.*, 10 s and 20 s in production).
+     * A test about the real wait sets the production value again.
      */
     private function shortenWaits(): void
     {
@@ -107,9 +112,11 @@ abstract class TestCase extends BaseTestCase
         }
 
         config([
+            'auth.timebox_duration' => 0,
             'platform.mail_test.timeout_seconds' => 2,
             'platform.mail_test.deadline_seconds' => 4,
         ]);
+        $this->app['auth']->forgetGuards();
     }
 
     /**
@@ -264,8 +271,7 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
-     * <database>_<name> on PostgreSQL (within the worker database's prefix, which scripts/pg.sh --drop matches), a
-     * temporary file per process on SQLite.
+     * <database>_<name> on PostgreSQL (seededPgsqlName()), a temporary file per process on SQLite.
      *
      * @param  array<string, mixed>  $config
      */
@@ -273,7 +279,25 @@ abstract class TestCase extends BaseTestCase
     {
         return $config['driver'] === 'sqlite'
             ? sys_get_temp_dir().DIRECTORY_SEPARATOR."mohar-test-{$name}-".getmypid().'.sqlite'
-            : static::pgsqlIdentifier($config['database'].'_'.$name);
+            : static::seededPgsqlName((string) $config['database'], $name);
+    }
+
+    /**
+     * <database>_<name> when it fits PostgreSQL's 63 bytes. Otherwise the slug's database (<database> without the
+     * worker's _test_<n>, at most the 55 bytes scripts/pg.sh gives it), "_" and a hash of the full name: the name still
+     * starts with the slug's database, so pg.sh --drop finds it, and stays distinct per worker and name.
+     */
+    public static function seededPgsqlName(string $database, string $name): string
+    {
+        $full = "{$database}_{$name}";
+
+        if (strlen($full) <= 63) {
+            return $full;
+        }
+
+        $base = substr((string) preg_replace('/_test_[0-9]+$/', '', $database), 0, 55);
+
+        return $base.'_'.substr(hash('sha256', $full), 0, min(8, 63 - strlen($base) - 1));
     }
 
     /**

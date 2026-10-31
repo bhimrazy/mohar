@@ -192,7 +192,20 @@ run_native=0
 if [ ${#native[@]} -gt 1 ]; then
     selection_dir="$(mktemp -d)"
     trap 'rm -rf "$selection_dir"' EXIT
-    TEST_SH_SELECTION="$(printf '%s\n' "${native[@]}")" awk -v app="$app" '
+    # The paths reach awk through the environment (-v would interpret backslashes), are XML-escaped, and replace
+    # text literally (a gsub replacement would read & and \ in a checkout path as special).
+    TEST_SH_APP="$app" TEST_SH_SELECTION="$(printf '%s\n' "${native[@]}")" awk '
+        function xml(text) {
+            gsub(/&/, "\\&amp;", text); gsub(/</, "\\&lt;", text); gsub(/>/, "\\&gt;", text)
+            gsub(/"/, "\\&quot;", text); gsub(/\047/, "\\&apos;", text)
+            return text
+        }
+        function literal(text, find, with,    out, at) {
+            out = ""
+            while ((at = index(text, find)) > 0) { out = out substr(text, 1, at - 1) with; text = substr(text, at + length(find)) }
+            return out text
+        }
+        BEGIN { app = xml(ENVIRON["TEST_SH_APP"]) }
         /<testsuites>/ {
             print
             print "        <testsuite name=\"Selection\">"
@@ -200,7 +213,7 @@ if [ ${#native[@]} -gt 1 ]; then
             for (i = 1; i <= n; i++) {
                 if (paths[i] == "") continue
                 tag = (paths[i] ~ /\.php$/) ? "file" : "directory"
-                printf "            <%s>%s/%s</%s>\n", tag, app, paths[i], tag
+                printf "            <%s>%s/%s</%s>\n", tag, app, xml(paths[i]), tag
             }
             print "        </testsuite>"
             skip = 1
@@ -208,7 +221,7 @@ if [ ${#native[@]} -gt 1 ]; then
         }
         /<\/testsuites>/ { skip = 0 }
         skip { next }
-        { gsub(/"vendor\//, "\"" app "/vendor/"); gsub(/<directory>app<\/directory>/, "<directory>" app "/app</directory>"); print }
+        { print literal(literal($0, "\"vendor/", "\"" app "/vendor/"), "<directory>app</directory>", "<directory>" app "/app</directory>") }
     ' phpunit.xml > "$selection_dir/phpunit.xml"
     # Exclusions are already applied to the selection (Unit and Arch on PostgreSQL), and the copy has no other suites.
     args=(--parallel --processes="$processes" "--configuration=$selection_dir/phpunit.xml")

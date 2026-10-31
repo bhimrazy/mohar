@@ -111,11 +111,12 @@ connection, and the seeded connection has a test-aware transaction manager, so a
 RefreshDatabase (`tests/Feature/TestHarness`). PostgreSQL sequences are not rolled back: a test on a seeded database
 must not assert ids or sequence values.
 
-Waits that really sleep are shortened in the tests, with their production values unchanged: the sign-in timebox
-(`AUTH_TIMEBOX_DURATION=0` in `phpunit.xml`; 200 ms in production), the delay between lookup retries (0 ms, same
-number of attempts: Guzzle's MockHandler sleeps for the delay under `Http::fake`) and the mail test send's timeouts
-(2 s and 4 s instead of 10 s and 20 s), in `Tests\TestCase::shortenWaits()`
-(`tests/Feature/TestHarness/ShortenedWaitsTest.php`). On a host other than Linux the simulator suite
+Waits that really sleep are shortened in `Tests\TestCase::shortenWaits()` only, never through production config:
+the `SessionGuard` timebox (`auth.timebox_duration` 0 instead of Laravel's 200 ms; it covers `validate()` and
+`attempt()`, so password confirmation and step-up, while Fortify's sign-in form keeps its own fixed 200 ms), the delay
+between lookup retries (0 ms, same number of attempts: Guzzle's MockHandler sleeps for the delay under `Http::fake`)
+and the mail test send's timeouts (`platform.mail_test.*`, 2 s and 4 s instead of 10 s and 20 s)
+(`tests/Feature/TestHarness/ShortenedWaitsTest.php`, `tests/Feature/ReviewProbes/Pr558TimeboxProbeTest.php`). On a host other than Linux the simulator suite
 (`tools/simulators/tests`, which needs `setsid` and `/proc`) is skipped with that reason instead of erroring;
 `scripts/test.sh` runs it through `scripts/linux.sh`, and `tools/simulators/tests/HostTest.php` fails on a Linux host
 without them.

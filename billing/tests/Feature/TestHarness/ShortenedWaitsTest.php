@@ -1,36 +1,20 @@
 <?php
 
-// The suite shortens waits that really sleep (phpunit.xml, TestCase::shortenWaits()). Production keeps its values, and a
+// The suite shortens waits that really sleep (TestCase::shortenWaits()). Production keeps its values, and a
 // retry keeps its number of attempts: only the delay between them is gone.
 
 use App\Modules\PaymentsNepal\Support\ProviderHttp;
 use App\Modules\Platform\Support\MailServerSettings;
-use Illuminate\Support\Env;
+use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Support\Facades\Http;
 
-test('the sign-in timebox is off in the tests and 200 ms when AUTH_TIMEBOX_DURATION is unset', function () {
-    $saved = [$_ENV['AUTH_TIMEBOX_DURATION'] ?? null, $_SERVER['AUTH_TIMEBOX_DURATION'] ?? null, getenv('AUTH_TIMEBOX_DURATION')];
-    unset($_ENV['AUTH_TIMEBOX_DURATION'], $_SERVER['AUTH_TIMEBOX_DURATION']);
-    putenv('AUTH_TIMEBOX_DURATION');
-
-    try {
-        $production = (require config_path('auth.php'))['timebox_duration'];
-    } finally {
-        [$env, $server, $put] = $saved;
-        if ($env !== null) {
-            $_ENV['AUTH_TIMEBOX_DURATION'] = $env;
-        }
-        if ($server !== null) {
-            $_SERVER['AUTH_TIMEBOX_DURATION'] = $server;
-        }
-        if ($put !== false) {
-            putenv("AUTH_TIMEBOX_DURATION={$put}");
-        }
-    }
+test('the SessionGuard timebox is off in the tests only: production config does not set it, so it stays 200 ms', function () {
+    $guard = app('auth')->guard('web');
 
     expect(config('auth.timebox_duration'))->toBe(0)
-        ->and(Env::get('AUTH_TIMEBOX_DURATION'))->toBe('0')
-        ->and($production)->toBe(200000);
+        ->and((fn () => $this->timeboxDuration)->call($guard))->toBe(0)
+        ->and((fn () => $this->timeboxDuration)->call(app(StatefulGuard::class)))->toBe(0)
+        ->and(require config_path('auth.php'))->not->toHaveKey('timebox_duration');
 });
 
 test('lookup retries keep their number of attempts with no delay between them', function (string $module, string $file) {
@@ -57,7 +41,8 @@ test('a background lookup still retries a 5xx as often as in production', functi
 
 test('the mail test send waits briefly in the tests and keeps its production timeouts otherwise', function () {
     expect([MailServerSettings::testTimeout(), MailServerSettings::testDeadline()])->toBe([2, 4])
-        ->and([MailServerSettings::TEST_TIMEOUT, MailServerSettings::TEST_DEADLINE])->toBe([10, 20]);
+        ->and([MailServerSettings::TEST_TIMEOUT, MailServerSettings::TEST_DEADLINE])->toBe([10, 20])
+        ->and((require base_path('app/Modules/Platform/Config/platform.php'))['mail_test'])->toBe(['timeout_seconds' => 10, 'deadline_seconds' => 20]);
 
     config(['platform.mail_test' => null]);
 

@@ -299,13 +299,13 @@ final class MailServerSettings
         return $transport;
     }
 
-    /** TEST_TIMEOUT, unless platform.mail_test.timeout_seconds overrides it (the test suite shortens both). */
+    /** platform.mail_test.timeout_seconds (TEST_TIMEOUT by default; the test suite shortens both). */
     public static function testTimeout(): int
     {
         return (int) config('platform.mail_test.timeout_seconds', self::TEST_TIMEOUT);
     }
 
-    /** TEST_DEADLINE, unless platform.mail_test.deadline_seconds overrides it. */
+    /** platform.mail_test.deadline_seconds (TEST_DEADLINE by default). */
     public static function testDeadline(): int
     {
         return (int) config('platform.mail_test.deadline_seconds', self::TEST_DEADLINE);

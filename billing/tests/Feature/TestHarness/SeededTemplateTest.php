@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
-it('copies a template that equals a fresh migrate: tables, columns, indexes, constraints, sequences and migration rows', function () {
+it('copies a template that equals a fresh migrate: tables, columns, indexes, constraints, sequences, settings, extensions and migration rows', function () {
     $copy = $this->prepareSeededDatabase('probe_copy', fn () => null);
     $fresh = $this->prepareSeededDatabase('probe_fresh', fn () => null, freshMigrate: true);
 
@@ -27,8 +27,10 @@ it('names the template inside the worker database\'s prefix, which scripts/pg.sh
         $this->markTestSkipped('The template is a temporary file on SQLite.');
     }
 
-    expect(DB::connection('seeded_probe_copy_admin')->scalar('select count(*) from pg_database where datname = ?', [TestCase::pgsqlIdentifier("{$database}_template")]))->toBe(1)
-        ->and(TestCase::pgsqlIdentifier("{$database}_template"))->toStartWith(strlen("{$database}_template") <= 63 ? "{$database}_" : 'billing_test_');
+    $template = TestCase::seededPgsqlName($database, 'template');
+
+    expect(DB::connection('seeded_probe_copy_admin')->scalar('select count(*) from pg_database where datname = ?', [$template]))->toBe(1)
+        ->and($template)->toStartWith((string) preg_replace('/_test_[0-9]+$/', '', $database).'_');
 });
 
 it('refuses a seeded database named like the template', function () {
@@ -64,6 +66,11 @@ function seededSchemaSnapshot(string $connection): array
         $snapshot['triggers'] = $db->select('select tgrelid::regclass::text as on_table, tgname, pg_get_triggerdef(oid) as definition
             from pg_trigger where not tgisinternal order by 1, 2');
         $snapshot['views'] = $schema->getViews();
+        // CREATE DATABASE … TEMPLATE copies the files, not ALTER DATABASE … SET settings; a migration that sets one
+        // would make the copy differ from a fresh migrate.
+        $snapshot['database_settings'] = $db->select('select setrole, setconfig from pg_db_role_setting
+            where setdatabase = (select oid from pg_database where datname = current_database()) order by setrole');
+        $snapshot['extensions'] = $db->select('select extname, extversion from pg_extension order by extname');
     } else {
         // SQLite keeps every table, index, trigger and view as its CREATE statement, constraints included.
         $snapshot['objects'] = $db->select("select type, name, sql from sqlite_master where name not like 'sqlite_%' order by type, name");

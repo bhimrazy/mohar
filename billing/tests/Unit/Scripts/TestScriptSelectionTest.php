@@ -26,10 +26,10 @@ function tssWrite(string $dir, string $path, string $content = "<?php\n"): void
     file_put_contents("{$dir}/{$path}", $content);
 }
 
-/** @return array{0: string, 1: string} the repository and its base commit */
-function tssRepo(): array
+/** @return array{0: string, 1: string} the repository (its directory name ends in $suffix) and its base commit */
+function tssRepo(string $suffix = ''): array
 {
-    $dir = sys_get_temp_dir().'/test-sh-'.bin2hex(random_bytes(4));
+    $dir = sys_get_temp_dir().'/test-sh-'.bin2hex(random_bytes(4)).$suffix;
 
     foreach ([...TSS_ALWAYS, 'tests/Feature/Billing', 'tests/Unit/Billing', 'tests/Unit/Deploy', 'tests/Feature/Kyc/Support'] as $tests) {
         str_ends_with($tests, '.php') ? tssWrite($dir, "billing/{$tests}") : tssWrite($dir, "billing/{$tests}/ExampleTest.php");
@@ -144,8 +144,8 @@ test('on PostgreSQL the Unit and Arch tests are left out of the selection', func
         ->not->toContain('tests/Arch')->not->toContain('tests/Unit/Billing');
 });
 
-test('several selected paths run in parallel as one testsuite of a temporary phpunit.xml, since paratest takes one path', function () {
-    [$this->repo, $base] = tssRepo();
+test('several selected paths run in parallel as one testsuite of a temporary phpunit.xml, since paratest takes one path', function (string $suffix) {
+    [$this->repo, $base] = tssRepo($suffix);
     copy(dirname(__DIR__, 3).'/phpunit.xml', "{$this->repo}/billing/phpunit.xml");
     tssGit($this->repo, 'add', '-A');
     tssGit($this->repo, 'commit', '-qm', 'phpunit.xml');
@@ -175,4 +175,8 @@ test('several selected paths run in parallel as one testsuite of a temporary php
         ->and((string) $xml['bootstrap'])->toBe("{$app}/vendor/autoload.php")
         ->and((string) $xml->source->include->directory)->toBe("{$app}/app")
         ->and($xml->xpath('//env[@name="APP_ENV"]'))->toHaveCount(1);
-});
+})->with([
+    'a plain path' => [''],
+    // XML-special characters and the ones awk treats specially in a replacement or a -v value.
+    'a path with & < > quotes and a backslash' => [' a&b <c> \'d\' "e" \\f'],
+]);
