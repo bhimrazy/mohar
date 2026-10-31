@@ -4,8 +4,8 @@ use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Models\ActivityLog;
 use App\Support\Dashboard\Dashboard;
 
-require_once __DIR__.'/../Billing/helpers.php';
-require_once __DIR__.'/../Billing/WebhookHelpers.php';
+require_once __DIR__.'/helpers.php';
+require_once __DIR__.'/WebhookHelpers.php';
 
 /**
  * Re-check probes for PR #181 at 35b9a779.

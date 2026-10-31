@@ -2,7 +2,7 @@
 
 /**
  * Review probe helper for PR #253 (#25): one process against the given (committed) database, started by
- * Pr253ReviewProbesTest. Prints one JSON object {label, ...} on STDOUT.
+ * ReencryptProcessesAndTargetsTest. Prints one JSON object {label, ...} on STDOUT.
  *
  *   php reencrypt-worker.php <label> reencrypt <database> <new key> <old key> <cache store> <chunk>
  *   php reencrypt-worker.php <label> writer    <database> <new key> <old key> <first id> <last id> <writes>

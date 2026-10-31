@@ -13,8 +13,8 @@ use App\Support\Dashboard\Dashboard;
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 
-require_once __DIR__.'/../Billing/helpers.php';
-require_once __DIR__.'/../Billing/WebhookHelpers.php';
+require_once __DIR__.'/helpers.php';
+require_once __DIR__.'/WebhookHelpers.php';
 
 /**
  * Review board probes for PR #181 (#172). "FAILS at ee927c1e" marks a finding; the others pin verified behaviour.
