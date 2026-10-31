@@ -75,8 +75,8 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
-use Tests\Fakes\Orders\FakeGateways;
 use Tests\Fakes\Catalog\FakePriceBook;
+use Tests\Fakes\Orders\FakeGateways;
 use Tests\Fakes\Orders\FakeServiceRegistry;
 use Tests\Fakes\Orders\OrdersFakes;
 
