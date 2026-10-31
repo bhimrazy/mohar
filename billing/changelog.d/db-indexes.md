@@ -1,9 +1,8 @@
 ### Changed
 
 - **Indexes for the billing day, the dashboards and the queue.** The billing-day tasks (late fees, capture,
-  reminders, auto-cancel) and the service tasks (renewals, suspension, termination, fixed-term completion,
-  period-end cancellation) take open invoices and live services from partial indexes instead of walking every row;
-  the admin dashboard's receivables read open and cancelled invoices from their own indexes; the client invoice
+  reminders, auto-cancel) take open invoices from a partial index instead of walking every invoice; the renewal run
+  takes live services from a partial index, which the other service tasks can also use; the admin dashboard's receivables read open and cancelled invoices from their own indexes; the client invoice
   list and client dashboard read a client's invoices newest first from an index; a database-queue pop no longer
   scans past other queues' backlogs. At 287,000 invoices a reminder chunk went from 81 ms to 4.6 ms and the client
   invoice list from 1.9 ms to 0.08 ms. Upgrade note: the migrations build seven indexes with `CREATE INDEX

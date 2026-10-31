@@ -4,10 +4,12 @@ use App\Modules\Core\Support\OnlineIndex;
 use Illuminate\Database\Migrations\Migration;
 
 /**
- * Live services by id (database review 2026-10-31, H4): renewals, suspension, termination, fixed-term completion and
- * period-end cancellation take services in id chunks; without it the planner walks the primary key and filters out
- * every terminated, cancelled and deleted service. The predicate is ServiceStatus::billable() plus the soft-delete
- * scope, the widest set those tasks query (renewals include pending). Built concurrently on PostgreSQL.
+ * Live services by id (database review 2026-10-31, H4), for the renewal run: it takes services in id chunks, and
+ * without this index the planner walks the primary key and filters out every terminated, cancelled and deleted
+ * service. The predicate is ServiceStatus::billable() plus the soft-delete scope, the widest set the service tasks
+ * query (renewals include pending), so the index can also serve suspension, termination, fixed-term completion and
+ * period-end cancellation; with real statistics those keep their next_due_date indexes. Built concurrently on
+ * PostgreSQL.
  */
 return new class extends Migration
 {
