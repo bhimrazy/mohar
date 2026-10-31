@@ -7,15 +7,19 @@ use App\Modules\Billing\Models\InvoiceAdjustment;
 use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Billing\Services\InvoicePdf;
 use App\Modules\Core\Models\Client;
+use App\Modules\Notifications\Jobs\ComposeEventEmails;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Models\WebhookDelivery;
 use App\Modules\Notifications\Models\WebhookEndpoint;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Models\ServiceInvoice;
 use App\Support\Money;
+use App\Support\Queues;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
 
 require_once __DIR__.'/../Billing/helpers.php';
 require_once __DIR__.'/../Notifications/helpers.php';
@@ -71,12 +75,19 @@ function renewalSnapshot(Service $service): array
     ];
 }
 
+/** Runs the faked ComposeEventEmails jobs, as a notifications worker would after the run (#566). */
+function composeQueuedEmails(): void
+{
+    Queue::pushed(ComposeEventEmails::class)->each(fn (ComposeEventEmails $job) => app()->call([$job, 'handle']));
+}
+
 /** Queries for an automation run that renews one service: the run's own bookkeeping plus the renewal (measured 2026-10-20). */
-const RENEWAL_QUERY_BUDGET = 47; // 52 before the renewal query work; +2 for the fiscal snapshot (lines, default currency); +1 for the invoice email's PDF check (record and client language, one query)
+const RENEWAL_QUERY_BUDGET = 34; // 52 before the renewal query work; +2 for the fiscal snapshot (lines, default currency); -13 since the invoice emails are composed in a notifications worker (#566)
 
 beforeEach(function () {
     $this->travelTo('2026-11-01 08:00:00');
     Queue::fake();
+    Storage::fake('objects');
     seedEmailTemplates();
     billingSettings(['tax.enabled' => true, 'credit.auto_apply_on_generate' => true]);
     TaxRule::factory()->create(['name' => 'GST', 'level' => 1, 'rate' => '18.000']);
@@ -103,6 +114,7 @@ test('a renewal run writes the same invoice, lines, link, credit, email and webh
     ]);
 
     $this->artisan('automation:run', ['--date' => '2026-11-01', '--only' => 'services.renewals'])->assertSuccessful();
+    composeQueuedEmails();
 
     $invoice = fn (array $fields): array => ['source' => 'system', 'currency' => 'USD', 'discount_total' => 0, 'tax1_name' => 'GST', 'tax1_rate' => '18.000',
         'tax2_name' => null, 'tax2_rate' => '0.000', 'tax2_amount' => 0, 'credit_applied' => 0, 'payment_gateway' => null, 'proforma_number' => null,
@@ -165,8 +177,6 @@ test('a renewal run writes the same invoice, lines, link, credit, email and webh
 
 test('one renewal stays within its query budget', function () {
     WebhookEndpoint::query()->delete();
-    // The objects disk outlives the database, so a PDF left by an earlier run decides whether the email renders one (3 reads).
-    billingSettings(['pdf.attach_to_emails' => false]);
     $service = Service::factory()->dueOn('2026-11-15')->for(billingClient())->create(['recurring_amount' => 1_299]);
     $this->artisan('automation:run', ['--date' => '2026-10-31', '--only' => 'services.renewals'])->assertSuccessful(); // warm: settings, templates
     issueInvoice(billingClient(), [1_000]); // the invoice sequence has its row, as on every day after the first
@@ -179,4 +189,26 @@ test('one renewal stays within its query budget', function () {
 
     expect(ServiceInvoice::query()->where('service_id', $service->id)->count())->toBe(1)
         ->and($queries)->toBeLessThanOrEqual(RENEWAL_QUERY_BUDGET);
+});
+
+test('a renewal run does no PDF work: the worker composing the invoice email renders the PDF and words the claim (#566)', function () {
+    $renders = 0;
+    app()->resolving(InvoicePdf::class, function () use (&$renders): void {
+        $renders++;
+    });
+    $service = Service::factory()->dueOn('2026-11-15')->for(billingClient())->create(['recurring_amount' => 1_299]);
+
+    $this->artisan('automation:run', ['--date' => '2026-11-01', '--only' => 'services.renewals'])->assertSuccessful();
+
+    expect($renders)->toBe(0)
+        ->and(Storage::disk('objects')->allFiles())->toBe([])
+        ->and(EmailMessage::query()->count())->toBe(0);
+    Queue::assertPushedOn(Queues::NOTIFICATIONS, ComposeEventEmails::class);
+
+    composeQueuedEmails();
+
+    $invoiceId = ServiceInvoice::query()->where('service_id', $service->id)->sole()->invoice_id;
+    expect($renders)->toBeGreaterThan(0)
+        ->and(EmailMessage::query()->where('template_key', 'invoice.created')->where('related_id', $invoiceId)->sole()->body_text)->toContain('A PDF copy of the invoice is attached.')
+        ->and(Storage::disk('objects')->allFiles("billing/invoices/{$invoiceId}"))->not->toBe([]);
 });

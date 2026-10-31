@@ -2,6 +2,10 @@
 
 use App\Contracts\Auth\AuthMailer;
 use App\Events\Billing\InvoiceCreated;
+use App\Events\Billing\InvoiceModified;
+use App\Events\Billing\InvoicePaymentReminder;
+use App\Events\Billing\InvoiceRefunded;
+use App\Events\Billing\PaymentReceived;
 use App\Events\Domains\DomainExpiryDigest;
 use App\Events\Services\ProvisioningFailed;
 use App\Events\Support\TicketReplied;
@@ -9,14 +13,17 @@ use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Enums\EmailStatus;
+use App\Modules\Notifications\Jobs\ComposeEventEmails;
 use App\Modules\Notifications\Listeners\SendEventEmails;
 use App\Modules\Notifications\Mail\TemplatedMail;
 use App\Modules\Notifications\Models\ClientEmailPreference;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Models\EmailTemplate;
+use App\Support\Queues;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 
 require_once __DIR__.'/helpers.php';
 
@@ -67,6 +74,22 @@ it('respects the notify flag on InvoiceCreated', function () {
 
     Mail::assertNothingSent();
 });
+
+it('composes the invoice emails that carry the PDF on the notifications queue, and the rest in place (#566)', function (Closure $event, bool $queued, bool $loggedNow) {
+    Queue::fake();
+
+    $this->listener->handle($event($this->client->id));
+
+    $queued ? Queue::assertPushedOn(Queues::NOTIFICATIONS, ComposeEventEmails::class) : Queue::assertNotPushed(ComposeEventEmails::class);
+    expect(EmailMessage::query()->exists())->toBe($loggedNow);
+})->with([
+    'created' => [fn (int $client) => new InvoiceCreated(10, $client), true, false],
+    'reminder' => [fn (int $client) => new InvoicePaymentReminder(10, $client, 'overdue_1'), true, false],
+    'receipt' => [fn (int $client) => new PaymentReceived(7, 10, $client, 1_130, 'NPR', 'esewa'), true, false],
+    'modified' => [fn (int $client) => new InvoiceModified(10, $client), true, false],
+    'created, not notified' => [fn (int $client) => new InvoiceCreated(10, $client, notify: false), false, false],
+    'refund (no PDF)' => [fn (int $client) => new InvoiceRefunded(10, $client, 1_130, 'NPR', true), false, true],
+]);
 
 it('always sends password resets, whatever the preferences (criterion 3)', function () {
     optOutOwner($this->client, array_fill_keys(['general', 'invoice', 'product', 'domain', 'support', 'affiliate'], false));
