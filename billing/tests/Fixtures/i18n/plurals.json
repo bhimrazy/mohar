@@ -1,0 +1,127 @@
+[
+    {
+        "locale": "en",
+        "line": "one apple|:count apples",
+        "count": 1,
+        "replace": {},
+        "expected": "one apple"
+    },
+    {
+        "locale": "en",
+        "line": "one apple|:count apples",
+        "count": 5,
+        "replace": {},
+        "expected": "5 apples"
+    },
+    {
+        "locale": "en",
+        "line": "one apple|:count apples",
+        "count": 0,
+        "replace": {},
+        "expected": "0 apples"
+    },
+    {
+        "locale": "en",
+        "line": "{0} No invoices|{1} One invoice|[2,*] :count invoices",
+        "count": 0,
+        "replace": {},
+        "expected": "No invoices"
+    },
+    {
+        "locale": "en",
+        "line": "{0} No invoices|{1} One invoice|[2,*] :count invoices",
+        "count": 1,
+        "replace": {},
+        "expected": "One invoice"
+    },
+    {
+        "locale": "en",
+        "line": "{0} No invoices|{1} One invoice|[2,*] :count invoices",
+        "count": 12,
+        "replace": {},
+        "expected": "12 invoices"
+    },
+    {
+        "locale": "en",
+        "line": "[0,9] Few|[10,*] Many",
+        "count": 9,
+        "replace": {},
+        "expected": "Few"
+    },
+    {
+        "locale": "en",
+        "line": "[0,9] Few|[10,*] Many",
+        "count": 10,
+        "replace": {},
+        "expected": "Many"
+    },
+    {
+        "locale": "en",
+        "line": ":name has :count item|:name has :count items",
+        "count": 2,
+        "replace": {
+            "name": "Asha"
+        },
+        "expected": "Asha has 2 items"
+    },
+    {
+        "locale": "en",
+        "line": ":Name owns :count item|:NAME owns :count items",
+        "count": 2,
+        "replace": {
+            "name": "asha"
+        },
+        "expected": "ASHA owns 2 items"
+    },
+    {
+        "locale": "ne",
+        "line": "one|many",
+        "count": 1,
+        "replace": {},
+        "expected": "one"
+    },
+    {
+        "locale": "ne",
+        "line": "one|many",
+        "count": 0,
+        "replace": {},
+        "expected": "many"
+    },
+    {
+        "locale": "hi",
+        "line": "one|many",
+        "count": 0,
+        "replace": {},
+        "expected": "one"
+    },
+    {
+        "locale": "hi",
+        "line": "one|many",
+        "count": 1,
+        "replace": {},
+        "expected": "one"
+    },
+    {
+        "locale": "hi",
+        "line": "one|many",
+        "count": 2,
+        "replace": {},
+        "expected": "many"
+    },
+    {
+        "locale": "en",
+        "line": "[Draft] one item|[Draft] :count items",
+        "count": 3,
+        "replace": {},
+        "expected": "[Draft] 3 items"
+    },
+    {
+        "locale": "en",
+        "line": "{1} :count thing|[2,*] :count things",
+        "count": 3,
+        "replace": {
+            "count": "three"
+        },
+        "expected": "three things"
+    }
+]

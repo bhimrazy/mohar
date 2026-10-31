@@ -16,6 +16,7 @@ use ReflectionClass;
  *  - routes/api.php               under /api/v1 with the "api" middleware group
  *  - routes/web.php               under the "web" middleware group
  *  - Resources/views              as the "<name>::" view namespace
+ *  - Resources/lang/*.json        JSON translations (ADR 0028); billing/lang overrides them
  *  - Console/Commands/*.php       artisan commands
  * and calls schedule() once the scheduler is resolved.
  */
@@ -43,6 +44,10 @@ abstract class ModuleServiceProvider extends ServiceProvider
 
         if (is_dir($this->modulePath('Resources/views'))) {
             $this->loadViewsFrom($this->modulePath('Resources/views'), $this->moduleKey());
+        }
+
+        if (is_dir($this->modulePath('Resources/lang'))) {
+            $this->loadJsonTranslationsFrom($this->modulePath('Resources/lang'));
         }
 
         if (! $this->app->routesAreCached()) {
