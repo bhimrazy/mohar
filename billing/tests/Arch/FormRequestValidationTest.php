@@ -89,3 +89,5 @@ test('the scan sees each form of inline validation', function () {
     expect(preg_match(INLINE_VALIDATION, '$request->validated()'))->toBe(0)
         ->and(preg_match(INLINE_VALIDATION, '$this->validator->check()'))->toBe(0);
 });
+
+afterAll(fn () => releaseArchCache());
