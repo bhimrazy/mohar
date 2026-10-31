@@ -132,7 +132,8 @@ slowest such page (`sizing.md`).
 
 - **No DNS in the request.**
     - A scheduled health probe resolves and vets the destination through `resolve()`, and caches the vetted address
-      set for at most 5 minutes.
+      set for at most 5 minutes. The probe runs well inside that TTL (every minute for carry-over), so the cache does
+      not lapse between refreshes.
     - The request connects to that set through `pinOptions()`.
     - A cache miss fails the call; it is never a lookup.
     - This keeps the unbounded resolver time noted in Amendment (#513) out of user requests.
@@ -140,9 +141,11 @@ slowest such page (`sizing.md`).
   connect, TLS and body. Because nothing is resolved, the total covers everything.
 - **Concurrency from the thread count.**
     - At most `max(1, intdiv(php_threads, 4))` such calls run at once, install-wide, per kind of call.
-    - `php_threads` is the config value the deploy sets (4 on the small profile).
+    - `php_threads` follows FrankenPHP's `num_threads` as the deploy sets it. When unset it defaults to 4, the small
+      profile, so it fails small.
     - Over the cap, the call is skipped and the caller gives its ordinary failure.
-    - The same bound applies to requests held in a deliberate delay, such as a timing floor.
+    - The same bound applies to requests held in a deliberate delay, such as a timing floor. A request takes its slot
+      in the delay before any outbound call. With no slot free it makes no call, so timing cannot tell callers apart.
 - **Transport.**
     - HTTPS only (`CURLOPT_PROTOCOLS` and `CURLOPT_REDIR_PROTOCOLS`), TLS verification with the system CA bundle that
       cannot be configured off, no redirects and no proxy.

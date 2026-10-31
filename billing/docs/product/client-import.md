@@ -204,6 +204,11 @@ only.
 | Unavailable | The ordinary failure message, **without** the `Failed` event, so an outage locks nobody out (M3) |
 | ConfirmByEmail | No session. "We have emailed you a link to finish signing in." |
 | NotApplicable | The ordinary failure, as today |
+| Over the budget, over the cap, or no floor slot (no call made) | The ordinary failure message, **without** `Failed`, and the guess refunded (R1, R5) |
+
+Fortify fires `Failed` whenever the `authenticateUsing` callback returns null. So for Unavailable and for the three
+no-call cases, the callback throws the ordinary failure (`ValidationException` on `email`, with Fortify's
+`auth.failed` text) itself, instead of returning null (R5).
 
 During the window, every failure message, for every email alike, carries a hint: "Moved from our old client area?
 Use Forgot password if your old password does not work."
@@ -212,8 +217,9 @@ Use Forgot password if your old password does not work."
 
 - **Timing.** Synchronous, inside the sign-in request: never queued, cached or put in a job payload (MUST).
 - **Destination.** The call connects to the cached address set that the scheduled health probe resolved and vetted
-  through `OutboundAddressGuard`, with a TTL of at most 5 minutes. The sign-in path never resolves DNS. A cache miss
-  means Unavailable (ADR 0015 Amendment (#555)).
+  through `OutboundAddressGuard`, with a TTL of at most 5 minutes. The probe runs every minute, well inside the TTL,
+  so the cache does not lapse between refreshes (R2). The sign-in path never resolves DNS. A cache miss means
+  Unavailable (ADR 0015 Amendment (#555)).
 - **Connection options.**
     - pinned through `pinOptions()`, so the proxy is bypassed;
     - `allow_redirects => false`;
@@ -253,16 +259,26 @@ Use Forgot password if your old password does not work."
 
 - **Guesses.** The budget is counted before the call and refunded unless the source said the password was wrong. So
   Verified, ConfirmByEmail and Unavailable are refunded. The shape and the atomic counting are `PasswordGuesses`'
-  (#536): 5 per login and IP per minute, and 20 per login per hour. PR 8a extracts the counting so both use one
-  implementation. Over budget, no call is made and the ordinary failure is shown.
+  (#536): 5 per login and IP per minute, and 20 per login per hour. PR 8a extracts only the atomic counting (not
+  `endSession()` or `refuse()`) so both use one implementation. Carry-over uses its own key prefix
+  (`carry-over-guess|`), apart from `PasswordGuesses`' step-up keys, so failed carry-over checks never use up the
+  step-up or password-change budget (R4). Over budget, no call is made and the ordinary failure is shown, with the
+  guess refunded and no `Failed` event (R5).
 - **Accepted residual.** Twenty wrong guesses an hour can keep a victim's carry-over from being checked. The victim
   sees the ordinary failure with the Forgot password hint.
 - **Concurrency.** The cap is install-wide: `max(1, intdiv(php_threads, 4))`, which is 1 on the 4-thread small
-  profile. `php_threads` is a config value that the deploy sets. Over the cap, no call is made and the **ordinary
-  failure text** is shown, never "try again" (M3).
-- **Failure floor.** While `active()` is true, a failed password sign-in answers no sooner than the measured p95 of
-  remote checks over the last hour, clamped to 300 ms–2 s, plus jitter. At most `max(1, intdiv(php_threads, 4))`
-  requests wait in the floor at once; others answer at once.
+  profile.
+    - `php_threads` (`migration.login_carry_over.php_threads`) follows FrankenPHP's `num_threads`, which the deploy
+      sets. When unset it defaults to 4, so it fails small (R3).
+    - Over the cap, no call is made and the **ordinary failure text** is shown, never "try again" (M3). The guess is
+      refunded and no `Failed` event fires (R5).
+- **Failure floor (R1).** While `active()` is true, a failed password sign-in answers no sooner than the measured p95
+  of remote checks over the last hour, clamped to 300 ms–2 s, plus jitter.
+    - At most `max(1, intdiv(php_threads, 4))` requests hold a floor slot at once.
+    - A sign-in takes its slot **before** any remote call, and keeps it until it answers.
+    - With no slot free, a sign-in for any email, unknown or imported, makes no remote call and answers at once with
+      the ordinary failure. The guess is refunded and no `Failed` event fires.
+    - So a full floor answers every email in the same way and the same time.
 - **Accepted residual.** A slow source, up to the 5 s timeout, exceeds any floor and reveals that the probed email is
   imported.
 
@@ -1026,9 +1042,13 @@ only to 127.0.0.1. Timing is asserted with `Sleep::fake()`, never with wall-cloc
     Core's null class. A boot check refuses any other binding: a test that binds a fake fails the boot. A reflection
     test finds `#[\SensitiveParameter]` on the password parameter of the interface and of every implementation (B2,
     ADR 0012 Amendment (#555)).
-58. MUST: while `active()` is true, an unknown email and an imported login with a slow remote answer get the same
-    message and status. With `Sleep::fake()`, each waits until the floor. Above the parked-request bound, further
-    failures answer without waiting.
+58. MUST: while `active()` is true, with `Sleep::fake()`:
+    - an unknown email and an imported login with a slow remote answer get the same message and status, and each
+      waits until the floor;
+    - with every floor slot taken (`max(1, intdiv(php_threads, 4))`, 1 with the default `php_threads` of 4), an
+      unknown email and an imported login both answer at once with the same message and status;
+    - the imported login makes **no** `ValidateLogin` request (the simulator's request log is empty), its guess is
+      refunded, and no `Failed` event fires (R1).
 59. MUST: PR 8a regenerates `docs/architecture/kernel-api.txt` and adds a `kernel-changelog.d` fragment for C11
     (ADR 0010, ADR 0027; L5).
 
@@ -1048,11 +1068,15 @@ only to 127.0.0.1. Timing is asserted with `Sleep::fake()`, never with wall-cloc
 63. MUST: a wrong password is Rejected:
     - `Failed` fires and the lockout counts it;
     - 5 checks per login and IP per minute and 20 per login per hour are allowed;
-    - over budget, no call is made and the ordinary failure is shown (M3).
+    - over budget, no call is made and the ordinary failure is shown, with no `Failed` event and no lockout count
+      (M3, R5);
+    - wrong carry-over guesses leave the login's `PasswordGuesses` step-up budget untouched: a step-up right after 20
+      of them still gets its full budget (R4).
 64. MUST: Unavailable (a timeout, a 5xx, an unknown cached address) never counts towards `LoginLockout`. Six
     Unavailable attempts in a row leave the email and IP pair unlocked, and the guess budget is refunded (M3).
 65. MUST: with the concurrency cap reached (`max(1, intdiv(php_threads, 4))`), a further sign-in makes no call and
-    gets **the same text and status as an unknown email** (M3, replacing the earlier "try again" answer).
+    gets **the same text and status as an unknown email** (M3, replacing the earlier "try again" answer). No `Failed`
+    event fires and the guess is refunded (R5).
 66. MUST: each parse case (M2):
     - `userid` different, `"01"`, `" 1"` or `1.0` is a fault;
     - a missing or unrecognised `twoFactorEnabled` gives ConfirmByEmail;

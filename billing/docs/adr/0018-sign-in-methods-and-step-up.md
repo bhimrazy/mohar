@@ -297,6 +297,10 @@ inside a request.
     - **Rejected:** a failed sign-in. Fortify's `Failed` event fires and the lockout counts it (§2).
     - **Unavailable:** the ordinary failure message, **without** `Failed`, so a source outage locks nobody out (M3).
     - **NotApplicable:** the ordinary failure.
+    - **Over the budget, over the cap, or no floor slot:** no call is made; the guess is refunded and `Failed` does
+      not fire.
+    - Fortify fires `Failed` whenever the `authenticateUsing` callback returns null. So for Unavailable and the
+      no-call cases, the callback throws the ordinary failure itself.
     - **ConfirmByEmail:** no session (below).
     - Every refusal uses the ordinary failure text. None says "try again" or anything else that would set imported
       logins apart.
@@ -315,8 +319,9 @@ inside a request.
   mailbox. The ConfirmByEmail path does set it. The 2026-10-21 addendum still holds: verified 30 days ago bounds the
   last email change, and a carry-over never changes the email.
 - **Enumeration.** While `active()` is true, a failed password sign-in answers no sooner than a floor taken from the
-  measured remote p95. The number of requests waiting in the floor is bounded. The message is the same for every
-  failure.
+  measured remote p95. The number of requests waiting in the floor is bounded, and a sign-in takes its floor slot
+  before any remote call. With no slot free, every email answers at once and no call is made. The message is the
+  same for every failure.
 - **Secrets (M6).**
     - The implementation runs the call inside `RedactionScope::during()` with a `RedactionSet` of the password and the
       API secret.
@@ -336,5 +341,6 @@ inside a request.
     - It is a kernel PR by the CTO (`client-import.md` PR 8a). It lands after this ADR's PR 0 (`SignInGate`,
       `CompleteSignIn`), or brings those two forward.
     - It adds a `kernel-changelog.d` fragment and regenerates `kernel-api.txt`.
-    - The guess counting is extracted from `PasswordGuesses`, so there is one implementation of it.
+    - The atomic guess counting is extracted from `PasswordGuesses`, so there is one implementation of it.
+      Carry-over uses its own key prefix, so it never uses up the step-up budget.
     - Contract evolution follows ADR 0010. The enum is closed, so a new outcome needs an amendment.
