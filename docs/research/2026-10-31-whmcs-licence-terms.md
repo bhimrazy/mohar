@@ -10,11 +10,12 @@ importer, a possible database "gap reader", a possible `ValidateLogin` first sig
 ## 0. Answer in short
 
 1. **Data ownership.** The EULA does not say who owns the licensee's own data. It lists what WHMCS owns (software,
-   trademarks, usage data, feedback), and licensee data is not on the list. The Marketplace terms call the licensee
-   the "data controller".
+   trademarks, usage data, feedback), and licensee data is not on the list. In the Marketplace terms ("you" there is the Marketplace customer), "End User Data" is "Your data, that of Your customers", and a separate clause says "you are the data controller" of the "User Data".
 2. **Export to other tools.** Nothing prohibits exporting your own database. One clause (EULA 2.5) bans
-   "systematic or automated data collection" including "scraping" and "data extraction" "on or in relation to"
-   the Software without written consent. Its scope is unclear. This is the clause to ask a lawyer about first.
+   "systematic or automated data collection activities" "on or in relation to our Software" without written consent,
+   defined to include "processing" (with a UK and EU data-protection citation inside the parenthetical), "scraping, data
+   mining, data extraction and data harvesting". The clause opens with WHMCS's own use of personal information, so its framing
+   is data protection and its reach over a licensee's own records is unclear. This is the clause to ask a lawyer about first.
 3. **API.** The EULA never mentions the API. The developer docs describe credentials, API roles and an IP
    allowlist, and state no rate limit or API-specific terms in the pages read. Nothing addresses credentials
    handed to a third party.
@@ -26,7 +27,7 @@ importer, a possible database "gap reader", a possible `ValidateLogin` first sig
 
 | Document | URL | Version or date shown | Read |
 |---|---|---|---|
-| End User License Agreement | https://www.whmcs.com/eula/ (also embedded on https://www.whmcs.com/legal/) | "Last Updated: 20 June 2026" | 2026-10-31 |
+| End User License Agreement | https://www.whmcs.com/legal/#end-user-license-agreement . The old `https://www.whmcs.com/eula/` path returns 404 on the live site today; `/eula` without a slash redirects to this anchor; the `/eula/` path exists only in the Wayback Machine. I read the EULA from the combined `/legal/` page | "Last Updated: 20 June 2026" | 2026-10-31 |
 | Terms of Service (website, purchases, licence sales) | embedded on https://www.whmcs.com/legal/ (no own URL: `/terms/` is 404) | "Last Updated: 25th September 2020" | 2026-10-31 |
 | Privacy Policy | https://www.whmcs.com/privacy-policy/ (serves the same combined legal page) | "v.18, Updated September 29th, 2026", a WebPros group policy | 2026-10-31 |
 | Technical Support Agreement, Affiliate Agreement, Imprint | https://www.whmcs.com/legal/ | Sep 2013; Oct 2016; none. Not relevant here, not analysed | 2026-10-31 |
@@ -47,7 +48,7 @@ importer, a possible database "gap reader", a possible `ValidateLogin` first sig
 
 ## 2. Did the documents change after the WebPros ownership, and are old versions archived?
 
-- **Archive.** Yes. The Wayback Machine holds about 95 monthly snapshots of `/eula/` from 2017-07-05 to 2026-06-05,
+- **Archive.** Yes. The Wayback Machine holds about 120 snapshots with HTTP 200 of `/eula/` from 2017-07-05 to 2026-06-06,
   and similar series for `/legal/`, `/privacy-policy/`, `/license/` (the older EULA URL, from 2009) and the
   Marketplace terms (from 2019-05). Listing: `https://web.archive.org/cdx/search/cdx?url=www.whmcs.com/eula/`.
   Some snapshots are stub pages, so not all were comparable.
@@ -55,17 +56,19 @@ importer, a possible database "gap reader", a possible `ValidateLogin` first sig
   2026-04-08, plus the live page):
   - Clause 2.3.4 (reverse engineering, "same primary functions") is word for word the same in the 2017, 2021, 2023
     and 2026-02 snapshots and live. It is not a post-acquisition addition.
-  - Clause 2.5 (no systematic or automated data collection) is **absent** from the 2017 snapshot (header "Last
-    Updated: October 2013") and present by 2021-08 (header "Last Updated: 26th March 2018"), citing the 1998 UK Act.
-    The live text cites UK DPA 2018 and UK GDPR. The extra data-protection wording appears to have been added
-    between 2017 and 2021; we did not pin the exact date.
+  - Clause 2.5 differs. The 2017-07-05 snapshot (header "Last Updated: October 2013") has a 2.5 headed "Data Protection Act
+    1998", an undertaking by WHMCS Limited to comply with that Act. The "systematic or automated data collection" text
+    is absent there. It is present in the 2021-08-18 snapshot (header "Last Updated: 26th March 2018"), under the heading
+    "Data Protection", still citing the 1998 Act. The live text cites UK DPA 2018, UK GDPR and GDPR. So the banned-activity
+    wording was added between 2017-07 and 2021-08; we did not pin the date.
   - The live "20 June 2026" version is the first we saw that names the "WebPros group", and it adds AI features
     ("WHMCS Nova", section 10), "Active Clients" tier limits, a "Territory" and a "Subscription Term". The
     October 2025 and April 2026 snapshots contain none of those words.
-  - Governing law (England and Wales, English courts) is unchanged in every snapshot.
+  - EULA governing law (England and Wales, English courts) is unchanged in every snapshot compared.
 - **Ownership timeline.** The WHMCS community has a thread
-  ([WHMCS is joining WebPros](https://whmcs.community/topic/294823-whmcs-is-joining-webpros/)); we could not read its
-  body, so the date is **unconfirmed**. The EULA operator is still "WHMCS Limited", and the live EULA says the
+  ([WHMCS is joining WebPros](https://whmcs.community/topic/294823-whmcs-is-joining-webpros/)); the page
+  shows a first post "By WHMCS John", dated "June 3, 2019" (a listing date; replies run later, into 2021). We did not
+  verify the date against another source, and we did not date the corporate transaction itself. The EULA operator is still "WHMCS Limited", and the live EULA says the
   software may be sold or supported by other WebPros companies while WHMCS Limited stays "solely responsible" for the licence.
   The docs mirror at `whmcsdocs.devops.cpanel.net` suggests cPanel infrastructure hosts WHMCS docs.
 - **Limit.** Wayback covers public pages only. Versions shipped inside the download package, "included in the WHMCS
@@ -77,14 +80,14 @@ Confidence: H = clear text; M = clear text, scope ambiguous; L = absence of evid
 
 | # | Question | What the text says | Confidence | Question for a lawyer |
 |---|---|---|---|---|
-| 1 | Data ownership; export right or duty | The EULA [§3.1](https://www.whmcs.com/eula/) gives WHMCS the Software, Trademarks, "Anonymous Usage Data" and Submissions. Client, invoice and service data are not in the list. No clause grants or denies the licensee ownership, and no export right or duty appears. The [Marketplace ToS](https://marketplace.whmcs.com/policies/terms) §1.4 defines "End User Data" as "Your data, that of Your customers" and §9.1.4 says "you are the data controller". The [privacy policy](https://www.whmcs.com/privacy-policy/) calls a hosting partner "an independent controller". | M (EULA silent; inference from related terms) | Does silence leave the host as owner and controller of its client records under English and Nepali law, with no WHMCS right over them? |
-| 2 | Export own DB or use API to move data | No clause forbids exporting your own data. [EULA §2.5](https://www.whmcs.com/eula/) says no "systematic or automated data collection activities" including "scraping, data mining, data extraction and data harvesting" "on or in relation to our Software" "without our express written consent". It sits under the heading "Data Protection" and its opening words cite UK and EU data-protection law. | M | Does §2.5 reach a licensee extracting its own records from its own install through the licensee's own API credentials or database? Does it reach us, a non-party, building the tool? |
-| 3 | API terms: competitors, rate limits, third-party credentials | The EULA does not mention the API. [Developer docs](https://developers.whmcs.com/api/authentication/) say API use needs credentials plus the "API Access" permission for the admin role; [access control](https://developers.whmcs.com/api/access-control/) says access is "restricted by IP" by default, with an optional access key. We found no rate limit and no API-specific terms. The licence is "non-sub-licensable" ([§2.1](https://www.whmcs.com/eula/)) and licensed "only to You" (§2.2), with no word on delegating credentials. | L (absence of evidence) | Is a host who gives a migration tool scoped API credentials "sub-licensing" or "transferring" the Software? Does the tool operator need any WHMCS permission? |
-| 4 | Reverse engineering and decompiling | [EULA §2.3.4](https://www.whmcs.com/eula/): no "decompile, reverse engineer, disassemble, or otherwise reduce the Software to any human-readable form". "Software" ([§1](https://www.whmcs.com/eula/)) includes "documentation, source code, object code" and UIs, excluding third-party components. The database schema is not mentioned either way. The wording has been the same since at least 2017. | M | Is reading table and column layout from a host's own live database "reducing the Software to human-readable form"? Is a schema derived from public docs and public code samples safe? Is the answer different under English law, which has statutory interoperability exceptions? |
+| 1 | Data ownership; export right or duty | The EULA [§3.1](https://www.whmcs.com/legal/#end-user-license-agreement) gives WHMCS the Software, Trademarks, "Anonymous Usage Data" and Submissions. Client, invoice and service data are not in the list. No clause grants or denies the licensee ownership, and no export right or duty appears. The [Marketplace ToS](https://marketplace.whmcs.com/policies/terms) §1.4 defines "End User Data" as "Your data, that of Your customers" and §9.1.4 says "you are the data controller". The [privacy policy](https://www.whmcs.com/privacy-policy/) calls a hosting partner "an independent controller". | M (EULA silent; inference from related terms) | Does silence leave the host as owner and controller of its client records under English and Nepali law, with no WHMCS right over them? |
+| 2 | Export own DB or use API to move data | No clause forbids exporting your own data. [EULA §2.5](https://www.whmcs.com/legal/#end-user-license-agreement) says no "systematic or automated data collection activities" including "scraping, data mining, data extraction and data harvesting" "on or in relation to our Software" "without our express written consent". It sits under the heading "Data Protection" and its opening words cite UK and EU data-protection law. | M | Does §2.5 reach a licensee extracting its own records from its own install through the licensee's own API credentials or database? Does it reach us, a non-party, building the tool? |
+| 3 | API terms: competitors, rate limits, third-party credentials | The EULA does not mention the API. [Developer docs](https://developers.whmcs.com/api/authentication/) say API use needs credentials plus the "API Access" permission for the admin role; [access control](https://developers.whmcs.com/api/access-control/) says access is "restricted by IP" by default, with an optional access key. We found no rate limit and no API-specific terms. The licence is "non-sub-licensable" ([§2.1](https://www.whmcs.com/legal/#end-user-license-agreement)) and licensed "only to You" (§2.2), with no word on delegating credentials. The text does use "Third Party Users" and "sublicensee" in §5.2 and §2.4.2, and §8 refers to "Section 2.2 (Sublicensing)" (the heading of §2.2 is "License Transfers"); a licensee's duty to indemnify and its exposure for a sublicensee's breach are tied to those terms. | L (absence of evidence) | Is a host who gives a migration tool scoped API credentials "sub-licensing" or "transferring" the Software? Does the tool operator need any WHMCS permission? |
+| 4 | Reverse engineering and decompiling | [EULA §2.3.4](https://www.whmcs.com/legal/#end-user-license-agreement): no "decompile, reverse engineer, disassemble, or otherwise reduce the Software to any human-readable form". "Software" ([§1](https://www.whmcs.com/legal/#end-user-license-agreement)) includes "documentation, source code, object code" and UIs, excluding third-party components. The database schema is not mentioned either way. The wording has been the same since at least 2017. | M | Is reading table and column layout from a host's own live database "reducing the Software to human-readable form"? Is a schema derived from public docs and public code samples safe? Is the answer different under English law, which has statutory interoperability exceptions? |
 | 5 | Competitors; benchmarking; publishing comparisons | No benchmarking clause and no clause on publishing comparisons found in the EULA or ToS. The competitor-related clause is the second half of §2.3.4: no using "the Software to develop any application having the same primary functions as the Software". It binds a licensee. The ToS also bars commercial use of website content "without obtaining a licence" and bars linking so as to suggest "approval or endorsement". | M | Does §2.3.4 stop any Mohar staff or contractor who holds a WHMCS licence (including trial) from testing the importer against a live install? Do the website-content clauses limit quoting WHMCS docs or comparing features? |
-| 6 | Trademarks: "migrate from WHMCS" | The [EULA §3.2](https://www.whmcs.com/eula/) says it "does not authorize You to use the Trademarks" without a written licence, and bars adopting "confusingly similar" marks or domain names. The [ToS](https://www.whmcs.com/legal/) says "WHMCS and the WHMCS logo are trademarks of WHMCS", registered in Great Britain and Northern Ireland. No brand guidelines exist publicly, and nothing speaks to descriptive or nominative use. | M for the clauses, L for guidelines | Is a plain-text "import from WHMCS" a fair descriptive reference in the UK, EU, US, India and Nepal? Does §3.2 bind a non-licensee? Are any wording or logo limits wise (no logo, no "official", disclaimer)? |
-| 7 | Termination: data and licence | [EULA §5.3](https://www.whmcs.com/eula/): on expiry or termination "You must destroy all copies of the Software" and uninstall it, and WHMCS may "terminate, suspend or disable access". The software "will not operate unless WHMCS ... verifies" it (§2.4.2). No post-termination export window. For Marketplace products, [§5.3](https://marketplace.whmcs.com/policies/terms) says you "will have no access to the data" stored in the product. | H | Does the host's own database stay theirs after the licence lapses? Is reading it, without running the software, allowed? Is a lapse-and-export sequence a risk? |
-| 8 | Governing law and jurisdiction | EULA §9.3 and ToS: "laws of England and Wales", exclusive English courts. The Marketplace ToS §10.3: Texas law, Harris County courts. The operator named differs (WHMCS Limited, London, versus WHMCS, LLC, Houston in the older Marketplace text). | H | Which forum applies to Mohar, which is not a party to either? Enforcement against a Nepal-based entity? |
+| 6 | Trademarks: "migrate from WHMCS" | The [EULA §3.2](https://www.whmcs.com/legal/#end-user-license-agreement) says it "does not authorize You to use the Trademarks" without a written licence, and bars adopting "confusingly similar" marks or domain names. The [ToS](https://www.whmcs.com/legal/) says "WHMCS and the WHMCS logo are trademarks of WHMCS", registered in Great Britain and Northern Ireland. No brand guidelines exist publicly, and nothing speaks to descriptive or nominative use. | M for the clauses, L for guidelines | Is a plain-text "import from WHMCS" a fair descriptive reference in the UK, EU, US, India and Nepal? Does §3.2 bind a non-licensee? Are any wording or logo limits wise (no logo, no "official", disclaimer)? |
+| 7 | Termination: data and licence | [EULA §5.2](https://www.whmcs.com/legal/#end-user-license-agreement): WHMCS may terminate on 30 days' notice for an uncured breach, or immediately for a material breach; breaches of §2.3 (including §2.3.4), §2.4 and §3 are deemed material, and the text extends to a "sublicensee's" or "Third Party User's" breach. [EULA §5.3](https://www.whmcs.com/legal/#end-user-license-agreement): on expiry or termination "You must destroy all copies of the Software" and uninstall it, and WHMCS may "terminate, suspend or disable access". The software "will not operate unless WHMCS ... verifies" it (§2.4.2). No post-termination export window. For Marketplace products, [§5.3](https://marketplace.whmcs.com/policies/terms) says you "will have no access to the data" stored in the product. | H | Does the host's own database stay theirs after the licence lapses? Is reading it, without running the software, allowed? Is a lapse-and-export sequence a risk? |
+| 8 | Governing law and jurisdiction | EULA §9.3 and ToS: EULA §9.3: "laws of England and Wales" and exclusive English courts. ToS: "governed by English law" and "courts of England and Wales" with exclusive jurisdiction. The Marketplace ToS §10.3: Texas law, Harris County courts. The operator named differs (WHMCS Limited, London, versus "WHMCS, LLC", Houston, in the current Marketplace text, where §1.5 points to the EULA at the older `/license/` URL). | H | Which forum applies to Mohar, which is not a party to either? Enforcement against a Nepal-based entity? |
 
 ## 4. Precedent: how other products handle importing from WHMCS
 
@@ -92,7 +95,7 @@ Precedent only; none of this shows a right to do the same.
 
 | Product | How it imports | Mentions WHMCS licence, permission or a disclaimer? | Source (read 2026-10-31) |
 |---|---|---|---|
-| Blesta | Import Manager plugin reads the WHMCS database (host, name, user, password) plus the CC encryption hash from `configuration.php`; says it works with 5.2 to 7.2; advises importing from a cloned database | None in the page read | [Blesta docs](https://docs.blesta.com/x/BYCzBg) |
+| Blesta | Import Manager plugin reads the WHMCS database (host, name, user, password) plus the CC encryption hash from `configuration.php`; says it works with 5.2 to 7.2; advises importing from a cloned database (these details are snippet-level only: the page renders with JavaScript and a static fetch showed just the navigation) | None in the part read | [Blesta docs](https://docs.blesta.com/x/BYCzBg) |
 | HostBill | CLI module run over SSH with WHMCS database credentials and an optional encryption hash; paid managed migration offered | None in the pages read | [HostBill guide](https://hostbill.atlassian.net/wiki/x/lwDtgw) (only snippet-level reading: the page needs JavaScript), [blog](https://blog.hostbillapp.com/?p=8109) |
 | Paymenter (open source) | Restore a WHMCS `mysqldump` into a temporary database, then an artisan command | None in the page read | [Paymenter guide](https://paymenter.org/docs/guides/whmcs-importer) |
 | Upmind | Uses the WHMCS API with an API role, identifier and secret, and asks the host to allowlist Upmind IPs; imports staff, products, clients, tickets, invoices, payment methods, affiliates | None found | [Upmind guide](https://docs.upmind.com/setup-and-configuration/importing-data/importing-from-whmcs) |
@@ -130,8 +133,7 @@ Precedent only; none of this shows a right to do the same.
   and credential-delegation questions as the importer, plus the licence needing to remain active.
 - It also depends on the host keeping WHMCS licensed and running. The EULA says the software stops once the licence
   ends (§2.4.2, §5.3). The point is a product risk as well as a legal one.
-- It has a separate security cost: Mohar would hold or relay plaintext passwords. The older API login form uses an
-  MD5 hash of the password ([auth docs](https://developers.whmcs.com/api/authentication/)). Treat as outside this note.
+- It has a separate security cost: Mohar would hold or relay plaintext passwords. We did not read the `ValidateLogin` reference for this note. (The auth docs mention an MD5 form, but that is the admin-login method for API calls, not a client password check.) Treat as outside this note.
 - Lower-risk alternative to weigh with the CTO: password-reset links, or importing existing hashes only if the host
   exports them.
 
@@ -154,7 +156,7 @@ Precedent only; none of this shows a right to do the same.
 1. Does EULA §2.5 (no automated "data extraction" or "scraping" "on or in relation to our Software") reach a
    licensee exporting its own records through its own API credentials or database, or only third parties' data
    collection?
-2. Does a host giving Mohar scoped API credentials amount to sub-licensing or transfer of the Software (§2.1, §2.2)?
+2. Does a host giving Mohar scoped API credentials amount to sub-licensing or transfer of the Software (§2.1, §2.2), and how do the "Third Party User" and "sublicensee" wording in §2.4.2, §5.2 and §8 apply (breach by such a person is deemed material, and §8 adds an indemnity)?
 3. Is reading table and column layout from a host's own database "reducing the Software to human-readable form"
    (§2.3.4)? Does it change if the host provides a dump instead of a live connection? Are English and Nepali law
    interoperability exceptions relevant, and is there a contract override?
