@@ -20,6 +20,7 @@ use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Models\ServiceAddon;
 use App\Modules\Services\Models\ServiceInvoice;
+use App\Modules\Services\Support\BillingDates;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Event;
 use Tests\Fakes\Services\ServicesTestKit;
@@ -153,6 +154,21 @@ test('the registry creates pending services with first-period dates and the orde
         ->custom_fields->toBe(['ssh' => 'key'])
         ->and(ServiceInvoice::query()->where('invoice_id', 8123)->where('status', InvoiceLinkStatus::Open->value)->count())->toBe(2)
         ->and(ServiceAddon::query()->findOrFail($addonId)->status)->toBe(ServiceStatus::Pending);
+});
+
+test('the draft anchor day survives a first period that ends on a clamped month end', function () {
+    // Ordered 31 January: the first period ends 28 February, but later periods renew on the 31st, not the 28th.
+    $this->travelTo('2026-01-31');
+    $client = Client::factory()->create();
+    $this->kit->priceBook->addProduct(31, 'Business Hosting');
+    $id = app(ServiceRegistry::class)->createPending(new ServiceDraft($client->id, 31, BillingCycle::Monthly, 'USD', 3100, 3100, CarbonImmutable::parse('2026-02-28'), billingAnchorDay: 31));
+
+    event(new InvoicePaid(9002, $client->id, [renewalLine(Service::query()->findOrFail($id), '2026-01-31', '2026-02-28', 3100)]));
+
+    $service = Service::query()->findOrFail($id);
+    expect([$service->billing_anchor_day, $service->next_due_date->toDateString(), $service->next_invoice_date->toDateString()])
+        ->toBe([31, '2026-02-28', '2026-02-28'])
+        ->and(BillingDates::periodEnd($service->cycle, $service->next_due_date, $service->billing_anchor_day)->toDateString())->toBe('2026-03-31');
 });
 
 test('the registry provisions and cancels pending services', function () {

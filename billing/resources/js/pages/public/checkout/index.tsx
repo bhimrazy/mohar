@@ -18,6 +18,7 @@ import { GatewayLogo } from '@/components/billing/gateway-logo';
 import { Money } from '@/components/app/money';
 import { SectionCard } from '@/components/app/section-card';
 import InputError from '@/components/input-error';
+import { FirstPeriod } from '@/components/orders/first-period';
 import { ItemDetails } from '@/components/orders/item-details';
 import { OrderSummary } from '@/components/orders/order-summary';
 import type { GroupSaving } from '@/components/orders/order-summary';
@@ -396,6 +397,23 @@ export default function Checkout({
                                                     {item.domain ??
                                                         item.subtitle}
                                                 </span>
+                                            )}
+                                            {item.lines.map(
+                                                (line) =>
+                                                    line.first_period
+                                                        ?.prorated && (
+                                                        <span
+                                                            key={line.key}
+                                                            className="block text-muted-foreground"
+                                                        >
+                                                            {line.kind ===
+                                                                'addon' &&
+                                                                `${line.description}: `}
+                                                            <FirstPeriod
+                                                                line={line}
+                                                            />
+                                                        </span>
+                                                    ),
                                             )}
                                         </span>
                                         <Money

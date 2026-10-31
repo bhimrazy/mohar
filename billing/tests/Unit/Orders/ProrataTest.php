@@ -112,3 +112,15 @@ it('counts calendar days across a daylight-saving change', function () {
     expect(Prorata::calculate(CarbonImmutable::parse('2026-03-05', 'America/New_York'), 3100, BillingCycle::Monthly, 1, 32)['partial'])->toBe(2700)
         ->and(Prorata::calculate(CarbonImmutable::parse('2026-03-05'), 3100, BillingCycle::Monthly, 1, 32)['partial'])->toBe(2700);
 });
+
+it('gives the first period, its amount and the anchor day for checkout', function () {
+    $orderDate = CarbonImmutable::parse('2026-01-31');
+    $plain = Prorata::firstPeriod($orderDate, 3100, BillingCycle::Monthly);
+    $prorated = Prorata::firstPeriod(CarbonImmutable::parse('2026-04-15'), 3000, BillingCycle::Monthly, 31, 32);
+
+    expect([$plain?->end->toDateString(), $plain?->anchorDay, $plain?->amount, $plain?->prorated])->toBe(['2026-02-28', 31, 3100, false])
+        ->and([$prorated?->start->toDateString(), $prorated?->end->toDateString(), $prorated?->anchorDay, $prorated?->amount, $prorated?->prorated])
+        ->toBe(['2026-04-15', '2026-04-30', 31, 1500, true])
+        ->and(Prorata::firstPeriod($orderDate, 3100, BillingCycle::Monthly, 31, 20)?->prorated)->toBeFalse()
+        ->and(Prorata::firstPeriod($orderDate, 5000, BillingCycle::OneTime, 1, 20))->toBeNull();
+});

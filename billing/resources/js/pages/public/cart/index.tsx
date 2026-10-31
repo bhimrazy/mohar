@@ -13,6 +13,7 @@ import {
 import CartController from '@/actions/App/Modules/Orders/Http/Controllers/Public/CartController';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { EmptyState } from '@/components/app/empty-state';
+import { FirstPeriod } from '@/components/orders/first-period';
 import { ItemDetails } from '@/components/orders/item-details';
 import { Money } from '@/components/app/money';
 import InputError from '@/components/input-error';
@@ -105,13 +106,26 @@ function CartItemCard({
                             </span>
                             <span className="tabular-nums">
                                 <Money
-                                    amount={line.recurring}
+                                    amount={
+                                        line.first_period?.prorated
+                                            ? line.cycle_price
+                                            : line.recurring
+                                    }
                                     currency={currency}
                                 />
                                 {line.kind !== 'domain' &&
                                     cycleSuffix(line.cycle)}
                             </span>
                         </div>
+                        {line.first_period?.prorated && (
+                            <div className="flex justify-between gap-4 text-muted-foreground">
+                                <FirstPeriod line={line} />
+                                <Money
+                                    amount={line.recurring}
+                                    currency={currency}
+                                />
+                            </div>
+                        )}
                         {line.setup > 0 && (
                             <div className="flex justify-between gap-4 text-muted-foreground">
                                 <span>Setup fee</span>

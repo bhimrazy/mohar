@@ -15,6 +15,10 @@ export type PricedLine = {
     discount: number;
     due_today: number;
     breakdown: { label: string; recurring: number; setup: number }[];
+    /** Price of one full cycle; `recurring` is the first amount, pro-rated or not. */
+    cycle_price: number;
+    /** Dates the first amount covers (end exclusive); services and addons only. */
+    first_period: { start: string; end: string; prorated: boolean } | null;
 };
 
 export type PricedItem = {

@@ -89,6 +89,7 @@ final class PricedLine
             'recurring' => $this->recurring,
             'setup' => $this->setup,
             'renewal' => $this->renewalAfterDiscount(),
+            'cycle_price' => $this->renewal,
             'discount' => $this->totalDiscount(),
             'due_today' => $this->dueToday(),
             'breakdown' => $this->breakdown,
