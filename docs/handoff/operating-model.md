@@ -123,7 +123,7 @@ Tests run through `scripts/test.sh`, not hand-picked directories (agents kept mi
 - `--changed`: against `origin/develop` (fetch first; a missing base exits 2), plus uncommitted and untracked files:
   the changed test files; `tests/Feature/<M>`, `tests/Unit/<M>` and every test that names an `App\Modules\<M>\` class
   for a change in `app/Modules/<M>`; all of `tests/Feature` for a `resources/js` change; and always `tests/Arch`,
-  `tests/Extensions` and, in `tests/Feature`, Security, Migration, TestHarness, Auth, Settings, Reports, Integrations,
+  `tests/Isolation` and, in `tests/Feature`, Security, Migration, TestHarness, Auth, Settings, Reports, Integrations,
   Review, ReviewProbes and `DashboardTest.php`. A change to `app/Modules/Core` or other shared code (kernel, config,
   routes, migrations outside modules, `tests/Pest.php`, …) runs the whole suite. It errs towards running more.
   `--list` prints the selection.

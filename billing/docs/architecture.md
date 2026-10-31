@@ -190,7 +190,7 @@ when it changes with no `app/` change (ADR 0010 Amendment (#513)). Mark a member
 Provisioning drivers implement `Contracts\Services\Provisioning\ProvisioningDriver` plus capability interfaces,
 receive `ProvisioningContext` snapshots (never models), and register with `Support\Services\ProvisioningDriverRegistry`.
 Every driver passes `tests/Support/Contracts/ProvisioningDriverContract.php`. Tests that prove a package works without
-sibling modules live in `tests/Extensions` and set `Tests\TestCase::$onlyModules`; they never touch the database.
+sibling modules live in `tests/Isolation` and set `Tests\TestCase::$onlyModules`; they never touch the database.
 
 ### Billing flow (the backbone)
 

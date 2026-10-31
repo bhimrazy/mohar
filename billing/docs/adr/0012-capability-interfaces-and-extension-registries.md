@@ -110,7 +110,7 @@ choose behaviour. Removing a module from `MODULES=` while its tables hold data i
 2. a registration test with every module loaded: `keys()` equals the expected set and each source answers for a
    record it owns, soft-deleted ones included where they count (B3 in `ImportApplyReReviewProbesTest`). A module that
    starts storing per-client data adds its key there;
-3. a siblings-absent test in `tests/Extensions`: without the contributing modules `keys()` is empty and the caller's
+3. a siblings-absent test in `tests/Isolation`: without the contributing modules `keys()` is empty and the caller's
    flow works on the empty answer (`MigrationAloneTest`).
 
 **Alignment.** `ClientCurrencyUsage::source()` is renamed `register()` (#219). `ClientMergeRegistry::participant()`

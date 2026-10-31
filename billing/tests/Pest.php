@@ -33,8 +33,8 @@ pest()->extend(TestCase::class)
 // cookie every test request would start a session with a new id.
 pest()->beforeEach(fn () => test()->withCookie((string) config('session.cookie'), Str::random(40)))->in('Feature/Kyc');
 
-// Extension packages booted with a module subset (TestCase::$onlyModules); these tests never touch the database.
-pest()->extend(TestCase::class)->in('Extensions');
+// Packages and modules booted with a module subset (TestCase::$onlyModules); these tests never touch the database.
+pest()->extend(TestCase::class)->in('Isolation');
 
 /*
 |--------------------------------------------------------------------------
