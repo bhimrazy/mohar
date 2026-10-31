@@ -200,7 +200,14 @@ Past the knee the tail grows on every page at once, cheap ones included (the sto
   profile's scheduler to 512 MB, as in production, and records the exit code.
 - **Medium: 3,059 s and 3,078 s (measured),** almost all of it renewals: 11,623 in 2,865–2,874 s, **4.0 per second**,
   against 24.8 per second on 2026-10-23 (small profile, commit `c5c0ffa`). The queue drain took 369–375 s for 12,572
-  jobs (34 per second, against 117.6). Not investigated; see "Not measured yet".
+  jobs (34 per second, against 117.6). **Cause (#566):** since #504 (2026-10-25, after the 10-23 run) every renewal
+  invoice's email renders the invoice PDF inside the renewal loop, to say whether it is attached. In the medium run the
+  scheduler was at 88% of a core for the whole billing day while PostgreSQL spent 40 s on all statements, about 3 ms a
+  renewal (measured, `docker-stats.ndjson` and `pg-top-automation.json`). Each PDF was 858 KB, because laravel-dompdf
+  embeds whole fonts by default, and the drain attached and logged it for every email. Locally on PostgreSQL (247
+  renewals, the same code with the setting off and on): the billing day's CPU went from 7–10 s to 37–39 s, and the
+  drain's from 2.1–2.6 s to 8.4–8.5 s. Font subsetting (23 KB a PDF) brings the drain back to 2.2–3.0 s and the billing
+  day to 30–34 s; the render in the loop is the rest, and moving it out is a separate change (#566).
 - **Invoice PDF (one process, measured):** p50 120–169 ms.
 
 ## History: small profile at 5–40 users, run 40000321793
@@ -473,8 +480,8 @@ of 49.7 s and a 546 s billing day at 20 renewals per second.
   would separate them.
 - **More PHP threads on the same cap,** which would show whether threads ever limit before CPU.
 - **The billing day on the small profile** (it did not finish in the 2026-10-31 runs, most likely the scheduler's
-  256 MB limit then in `loadtest/profiles/small.env`, now 512 MB; inferred until a run with the exit code confirms it), and **why medium's renewals ran at 4.0 per
-  second** against 24.8 on 2026-10-23 (#566).
+  256 MB limit then in `loadtest/profiles/small.env`, now 512 MB; inferred until a run with the exit code confirms it).
+- **The billing day with font-subset PDFs** on a runner (#566); measured locally only.
 - **Which status the knowledge base and announcements returned** in the errors at 100 fast users on medium (#567).
 - **Web load during the billing day**, provisioning against a control panel, and a Redis-backed stack
   (`loadtest/README.md`, "Not covered yet").
